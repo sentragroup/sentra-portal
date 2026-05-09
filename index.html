@@ -371,11 +371,13 @@ tbody tr:hover td{background:var(--off);}
           </div>
         </div>
 
-        <div class="stats-row col4">
+        <div class="stats-row" style="grid-template-columns:repeat(6,1fr);">
           <div class="stat-card"><div class="stat-num" id="ip-s-total">—</div><div class="stat-lbl">Total IP</div></div>
           <div class="stat-card"><div class="stat-num" id="ip-s-active">—</div><div class="stat-lbl">Active</div></div>
+          <div class="stat-card warn"><div class="stat-num" id="ip-s-near">—</div><div class="stat-lbl">Near Expiring</div></div>
+          <div class="stat-card danger"><div class="stat-num" id="ip-s-expired">—</div><div class="stat-lbl">Expired</div></div>
+          <div class="stat-card"><div class="stat-num" id="ip-s-inprog">—</div><div class="stat-lbl">In Progress</div></div>
           <div class="stat-card warn"><div class="stat-num" id="ip-s-noagr">—</div><div class="stat-lbl">No Agreement</div></div>
-          <div class="stat-card danger"><div class="stat-num" id="ip-s-inactive">—</div><div class="stat-lbl">Inactive</div></div>
         </div>
 
         <div id="iptab-new">
@@ -394,6 +396,16 @@ tbody tr:hover td{background:var(--off);}
                 <div class="ac-wrap"><input type="text" id="ip-agreements" placeholder="Ketik ID atau pilih agreement..." autocomplete="off"><div class="ac-list" id="ac-ip-agr"></div></div>
                 <div style="font-size:11px;color:var(--g400);margin-top:3px;font-family:var(--mono)">Pilih dari dropdown atau ketik manual, pisah dengan koma</div>
               </div>
+              <div class="fg"><label>Category <span class="req">*</span></label><div class="ac-wrap"><input type="text" id="ip-category" placeholder="Musician, Brand, Filmmaker..." autocomplete="off"><div class="ac-list" id="ac-ip-category"></div></div></div>
+              <div class="fg"><label>Royalty Type</label>
+                <select id="ip-royalty-type"><option value="">Pilih tipe...</option><option>Post-Sales</option><option>Advance</option><option>Both</option></select>
+              </div>
+              <div class="fg"><label>Percentage (%)</label><input type="number" id="ip-pct" placeholder="e.g. 10" step="0.1" min="0" max="100"></div>
+              <div class="fg"><label>Fixed Amount (IDR)</label><input type="number" id="ip-fixed" placeholder="e.g. 5000000"></div>
+              <div class="fg"><label>Termin</label>
+                <select id="ip-termin"><option value="">Pilih termin...</option><option>Per Bulan</option><option>Per Quarter</option><option>Per Tahun</option><option>Per Akhir Project</option></select>
+              </div>
+              <div class="fg"><label>PPh Tax Rate (%)</label><input type="number" id="ip-pph" placeholder="e.g. 2.5" step="0.1" min="0"></div>
               <div class="fg full"><label>Notes</label><input type="text" id="ip-notes" placeholder="Catatan tambahan"></div>
             </div>
             <div class="btn-row">
@@ -410,9 +422,11 @@ tbody tr:hover td{background:var(--off);}
               <span class="filter-panel-label">Filter</span>
               <button class="btn-clear-filter" onclick="clearIPFilters()">✕ Reset</button>
             </div>
-            <div class="filter-grid" style="grid-template-columns:1fr 1fr 1fr;">
-              <select class="f-select" id="ip-fil-status" onchange="applyIPFilters()"><option value="">Semua Status</option><option>Active</option><option>No Agreement</option><option>Inactive</option></select>
+            <div class="filter-grid">
+              <select class="f-select" id="ip-fil-status" onchange="applyIPFilters()"><option value="">Semua Status</option><option>Active</option><option>Near Expiring</option><option>Expired</option><option>In Progress</option><option>No Agreement</option></select>
               <select class="f-select" id="ip-fil-revenue" onchange="applyIPFilters()"><option value="">Semua Revenue</option><option>SD&amp;Y</option><option>Lagaa</option><option>Marte</option></select>
+              <select class="f-select" id="ip-fil-category" onchange="applyIPFilters()"><option value="">Semua Category</option></select>
+              <select class="f-select" id="ip-fil-royalty" onchange="applyIPFilters()"><option value="">Semua Royalty Type</option><option>Post-Sales</option><option>Advance</option><option>Both</option></select>
               <input class="search-box" type="text" id="ipSearch" placeholder="Cari nama IP..." oninput="applyIPFilters()" style="width:100%">
             </div>
           </div>
@@ -422,8 +436,8 @@ tbody tr:hover td{background:var(--off);}
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>ID</th><th>IP / Brand</th><th>Revenue Stream</th><th>Related Agreement</th><th>Status</th><th>Notes</th><th></th></tr></thead>
-              <tbody id="ipTableBody"><tr><td class="empty-td" colspan="7">Klik "Semua IP" untuk memuat.</td></tr></tbody>
+              <thead><tr><th>ID</th><th>IP / Brand</th><th>Category</th><th>Revenue Stream</th><th>Related Agreement</th><th>Status</th><th>Royalty Type</th><th>%</th><th>Fixed (IDR)</th><th>Termin</th><th>PPh %</th><th>Notes</th><th></th></tr></thead>
+              <tbody id="ipTableBody"><tr><td class="empty-td" colspan="13">Klik "Semua IP" untuk memuat.</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -511,7 +525,7 @@ const MANUAL_STATUSES = ["Draft","Under Review","Signings","Signed"];
 
 let currentUser = "";
 let allRows = [], acBrands = [], acTypes = [], acPics = [];
-let allIPRows = [], acAgrOptions = []; // acAgrOptions = [{id, label}]
+let allIPRows = [], acAgrOptions = [], acIPCategories = ["Musician","Brand","Filmmaker"]; // acAgrOptions = [{id, label}]
 let allRRRows = [], acRRTipes = [], acRRIPs = [];
 
 // ── UTILS ──
@@ -647,6 +661,7 @@ setupAC("f-brand",       "ac-brand",    () => acBrands);
 setupAC("f-type",        "ac-type",     () => acTypes);
 setupAC("f-pic",         "ac-pic",      () => acPics);
 setupAC("ip-agreements", "ac-ip-agr",   () => acAgrOptions.map(o=>o.id), () => acAgrOptions);
+setupAC("ip-category",   "ac-ip-category", () => acIPCategories);
 setupAC("rr-tipe",       "ac-rr-tipe",  () => acRRTipes);
 setupAC("rr-ip",         "ac-rr-ip",    () => acRRIPs);
 
@@ -831,17 +846,32 @@ async function updateStatus(sel, rowIndex) {
 
 // ── IP MASTER ──
 async function submitIP() {
-  const name = document.getElementById("ip-name").value.trim();
-  if (!name) { showIPFeedback("IP / Brand Name wajib diisi.","err"); return; }
+  const name     = document.getElementById("ip-name").value.trim();
+  const category = document.getElementById("ip-category").value.trim();
+  if (!name)     { showIPFeedback("IP / Brand Name wajib diisi.","err"); return; }
+  if (!category) { showIPFeedback("Category wajib diisi.","err"); return; }
   const revenues = [...document.querySelectorAll("#ip-revenue-checks input:checked")].map(c=>c.value);
   if (!revenues.length) { showIPFeedback("Pilih minimal satu Revenue Stream.","err"); return; }
   const btn = document.getElementById("ipSubmitBtn");
   btn.disabled=true; btn.textContent="Menyimpan...";
   try {
-    const res = await apiGet({action:"submitIP", name, revenue:revenues.join(", "), agreements:document.getElementById("ip-agreements").value.trim(), notes:document.getElementById("ip-notes").value.trim(), by:currentUser});
+    const res = await apiGet({
+      action:      "submitIP",
+      name, category,
+      revenue:     revenues.join(", "),
+      agreements:  document.getElementById("ip-agreements").value.trim(),
+      royaltyType: document.getElementById("ip-royalty-type").value,
+      pct:         document.getElementById("ip-pct").value.trim(),
+      fixed:       document.getElementById("ip-fixed").value.trim(),
+      termin:      document.getElementById("ip-termin").value,
+      pph:         document.getElementById("ip-pph").value.trim(),
+      notes:       document.getElementById("ip-notes").value.trim(),
+      by:          currentUser
+    });
     if (res.success) {
       showIPFeedback("✓ IP tersimpan — ID: "+res.id,"ok");
       if (!acRRIPs.includes(name)) acRRIPs.push(name);
+      if (!acIPCategories.includes(category)) acIPCategories.push(category);
       clearIPForm(); loadIPMaster();
     } else { showIPFeedback("Gagal: "+res.error,"err"); }
   } catch(e) { showIPFeedback("Koneksi gagal.","err"); }
@@ -849,9 +879,9 @@ async function submitIP() {
 }
 
 function clearIPForm() {
-  document.getElementById("ip-name").value="";
-  document.getElementById("ip-agreements").value="";
-  document.getElementById("ip-notes").value="";
+  ["ip-name","ip-category","ip-agreements","ip-notes","ip-pct","ip-fixed","ip-pph"].forEach(id=>document.getElementById(id).value="");
+  document.getElementById("ip-royalty-type").value="";
+  document.getElementById("ip-termin").value="";
   document.querySelectorAll("#ip-revenue-checks input").forEach(c=>c.checked=false);
 }
 
@@ -869,30 +899,43 @@ async function loadIPMaster() {
     allIPRows = res.rows || [];
     acRRIPs   = allIPRows.map(r=>r.name).filter(Boolean);
     if (res.agrIDs) acAgrOptions = res.agrIDs;
+    // populate category filter
+    const cats = [...new Set(allIPRows.map(r=>r.category).filter(Boolean))];
+    cats.forEach(c=>{ if(!acIPCategories.includes(c)) acIPCategories.push(c); });
+    const catSel = document.getElementById("ip-fil-category");
+    if(catSel){ while(catSel.options.length>1) catSel.remove(1); acIPCategories.forEach(c=>{const o=document.createElement("option");o.value=o.textContent=c;catSel.appendChild(o);}); }
     computeIPStats(allIPRows);
     populateRRFilterDropdowns();
     applyIPFilters();
   } catch(e) {
-    document.getElementById("ipTableBody").innerHTML=`<tr><td class="empty-td" colspan="7">Gagal: ${e.message}</td></tr>`;
+    document.getElementById("ipTableBody").innerHTML=`<tr><td class="empty-td" colspan="13">Gagal: ${e.message}</td></tr>`;
   }
 }
 
 function computeIPStats(rows) {
-  document.getElementById("ip-s-total").textContent    = rows.length;
-  document.getElementById("ip-s-active").textContent   = rows.filter(r=>r.ipStatus==="Active").length;
-  document.getElementById("ip-s-noagr").textContent    = rows.filter(r=>r.ipStatus==="No Agreement").length;
-  document.getElementById("ip-s-inactive").textContent = rows.filter(r=>r.ipStatus==="Inactive").length;
+  document.getElementById("ip-s-total").textContent   = rows.length;
+  document.getElementById("ip-s-active").textContent  = rows.filter(r=>r.ipStatus==="Active").length;
+  document.getElementById("ip-s-near").textContent    = rows.filter(r=>r.ipStatus==="Near Expiring").length;
+  document.getElementById("ip-s-expired").textContent = rows.filter(r=>r.ipStatus==="Expired").length;
+  document.getElementById("ip-s-inprog").textContent  = rows.filter(r=>r.ipStatus==="In Progress").length;
+  document.getElementById("ip-s-noagr").textContent   = rows.filter(r=>r.ipStatus==="No Agreement").length;
 }
 
 function applyIPFilters() {
-  const q    = (document.getElementById("ipSearch").value||"").toLowerCase();
-  const fSt  = document.getElementById("ip-fil-status").value;
-  const fRev = document.getElementById("ip-fil-revenue").value;
-  ["ip-fil-status","ip-fil-revenue"].forEach(id=>{const el=document.getElementById(id);if(el)el.classList.toggle("active-filter",!!el.value);});
+  const q      = (document.getElementById("ipSearch").value||"").toLowerCase();
+  const fSt    = document.getElementById("ip-fil-status").value;
+  const fRev   = document.getElementById("ip-fil-revenue").value;
+  const fCat   = document.getElementById("ip-fil-category").value;
+  const fRoy   = document.getElementById("ip-fil-royalty").value;
+  ["ip-fil-status","ip-fil-revenue","ip-fil-category","ip-fil-royalty"].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.classList.toggle("active-filter",!!el.value);
+  });
   const filtered = allIPRows.filter(r=>{
     if(q    && !(r.name||"").toLowerCase().includes(q)) return false;
-    if(fSt  && r.ipStatus!==fSt) return false;
+    if(fSt  && r.ipStatus!==fSt)            return false;
     if(fRev && !(r.revenue||"").includes(fRev)) return false;
+    if(fCat && r.category!==fCat)           return false;
+    if(fRoy && r.royaltyType!==fRoy)        return false;
     return true;
   });
   computeIPStats(filtered);
@@ -900,42 +943,70 @@ function applyIPFilters() {
 }
 
 function clearIPFilters() {
-  ["ip-fil-status","ip-fil-revenue"].forEach(id=>{const el=document.getElementById(id);if(el){el.value="";el.classList.remove("active-filter");}});
+  ["ip-fil-status","ip-fil-revenue","ip-fil-category","ip-fil-royalty"].forEach(id=>{
+    const el=document.getElementById(id); if(el){el.value="";el.classList.remove("active-filter");}
+  });
   document.getElementById("ipSearch").value="";
   computeIPStats(allIPRows); renderIPTable(allIPRows);
+}
+
+function ipStatusPill(s) {
+  const map = {"Active":"p-active","Near Expiring":"p-near","Expired":"p-expired","In Progress":"p-signings","No Agreement":"p-review"};
+  return `<span class="pill ${map[s]||"p-draft"}">${s||"—"}</span>`;
 }
 
 function renderIPTable(rows) {
   document.getElementById("ip-tcount").textContent = rows.length+" entri";
   const body = document.getElementById("ipTableBody");
-  if (!rows.length) { body.innerHTML=`<tr><td class="empty-td" colspan="7">Belum ada data.</td></tr>`; return; }
+  if (!rows.length) { body.innerHTML=`<tr><td class="empty-td" colspan="13">Belum ada data.</td></tr>`; return; }
   body.innerHTML = rows.map(r=>{
     const streams = (r.revenue||"").split(",").map(s=>s.trim()).filter(Boolean);
     const agrs    = (r.agreements||"").split(",").map(s=>s.trim()).filter(Boolean);
-    const statusPill = r.ipStatus==="Active"
-      ? `<span class="pill p-active">Active</span>`
-      : r.ipStatus==="No Agreement"
-      ? `<span class="pill p-near">⚠ No Agreement</span>`
-      : `<span class="pill p-expired">Inactive</span>`;
     return `<tr>
       <td class="td-id">${r.id||"—"}</td>
       <td style="font-weight:500">${r.name||"—"}</td>
+      <td><span class="pill p-draft">${r.category||"—"}</span></td>
       <td>${streams.map(s=>`<span class="pill" style="background:#EEEDFE;color:#3C3489;border:0.5px solid #AFA9EC;margin-right:3px">${s}</span>`).join("")||"—"}</td>
       <td>${agrs.length?agrs.map(a=>{
-        const opt = acAgrOptions.find ? acAgrOptions.find(o=>o.id===a) : null;
-        const tooltip = opt ? opt.label : "";
-        return `<span class="pill" style="background:#E6F1FB;color:#0C447C;border:0.5px solid #85B7EB;margin-right:3px" title="${tooltip}">${a}</span>`;
+        const opt=acAgrOptions.find?acAgrOptions.find(o=>o.id===a):null;
+        return `<span class="pill" style="background:#E6F1FB;color:#0C447C;border:0.5px solid #85B7EB;margin-right:3px" title="${opt?opt.label:""}">${a}</span>`;
       }).join(""):`<span style="color:var(--g400);font-size:11px">—</span>`}</td>
-      <td>${statusPill}</td>
+      <td>${ipStatusPill(r.ipStatus)}</td>
+      <td>${r.royaltyType?`<span class="pill ${r.royaltyType==="Post-Sales"?"p-active":r.royaltyType==="Advance"?"p-near":"p-signings"}">${r.royaltyType}</span>`:"—"}</td>
+      <td style="font-family:var(--mono);font-size:11px">${r.pct?r.pct+"%":"—"}</td>
+      <td style="font-family:var(--mono);font-size:11px">${r.fixed?"Rp "+Number(r.fixed).toLocaleString("id-ID"):"—"}</td>
+      <td style="font-size:11px">${r.termin||"—"}</td>
+      <td style="font-family:var(--mono);font-size:11px">${r.pph?r.pph+"%":"—"}</td>
       <td style="color:var(--g600);font-size:11px">${r.notes||"—"}</td>
       <td><button class="btn-icon" onclick="openIPEdit(${r.rowIndex})">Edit</button></td>
     </tr>
-    <tr id="ip-edit-row-${r.rowIndex}" style="display:none"><td colspan="7" style="padding:0 12px 12px;">
+    <tr id="ip-edit-row-${r.rowIndex}" style="display:none"><td colspan="13" style="padding:0 12px 12px;">
       <div class="edit-row-form">
         <div class="edit-row-grid">
           <div class="fg"><label>IP / Brand Name</label><input type="text" id="ip-e-name-${r.rowIndex}" value="${r.name||""}"></div>
-          <div class="fg"><label>Revenue Stream</label><input type="text" id="ip-e-revenue-${r.rowIndex}" value="${r.revenue||""}" placeholder="SD&Y, Lagaa, Marte"></div>
-          <div class="fg"><label>Related Agreement</label><input type="text" id="ip-e-agr-${r.rowIndex}" value="${r.agreements||""}" placeholder="AGR-xxx, AGR-yyy"></div>
+          <div class="fg"><label>Category</label><input type="text" id="ip-e-category-${r.rowIndex}" value="${r.category||""}"></div>
+          <div class="fg"><label>Revenue Stream</label><input type="text" id="ip-e-revenue-${r.rowIndex}" value="${r.revenue||""}" placeholder="SD&Y, Lagaa"></div>
+          <div class="fg"><label>Related Agreement</label><input type="text" id="ip-e-agr-${r.rowIndex}" value="${r.agreements||""}"></div>
+          <div class="fg"><label>Royalty Type</label>
+            <select id="ip-e-roytype-${r.rowIndex}">
+              <option value="" ${!r.royaltyType?"selected":""}>—</option>
+              <option ${r.royaltyType==="Post-Sales"?"selected":""}>Post-Sales</option>
+              <option ${r.royaltyType==="Advance"?"selected":""}>Advance</option>
+              <option ${r.royaltyType==="Both"?"selected":""}>Both</option>
+            </select>
+          </div>
+          <div class="fg"><label>Percentage (%)</label><input type="number" id="ip-e-pct-${r.rowIndex}" value="${r.pct||""}" step="0.1"></div>
+          <div class="fg"><label>Fixed Amount</label><input type="number" id="ip-e-fixed-${r.rowIndex}" value="${r.fixed||""}"></div>
+          <div class="fg"><label>Termin</label>
+            <select id="ip-e-termin-${r.rowIndex}">
+              <option value="" ${!r.termin?"selected":""}>—</option>
+              <option ${r.termin==="Per Bulan"?"selected":""}>Per Bulan</option>
+              <option ${r.termin==="Per Quarter"?"selected":""}>Per Quarter</option>
+              <option ${r.termin==="Per Tahun"?"selected":""}>Per Tahun</option>
+              <option ${r.termin==="Per Akhir Project"?"selected":""}>Per Akhir Project</option>
+            </select>
+          </div>
+          <div class="fg"><label>PPh Tax Rate (%)</label><input type="number" id="ip-e-pph-${r.rowIndex}" value="${r.pph||""}" step="0.1"></div>
           <div class="fg"><label>Notes</label><input type="text" id="ip-e-notes-${r.rowIndex}" value="${r.notes||""}"></div>
         </div>
         <div class="edit-row-btns">
@@ -957,12 +1028,21 @@ function closeIPEdit(rowIndex) {
 }
 
 async function saveIPEdit(rowIndex) {
-  const name    = document.getElementById("ip-e-name-"+rowIndex).value.trim();
-  const revenue = document.getElementById("ip-e-revenue-"+rowIndex).value.trim();
-  const agr     = document.getElementById("ip-e-agr-"+rowIndex).value.trim();
-  const notes   = document.getElementById("ip-e-notes-"+rowIndex).value.trim();
   try {
-    const res = await apiGet({action:"updateIP", rowIndex, name, revenue, agreements:agr, notes, by:currentUser});
+    const res = await apiGet({
+      action:      "updateIP", rowIndex,
+      name:        document.getElementById("ip-e-name-"+rowIndex).value.trim(),
+      category:    document.getElementById("ip-e-category-"+rowIndex).value.trim(),
+      revenue:     document.getElementById("ip-e-revenue-"+rowIndex).value.trim(),
+      agreements:  document.getElementById("ip-e-agr-"+rowIndex).value.trim(),
+      royaltyType: document.getElementById("ip-e-roytype-"+rowIndex).value,
+      pct:         document.getElementById("ip-e-pct-"+rowIndex).value.trim(),
+      fixed:       document.getElementById("ip-e-fixed-"+rowIndex).value.trim(),
+      termin:      document.getElementById("ip-e-termin-"+rowIndex).value,
+      pph:         document.getElementById("ip-e-pph-"+rowIndex).value.trim(),
+      notes:       document.getElementById("ip-e-notes-"+rowIndex).value.trim(),
+      by:          currentUser
+    });
     if (res.success) { closeIPEdit(rowIndex); loadIPMaster(); }
     else alert("Gagal simpan: "+res.error);
   } catch(e) { alert("Koneksi gagal."); }
