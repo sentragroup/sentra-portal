@@ -74,7 +74,10 @@ body{font-family:var(--body);background:var(--white);color:var(--black);font-siz
 .tab-btn:not(.active):hover{background:var(--off);color:var(--black);}
 
 /* STATS */
-.stats-row{display:grid;grid-template-columns:repeat(7,1fr);gap:10px;margin-bottom:1.5rem;}
+.stats-row{display:grid;gap:10px;margin-bottom:1.5rem;}
+.stats-row.col7{grid-template-columns:repeat(7,1fr);}
+.stats-row.col4{grid-template-columns:repeat(4,1fr);}
+.stats-row.col3{grid-template-columns:repeat(3,1fr);}
 .stat-card{background:var(--off);border-radius:8px;padding:0.875rem 1rem;}
 .stat-card.warn{background:#fff8e6;border:1px solid #f0d080;}
 .stat-card.danger{background:#fdf0f0;border:1px solid #e8b8b8;}
@@ -85,13 +88,15 @@ body{font-family:var(--body);background:var(--white);color:var(--black);font-siz
 .stat-card.warn .stat-lbl{color:#7a5000;}
 .stat-card.danger .stat-lbl{color:#7a1f1f;}
 
-/* FILTERS */
-.filter-bar{display:flex;align-items:center;gap:8px;margin-bottom:1.25rem;flex-wrap:wrap;padding:1rem 1.25rem;background:var(--off);border-radius:8px;}
-.filter-bar-label{font-family:var(--mono);font-size:9px;letter-spacing:0.12em;text-transform:uppercase;color:var(--g400);margin-right:4px;}
-.f-select{padding:6px 24px 6px 10px;border:1px solid var(--g200);border-radius:6px;font-size:12px;font-family:var(--body);outline:none;appearance:none;background:var(--white);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%239a9890' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 7px center;cursor:pointer;transition:border-color 0.15s;color:var(--black);}
+/* FILTER GRID */
+.filter-panel{background:var(--off);border-radius:8px;padding:0.875rem 1.25rem;margin-bottom:1.25rem;}
+.filter-panel-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;}
+.filter-panel-label{font-family:var(--mono);font-size:9px;letter-spacing:0.12em;text-transform:uppercase;color:var(--g400);}
+.filter-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
+.f-select{padding:6px 24px 6px 10px;border:1px solid var(--g200);border-radius:6px;font-size:12px;font-family:var(--body);outline:none;appearance:none;background:var(--white);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%239a9890' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 7px center;cursor:pointer;transition:border-color 0.15s;color:var(--black);width:100%;}
 .f-select:focus{border-color:var(--black);}
 .f-select.active-filter{border-color:var(--black);background-color:var(--black);color:var(--white);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");}
-.btn-clear-filter{padding:6px 12px;background:transparent;border:1px solid var(--g200);border-radius:6px;font-size:11px;font-family:var(--mono);cursor:pointer;color:var(--g600);transition:all 0.12s;}
+.btn-clear-filter{padding:5px 10px;background:transparent;border:1px solid var(--g200);border-radius:6px;font-size:10px;font-family:var(--mono);cursor:pointer;color:var(--g600);transition:all 0.12s;white-space:nowrap;}
 .btn-clear-filter:hover{border-color:var(--black);color:var(--black);}
 
 /* FORM */
@@ -103,15 +108,16 @@ body{font-family:var(--body);background:var(--white);color:var(--black);font-siz
 .fg.full{grid-column:1/-1;}
 .fg label{font-size:11px;font-weight:500;letter-spacing:0.06em;text-transform:uppercase;color:var(--g600);}
 .fg label .req{color:#c0392b;}
-input[type=text],input[type=url],input[type=date],select,input[type=email]{padding:9px 12px;border:1px solid var(--g200);border-radius:6px;font-family:var(--body);font-size:13px;color:var(--black);background:var(--white);outline:none;transition:border-color 0.15s,box-shadow 0.15s;width:100%;}
+input[type=text],input[type=url],input[type=date],input[type=number],select{padding:9px 12px;border:1px solid var(--g200);border-radius:6px;font-family:var(--body);font-size:13px;color:var(--black);background:var(--white);outline:none;transition:border-color 0.15s,box-shadow 0.15s;width:100%;}
 input:focus,select:focus{border-color:var(--black);box-shadow:0 0 0 3px rgba(12,12,12,0.06);}
 select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239a9890' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;padding-right:32px;cursor:pointer;}
 
 /* AUTOCOMPLETE */
 .ac-wrap{position:relative;}
-.ac-list{position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--white);border:1px solid var(--g200);border-radius:6px;max-height:180px;overflow-y:auto;z-index:300;display:none;box-shadow:0 8px 24px rgba(0,0,0,0.08);}
+.ac-list{position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--white);border:1px solid var(--g200);border-radius:6px;max-height:200px;overflow-y:auto;z-index:400;display:none;box-shadow:0 8px 24px rgba(0,0,0,0.08);}
 .ac-item{padding:9px 12px;font-size:13px;cursor:pointer;transition:background 0.1s;}
 .ac-item:hover{background:var(--off);}
+.ac-item-sub{font-size:10px;color:var(--g400);font-family:var(--mono);margin-top:1px;}
 .ac-add{padding:9px 12px;font-size:12px;cursor:pointer;color:var(--g400);font-family:var(--mono);border-top:1px solid var(--g100);transition:background 0.1s;}
 .ac-add:hover{background:var(--off);color:var(--black);}
 
@@ -122,9 +128,20 @@ select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='ht
 .btn-primary:disabled{opacity:0.35;cursor:not-allowed;}
 .btn-ghost{padding:10px 18px;background:transparent;color:var(--g600);border:1px solid var(--g200);font-family:var(--body);font-size:13px;cursor:pointer;border-radius:6px;transition:all 0.12s;}
 .btn-ghost:hover{border-color:var(--black);color:var(--black);}
+.btn-icon{padding:5px 8px;background:transparent;border:1px solid var(--g200);border-radius:5px;font-size:11px;cursor:pointer;color:var(--g600);transition:all 0.12s;font-family:var(--mono);}
+.btn-icon:hover{border-color:var(--black);color:var(--black);}
 .feedback{margin-top:1rem;padding:10px 14px;border-radius:6px;font-family:var(--mono);font-size:12px;display:none;}
 .feedback.ok{background:#f0f8f0;color:#1e5c1e;border:1px solid #b8ddb8;display:block;}
 .feedback.err{background:#fdf0f0;color:#7a1f1f;border:1px solid #e8b8b8;display:block;}
+
+/* INLINE EDIT */
+.edit-row-form{background:var(--off);border-radius:8px;padding:1rem 1.25rem;margin:4px 0 8px;}
+.edit-row-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px;}
+.edit-row-grid .fg label{font-size:10px;}
+.edit-row-grid input,.edit-row-grid select{padding:6px 10px;font-size:12px;}
+.edit-row-btns{display:flex;gap:8px;}
+.btn-save{padding:6px 14px;background:var(--black);color:var(--white);border:none;border-radius:5px;font-size:12px;cursor:pointer;font-family:var(--body);}
+.btn-cancel{padding:6px 12px;background:transparent;border:1px solid var(--g200);border-radius:5px;font-size:12px;cursor:pointer;color:var(--g600);font-family:var(--body);}
 
 /* TABLE */
 .table-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:1rem;}
@@ -146,7 +163,7 @@ tbody tr:hover td{background:var(--off);}
 .td-audit{font-family:var(--mono);font-size:10px;color:var(--g400);white-space:nowrap;}
 .empty-td{text-align:center;padding:3rem !important;color:var(--g400);font-family:var(--mono);font-size:12px;}
 
-/* STATUS PILLS */
+/* PILLS */
 .pill{display:inline-block;padding:3px 9px;border-radius:99px;font-size:10px;font-family:var(--mono);white-space:nowrap;}
 .p-draft{background:#f0efe9;color:#5a5850;border:1px solid #d4d3cb;}
 .p-review{background:#fff8e6;color:#7a5000;border:1px solid #f0d080;}
@@ -166,7 +183,7 @@ tbody tr:hover td{background:var(--off);}
 .tc-desc{font-size:12px;color:var(--g400);font-weight:300;line-height:1.5;}
 .tool-soon{border:1px dashed var(--g200);border-radius:10px;padding:1.5rem;opacity:0.45;}
 
-@media(max-width:768px){#loginScreen{grid-template-columns:1fr;}.login-left,.sidebar{display:none;}.stats-row{grid-template-columns:repeat(3,1fr);}.form-grid{grid-template-columns:1fr;}.page{padding:1.25rem;}}
+@media(max-width:768px){#loginScreen{grid-template-columns:1fr;}.login-left,.sidebar{display:none;}.stats-row{grid-template-columns:repeat(2,1fr)!important;}.form-grid,.filter-grid,.edit-row-grid{grid-template-columns:1fr;}.page{padding:1.25rem;}}
 </style>
 </head>
 <body>
@@ -235,6 +252,7 @@ tbody tr:hover td{background:var(--off);}
     </nav>
 
     <div class="content">
+
       <!-- HOME -->
       <div class="page active" id="page-home">
         <div class="page-header">
@@ -268,8 +286,7 @@ tbody tr:hover td{background:var(--off);}
           </div>
         </div>
 
-        <!-- STATS -->
-        <div class="stats-row">
+        <div class="stats-row col7">
           <div class="stat-card"><div class="stat-num" id="s-total">—</div><div class="stat-lbl">Total</div></div>
           <div class="stat-card"><div class="stat-num" id="s-draft">—</div><div class="stat-lbl">Draft</div></div>
           <div class="stat-card"><div class="stat-num" id="s-review">—</div><div class="stat-lbl">Under Review</div></div>
@@ -279,7 +296,6 @@ tbody tr:hover td{background:var(--off);}
           <div class="stat-card danger"><div class="stat-num" id="s-expired">—</div><div class="stat-lbl">Expired</div></div>
         </div>
 
-        <!-- FORM TAB -->
         <div id="tab-new">
           <div class="form-card">
             <div class="form-sec">Detail Agreement</div>
@@ -289,17 +305,11 @@ tbody tr:hover td{background:var(--off);}
               <div class="fg"><label>PIC <span class="req">*</span></label><div class="ac-wrap"><input type="text" id="f-pic" placeholder="Penanggung jawab" autocomplete="off"><div class="ac-list" id="ac-pic"></div></div></div>
               <div class="fg"><label>Related IP / Brand <span class="req">*</span></label><div class="ac-wrap"><input type="text" id="f-brand" placeholder="Ketik atau pilih dari history" autocomplete="off"><div class="ac-list" id="ac-brand"></div></div></div>
               <div class="fg"><label>Revenue Stream <span class="req">*</span></label>
-                <select id="f-revenue">
-                  <option value="">Pilih revenue stream...</option>
-                  <option>SD&amp;Y</option><option>Lagaa</option><option>Marte</option>
-                </select>
+                <select id="f-revenue"><option value="">Pilih revenue stream...</option><option>SD&amp;Y</option><option>Lagaa</option><option>Marte</option></select>
               </div>
               <div class="fg"><label>Agreement Type <span class="req">*</span></label><div class="ac-wrap"><input type="text" id="f-type" placeholder="e.g. Licensing, Distribution" autocomplete="off"><div class="ac-list" id="ac-type"></div></div></div>
               <div class="fg"><label>Status <span class="req">*</span></label>
-                <select id="f-status">
-                  <option value="">Pilih status...</option>
-                  <option>Draft</option><option>Under Review</option><option>Signings</option><option>Signed</option>
-                </select>
+                <select id="f-status"><option value="">Pilih status...</option><option>Draft</option><option>Under Review</option><option>Signings</option><option>Signed</option></select>
               </div>
               <div class="fg"><label>Start Date</label><input type="date" id="f-start"></div>
               <div class="fg"><label>End Date</label><input type="date" id="f-end"></div>
@@ -314,58 +324,35 @@ tbody tr:hover td{background:var(--off);}
           </div>
         </div>
 
-        <!-- LIST TAB -->
         <div id="tab-list" style="display:none;">
-          <!-- FILTER BAR -->
-          <div class="filter-bar">
-            <span class="filter-bar-label">Filter</span>
-            <select class="f-select" id="fil-status" onchange="applyFilters()">
-              <option value="">Semua Status</option>
-              <option>Draft</option><option>Under Review</option><option>Signings</option><option>Signed</option>
-            </select>
-            <select class="f-select" id="fil-auto" onchange="applyFilters()">
-              <option value="">Semua Kondisi</option>
-              <option value="Near Expiring">Near Expiring</option>
-              <option value="Expired">Expired</option>
-              <option value="Active">Active</option>
-            </select>
-            <select class="f-select" id="fil-revenue" onchange="applyFilters()">
-              <option value="">Semua Revenue</option>
-              <option>SD&amp;Y</option><option>Lagaa</option><option>Marte</option>
-            </select>
-            <select class="f-select" id="fil-brand" onchange="applyFilters()">
-              <option value="">Semua Brand</option>
-            </select>
-            <select class="f-select" id="fil-pic" onchange="applyFilters()">
-              <option value="">Semua PIC</option>
-            </select>
-            <select class="f-select" id="fil-type" onchange="applyFilters()">
-              <option value="">Semua Tipe</option>
-            </select>
-            <button class="btn-clear-filter" onclick="clearFilters()">✕ Reset</button>
+          <div class="filter-panel">
+            <div class="filter-panel-top">
+              <span class="filter-panel-label">Filter</span>
+              <button class="btn-clear-filter" onclick="clearFilters()">✕ Reset</button>
+            </div>
+            <div class="filter-grid">
+              <select class="f-select" id="fil-status" onchange="applyFilters()"><option value="">Semua Status</option><option>Draft</option><option>Under Review</option><option>Signings</option><option>Signed</option></select>
+              <select class="f-select" id="fil-auto" onchange="applyFilters()"><option value="">Semua Kondisi</option><option value="Near Expiring">Near Expiring</option><option value="Expired">Expired</option><option value="Active">Active</option></select>
+              <select class="f-select" id="fil-revenue" onchange="applyFilters()"><option value="">Semua Revenue</option><option>SD&amp;Y</option><option>Lagaa</option><option>Marte</option></select>
+              <select class="f-select" id="fil-brand" onchange="applyFilters()"><option value="">Semua Brand</option></select>
+              <select class="f-select" id="fil-pic" onchange="applyFilters()"><option value="">Semua PIC</option></select>
+              <select class="f-select" id="fil-type" onchange="applyFilters()"><option value="">Semua Tipe</option></select>
+            </div>
           </div>
-
           <div class="table-toolbar">
             <input class="search-box" type="text" id="searchBox" placeholder="Cari judul, partner..." oninput="applyFilters()">
             <button class="btn-refresh" onclick="loadAgreements()">↻ Refresh</button>
             <div class="tcount" id="tcount">— entri</div>
           </div>
-
           <div class="table-wrap">
             <table>
-              <thead>
-                <tr>
-                  <th>ID</th><th>Judul</th><th>Partner</th><th>PIC</th>
-                  <th>IP / Brand</th><th>Revenue</th><th>Tipe</th>
-                  <th>Mulai</th><th>Selesai</th>
-                  <th>Status</th><th>Kondisi</th>
-                  <th>Drive</th><th>Email Chain</th>
-                  <th>Last Update</th>
-                </tr>
-              </thead>
-              <tbody id="tableBody">
-                <tr><td class="empty-td" colspan="14">Klik tab "Semua Agreement" untuk memuat data.</td></tr>
-              </tbody>
+              <thead><tr>
+                <th>ID</th><th>Judul</th><th>Partner</th><th>PIC</th>
+                <th>IP / Brand</th><th>Revenue</th><th>Tipe</th>
+                <th>Mulai</th><th>Selesai</th><th>Status</th><th>Kondisi</th>
+                <th>Drive</th><th>Email</th><th>Last Update</th>
+              </tr></thead>
+              <tbody id="tableBody"><tr><td class="empty-td" colspan="14">Klik tab "Semua Agreement" untuk memuat data.</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -383,19 +370,30 @@ tbody tr:hover td{background:var(--off);}
             <button class="tab-btn" onclick="switchIpTab('list',this)">Semua IP</button>
           </div>
         </div>
+
+        <div class="stats-row col4">
+          <div class="stat-card"><div class="stat-num" id="ip-s-total">—</div><div class="stat-lbl">Total IP</div></div>
+          <div class="stat-card"><div class="stat-num" id="ip-s-active">—</div><div class="stat-lbl">Active</div></div>
+          <div class="stat-card warn"><div class="stat-num" id="ip-s-noagr">—</div><div class="stat-lbl">No Agreement</div></div>
+          <div class="stat-card danger"><div class="stat-num" id="ip-s-inactive">—</div><div class="stat-lbl">Inactive</div></div>
+        </div>
+
         <div id="iptab-new">
           <div class="form-card">
             <div class="form-sec">Detail IP / Brand</div>
             <div class="form-grid">
               <div class="fg full"><label>IP / Brand Name <span class="req">*</span></label><input type="text" id="ip-name" placeholder="e.g. Cooluncle"></div>
               <div class="fg full"><label>Revenue Stream <span class="req">*</span></label>
-                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;" id="ip-revenue-checks">
+                <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px;" id="ip-revenue-checks">
                   <label style="display:flex;align-items:center;gap:6px;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" value="SD&Y"> SD&Y</label>
                   <label style="display:flex;align-items:center;gap:6px;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" value="Lagaa"> Lagaa</label>
                   <label style="display:flex;align-items:center;gap:6px;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" value="Marte"> Marte</label>
                 </div>
               </div>
-              <div class="fg full"><label>Related Agreement (ID, comma separated)</label><div class="ac-wrap"><input type="text" id="ip-agreements" placeholder="e.g. AGR-20260509-001, AGR-20260509-002" autocomplete="off"><div class="ac-list" id="ac-ip-agr"></div></div></div>
+              <div class="fg full"><label>Related Agreement</label>
+                <div class="ac-wrap"><input type="text" id="ip-agreements" placeholder="Ketik ID atau pilih agreement..." autocomplete="off"><div class="ac-list" id="ac-ip-agr"></div></div>
+                <div style="font-size:11px;color:var(--g400);margin-top:3px;font-family:var(--mono)">Pilih dari dropdown atau ketik manual, pisah dengan koma</div>
+              </div>
               <div class="fg full"><label>Notes</label><input type="text" id="ip-notes" placeholder="Catatan tambahan"></div>
             </div>
             <div class="btn-row">
@@ -405,16 +403,27 @@ tbody tr:hover td{background:var(--off);}
             <div class="feedback" id="ip-feedback"></div>
           </div>
         </div>
+
         <div id="iptab-list" style="display:none;">
+          <div class="filter-panel">
+            <div class="filter-panel-top">
+              <span class="filter-panel-label">Filter</span>
+              <button class="btn-clear-filter" onclick="clearIPFilters()">✕ Reset</button>
+            </div>
+            <div class="filter-grid" style="grid-template-columns:1fr 1fr 1fr;">
+              <select class="f-select" id="ip-fil-status" onchange="applyIPFilters()"><option value="">Semua Status</option><option>Active</option><option>No Agreement</option><option>Inactive</option></select>
+              <select class="f-select" id="ip-fil-revenue" onchange="applyIPFilters()"><option value="">Semua Revenue</option><option>SD&amp;Y</option><option>Lagaa</option><option>Marte</option></select>
+              <input class="search-box" type="text" id="ipSearch" placeholder="Cari nama IP..." oninput="applyIPFilters()" style="width:100%">
+            </div>
+          </div>
           <div class="table-toolbar">
-            <input class="search-box" type="text" id="ipSearch" placeholder="Cari nama IP..." oninput="filterIPTable()">
             <button class="btn-refresh" onclick="loadIPMaster()">↻ Refresh</button>
             <div class="tcount" id="ip-tcount">— entri</div>
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>ID</th><th>IP / Brand</th><th>Revenue Stream</th><th>Related Agreement</th><th>Status</th><th>Notes</th></tr></thead>
-              <tbody id="ipTableBody"><tr><td class="empty-td" colspan="6">Klik "Semua IP" untuk memuat.</td></tr></tbody>
+              <thead><tr><th>ID</th><th>IP / Brand</th><th>Revenue Stream</th><th>Related Agreement</th><th>Status</th><th>Notes</th><th></th></tr></thead>
+              <tbody id="ipTableBody"><tr><td class="empty-td" colspan="7">Klik "Semua IP" untuk memuat.</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -432,6 +441,13 @@ tbody tr:hover td{background:var(--off);}
             <button class="tab-btn" onclick="switchRRTab('list',this)">Semua Penerima</button>
           </div>
         </div>
+
+        <div class="stats-row col3">
+          <div class="stat-card"><div class="stat-num" id="rr-s-total">—</div><div class="stat-lbl">Total</div></div>
+          <div class="stat-card"><div class="stat-num" id="rr-s-postsales">—</div><div class="stat-lbl">Post-Sales</div></div>
+          <div class="stat-card"><div class="stat-num" id="rr-s-advance">—</div><div class="stat-lbl">Advance / Both</div></div>
+        </div>
+
         <div id="rrtab-new">
           <div class="form-card">
             <div class="form-sec">Detail Penerima Royalty</div>
@@ -440,23 +456,12 @@ tbody tr:hover td{background:var(--off);}
               <div class="fg"><label>Tipe <span class="req">*</span></label><div class="ac-wrap"><input type="text" id="rr-tipe" placeholder="Artist, Collaborator, dll" autocomplete="off" oninput="togglePKS()"><div class="ac-list" id="ac-rr-tipe"></div></div></div>
               <div class="fg"><label>Related IP <span class="req">*</span></label><div class="ac-wrap"><input type="text" id="rr-ip" placeholder="Pilih atau ketik IP baru" autocomplete="off"><div class="ac-list" id="ac-rr-ip"></div></div></div>
               <div class="fg"><label>Royalty Type <span class="req">*</span></label>
-                <select id="rr-royalty-type">
-                  <option value="">Pilih tipe...</option>
-                  <option>Post-Sales</option>
-                  <option>Advance</option>
-                  <option>Both</option>
-                </select>
+                <select id="rr-royalty-type"><option value="">Pilih tipe...</option><option>Post-Sales</option><option>Advance</option><option>Both</option></select>
               </div>
               <div class="fg"><label>Percentage (%)</label><input type="number" id="rr-pct" placeholder="e.g. 10" step="0.1" min="0" max="100"></div>
               <div class="fg"><label>Fixed Amount (IDR)</label><input type="number" id="rr-fixed" placeholder="e.g. 5000000"></div>
               <div class="fg"><label>Termin <span class="req">*</span></label>
-                <select id="rr-termin">
-                  <option value="">Pilih termin...</option>
-                  <option>Per Bulan</option>
-                  <option>Per Quarter</option>
-                  <option>Per Tahun</option>
-                  <option>Per Akhir Project</option>
-                </select>
+                <select id="rr-termin"><option value="">Pilih termin...</option><option>Per Bulan</option><option>Per Quarter</option><option>Per Tahun</option><option>Per Akhir Project</option></select>
               </div>
               <div class="fg" id="rr-pks-wrap" style="display:none"><label>Link PKS (Google Drive)</label><input type="url" id="rr-pks" placeholder="https://drive.google.com/..."></div>
               <div class="fg full"><label>Notes</label><input type="text" id="rr-notes" placeholder="Catatan tambahan"></div>
@@ -468,22 +473,34 @@ tbody tr:hover td{background:var(--off);}
             <div class="feedback" id="rr-feedback"></div>
           </div>
         </div>
+
         <div id="rrtab-list" style="display:none;">
+          <div class="filter-panel">
+            <div class="filter-panel-top">
+              <span class="filter-panel-label">Filter</span>
+              <button class="btn-clear-filter" onclick="clearRRFilters()">✕ Reset</button>
+            </div>
+            <div class="filter-grid">
+              <select class="f-select" id="rr-fil-tipe" onchange="applyRRFilters()"><option value="">Semua Tipe</option></select>
+              <select class="f-select" id="rr-fil-ip" onchange="applyRRFilters()"><option value="">Semua IP</option></select>
+              <select class="f-select" id="rr-fil-type" onchange="applyRRFilters()"><option value="">Semua Royalty Type</option><option>Post-Sales</option><option>Advance</option><option>Both</option></select>
+              <select class="f-select" id="rr-fil-termin" onchange="applyRRFilters()"><option value="">Semua Termin</option><option>Per Bulan</option><option>Per Quarter</option><option>Per Tahun</option><option>Per Akhir Project</option></select>
+              <input class="search-box" type="text" id="rrSearch" placeholder="Cari nama penerima..." oninput="applyRRFilters()" style="width:100%">
+            </div>
+          </div>
           <div class="table-toolbar">
-            <input class="search-box" type="text" id="rrSearch" placeholder="Cari nama penerima..." oninput="filterRRTable()">
             <button class="btn-refresh" onclick="loadRecipients()">↻ Refresh</button>
             <div class="tcount" id="rr-tcount">— entri</div>
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>ID</th><th>Nama</th><th>Tipe</th><th>Related IP</th><th>Royalty Type</th><th>Percentage</th><th>Fixed Amount</th><th>Termin</th><th>PKS</th><th>Notes</th></tr></thead>
-              <tbody id="rrTableBody"><tr><td class="empty-td" colspan="10">Klik "Semua Penerima" untuk memuat.</td></tr></tbody>
+              <thead><tr><th>ID</th><th>Nama</th><th>Tipe</th><th>Related IP</th><th>Royalty Type</th><th>Percentage</th><th>Fixed Amount</th><th>Termin</th><th>PKS</th><th>Notes</th><th></th></tr></thead>
+              <tbody id="rrTableBody"><tr><td class="empty-td" colspan="11">Klik "Semua Penerima" untuk memuat.</td></tr></tbody>
             </table>
           </div>
         </div>
       </div>
 
-      </div>
     </div>
   </div>
 </div>
@@ -493,44 +510,39 @@ const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwBA8VlKGMKt48u4qlrK
 const MANUAL_STATUSES = ["Draft","Under Review","Signings","Signed"];
 
 let currentUser = "";
-let allRows = [];
-let acBrands = [], acTypes = [], acPics = [];
+let allRows = [], acBrands = [], acTypes = [], acPics = [];
+let allIPRows = [], acAgrOptions = []; // acAgrOptions = [{id, label}]
+let allRRRows = [], acRRTipes = [], acRRIPs = [];
 
-// ── FORMAT DATE ──
+// ── UTILS ──
 function fmtDate(val) {
   if (!val) return "—";
   const s = String(val);
-  // ISO format
   const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (iso) {
-    const d = new Date(iso[0]+"T00:00:00");
-    return d.toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"});
-  }
-  // already readable
+  if (iso) { const d = new Date(iso[0]+"T00:00:00"); return d.toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}); }
   return s;
 }
 
-// ── AUTO STATUS ──
 function parseDate(val) {
   if (!val || val === "—") return null;
-  // try direct parse first (ISO or standard)
-  let d = new Date(val);
-  if (!isNaN(d)) return d;
-  // try "dd MMM yyyy" e.g. "23 Oct 2025"
+  let d = new Date(val); if (!isNaN(d)) return d;
   const m = String(val).match(/^(\d{1,2})\s+(\w+)\s+(\d{4})$/);
   if (m) { d = new Date(`${m[2]} ${m[1]}, ${m[3]}`); if (!isNaN(d)) return d; }
   return null;
 }
 
 function autoStatus(row) {
-  const endDate = parseDate(row.end);
-  if (!endDate) return "";
-  const now  = new Date(); now.setHours(0,0,0,0);
+  const endDate = parseDate(row.end); if (!endDate) return "";
+  const now = new Date(); now.setHours(0,0,0,0);
   const diff = Math.ceil((endDate - now) / (1000*60*60*24));
-  if (diff < 0)   return "Expired";
+  if (diff < 0) return "Expired";
   if (diff <= 30) return "Near Expiring";
   if (row.status === "Signed") return "Active";
   return "";
+}
+
+function pillClass(s) {
+  return {"Draft":"p-draft","Under Review":"p-review","Signings":"p-signings","Signed":"p-signed","Active":"p-active","Near Expiring":"p-near","Expired":"p-expired"}[s]||"p-draft";
 }
 
 // ── LOGIN ──
@@ -540,7 +552,7 @@ function doLogin() {
   currentUser = name;
   document.getElementById("loginScreen").style.display = "none";
   document.getElementById("app").style.display = "flex";
-  document.getElementById("userName").textContent  = name;
+  document.getElementById("userName").textContent = name;
   document.getElementById("greetName").textContent = name.split(" ")[0];
   document.getElementById("greetDate").textContent = new Date().toLocaleDateString("id-ID",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
   loadStats();
@@ -558,14 +570,87 @@ async function apiGet(params) {
   const r = await fetch(SCRIPT_URL+"?"+new URLSearchParams(params));
   return r.json();
 }
-async function apiPost(data) {
-  // use GET with params — more reliable from local HTML files
-  const params = { action:"submit", ...data };
-  const r = await fetch(SCRIPT_URL+"?"+new URLSearchParams(params));
-  return r.json();
+
+// ── NAVIGATION ──
+function showPage(name, el) {
+  document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
+  document.querySelectorAll(".sb-item").forEach(i=>i.classList.remove("active"));
+  document.getElementById("page-"+name).classList.add("active");
+  if (el) el.classList.add("active");
+  const labels = {home:"Internal Tools",agreement:"Agreement Tracker",ipmaster:"IP Master",recipients:"Royalty Recipients"};
+  document.getElementById("topbarPage").textContent = labels[name]||name;
+  if (name==="agreement") loadStats();
+  if (name==="ipmaster") { loadIPMaster(); loadStats(); }
+  if (name==="recipients") loadRecipients();
 }
 
-// ── STATS ──
+function switchTab(name, el) {
+  document.querySelectorAll("#page-agreement .tab-btn").forEach(b=>b.classList.remove("active"));
+  el.classList.add("active");
+  document.getElementById("tab-new").style.display  = name==="new"  ? "block":"none";
+  document.getElementById("tab-list").style.display = name==="list" ? "block":"none";
+  if (name==="list") loadAgreements();
+}
+
+function switchIpTab(name, el) {
+  document.querySelectorAll("#page-ipmaster .tab-btn").forEach(b=>b.classList.remove("active"));
+  el.classList.add("active");
+  document.getElementById("iptab-new").style.display  = name==="new"  ? "block":"none";
+  document.getElementById("iptab-list").style.display = name==="list" ? "block":"none";
+  if (name==="list") loadIPMaster();
+}
+
+function switchRRTab(name, el) {
+  document.querySelectorAll("#page-recipients .tab-btn").forEach(b=>b.classList.remove("active"));
+  el.classList.add("active");
+  document.getElementById("rrtab-new").style.display  = name==="new"  ? "block":"none";
+  document.getElementById("rrtab-list").style.display = name==="list" ? "block":"none";
+  if (name==="list") loadRecipients();
+}
+
+// ── AUTOCOMPLETE ──
+function setupAC(inpId, lstId, getOpts, getRichOpts) {
+  const inp = document.getElementById(inpId);
+  const lst = document.getElementById(lstId);
+  if (!inp || !lst) return;
+  inp.addEventListener("input",  () => renderAC(lst, inp, getOpts(), getRichOpts ? getRichOpts() : null));
+  inp.addEventListener("focus",  () => { if (getOpts().length) renderAC(lst, inp, getOpts(), getRichOpts ? getRichOpts() : null); });
+  document.addEventListener("click", e => { if (!inp.contains(e.target) && !lst.contains(e.target)) lst.style.display="none"; });
+}
+
+function renderAC(lst, inp, opts, richOpts) {
+  const q = inp.value.toLowerCase();
+  let html = "";
+  if (richOpts) {
+    const m = richOpts.filter(o => o.label.toLowerCase().includes(q) || o.id.toLowerCase().includes(q));
+    html = m.map(o => `<div class="ac-item" onclick="pickAC('${o.id.replace(/'/g,"\\'")}','${inp.id}','${lst.id}')">
+      <div>${o.id}</div><div class="ac-item-sub">${o.label}</div>
+    </div>`).join("");
+  } else {
+    const m = opts.filter(o => o.toLowerCase().includes(q));
+    html = m.map(o => `<div class="ac-item" onclick="pickAC('${o.replace(/'/g,"\\'")}','${inp.id}','${lst.id}')">${o}</div>`).join("");
+  }
+  if (inp.value.trim() && !opts.includes(inp.value.trim())) {
+    html += `<div class="ac-add" onclick="pickAC('${inp.value.trim().replace(/'/g,"\\'")}','${inp.id}','${lst.id}')">+ Tambah "${inp.value.trim()}"</div>`;
+  }
+  if (!html) { lst.style.display="none"; return; }
+  lst.innerHTML = html; lst.style.display = "block";
+}
+
+function pickAC(val, inpId, lstId) {
+  document.getElementById(inpId).value = val;
+  document.getElementById(lstId).style.display = "none";
+  if (inpId === "rr-tipe") togglePKS();
+}
+
+setupAC("f-brand",       "ac-brand",    () => acBrands);
+setupAC("f-type",        "ac-type",     () => acTypes);
+setupAC("f-pic",         "ac-pic",      () => acPics);
+setupAC("ip-agreements", "ac-ip-agr",   () => acAgrOptions.map(o=>o.id), () => acAgrOptions);
+setupAC("rr-tipe",       "ac-rr-tipe",  () => acRRTipes);
+setupAC("rr-ip",         "ac-rr-ip",    () => acRRIPs);
+
+// ── AGREEMENT STATS ──
 function computeStats(rows) {
   const count = fn => rows.filter(fn).length;
   document.getElementById("s-total").textContent    = rows.length;
@@ -580,24 +665,28 @@ function computeStats(rows) {
 async function loadStats() {
   try {
     const res = await apiGet({action:"list"});
-    if (res.success) computeStats(res.rows||[]);
-  } catch(e){}
+    if (res.success) {
+      computeStats(res.rows||[]);
+      // build acAgrOptions for IP Master dropdown
+      acAgrOptions = (res.rows||[]).map(r => ({
+        id: r.id,
+        label: [r.partner, r.type].filter(Boolean).join(" — ")
+      }));
+    }
+  } catch(e) {}
 }
 
-// ── SUBMIT ──
+// ── AGREEMENT SUBMIT ──
 async function submitAgreement() {
   const req = [["f-title","Agreement Title"],["f-partner","Partner / Client"],["f-pic","PIC"],["f-brand","Related IP / Brand"],["f-revenue","Revenue Stream"],["f-type","Agreement Type"],["f-status","Status"]];
   for (const [id,label] of req) {
-    if (!document.getElementById(id).value.trim()) {
-      showFeedback(label+" wajib diisi.","err");
-      document.getElementById(id).focus();
-      return;
-    }
+    if (!document.getElementById(id).value.trim()) { showFeedback(label+" wajib diisi.","err"); document.getElementById(id).focus(); return; }
   }
   const btn = document.getElementById("submitBtn");
   btn.disabled=true; btn.textContent="Menyimpan...";
   try {
     const data = {
+      action:"submit",
       title:     document.getElementById("f-title").value.trim(),
       partner:   document.getElementById("f-partner").value.trim(),
       pic:       document.getElementById("f-pic").value.trim(),
@@ -611,7 +700,7 @@ async function submitAgreement() {
       emailLink: document.getElementById("f-email-link").value.trim(),
       by:        currentUser
     };
-    const res = await apiPost(data);
+    const res = await apiGet(data);
     if (res.success) {
       showFeedback("✓ Agreement tersimpan — ID: "+res.id,"ok");
       if (!acBrands.includes(data.brand)) acBrands.push(data.brand);
@@ -635,7 +724,7 @@ function showFeedback(msg,type) {
   if(type==="ok") setTimeout(()=>el.className="feedback",6000);
 }
 
-// ── LOAD TABLE ──
+// ── AGREEMENT LIST ──
 async function loadAgreements() {
   document.getElementById("tableBody").innerHTML=`<tr><td class="empty-td" colspan="14">Memuat data...</td></tr>`;
   try {
@@ -645,6 +734,7 @@ async function loadAgreements() {
     acBrands = res.brands || [];
     acTypes  = res.types  || [];
     acPics   = res.pics   || [];
+    acAgrOptions = allRows.map(r=>({id:r.id, label:[r.partner,r.type].filter(Boolean).join(" — ")}));
     populateFilterDropdowns();
     applyFilters();
     computeStats(allRows);
@@ -655,66 +745,49 @@ async function loadAgreements() {
 
 function populateFilterDropdowns() {
   const setOpts = (id, vals) => {
-    const sel = document.getElementById(id);
+    const sel = document.getElementById(id); if (!sel) return;
     const cur = sel.value;
     while(sel.options.length > 1) sel.remove(1);
     vals.forEach(v => { const o=document.createElement("option"); o.value=o.textContent=v; sel.appendChild(o); });
-    if(cur) sel.value=cur;
+    if (cur) sel.value = cur;
   };
   setOpts("fil-brand", acBrands);
   setOpts("fil-pic",   acPics);
   setOpts("fil-type",  acTypes);
 }
 
-// ── FILTERS ──
 function applyFilters() {
-  const q        = (document.getElementById("searchBox").value||"").toLowerCase();
-  const fStatus  = document.getElementById("fil-status").value;
-  const fAuto    = document.getElementById("fil-auto").value;
-  const fRevenue = document.getElementById("fil-revenue").value;
-  const fBrand   = document.getElementById("fil-brand").value;
-  const fPic     = document.getElementById("fil-pic").value;
-  const fType    = document.getElementById("fil-type").value;
-
-  // highlight active filters
+  const q       = (document.getElementById("searchBox").value||"").toLowerCase();
+  const fStatus = document.getElementById("fil-status").value;
+  const fAuto   = document.getElementById("fil-auto").value;
+  const fRev    = document.getElementById("fil-revenue").value;
+  const fBrand  = document.getElementById("fil-brand").value;
+  const fPic    = document.getElementById("fil-pic").value;
+  const fType   = document.getElementById("fil-type").value;
   ["fil-status","fil-auto","fil-revenue","fil-brand","fil-pic","fil-type"].forEach(id=>{
-    const el=document.getElementById(id);
-    el.classList.toggle("active-filter", !!el.value);
+    const el=document.getElementById(id); if(el) el.classList.toggle("active-filter",!!el.value);
   });
-
   const filtered = allRows.filter(r=>{
     const as = autoStatus(r);
-    if(q       && ![r.title,r.partner,r.brand,r.pic,r.type].some(v=>(v||"").toLowerCase().includes(q))) return false;
-    if(fStatus  && r.status!==fStatus)   return false;
-    if(fAuto    && as!==fAuto)           return false;
-    if(fRevenue && r.revenue!==fRevenue) return false;
-    if(fBrand   && r.brand!==fBrand)     return false;
-    if(fPic     && r.pic!==fPic)         return false;
-    if(fType    && r.type!==fType)       return false;
+    if(q      && ![r.title,r.partner,r.brand,r.pic,r.type].some(v=>(v||"").toLowerCase().includes(q))) return false;
+    if(fStatus && r.status!==fStatus)  return false;
+    if(fAuto   && as!==fAuto)          return false;
+    if(fRev    && r.revenue!==fRev)    return false;
+    if(fBrand  && r.brand!==fBrand)    return false;
+    if(fPic    && r.pic!==fPic)        return false;
+    if(fType   && r.type!==fType)      return false;
     return true;
   });
-
   computeStats(filtered);
   renderTable(filtered);
 }
 
 function clearFilters() {
   ["fil-status","fil-auto","fil-revenue","fil-brand","fil-pic","fil-type"].forEach(id=>{
-    document.getElementById(id).value="";
-    document.getElementById(id).classList.remove("active-filter");
+    const el=document.getElementById(id); if(el){el.value="";el.classList.remove("active-filter");}
   });
   document.getElementById("searchBox").value="";
-  computeStats(allRows);
-  renderTable(allRows);
-}
-
-// ── RENDER TABLE ──
-function pillClass(s) {
-  return {
-    "Draft":"p-draft","Under Review":"p-review",
-    "Signings":"p-signings","Signed":"p-signed",
-    "Active":"p-active","Near Expiring":"p-near","Expired":"p-expired"
-  }[s]||"p-draft";
+  computeStats(allRows); renderTable(allRows);
 }
 
 function renderTable(rows) {
@@ -729,24 +802,21 @@ function renderTable(rows) {
       <td>${r.partner||"—"}</td>
       <td>${r.pic||"—"}</td>
       <td>${r.brand||"—"}</td>
-      <td><span class="pill" style="background:#f0efe9;color:#5a5850;border:1px solid #d4d3cb">${r.revenue||"—"}</span></td>
+      <td><span class="pill p-draft">${r.revenue||"—"}</span></td>
       <td style="color:var(--g600);font-size:11px">${r.type||"—"}</td>
       <td style="font-family:var(--mono);font-size:10px;color:var(--g400)">${fmtDate(r.start)}</td>
       <td style="font-family:var(--mono);font-size:10px;color:var(--g400)">${fmtDate(r.end)}</td>
-      <td>
-        <select class="pill status-inline ${pillClass(r.status)}" onchange="updateStatus(this,${r.rowIndex})">
-          ${MANUAL_STATUSES.map(s=>`<option ${s===r.status?"selected":""}>${s}</option>`).join("")}
-        </select>
-      </td>
+      <td><select class="pill status-inline ${pillClass(r.status)}" onchange="updateStatus(this,${r.rowIndex})">
+        ${MANUAL_STATUSES.map(s=>`<option ${s===r.status?"selected":""}>${s}</option>`).join("")}
+      </select></td>
       <td>${as?`<span class="pill ${pillClass(as)}">${as}</span>`:"—"}</td>
       <td class="td-link">${r.link?`<a href="${r.link}" target="_blank">Drive ↗</a>`:"—"}</td>
       <td class="td-link">${r.emailLink?`<a href="${r.emailLink}" target="_blank">Email ↗</a>`:"—"}</td>
-      <td class="td-audit">${r.lastUpdate?r.lastUpdate:"—"}${r.lastBy?`<br><span style="color:var(--g400);font-size:9px">${r.lastBy}</span>`:""}</td>
+      <td class="td-audit">${r.lastUpdate||"—"}${r.lastBy?`<br><span style="color:var(--g400);font-size:9px">${r.lastBy}</span>`:""}</td>
     </tr>`;
   }).join("");
 }
 
-// ── UPDATE STATUS ──
 async function updateStatus(sel, rowIndex) {
   const newStatus = sel.value;
   sel.className = `pill status-inline ${pillClass(newStatus)}`;
@@ -754,113 +824,27 @@ async function updateStatus(sel, rowIndex) {
     const res = await apiGet({action:"updateStatus", rowIndex, status:newStatus, by:currentUser});
     if (!res.success) { alert("Gagal update: "+res.error); return; }
     const row = allRows.find(r=>r.rowIndex===rowIndex);
-    if (row) {
-      row.status = newStatus;
-      row.lastBy = currentUser;
-      row.lastUpdate = new Date().toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"});
-    }
+    if (row) { row.status=newStatus; row.lastBy=currentUser; row.lastUpdate=new Date().toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}); }
     applyFilters();
   } catch(e) { alert("Koneksi gagal."); }
 }
 
-// ── NAVIGATION ──
-function showPage(name, el) {
-  document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
-  document.querySelectorAll(".sb-item").forEach(i=>i.classList.remove("active"));
-  document.getElementById("page-"+name).classList.add("active");
-  if(el) el.classList.add("active");
-  document.getElementById("topbarPage").textContent = name==="home"?"Internal Tools":name.charAt(0).toUpperCase()+name.slice(1)+" Tracker";
-  if(name==="agreement") loadStats();
-}
-
-function switchTab(name, el) {
-  document.querySelectorAll(".tab-btn").forEach(b=>b.classList.remove("active"));
-  el.classList.add("active");
-  document.getElementById("tab-new").style.display  = name==="new" ?"block":"none";
-  document.getElementById("tab-list").style.display = name==="list"?"block":"none";
-  if(name==="list") loadAgreements();
-}
-
-// ── AUTOCOMPLETE ──
-function setupAC(inpId, lstId, getOpts) {
-  const inp=document.getElementById(inpId), lst=document.getElementById(lstId);
-  inp.addEventListener("input",  ()=>renderAC(lst,inp,getOpts()));
-  inp.addEventListener("focus",  ()=>{ if(getOpts().length) renderAC(lst,inp,getOpts()); });
-  document.addEventListener("click",e=>{ if(!inp.contains(e.target)&&!lst.contains(e.target)) lst.style.display="none"; });
-}
-
-function renderAC(lst, inp, opts) {
-  const q=inp.value.toLowerCase(), m=opts.filter(o=>o.toLowerCase().includes(q));
-  let html = m.map(o=>`<div class="ac-item" onclick="pickAC('${o.replace(/'/g,"\\'")}','${inp.id}','${lst.id}')">${o}</div>`).join("");
-  if(inp.value.trim() && !opts.includes(inp.value.trim())) {
-    html += `<div class="ac-add" onclick="pickAC('${inp.value.trim().replace(/'/g,"\\'")}','${inp.id}','${lst.id}')">+ Tambah "${inp.value.trim()}"</div>`;
-  }
-  if(!html){lst.style.display="none";return;}
-  lst.innerHTML=html; lst.style.display="block";
-}
-
-function pickAC(val, inpId, lstId) {
-  document.getElementById(inpId).value=val;
-  document.getElementById(lstId).style.display="none";
-}
-
-setupAC("f-brand","ac-brand",()=>acBrands);
-setupAC("f-type","ac-type",()=>acTypes);
-setupAC("f-pic","ac-pic",()=>acPics);
-
-// ── IP MASTER STATE ──
-let allIPRows = [], acAgrIDs = [];
-let allRRRows = [], acRRTipes = [], acRRIPs = [];
-
-// ── IP MASTER TABS ──
-function switchIpTab(name, el) {
-  document.querySelectorAll("#page-ipmaster .tab-btn").forEach(b=>b.classList.remove("active"));
-  el.classList.add("active");
-  document.getElementById("iptab-new").style.display  = name==="new"  ? "block" : "none";
-  document.getElementById("iptab-list").style.display = name==="list" ? "block" : "none";
-  if(name==="list") loadIPMaster();
-}
-
-// ── RECIPIENTS TABS ──
-function switchRRTab(name, el) {
-  document.querySelectorAll("#page-recipients .tab-btn").forEach(b=>b.classList.remove("active"));
-  el.classList.add("active");
-  document.getElementById("rrtab-new").style.display  = name==="new"  ? "block" : "none";
-  document.getElementById("rrtab-list").style.display = name==="list" ? "block" : "none";
-  if(name==="list") loadRecipients();
-}
-
-// ── TOGGLE PKS FIELD ──
-function togglePKS() {
-  const tipe = document.getElementById("rr-tipe").value.trim().toLowerCase();
-  document.getElementById("rr-pks-wrap").style.display = tipe === "collaborator" ? "flex" : "none";
-}
-
-// ── SUBMIT IP ──
+// ── IP MASTER ──
 async function submitIP() {
   const name = document.getElementById("ip-name").value.trim();
-  if (!name) { showIPFeedback("IP / Brand Name wajib diisi.", "err"); return; }
+  if (!name) { showIPFeedback("IP / Brand Name wajib diisi.","err"); return; }
   const revenues = [...document.querySelectorAll("#ip-revenue-checks input:checked")].map(c=>c.value);
-  if (!revenues.length) { showIPFeedback("Pilih minimal satu Revenue Stream.", "err"); return; }
-
+  if (!revenues.length) { showIPFeedback("Pilih minimal satu Revenue Stream.","err"); return; }
   const btn = document.getElementById("ipSubmitBtn");
   btn.disabled=true; btn.textContent="Menyimpan...";
   try {
-    const res = await apiGet({
-      action:    "submitIP",
-      name,
-      revenue:   revenues.join(", "),
-      agreements:document.getElementById("ip-agreements").value.trim(),
-      notes:     document.getElementById("ip-notes").value.trim(),
-      by:        currentUser
-    });
+    const res = await apiGet({action:"submitIP", name, revenue:revenues.join(", "), agreements:document.getElementById("ip-agreements").value.trim(), notes:document.getElementById("ip-notes").value.trim(), by:currentUser});
     if (res.success) {
-      showIPFeedback("✓ IP tersimpan — ID: "+res.id, "ok");
+      showIPFeedback("✓ IP tersimpan — ID: "+res.id,"ok");
       if (!acRRIPs.includes(name)) acRRIPs.push(name);
-      clearIPForm();
-      loadIPMaster();
-    } else { showIPFeedback("Gagal: "+res.error, "err"); }
-  } catch(e) { showIPFeedback("Koneksi gagal.", "err"); }
+      clearIPForm(); loadIPMaster();
+    } else { showIPFeedback("Gagal: "+res.error,"err"); }
+  } catch(e) { showIPFeedback("Koneksi gagal.","err"); }
   btn.disabled=false; btn.textContent="Simpan IP";
 }
 
@@ -871,56 +855,125 @@ function clearIPForm() {
   document.querySelectorAll("#ip-revenue-checks input").forEach(c=>c.checked=false);
 }
 
-function showIPFeedback(msg, type) {
+function showIPFeedback(msg,type) {
   const el=document.getElementById("ip-feedback");
   el.textContent=msg; el.className="feedback "+type;
   if(type==="ok") setTimeout(()=>el.className="feedback",6000);
 }
 
-// ── LOAD IP MASTER ──
 async function loadIPMaster() {
-  document.getElementById("ipTableBody").innerHTML=`<tr><td class="empty-td" colspan="6">Memuat...</td></tr>`;
+  document.getElementById("ipTableBody").innerHTML=`<tr><td class="empty-td" colspan="7">Memuat...</td></tr>`;
   try {
     const res = await apiGet({action:"listIP"});
     if (!res.success) throw new Error(res.error);
     allIPRows = res.rows || [];
     acRRIPs   = allIPRows.map(r=>r.name).filter(Boolean);
-    acAgrIDs  = res.agrIDs || [];
-    renderIPTable(allIPRows);
+    if (res.agrIDs) acAgrOptions = res.agrIDs;
+    computeIPStats(allIPRows);
+    populateRRFilterDropdowns();
+    applyIPFilters();
   } catch(e) {
-    document.getElementById("ipTableBody").innerHTML=`<tr><td class="empty-td" colspan="6">Gagal: ${e.message}</td></tr>`;
+    document.getElementById("ipTableBody").innerHTML=`<tr><td class="empty-td" colspan="7">Gagal: ${e.message}</td></tr>`;
   }
+}
+
+function computeIPStats(rows) {
+  document.getElementById("ip-s-total").textContent    = rows.length;
+  document.getElementById("ip-s-active").textContent   = rows.filter(r=>r.ipStatus==="Active").length;
+  document.getElementById("ip-s-noagr").textContent    = rows.filter(r=>r.ipStatus==="No Agreement").length;
+  document.getElementById("ip-s-inactive").textContent = rows.filter(r=>r.ipStatus==="Inactive").length;
+}
+
+function applyIPFilters() {
+  const q    = (document.getElementById("ipSearch").value||"").toLowerCase();
+  const fSt  = document.getElementById("ip-fil-status").value;
+  const fRev = document.getElementById("ip-fil-revenue").value;
+  ["ip-fil-status","ip-fil-revenue"].forEach(id=>{const el=document.getElementById(id);if(el)el.classList.toggle("active-filter",!!el.value);});
+  const filtered = allIPRows.filter(r=>{
+    if(q    && !(r.name||"").toLowerCase().includes(q)) return false;
+    if(fSt  && r.ipStatus!==fSt) return false;
+    if(fRev && !(r.revenue||"").includes(fRev)) return false;
+    return true;
+  });
+  computeIPStats(filtered);
+  renderIPTable(filtered);
+}
+
+function clearIPFilters() {
+  ["ip-fil-status","ip-fil-revenue"].forEach(id=>{const el=document.getElementById(id);if(el){el.value="";el.classList.remove("active-filter");}});
+  document.getElementById("ipSearch").value="";
+  computeIPStats(allIPRows); renderIPTable(allIPRows);
 }
 
 function renderIPTable(rows) {
   document.getElementById("ip-tcount").textContent = rows.length+" entri";
   const body = document.getElementById("ipTableBody");
-  if (!rows.length) { body.innerHTML=`<tr><td class="empty-td" colspan="6">Belum ada data.</td></tr>`; return; }
-  body.innerHTML = rows.map(r => {
+  if (!rows.length) { body.innerHTML=`<tr><td class="empty-td" colspan="7">Belum ada data.</td></tr>`; return; }
+  body.innerHTML = rows.map(r=>{
     const streams = (r.revenue||"").split(",").map(s=>s.trim()).filter(Boolean);
     const agrs    = (r.agreements||"").split(",").map(s=>s.trim()).filter(Boolean);
     const statusPill = r.ipStatus==="Active"
       ? `<span class="pill p-active">Active</span>`
       : r.ipStatus==="No Agreement"
-      ? `<span class="pill" style="background:#FFF8E6;color:#7a5000;border:0.5px solid #f0d080">⚠ No Agreement</span>`
+      ? `<span class="pill p-near">⚠ No Agreement</span>`
       : `<span class="pill p-expired">Inactive</span>`;
     return `<tr>
       <td class="td-id">${r.id||"—"}</td>
       <td style="font-weight:500">${r.name||"—"}</td>
-      <td>${streams.map(s=>`<span class="pill" style="background:#EEEDFE;color:#3C3489;border:0.5px solid #AFA9EC;margin-right:3px">${s}</span>`).join("") || "—"}</td>
-      <td>${agrs.length ? agrs.map(a=>`<span class="pill" style="background:#E6F1FB;color:#0C447C;border:0.5px solid #85B7EB;margin-right:3px">${a}</span>`).join("") : '<span style="color:var(--g400);font-size:11px">—</span>'}</td>
+      <td>${streams.map(s=>`<span class="pill" style="background:#EEEDFE;color:#3C3489;border:0.5px solid #AFA9EC;margin-right:3px">${s}</span>`).join("")||"—"}</td>
+      <td>${agrs.length?agrs.map(a=>{
+        const opt = acAgrOptions.find ? acAgrOptions.find(o=>o.id===a) : null;
+        const tooltip = opt ? opt.label : "";
+        return `<span class="pill" style="background:#E6F1FB;color:#0C447C;border:0.5px solid #85B7EB;margin-right:3px" title="${tooltip}">${a}</span>`;
+      }).join(""):`<span style="color:var(--g400);font-size:11px">—</span>`}</td>
       <td>${statusPill}</td>
       <td style="color:var(--g600);font-size:11px">${r.notes||"—"}</td>
-    </tr>`;
+      <td><button class="btn-icon" onclick="openIPEdit(${r.rowIndex})">Edit</button></td>
+    </tr>
+    <tr id="ip-edit-row-${r.rowIndex}" style="display:none"><td colspan="7" style="padding:0 12px 12px;">
+      <div class="edit-row-form">
+        <div class="edit-row-grid">
+          <div class="fg"><label>IP / Brand Name</label><input type="text" id="ip-e-name-${r.rowIndex}" value="${r.name||""}"></div>
+          <div class="fg"><label>Revenue Stream</label><input type="text" id="ip-e-revenue-${r.rowIndex}" value="${r.revenue||""}" placeholder="SD&Y, Lagaa, Marte"></div>
+          <div class="fg"><label>Related Agreement</label><input type="text" id="ip-e-agr-${r.rowIndex}" value="${r.agreements||""}" placeholder="AGR-xxx, AGR-yyy"></div>
+          <div class="fg"><label>Notes</label><input type="text" id="ip-e-notes-${r.rowIndex}" value="${r.notes||""}"></div>
+        </div>
+        <div class="edit-row-btns">
+          <button class="btn-save" onclick="saveIPEdit(${r.rowIndex})">Simpan</button>
+          <button class="btn-cancel" onclick="closeIPEdit(${r.rowIndex})">Batal</button>
+        </div>
+      </div>
+    </td></tr>`;
   }).join("");
 }
 
-function filterIPTable() {
-  const q = document.getElementById("ipSearch").value.toLowerCase();
-  renderIPTable(allIPRows.filter(r=>!q || (r.name||"").toLowerCase().includes(q)));
+function openIPEdit(rowIndex) {
+  document.querySelectorAll("[id^='ip-edit-row-']").forEach(el=>el.style.display="none");
+  document.getElementById("ip-edit-row-"+rowIndex).style.display="table-row";
 }
 
-// ── SUBMIT RECIPIENT ──
+function closeIPEdit(rowIndex) {
+  document.getElementById("ip-edit-row-"+rowIndex).style.display="none";
+}
+
+async function saveIPEdit(rowIndex) {
+  const name    = document.getElementById("ip-e-name-"+rowIndex).value.trim();
+  const revenue = document.getElementById("ip-e-revenue-"+rowIndex).value.trim();
+  const agr     = document.getElementById("ip-e-agr-"+rowIndex).value.trim();
+  const notes   = document.getElementById("ip-e-notes-"+rowIndex).value.trim();
+  try {
+    const res = await apiGet({action:"updateIP", rowIndex, name, revenue, agreements:agr, notes, by:currentUser});
+    if (res.success) { closeIPEdit(rowIndex); loadIPMaster(); }
+    else alert("Gagal simpan: "+res.error);
+  } catch(e) { alert("Koneksi gagal."); }
+}
+
+// ── ROYALTY RECIPIENTS ──
+function togglePKS() {
+  const tipe = document.getElementById("rr-tipe").value.trim().toLowerCase();
+  document.getElementById("rr-pks-wrap").style.display = tipe==="collaborator" ? "flex" : "none";
+}
+
 async function submitRR() {
   const req = [["rr-name","Nama Penerima"],["rr-tipe","Tipe"],["rr-ip","Related IP"],["rr-royalty-type","Royalty Type"],["rr-termin","Termin"]];
   for (const [id,label] of req) {
@@ -931,7 +984,7 @@ async function submitRR() {
   try {
     const tipe = document.getElementById("rr-tipe").value.trim();
     const res = await apiGet({
-      action:      "submitRR",
+      action:"submitRR",
       name:        document.getElementById("rr-name").value.trim(),
       tipe,
       ip:          document.getElementById("rr-ip").value.trim(),
@@ -944,11 +997,11 @@ async function submitRR() {
       by:          currentUser
     });
     if (res.success) {
-      showRRFeedback("✓ Penerima tersimpan — ID: "+res.id, "ok");
+      showRRFeedback("✓ Penerima tersimpan — ID: "+res.id,"ok");
       if (!acRRTipes.includes(tipe)) acRRTipes.push(tipe);
       clearRRForm();
-    } else { showRRFeedback("Gagal: "+res.error, "err"); }
-  } catch(e) { showRRFeedback("Koneksi gagal.", "err"); }
+    } else { showRRFeedback("Gagal: "+res.error,"err"); }
+  } catch(e) { showRRFeedback("Koneksi gagal.","err"); }
   btn.disabled=false; btn.textContent="Simpan Penerima";
 }
 
@@ -959,53 +1012,151 @@ function clearRRForm() {
   document.getElementById("rr-pks-wrap").style.display="none";
 }
 
-function showRRFeedback(msg, type) {
+function showRRFeedback(msg,type) {
   const el=document.getElementById("rr-feedback");
   el.textContent=msg; el.className="feedback "+type;
   if(type==="ok") setTimeout(()=>el.className="feedback",6000);
 }
 
-// ── LOAD RECIPIENTS ──
 async function loadRecipients() {
-  document.getElementById("rrTableBody").innerHTML=`<tr><td class="empty-td" colspan="10">Memuat...</td></tr>`;
+  document.getElementById("rrTableBody").innerHTML=`<tr><td class="empty-td" colspan="11">Memuat...</td></tr>`;
   try {
     const res = await apiGet({action:"listRR"});
     if (!res.success) throw new Error(res.error);
-    allRRRows  = res.rows || [];
+    allRRRows  = res.rows  || [];
     acRRTipes  = res.tipes || [];
-    renderRRTable(allRRRows);
+    computeRRStats(allRRRows);
+    populateRRFilterDropdowns();
+    applyRRFilters();
   } catch(e) {
-    document.getElementById("rrTableBody").innerHTML=`<tr><td class="empty-td" colspan="10">Gagal: ${e.message}</td></tr>`;
+    document.getElementById("rrTableBody").innerHTML=`<tr><td class="empty-td" colspan="11">Gagal: ${e.message}</td></tr>`;
   }
+}
+
+function computeRRStats(rows) {
+  document.getElementById("rr-s-total").textContent     = rows.length;
+  document.getElementById("rr-s-postsales").textContent = rows.filter(r=>r.royaltyType==="Post-Sales").length;
+  document.getElementById("rr-s-advance").textContent   = rows.filter(r=>r.royaltyType==="Advance"||r.royaltyType==="Both").length;
+}
+
+function populateRRFilterDropdowns() {
+  const setOpts = (id, vals) => {
+    const sel = document.getElementById(id); if (!sel) return;
+    const cur = sel.value;
+    while(sel.options.length > 1) sel.remove(1);
+    vals.forEach(v => { const o=document.createElement("option"); o.value=o.textContent=v; sel.appendChild(o); });
+    if (cur) sel.value = cur;
+  };
+  setOpts("rr-fil-tipe", acRRTipes);
+  setOpts("rr-fil-ip",   acRRIPs);
+}
+
+function applyRRFilters() {
+  const q      = (document.getElementById("rrSearch").value||"").toLowerCase();
+  const fTipe  = document.getElementById("rr-fil-tipe").value;
+  const fIP    = document.getElementById("rr-fil-ip").value;
+  const fType  = document.getElementById("rr-fil-type").value;
+  const fTermin= document.getElementById("rr-fil-termin").value;
+  ["rr-fil-tipe","rr-fil-ip","rr-fil-type","rr-fil-termin"].forEach(id=>{const el=document.getElementById(id);if(el)el.classList.toggle("active-filter",!!el.value);});
+  const filtered = allRRRows.filter(r=>{
+    if(q      && ![r.name,r.ip,r.tipe].some(v=>(v||"").toLowerCase().includes(q))) return false;
+    if(fTipe  && r.tipe!==fTipe)              return false;
+    if(fIP    && r.ip!==fIP)                  return false;
+    if(fType  && r.royaltyType!==fType)       return false;
+    if(fTermin && r.termin!==fTermin)         return false;
+    return true;
+  });
+  computeRRStats(filtered);
+  renderRRTable(filtered);
+}
+
+function clearRRFilters() {
+  ["rr-fil-tipe","rr-fil-ip","rr-fil-type","rr-fil-termin"].forEach(id=>{const el=document.getElementById(id);if(el){el.value="";el.classList.remove("active-filter");}});
+  document.getElementById("rrSearch").value="";
+  computeRRStats(allRRRows); renderRRTable(allRRRows);
 }
 
 function renderRRTable(rows) {
   document.getElementById("rr-tcount").textContent = rows.length+" entri";
   const body = document.getElementById("rrTableBody");
-  if (!rows.length) { body.innerHTML=`<tr><td class="empty-td" colspan="10">Belum ada data.</td></tr>`; return; }
-  body.innerHTML = rows.map(r=>`<tr>
-    <td class="td-id">${r.id||"—"}</td>
-    <td style="font-weight:500">${r.name||"—"}</td>
-    <td><span class="pill p-draft">${r.tipe||"—"}</span></td>
-    <td>${r.ip?`<span class="pill" style="background:#E6F1FB;color:#0C447C;border:0.5px solid #85B7EB">${r.ip}</span>`:"—"}</td>
-    <td><span class="pill ${r.royaltyType==="Post-Sales"?"p-active":r.royaltyType==="Advance"?"p-near":"p-signings"}">${r.royaltyType||"—"}</span></td>
-    <td>${r.pct ? r.pct+"%" : "—"}</td>
-    <td>${r.fixed ? "Rp "+Number(r.fixed).toLocaleString("id-ID") : "—"}</td>
-    <td style="font-size:11px">${r.termin||"—"}</td>
-    <td class="td-link">${r.pks?`<a href="${r.pks}" target="_blank">PKS ↗</a>`:"—"}</td>
-    <td style="color:var(--g600);font-size:11px">${r.notes||"—"}</td>
-  </tr>`).join("");
+  if (!rows.length) { body.innerHTML=`<tr><td class="empty-td" colspan="11">Belum ada data.</td></tr>`; return; }
+  body.innerHTML = rows.map(r=>`
+    <tr>
+      <td class="td-id">${r.id||"—"}</td>
+      <td style="font-weight:500">${r.name||"—"}</td>
+      <td><span class="pill p-draft">${r.tipe||"—"}</span></td>
+      <td>${r.ip?`<span class="pill" style="background:#E6F1FB;color:#0C447C;border:0.5px solid #85B7EB">${r.ip}</span>`:"—"}</td>
+      <td><span class="pill ${r.royaltyType==="Post-Sales"?"p-active":r.royaltyType==="Advance"?"p-near":"p-signings"}">${r.royaltyType||"—"}</span></td>
+      <td>${r.pct?r.pct+"%":"—"}</td>
+      <td>${r.fixed?"Rp "+Number(r.fixed).toLocaleString("id-ID"):"—"}</td>
+      <td style="font-size:11px">${r.termin||"—"}</td>
+      <td class="td-link">${r.pks?`<a href="${r.pks}" target="_blank">PKS ↗</a>`:"—"}</td>
+      <td style="color:var(--g600);font-size:11px">${r.notes||"—"}</td>
+      <td><button class="btn-icon" onclick="openRREdit(${r.rowIndex})">Edit</button></td>
+    </tr>
+    <tr id="rr-edit-row-${r.rowIndex}" style="display:none"><td colspan="11" style="padding:0 12px 12px;">
+      <div class="edit-row-form">
+        <div class="edit-row-grid">
+          <div class="fg"><label>Nama</label><input type="text" id="rr-e-name-${r.rowIndex}" value="${r.name||""}"></div>
+          <div class="fg"><label>Tipe</label><input type="text" id="rr-e-tipe-${r.rowIndex}" value="${r.tipe||""}"></div>
+          <div class="fg"><label>Related IP</label><input type="text" id="rr-e-ip-${r.rowIndex}" value="${r.ip||""}"></div>
+          <div class="fg"><label>Royalty Type</label>
+            <select id="rr-e-type-${r.rowIndex}">
+              <option ${r.royaltyType==="Post-Sales"?"selected":""}>Post-Sales</option>
+              <option ${r.royaltyType==="Advance"?"selected":""}>Advance</option>
+              <option ${r.royaltyType==="Both"?"selected":""}>Both</option>
+            </select>
+          </div>
+          <div class="fg"><label>Percentage (%)</label><input type="number" id="rr-e-pct-${r.rowIndex}" value="${r.pct||""}" step="0.1"></div>
+          <div class="fg"><label>Fixed Amount</label><input type="number" id="rr-e-fixed-${r.rowIndex}" value="${r.fixed||""}"></div>
+          <div class="fg"><label>Termin</label>
+            <select id="rr-e-termin-${r.rowIndex}">
+              <option ${r.termin==="Per Bulan"?"selected":""}>Per Bulan</option>
+              <option ${r.termin==="Per Quarter"?"selected":""}>Per Quarter</option>
+              <option ${r.termin==="Per Tahun"?"selected":""}>Per Tahun</option>
+              <option ${r.termin==="Per Akhir Project"?"selected":""}>Per Akhir Project</option>
+            </select>
+          </div>
+          <div class="fg"><label>Link PKS</label><input type="url" id="rr-e-pks-${r.rowIndex}" value="${r.pks||""}"></div>
+          <div class="fg"><label>Notes</label><input type="text" id="rr-e-notes-${r.rowIndex}" value="${r.notes||""}"></div>
+        </div>
+        <div class="edit-row-btns">
+          <button class="btn-save" onclick="saveRREdit(${r.rowIndex})">Simpan</button>
+          <button class="btn-cancel" onclick="closeRREdit(${r.rowIndex})">Batal</button>
+        </div>
+      </div>
+    </td></tr>`).join("");
 }
 
-function filterRRTable() {
-  const q = document.getElementById("rrSearch").value.toLowerCase();
-  renderRRTable(allRRRows.filter(r=>!q||[r.name,r.ip,r.tipe].some(v=>(v||"").toLowerCase().includes(q))));
+function openRREdit(rowIndex) {
+  document.querySelectorAll("[id^='rr-edit-row-']").forEach(el=>el.style.display="none");
+  document.getElementById("rr-edit-row-"+rowIndex).style.display="table-row";
 }
 
-// ── AUTOCOMPLETE FOR NEW PAGES ──
-setupAC("ip-agreements","ac-ip-agr",()=>acAgrIDs);
-setupAC("rr-tipe","ac-rr-tipe",()=>acRRTipes);
-setupAC("rr-ip","ac-rr-ip",()=>acRRIPs);
+function closeRREdit(rowIndex) {
+  document.getElementById("rr-edit-row-"+rowIndex).style.display="none";
+}
+
+async function saveRREdit(rowIndex) {
+  try {
+    const res = await apiGet({
+      action:      "updateRR",
+      rowIndex,
+      name:        document.getElementById("rr-e-name-"+rowIndex).value.trim(),
+      tipe:        document.getElementById("rr-e-tipe-"+rowIndex).value.trim(),
+      ip:          document.getElementById("rr-e-ip-"+rowIndex).value.trim(),
+      royaltyType: document.getElementById("rr-e-type-"+rowIndex).value,
+      pct:         document.getElementById("rr-e-pct-"+rowIndex).value.trim(),
+      fixed:       document.getElementById("rr-e-fixed-"+rowIndex).value.trim(),
+      termin:      document.getElementById("rr-e-termin-"+rowIndex).value,
+      pks:         document.getElementById("rr-e-pks-"+rowIndex).value.trim(),
+      notes:       document.getElementById("rr-e-notes-"+rowIndex).value.trim(),
+      by:          currentUser
+    });
+    if (res.success) { closeRREdit(rowIndex); loadRecipients(); }
+    else alert("Gagal simpan: "+res.error);
+  } catch(e) { alert("Koneksi gagal."); }
+}
 </script>
 </body>
 </html>
