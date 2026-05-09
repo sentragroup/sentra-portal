@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sentra Internal Tools</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Mono:wght@300;400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+:root{--black:#0c0c0c;--white:#f8f7f4;--off:#f0efe9;--g100:#e8e7e0;--g200:#d4d3cb;--g400:#9a9890;--g600:#5a5850;--mono:'DM Mono',monospace;--head:'Syne',sans-serif;--body:'DM Sans',sans-serif;}
+html,body{height:100%;}
+body{font-family:var(--body);background:var(--white);color:var(--black);font-size:14px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+
+/* LOGIN */
+#loginScreen{min-height:100vh;display:grid;grid-template-columns:1fr 1fr;}
+.login-left{background:var(--black);display:flex;flex-direction:column;justify-content:space-between;padding:3rem;position:relative;overflow:hidden;}
+.login-left::before{content:'';position:absolute;top:-120px;right:-120px;width:400px;height:400px;border-radius:50%;border:1px solid rgba(255,255,255,0.05);}
+.login-left::after{content:'';position:absolute;bottom:-80px;left:-80px;width:300px;height:300px;border-radius:50%;border:1px solid rgba(255,255,255,0.03);}
+.l-brand{font-family:var(--mono);font-size:11px;color:rgba(255,255,255,0.3);letter-spacing:0.2em;text-transform:uppercase;}
+.l-hero{position:relative;z-index:1;}
+.l-eye{font-family:var(--mono);font-size:10px;color:rgba(255,255,255,0.3);letter-spacing:0.15em;text-transform:uppercase;margin-bottom:1rem;}
+.l-title{font-family:var(--head);font-size:clamp(36px,4vw,54px);color:var(--white);font-weight:800;line-height:1.05;letter-spacing:-0.02em;margin-bottom:1.5rem;}
+.l-desc{font-size:14px;color:rgba(255,255,255,0.35);font-weight:300;max-width:280px;line-height:1.7;}
+.l-foot{font-family:var(--mono);font-size:10px;color:rgba(255,255,255,0.15);letter-spacing:0.1em;}
+.login-right{display:flex;align-items:center;justify-content:center;padding:3rem;}
+.login-box{width:100%;max-width:340px;}
+.lb-title{font-family:var(--head);font-size:24px;font-weight:700;color:var(--black);margin-bottom:6px;letter-spacing:-0.02em;}
+.lb-sub{font-size:13px;color:var(--g400);margin-bottom:2rem;font-weight:300;}
+.lb-label{font-size:11px;font-weight:500;letter-spacing:0.06em;text-transform:uppercase;color:var(--g600);margin-bottom:5px;display:block;}
+.lb-input{width:100%;padding:10px 12px;border:1px solid var(--g200);border-radius:6px;font-family:var(--body);font-size:14px;color:var(--black);background:var(--white);outline:none;transition:border-color 0.15s;margin-bottom:10px;}
+.lb-input:focus{border-color:var(--black);box-shadow:0 0 0 3px rgba(12,12,12,0.06);}
+.btn-login{width:100%;padding:11px;background:var(--black);color:var(--white);border:none;font-family:var(--body);font-size:14px;font-weight:500;cursor:pointer;border-radius:6px;transition:opacity 0.15s;}
+.btn-login:hover{opacity:0.8;}
+.lb-note{font-size:12px;color:var(--g400);text-align:center;margin-top:1rem;font-weight:300;line-height:1.6;}
+.lb-err{font-family:var(--mono);font-size:11px;color:#c0392b;margin-top:8px;min-height:16px;}
+
+/* APP */
+#app{display:none;min-height:100vh;flex-direction:column;}
+.topbar{height:52px;border-bottom:1px solid var(--g100);display:flex;align-items:center;padding:0 1.5rem;gap:1rem;position:sticky;top:0;background:var(--white);z-index:200;}
+.t-logo{font-family:var(--head);font-size:15px;font-weight:700;color:var(--black);letter-spacing:-0.02em;}
+.t-sep{width:1px;height:16px;background:var(--g200);}
+.t-page{font-family:var(--mono);font-size:11px;color:var(--g400);letter-spacing:0.05em;}
+.t-right{margin-left:auto;display:flex;align-items:center;gap:10px;}
+.user-chip{display:flex;align-items:center;gap:8px;padding:4px 10px 4px 8px;border:1px solid var(--g100);border-radius:99px;}
+.u-dot{width:8px;height:8px;border-radius:50%;background:#4ade80;}
+.u-name{font-size:12px;font-weight:500;}
+.btn-out{font-family:var(--mono);font-size:10px;color:var(--g400);background:none;border:none;cursor:pointer;padding:4px 8px;border-radius:4px;transition:all 0.15s;}
+.btn-out:hover{background:var(--g100);color:var(--black);}
+.shell{display:flex;flex:1;}
+
+/* SIDEBAR */
+.sidebar{width:220px;border-right:1px solid var(--g100);padding:1.5rem 0;position:sticky;top:52px;height:calc(100vh - 52px);flex-shrink:0;overflow-y:auto;}
+.sb-label{font-family:var(--mono);font-size:9px;letter-spacing:0.15em;text-transform:uppercase;color:var(--g400);padding:0 1.25rem;margin-bottom:6px;}
+.sb-sec{margin-bottom:1.5rem;}
+.sb-item{display:flex;align-items:center;gap:10px;padding:8px 1.25rem;font-size:13px;color:var(--g600);cursor:pointer;transition:all 0.12s;border-left:2px solid transparent;}
+.sb-item:hover{background:var(--off);color:var(--black);}
+.sb-item.active{color:var(--black);font-weight:500;border-left-color:var(--black);background:var(--off);}
+.sb-icon{width:15px;height:15px;opacity:0.5;flex-shrink:0;}
+.sb-item.active .sb-icon{opacity:1;}
+.sb-soon{display:flex;align-items:center;gap:10px;padding:8px 1.25rem;font-size:13px;color:var(--g200);cursor:default;}
+.soon-tag{font-family:var(--mono);font-size:9px;color:var(--g400);border:1px solid var(--g200);padding:1px 6px;border-radius:99px;margin-left:auto;}
+
+/* CONTENT */
+.content{flex:1;min-width:0;}
+.page{display:none;padding:2rem 2.5rem;}
+.page.active{display:block;}
+.page-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:1.5rem;padding-bottom:1.5rem;border-bottom:1px solid var(--g100);}
+.page-title{font-family:var(--head);font-size:26px;font-weight:700;color:var(--black);letter-spacing:-0.02em;margin-bottom:4px;}
+.page-sub{font-size:13px;color:var(--g400);font-weight:300;}
+.tab-bar{display:flex;border:1px solid var(--g200);border-radius:6px;overflow:hidden;align-self:center;}
+.tab-btn{padding:7px 18px;font-family:var(--body);font-size:12px;font-weight:500;cursor:pointer;background:transparent;border:none;color:var(--g400);transition:all 0.12s;}
+.tab-btn.active{background:var(--black);color:var(--white);}
+.tab-btn:not(.active):hover{background:var(--off);color:var(--black);}
+
+/* STATS */
+.stats-row{display:grid;grid-template-columns:repeat(7,1fr);gap:10px;margin-bottom:1.5rem;}
+.stat-card{background:var(--off);border-radius:8px;padding:0.875rem 1rem;}
+.stat-card.warn{background:#fff8e6;border:1px solid #f0d080;}
+.stat-card.danger{background:#fdf0f0;border:1px solid #e8b8b8;}
+.stat-num{font-family:var(--head);font-size:24px;font-weight:700;color:var(--black);letter-spacing:-0.03em;line-height:1;margin-bottom:4px;}
+.stat-card.warn .stat-num{color:#7a5000;}
+.stat-card.danger .stat-num{color:#7a1f1f;}
+.stat-lbl{font-family:var(--mono);font-size:9px;color:var(--g400);letter-spacing:0.08em;text-transform:uppercase;}
+.stat-card.warn .stat-lbl{color:#7a5000;}
+.stat-card.danger .stat-lbl{color:#7a1f1f;}
+
+/* FILTERS */
+.filter-bar{display:flex;align-items:center;gap:8px;margin-bottom:1.25rem;flex-wrap:wrap;padding:1rem 1.25rem;background:var(--off);border-radius:8px;}
+.filter-bar-label{font-family:var(--mono);font-size:9px;letter-spacing:0.12em;text-transform:uppercase;color:var(--g400);margin-right:4px;}
+.f-select{padding:6px 24px 6px 10px;border:1px solid var(--g200);border-radius:6px;font-size:12px;font-family:var(--body);outline:none;appearance:none;background:var(--white);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%239a9890' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 7px center;cursor:pointer;transition:border-color 0.15s;color:var(--black);}
+.f-select:focus{border-color:var(--black);}
+.f-select.active-filter{border-color:var(--black);background-color:var(--black);color:var(--white);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");}
+.btn-clear-filter{padding:6px 12px;background:transparent;border:1px solid var(--g200);border-radius:6px;font-size:11px;font-family:var(--mono);cursor:pointer;color:var(--g600);transition:all 0.12s;}
+.btn-clear-filter:hover{border-color:var(--black);color:var(--black);}
+
+/* FORM */
+.form-card{background:var(--white);border:1px solid var(--g100);border-radius:10px;padding:1.75rem;margin-bottom:1.5rem;}
+.form-sec{font-family:var(--mono);font-size:10px;letter-spacing:0.15em;text-transform:uppercase;color:var(--g400);margin-bottom:1.25rem;display:flex;align-items:center;gap:10px;}
+.form-sec::after{content:'';flex:1;height:1px;background:var(--g100);}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem;}
+.fg{display:flex;flex-direction:column;gap:5px;}
+.fg.full{grid-column:1/-1;}
+.fg label{font-size:11px;font-weight:500;letter-spacing:0.06em;text-transform:uppercase;color:var(--g600);}
+.fg label .req{color:#c0392b;}
+input[type=text],input[type=url],input[type=date],select,input[type=email]{padding:9px 12px;border:1px solid var(--g200);border-radius:6px;font-family:var(--body);font-size:13px;color:var(--black);background:var(--white);outline:none;transition:border-color 0.15s,box-shadow 0.15s;width:100%;}
+input:focus,select:focus{border-color:var(--black);box-shadow:0 0 0 3px rgba(12,12,12,0.06);}
+select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239a9890' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;padding-right:32px;cursor:pointer;}
+
+/* AUTOCOMPLETE */
+.ac-wrap{position:relative;}
+.ac-list{position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--white);border:1px solid var(--g200);border-radius:6px;max-height:180px;overflow-y:auto;z-index:300;display:none;box-shadow:0 8px 24px rgba(0,0,0,0.08);}
+.ac-item{padding:9px 12px;font-size:13px;cursor:pointer;transition:background 0.1s;}
+.ac-item:hover{background:var(--off);}
+.ac-add{padding:9px 12px;font-size:12px;cursor:pointer;color:var(--g400);font-family:var(--mono);border-top:1px solid var(--g100);transition:background 0.1s;}
+.ac-add:hover{background:var(--off);color:var(--black);}
+
+/* BUTTONS */
+.btn-row{display:flex;align-items:center;gap:10px;margin-top:1.25rem;}
+.btn-primary{padding:10px 24px;background:var(--black);color:var(--white);border:none;font-family:var(--body);font-size:13px;font-weight:500;cursor:pointer;border-radius:6px;transition:opacity 0.15s;}
+.btn-primary:hover{opacity:0.8;}
+.btn-primary:disabled{opacity:0.35;cursor:not-allowed;}
+.btn-ghost{padding:10px 18px;background:transparent;color:var(--g600);border:1px solid var(--g200);font-family:var(--body);font-size:13px;cursor:pointer;border-radius:6px;transition:all 0.12s;}
+.btn-ghost:hover{border-color:var(--black);color:var(--black);}
+.feedback{margin-top:1rem;padding:10px 14px;border-radius:6px;font-family:var(--mono);font-size:12px;display:none;}
+.feedback.ok{background:#f0f8f0;color:#1e5c1e;border:1px solid #b8ddb8;display:block;}
+.feedback.err{background:#fdf0f0;color:#7a1f1f;border:1px solid #e8b8b8;display:block;}
+
+/* TABLE */
+.table-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:1rem;}
+.search-box{padding:8px 12px;border:1px solid var(--g200);border-radius:6px;font-family:var(--body);font-size:13px;outline:none;width:220px;transition:border-color 0.15s;}
+.search-box:focus{border-color:var(--black);}
+.tcount{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--g400);}
+.btn-refresh{padding:7px 12px;background:transparent;border:1px solid var(--g200);border-radius:6px;font-size:12px;cursor:pointer;color:var(--g600);transition:all 0.12s;font-family:var(--mono);}
+.btn-refresh:hover{border-color:var(--black);color:var(--black);}
+.table-wrap{overflow-x:auto;border:1px solid var(--g100);border-radius:10px;}
+table{width:100%;border-collapse:collapse;font-size:12px;}
+thead tr{border-bottom:1px solid var(--g100);background:var(--off);}
+th{text-align:left;padding:10px 12px;font-family:var(--mono);font-size:9px;letter-spacing:0.12em;text-transform:uppercase;color:var(--g400);font-weight:400;white-space:nowrap;}
+td{padding:10px 12px;border-bottom:1px solid var(--g100);vertical-align:middle;}
+tbody tr:last-child td{border-bottom:none;}
+tbody tr:hover td{background:var(--off);}
+.td-id{font-family:var(--mono);font-size:10px;color:var(--g400);white-space:nowrap;}
+.td-title{font-weight:500;min-width:160px;}
+.td-link a{font-family:var(--mono);font-size:10px;color:var(--black);text-decoration:underline;text-underline-offset:2px;}
+.td-audit{font-family:var(--mono);font-size:10px;color:var(--g400);white-space:nowrap;}
+.empty-td{text-align:center;padding:3rem !important;color:var(--g400);font-family:var(--mono);font-size:12px;}
+
+/* STATUS PILLS */
+.pill{display:inline-block;padding:3px 9px;border-radius:99px;font-size:10px;font-family:var(--mono);white-space:nowrap;}
+.p-draft{background:#f0efe9;color:#5a5850;border:1px solid #d4d3cb;}
+.p-review{background:#fff8e6;color:#7a5000;border:1px solid #f0d080;}
+.p-signings{background:#e8f0fc;color:#1a4a8a;border:1px solid #a8c4f0;}
+.p-signed{background:#edf8ee;color:#1a5c25;border:1px solid #90d4a0;}
+.p-active{background:#edf8ee;color:#1a5c25;border:1px solid #90d4a0;}
+.p-near{background:#fff3e0;color:#8a4000;border:1px solid #ffcc80;}
+.p-expired{background:#fdf0f0;color:#7a1f1f;border:1px solid #e8b8b8;}
+.status-inline{appearance:none;border:none;font-family:var(--mono);font-size:10px;cursor:pointer;outline:none;padding:3px 20px 3px 9px;border-radius:99px;background-repeat:no-repeat;background-position:right 6px center;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");}
+
+/* HOME */
+.home-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:1rem;margin-top:1rem;}
+.tool-card{border:1px solid var(--g100);border-radius:10px;padding:1.5rem;cursor:pointer;transition:all 0.15s;}
+.tool-card:hover{border-color:var(--black);background:var(--off);transform:translateY(-1px);}
+.tc-icon{font-size:24px;margin-bottom:1rem;display:block;}
+.tc-name{font-family:var(--head);font-size:15px;font-weight:600;color:var(--black);margin-bottom:4px;letter-spacing:-0.01em;}
+.tc-desc{font-size:12px;color:var(--g400);font-weight:300;line-height:1.5;}
+.tool-soon{border:1px dashed var(--g200);border-radius:10px;padding:1.5rem;opacity:0.45;}
+
+@media(max-width:768px){#loginScreen{grid-template-columns:1fr;}.login-left,.sidebar{display:none;}.stats-row{grid-template-columns:repeat(3,1fr);}.form-grid{grid-template-columns:1fr;}.page{padding:1.25rem;}}
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="loginScreen">
+  <div class="login-left">
+    <div class="l-brand">Sentra Internal Tools</div>
+    <div class="l-hero">
+      <div class="l-eye">Portal v1.0</div>
+      <h1 class="l-title">One place<br>for every<br>workflow.</h1>
+      <p class="l-desc">Agreement tracking, sales reports, royalty payments — semua terhubung ke Google Workspace kamu.</p>
+    </div>
+    <div class="l-foot">© 2026 Sentra · Internal Use Only</div>
+  </div>
+  <div class="login-right">
+    <div class="login-box">
+      <h2 class="lb-title">Selamat datang</h2>
+      <p class="lb-sub">Masukkan nama kamu untuk lanjut.</p>
+      <label class="lb-label">Nama kamu</label>
+      <input class="lb-input" type="text" id="loginName" placeholder="e.g. Luthfi" onkeydown="if(event.key==='Enter')doLogin()">
+      <button class="btn-login" onclick="doLogin()">Masuk →</button>
+      <div class="lb-err" id="loginErr"></div>
+      <p class="lb-note">Data tersimpan di Google Sheet bersama.<br>Semua tim melihat data yang sama secara real-time.</p>
+    </div>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app" style="display:none;flex-direction:column;min-height:100vh;">
+  <div class="topbar">
+    <div class="t-logo">Sentra</div>
+    <div class="t-sep"></div>
+    <div class="t-page" id="topbarPage">Internal Tools</div>
+    <div class="t-right">
+      <div class="user-chip"><div class="u-dot"></div><span class="u-name" id="userName">—</span></div>
+      <button class="btn-out" onclick="doLogout()">Keluar</button>
+    </div>
+  </div>
+
+  <div class="shell">
+    <nav class="sidebar">
+      <div class="sb-sec">
+        <div class="sb-label">Menu</div>
+        <div class="sb-item active" onclick="showPage('home',this)" id="nav-home">
+          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 6l6-4 6 4v8H2V6z"/><rect x="6" y="10" width="4" height="4"/></svg>Home
+        </div>
+      </div>
+      <div class="sb-sec">
+        <div class="sb-label">Trackers</div>
+        <div class="sb-item" onclick="showPage('agreement',this)" id="nav-agreement">
+          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="13" rx="1"/><line x1="5" y1="6" x2="11" y2="6"/><line x1="5" y1="9" x2="11" y2="9"/><line x1="5" y1="12" x2="8" y2="12"/></svg>Agreement
+        </div>
+        <div class="sb-soon"><svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="2,12 5,8 8,10 11,5 14,7"/></svg>Sales Report<span class="soon-tag">Soon</span></div>
+        <div class="sb-soon"><svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><line x1="8" y1="5" x2="8" y2="8"/><line x1="8" y1="8" x2="10" y2="10"/></svg>Royalty Payment<span class="soon-tag">Soon</span></div>
+      </div>
+    </nav>
+
+    <div class="content">
+      <!-- HOME -->
+      <div class="page active" id="page-home">
+        <div class="page-header">
+          <div>
+            <div class="page-title">Halo, <span id="greetName">—</span> 👋</div>
+            <div class="page-sub" id="greetDate">—</div>
+          </div>
+        </div>
+        <div class="sb-label" style="margin-bottom:1rem;">Tools yang tersedia</div>
+        <div class="home-grid">
+          <div class="tool-card" onclick="showPage('agreement',document.getElementById('nav-agreement'))">
+            <span class="tc-icon">📄</span>
+            <div class="tc-name">Agreement Tracker</div>
+            <div class="tc-desc">Submit dan pantau semua perjanjian, kontrak, dan kemitraan.</div>
+          </div>
+          <div class="tool-soon"><span class="tc-icon" style="opacity:0.3">📈</span><div class="tc-name" style="color:var(--g400)">Sales Report</div><div class="tc-desc">Coming soon</div></div>
+          <div class="tool-soon"><span class="tc-icon" style="opacity:0.3">💰</span><div class="tc-name" style="color:var(--g400)">Royalty Payment</div><div class="tc-desc">Coming soon</div></div>
+        </div>
+      </div>
+
+      <!-- AGREEMENT -->
+      <div class="page" id="page-agreement">
+        <div class="page-header">
+          <div>
+            <div class="page-title">Agreement Tracker</div>
+            <div class="page-sub">Submit dan kelola semua perjanjian dan kontrak.</div>
+          </div>
+          <div class="tab-bar">
+            <button class="tab-btn active" onclick="switchTab('new',this)">Entri Baru</button>
+            <button class="tab-btn" onclick="switchTab('list',this)">Semua Agreement</button>
+          </div>
+        </div>
+
+        <!-- STATS -->
+        <div class="stats-row">
+          <div class="stat-card"><div class="stat-num" id="s-total">—</div><div class="stat-lbl">Total</div></div>
+          <div class="stat-card"><div class="stat-num" id="s-draft">—</div><div class="stat-lbl">Draft</div></div>
+          <div class="stat-card"><div class="stat-num" id="s-review">—</div><div class="stat-lbl">Under Review</div></div>
+          <div class="stat-card"><div class="stat-num" id="s-signings">—</div><div class="stat-lbl">Signings</div></div>
+          <div class="stat-card"><div class="stat-num" id="s-signed">—</div><div class="stat-lbl">Signed</div></div>
+          <div class="stat-card warn"><div class="stat-num" id="s-near">—</div><div class="stat-lbl">Near Expiring</div></div>
+          <div class="stat-card danger"><div class="stat-num" id="s-expired">—</div><div class="stat-lbl">Expired</div></div>
+        </div>
+
+        <!-- FORM TAB -->
+        <div id="tab-new">
+          <div class="form-card">
+            <div class="form-sec">Detail Agreement</div>
+            <div class="form-grid">
+              <div class="fg full"><label>Agreement Title <span class="req">*</span></label><input type="text" id="f-title" placeholder="e.g. Distribution Agreement with PT Maju Jaya"></div>
+              <div class="fg"><label>Partner / Client <span class="req">*</span></label><input type="text" id="f-partner" placeholder="Nama perusahaan atau individu"></div>
+              <div class="fg"><label>PIC <span class="req">*</span></label><div class="ac-wrap"><input type="text" id="f-pic" placeholder="Penanggung jawab" autocomplete="off"><div class="ac-list" id="ac-pic"></div></div></div>
+              <div class="fg"><label>Related IP / Brand <span class="req">*</span></label><div class="ac-wrap"><input type="text" id="f-brand" placeholder="Ketik atau pilih dari history" autocomplete="off"><div class="ac-list" id="ac-brand"></div></div></div>
+              <div class="fg"><label>Revenue Stream <span class="req">*</span></label>
+                <select id="f-revenue">
+                  <option value="">Pilih revenue stream...</option>
+                  <option>SD&amp;Y</option><option>Lagaa</option><option>Marte</option>
+                </select>
+              </div>
+              <div class="fg"><label>Agreement Type <span class="req">*</span></label><div class="ac-wrap"><input type="text" id="f-type" placeholder="e.g. Licensing, Distribution" autocomplete="off"><div class="ac-list" id="ac-type"></div></div></div>
+              <div class="fg"><label>Status <span class="req">*</span></label>
+                <select id="f-status">
+                  <option value="">Pilih status...</option>
+                  <option>Draft</option><option>Under Review</option><option>Signings</option><option>Signed</option>
+                </select>
+              </div>
+              <div class="fg"><label>Start Date</label><input type="date" id="f-start"></div>
+              <div class="fg"><label>End Date</label><input type="date" id="f-end"></div>
+              <div class="fg full"><label>Link Agreement (Google Drive)</label><input type="url" id="f-link" placeholder="https://drive.google.com/..."></div>
+              <div class="fg full"><label>Email Thread Link</label><input type="url" id="f-email-link" placeholder="https://mail.google.com/..."></div>
+            </div>
+            <div class="btn-row">
+              <button class="btn-primary" id="submitBtn" onclick="submitAgreement()">Submit Agreement</button>
+              <button class="btn-ghost" onclick="clearForm()">Bersihkan</button>
+            </div>
+            <div class="feedback" id="feedback"></div>
+          </div>
+        </div>
+
+        <!-- LIST TAB -->
+        <div id="tab-list" style="display:none;">
+          <!-- FILTER BAR -->
+          <div class="filter-bar">
+            <span class="filter-bar-label">Filter</span>
+            <select class="f-select" id="fil-status" onchange="applyFilters()">
+              <option value="">Semua Status</option>
+              <option>Draft</option><option>Under Review</option><option>Signings</option><option>Signed</option>
+            </select>
+            <select class="f-select" id="fil-auto" onchange="applyFilters()">
+              <option value="">Semua Kondisi</option>
+              <option value="Near Expiring">Near Expiring</option>
+              <option value="Expired">Expired</option>
+              <option value="Active">Active</option>
+            </select>
+            <select class="f-select" id="fil-revenue" onchange="applyFilters()">
+              <option value="">Semua Revenue</option>
+              <option>SD&amp;Y</option><option>Lagaa</option><option>Marte</option>
+            </select>
+            <select class="f-select" id="fil-brand" onchange="applyFilters()">
+              <option value="">Semua Brand</option>
+            </select>
+            <select class="f-select" id="fil-pic" onchange="applyFilters()">
+              <option value="">Semua PIC</option>
+            </select>
+            <select class="f-select" id="fil-type" onchange="applyFilters()">
+              <option value="">Semua Tipe</option>
+            </select>
+            <button class="btn-clear-filter" onclick="clearFilters()">✕ Reset</button>
+          </div>
+
+          <div class="table-toolbar">
+            <input class="search-box" type="text" id="searchBox" placeholder="Cari judul, partner..." oninput="applyFilters()">
+            <button class="btn-refresh" onclick="loadAgreements()">↻ Refresh</button>
+            <div class="tcount" id="tcount">— entri</div>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th><th>Judul</th><th>Partner</th><th>PIC</th>
+                  <th>IP / Brand</th><th>Revenue</th><th>Tipe</th>
+                  <th>Mulai</th><th>Selesai</th>
+                  <th>Status</th><th>Kondisi</th>
+                  <th>Drive</th><th>Email</th>
+                  <th>Last Update</th>
+                </tr>
+              </thead>
+              <tbody id="tableBody">
+                <tr><td class="empty-td" colspan="14">Klik tab "Semua Agreement" untuk memuat data.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwBA8VlKGMKt48u4qlrKbLMDIWIhSkHCwvE7J0Ydl2qYtYoPZ1zKWRtdzse2BP7rPnF/exec";
+const MANUAL_STATUSES = ["Draft","Under Review","Signings","Signed"];
+
+let currentUser = "";
+let allRows = [];
+let acBrands = [], acTypes = [], acPics = [];
+
+// ── FORMAT DATE ──
+function fmtDate(val) {
+  if (!val) return "—";
+  const s = String(val);
+  // ISO format
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) {
+    const d = new Date(iso[0]+"T00:00:00");
+    return d.toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"});
+  }
+  // already readable
+  return s;
+}
+
+// ── AUTO STATUS ──
+function parseDate(val) {
+  if (!val || val === "—") return null;
+  // try direct parse first (ISO or standard)
+  let d = new Date(val);
+  if (!isNaN(d)) return d;
+  // try "dd MMM yyyy" e.g. "23 Oct 2025"
+  const m = String(val).match(/^(\d{1,2})\s+(\w+)\s+(\d{4})$/);
+  if (m) { d = new Date(`${m[2]} ${m[1]}, ${m[3]}`); if (!isNaN(d)) return d; }
+  return null;
+}
+
+function autoStatus(row) {
+  const endDate = parseDate(row.end);
+  if (!endDate) return "";
+  const now  = new Date(); now.setHours(0,0,0,0);
+  const diff = Math.ceil((endDate - now) / (1000*60*60*24));
+  if (diff < 0)   return "Expired";
+  if (diff <= 30) return "Near Expiring";
+  if (row.status === "Signed") return "Active";
+  return "";
+}
+
+// ── LOGIN ──
+function doLogin() {
+  const name = document.getElementById("loginName").value.trim();
+  if (!name) { document.getElementById("loginErr").textContent = "Masukkan nama kamu dulu."; return; }
+  currentUser = name;
+  document.getElementById("loginScreen").style.display = "none";
+  document.getElementById("app").style.display = "flex";
+  document.getElementById("userName").textContent  = name;
+  document.getElementById("greetName").textContent = name.split(" ")[0];
+  document.getElementById("greetDate").textContent = new Date().toLocaleDateString("id-ID",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
+  loadStats();
+}
+
+function doLogout() {
+  currentUser = ""; allRows = [];
+  document.getElementById("app").style.display = "none";
+  document.getElementById("loginScreen").style.display = "grid";
+  document.getElementById("loginName").value = "";
+}
+
+// ── API ──
+async function apiGet(params) {
+  const r = await fetch(SCRIPT_URL+"?"+new URLSearchParams(params));
+  return r.json();
+}
+async function apiPost(data) {
+  // use GET with params — more reliable from local HTML files
+  const params = { action:"submit", ...data };
+  const r = await fetch(SCRIPT_URL+"?"+new URLSearchParams(params));
+  return r.json();
+}
+
+// ── STATS ──
+function computeStats(rows) {
+  const count = fn => rows.filter(fn).length;
+  document.getElementById("s-total").textContent    = rows.length;
+  document.getElementById("s-draft").textContent    = count(r=>r.status==="Draft");
+  document.getElementById("s-review").textContent   = count(r=>r.status==="Under Review");
+  document.getElementById("s-signings").textContent = count(r=>r.status==="Signings");
+  document.getElementById("s-signed").textContent   = count(r=>r.status==="Signed");
+  document.getElementById("s-near").textContent     = count(r=>autoStatus(r)==="Near Expiring");
+  document.getElementById("s-expired").textContent  = count(r=>autoStatus(r)==="Expired");
+}
+
+async function loadStats() {
+  try {
+    const res = await apiGet({action:"list"});
+    if (res.success) computeStats(res.rows||[]);
+  } catch(e){}
+}
+
+// ── SUBMIT ──
+async function submitAgreement() {
+  const req = [["f-title","Agreement Title"],["f-partner","Partner / Client"],["f-pic","PIC"],["f-brand","Related IP / Brand"],["f-revenue","Revenue Stream"],["f-type","Agreement Type"],["f-status","Status"]];
+  for (const [id,label] of req) {
+    if (!document.getElementById(id).value.trim()) {
+      showFeedback(label+" wajib diisi.","err");
+      document.getElementById(id).focus();
+      return;
+    }
+  }
+  const btn = document.getElementById("submitBtn");
+  btn.disabled=true; btn.textContent="Menyimpan...";
+  try {
+    const data = {
+      title:     document.getElementById("f-title").value.trim(),
+      partner:   document.getElementById("f-partner").value.trim(),
+      pic:       document.getElementById("f-pic").value.trim(),
+      brand:     document.getElementById("f-brand").value.trim(),
+      revenue:   document.getElementById("f-revenue").value,
+      type:      document.getElementById("f-type").value.trim(),
+      status:    document.getElementById("f-status").value,
+      start:     document.getElementById("f-start").value,
+      end:       document.getElementById("f-end").value,
+      link:      document.getElementById("f-link").value.trim(),
+      emailLink: document.getElementById("f-email-link").value.trim(),
+      by:        currentUser
+    };
+    const res = await apiPost(data);
+    if (res.success) {
+      showFeedback("✓ Agreement tersimpan — ID: "+res.id,"ok");
+      if (!acBrands.includes(data.brand)) acBrands.push(data.brand);
+      if (!acTypes.includes(data.type))   acTypes.push(data.type);
+      if (!acPics.includes(data.pic))     acPics.push(data.pic);
+      clearForm(); loadStats();
+    } else { showFeedback("Gagal: "+res.error,"err"); }
+  } catch(e) { showFeedback("Koneksi gagal. Cek internet kamu.","err"); }
+  btn.disabled=false; btn.textContent="Submit Agreement";
+}
+
+function clearForm() {
+  ["f-title","f-partner","f-pic","f-brand","f-type","f-start","f-end","f-link","f-email-link"].forEach(id=>document.getElementById(id).value="");
+  document.getElementById("f-status").value="";
+  document.getElementById("f-revenue").value="";
+}
+
+function showFeedback(msg,type) {
+  const el=document.getElementById("feedback");
+  el.textContent=msg; el.className="feedback "+type;
+  if(type==="ok") setTimeout(()=>el.className="feedback",6000);
+}
+
+// ── LOAD TABLE ──
+async function loadAgreements() {
+  document.getElementById("tableBody").innerHTML=`<tr><td class="empty-td" colspan="14">Memuat data...</td></tr>`;
+  try {
+    const res = await apiGet({action:"list"});
+    if (!res.success) throw new Error(res.error);
+    allRows  = res.rows   || [];
+    acBrands = res.brands || [];
+    acTypes  = res.types  || [];
+    acPics   = res.pics   || [];
+    populateFilterDropdowns();
+    applyFilters();
+    computeStats(allRows);
+  } catch(e) {
+    document.getElementById("tableBody").innerHTML=`<tr><td class="empty-td" colspan="14">Gagal memuat: ${e.message}</td></tr>`;
+  }
+}
+
+function populateFilterDropdowns() {
+  const setOpts = (id, vals) => {
+    const sel = document.getElementById(id);
+    const cur = sel.value;
+    while(sel.options.length > 1) sel.remove(1);
+    vals.forEach(v => { const o=document.createElement("option"); o.value=o.textContent=v; sel.appendChild(o); });
+    if(cur) sel.value=cur;
+  };
+  setOpts("fil-brand", acBrands);
+  setOpts("fil-pic",   acPics);
+  setOpts("fil-type",  acTypes);
+}
+
+// ── FILTERS ──
+function applyFilters() {
+  const q        = (document.getElementById("searchBox").value||"").toLowerCase();
+  const fStatus  = document.getElementById("fil-status").value;
+  const fAuto    = document.getElementById("fil-auto").value;
+  const fRevenue = document.getElementById("fil-revenue").value;
+  const fBrand   = document.getElementById("fil-brand").value;
+  const fPic     = document.getElementById("fil-pic").value;
+  const fType    = document.getElementById("fil-type").value;
+
+  // highlight active filters
+  ["fil-status","fil-auto","fil-revenue","fil-brand","fil-pic","fil-type"].forEach(id=>{
+    const el=document.getElementById(id);
+    el.classList.toggle("active-filter", !!el.value);
+  });
+
+  const filtered = allRows.filter(r=>{
+    const as = autoStatus(r);
+    if(q       && ![r.title,r.partner,r.brand,r.pic,r.type].some(v=>(v||"").toLowerCase().includes(q))) return false;
+    if(fStatus  && r.status!==fStatus)   return false;
+    if(fAuto    && as!==fAuto)           return false;
+    if(fRevenue && r.revenue!==fRevenue) return false;
+    if(fBrand   && r.brand!==fBrand)     return false;
+    if(fPic     && r.pic!==fPic)         return false;
+    if(fType    && r.type!==fType)       return false;
+    return true;
+  });
+
+  computeStats(filtered);
+  renderTable(filtered);
+}
+
+function clearFilters() {
+  ["fil-status","fil-auto","fil-revenue","fil-brand","fil-pic","fil-type"].forEach(id=>{
+    document.getElementById(id).value="";
+    document.getElementById(id).classList.remove("active-filter");
+  });
+  document.getElementById("searchBox").value="";
+  computeStats(allRows);
+  renderTable(allRows);
+}
+
+// ── RENDER TABLE ──
+function pillClass(s) {
+  return {
+    "Draft":"p-draft","Under Review":"p-review",
+    "Signings":"p-signings","Signed":"p-signed",
+    "Active":"p-active","Near Expiring":"p-near","Expired":"p-expired"
+  }[s]||"p-draft";
+}
+
+function renderTable(rows) {
+  document.getElementById("tcount").textContent = rows.length+" entri";
+  const body = document.getElementById("tableBody");
+  if (!rows.length) { body.innerHTML=`<tr><td class="empty-td" colspan="14">Tidak ada data yang cocok.</td></tr>`; return; }
+  body.innerHTML = rows.map(r=>{
+    const as = autoStatus(r);
+    return `<tr>
+      <td class="td-id">${r.id||"—"}</td>
+      <td class="td-title">${r.title||"—"}</td>
+      <td>${r.partner||"—"}</td>
+      <td>${r.pic||"—"}</td>
+      <td>${r.brand||"—"}</td>
+      <td><span class="pill" style="background:#f0efe9;color:#5a5850;border:1px solid #d4d3cb">${r.revenue||"—"}</span></td>
+      <td style="color:var(--g600);font-size:11px">${r.type||"—"}</td>
+      <td style="font-family:var(--mono);font-size:10px;color:var(--g400)">${fmtDate(r.start)}</td>
+      <td style="font-family:var(--mono);font-size:10px;color:var(--g400)">${fmtDate(r.end)}</td>
+      <td>
+        <select class="pill status-inline ${pillClass(r.status)}" onchange="updateStatus(this,${r.rowIndex})">
+          ${MANUAL_STATUSES.map(s=>`<option ${s===r.status?"selected":""}>${s}</option>`).join("")}
+        </select>
+      </td>
+      <td>${as?`<span class="pill ${pillClass(as)}">${as}</span>`:"—"}</td>
+      <td class="td-link">${r.link?`<a href="${r.link}" target="_blank">Drive ↗</a>`:"—"}</td>
+      <td class="td-link">${r.emailLink?`<a href="${r.emailLink}" target="_blank">Email ↗</a>`:"—"}</td>
+      <td class="td-audit">${r.lastUpdate||"—"}<br><span style="color:var(--g400)">${r.lastBy||""}</span></td>
+    </tr>`;
+  }).join("");
+}
+
+// ── UPDATE STATUS ──
+async function updateStatus(sel, rowIndex) {
+  const newStatus = sel.value;
+  sel.className = `pill status-inline ${pillClass(newStatus)}`;
+  try {
+    const res = await apiGet({action:"updateStatus", rowIndex, status:newStatus, by:currentUser});
+    if (!res.success) { alert("Gagal update: "+res.error); return; }
+    const row = allRows.find(r=>r.rowIndex===rowIndex);
+    if (row) {
+      row.status = newStatus;
+      row.lastBy = currentUser;
+      row.lastUpdate = new Date().toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"});
+    }
+    applyFilters();
+  } catch(e) { alert("Koneksi gagal."); }
+}
+
+// ── NAVIGATION ──
+function showPage(name, el) {
+  document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
+  document.querySelectorAll(".sb-item").forEach(i=>i.classList.remove("active"));
+  document.getElementById("page-"+name).classList.add("active");
+  if(el) el.classList.add("active");
+  document.getElementById("topbarPage").textContent = name==="home"?"Internal Tools":name.charAt(0).toUpperCase()+name.slice(1)+" Tracker";
+  if(name==="agreement") loadStats();
+}
+
+function switchTab(name, el) {
+  document.querySelectorAll(".tab-btn").forEach(b=>b.classList.remove("active"));
+  el.classList.add("active");
+  document.getElementById("tab-new").style.display  = name==="new" ?"block":"none";
+  document.getElementById("tab-list").style.display = name==="list"?"block":"none";
+  if(name==="list") loadAgreements();
+}
+
+// ── AUTOCOMPLETE ──
+function setupAC(inpId, lstId, getOpts) {
+  const inp=document.getElementById(inpId), lst=document.getElementById(lstId);
+  inp.addEventListener("input",  ()=>renderAC(lst,inp,getOpts()));
+  inp.addEventListener("focus",  ()=>{ if(getOpts().length) renderAC(lst,inp,getOpts()); });
+  document.addEventListener("click",e=>{ if(!inp.contains(e.target)&&!lst.contains(e.target)) lst.style.display="none"; });
+}
+
+function renderAC(lst, inp, opts) {
+  const q=inp.value.toLowerCase(), m=opts.filter(o=>o.toLowerCase().includes(q));
+  let html = m.map(o=>`<div class="ac-item" onclick="pickAC('${o.replace(/'/g,"\\'")}','${inp.id}','${lst.id}')">${o}</div>`).join("");
+  if(inp.value.trim() && !opts.includes(inp.value.trim())) {
+    html += `<div class="ac-add" onclick="pickAC('${inp.value.trim().replace(/'/g,"\\'")}','${inp.id}','${lst.id}')">+ Tambah "${inp.value.trim()}"</div>`;
+  }
+  if(!html){lst.style.display="none";return;}
+  lst.innerHTML=html; lst.style.display="block";
+}
+
+function pickAC(val, inpId, lstId) {
+  document.getElementById(inpId).value=val;
+  document.getElementById(lstId).style.display="none";
+}
+
+setupAC("f-brand","ac-brand",()=>acBrands);
+setupAC("f-type","ac-type",()=>acTypes);
+setupAC("f-pic","ac-pic",()=>acPics);
+</script>
+</body>
+</html>
