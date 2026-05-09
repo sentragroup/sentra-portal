@@ -223,6 +223,15 @@ tbody tr:hover td{background:var(--off);}
         <div class="sb-soon"><svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="2,12 5,8 8,10 11,5 14,7"/></svg>Sales Report<span class="soon-tag">Soon</span></div>
         <div class="sb-soon"><svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><line x1="8" y1="5" x2="8" y2="8"/><line x1="8" y1="8" x2="10" y2="10"/></svg>Royalty Payment<span class="soon-tag">Soon</span></div>
       </div>
+      <div class="sb-sec">
+        <div class="sb-label">Database</div>
+        <div class="sb-item" onclick="showPage('ipmaster',this)" id="nav-ipmaster">
+          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><ellipse cx="8" cy="5" rx="6" ry="2.5"/><path d="M2 5v3c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5V5"/><path d="M2 8v3c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5V8"/></svg>IP Master
+        </div>
+        <div class="sb-item" onclick="showPage('recipients',this)" id="nav-recipients">
+          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="5" r="2.5"/><path d="M1 13c0-2.5 2-4 5-4"/><circle cx="12" cy="10" r="2.5"/><path d="M9 13c0-1.7 1.3-3 3-3s3 1.3 3 3"/></svg>Royalty Recipients
+        </div>
+      </div>
     </nav>
 
     <div class="content">
@@ -295,7 +304,7 @@ tbody tr:hover td{background:var(--off);}
               <div class="fg"><label>Start Date</label><input type="date" id="f-start"></div>
               <div class="fg"><label>End Date</label><input type="date" id="f-end"></div>
               <div class="fg full"><label>Link Agreement (Google Drive)</label><input type="url" id="f-link" placeholder="https://drive.google.com/..."></div>
-              <div class="fg full"><label>Email Thread Link</label><input type="url" id="f-email-link" placeholder="https://mail.google.com/..."></div>
+              <div class="fg full"><label>Email Chain</label><input type="url" id="f-email-link" placeholder="https://mail.google.com/..."></div>
             </div>
             <div class="btn-row">
               <button class="btn-primary" id="submitBtn" onclick="submitAgreement()">Submit Agreement</button>
@@ -350,7 +359,7 @@ tbody tr:hover td{background:var(--off);}
                   <th>IP / Brand</th><th>Revenue</th><th>Tipe</th>
                   <th>Mulai</th><th>Selesai</th>
                   <th>Status</th><th>Kondisi</th>
-                  <th>Drive</th><th>Email</th>
+                  <th>Drive</th><th>Email Chain</th>
                   <th>Last Update</th>
                 </tr>
               </thead>
@@ -360,6 +369,118 @@ tbody tr:hover td{background:var(--off);}
             </table>
           </div>
         </div>
+      <!-- IP MASTER -->
+      <div class="page" id="page-ipmaster">
+        <div class="page-header">
+          <div>
+            <div class="page-title">IP Master</div>
+            <div class="page-sub">Database semua IP dan Brand yang dikelola.</div>
+          </div>
+          <div class="tab-bar">
+            <button class="tab-btn active" onclick="switchIpTab('new',this)">Tambah IP</button>
+            <button class="tab-btn" onclick="switchIpTab('list',this)">Semua IP</button>
+          </div>
+        </div>
+        <div id="iptab-new">
+          <div class="form-card">
+            <div class="form-sec">Detail IP / Brand</div>
+            <div class="form-grid">
+              <div class="fg full"><label>IP / Brand Name <span class="req">*</span></label><input type="text" id="ip-name" placeholder="e.g. Cooluncle"></div>
+              <div class="fg full"><label>Revenue Stream <span class="req">*</span></label>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;" id="ip-revenue-checks">
+                  <label style="display:flex;align-items:center;gap:6px;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" value="SD&Y"> SD&Y</label>
+                  <label style="display:flex;align-items:center;gap:6px;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" value="Lagaa"> Lagaa</label>
+                  <label style="display:flex;align-items:center;gap:6px;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" value="Marte"> Marte</label>
+                </div>
+              </div>
+              <div class="fg full"><label>Related Agreement (ID, comma separated)</label><div class="ac-wrap"><input type="text" id="ip-agreements" placeholder="e.g. AGR-20260509-001, AGR-20260509-002" autocomplete="off"><div class="ac-list" id="ac-ip-agr"></div></div></div>
+              <div class="fg full"><label>Notes</label><input type="text" id="ip-notes" placeholder="Catatan tambahan"></div>
+            </div>
+            <div class="btn-row">
+              <button class="btn-primary" id="ipSubmitBtn" onclick="submitIP()">Simpan IP</button>
+              <button class="btn-ghost" onclick="clearIPForm()">Bersihkan</button>
+            </div>
+            <div class="feedback" id="ip-feedback"></div>
+          </div>
+        </div>
+        <div id="iptab-list" style="display:none;">
+          <div class="table-toolbar">
+            <input class="search-box" type="text" id="ipSearch" placeholder="Cari nama IP..." oninput="filterIPTable()">
+            <button class="btn-refresh" onclick="loadIPMaster()">↻ Refresh</button>
+            <div class="tcount" id="ip-tcount">— entri</div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>ID</th><th>IP / Brand</th><th>Revenue Stream</th><th>Related Agreement</th><th>Status</th><th>Notes</th></tr></thead>
+              <tbody id="ipTableBody"><tr><td class="empty-td" colspan="6">Klik "Semua IP" untuk memuat.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ROYALTY RECIPIENTS -->
+      <div class="page" id="page-recipients">
+        <div class="page-header">
+          <div>
+            <div class="page-title">Royalty Recipients</div>
+            <div class="page-sub">Database penerima royalty dan terms-nya.</div>
+          </div>
+          <div class="tab-bar">
+            <button class="tab-btn active" onclick="switchRRTab('new',this)">Tambah Penerima</button>
+            <button class="tab-btn" onclick="switchRRTab('list',this)">Semua Penerima</button>
+          </div>
+        </div>
+        <div id="rrtab-new">
+          <div class="form-card">
+            <div class="form-sec">Detail Penerima Royalty</div>
+            <div class="form-grid">
+              <div class="fg"><label>Nama Penerima <span class="req">*</span></label><input type="text" id="rr-name" placeholder="Nama lengkap"></div>
+              <div class="fg"><label>Tipe <span class="req">*</span></label><div class="ac-wrap"><input type="text" id="rr-tipe" placeholder="Artist, Collaborator, dll" autocomplete="off" oninput="togglePKS()"><div class="ac-list" id="ac-rr-tipe"></div></div></div>
+              <div class="fg"><label>Related IP <span class="req">*</span></label><div class="ac-wrap"><input type="text" id="rr-ip" placeholder="Pilih atau ketik IP baru" autocomplete="off"><div class="ac-list" id="ac-rr-ip"></div></div></div>
+              <div class="fg"><label>Royalty Type <span class="req">*</span></label>
+                <select id="rr-royalty-type">
+                  <option value="">Pilih tipe...</option>
+                  <option>Post-Sales</option>
+                  <option>Advance</option>
+                  <option>Both</option>
+                </select>
+              </div>
+              <div class="fg"><label>Percentage (%)</label><input type="number" id="rr-pct" placeholder="e.g. 10" step="0.1" min="0" max="100"></div>
+              <div class="fg"><label>Fixed Amount (IDR)</label><input type="number" id="rr-fixed" placeholder="e.g. 5000000"></div>
+              <div class="fg"><label>Termin <span class="req">*</span></label>
+                <select id="rr-termin">
+                  <option value="">Pilih termin...</option>
+                  <option>Per Bulan</option>
+                  <option>Per Quarter</option>
+                  <option>Per Tahun</option>
+                  <option>Per Akhir Project</option>
+                </select>
+              </div>
+              <div class="fg" id="rr-pks-wrap" style="display:none"><label>Link PKS (Google Drive)</label><input type="url" id="rr-pks" placeholder="https://drive.google.com/..."></div>
+              <div class="fg full"><label>Notes</label><input type="text" id="rr-notes" placeholder="Catatan tambahan"></div>
+            </div>
+            <div class="btn-row">
+              <button class="btn-primary" id="rrSubmitBtn" onclick="submitRR()">Simpan Penerima</button>
+              <button class="btn-ghost" onclick="clearRRForm()">Bersihkan</button>
+            </div>
+            <div class="feedback" id="rr-feedback"></div>
+          </div>
+        </div>
+        <div id="rrtab-list" style="display:none;">
+          <div class="table-toolbar">
+            <input class="search-box" type="text" id="rrSearch" placeholder="Cari nama penerima..." oninput="filterRRTable()">
+            <button class="btn-refresh" onclick="loadRecipients()">↻ Refresh</button>
+            <div class="tcount" id="rr-tcount">— entri</div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>ID</th><th>Nama</th><th>Tipe</th><th>Related IP</th><th>Royalty Type</th><th>Percentage</th><th>Fixed Amount</th><th>Termin</th><th>PKS</th><th>Notes</th></tr></thead>
+              <tbody id="rrTableBody"><tr><td class="empty-td" colspan="10">Klik "Semua Penerima" untuk memuat.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
       </div>
     </div>
   </div>
@@ -618,7 +739,7 @@ function renderTable(rows) {
       <td>${as?`<span class="pill ${pillClass(as)}">${as}</span>`:"—"}</td>
       <td class="td-link">${r.link?`<a href="${r.link}" target="_blank">Drive ↗</a>`:"—"}</td>
       <td class="td-link">${r.emailLink?`<a href="${r.emailLink}" target="_blank">Email ↗</a>`:"—"}</td>
-      <td class="td-audit">${r.lastUpdate||"—"}<br><span style="color:var(--g400)">${r.lastBy||""}</span></td>
+      <td class="td-audit">${r.lastUpdate?r.lastUpdate:"—"}${r.lastBy?`<br><span style="color:var(--g400);font-size:9px">${r.lastBy}</span>`:""}</td>
     </tr>`;
   }).join("");
 }
@@ -684,6 +805,205 @@ function pickAC(val, inpId, lstId) {
 setupAC("f-brand","ac-brand",()=>acBrands);
 setupAC("f-type","ac-type",()=>acTypes);
 setupAC("f-pic","ac-pic",()=>acPics);
+
+// ── IP MASTER STATE ──
+let allIPRows = [], acAgrIDs = [];
+let allRRRows = [], acRRTipes = [], acRRIPs = [];
+
+// ── IP MASTER TABS ──
+function switchIpTab(name, el) {
+  document.querySelectorAll("#page-ipmaster .tab-btn").forEach(b=>b.classList.remove("active"));
+  el.classList.add("active");
+  document.getElementById("iptab-new").style.display  = name==="new"  ? "block" : "none";
+  document.getElementById("iptab-list").style.display = name==="list" ? "block" : "none";
+  if(name==="list") loadIPMaster();
+}
+
+// ── RECIPIENTS TABS ──
+function switchRRTab(name, el) {
+  document.querySelectorAll("#page-recipients .tab-btn").forEach(b=>b.classList.remove("active"));
+  el.classList.add("active");
+  document.getElementById("rrtab-new").style.display  = name==="new"  ? "block" : "none";
+  document.getElementById("rrtab-list").style.display = name==="list" ? "block" : "none";
+  if(name==="list") loadRecipients();
+}
+
+// ── TOGGLE PKS FIELD ──
+function togglePKS() {
+  const tipe = document.getElementById("rr-tipe").value.trim().toLowerCase();
+  document.getElementById("rr-pks-wrap").style.display = tipe === "collaborator" ? "flex" : "none";
+}
+
+// ── SUBMIT IP ──
+async function submitIP() {
+  const name = document.getElementById("ip-name").value.trim();
+  if (!name) { showIPFeedback("IP / Brand Name wajib diisi.", "err"); return; }
+  const revenues = [...document.querySelectorAll("#ip-revenue-checks input:checked")].map(c=>c.value);
+  if (!revenues.length) { showIPFeedback("Pilih minimal satu Revenue Stream.", "err"); return; }
+
+  const btn = document.getElementById("ipSubmitBtn");
+  btn.disabled=true; btn.textContent="Menyimpan...";
+  try {
+    const res = await apiGet({
+      action:    "submitIP",
+      name,
+      revenue:   revenues.join(", "),
+      agreements:document.getElementById("ip-agreements").value.trim(),
+      notes:     document.getElementById("ip-notes").value.trim(),
+      by:        currentUser
+    });
+    if (res.success) {
+      showIPFeedback("✓ IP tersimpan — ID: "+res.id, "ok");
+      if (!acRRIPs.includes(name)) acRRIPs.push(name);
+      clearIPForm();
+      loadIPMaster();
+    } else { showIPFeedback("Gagal: "+res.error, "err"); }
+  } catch(e) { showIPFeedback("Koneksi gagal.", "err"); }
+  btn.disabled=false; btn.textContent="Simpan IP";
+}
+
+function clearIPForm() {
+  document.getElementById("ip-name").value="";
+  document.getElementById("ip-agreements").value="";
+  document.getElementById("ip-notes").value="";
+  document.querySelectorAll("#ip-revenue-checks input").forEach(c=>c.checked=false);
+}
+
+function showIPFeedback(msg, type) {
+  const el=document.getElementById("ip-feedback");
+  el.textContent=msg; el.className="feedback "+type;
+  if(type==="ok") setTimeout(()=>el.className="feedback",6000);
+}
+
+// ── LOAD IP MASTER ──
+async function loadIPMaster() {
+  document.getElementById("ipTableBody").innerHTML=`<tr><td class="empty-td" colspan="6">Memuat...</td></tr>`;
+  try {
+    const res = await apiGet({action:"listIP"});
+    if (!res.success) throw new Error(res.error);
+    allIPRows = res.rows || [];
+    acRRIPs   = allIPRows.map(r=>r.name).filter(Boolean);
+    acAgrIDs  = res.agrIDs || [];
+    renderIPTable(allIPRows);
+  } catch(e) {
+    document.getElementById("ipTableBody").innerHTML=`<tr><td class="empty-td" colspan="6">Gagal: ${e.message}</td></tr>`;
+  }
+}
+
+function renderIPTable(rows) {
+  document.getElementById("ip-tcount").textContent = rows.length+" entri";
+  const body = document.getElementById("ipTableBody");
+  if (!rows.length) { body.innerHTML=`<tr><td class="empty-td" colspan="6">Belum ada data.</td></tr>`; return; }
+  body.innerHTML = rows.map(r => {
+    const streams = (r.revenue||"").split(",").map(s=>s.trim()).filter(Boolean);
+    const agrs    = (r.agreements||"").split(",").map(s=>s.trim()).filter(Boolean);
+    const statusPill = r.ipStatus==="Active"
+      ? `<span class="pill p-active">Active</span>`
+      : r.ipStatus==="No Agreement"
+      ? `<span class="pill" style="background:#FFF8E6;color:#7a5000;border:0.5px solid #f0d080">⚠ No Agreement</span>`
+      : `<span class="pill p-expired">Inactive</span>`;
+    return `<tr>
+      <td class="td-id">${r.id||"—"}</td>
+      <td style="font-weight:500">${r.name||"—"}</td>
+      <td>${streams.map(s=>`<span class="pill" style="background:#EEEDFE;color:#3C3489;border:0.5px solid #AFA9EC;margin-right:3px">${s}</span>`).join("") || "—"}</td>
+      <td>${agrs.length ? agrs.map(a=>`<span class="pill" style="background:#E6F1FB;color:#0C447C;border:0.5px solid #85B7EB;margin-right:3px">${a}</span>`).join("") : '<span style="color:var(--g400);font-size:11px">—</span>'}</td>
+      <td>${statusPill}</td>
+      <td style="color:var(--g600);font-size:11px">${r.notes||"—"}</td>
+    </tr>`;
+  }).join("");
+}
+
+function filterIPTable() {
+  const q = document.getElementById("ipSearch").value.toLowerCase();
+  renderIPTable(allIPRows.filter(r=>!q || (r.name||"").toLowerCase().includes(q)));
+}
+
+// ── SUBMIT RECIPIENT ──
+async function submitRR() {
+  const req = [["rr-name","Nama Penerima"],["rr-tipe","Tipe"],["rr-ip","Related IP"],["rr-royalty-type","Royalty Type"],["rr-termin","Termin"]];
+  for (const [id,label] of req) {
+    if (!document.getElementById(id).value.trim()) { showRRFeedback(label+" wajib diisi.","err"); document.getElementById(id).focus(); return; }
+  }
+  const btn = document.getElementById("rrSubmitBtn");
+  btn.disabled=true; btn.textContent="Menyimpan...";
+  try {
+    const tipe = document.getElementById("rr-tipe").value.trim();
+    const res = await apiGet({
+      action:      "submitRR",
+      name:        document.getElementById("rr-name").value.trim(),
+      tipe,
+      ip:          document.getElementById("rr-ip").value.trim(),
+      royaltyType: document.getElementById("rr-royalty-type").value,
+      pct:         document.getElementById("rr-pct").value.trim(),
+      fixed:       document.getElementById("rr-fixed").value.trim(),
+      termin:      document.getElementById("rr-termin").value,
+      pks:         tipe.toLowerCase()==="collaborator" ? document.getElementById("rr-pks").value.trim() : "",
+      notes:       document.getElementById("rr-notes").value.trim(),
+      by:          currentUser
+    });
+    if (res.success) {
+      showRRFeedback("✓ Penerima tersimpan — ID: "+res.id, "ok");
+      if (!acRRTipes.includes(tipe)) acRRTipes.push(tipe);
+      clearRRForm();
+    } else { showRRFeedback("Gagal: "+res.error, "err"); }
+  } catch(e) { showRRFeedback("Koneksi gagal.", "err"); }
+  btn.disabled=false; btn.textContent="Simpan Penerima";
+}
+
+function clearRRForm() {
+  ["rr-name","rr-tipe","rr-ip","rr-pct","rr-fixed","rr-pks","rr-notes"].forEach(id=>document.getElementById(id).value="");
+  document.getElementById("rr-royalty-type").value="";
+  document.getElementById("rr-termin").value="";
+  document.getElementById("rr-pks-wrap").style.display="none";
+}
+
+function showRRFeedback(msg, type) {
+  const el=document.getElementById("rr-feedback");
+  el.textContent=msg; el.className="feedback "+type;
+  if(type==="ok") setTimeout(()=>el.className="feedback",6000);
+}
+
+// ── LOAD RECIPIENTS ──
+async function loadRecipients() {
+  document.getElementById("rrTableBody").innerHTML=`<tr><td class="empty-td" colspan="10">Memuat...</td></tr>`;
+  try {
+    const res = await apiGet({action:"listRR"});
+    if (!res.success) throw new Error(res.error);
+    allRRRows  = res.rows || [];
+    acRRTipes  = res.tipes || [];
+    renderRRTable(allRRRows);
+  } catch(e) {
+    document.getElementById("rrTableBody").innerHTML=`<tr><td class="empty-td" colspan="10">Gagal: ${e.message}</td></tr>`;
+  }
+}
+
+function renderRRTable(rows) {
+  document.getElementById("rr-tcount").textContent = rows.length+" entri";
+  const body = document.getElementById("rrTableBody");
+  if (!rows.length) { body.innerHTML=`<tr><td class="empty-td" colspan="10">Belum ada data.</td></tr>`; return; }
+  body.innerHTML = rows.map(r=>`<tr>
+    <td class="td-id">${r.id||"—"}</td>
+    <td style="font-weight:500">${r.name||"—"}</td>
+    <td><span class="pill p-draft">${r.tipe||"—"}</span></td>
+    <td>${r.ip?`<span class="pill" style="background:#E6F1FB;color:#0C447C;border:0.5px solid #85B7EB">${r.ip}</span>`:"—"}</td>
+    <td><span class="pill ${r.royaltyType==="Post-Sales"?"p-active":r.royaltyType==="Advance"?"p-near":"p-signings"}">${r.royaltyType||"—"}</span></td>
+    <td>${r.pct ? r.pct+"%" : "—"}</td>
+    <td>${r.fixed ? "Rp "+Number(r.fixed).toLocaleString("id-ID") : "—"}</td>
+    <td style="font-size:11px">${r.termin||"—"}</td>
+    <td class="td-link">${r.pks?`<a href="${r.pks}" target="_blank">PKS ↗</a>`:"—"}</td>
+    <td style="color:var(--g600);font-size:11px">${r.notes||"—"}</td>
+  </tr>`).join("");
+}
+
+function filterRRTable() {
+  const q = document.getElementById("rrSearch").value.toLowerCase();
+  renderRRTable(allRRRows.filter(r=>!q||[r.name,r.ip,r.tipe].some(v=>(v||"").toLowerCase().includes(q))));
+}
+
+// ── AUTOCOMPLETE FOR NEW PAGES ──
+setupAC("ip-agreements","ac-ip-agr",()=>acAgrIDs);
+setupAC("rr-tipe","ac-rr-tipe",()=>acRRTipes);
+setupAC("rr-ip","ac-rr-ip",()=>acRRIPs);
 </script>
 </body>
 </html>
