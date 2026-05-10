@@ -438,6 +438,7 @@ tbody tr:hover td{background:var(--off);}
                 <div style="font-size:11px;color:var(--g400);margin-top:3px;font-family:var(--mono)">Pilih agreement → link Drive tersimpan otomatis</div>
               </div>
               <div class="fg full"><label>Notes</label><input type="text" id="rr-notes" placeholder="Catatan tambahan"></div>
+              <div class="fg"><label>PIC</label><div class="ac-wrap"><input type="text" id="rr-pic" placeholder="Nama PIC..." autocomplete="off"><div class="ac-list" id="ac-rr-pic"></div></div></div>
             </div>
             <div class="btn-row">
               <button class="btn-primary" id="rrSubmitBtn" onclick="submitRR()">Simpan Penerima</button>
@@ -463,8 +464,8 @@ tbody tr:hover td{background:var(--off);}
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>ID</th><th>Nama</th><th>Tipe</th><th>Related IP</th><th>Royalty Type</th><th>Percentage</th><th>Fixed Amount</th><th>Termin</th><th>PKS</th><th>Notes</th><th></th></tr></thead>
-              <tbody id="rrTableBody"><tr><td class="empty-td" colspan="11">Klik "Semua Penerima" untuk memuat.</td></tr></tbody>
+              <thead><tr><th>ID</th><th>Nama</th><th>Tipe</th><th>PIC</th><th>Related IP</th><th>Royalty Type</th><th>Percentage</th><th>Fixed Amount</th><th>Termin</th><th>PKS</th><th>Notes</th><th></th></tr></thead>
+              <tbody id="rrTableBody"><tr><td class="empty-td" colspan="12">Klik "Semua Penerima" untuk memuat.</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -922,6 +923,7 @@ setupAC("ip-category","ac-ip-category",()=>acIPCategories);
 setupAC("ip-pic","ac-ip-pic",()=>acPics);
 setupAC("rr-tipe","ac-rr-tipe",()=>acRRTipes);
 setupAC("rr-ip","ac-rr-ip",()=>acRRIPs);
+setupAC("rr-pic","ac-rr-pic",()=>acPics);
 
 // ── AGREEMENT ──
 function computeStats(rows) {
@@ -1224,7 +1226,7 @@ async function submitRR() {
     const tipe=document.getElementById("rr-tipe").value.trim();
     const pksInp = document.getElementById("rr-pks");
     const pksLink = tipe.toLowerCase()==="collaborator" ? (pksInp.dataset.driveLink || acAgrLinks[pksInp.value.trim()] || pksInp.value.trim()) : "";
-    const res=await apiGet({action:"submitRR",name:document.getElementById("rr-name").value.trim(),tipe,ip:document.getElementById("rr-ip").value.trim(),royaltyType:document.getElementById("rr-royalty-type").value,pct:document.getElementById("rr-pct").value.trim(),fixed:document.getElementById("rr-fixed").value.trim(),termin:document.getElementById("rr-termin").value,pks:pksLink,notes:document.getElementById("rr-notes").value.trim(),by:currentUser});
+    const res=await apiGet({action:"submitRR",name:document.getElementById("rr-name").value.trim(),tipe,ip:document.getElementById("rr-ip").value.trim(),royaltyType:document.getElementById("rr-royalty-type").value,pct:document.getElementById("rr-pct").value.trim(),fixed:document.getElementById("rr-fixed").value.trim(),termin:document.getElementById("rr-termin").value,pks:pksLink,notes:document.getElementById("rr-notes").value.trim(),pic:document.getElementById("rr-pic").value.trim(),by:currentUser});
     if(res.success){showRRFeedback("✓ Penerima tersimpan — ID: "+res.id,"ok");if(!acRRTipes.includes(tipe))acRRTipes.push(tipe);clearRRForm();}
     else{showRRFeedback("Gagal: "+res.error,"err");}
   } catch(e){showRRFeedback("Koneksi gagal.","err");}
@@ -1232,7 +1234,7 @@ async function submitRR() {
 }
 
 function clearRRForm() {
-  ["rr-name","rr-tipe","rr-ip","rr-pct","rr-fixed","rr-pks","rr-notes"].forEach(id=>document.getElementById(id).value="");
+  ["rr-name","rr-tipe","rr-ip","rr-pct","rr-fixed","rr-pks","rr-notes","rr-pic"].forEach(id=>document.getElementById(id).value="");
   const pksEl = document.getElementById("rr-pks"); if(pksEl) pksEl.dataset.driveLink="";
   document.getElementById("rr-royalty-type").value=""; document.getElementById("rr-termin").value=""; document.getElementById("rr-pks-wrap").style.display="none";
 }
@@ -1284,10 +1286,11 @@ function clearRRFilters() {
 function renderRRTable(rows) {
   document.getElementById("rr-tcount").textContent=rows.length+" entri";
   const body=document.getElementById("rrTableBody");
-  if(!rows.length){body.innerHTML=`<tr><td class="empty-td" colspan="11">Belum ada data.</td></tr>`;return;}
+  if(!rows.length){body.innerHTML=`<tr><td class="empty-td" colspan="12">Belum ada data.</td></tr>`;return;}
   body.innerHTML=rows.map(r=>`<tr>
     <td class="td-id">${r.id||"—"}</td><td style="font-weight:500">${r.name||"—"}</td>
     <td><span class="pill p-draft">${r.tipe||"—"}</span></td>
+    <td style="font-size:11px;color:var(--g600)">${r.pic||"—"}</td>
     <td>${r.ip?`<span class="pill" style="background:#E6F1FB;color:#0C447C;border:0.5px solid #85B7EB">${r.ip}</span>`:"—"}</td>
     <td><span class="pill ${r.royaltyType==="Post-Sales"?"p-active":r.royaltyType==="Advance"?"p-near":"p-signings"}">${r.royaltyType||"—"}</span></td>
     <td>${r.pct?r.pct+"%":"—"}</td><td>${r.fixed?"Rp "+Number(r.fixed).toLocaleString("id-ID"):"—"}</td>
@@ -1296,7 +1299,7 @@ function renderRRTable(rows) {
     <td style="color:var(--g600);font-size:11px">${r.notes||"—"}</td>
     <td><button class="btn-icon" onclick="openRREdit(${r.rowIndex})">Edit</button></td>
   </tr>
-  <tr id="rr-edit-row-${r.rowIndex}" style="display:none"><td colspan="11" style="padding:0 12px 12px;">
+  <tr id="rr-edit-row-${r.rowIndex}" style="display:none"><td colspan="12" style="padding:0 12px 12px;">
     <div class="edit-row-form">
       <div class="edit-row-grid">
         <div class="fg"><label>Nama</label><input type="text" id="rr-e-name-${r.rowIndex}" value="${r.name||""}"></div>
@@ -1308,6 +1311,7 @@ function renderRRTable(rows) {
         <div class="fg"><label>Termin</label><select id="rr-e-termin-${r.rowIndex}"><option ${r.termin==="Per Bulan"?"selected":""}>Per Bulan</option><option ${r.termin==="Per Quarter"?"selected":""}>Per Quarter</option><option ${r.termin==="Per Tahun"?"selected":""}>Per Tahun</option><option ${r.termin==="Per Akhir Project"?"selected":""}>Per Akhir Project</option></select></div>
         <div class="fg"><label>Link PKS</label><input type="url" id="rr-e-pks-${r.rowIndex}" value="${r.pks||""}"></div>
         <div class="fg"><label>Notes</label><input type="text" id="rr-e-notes-${r.rowIndex}" value="${r.notes||""}"></div>
+        <div class="fg"><label>PIC</label><input type="text" id="rr-e-pic-${r.rowIndex}" value="${r.pic||""}"></div>
       </div>
       <div class="edit-row-btns"><button class="btn-save" onclick="saveRREdit(${r.rowIndex})">Simpan</button><button class="btn-cancel" onclick="closeRREdit(${r.rowIndex})">Batal</button></div>
     </div>
@@ -1319,7 +1323,7 @@ function closeRREdit(rowIndex){document.getElementById("rr-edit-row-"+rowIndex).
 
 async function saveRREdit(rowIndex) {
   try {
-    const res=await apiGet({action:"updateRR",rowIndex,name:document.getElementById("rr-e-name-"+rowIndex).value.trim(),tipe:document.getElementById("rr-e-tipe-"+rowIndex).value.trim(),ip:document.getElementById("rr-e-ip-"+rowIndex).value.trim(),royaltyType:document.getElementById("rr-e-type-"+rowIndex).value,pct:document.getElementById("rr-e-pct-"+rowIndex).value.trim(),fixed:document.getElementById("rr-e-fixed-"+rowIndex).value.trim(),termin:document.getElementById("rr-e-termin-"+rowIndex).value,pks:document.getElementById("rr-e-pks-"+rowIndex).value.trim(),notes:document.getElementById("rr-e-notes-"+rowIndex).value.trim(),by:currentUser});
+    const res=await apiGet({action:"updateRR",rowIndex,name:document.getElementById("rr-e-name-"+rowIndex).value.trim(),tipe:document.getElementById("rr-e-tipe-"+rowIndex).value.trim(),ip:document.getElementById("rr-e-ip-"+rowIndex).value.trim(),royaltyType:document.getElementById("rr-e-type-"+rowIndex).value,pct:document.getElementById("rr-e-pct-"+rowIndex).value.trim(),fixed:document.getElementById("rr-e-fixed-"+rowIndex).value.trim(),termin:document.getElementById("rr-e-termin-"+rowIndex).value,pks:document.getElementById("rr-e-pks-"+rowIndex).value.trim(),notes:document.getElementById("rr-e-notes-"+rowIndex).value.trim(),pic:document.getElementById("rr-e-pic-"+rowIndex).value.trim(),by:currentUser});
     if(res.success){closeRREdit(rowIndex);loadRecipients();}
     else alert("Gagal simpan: "+res.error);
   } catch(e){alert("Koneksi gagal.");}

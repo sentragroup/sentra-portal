@@ -22,7 +22,7 @@ const SHEETS = {
 const HEADERS = {
   agreements:    ["ID","Date Submitted","Agreement Title","Partner/Client","PIC","Related IP / Brand","Revenue Stream","Agreement Type","Start Date","End Date","Status","Link Agreement","Email Thread Link","Submitted By","Last Updated","Last Updated By"],
   ip_master:     ["ID","IP / Brand Name","Category","Live Status","Revenue Stream","Related Agreement","Royalty Type","Percentage","Fixed Amount","Termin","PPh Tax Rate","Notes","Date Added","Added By","PIC"],
-  recipients:    ["ID","Nama Penerima","Tipe","Related IP","Royalty Type","Percentage","Fixed Amount","Termin","Link PKS","Notes","Date Added","Added By"],
+  recipients:    ["ID","Nama Penerima","Tipe","Related IP","Royalty Type","Percentage","Fixed Amount","Termin","Link PKS","Notes","Date Added","Added By","PIC"],
   brand_master:  ["ID","IP / Brand Name","Category","Live Status","Revenue Stream","Related Agreement","Apparel Rate","Accessories Rate","Collectible Rate","Preloved Goods Rate","Wellness Rate","Others Rate","Notes","Date Added","Added By","PIC"],
   sr_reports:    ["Brand ID","Brand Name","Month Index","Link","Notes","Submitted By","Submitted At"],
   sr_startdates: ["Brand ID","Brand Name","Start Date","Set By","Set At"],
@@ -104,7 +104,7 @@ function doGet(e) {
       const now=new Date(),tz=Session.getScriptTimeZone();
       const sheet=getSheet(SHEETS.recipients);
       const id="RR-"+Utilities.formatDate(now,tz,"yyyyMMdd")+"-"+String(sheet.getLastRow()).padStart(3,"0");
-      sheet.appendRow([id,p.name||"",p.tipe||"",p.ip||"",p.royaltyType||"",p.pct||"",p.fixed||"",p.termin||"",p.pks||"",p.notes||"",Utilities.formatDate(now,tz,"dd MMM yyyy HH:mm"),p.by||""]);
+      sheet.appendRow([id,p.name||"",p.tipe||"",p.ip||"",p.royaltyType||"",p.pct||"",p.fixed||"",p.termin||"",p.pks||"",p.notes||"",Utilities.formatDate(now,tz,"dd MMM yyyy HH:mm"),p.by||"",p.pic||""]);
       clearCache(CACHE_KEY_RR);return output({success:true,id});
     }
     if(action==="listRR") {
@@ -121,6 +121,7 @@ function doGet(e) {
       sheet.getRange(row,6).setValue(p.pct||"");sheet.getRange(row,7).setValue(p.fixed||"");
       sheet.getRange(row,8).setValue(p.termin||"");sheet.getRange(row,9).setValue(p.pks||"");
       sheet.getRange(row,10).setValue(p.notes||"");
+      sheet.getRange(row,13).setValue(p.pic||"");
       clearCache(CACHE_KEY_RR);return output({success:true});
     }
 
@@ -363,7 +364,7 @@ function buildRRList() {
   const rows=data.slice(1).filter(r=>r[0]).map((r,i)=>({
     rowIndex:i+2,id:String(r[0]||""),name:String(r[1]||""),tipe:String(r[2]||""),
     ip:String(r[3]||""),royaltyType:String(r[4]||""),pct:String(r[5]||""),
-    fixed:String(r[6]||""),termin:String(r[7]||""),pks:String(r[8]||""),notes:String(r[9]||"")
+    fixed:String(r[6]||""),termin:String(r[7]||""),pks:String(r[8]||""),notes:String(r[9]||""),pic:String(r[12]||"")
   }));
   return{success:true,rows,tipes:[...new Set(rows.map(r=>r.tipe).filter(Boolean))]};
 }
@@ -401,7 +402,7 @@ function buildSRList() {
 
   // 3. Royalty Recipients - all (no status field yet)
   const rrSheet=getSheet(SHEETS.recipients),rrData=rrSheet.getDataRange().getValues();
-  rrData.slice(1).filter(r=>r[0]).forEach(r=>addBrand(String(r[0]),String(r[1]||""),String(r[4]||""),"CR",""));
+  rrData.slice(1).filter(r=>r[0]).forEach(r=>addBrand(String(r[0]),String(r[1]||""),String(r[4]||""),"CR",String(r[12]||"")));
 
   // 4. Distribution Partners - Consignment type, Live Active
   const dpSheet=getSheet(SHEETS.dist_partners),dpData=dpSheet.getDataRange().getValues();
