@@ -1676,6 +1676,7 @@ function renderSRGrid() {
   }
 
   tbody.innerHTML = srFiltered.map(b=>{
+    const srcLabel  = {BM:"Brand Master",IP:"IP Master",CR:"Collaborator",DP:"Consignment"}[b.source]||b.source;
     const startLabel = b.startDate ? fmtDate(b.startDate) : `<button class="btn-icon" onclick="openSDModal('${b.id}','${b.name.replace(/'/g,"\'")}')">+ Set</button>`;
     const cells = months.map(m=>{
       const due  = isCellDue(b, m.idx);
@@ -1696,7 +1697,6 @@ function renderSRGrid() {
 
     const revStreams = (b.revenue||"").split(",").map(s=>s.trim()).filter(Boolean);
     const revBadge  = revStreams.map(s=>`<span class="pill" style="background:#EEEDFE;color:#3C3489;border:0.5px solid #AFA9EC;font-size:9px;padding:1px 6px;">${s}</span>`).join(" ");
-    const srcLabel  = {BM:"Brand Master",IP:"IP Master",CR:"Collaborator",DP:"Consignment"}[b.source]||b.source;
 
     return `<tr>
       <td style="position:sticky;left:0;background:var(--white);z-index:1;border-right:1px solid var(--g100);">
