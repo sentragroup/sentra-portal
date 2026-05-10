@@ -400,9 +400,14 @@ function buildSRList() {
   const ipSheet=getSheet(SHEETS.ip_master),ipData=ipSheet.getDataRange().getValues();
   ipData.slice(1).filter(r=>r[0]&&String(r[3]||"Active").trim()==="Active").forEach(r=>addBrand(String(r[0]),String(r[1]||""),String(r[4]||""),"IP",String(r[14]||"")));
 
-  // 3. Royalty Recipients - all (no status field yet)
+  // 3. Royalty Recipients - deduplicated by Related IP (r[3])
   const rrSheet=getSheet(SHEETS.recipients),rrData=rrSheet.getDataRange().getValues();
-  rrData.slice(1).filter(r=>r[0]).forEach(r=>addBrand(String(r[0]),String(r[1]||""),String(r[4]||""),"CR",String(r[12]||"")));
+  const crIPSeen={};
+  rrData.slice(1).filter(r=>r[0]&&String(r[3]||"").trim()).forEach(r=>{
+    const ipName=String(r[3]||"").trim();
+    const key=ipName.toLowerCase();
+    if(!crIPSeen[key]){crIPSeen[key]=true;addBrand(String(r[0]),ipName,""  ,"CR",String(r[12]||""));}
+  });
 
   // 4. Distribution Partners - Consignment type, Live Active
   const dpSheet=getSheet(SHEETS.dist_partners),dpData=dpSheet.getDataRange().getValues();
