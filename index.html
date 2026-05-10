@@ -1039,8 +1039,55 @@ function renderTable(rows) {
     <td class="td-link">${r.emailLink?`<a href="${r.emailLink}" target="_blank">Email ↗</a>`:"—"}</td>
     <td style="color:var(--g600);font-size:11px;max-width:160px;">${r.notes||"—"}</td>
     <td class="td-audit">${r.lastUpdate||"—"}${r.lastBy?`<br><span style="color:var(--g400);font-size:9px">${r.lastBy}</span>`:""}</td>
-    <td><button class="btn-icon" style="color:#c0392b;" onclick="deleteAgreement(${r.rowIndex})">Del</button></td>
-  </tr>`;}).join("");
+    <td><button class="btn-icon" onclick="openAgrEdit(${r.rowIndex})">Edit</button> <button class="btn-icon" style="color:#c0392b;" onclick="deleteAgreement(${r.rowIndex})">Del</button></td>
+  </tr>
+  <tr id="agr-edit-row-${r.rowIndex}" style="display:none"><td colspan="16" style="padding:0 12px 12px;">
+    <div class="edit-row-form">
+      <div class="edit-row-grid">
+        <div class="fg full"><label>Agreement Title</label><input type="text" id="agr-e-title-${r.rowIndex}" value="${r.title||""}"></div>
+        <div class="fg"><label>Partner / Client</label><input type="text" id="agr-e-partner-${r.rowIndex}" value="${r.partner||""}"></div>
+        <div class="fg"><label>PIC</label><input type="text" id="agr-e-pic-${r.rowIndex}" value="${r.pic||""}"></div>
+        <div class="fg"><label>Related IP / Brand</label><input type="text" id="agr-e-brand-${r.rowIndex}" value="${r.brand||""}"></div>
+        <div class="fg"><label>Revenue Stream</label><select id="agr-e-revenue-${r.rowIndex}"><option value="" ${!r.revenue?"selected":""}>—</option><option ${r.revenue==="SD&Y"?"selected":""}>SD&Y</option><option ${r.revenue==="Lagaa"?"selected":""}>Lagaa</option><option ${r.revenue==="Marte"?"selected":""}>Marte</option></select></div>
+        <div class="fg"><label>Agreement Type</label><input type="text" id="agr-e-type-${r.rowIndex}" value="${r.type||""}"></div>
+        <div class="fg"><label>Status</label><select id="agr-e-status-${r.rowIndex}">${MANUAL_STATUSES.map(s=>`<option ${s===r.status?"selected":""}>${s}</option>`).join("")}</select></div>
+        <div class="fg"><label>Start Date</label><input type="text" id="agr-e-start-${r.rowIndex}" value="${r.start||""}" placeholder="e.g. 01 Jan 2025"></div>
+        <div class="fg"><label>End Date</label><input type="text" id="agr-e-end-${r.rowIndex}" value="${r.end||""}" placeholder="e.g. 31 Dec 2025"></div>
+        <div class="fg full"><label>Link Agreement</label><input type="url" id="agr-e-link-${r.rowIndex}" value="${r.link||""}"></div>
+        <div class="fg full"><label>Email Chain</label><input type="url" id="agr-e-email-${r.rowIndex}" value="${r.emailLink||""}"></div>
+        <div class="fg full"><label>Notes</label><input type="text" id="agr-e-notes-${r.rowIndex}" value="${r.notes||""}"></div>
+      </div>
+      <div class="edit-row-btns">
+        <button class="btn-save" onclick="saveAgrEdit(${r.rowIndex})">Simpan</button>
+        <button class="btn-cancel" onclick="closeAgrEdit(${r.rowIndex})">Batal</button>
+      </div>
+    </div>
+  </td></tr>`;}).join("");
+}
+
+function openAgrEdit(rowIndex){document.querySelectorAll("[id^='agr-edit-row-']").forEach(el=>el.style.display="none");document.getElementById("agr-edit-row-"+rowIndex).style.display="table-row";}
+function closeAgrEdit(rowIndex){document.getElementById("agr-edit-row-"+rowIndex).style.display="none";}
+
+async function saveAgrEdit(rowIndex) {
+  try {
+    const res=await apiGet({action:"updateAgreement",rowIndex,
+      title:    document.getElementById("agr-e-title-"+rowIndex).value.trim(),
+      partner:  document.getElementById("agr-e-partner-"+rowIndex).value.trim(),
+      pic:      document.getElementById("agr-e-pic-"+rowIndex).value.trim(),
+      brand:    document.getElementById("agr-e-brand-"+rowIndex).value.trim(),
+      revenue:  document.getElementById("agr-e-revenue-"+rowIndex).value,
+      type:     document.getElementById("agr-e-type-"+rowIndex).value.trim(),
+      status:   document.getElementById("agr-e-status-"+rowIndex).value,
+      start:    document.getElementById("agr-e-start-"+rowIndex).value.trim(),
+      end:      document.getElementById("agr-e-end-"+rowIndex).value.trim(),
+      link:     document.getElementById("agr-e-link-"+rowIndex).value.trim(),
+      emailLink:document.getElementById("agr-e-email-"+rowIndex).value.trim(),
+      notes:    document.getElementById("agr-e-notes-"+rowIndex).value.trim(),
+      by:       currentUser
+    });
+    if(res.success){closeAgrEdit(rowIndex);loadAgreements();}
+    else alert("Gagal simpan: "+res.error);
+  } catch(e){alert("Koneksi gagal.");}
 }
 
 async function deleteAgreement(rowIndex) {
