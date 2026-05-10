@@ -494,6 +494,7 @@ tbody tr:hover td{background:var(--off);}
               <option value="8">Sep 2026</option><option value="9">Okt 2026</option><option value="10">Nov 2026</option><option value="11">Des 2026</option>
             </select>
             <select class="f-select" id="sr-fil-status" onchange="applySRFilters()"><option value="">Semua Status</option><option value="missing">Ada Missing</option><option value="complete">Complete</option></select>
+            <select class="f-select" id="sr-fil-source" onchange="applySRFilters()"><option value="">Semua Sumber</option><option value="BM">Brand Master</option><option value="IP">IP Master</option><option value="CR">Collaborator</option><option value="DP">Consignment</option></select>
             <select class="f-select" id="sr-fil-pic" onchange="applySRFilters()"><option value="">Semua PIC</option></select>
             <input class="search-box" type="text" id="srSearch" placeholder="Cari nama brand..." oninput="applySRFilters()" style="width:100%">
           </div>
@@ -1581,7 +1582,8 @@ function applySRFilters() {
   const fMonth  = document.getElementById("sr-fil-month").value;
   const fStatus = document.getElementById("sr-fil-status").value;
   const fPic    = document.getElementById("sr-fil-pic").value;
-  ["sr-fil-revenue","sr-fil-month","sr-fil-status","sr-fil-pic"].forEach(id=>{
+  const fSrc    = document.getElementById("sr-fil-source").value;
+  ["sr-fil-revenue","sr-fil-month","sr-fil-status","sr-fil-source","sr-fil-pic"].forEach(id=>{
     const el=document.getElementById(id);if(el)el.classList.toggle("active-filter",!!el.value);
   });
 
@@ -1592,6 +1594,7 @@ function applySRFilters() {
     if(q    && !(b.name||"").toLowerCase().includes(q)) return false;
     if(fRev && !(b.revenue||"").includes(fRev)) return false;
     if(fPic && (b.pic||"") !== fPic) return false;
+    if(fSrc && b.source !== fSrc) return false;
     if(fStatus) {
       const checkMonth = fMonth !== "" ? parseInt(fMonth) : curMonth;
       const mIdx = SR_MONTHS.findIndex(m=>m.month===checkMonth);
@@ -1682,23 +1685,24 @@ function renderSRGrid() {
         return `<td style="background:var(--g100);text-align:center;">—</td>`;
       }
       if (rep) {
-        return `<td style="background:#edf8ee;text-align:center;cursor:pointer;" onclick="openSRModal('${b.id}','${b.name.replace(/'/g,"\'")}',${m.idx})">
+        return `<td style="background:#edf8ee;text-align:center;cursor:pointer;" onclick="openSRModal('${b.id}','${b.name.replace(/'/g,"\'")}',${m.idx},'${srcLabel}')">
           <a href="${rep.link}" target="_blank" onclick="event.stopPropagation()" style="font-family:var(--mono);font-size:10px;color:#1a5c25;text-decoration:underline;">✅ Lihat</a>
         </td>`;
       }
-      return `<td style="background:#fdf0f0;text-align:center;cursor:pointer;" onclick="openSRModal('${b.id}','${b.name.replace(/'/g,"\'")}',${m.idx})">
+      return `<td style="background:#fdf0f0;text-align:center;cursor:pointer;" onclick="openSRModal('${b.id}','${b.name.replace(/'/g,"\'")}',${m.idx},'${srcLabel}')">
         <span style="font-size:11px;color:#7a1f1f;font-family:var(--mono);">🔴 +</span>
       </td>`;
     }).join("");
 
     const revStreams = (b.revenue||"").split(",").map(s=>s.trim()).filter(Boolean);
     const revBadge  = revStreams.map(s=>`<span class="pill" style="background:#EEEDFE;color:#3C3489;border:0.5px solid #AFA9EC;font-size:9px;padding:1px 6px;">${s}</span>`).join(" ");
+    const srcLabel  = {BM:"Brand Master",IP:"IP Master",CR:"Collaborator",DP:"Consignment"}[b.source]||b.source;
 
     return `<tr>
       <td style="position:sticky;left:0;background:var(--white);z-index:1;border-right:1px solid var(--g100);">
         <div style="font-weight:500;font-size:12px;">${b.name}</div>
         <div style="margin-top:2px;">${revBadge}</div>
-        <div style="font-size:10px;color:var(--g400);font-family:var(--mono);">${b.source}</div>
+        <div style="font-size:10px;color:var(--g400);font-family:var(--mono);">${srcLabel}</div>
       </td>
       <td style="font-family:var(--mono);font-size:11px;color:var(--g600);white-space:nowrap;">${b.pic||"—"}</td>
       <td style="font-family:var(--mono);font-size:10px;color:var(--g400);white-space:nowrap;">${startLabel}</td>
@@ -1708,7 +1712,7 @@ function renderSRGrid() {
 }
 
 function clearSRFilters() {
-  ["sr-fil-revenue","sr-fil-month","sr-fil-status","sr-fil-pic"].forEach(id=>{
+  ["sr-fil-revenue","sr-fil-month","sr-fil-status","sr-fil-source","sr-fil-pic"].forEach(id=>{
     const el=document.getElementById(id);if(el){el.value="";el.classList.remove("active-filter");}
   });
   document.getElementById("srSearch").value="";
@@ -1716,13 +1720,13 @@ function clearSRFilters() {
 }
 
 // ── MODAL: Submit Report ──
-function openSRModal(brandId, brandName, monthIdx) {
+function openSRModal(brandId, brandName, monthIdx, srcLabel) {
   srModalContext = {brandId, monthIdx};
   const m   = SR_MONTHS[monthIdx];
   const key = brandId+"_"+monthIdx;
   const rep = srReports[key];
   document.getElementById("sr-modal-title").textContent = brandName;
-  document.getElementById("sr-modal-sub").textContent   = m.label;
+  document.getElementById("sr-modal-sub").textContent   = (srcLabel ? srcLabel+" · " : "") + m.label;
   document.getElementById("sr-modal-link").value  = rep ? rep.link  : "";
   document.getElementById("sr-modal-notes").value = rep ? rep.notes : "";
   document.getElementById("sr-modal-clear").style.display = rep ? "inline-flex" : "none";
