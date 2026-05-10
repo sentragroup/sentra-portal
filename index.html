@@ -1151,7 +1151,7 @@ function renderIPTable(rows) {
       <td><span class="pill p-draft">${r.category||"—"}</span></td>
       <td style="font-size:11px;color:var(--g600)">${r.pic||"—"}</td>
       <td>${streams.map(s=>`<span class="pill" style="background:#EEEDFE;color:#3C3489;border:0.5px solid #AFA9EC;margin-right:3px">${s}</span>`).join("")||"—"}</td>
-      <td>${agrs.length?agrs.map(a=>{const opt=acAgrOptions.find?acAgrOptions.find(o=>o.id===a):null;return`<span class="pill" style="background:#E6F1FB;color:#0C447C;border:0.5px solid #85B7EB;margin-right:3px" title="${opt?opt.label:""}">${a}</span>`;}).join(""):`<span style="color:var(--g400);font-size:11px">—</span>`}</td>
+      <td>${agrs.length?agrs.map(a=>{const opt=acAgrOptions.find?acAgrOptions.find(o=>o.id===a):null;const lnk=acAgrLinks[a];return lnk?`<a href="${lnk}" target="_blank" class="pill" style="background:#E6F1FB;color:#0C447C;border:0.5px solid #85B7EB;margin-right:3px;text-decoration:none" title="${opt?opt.label:""}">${a} ↗</a>`:`<span class="pill" style="background:#E6F1FB;color:#0C447C;border:0.5px solid #85B7EB;margin-right:3px" title="${opt?opt.label:""}">${a}</span>`;}).join(""):`<span style="color:var(--g400);font-size:11px">—</span>`}</td>
       <td>${ipAgrStatusPill(r.ipStatus)}</td>
       <td>
         <select class="pill live-toggle ${r.liveStatus==="Active"?"p-active":"p-inactive"}" onchange="updateLiveStatus(this,${r.rowIndex})">
@@ -1475,7 +1475,7 @@ function renderBMTable(rows) {
       <td><span class="pill ${r.liveStatus==="Active"?"p-active":"p-inactive"}">${r.liveStatus||"—"}</span></td>
       <td style="font-size:11px;color:var(--g600)">${r.pic||"—"}</td>
       <td>${streams.map(s=>`<span class="pill" style="background:#EEEDFE;color:#3C3489;border:0.5px solid #AFA9EC;margin-right:3px">${s}</span>`).join("")||"—"}</td>
-      <td style="font-size:11px">${agrs.length?agrs.join(", "):"—"}</td>
+      <td>${agrs.length?agrs.map(a=>{const lnk=acAgrLinks[a];return lnk?`<a href="${lnk}" target="_blank" class="pill" style="background:#E6F1FB;color:#0C447C;border:0.5px solid #85B7EB;margin-right:3px;text-decoration:none">${a} ↗</a>`:`<span class="pill" style="background:#E6F1FB;color:#0C447C;border:0.5px solid #85B7EB;margin-right:3px">${a}</span>`;}).join(""):"—"}</td>
       <td>${rateCell(r.apparel,   BM_NORMAL.apparel)}</td>
       <td>${rateCell(r.accessories,BM_NORMAL.accessories)}</td>
       <td>${rateCell(r.collectible,BM_NORMAL.collectible)}</td>
