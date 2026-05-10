@@ -572,6 +572,7 @@ tbody tr:hover td{background:var(--off);}
               <div class="fg full"><label>IP / Brand Name <span class="req">*</span></label><input type="text" id="bm-name" placeholder="e.g. Cooluncle"></div>
               <div class="fg"><label>Category <span class="req">*</span></label><div class="ac-wrap"><input type="text" id="bm-category" placeholder="Musician, Brand, Filmmaker..." autocomplete="off"><div class="ac-list" id="ac-bm-category"></div></div></div>
               <div class="fg"><label>Live Status <span class="req">*</span></label><select id="bm-live-status"><option value="Active" selected>Active</option><option>Inactive</option></select></div>
+              <div class="fg"><label>PIC</label><div class="ac-wrap"><input type="text" id="bm-pic" placeholder="Nama PIC..." autocomplete="off"><div class="ac-list" id="ac-bm-pic"></div></div></div>
               <div class="fg full"><label>Revenue Stream</label>
                 <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px;" id="bm-revenue-checks">
                   <label style="display:flex;align-items:center;gap:6px;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" value="SD&Y"> SD&Y</label>
@@ -620,11 +621,11 @@ tbody tr:hover td{background:var(--off);}
           <div class="table-wrap">
             <table>
               <thead><tr>
-                <th>ID</th><th>Brand</th><th>Category</th><th>Live</th><th>Revenue</th><th>Agreement</th>
+                <th>ID</th><th>Brand</th><th>Category</th><th>Live</th><th>PIC</th><th>Revenue</th><th>Agreement</th>
                 <th>Apparel</th><th>Accessories</th><th>Collectible</th><th>Preloved</th><th>Wellness</th><th>Others</th>
                 <th>Notes</th><th></th>
               </tr></thead>
-              <tbody id="bmTableBody"><tr><td class="empty-td" colspan="14">Klik "Semua Brand" untuk memuat.</td></tr></tbody>
+              <tbody id="bmTableBody"><tr><td class="empty-td" colspan="15">Klik "Semua Brand" untuk memuat.</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -1080,7 +1081,7 @@ function showIPFeedback(msg,type) {
 }
 
 async function loadIPMaster() {
-  document.getElementById("ipTableBody").innerHTML=`<tr><td class="empty-td" colspan="14">Memuat...</td></tr>`;
+  document.getElementById("ipTableBody").innerHTML=`<tr><td class="empty-td" colspan="15">Memuat...</td></tr>`;
   try {
     const res=await apiGet({action:"listIP"});
     if(!res.success)throw new Error(res.error);
@@ -1364,6 +1365,7 @@ async function submitBM() {
   try {
     const res = await apiGet({
       action:"submitBM", name, category, liveStatus:liveStatusBMVal,
+      pic:         document.getElementById("bm-pic").value.trim(),
       revenue:     revenues.join(", "),
       agreements:  document.getElementById("bm-agreements").value.trim(),
       apparel:     document.getElementById("bm-apparel").value.trim(),
@@ -1385,7 +1387,7 @@ async function submitBM() {
 }
 
 function clearBMForm() {
-  ["bm-name","bm-category","bm-agreements","bm-notes","bm-apparel","bm-accessories","bm-collectible","bm-preloved","bm-wellness","bm-others"].forEach(id=>document.getElementById(id).value="");
+  ["bm-name","bm-category","bm-pic","bm-agreements","bm-notes","bm-apparel","bm-accessories","bm-collectible","bm-preloved","bm-wellness","bm-others"].forEach(id=>document.getElementById(id).value="");
   document.getElementById("bm-live-status").value="Active";
   document.querySelectorAll("#bm-revenue-checks input").forEach(c=>c.checked=false);
 }
@@ -1396,7 +1398,7 @@ function showBMFeedback(msg,type) {
 }
 
 async function loadBrandMaster() {
-  document.getElementById("bmTableBody").innerHTML=`<tr><td class="empty-td" colspan="14">Memuat...</td></tr>`;
+  document.getElementById("bmTableBody").innerHTML=`<tr><td class="empty-td" colspan="15">Memuat...</td></tr>`;
   try {
     const res = await apiGet({action:"listBM"});
     if (!res.success) throw new Error(res.error);
@@ -1452,7 +1454,7 @@ function clearBMFilters() {
 function renderBMTable(rows) {
   document.getElementById("bm-tcount").textContent = rows.length+" entri";
   const body = document.getElementById("bmTableBody");
-  if (!rows.length) { body.innerHTML=`<tr><td class="empty-td" colspan="14">Belum ada data.</td></tr>`; return; }
+  if (!rows.length) { body.innerHTML=`<tr><td class="empty-td" colspan="15">Belum ada data.</td></tr>`; return; }
   body.innerHTML = rows.map(r=>{
     const streams = (r.revenue||"").split(",").map(s=>s.trim()).filter(Boolean);
     const agrs    = (r.agreements||"").split(",").map(s=>s.trim()).filter(Boolean);
@@ -1462,6 +1464,7 @@ function renderBMTable(rows) {
       <td style="font-weight:500">${r.name||"—"}${hasNego?` <span title="Ada rate nego" style="color:#8a4000;font-size:10px">⚠</span>`:""}</td>
       <td><span class="pill p-draft">${r.category||"—"}</span></td>
       <td><span class="pill ${r.liveStatus==="Active"?"p-active":"p-inactive"}">${r.liveStatus||"—"}</span></td>
+      <td style="font-size:11px;color:var(--g600)">${r.pic||"—"}</td>
       <td>${streams.map(s=>`<span class="pill" style="background:#EEEDFE;color:#3C3489;border:0.5px solid #AFA9EC;margin-right:3px">${s}</span>`).join("")||"—"}</td>
       <td style="font-size:11px">${agrs.length?agrs.join(", "):"—"}</td>
       <td>${rateCell(r.apparel,   BM_NORMAL.apparel)}</td>
@@ -1473,7 +1476,7 @@ function renderBMTable(rows) {
       <td style="color:var(--g600);font-size:11px">${r.notes||"—"}</td>
       <td><button class="btn-icon" onclick="openBMEdit(${r.rowIndex})">Edit</button></td>
     </tr>
-    <tr id="bm-edit-row-${r.rowIndex}" style="display:none"><td colspan="14" style="padding:0 12px 12px;">
+    <tr id="bm-edit-row-${r.rowIndex}" style="display:none"><td colspan="15" style="padding:0 12px 12px;">
       <div class="edit-row-form">
         <div class="edit-row-grid">
           <div class="fg"><label>Brand Name</label><input type="text" id="bm-e-name-${r.rowIndex}" value="${r.name||""}"></div>
@@ -1488,6 +1491,7 @@ function renderBMTable(rows) {
           <div class="fg"><label>Wellness % <span style="color:var(--g400);font-size:9px;text-transform:none;letter-spacing:0;">normal: 20</span></label><input type="number" id="bm-e-wel-${r.rowIndex}" value="${r.wellness||""}" step="0.1" placeholder="20"></div>
           <div class="fg"><label>Others % <span style="color:var(--g400);font-size:9px;text-transform:none;letter-spacing:0;">normal: 30</span></label><input type="number" id="bm-e-oth-${r.rowIndex}" value="${r.others||""}" step="0.1" placeholder="30"></div>
           <div class="fg"><label>Notes</label><input type="text" id="bm-e-notes-${r.rowIndex}" value="${r.notes||""}"></div>
+          <div class="fg"><label>PIC</label><input type="text" id="bm-e-pic-${r.rowIndex}" value="${r.pic||""}"></div>
         </div>
         <div class="edit-row-btns">
           <button class="btn-save" onclick="saveBMEdit(${r.rowIndex})">Simpan</button>
@@ -1517,6 +1521,7 @@ async function saveBMEdit(rowIndex) {
       wellness:    document.getElementById("bm-e-wel-"+rowIndex).value.trim(),
       others:      document.getElementById("bm-e-oth-"+rowIndex).value.trim(),
       notes:       document.getElementById("bm-e-notes-"+rowIndex).value.trim(),
+      pic:         document.getElementById("bm-e-pic-"+rowIndex).value.trim(),
       by:          currentUser
     });
     if (res.success) { closeBMEdit(rowIndex); loadBrandMaster(); }
@@ -1525,6 +1530,7 @@ async function saveBMEdit(rowIndex) {
 }
 
 setupAC("bm-category","ac-bm-category",()=>acBMCategories);
+setupAC("bm-pic","ac-bm-pic",()=>acPics);
 setupAC("bm-agreements","ac-bm-agr",()=>acAgrOptions.map(o=>o.id),()=>acAgrOptions);
 // PKS autocomplete - special: picking sets hidden drive link
 setupACPKS("rr-pks","ac-rr-pks");
