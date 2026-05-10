@@ -218,6 +218,9 @@ tbody tr:hover td{background:var(--off);}
         <div class="sb-item" onclick="showPage('salesreport',this)" id="nav-salesreport">
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="2,12 5,8 8,10 11,5 14,7"/></svg>Sales Report
         </div>
+        <div class="sb-item" onclick="showPage('leads',this)" id="nav-leads">
+          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="5" r="2.5"/><path d="M1 13c0-2.8 2.2-4.5 5-4.5"/><polyline points="10,9 11.5,10.5 14,8"/></svg>Leads
+        </div>
         <div class="sb-soon"><svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><line x1="8" y1="5" x2="8" y2="8"/><line x1="8" y1="8" x2="10" y2="10"/></svg>Royalty Payment<span class="soon-tag">Soon</span></div>
       </div>
       <div class="sb-sec">
@@ -242,6 +245,7 @@ tbody tr:hover td{background:var(--off);}
         <div class="home-grid">
           <div class="tool-card" onclick="showPage('agreement',document.getElementById('nav-agreement'))"><span class="tc-icon">📄</span><div class="tc-name">Agreement Tracker</div><div class="tc-desc">Submit dan pantau semua perjanjian, kontrak, dan kemitraan.</div></div>
           <div class="tool-card" onclick="showPage('salesreport',document.getElementById('nav-salesreport'))"><span class="tc-icon">📈</span><div class="tc-name">Sales Report</div><div class="tc-desc">Track report submission per brand setiap bulan.</div></div>
+          <div class="tool-card" onclick="showPage('leads',document.getElementById('nav-leads'))"><span class="tc-icon">🎯</span><div class="tc-name">Leads Tracker</div><div class="tc-desc">Track potential brand dan artist collaboration leads.</div></div>
           <div class="tool-soon"><span class="tc-icon" style="opacity:0.3">💰</span><div class="tc-name" style="color:var(--g400)">Royalty Payment</div><div class="tc-desc">Coming soon</div></div>
         </div>
       </div>
@@ -622,6 +626,74 @@ tbody tr:hover td{background:var(--off);}
         </div>
       </div>
 
+      <!-- LEADS TRACKER -->
+      <div class="page" id="page-leads">
+        <div class="page-header">
+          <div><div class="page-title">Leads Tracker</div><div class="page-sub">Track potential brand dan artist collaboration leads.</div></div>
+          <div class="tab-bar">
+            <button class="tab-btn active" onclick="switchLeadsTab('new',this)">Tambah Lead</button>
+            <button class="tab-btn" onclick="switchLeadsTab('list',this)">Semua Lead</button>
+          </div>
+        </div>
+
+        <div class="stats-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:1.25rem;">
+          <div class="stat-card"><div class="stat-num" id="ld-s-total">—</div><div class="stat-lbl">Total</div></div>
+          <div class="stat-card info"><div class="stat-num" id="ld-s-pipeline">—</div><div class="stat-lbl">Pipeline Aktif</div></div>
+          <div class="stat-card"><div class="stat-num" id="ld-s-won">—</div><div class="stat-lbl">Won</div></div>
+          <div class="stat-card danger"><div class="stat-num" id="ld-s-lost">—</div><div class="stat-lbl">Lost</div></div>
+          <div class="stat-card warn"><div class="stat-num" id="ld-s-onhold">—</div><div class="stat-lbl">On Hold</div></div>
+        </div>
+
+        <div id="ldtab-new">
+          <div class="form-card">
+            <div class="form-sec">Detail Lead</div>
+            <div class="form-grid">
+              <div class="fg full"><label>Lead Name <span class="req">*</span></label><input type="text" id="ld-name" placeholder="e.g. Nama artis atau brand"></div>
+              <div class="fg"><label>Category <span class="req">*</span></label><div class="ac-wrap"><input type="text" id="ld-category" placeholder="Musician, Brand, Filmmaker..." autocomplete="off"><div class="ac-list" id="ac-ld-category"></div></div></div>
+              <div class="fg"><label>Stage <span class="req">*</span></label><select id="ld-stage"><option value="">Pilih stage...</option><option>New</option><option>Contacted</option><option>Meeting</option><option>Proposal</option><option>Negotiation</option><option>Won</option><option>Lost</option><option>On Hold</option></select></div>
+              <div class="fg"><label>PIC</label><div class="ac-wrap"><input type="text" id="ld-pic" placeholder="Penanggung jawab" autocomplete="off"><div class="ac-list" id="ac-ld-pic"></div></div></div>
+              <div class="fg"><label>Contact</label><input type="text" id="ld-contact" placeholder="Email, WA, atau Instagram"></div>
+              <div class="fg full"><label>Revenue Stream</label>
+                <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px;" id="ld-revenue-checks">
+                  <label style="display:flex;align-items:center;gap:6px;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" value="SD&Y"> SD&Y</label>
+                  <label style="display:flex;align-items:center;gap:6px;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" value="Lagaa"> Lagaa</label>
+                  <label style="display:flex;align-items:center;gap:6px;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" value="Marte"> Marte</label>
+                </div>
+              </div>
+              <div class="fg full"><label>Notes</label><input type="text" id="ld-notes" placeholder="Catatan, next action, dll"></div>
+            </div>
+            <div class="btn-row">
+              <button class="btn-primary" id="ldSubmitBtn" onclick="submitLead()">Simpan Lead</button>
+              <button class="btn-ghost" onclick="clearLeadForm()">Bersihkan</button>
+            </div>
+            <div class="feedback" id="ld-feedback"></div>
+          </div>
+        </div>
+
+        <div id="ldtab-list" style="display:none;">
+          <div class="filter-panel">
+            <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="clearLeadsFilters()">✕ Reset</button></div>
+            <div class="filter-grid">
+              <select class="f-select" id="ld-fil-stage" onchange="applyLeadsFilters()"><option value="">Semua Stage</option><option>New</option><option>Contacted</option><option>Meeting</option><option>Proposal</option><option>Negotiation</option><option>Won</option><option>Lost</option><option>On Hold</option></select>
+              <select class="f-select" id="ld-fil-category" onchange="applyLeadsFilters()"><option value="">Semua Category</option></select>
+              <select class="f-select" id="ld-fil-revenue" onchange="applyLeadsFilters()"><option value="">Semua Revenue</option><option>SD&amp;Y</option><option>Lagaa</option><option>Marte</option></select>
+              <select class="f-select" id="ld-fil-pic" onchange="applyLeadsFilters()"><option value="">Semua PIC</option></select>
+              <input class="search-box" type="text" id="ldSearch" placeholder="Cari nama lead..." oninput="applyLeadsFilters()" style="width:100%">
+            </div>
+          </div>
+          <div class="table-toolbar">
+            <button class="btn-refresh" onclick="loadLeads()">↻ Refresh</button>
+            <div class="tcount" id="ld-tcount">— entri</div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>ID</th><th>Lead Name</th><th>Category</th><th>Stage</th><th>PIC</th><th>Revenue</th><th>Contact</th><th>Notes</th><th>Date Added</th><th>By</th><th></th></tr></thead>
+              <tbody id="ldTableBody"><tr><td class="empty-td" colspan="11">Klik "Semua Lead" untuk memuat.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
 </div>
@@ -696,13 +768,14 @@ function showPage(name, el) {
   document.querySelectorAll(".sb-item").forEach(i=>i.classList.remove("active"));
   document.getElementById("page-"+name).classList.add("active");
   if (el) el.classList.add("active");
-  const labels = {home:"Internal Tools",agreement:"Agreement Tracker",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Sales Report"};
+  const labels = {home:"Internal Tools",agreement:"Agreement Tracker",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Sales Report",leads:"Leads Tracker"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   if (name==="agreement") loadStats();
   if (name==="ipmaster") { loadIPMaster(); loadStats(); }
   if (name==="recipients") loadRecipients();
   if (name==="brandmaster") loadBrandMaster();
   if (name==="salesreport") loadSalesReport();
+  if (name==="leads") loadLeads();
 }
 
 function switchTab(name, el) {
@@ -1709,6 +1782,184 @@ function pickPKS(agrId, label) {
     hint.innerHTML = `<span style="color:var(--g600)">Drive: </span><a href="${acAgrLinks[agrId]}" target="_blank" style="color:var(--black);text-decoration:underline;font-size:11px;">Lihat dokumen ↗</a>`;
   }
 }
+
+// ── LEADS TRACKER ──
+let allLeadsRows = [], acLeadsCategories = ["Musician","Brand","Filmmaker"];
+
+function stagePillClass(s) {
+  return {"New":"p-draft","Contacted":"p-review","Meeting":"p-signings","Proposal":"p-near","Negotiation":"p-near","Won":"p-active","Lost":"p-expired","On Hold":"p-inactive"}[s]||"p-draft";
+}
+
+function switchLeadsTab(name, el) {
+  document.querySelectorAll("#page-leads .tab-btn").forEach(b=>b.classList.remove("active"));
+  el.classList.add("active");
+  document.getElementById("ldtab-new").style.display  = name==="new"  ? "block":"none";
+  document.getElementById("ldtab-list").style.display = name==="list" ? "block":"none";
+  if (name==="list") loadLeads();
+}
+
+async function submitLead() {
+  const name=document.getElementById("ld-name").value.trim();
+  const category=document.getElementById("ld-category").value.trim();
+  const stage=document.getElementById("ld-stage").value;
+  if (!name)     { showLdFeedback("Lead Name wajib diisi.","err"); return; }
+  if (!category) { showLdFeedback("Category wajib diisi.","err"); return; }
+  if (!stage)    { showLdFeedback("Stage wajib dipilih.","err"); return; }
+  const revenues=[...document.querySelectorAll("#ld-revenue-checks input:checked")].map(c=>c.value);
+  const btn=document.getElementById("ldSubmitBtn"); btn.disabled=true; btn.textContent="Menyimpan...";
+  try {
+    const res=await apiGet({action:"submitLead",name,category,stage,
+      pic:     document.getElementById("ld-pic").value.trim(),
+      contact: document.getElementById("ld-contact").value.trim(),
+      revenue: revenues.join(", "),
+      notes:   document.getElementById("ld-notes").value.trim(),
+      by:      currentUser
+    });
+    if (res.success) {
+      showLdFeedback("✓ Lead tersimpan — ID: "+res.id,"ok");
+      if (!acLeadsCategories.includes(category)) acLeadsCategories.push(category);
+      clearLeadForm(); loadLeads();
+    } else { showLdFeedback("Gagal: "+res.error,"err"); }
+  } catch(e) { showLdFeedback("Koneksi gagal.","err"); }
+  btn.disabled=false; btn.textContent="Simpan Lead";
+}
+
+function clearLeadForm() {
+  ["ld-name","ld-category","ld-pic","ld-contact","ld-notes"].forEach(id=>document.getElementById(id).value="");
+  document.getElementById("ld-stage").value="";
+  document.querySelectorAll("#ld-revenue-checks input").forEach(c=>c.checked=false);
+}
+
+function showLdFeedback(msg,type) {
+  const el=document.getElementById("ld-feedback"); el.textContent=msg; el.className="feedback "+type;
+  if(type==="ok") setTimeout(()=>el.className="feedback",6000);
+}
+
+async function loadLeads() {
+  document.getElementById("ldTableBody").innerHTML=`<tr><td class="empty-td" colspan="11">Memuat...</td></tr>`;
+  try {
+    const res=await apiGet({action:"listLeads"});
+    if (!res.success) throw new Error(res.error);
+    allLeadsRows=res.rows||[];
+    const cats=[...new Set(allLeadsRows.map(r=>r.category).filter(Boolean))];
+    cats.forEach(c=>{if(!acLeadsCategories.includes(c))acLeadsCategories.push(c);});
+    const catSel=document.getElementById("ld-fil-category");
+    if(catSel){while(catSel.options.length>1)catSel.remove(1);acLeadsCategories.forEach(c=>{const o=document.createElement("option");o.value=o.textContent=c;catSel.appendChild(o);});}
+    const pics=[...new Set(allLeadsRows.map(r=>r.pic).filter(Boolean))];
+    const picSel=document.getElementById("ld-fil-pic");
+    if(picSel){while(picSel.options.length>1)picSel.remove(1);pics.forEach(p=>{const o=document.createElement("option");o.value=o.textContent=p;picSel.appendChild(o);});}
+    computeLeadsStats(allLeadsRows); applyLeadsFilters();
+  } catch(e){document.getElementById("ldTableBody").innerHTML=`<tr><td class="empty-td" colspan="11">Gagal: ${e.message}</td></tr>`;}
+}
+
+const LD_PIPELINE_STAGES=["New","Contacted","Meeting","Proposal","Negotiation"];
+const LD_STAGES=["New","Contacted","Meeting","Proposal","Negotiation","Won","Lost","On Hold"];
+
+function computeLeadsStats(rows) {
+  document.getElementById("ld-s-total").textContent    = rows.length;
+  document.getElementById("ld-s-pipeline").textContent = rows.filter(r=>LD_PIPELINE_STAGES.includes(r.stage)).length;
+  document.getElementById("ld-s-won").textContent      = rows.filter(r=>r.stage==="Won").length;
+  document.getElementById("ld-s-lost").textContent     = rows.filter(r=>r.stage==="Lost").length;
+  document.getElementById("ld-s-onhold").textContent   = rows.filter(r=>r.stage==="On Hold").length;
+}
+
+function applyLeadsFilters() {
+  const q     =(document.getElementById("ldSearch").value||"").toLowerCase();
+  const fStage=document.getElementById("ld-fil-stage").value;
+  const fCat  =document.getElementById("ld-fil-category").value;
+  const fRev  =document.getElementById("ld-fil-revenue").value;
+  const fPic  =document.getElementById("ld-fil-pic").value;
+  ["ld-fil-stage","ld-fil-category","ld-fil-revenue","ld-fil-pic"].forEach(id=>{const el=document.getElementById(id);if(el)el.classList.toggle("active-filter",!!el.value);});
+  const filtered=allLeadsRows.filter(r=>{
+    if(q     &&![r.name,r.contact,r.notes,r.pic].some(v=>(v||"").toLowerCase().includes(q)))return false;
+    if(fStage&&r.stage!==fStage)return false;
+    if(fCat  &&r.category!==fCat)return false;
+    if(fRev  &&!(r.revenue||"").includes(fRev))return false;
+    if(fPic  &&r.pic!==fPic)return false;
+    return true;
+  });
+  computeLeadsStats(filtered); renderLeadsTable(filtered);
+}
+
+function clearLeadsFilters() {
+  ["ld-fil-stage","ld-fil-category","ld-fil-revenue","ld-fil-pic"].forEach(id=>{const el=document.getElementById(id);if(el){el.value="";el.classList.remove("active-filter");}});
+  document.getElementById("ldSearch").value="";
+  computeLeadsStats(allLeadsRows); renderLeadsTable(allLeadsRows);
+}
+
+function renderLeadsTable(rows) {
+  document.getElementById("ld-tcount").textContent=rows.length+" entri";
+  const body=document.getElementById("ldTableBody");
+  if(!rows.length){body.innerHTML=`<tr><td class="empty-td" colspan="11">Belum ada data.</td></tr>`;return;}
+  body.innerHTML=rows.map(r=>{
+    const streams=(r.revenue||"").split(",").map(s=>s.trim()).filter(Boolean);
+    return`<tr>
+      <td class="td-id">${r.id||"—"}</td>
+      <td style="font-weight:500">${r.name||"—"}</td>
+      <td><span class="pill p-draft">${r.category||"—"}</span></td>
+      <td><select class="pill status-inline ${stagePillClass(r.stage)}" onchange="updateLeadStage(this,${r.rowIndex})">${LD_STAGES.map(s=>`<option ${s===r.stage?"selected":""}>${s}</option>`).join("")}</select></td>
+      <td style="font-size:12px">${r.pic||"—"}</td>
+      <td>${streams.map(s=>`<span class="pill" style="background:#EEEDFE;color:#3C3489;border:0.5px solid #AFA9EC;margin-right:3px">${s}</span>`).join("")||"—"}</td>
+      <td style="font-size:11px;color:var(--g600)">${r.contact||"—"}</td>
+      <td style="font-size:11px;color:var(--g600);max-width:200px;">${r.notes||"—"}</td>
+      <td class="td-audit">${r.date||"—"}</td>
+      <td class="td-audit">${r.by||"—"}</td>
+      <td><button class="btn-icon" onclick="openLeadEdit(${r.rowIndex})">Edit</button></td>
+    </tr>
+    <tr id="ld-edit-row-${r.rowIndex}" style="display:none"><td colspan="11" style="padding:0 12px 12px;">
+      <div class="edit-row-form">
+        <div class="edit-row-grid">
+          <div class="fg"><label>Lead Name</label><input type="text" id="ld-e-name-${r.rowIndex}" value="${r.name||""}"></div>
+          <div class="fg"><label>Category</label><input type="text" id="ld-e-cat-${r.rowIndex}" value="${r.category||""}"></div>
+          <div class="fg"><label>Stage</label><select id="ld-e-stage-${r.rowIndex}">${LD_STAGES.map(s=>`<option ${s===r.stage?"selected":""}>${s}</option>`).join("")}</select></div>
+          <div class="fg"><label>PIC</label><input type="text" id="ld-e-pic-${r.rowIndex}" value="${r.pic||""}"></div>
+          <div class="fg"><label>Contact</label><input type="text" id="ld-e-contact-${r.rowIndex}" value="${r.contact||""}"></div>
+          <div class="fg"><label>Revenue Stream</label><input type="text" id="ld-e-revenue-${r.rowIndex}" value="${r.revenue||""}" placeholder="SD&Y, Lagaa"></div>
+          <div class="fg"><label>Notes</label><input type="text" id="ld-e-notes-${r.rowIndex}" value="${r.notes||""}"></div>
+        </div>
+        <div class="edit-row-btns">
+          <button class="btn-save" onclick="saveLeadEdit(${r.rowIndex})">Simpan</button>
+          <button class="btn-cancel" onclick="closeLeadEdit(${r.rowIndex})">Batal</button>
+        </div>
+      </div>
+    </td></tr>`;
+  }).join("");
+}
+
+function openLeadEdit(rowIndex){document.querySelectorAll("[id^='ld-edit-row-']").forEach(el=>el.style.display="none");document.getElementById("ld-edit-row-"+rowIndex).style.display="table-row";}
+function closeLeadEdit(rowIndex){document.getElementById("ld-edit-row-"+rowIndex).style.display="none";}
+
+async function updateLeadStage(sel,rowIndex) {
+  const newStage=sel.value;
+  sel.className=`pill status-inline ${stagePillClass(newStage)}`;
+  try {
+    const res=await apiGet({action:"updateLeadStage",rowIndex,stage:newStage,by:currentUser});
+    if(!res.success){alert("Gagal update: "+res.error);return;}
+    const row=allLeadsRows.find(r=>r.rowIndex===rowIndex);
+    if(row)row.stage=newStage;
+    computeLeadsStats(allLeadsRows);
+  } catch(e){alert("Koneksi gagal.");}
+}
+
+async function saveLeadEdit(rowIndex) {
+  try {
+    const res=await apiGet({action:"updateLead",rowIndex,
+      name:    document.getElementById("ld-e-name-"+rowIndex).value.trim(),
+      category:document.getElementById("ld-e-cat-"+rowIndex).value.trim(),
+      stage:   document.getElementById("ld-e-stage-"+rowIndex).value,
+      pic:     document.getElementById("ld-e-pic-"+rowIndex).value.trim(),
+      contact: document.getElementById("ld-e-contact-"+rowIndex).value.trim(),
+      revenue: document.getElementById("ld-e-revenue-"+rowIndex).value.trim(),
+      notes:   document.getElementById("ld-e-notes-"+rowIndex).value.trim(),
+      by:      currentUser
+    });
+    if(res.success){closeLeadEdit(rowIndex);loadLeads();}
+    else alert("Gagal simpan: "+res.error);
+  } catch(e){alert("Koneksi gagal.");}
+}
+
+setupAC("ld-category","ac-ld-category",()=>acLeadsCategories);
+setupAC("ld-pic","ac-ld-pic",()=>acPics);
 
 // ── DUPLICATE CHECK ──
 async function checkDuplicate(name, excludeSheet) {
