@@ -366,6 +366,7 @@ tbody tr:hover td{background:var(--off);}
               </div>
               <div class="fg"><label>Category <span class="req">*</span></label><div class="ac-wrap"><input type="text" id="ip-category" placeholder="Musician, Brand, Filmmaker..." autocomplete="off"><div class="ac-list" id="ac-ip-category"></div></div></div>
               <div class="fg"><label>Live Status <span class="req">*</span></label><select id="ip-live-status"><option value="Active" selected>Active</option><option>Inactive</option></select></div>
+              <div class="fg"><label>PIC</label><div class="ac-wrap"><input type="text" id="ip-pic" placeholder="Nama PIC..." autocomplete="off"><div class="ac-list" id="ac-ip-pic"></div></div></div>
               <div class="fg"><label>Royalty Type</label><select id="ip-royalty-type"><option value="">Pilih tipe...</option><option>Post-Sales</option><option>Advance</option><option>Both</option></select></div>
               <div class="fg"><label>Percentage (%)</label><input type="number" id="ip-pct" placeholder="e.g. 10" step="0.1" min="0" max="100"></div>
               <div class="fg"><label>Fixed Amount (IDR)</label><input type="number" id="ip-fixed" placeholder="e.g. 5000000"></div>
@@ -399,8 +400,8 @@ tbody tr:hover td{background:var(--off);}
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>ID</th><th>IP / Brand</th><th>Category</th><th>Revenue</th><th>Related Agreement</th><th>Agr. Status</th><th>Live Status</th><th>Royalty Type</th><th>%</th><th>Fixed (IDR)</th><th>Termin</th><th>PPh %</th><th>Notes</th><th></th></tr></thead>
-              <tbody id="ipTableBody"><tr><td class="empty-td" colspan="14">Klik "Semua IP" untuk memuat.</td></tr></tbody>
+              <thead><tr><th>ID</th><th>IP / Brand</th><th>Category</th><th>PIC</th><th>Revenue</th><th>Related Agreement</th><th>Agr. Status</th><th>Live Status</th><th>Royalty Type</th><th>%</th><th>Fixed (IDR)</th><th>Termin</th><th>PPh %</th><th>Notes</th><th></th></tr></thead>
+              <tbody id="ipTableBody"><tr><td class="empty-td" colspan="15">Klik "Semua IP" untuk memuat.</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -918,6 +919,7 @@ setupAC("f-type","ac-type",()=>acTypes);
 setupAC("f-pic","ac-pic",()=>acPics);
 setupAC("ip-agreements","ac-ip-agr",()=>acAgrOptions.map(o=>o.id),()=>acAgrOptions);
 setupAC("ip-category","ac-ip-category",()=>acIPCategories);
+setupAC("ip-pic","ac-ip-pic",()=>acPics);
 setupAC("rr-tipe","ac-rr-tipe",()=>acRRTipes);
 setupAC("rr-ip","ac-rr-ip",()=>acRRIPs);
 
@@ -1059,7 +1061,7 @@ async function submitIP() {
   const liveStatusVal = liveStatus || "Active";
   const btn=document.getElementById("ipSubmitBtn"); btn.disabled=true; btn.textContent="Menyimpan...";
   try {
-    const res=await apiGet({action:"submitIP",name,category,liveStatus:liveStatusVal,revenue:revenues.join(", "),agreements:document.getElementById("ip-agreements").value.trim(),royaltyType:document.getElementById("ip-royalty-type").value,pct:document.getElementById("ip-pct").value.trim(),fixed:document.getElementById("ip-fixed").value.trim(),termin:document.getElementById("ip-termin").value,pph:document.getElementById("ip-pph").value.trim(),notes:document.getElementById("ip-notes").value.trim(),by:currentUser});
+    const res=await apiGet({action:"submitIP",name,category,liveStatus:liveStatusVal,pic:document.getElementById("ip-pic").value.trim(),revenue:revenues.join(", "),agreements:document.getElementById("ip-agreements").value.trim(),royaltyType:document.getElementById("ip-royalty-type").value,pct:document.getElementById("ip-pct").value.trim(),fixed:document.getElementById("ip-fixed").value.trim(),termin:document.getElementById("ip-termin").value,pph:document.getElementById("ip-pph").value.trim(),notes:document.getElementById("ip-notes").value.trim(),by:currentUser});
     if(res.success){
       showIPFeedback("✓ IP tersimpan — ID: "+res.id,"ok");
       if(!acRRIPs.includes(name))acRRIPs.push(name);
@@ -1071,7 +1073,7 @@ async function submitIP() {
 }
 
 function clearIPForm() {
-  ["ip-name","ip-category","ip-agreements","ip-notes","ip-pct","ip-fixed","ip-pph"].forEach(id=>document.getElementById(id).value="");
+  ["ip-name","ip-category","ip-pic","ip-agreements","ip-notes","ip-pct","ip-fixed","ip-pph"].forEach(id=>document.getElementById(id).value="");
   document.getElementById("ip-royalty-type").value=""; document.getElementById("ip-termin").value=""; document.getElementById("ip-live-status").value="";
   document.querySelectorAll("#ip-revenue-checks input").forEach(c=>c.checked=false);
 }
@@ -1093,7 +1095,7 @@ async function loadIPMaster() {
     const catSel=document.getElementById("ip-fil-category");
     if(catSel){while(catSel.options.length>1)catSel.remove(1);acIPCategories.forEach(c=>{const o=document.createElement("option");o.value=o.textContent=c;catSel.appendChild(o);});}
     computeIPStats(allIPRows); populateRRFilterDropdowns(); applyIPFilters();
-  } catch(e){document.getElementById("ipTableBody").innerHTML=`<tr><td class="empty-td" colspan="14">Gagal: ${e.message}</td></tr>`;}
+  } catch(e){document.getElementById("ipTableBody").innerHTML=`<tr><td class="empty-td" colspan="15">Gagal: ${e.message}</td></tr>`;}
 }
 
 function computeIPStats(rows) {
@@ -1137,7 +1139,7 @@ function ipAgrStatusPill(s) {
 function renderIPTable(rows) {
   document.getElementById("ip-tcount").textContent=rows.length+" entri";
   const body=document.getElementById("ipTableBody");
-  if(!rows.length){body.innerHTML=`<tr><td class="empty-td" colspan="14">Belum ada data.</td></tr>`;return;}
+  if(!rows.length){body.innerHTML=`<tr><td class="empty-td" colspan="15">Belum ada data.</td></tr>`;return;}
   body.innerHTML=rows.map(r=>{
     const streams=(r.revenue||"").split(",").map(s=>s.trim()).filter(Boolean);
     const agrs=(r.agreements||"").split(",").map(s=>s.trim()).filter(Boolean);
@@ -1145,6 +1147,7 @@ function renderIPTable(rows) {
       <td class="td-id">${r.id||"—"}</td>
       <td style="font-weight:500">${r.name||"—"}</td>
       <td><span class="pill p-draft">${r.category||"—"}</span></td>
+      <td style="font-size:11px;color:var(--g600)">${r.pic||"—"}</td>
       <td>${streams.map(s=>`<span class="pill" style="background:#EEEDFE;color:#3C3489;border:0.5px solid #AFA9EC;margin-right:3px">${s}</span>`).join("")||"—"}</td>
       <td>${agrs.length?agrs.map(a=>{const opt=acAgrOptions.find?acAgrOptions.find(o=>o.id===a):null;return`<span class="pill" style="background:#E6F1FB;color:#0C447C;border:0.5px solid #85B7EB;margin-right:3px" title="${opt?opt.label:""}">${a}</span>`;}).join(""):`<span style="color:var(--g400);font-size:11px">—</span>`}</td>
       <td>${ipAgrStatusPill(r.ipStatus)}</td>
@@ -1162,7 +1165,7 @@ function renderIPTable(rows) {
       <td style="color:var(--g600);font-size:11px">${r.notes||"—"}</td>
       <td><button class="btn-icon" onclick="openIPEdit(${r.rowIndex})">Edit</button></td>
     </tr>
-    <tr id="ip-edit-row-${r.rowIndex}" style="display:none"><td colspan="14" style="padding:0 12px 12px;">
+    <tr id="ip-edit-row-${r.rowIndex}" style="display:none"><td colspan="15" style="padding:0 12px 12px;">
       <div class="edit-row-form">
         <div class="edit-row-grid">
           <div class="fg"><label>IP / Brand Name</label><input type="text" id="ip-e-name-${r.rowIndex}" value="${r.name||""}"></div>
@@ -1176,6 +1179,7 @@ function renderIPTable(rows) {
           <div class="fg"><label>Termin</label><select id="ip-e-termin-${r.rowIndex}"><option value="" ${!r.termin?"selected":""}>—</option><option ${r.termin==="Per Bulan"?"selected":""}>Per Bulan</option><option ${r.termin==="Per Quarter"?"selected":""}>Per Quarter</option><option ${r.termin==="Per Tahun"?"selected":""}>Per Tahun</option><option ${r.termin==="Per Akhir Project"?"selected":""}>Per Akhir Project</option></select></div>
           <div class="fg"><label>PPh Tax Rate (%)</label><input type="number" id="ip-e-pph-${r.rowIndex}" value="${r.pph||""}" step="0.1"></div>
           <div class="fg"><label>Notes</label><input type="text" id="ip-e-notes-${r.rowIndex}" value="${r.notes||""}"></div>
+          <div class="fg"><label>PIC</label><input type="text" id="ip-e-pic-${r.rowIndex}" value="${r.pic||""}"></div>
         </div>
         <div class="edit-row-btns">
           <button class="btn-save" onclick="saveIPEdit(${r.rowIndex})">Simpan</button>
@@ -1203,7 +1207,7 @@ async function updateLiveStatus(sel, rowIndex) {
 
 async function saveIPEdit(rowIndex) {
   try {
-    const res=await apiGet({action:"updateIP",rowIndex,name:document.getElementById("ip-e-name-"+rowIndex).value.trim(),category:document.getElementById("ip-e-category-"+rowIndex).value.trim(),liveStatus:document.getElementById("ip-e-live-"+rowIndex).value,revenue:document.getElementById("ip-e-revenue-"+rowIndex).value.trim(),agreements:document.getElementById("ip-e-agr-"+rowIndex).value.trim(),royaltyType:document.getElementById("ip-e-roytype-"+rowIndex).value,pct:document.getElementById("ip-e-pct-"+rowIndex).value.trim(),fixed:document.getElementById("ip-e-fixed-"+rowIndex).value.trim(),termin:document.getElementById("ip-e-termin-"+rowIndex).value,pph:document.getElementById("ip-e-pph-"+rowIndex).value.trim(),notes:document.getElementById("ip-e-notes-"+rowIndex).value.trim(),by:currentUser});
+    const res=await apiGet({action:"updateIP",rowIndex,name:document.getElementById("ip-e-name-"+rowIndex).value.trim(),category:document.getElementById("ip-e-category-"+rowIndex).value.trim(),liveStatus:document.getElementById("ip-e-live-"+rowIndex).value,pic:document.getElementById("ip-e-pic-"+rowIndex).value.trim(),revenue:document.getElementById("ip-e-revenue-"+rowIndex).value.trim(),agreements:document.getElementById("ip-e-agr-"+rowIndex).value.trim(),royaltyType:document.getElementById("ip-e-roytype-"+rowIndex).value,pct:document.getElementById("ip-e-pct-"+rowIndex).value.trim(),fixed:document.getElementById("ip-e-fixed-"+rowIndex).value.trim(),termin:document.getElementById("ip-e-termin-"+rowIndex).value,pph:document.getElementById("ip-e-pph-"+rowIndex).value.trim(),notes:document.getElementById("ip-e-notes-"+rowIndex).value.trim(),by:currentUser});
     if(res.success){closeIPEdit(rowIndex);loadIPMaster();}
     else alert("Gagal simpan: "+res.error);
   } catch(e){alert("Koneksi gagal.");}
