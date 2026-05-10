@@ -286,6 +286,7 @@ tbody tr:hover td{background:var(--off);}
               <div class="fg"><label>End Date</label><input type="date" id="f-end"></div>
               <div class="fg full"><label>Link Agreement (Google Drive)</label><input type="url" id="f-link" placeholder="https://drive.google.com/..."></div>
               <div class="fg full"><label>Email Chain</label><input type="url" id="f-email-link" placeholder="https://mail.google.com/..."></div>
+              <div class="fg full"><label>Notes</label><input type="text" id="f-notes" placeholder="Catatan internal..."></div>
             </div>
             <div class="btn-row">
               <button class="btn-primary" id="submitBtn" onclick="submitAgreement()">Submit Agreement</button>
@@ -313,8 +314,8 @@ tbody tr:hover td{background:var(--off);}
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>ID</th><th>Judul</th><th>Partner</th><th>PIC</th><th>IP / Brand</th><th>Revenue</th><th>Tipe</th><th>Mulai</th><th>Selesai</th><th>Status</th><th>Kondisi</th><th>Drive</th><th>Email</th><th>Last Update</th></tr></thead>
-              <tbody id="tableBody"><tr><td class="empty-td" colspan="14">Klik tab "Semua Agreement" untuk memuat data.</td></tr></tbody>
+              <thead><tr><th>ID</th><th>Judul</th><th>Partner</th><th>PIC</th><th>IP / Brand</th><th>Revenue</th><th>Tipe</th><th>Mulai</th><th>Selesai</th><th>Status</th><th>Kondisi</th><th>Drive</th><th>Email</th><th>Notes</th><th>Last Update</th><th></th></tr></thead>
+              <tbody id="tableBody"><tr><td class="empty-td" colspan="16">Klik tab "Semua Agreement" untuk memuat data.</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -669,6 +670,7 @@ tbody tr:hover td{background:var(--off);}
                 </div>
               </div>
               <div class="fg full"><label>Notes</label><input type="text" id="ld-notes" placeholder="Catatan, next action, dll"></div>
+              <div class="fg"><label>Priority</label><select id="ld-priority"><option value="">—</option><option>Low</option><option>Medium</option><option>High</option></select></div>
             </div>
             <div class="btn-row">
               <button class="btn-primary" id="ldSubmitBtn" onclick="submitLead()">Simpan Lead</button>
@@ -686,6 +688,7 @@ tbody tr:hover td{background:var(--off);}
               <select class="f-select" id="ld-fil-category" onchange="applyLeadsFilters()"><option value="">Semua Category</option></select>
               <select class="f-select" id="ld-fil-revenue" onchange="applyLeadsFilters()"><option value="">Semua Revenue</option><option>SD&amp;Y</option><option>Lagaa</option><option>Marte</option></select>
               <select class="f-select" id="ld-fil-pic" onchange="applyLeadsFilters()"><option value="">Semua PIC</option></select>
+              <select class="f-select" id="ld-fil-priority" onchange="applyLeadsFilters()"><option value="">Semua Priority</option><option>Low</option><option>Medium</option><option>High</option></select>
               <input class="search-box" type="text" id="ldSearch" placeholder="Cari nama lead..." oninput="applyLeadsFilters()" style="width:100%">
             </div>
           </div>
@@ -695,8 +698,8 @@ tbody tr:hover td{background:var(--off);}
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>ID</th><th>Lead Name</th><th>Category</th><th>Stage</th><th>PIC</th><th>Revenue</th><th>Contact</th><th>Notes</th><th>Date Added</th><th>By</th><th></th></tr></thead>
-              <tbody id="ldTableBody"><tr><td class="empty-td" colspan="11">Klik "Semua Lead" untuk memuat.</td></tr></tbody>
+              <thead><tr><th>ID</th><th>Lead Name</th><th>Category</th><th>Stage</th><th>PIC</th><th>Revenue</th><th>Contact</th><th>Notes</th><th>Priority</th><th>Date Added</th><th>By</th><th></th></tr></thead>
+              <tbody id="ldTableBody"><tr><td class="empty-td" colspan="12">Klik "Semua Lead" untuk memuat.</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -958,7 +961,7 @@ async function submitAgreement() {
   const btn = document.getElementById("submitBtn");
   btn.disabled=true; btn.textContent="Menyimpan...";
   try {
-    const data = {action:"submit",title:document.getElementById("f-title").value.trim(),partner:document.getElementById("f-partner").value.trim(),pic:document.getElementById("f-pic").value.trim(),brand:document.getElementById("f-brand").value.trim(),revenue:document.getElementById("f-revenue").value,type:document.getElementById("f-type").value.trim(),status:document.getElementById("f-status").value,start:document.getElementById("f-start").value,end:document.getElementById("f-end").value,link:document.getElementById("f-link").value.trim(),emailLink:document.getElementById("f-email-link").value.trim(),by:currentUser};
+    const data = {action:"submit",title:document.getElementById("f-title").value.trim(),partner:document.getElementById("f-partner").value.trim(),pic:document.getElementById("f-pic").value.trim(),brand:document.getElementById("f-brand").value.trim(),revenue:document.getElementById("f-revenue").value,type:document.getElementById("f-type").value.trim(),status:document.getElementById("f-status").value,start:document.getElementById("f-start").value,end:document.getElementById("f-end").value,link:document.getElementById("f-link").value.trim(),emailLink:document.getElementById("f-email-link").value.trim(),notes:document.getElementById("f-notes").value.trim(),by:currentUser};
     const res = await apiGet(data);
     if (res.success) {
       showFeedback("✓ Agreement tersimpan — ID: "+res.id,"ok");
@@ -972,7 +975,7 @@ async function submitAgreement() {
 }
 
 function clearForm() {
-  ["f-title","f-partner","f-pic","f-brand","f-type","f-start","f-end","f-link","f-email-link"].forEach(id=>document.getElementById(id).value="");
+  ["f-title","f-partner","f-pic","f-brand","f-type","f-start","f-end","f-link","f-email-link","f-notes"].forEach(id=>document.getElementById(id).value="");
   document.getElementById("f-status").value=""; document.getElementById("f-revenue").value="";
 }
 
@@ -982,7 +985,7 @@ function showFeedback(msg,type) {
 }
 
 async function loadAgreements() {
-  document.getElementById("tableBody").innerHTML=`<tr><td class="empty-td" colspan="14">Memuat data...</td></tr>`;
+  document.getElementById("tableBody").innerHTML=`<tr><td class="empty-td" colspan="16">Memuat data...</td></tr>`;
   try {
     const res = await apiGet({action:"list"});
     if (!res.success) throw new Error(res.error);
@@ -1025,7 +1028,7 @@ function clearFilters() {
 function renderTable(rows) {
   document.getElementById("tcount").textContent=rows.length+" entri";
   const body=document.getElementById("tableBody");
-  if(!rows.length){body.innerHTML=`<tr><td class="empty-td" colspan="14">Tidak ada data.</td></tr>`;return;}
+  if(!rows.length){body.innerHTML=`<tr><td class="empty-td" colspan="16">Tidak ada data.</td></tr>`;return;}
   body.innerHTML=rows.map(r=>{const as=autoStatus(r);return`<tr>
     <td class="td-id">${r.id||"—"}</td><td class="td-title">${r.title||"—"}</td><td>${r.partner||"—"}</td><td>${r.pic||"—"}</td><td>${r.brand||"—"}</td>
     <td><span class="pill p-draft">${r.revenue||"—"}</span></td><td style="color:var(--g600);font-size:11px">${r.type||"—"}</td>
@@ -1034,8 +1037,19 @@ function renderTable(rows) {
     <td>${as?`<span class="pill ${pillClass(as)}">${as}</span>`:"—"}</td>
     <td class="td-link">${r.link?`<a href="${r.link}" target="_blank">Drive ↗</a>`:"—"}</td>
     <td class="td-link">${r.emailLink?`<a href="${r.emailLink}" target="_blank">Email ↗</a>`:"—"}</td>
+    <td style="color:var(--g600);font-size:11px;max-width:160px;">${r.notes||"—"}</td>
     <td class="td-audit">${r.lastUpdate||"—"}${r.lastBy?`<br><span style="color:var(--g400);font-size:9px">${r.lastBy}</span>`:""}</td>
+    <td><button class="btn-icon" style="color:#c0392b;" onclick="deleteAgreement(${r.rowIndex})">Del</button></td>
   </tr>`;}).join("");
+}
+
+async function deleteAgreement(rowIndex) {
+  if (!confirm("Hapus agreement ini? Tindakan tidak dapat dibatalkan.")) return;
+  try {
+    const res = await apiGet({action:"deleteAgreement", rowIndex});
+    if (res.success) loadAgreements();
+    else alert("Gagal hapus: "+res.error);
+  } catch(e) { alert("Koneksi gagal."); }
 }
 
 async function updateStatus(sel, rowIndex) {
@@ -1165,7 +1179,7 @@ function renderIPTable(rows) {
       <td style="font-size:11px">${r.termin||"—"}</td>
       <td style="font-family:var(--mono);font-size:11px">${r.pph?r.pph+"%":"—"}</td>
       <td style="color:var(--g600);font-size:11px">${r.notes||"—"}</td>
-      <td><button class="btn-icon" onclick="openIPEdit(${r.rowIndex})">Edit</button></td>
+      <td><button class="btn-icon" onclick="openIPEdit(${r.rowIndex})">Edit</button> <button class="btn-icon" style="color:#c0392b;" onclick="deleteIP(${r.rowIndex})">Del</button></td>
     </tr>
     <tr id="ip-edit-row-${r.rowIndex}" style="display:none"><td colspan="15" style="padding:0 12px 12px;">
       <div class="edit-row-form">
@@ -1194,6 +1208,15 @@ function renderIPTable(rows) {
 
 function openIPEdit(rowIndex) { document.querySelectorAll("[id^='ip-edit-row-']").forEach(el=>el.style.display="none"); document.getElementById("ip-edit-row-"+rowIndex).style.display="table-row"; }
 function closeIPEdit(rowIndex) { document.getElementById("ip-edit-row-"+rowIndex).style.display="none"; }
+
+async function deleteIP(rowIndex) {
+  if (!confirm("Hapus IP/Brand ini? Tindakan tidak dapat dibatalkan.")) return;
+  try {
+    const res = await apiGet({action:"deleteIP", rowIndex});
+    if (res.success) loadIPMaster();
+    else alert("Gagal hapus: "+res.error);
+  } catch(e) { alert("Koneksi gagal."); }
+}
 
 async function updateLiveStatus(sel, rowIndex) {
   const newStatus=sel.value;
@@ -1295,9 +1318,9 @@ function renderRRTable(rows) {
     <td><span class="pill ${r.royaltyType==="Post-Sales"?"p-active":r.royaltyType==="Advance"?"p-near":"p-signings"}">${r.royaltyType||"—"}</span></td>
     <td>${r.pct?r.pct+"%":"—"}</td><td>${r.fixed?"Rp "+Number(r.fixed).toLocaleString("id-ID"):"—"}</td>
     <td style="font-size:11px">${r.termin||"—"}</td>
-    <td class="td-link">${r.pks?`<a href="${r.pks}" target="_blank">PKS ↗</a>`:"—"}</td>
+    <td class="td-link">${r.pks?(()=>{const agrId=Object.keys(acAgrLinks).find(k=>acAgrLinks[k]===r.pks)||"PKS";return`<a href="${r.pks}" target="_blank">${agrId} ↗</a>`;})():"—"}</td>
     <td style="color:var(--g600);font-size:11px">${r.notes||"—"}</td>
-    <td><button class="btn-icon" onclick="openRREdit(${r.rowIndex})">Edit</button></td>
+    <td><button class="btn-icon" onclick="openRREdit(${r.rowIndex})">Edit</button> <button class="btn-icon" style="color:#c0392b;" onclick="deleteRR(${r.rowIndex})">Del</button></td>
   </tr>
   <tr id="rr-edit-row-${r.rowIndex}" style="display:none"><td colspan="12" style="padding:0 12px 12px;">
     <div class="edit-row-form">
@@ -1320,6 +1343,15 @@ function renderRRTable(rows) {
 
 function openRREdit(rowIndex){document.querySelectorAll("[id^='rr-edit-row-']").forEach(el=>el.style.display="none");document.getElementById("rr-edit-row-"+rowIndex).style.display="table-row";}
 function closeRREdit(rowIndex){document.getElementById("rr-edit-row-"+rowIndex).style.display="none";}
+
+async function deleteRR(rowIndex) {
+  if (!confirm("Hapus penerima royalty ini? Tindakan tidak dapat dibatalkan.")) return;
+  try {
+    const res = await apiGet({action:"deleteRR", rowIndex});
+    if (res.success) loadRecipients();
+    else alert("Gagal hapus: "+res.error);
+  } catch(e) { alert("Koneksi gagal."); }
+}
 
 async function saveRREdit(rowIndex) {
   try {
@@ -1377,12 +1409,12 @@ async function submitBM() {
       pic:         document.getElementById("bm-pic").value.trim(),
       revenue:     revenues.join(", "),
       agreements:  document.getElementById("bm-agreements").value.trim(),
-      apparel:     document.getElementById("bm-apparel").value.trim(),
-      accessories: document.getElementById("bm-accessories").value.trim(),
-      collectible: document.getElementById("bm-collectible").value.trim(),
-      preloved:    document.getElementById("bm-preloved").value.trim(),
-      wellness:    document.getElementById("bm-wellness").value.trim(),
-      others:      document.getElementById("bm-others").value.trim(),
+      apparel:     document.getElementById("bm-apparel").value.trim()     || String(BM_NORMAL.apparel),
+      accessories: document.getElementById("bm-accessories").value.trim() || String(BM_NORMAL.accessories),
+      collectible: document.getElementById("bm-collectible").value.trim() || String(BM_NORMAL.collectible),
+      preloved:    document.getElementById("bm-preloved").value.trim()    || String(BM_NORMAL.preloved),
+      wellness:    document.getElementById("bm-wellness").value.trim()    || String(BM_NORMAL.wellness),
+      others:      document.getElementById("bm-others").value.trim()      || String(BM_NORMAL.others),
       notes:       document.getElementById("bm-notes").value.trim(),
       by:          currentUser
     });
@@ -1483,7 +1515,7 @@ function renderBMTable(rows) {
       <td>${rateCell(r.wellness,  BM_NORMAL.wellness)}</td>
       <td>${rateCell(r.others,    BM_NORMAL.others)}</td>
       <td style="color:var(--g600);font-size:11px">${r.notes||"—"}</td>
-      <td><button class="btn-icon" onclick="openBMEdit(${r.rowIndex})">Edit</button></td>
+      <td><button class="btn-icon" onclick="openBMEdit(${r.rowIndex})">Edit</button> <button class="btn-icon" style="color:#c0392b;" onclick="deleteBM(${r.rowIndex})">Del</button></td>
     </tr>
     <tr id="bm-edit-row-${r.rowIndex}" style="display:none"><td colspan="15" style="padding:0 12px 12px;">
       <div class="edit-row-form">
@@ -1514,6 +1546,15 @@ function renderBMTable(rows) {
 function openBMEdit(rowIndex) { document.querySelectorAll("[id^='bm-edit-row-']").forEach(el=>el.style.display="none"); document.getElementById("bm-edit-row-"+rowIndex).style.display="table-row"; }
 function closeBMEdit(rowIndex) { document.getElementById("bm-edit-row-"+rowIndex).style.display="none"; }
 
+async function deleteBM(rowIndex) {
+  if (!confirm("Hapus brand ini? Tindakan tidak dapat dibatalkan.")) return;
+  try {
+    const res = await apiGet({action:"deleteBM", rowIndex});
+    if (res.success) loadBrandMaster();
+    else alert("Gagal hapus: "+res.error);
+  } catch(e) { alert("Koneksi gagal."); }
+}
+
 async function saveBMEdit(rowIndex) {
   try {
     const res = await apiGet({
@@ -1523,12 +1564,12 @@ async function saveBMEdit(rowIndex) {
       liveStatus:  document.getElementById("bm-e-live-"+rowIndex).value,
       revenue:     document.getElementById("bm-e-rev-"+rowIndex).value.trim(),
       agreements:  document.getElementById("bm-e-agr-"+rowIndex).value.trim(),
-      apparel:     document.getElementById("bm-e-apparel-"+rowIndex).value.trim(),
-      accessories: document.getElementById("bm-e-acc-"+rowIndex).value.trim(),
-      collectible: document.getElementById("bm-e-col-"+rowIndex).value.trim(),
-      preloved:    document.getElementById("bm-e-pre-"+rowIndex).value.trim(),
-      wellness:    document.getElementById("bm-e-wel-"+rowIndex).value.trim(),
-      others:      document.getElementById("bm-e-oth-"+rowIndex).value.trim(),
+      apparel:     document.getElementById("bm-e-apparel-"+rowIndex).value.trim() || String(BM_NORMAL.apparel),
+      accessories: document.getElementById("bm-e-acc-"+rowIndex).value.trim()    || String(BM_NORMAL.accessories),
+      collectible: document.getElementById("bm-e-col-"+rowIndex).value.trim()    || String(BM_NORMAL.collectible),
+      preloved:    document.getElementById("bm-e-pre-"+rowIndex).value.trim()    || String(BM_NORMAL.preloved),
+      wellness:    document.getElementById("bm-e-wel-"+rowIndex).value.trim()    || String(BM_NORMAL.wellness),
+      others:      document.getElementById("bm-e-oth-"+rowIndex).value.trim()    || String(BM_NORMAL.others),
       notes:       document.getElementById("bm-e-notes-"+rowIndex).value.trim(),
       pic:         document.getElementById("bm-e-pic-"+rowIndex).value.trim(),
       by:          currentUser
@@ -1709,6 +1750,7 @@ function renderSRGrid() {
     return `<tr>
       <td style="position:sticky;left:0;background:var(--white);z-index:1;border-right:1px solid var(--g100);">
         <div style="font-weight:500;font-size:12px;">${b.name}</div>
+        ${b.source==="CR"&&b.relatedIP?`<div style="font-size:10px;color:var(--g600);margin-top:1px;">${b.relatedIP}</div>`:""}
         <div style="margin-top:2px;">${revBadge}</div>
         <div style="font-size:10px;color:var(--g400);font-family:var(--mono);">${srcLabel}</div>
       </td>
@@ -1918,11 +1960,12 @@ async function submitLead() {
   const btn=document.getElementById("ldSubmitBtn"); btn.disabled=true; btn.textContent="Menyimpan...";
   try {
     const res=await apiGet({action:"submitLead",name,category,stage,
-      pic:     document.getElementById("ld-pic").value.trim(),
-      contact: document.getElementById("ld-contact").value.trim(),
-      revenue: revenues.join(", "),
-      notes:   document.getElementById("ld-notes").value.trim(),
-      by:      currentUser
+      pic:      document.getElementById("ld-pic").value.trim(),
+      contact:  document.getElementById("ld-contact").value.trim(),
+      revenue:  revenues.join(", "),
+      notes:    document.getElementById("ld-notes").value.trim(),
+      priority: document.getElementById("ld-priority").value,
+      by:       currentUser
     });
     if (res.success) {
       showLdFeedback("✓ Lead tersimpan — ID: "+res.id,"ok");
@@ -1935,7 +1978,7 @@ async function submitLead() {
 
 function clearLeadForm() {
   ["ld-name","ld-category","ld-pic","ld-contact","ld-notes"].forEach(id=>document.getElementById(id).value="");
-  document.getElementById("ld-stage").value="";
+  document.getElementById("ld-stage").value=""; document.getElementById("ld-priority").value="";
   document.querySelectorAll("#ld-revenue-checks input").forEach(c=>c.checked=false);
 }
 
@@ -1945,7 +1988,7 @@ function showLdFeedback(msg,type) {
 }
 
 async function loadLeads() {
-  document.getElementById("ldTableBody").innerHTML=`<tr><td class="empty-td" colspan="11">Memuat...</td></tr>`;
+  document.getElementById("ldTableBody").innerHTML=`<tr><td class="empty-td" colspan="12">Memuat...</td></tr>`;
   try {
     const res=await apiGet({action:"listLeads"});
     if (!res.success) throw new Error(res.error);
@@ -1977,21 +2020,23 @@ function applyLeadsFilters() {
   const fStage=document.getElementById("ld-fil-stage").value;
   const fCat  =document.getElementById("ld-fil-category").value;
   const fRev  =document.getElementById("ld-fil-revenue").value;
-  const fPic  =document.getElementById("ld-fil-pic").value;
-  ["ld-fil-stage","ld-fil-category","ld-fil-revenue","ld-fil-pic"].forEach(id=>{const el=document.getElementById(id);if(el)el.classList.toggle("active-filter",!!el.value);});
+  const fPic      =document.getElementById("ld-fil-pic").value;
+  const fPriority =document.getElementById("ld-fil-priority").value;
+  ["ld-fil-stage","ld-fil-category","ld-fil-revenue","ld-fil-pic","ld-fil-priority"].forEach(id=>{const el=document.getElementById(id);if(el)el.classList.toggle("active-filter",!!el.value);});
   const filtered=allLeadsRows.filter(r=>{
-    if(q     &&![r.name,r.contact,r.notes,r.pic].some(v=>(v||"").toLowerCase().includes(q)))return false;
-    if(fStage&&r.stage!==fStage)return false;
-    if(fCat  &&r.category!==fCat)return false;
-    if(fRev  &&!(r.revenue||"").includes(fRev))return false;
-    if(fPic  &&r.pic!==fPic)return false;
+    if(q        &&![r.name,r.contact,r.notes,r.pic].some(v=>(v||"").toLowerCase().includes(q)))return false;
+    if(fStage   &&r.stage!==fStage)return false;
+    if(fCat     &&r.category!==fCat)return false;
+    if(fRev     &&!(r.revenue||"").includes(fRev))return false;
+    if(fPic     &&r.pic!==fPic)return false;
+    if(fPriority&&r.priority!==fPriority)return false;
     return true;
   });
   computeLeadsStats(filtered); renderLeadsTable(filtered);
 }
 
 function clearLeadsFilters() {
-  ["ld-fil-stage","ld-fil-category","ld-fil-revenue","ld-fil-pic"].forEach(id=>{const el=document.getElementById(id);if(el){el.value="";el.classList.remove("active-filter");}});
+  ["ld-fil-stage","ld-fil-category","ld-fil-revenue","ld-fil-pic","ld-fil-priority"].forEach(id=>{const el=document.getElementById(id);if(el){el.value="";el.classList.remove("active-filter");}});
   document.getElementById("ldSearch").value="";
   computeLeadsStats(allLeadsRows); renderLeadsTable(allLeadsRows);
 }
@@ -1999,7 +2044,8 @@ function clearLeadsFilters() {
 function renderLeadsTable(rows) {
   document.getElementById("ld-tcount").textContent=rows.length+" entri";
   const body=document.getElementById("ldTableBody");
-  if(!rows.length){body.innerHTML=`<tr><td class="empty-td" colspan="11">Belum ada data.</td></tr>`;return;}
+  if(!rows.length){body.innerHTML=`<tr><td class="empty-td" colspan="12">Belum ada data.</td></tr>`;return;}
+  const priorityPill=p=>p==="High"?`<span class="pill p-expired">${p}</span>`:p==="Medium"?`<span class="pill p-near">${p}</span>`:p==="Low"?`<span class="pill p-draft">${p}</span>`:"—";
   body.innerHTML=rows.map(r=>{
     const streams=(r.revenue||"").split(",").map(s=>s.trim()).filter(Boolean);
     return`<tr>
@@ -2011,11 +2057,12 @@ function renderLeadsTable(rows) {
       <td>${streams.map(s=>`<span class="pill" style="background:#EEEDFE;color:#3C3489;border:0.5px solid #AFA9EC;margin-right:3px">${s}</span>`).join("")||"—"}</td>
       <td style="font-size:11px;color:var(--g600)">${r.contact||"—"}</td>
       <td style="font-size:11px;color:var(--g600);max-width:200px;">${r.notes||"—"}</td>
+      <td>${priorityPill(r.priority)}</td>
       <td class="td-audit">${r.date||"—"}</td>
       <td class="td-audit">${r.by||"—"}</td>
-      <td><button class="btn-icon" onclick="openLeadEdit(${r.rowIndex})">Edit</button></td>
+      <td><button class="btn-icon" onclick="openLeadEdit(${r.rowIndex})">Edit</button> <button class="btn-icon" style="color:#c0392b;" onclick="deleteLead(${r.rowIndex})">Del</button></td>
     </tr>
-    <tr id="ld-edit-row-${r.rowIndex}" style="display:none"><td colspan="11" style="padding:0 12px 12px;">
+    <tr id="ld-edit-row-${r.rowIndex}" style="display:none"><td colspan="12" style="padding:0 12px 12px;">
       <div class="edit-row-form">
         <div class="edit-row-grid">
           <div class="fg"><label>Lead Name</label><input type="text" id="ld-e-name-${r.rowIndex}" value="${r.name||""}"></div>
@@ -2025,6 +2072,7 @@ function renderLeadsTable(rows) {
           <div class="fg"><label>Contact</label><input type="text" id="ld-e-contact-${r.rowIndex}" value="${r.contact||""}"></div>
           <div class="fg"><label>Revenue Stream</label><input type="text" id="ld-e-revenue-${r.rowIndex}" value="${r.revenue||""}" placeholder="SD&Y, Lagaa"></div>
           <div class="fg"><label>Notes</label><input type="text" id="ld-e-notes-${r.rowIndex}" value="${r.notes||""}"></div>
+          <div class="fg"><label>Priority</label><select id="ld-e-priority-${r.rowIndex}"><option value="" ${!r.priority?"selected":""}>—</option><option ${r.priority==="Low"?"selected":""}>Low</option><option ${r.priority==="Medium"?"selected":""}>Medium</option><option ${r.priority==="High"?"selected":""}>High</option></select></div>
         </div>
         <div class="edit-row-btns">
           <button class="btn-save" onclick="saveLeadEdit(${r.rowIndex})">Simpan</button>
@@ -2037,6 +2085,15 @@ function renderLeadsTable(rows) {
 
 function openLeadEdit(rowIndex){document.querySelectorAll("[id^='ld-edit-row-']").forEach(el=>el.style.display="none");document.getElementById("ld-edit-row-"+rowIndex).style.display="table-row";}
 function closeLeadEdit(rowIndex){document.getElementById("ld-edit-row-"+rowIndex).style.display="none";}
+
+async function deleteLead(rowIndex) {
+  if (!confirm("Hapus lead ini? Tindakan tidak dapat dibatalkan.")) return;
+  try {
+    const res = await apiGet({action:"deleteLead", rowIndex});
+    if (res.success) loadLeads();
+    else alert("Gagal hapus: "+res.error);
+  } catch(e) { alert("Koneksi gagal."); }
+}
 
 async function updateLeadStage(sel,rowIndex) {
   const newStage=sel.value;
@@ -2059,8 +2116,9 @@ async function saveLeadEdit(rowIndex) {
       pic:     document.getElementById("ld-e-pic-"+rowIndex).value.trim(),
       contact: document.getElementById("ld-e-contact-"+rowIndex).value.trim(),
       revenue: document.getElementById("ld-e-revenue-"+rowIndex).value.trim(),
-      notes:   document.getElementById("ld-e-notes-"+rowIndex).value.trim(),
-      by:      currentUser
+      notes:    document.getElementById("ld-e-notes-"+rowIndex).value.trim(),
+      priority: document.getElementById("ld-e-priority-"+rowIndex).value,
+      by:       currentUser
     });
     if(res.success){closeLeadEdit(rowIndex);loadLeads();}
     else alert("Gagal simpan: "+res.error);
@@ -2223,7 +2281,7 @@ function renderDPTable(rows) {
         </select>
       </td>
       <td style="font-size:11px;color:var(--g600)">${r.notes||"—"}</td>
-      <td><button class="btn-icon" onclick="openDPEdit(${r.rowIndex})">Edit</button></td>
+      <td><button class="btn-icon" onclick="openDPEdit(${r.rowIndex})">Edit</button> <button class="btn-icon" style="color:#c0392b;" onclick="deleteDP(${r.rowIndex})">Del</button></td>
     </tr>
     <tr id="dp-edit-row-${r.rowIndex}" style="display:none"><td colspan="11" style="padding:0 12px 12px;">
       <div class="edit-row-form">
@@ -2250,6 +2308,15 @@ function renderDPTable(rows) {
 
 function openDPEdit(rowIndex){document.querySelectorAll("[id^='dp-edit-row-']").forEach(el=>el.style.display="none");document.getElementById("dp-edit-row-"+rowIndex).style.display="table-row";}
 function closeDPEdit(rowIndex){document.getElementById("dp-edit-row-"+rowIndex).style.display="none";}
+
+async function deleteDP(rowIndex) {
+  if (!confirm("Hapus distribution partner ini? Tindakan tidak dapat dibatalkan.")) return;
+  try {
+    const res = await apiGet({action:"deleteDP", rowIndex});
+    if (res.success) loadDistPartner();
+    else alert("Gagal hapus: "+res.error);
+  } catch(e) { alert("Koneksi gagal."); }
+}
 
 async function updateDPLiveStatus(sel, rowIndex) {
   const newStatus=sel.value;
