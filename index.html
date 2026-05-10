@@ -427,14 +427,14 @@ tbody tr:hover td{background:var(--off);}
             <div class="form-sec">Detail Penerima Royalty</div>
             <div class="form-grid">
               <div class="fg"><label>Nama Penerima <span class="req">*</span></label><input type="text" id="rr-name" placeholder="Nama lengkap"></div>
-              <div class="fg"><label>Tipe <span class="req">*</span></label><div class="ac-wrap"><input type="text" id="rr-tipe" placeholder="Artist, Collaborator, dll" autocomplete="off" oninput="togglePKS()"><div class="ac-list" id="ac-rr-tipe"></div></div></div>
+              <div class="fg"><label>Tipe <span class="req">*</span></label><div class="ac-wrap"><input type="text" id="rr-tipe" placeholder="Artist, Collaborator, dll" autocomplete="off"><div class="ac-list" id="ac-rr-tipe"></div></div></div>
               <div class="fg"><label>Related IP <span class="req">*</span></label><div class="ac-wrap"><input type="text" id="rr-ip" placeholder="Pilih atau ketik IP baru" autocomplete="off"><div class="ac-list" id="ac-rr-ip"></div></div></div>
               <div class="fg"><label>Royalty Type <span class="req">*</span></label><select id="rr-royalty-type"><option value="">Pilih tipe...</option><option>Post-Sales</option><option>Advance</option><option>Both</option></select></div>
               <div class="fg"><label>Percentage (%)</label><input type="number" id="rr-pct" placeholder="e.g. 10" step="0.1" min="0" max="100"></div>
               <div class="fg"><label>Fixed Amount (IDR)</label><input type="number" id="rr-fixed" placeholder="e.g. 5000000"></div>
               <div class="fg"><label>Termin <span class="req">*</span></label><select id="rr-termin"><option value="">Pilih termin...</option><option>Per Bulan</option><option>Per Quarter</option><option>Per Tahun</option><option>Per Akhir Project</option></select></div>
-              <div class="fg" id="rr-pks-wrap" style="display:none">
-                <label>PKS Agreement <span class="req">*</span></label>
+              <div class="fg" id="rr-pks-wrap">
+                <label>PKS Agreement</label>
                 <div class="ac-wrap"><input type="text" id="rr-pks" placeholder="Pilih agreement PKS..." autocomplete="off"><div class="ac-list" id="ac-rr-pks"></div></div>
                 <div style="font-size:11px;color:var(--g400);margin-top:3px;font-family:var(--mono)">Pilih agreement → link Drive tersimpan otomatis</div>
               </div>
@@ -1295,7 +1295,7 @@ async function submitRR() {
   try {
     const tipe=document.getElementById("rr-tipe").value.trim();
     const pksInp = document.getElementById("rr-pks");
-    const pksVal = tipe.toLowerCase()==="collaborator" ? pksInp.value.trim() : "";
+    const pksVal = pksInp.value.trim();
     const res=await apiGet({action:"submitRR",name:document.getElementById("rr-name").value.trim(),tipe,ip:document.getElementById("rr-ip").value.trim(),royaltyType:document.getElementById("rr-royalty-type").value,pct:document.getElementById("rr-pct").value.trim(),fixed:document.getElementById("rr-fixed").value.trim(),termin:document.getElementById("rr-termin").value,pks:pksVal,notes:document.getElementById("rr-notes").value.trim(),pic:document.getElementById("rr-pic").value.trim(),by:currentUser});
     if(res.success){showRRFeedback("✓ Penerima tersimpan — ID: "+res.id,"ok");if(!acRRTipes.includes(tipe))acRRTipes.push(tipe);clearRRForm();}
     else{showRRFeedback("Gagal: "+res.error,"err");}
@@ -1306,7 +1306,7 @@ async function submitRR() {
 function clearRRForm() {
   ["rr-name","rr-tipe","rr-ip","rr-pct","rr-fixed","rr-pks","rr-notes","rr-pic"].forEach(id=>document.getElementById(id).value="");
   const pksEl = document.getElementById("rr-pks"); if(pksEl) pksEl.dataset.driveLink="";
-  document.getElementById("rr-royalty-type").value=""; document.getElementById("rr-termin").value=""; document.getElementById("rr-pks-wrap").style.display="none";
+  document.getElementById("rr-royalty-type").value=""; document.getElementById("rr-termin").value="";
 }
 
 function showRRFeedback(msg,type) {
