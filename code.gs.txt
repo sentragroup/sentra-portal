@@ -384,9 +384,8 @@ function buildSRList() {
   const seen = {}, brands = [];
 
   const addBrand = (id, name, revenue, source, pic) => {
-    const key = name.trim().toLowerCase();
-    if (!seen[key]) {
-      seen[key] = true;
+    if (!seen[id]) {
+      seen[id] = true;
       brands.push({id, name:name.trim(), revenue:revenue||"", source, pic:pic||""});
     }
   };
@@ -483,5 +482,22 @@ function clearCache(key){CacheService.getScriptCache().remove(key);}
 function clearAllCache(){
   const c=CacheService.getScriptCache();
   [CACHE_KEY,CACHE_KEY_IP,CACHE_KEY_RR,CACHE_KEY_BM,CACHE_KEY_SR,CACHE_KEY_LD,CACHE_KEY_DP].forEach(k=>c.remove(k));
+}
+
+function migrateSheets(){
+  const ss=SpreadsheetApp.openById(SHEET_ID);
+  Object.keys(SHEETS).forEach(key=>{
+    const sheet=ss.getSheetByName(SHEETS[key]);
+    const expected=HEADERS[key];
+    if(!sheet||!expected)return;
+    const lastCol=sheet.getLastColumn();
+    if(lastCol<1)return;
+    for(let i=lastCol;i<expected.length;i++){
+      sheet.getRange(1,i+1).setValue(expected[i]);
+      sheet.getRange(1,i+1).setFontWeight("bold");
+      Logger.log('Added "'+expected[i]+'" to '+SHEETS[key]+' at col '+(i+1));
+    }
+  });
+  Logger.log("migrateSheets complete.");
 }
 function output(data){return ContentService.createTextOutput(JSON.stringify(data)).setMimeType(ContentService.MimeType.JSON);}
