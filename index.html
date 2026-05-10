@@ -226,6 +226,9 @@ tbody tr:hover td{background:var(--off);}
         <div class="sb-item" onclick="showPage('recipients',this)" id="nav-recipients">
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="5" r="2.5"/><path d="M1 13c0-2.5 2-4 5-4"/><circle cx="12" cy="10" r="2.5"/><path d="M9 13c0-1.7 1.3-3 3-3s3 1.3 3 3"/></svg>Royalty Recipients
         </div>
+        <div class="sb-item" onclick="showPage('brandmaster',this)" id="nav-brandmaster">
+          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2l1.5 3 3.5.5-2.5 2.5.5 3.5L8 10l-3 1.5.5-3.5L3 5.5l3.5-.5z"/></svg>Brand Master
+        </div>
       </div>
     </nav>
     <div class="content">
@@ -453,6 +456,85 @@ tbody tr:hover td{background:var(--off);}
         </div>
       </div>
 
+      <!-- BRAND MASTER -->
+      <div class="page" id="page-brandmaster">
+        <div class="page-header">
+          <div><div class="page-title">Brand Master</div><div class="page-sub">Database rate per brand dan kategori produk.</div></div>
+          <div class="tab-bar">
+            <button class="tab-btn active" onclick="switchBMTab('new',this)">Tambah Brand</button>
+            <button class="tab-btn" onclick="switchBMTab('list',this)">Semua Brand</button>
+          </div>
+        </div>
+
+        <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem;">
+          <div class="stat-card"><div class="stat-num" id="bm-s-total">—</div><div class="stat-lbl">Total Brand</div></div>
+          <div class="stat-card"><div class="stat-num" id="bm-s-normal">—</div><div class="stat-lbl">Rate Normal</div></div>
+          <div class="stat-card warn"><div class="stat-num" id="bm-s-nego">—</div><div class="stat-lbl">Ada Rate Nego</div></div>
+          <div class="stat-card"><div class="stat-num" id="bm-s-live">—</div><div class="stat-lbl">Live Active</div></div>
+        </div>
+
+        <div id="bmtab-new">
+          <div class="form-card">
+            <div class="form-sec">Detail Brand</div>
+            <div class="form-grid">
+              <div class="fg full"><label>IP / Brand Name <span class="req">*</span></label><input type="text" id="bm-name" placeholder="e.g. Cooluncle"></div>
+              <div class="fg"><label>Category <span class="req">*</span></label><div class="ac-wrap"><input type="text" id="bm-category" placeholder="Musician, Brand, Filmmaker..." autocomplete="off"><div class="ac-list" id="ac-bm-category"></div></div></div>
+              <div class="fg"><label>Live Status <span class="req">*</span></label><select id="bm-live-status"><option value="">Pilih...</option><option>Active</option><option>Inactive</option></select></div>
+              <div class="fg full"><label>Revenue Stream</label>
+                <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px;" id="bm-revenue-checks">
+                  <label style="display:flex;align-items:center;gap:6px;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" value="SD&Y"> SD&Y</label>
+                  <label style="display:flex;align-items:center;gap:6px;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" value="Lagaa"> Lagaa</label>
+                  <label style="display:flex;align-items:center;gap:6px;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" value="Marte"> Marte</label>
+                </div>
+              </div>
+              <div class="fg full"><label>Related Agreement</label><input type="text" id="bm-agreements" placeholder="AGR-xxx, AGR-yyy (pisah koma)"></div>
+            </div>
+            <div class="form-sec" style="margin-top:1.25rem;">Rate per Kategori <span style="font-size:10px;color:var(--g400);text-transform:none;letter-spacing:0;font-weight:400;">(kosongkan = pakai rate normal)</span></div>
+            <div class="form-grid">
+              <div class="fg"><label>Apparel Rate (%) <span style="color:var(--g400);font-size:9px;text-transform:none;letter-spacing:0;">normal: 30%</span></label><input type="number" id="bm-apparel" placeholder="30" step="0.1" min="0" max="100"></div>
+              <div class="fg"><label>Accessories Rate (%) <span style="color:var(--g400);font-size:9px;text-transform:none;letter-spacing:0;">normal: 25%</span></label><input type="number" id="bm-accessories" placeholder="25" step="0.1" min="0" max="100"></div>
+              <div class="fg"><label>Collectible Rate (%) <span style="color:var(--g400);font-size:9px;text-transform:none;letter-spacing:0;">normal: 20%</span></label><input type="number" id="bm-collectible" placeholder="20" step="0.1" min="0" max="100"></div>
+              <div class="fg"><label>Preloved Goods Rate (%) <span style="color:var(--g400);font-size:9px;text-transform:none;letter-spacing:0;">normal: 20%</span></label><input type="number" id="bm-preloved" placeholder="20" step="0.1" min="0" max="100"></div>
+              <div class="fg"><label>Wellness Rate (%) <span style="color:var(--g400);font-size:9px;text-transform:none;letter-spacing:0;">normal: 20%</span></label><input type="number" id="bm-wellness" placeholder="20" step="0.1" min="0" max="100"></div>
+              <div class="fg"><label>Others Rate (%) <span style="color:var(--g400);font-size:9px;text-transform:none;letter-spacing:0;">normal: 30%</span></label><input type="number" id="bm-others" placeholder="30" step="0.1" min="0" max="100"></div>
+            </div>
+            <div class="fg" style="margin-top:1rem;"><label>Notes</label><input type="text" id="bm-notes" placeholder="Catatan tambahan"></div>
+            <div class="btn-row">
+              <button class="btn-primary" id="bmSubmitBtn" onclick="submitBM()">Simpan Brand</button>
+              <button class="btn-ghost" onclick="clearBMForm()">Bersihkan</button>
+            </div>
+            <div class="feedback" id="bm-feedback"></div>
+          </div>
+        </div>
+
+        <div id="bmtab-list" style="display:none;">
+          <div class="filter-panel">
+            <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="clearBMFilters()">✕ Reset</button></div>
+            <div class="filter-grid">
+              <select class="f-select" id="bm-fil-livestatus" onchange="applyBMFilters()"><option value="">Semua Live Status</option><option>Active</option><option>Inactive</option></select>
+              <select class="f-select" id="bm-fil-rate" onchange="applyBMFilters()"><option value="">Semua Rate</option><option value="normal">Rate Normal</option><option value="nego">Ada Rate Nego</option></select>
+              <select class="f-select" id="bm-fil-revenue" onchange="applyBMFilters()"><option value="">Semua Revenue</option><option>SD&amp;Y</option><option>Lagaa</option><option>Marte</option></select>
+              <select class="f-select" id="bm-fil-category" onchange="applyBMFilters()"><option value="">Semua Category</option></select>
+              <input class="search-box" type="text" id="bmSearch" placeholder="Cari nama brand..." oninput="applyBMFilters()" style="width:100%">
+            </div>
+          </div>
+          <div class="table-toolbar">
+            <button class="btn-refresh" onclick="loadBrandMaster()">↻ Refresh</button>
+            <div class="tcount" id="bm-tcount">— entri</div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>ID</th><th>Brand</th><th>Category</th><th>Live</th><th>Revenue</th><th>Agreement</th>
+                <th>Apparel</th><th>Accessories</th><th>Collectible</th><th>Preloved</th><th>Wellness</th><th>Others</th>
+                <th>Notes</th><th></th>
+              </tr></thead>
+              <tbody id="bmTableBody"><tr><td class="empty-td" colspan="14">Klik "Semua Brand" untuk memuat.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
 </div>
@@ -525,11 +607,12 @@ function showPage(name, el) {
   document.querySelectorAll(".sb-item").forEach(i=>i.classList.remove("active"));
   document.getElementById("page-"+name).classList.add("active");
   if (el) el.classList.add("active");
-  const labels = {home:"Internal Tools",agreement:"Agreement Tracker",ipmaster:"IP Master",recipients:"Royalty Recipients"};
+  const labels = {home:"Internal Tools",agreement:"Agreement Tracker",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   if (name==="agreement") loadStats();
   if (name==="ipmaster") { loadIPMaster(); loadStats(); }
   if (name==="recipients") loadRecipients();
+  if (name==="brandmaster") loadBrandMaster();
 }
 
 function switchTab(name, el) {
@@ -977,6 +1060,209 @@ async function saveRREdit(rowIndex) {
     else alert("Gagal simpan: "+res.error);
   } catch(e){alert("Koneksi gagal.");}
 }
+
+// ── BRAND MASTER ──
+const BM_NORMAL = {apparel:30, accessories:25, collectible:20, preloved:20, wellness:20, others:30};
+let allBMRows = [], acBMCategories = ["Musician","Brand","Filmmaker"];
+
+function switchBMTab(name, el) {
+  document.querySelectorAll("#page-brandmaster .tab-btn").forEach(b=>b.classList.remove("active"));
+  el.classList.add("active");
+  document.getElementById("bmtab-new").style.display  = name==="new"  ? "block":"none";
+  document.getElementById("bmtab-list").style.display = name==="list" ? "block":"none";
+  if (name==="list") loadBrandMaster();
+}
+
+function isNego(r) {
+  return ["apparel","accessories","collectible","preloved","wellness","others"].some(k => {
+    const v = parseFloat(r[k]);
+    return !isNaN(v) && v !== BM_NORMAL[k];
+  });
+}
+
+function rateCell(val, normalVal) {
+  const v = val !== "" && val !== undefined && val !== null ? parseFloat(val) : null;
+  const display = v !== null ? v+"%" : normalVal+"%";
+  const isNonStd = v !== null && v !== normalVal;
+  return isNonStd
+    ? `<span style="background:#fff3e0;color:#8a4000;border:1px solid #ffcc80;border-radius:99px;padding:2px 8px;font-family:var(--mono);font-size:10px;white-space:nowrap;">⚠ ${display}</span>`
+    : `<span style="font-family:var(--mono);font-size:11px;color:var(--g600)">${display}</span>`;
+}
+
+async function submitBM() {
+  const name = document.getElementById("bm-name").value.trim();
+  const category = document.getElementById("bm-category").value.trim();
+  const liveStatus = document.getElementById("bm-live-status").value;
+  if (!name)       { showBMFeedback("IP / Brand Name wajib diisi.","err"); return; }
+  if (!category)   { showBMFeedback("Category wajib diisi.","err"); return; }
+  if (!liveStatus) { showBMFeedback("Live Status wajib diisi.","err"); return; }
+  const revenues = [...document.querySelectorAll("#bm-revenue-checks input:checked")].map(c=>c.value);
+  const btn = document.getElementById("bmSubmitBtn");
+  btn.disabled=true; btn.textContent="Menyimpan...";
+  try {
+    const res = await apiGet({
+      action:"submitBM", name, category, liveStatus,
+      revenue:     revenues.join(", "),
+      agreements:  document.getElementById("bm-agreements").value.trim(),
+      apparel:     document.getElementById("bm-apparel").value.trim(),
+      accessories: document.getElementById("bm-accessories").value.trim(),
+      collectible: document.getElementById("bm-collectible").value.trim(),
+      preloved:    document.getElementById("bm-preloved").value.trim(),
+      wellness:    document.getElementById("bm-wellness").value.trim(),
+      others:      document.getElementById("bm-others").value.trim(),
+      notes:       document.getElementById("bm-notes").value.trim(),
+      by:          currentUser
+    });
+    if (res.success) {
+      showBMFeedback("✓ Brand tersimpan — ID: "+res.id,"ok");
+      if (!acBMCategories.includes(category)) acBMCategories.push(category);
+      clearBMForm(); loadBrandMaster();
+    } else { showBMFeedback("Gagal: "+res.error,"err"); }
+  } catch(e) { showBMFeedback("Koneksi gagal.","err"); }
+  btn.disabled=false; btn.textContent="Simpan Brand";
+}
+
+function clearBMForm() {
+  ["bm-name","bm-category","bm-agreements","bm-notes","bm-apparel","bm-accessories","bm-collectible","bm-preloved","bm-wellness","bm-others"].forEach(id=>document.getElementById(id).value="");
+  document.getElementById("bm-live-status").value="";
+  document.querySelectorAll("#bm-revenue-checks input").forEach(c=>c.checked=false);
+}
+
+function showBMFeedback(msg,type) {
+  const el=document.getElementById("bm-feedback"); el.textContent=msg; el.className="feedback "+type;
+  if(type==="ok") setTimeout(()=>el.className="feedback",6000);
+}
+
+async function loadBrandMaster() {
+  document.getElementById("bmTableBody").innerHTML=`<tr><td class="empty-td" colspan="14">Memuat...</td></tr>`;
+  try {
+    const res = await apiGet({action:"listBM"});
+    if (!res.success) throw new Error(res.error);
+    allBMRows = res.rows||[];
+    // populate category filter
+    const cats = [...new Set(allBMRows.map(r=>r.category).filter(Boolean))];
+    cats.forEach(c=>{if(!acBMCategories.includes(c))acBMCategories.push(c);});
+    const catSel = document.getElementById("bm-fil-category");
+    if(catSel){while(catSel.options.length>1)catSel.remove(1);acBMCategories.forEach(c=>{const o=document.createElement("option");o.value=o.textContent=c;catSel.appendChild(o);});}
+    computeBMStats(allBMRows); applyBMFilters();
+  } catch(e) {
+    document.getElementById("bmTableBody").innerHTML=`<tr><td class="empty-td" colspan="14">Gagal: ${e.message}</td></tr>`;
+  }
+}
+
+function computeBMStats(rows) {
+  const nego = rows.filter(r=>isNego(r));
+  document.getElementById("bm-s-total").textContent  = rows.length;
+  document.getElementById("bm-s-normal").textContent = rows.length - nego.length;
+  document.getElementById("bm-s-nego").textContent   = nego.length;
+  document.getElementById("bm-s-live").textContent   = rows.filter(r=>r.liveStatus==="Active").length;
+}
+
+function applyBMFilters() {
+  const q        = (document.getElementById("bmSearch").value||"").toLowerCase();
+  const fLive    = document.getElementById("bm-fil-livestatus").value;
+  const fRate    = document.getElementById("bm-fil-rate").value;
+  const fRevenue = document.getElementById("bm-fil-revenue").value;
+  const fCat     = document.getElementById("bm-fil-category").value;
+  ["bm-fil-livestatus","bm-fil-rate","bm-fil-revenue","bm-fil-category"].forEach(id=>{
+    const el=document.getElementById(id);if(el)el.classList.toggle("active-filter",!!el.value);
+  });
+  const filtered = allBMRows.filter(r=>{
+    if(q      && !(r.name||"").toLowerCase().includes(q)) return false;
+    if(fLive  && r.liveStatus!==fLive) return false;
+    if(fRate  === "normal" && isNego(r)) return false;
+    if(fRate  === "nego"   && !isNego(r)) return false;
+    if(fRevenue && !(r.revenue||"").includes(fRevenue)) return false;
+    if(fCat   && r.category!==fCat) return false;
+    return true;
+  });
+  computeBMStats(filtered); renderBMTable(filtered);
+}
+
+function clearBMFilters() {
+  ["bm-fil-livestatus","bm-fil-rate","bm-fil-revenue","bm-fil-category"].forEach(id=>{
+    const el=document.getElementById(id);if(el){el.value="";el.classList.remove("active-filter");}
+  });
+  document.getElementById("bmSearch").value="";
+  computeBMStats(allBMRows); renderBMTable(allBMRows);
+}
+
+function renderBMTable(rows) {
+  document.getElementById("bm-tcount").textContent = rows.length+" entri";
+  const body = document.getElementById("bmTableBody");
+  if (!rows.length) { body.innerHTML=`<tr><td class="empty-td" colspan="14">Belum ada data.</td></tr>`; return; }
+  body.innerHTML = rows.map(r=>{
+    const streams = (r.revenue||"").split(",").map(s=>s.trim()).filter(Boolean);
+    const agrs    = (r.agreements||"").split(",").map(s=>s.trim()).filter(Boolean);
+    const hasNego = isNego(r);
+    return `<tr>
+      <td class="td-id">${r.id||"—"}</td>
+      <td style="font-weight:500">${r.name||"—"}${hasNego?` <span title="Ada rate nego" style="color:#8a4000;font-size:10px">⚠</span>`:""}</td>
+      <td><span class="pill p-draft">${r.category||"—"}</span></td>
+      <td><span class="pill ${r.liveStatus==="Active"?"p-active":"p-inactive"}">${r.liveStatus||"—"}</span></td>
+      <td>${streams.map(s=>`<span class="pill" style="background:#EEEDFE;color:#3C3489;border:0.5px solid #AFA9EC;margin-right:3px">${s}</span>`).join("")||"—"}</td>
+      <td style="font-size:11px">${agrs.length?agrs.join(", "):"—"}</td>
+      <td>${rateCell(r.apparel,   BM_NORMAL.apparel)}</td>
+      <td>${rateCell(r.accessories,BM_NORMAL.accessories)}</td>
+      <td>${rateCell(r.collectible,BM_NORMAL.collectible)}</td>
+      <td>${rateCell(r.preloved,  BM_NORMAL.preloved)}</td>
+      <td>${rateCell(r.wellness,  BM_NORMAL.wellness)}</td>
+      <td>${rateCell(r.others,    BM_NORMAL.others)}</td>
+      <td style="color:var(--g600);font-size:11px">${r.notes||"—"}</td>
+      <td><button class="btn-icon" onclick="openBMEdit(${r.rowIndex})">Edit</button></td>
+    </tr>
+    <tr id="bm-edit-row-${r.rowIndex}" style="display:none"><td colspan="14" style="padding:0 12px 12px;">
+      <div class="edit-row-form">
+        <div class="edit-row-grid">
+          <div class="fg"><label>Brand Name</label><input type="text" id="bm-e-name-${r.rowIndex}" value="${r.name||""}"></div>
+          <div class="fg"><label>Category</label><input type="text" id="bm-e-cat-${r.rowIndex}" value="${r.category||""}"></div>
+          <div class="fg"><label>Live Status</label><select id="bm-e-live-${r.rowIndex}"><option ${r.liveStatus==="Active"?"selected":""}>Active</option><option ${r.liveStatus==="Inactive"?"selected":""}>Inactive</option></select></div>
+          <div class="fg"><label>Revenue Stream</label><input type="text" id="bm-e-rev-${r.rowIndex}" value="${r.revenue||""}" placeholder="SD&Y, Lagaa"></div>
+          <div class="fg"><label>Related Agreement</label><input type="text" id="bm-e-agr-${r.rowIndex}" value="${r.agreements||""}"></div>
+          <div class="fg"><label>Apparel % <span style="color:var(--g400);font-size:9px;text-transform:none;letter-spacing:0;">normal: 30</span></label><input type="number" id="bm-e-apparel-${r.rowIndex}" value="${r.apparel||""}" step="0.1" placeholder="30"></div>
+          <div class="fg"><label>Accessories % <span style="color:var(--g400);font-size:9px;text-transform:none;letter-spacing:0;">normal: 25</span></label><input type="number" id="bm-e-acc-${r.rowIndex}" value="${r.accessories||""}" step="0.1" placeholder="25"></div>
+          <div class="fg"><label>Collectible % <span style="color:var(--g400);font-size:9px;text-transform:none;letter-spacing:0;">normal: 20</span></label><input type="number" id="bm-e-col-${r.rowIndex}" value="${r.collectible||""}" step="0.1" placeholder="20"></div>
+          <div class="fg"><label>Preloved % <span style="color:var(--g400);font-size:9px;text-transform:none;letter-spacing:0;">normal: 20</span></label><input type="number" id="bm-e-pre-${r.rowIndex}" value="${r.preloved||""}" step="0.1" placeholder="20"></div>
+          <div class="fg"><label>Wellness % <span style="color:var(--g400);font-size:9px;text-transform:none;letter-spacing:0;">normal: 20</span></label><input type="number" id="bm-e-wel-${r.rowIndex}" value="${r.wellness||""}" step="0.1" placeholder="20"></div>
+          <div class="fg"><label>Others % <span style="color:var(--g400);font-size:9px;text-transform:none;letter-spacing:0;">normal: 30</span></label><input type="number" id="bm-e-oth-${r.rowIndex}" value="${r.others||""}" step="0.1" placeholder="30"></div>
+          <div class="fg"><label>Notes</label><input type="text" id="bm-e-notes-${r.rowIndex}" value="${r.notes||""}"></div>
+        </div>
+        <div class="edit-row-btns">
+          <button class="btn-save" onclick="saveBMEdit(${r.rowIndex})">Simpan</button>
+          <button class="btn-cancel" onclick="closeBMEdit(${r.rowIndex})">Batal</button>
+        </div>
+      </div>
+    </td></tr>`;
+  }).join("");
+}
+
+function openBMEdit(rowIndex) { document.querySelectorAll("[id^='bm-edit-row-']").forEach(el=>el.style.display="none"); document.getElementById("bm-edit-row-"+rowIndex).style.display="table-row"; }
+function closeBMEdit(rowIndex) { document.getElementById("bm-edit-row-"+rowIndex).style.display="none"; }
+
+async function saveBMEdit(rowIndex) {
+  try {
+    const res = await apiGet({
+      action:"updateBM", rowIndex,
+      name:        document.getElementById("bm-e-name-"+rowIndex).value.trim(),
+      category:    document.getElementById("bm-e-cat-"+rowIndex).value.trim(),
+      liveStatus:  document.getElementById("bm-e-live-"+rowIndex).value,
+      revenue:     document.getElementById("bm-e-rev-"+rowIndex).value.trim(),
+      agreements:  document.getElementById("bm-e-agr-"+rowIndex).value.trim(),
+      apparel:     document.getElementById("bm-e-apparel-"+rowIndex).value.trim(),
+      accessories: document.getElementById("bm-e-acc-"+rowIndex).value.trim(),
+      collectible: document.getElementById("bm-e-col-"+rowIndex).value.trim(),
+      preloved:    document.getElementById("bm-e-pre-"+rowIndex).value.trim(),
+      wellness:    document.getElementById("bm-e-wel-"+rowIndex).value.trim(),
+      others:      document.getElementById("bm-e-oth-"+rowIndex).value.trim(),
+      notes:       document.getElementById("bm-e-notes-"+rowIndex).value.trim(),
+      by:          currentUser
+    });
+    if (res.success) { closeBMEdit(rowIndex); loadBrandMaster(); }
+    else alert("Gagal simpan: "+res.error);
+  } catch(e) { alert("Koneksi gagal."); }
+}
+
+setupAC("bm-category","ac-bm-category",()=>acBMCategories);
 </script>
 </body>
 </html>
