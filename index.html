@@ -234,6 +234,9 @@ tbody tr:hover td{background:var(--off);}
         <div class="sb-item" onclick="showPage('brandmaster',this)" id="nav-brandmaster">
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2l1.5 3 3.5.5-2.5 2.5.5 3.5L8 10l-3 1.5.5-3.5L3 5.5l3.5-.5z"/></svg>Brand Master
         </div>
+        <div class="sb-item" onclick="showPage('distpartner',this)" id="nav-distpartner">
+          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="6" width="5" height="5" rx="1"/><rect x="10" y="6" width="5" height="5" rx="1"/><rect x="5.5" y="1" width="5" height="5" rx="1"/><line x1="8" y1="6" x2="8" y2="11"/><line x1="3.5" y1="6" x2="8" y2="3.5"/><line x1="12.5" y1="6" x2="8" y2="3.5"/></svg>Distribution Partner
+        </div>
       </div>
     </nav>
     <div class="content">
@@ -246,6 +249,7 @@ tbody tr:hover td{background:var(--off);}
           <div class="tool-card" onclick="showPage('agreement',document.getElementById('nav-agreement'))"><span class="tc-icon">📄</span><div class="tc-name">Agreement Tracker</div><div class="tc-desc">Submit dan pantau semua perjanjian, kontrak, dan kemitraan.</div></div>
           <div class="tool-card" onclick="showPage('salesreport',document.getElementById('nav-salesreport'))"><span class="tc-icon">📈</span><div class="tc-name">Sales Report</div><div class="tc-desc">Track report submission per brand setiap bulan.</div></div>
           <div class="tool-card" onclick="showPage('leads',document.getElementById('nav-leads'))"><span class="tc-icon">🎯</span><div class="tc-name">Leads Tracker</div><div class="tc-desc">Track potential brand dan artist collaboration leads.</div></div>
+          <div class="tool-card" onclick="showPage('distpartner',document.getElementById('nav-distpartner'))"><span class="tc-icon">🤝</span><div class="tc-name">Distribution Partner</div><div class="tc-desc">Database mitra distribusi — consignment dan bulk purchase.</div></div>
           <div class="tool-soon"><span class="tc-icon" style="opacity:0.3">💰</span><div class="tc-name" style="color:var(--g400)">Royalty Payment</div><div class="tc-desc">Coming soon</div></div>
         </div>
       </div>
@@ -694,6 +698,79 @@ tbody tr:hover td{background:var(--off);}
         </div>
       </div>
 
+      <!-- DISTRIBUTION PARTNER -->
+      <div class="page" id="page-distpartner">
+        <div class="page-header">
+          <div><div class="page-title">Distribution Partner</div><div class="page-sub">Database mitra distribusi merchandise — consignment dan bulk purchase.</div></div>
+          <div class="tab-bar">
+            <button class="tab-btn active" onclick="switchDPTab('new',this)">Tambah Partner</button>
+            <button class="tab-btn" onclick="switchDPTab('list',this)">Semua Partner</button>
+          </div>
+        </div>
+
+        <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem;">
+          <div class="stat-card"><div class="stat-num" id="dp-s-total">—</div><div class="stat-lbl">Total</div></div>
+          <div class="stat-card"><div class="stat-num" id="dp-s-active">—</div><div class="stat-lbl">Active</div></div>
+          <div class="stat-card info"><div class="stat-num" id="dp-s-consign">—</div><div class="stat-lbl">Consignment</div></div>
+          <div class="stat-card"><div class="stat-num" id="dp-s-bulk">—</div><div class="stat-lbl">Bulk Purchase</div></div>
+        </div>
+
+        <div id="dptab-new">
+          <div class="form-card">
+            <div class="form-sec">Detail Partner</div>
+            <div class="form-grid">
+              <div class="fg full"><label>Partner Name <span class="req">*</span></label><input type="text" id="dp-name" placeholder="e.g. Nama toko atau platform"></div>
+              <div class="fg"><label>Type <span class="req">*</span></label>
+                <div class="ac-wrap"><input type="text" id="dp-type" placeholder="Consignment, Bulk Purchase..." autocomplete="off"><div class="ac-list" id="ac-dp-type"></div></div>
+                <div style="font-size:11px;color:var(--g400);margin-top:3px;font-family:var(--mono)">Ketik atau pilih, pisah dengan koma</div>
+              </div>
+              <div class="fg"><label>Channel</label>
+                <div class="ac-wrap"><input type="text" id="dp-channel" placeholder="Online Store, Marketplace..." autocomplete="off"><div class="ac-list" id="ac-dp-channel"></div></div>
+                <div style="font-size:11px;color:var(--g400);margin-top:3px;font-family:var(--mono)">Ketik atau pilih, pisah dengan koma</div>
+              </div>
+              <div class="fg"><label>Region</label><input type="text" id="dp-region" placeholder="e.g. Jakarta, Nasional"></div>
+              <div class="fg"><label>PIC</label><div class="ac-wrap"><input type="text" id="dp-pic" placeholder="Penanggung jawab internal" autocomplete="off"><div class="ac-list" id="ac-dp-pic"></div></div></div>
+              <div class="fg"><label>Contact Person</label><input type="text" id="dp-contact-person" placeholder="Nama kontak di partner"></div>
+              <div class="fg"><label>Contact Info</label><input type="text" id="dp-contact-info" placeholder="Email atau WhatsApp"></div>
+              <div class="fg"><label>Live Status</label><select id="dp-live-status"><option value="Active" selected>Active</option><option>Inactive</option></select></div>
+              <div class="fg full"><label>Related Agreement</label>
+                <div class="ac-wrap"><input type="text" id="dp-agreements" placeholder="Ketik ID atau pilih agreement..." autocomplete="off"><div class="ac-list" id="ac-dp-agr"></div></div>
+                <div style="font-size:11px;color:var(--g400);margin-top:3px;font-family:var(--mono)">Pilih dari dropdown atau ketik manual, pisah dengan koma</div>
+              </div>
+              <div class="fg full"><label>Notes</label><input type="text" id="dp-notes" placeholder="Catatan tambahan"></div>
+            </div>
+            <div class="btn-row">
+              <button class="btn-primary" id="dpSubmitBtn" onclick="submitDP()">Simpan Partner</button>
+              <button class="btn-ghost" onclick="clearDPForm()">Bersihkan</button>
+            </div>
+            <div class="feedback" id="dp-feedback"></div>
+          </div>
+        </div>
+
+        <div id="dptab-list" style="display:none;">
+          <div class="filter-panel">
+            <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="clearDPFilters()">✕ Reset</button></div>
+            <div class="filter-grid">
+              <select class="f-select" id="dp-fil-type" onchange="applyDPFilters()"><option value="">Semua Type</option><option>Consignment</option><option>Bulk Purchase</option></select>
+              <select class="f-select" id="dp-fil-channel" onchange="applyDPFilters()"><option value="">Semua Channel</option></select>
+              <select class="f-select" id="dp-fil-livestatus" onchange="applyDPFilters()"><option value="">Semua Live Status</option><option>Active</option><option>Inactive</option></select>
+              <select class="f-select" id="dp-fil-pic" onchange="applyDPFilters()"><option value="">Semua PIC</option></select>
+              <input class="search-box" type="text" id="dpSearch" placeholder="Cari nama partner..." oninput="applyDPFilters()" style="width:100%">
+            </div>
+          </div>
+          <div class="table-toolbar">
+            <button class="btn-refresh" onclick="loadDistPartner()">↻ Refresh</button>
+            <div class="tcount" id="dp-tcount">— entri</div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>ID</th><th>Partner Name</th><th>Type</th><th>Channel</th><th>Region</th><th>PIC</th><th>Contact</th><th>Agreement</th><th>Live</th><th>Notes</th><th></th></tr></thead>
+              <tbody id="dpTableBody"><tr><td class="empty-td" colspan="11">Klik "Semua Partner" untuk memuat.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
 </div>
@@ -768,7 +845,7 @@ function showPage(name, el) {
   document.querySelectorAll(".sb-item").forEach(i=>i.classList.remove("active"));
   document.getElementById("page-"+name).classList.add("active");
   if (el) el.classList.add("active");
-  const labels = {home:"Internal Tools",agreement:"Agreement Tracker",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Sales Report",leads:"Leads Tracker"};
+  const labels = {home:"Internal Tools",agreement:"Agreement Tracker",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Sales Report",leads:"Leads Tracker",distpartner:"Distribution Partner"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   if (name==="agreement") loadStats();
   if (name==="ipmaster") { loadIPMaster(); loadStats(); }
@@ -776,6 +853,7 @@ function showPage(name, el) {
   if (name==="brandmaster") loadBrandMaster();
   if (name==="salesreport") loadSalesReport();
   if (name==="leads") loadLeads();
+  if (name==="distpartner") loadDistPartner();
 }
 
 function switchTab(name, el) {
@@ -1960,6 +2038,224 @@ async function saveLeadEdit(rowIndex) {
 
 setupAC("ld-category","ac-ld-category",()=>acLeadsCategories);
 setupAC("ld-pic","ac-ld-pic",()=>acPics);
+
+// ── DISTRIBUTION PARTNER ──
+let allDPRows = [], acDPTypes = ["Consignment","Bulk Purchase"], acDPChannels = ["Online Store","Physical Store","Marketplace","Pop-up"];
+
+function switchDPTab(name, el) {
+  document.querySelectorAll("#page-distpartner .tab-btn").forEach(b=>b.classList.remove("active"));
+  el.classList.add("active");
+  document.getElementById("dptab-new").style.display  = name==="new"  ? "block":"none";
+  document.getElementById("dptab-list").style.display = name==="list" ? "block":"none";
+  if (name==="list") loadDistPartner();
+}
+
+function setupACMulti(inpId, lstId, getOpts) {
+  const inp=document.getElementById(inpId), lst=document.getElementById(lstId);
+  if(!inp||!lst) return;
+  const render=()=>{
+    const parts=inp.value.split(",");
+    const q=parts[parts.length-1].trim().toLowerCase();
+    const selected=parts.slice(0,-1).map(s=>s.trim()).filter(Boolean);
+    const m=getOpts().filter(o=>o.toLowerCase().includes(q)&&!selected.map(s=>s.toLowerCase()).includes(o.toLowerCase()));
+    let html=m.map(o=>`<div class="ac-item" onclick="pickACMulti('${o.replace(/'/g,"\\'")}','${inpId}','${lstId}')">${o}</div>`).join("");
+    const newVal=parts[parts.length-1].trim();
+    if(newVal&&!getOpts().map(o=>o.toLowerCase()).includes(newVal.toLowerCase()))
+      html+=`<div class="ac-add" onclick="pickACMulti('${newVal.replace(/'/g,"\\'")}','${inpId}','${lstId}')">+ Tambah "${newVal}"</div>`;
+    if(!html){lst.style.display="none";return;}
+    lst.innerHTML=html; lst.style.display="block";
+  };
+  inp.addEventListener("input", render);
+  inp.addEventListener("focus", ()=>{ if(getOpts().length) render(); });
+  document.addEventListener("click", e=>{ if(!inp.contains(e.target)&&!lst.contains(e.target)) lst.style.display="none"; });
+}
+
+function pickACMulti(val, inpId, lstId) {
+  const inp=document.getElementById(inpId);
+  const parts=inp.value.split(",").map(s=>s.trim()).filter(Boolean);
+  if(!parts.map(s=>s.toLowerCase()).includes(val.toLowerCase())) parts.push(val);
+  inp.value=parts.join(", ");
+  document.getElementById(lstId).style.display="none";
+}
+
+async function submitDP() {
+  const name=document.getElementById("dp-name").value.trim();
+  const type=document.getElementById("dp-type").value.trim();
+  if(!name){ showDPFeedback("Partner Name wajib diisi.","err"); return; }
+  if(!type){ showDPFeedback("Type wajib diisi.","err"); return; }
+  const btn=document.getElementById("dpSubmitBtn"); btn.disabled=true; btn.textContent="Menyimpan...";
+  try {
+    const res=await apiGet({action:"submitDP",name,
+      type,
+      channel:      document.getElementById("dp-channel").value.trim(),
+      region:       document.getElementById("dp-region").value.trim(),
+      pic:          document.getElementById("dp-pic").value.trim(),
+      contactPerson:document.getElementById("dp-contact-person").value.trim(),
+      contactInfo:  document.getElementById("dp-contact-info").value.trim(),
+      liveStatus:   document.getElementById("dp-live-status").value,
+      agreements:   document.getElementById("dp-agreements").value.trim(),
+      notes:        document.getElementById("dp-notes").value.trim(),
+      by:           currentUser
+    });
+    if(res.success){
+      showDPFeedback("✓ Partner tersimpan — ID: "+res.id,"ok");
+      type.split(",").map(s=>s.trim()).filter(Boolean).forEach(t=>{ if(!acDPTypes.includes(t)) acDPTypes.push(t); });
+      const ch=document.getElementById("dp-channel").value.trim();
+      ch.split(",").map(s=>s.trim()).filter(Boolean).forEach(c=>{ if(!acDPChannels.includes(c)) acDPChannels.push(c); });
+      clearDPForm(); loadDistPartner();
+    } else { showDPFeedback("Gagal: "+res.error,"err"); }
+  } catch(e){ showDPFeedback("Koneksi gagal.","err"); }
+  btn.disabled=false; btn.textContent="Simpan Partner";
+}
+
+function clearDPForm() {
+  ["dp-name","dp-type","dp-channel","dp-region","dp-pic","dp-contact-person","dp-contact-info","dp-agreements","dp-notes"].forEach(id=>document.getElementById(id).value="");
+  document.getElementById("dp-live-status").value="Active";
+}
+
+function showDPFeedback(msg,type) {
+  const el=document.getElementById("dp-feedback"); el.textContent=msg; el.className="feedback "+type;
+  if(type==="ok") setTimeout(()=>el.className="feedback",6000);
+}
+
+async function loadDistPartner() {
+  document.getElementById("dpTableBody").innerHTML=`<tr><td class="empty-td" colspan="11">Memuat...</td></tr>`;
+  try {
+    const res=await apiGet({action:"listDP"});
+    if(!res.success) throw new Error(res.error);
+    allDPRows=res.rows||[];
+    const types=[...new Set(allDPRows.flatMap(r=>(r.type||"").split(",").map(s=>s.trim())).filter(Boolean))];
+    types.forEach(t=>{ if(!acDPTypes.includes(t)) acDPTypes.push(t); });
+    const channels=[...new Set(allDPRows.flatMap(r=>(r.channel||"").split(",").map(s=>s.trim())).filter(Boolean))];
+    channels.forEach(c=>{ if(!acDPChannels.includes(c)) acDPChannels.push(c); });
+    const pics=[...new Set(allDPRows.map(r=>r.pic).filter(Boolean))];
+    const chSel=document.getElementById("dp-fil-channel");
+    if(chSel){while(chSel.options.length>1)chSel.remove(1);acDPChannels.forEach(c=>{const o=document.createElement("option");o.value=o.textContent=c;chSel.appendChild(o);});}
+    const picSel=document.getElementById("dp-fil-pic");
+    if(picSel){while(picSel.options.length>1)picSel.remove(1);pics.forEach(p=>{const o=document.createElement("option");o.value=o.textContent=p;picSel.appendChild(o);});}
+    computeDPStats(allDPRows); applyDPFilters();
+  } catch(e){ document.getElementById("dpTableBody").innerHTML=`<tr><td class="empty-td" colspan="11">Gagal: ${e.message}</td></tr>`; }
+}
+
+function computeDPStats(rows) {
+  document.getElementById("dp-s-total").textContent   = rows.length;
+  document.getElementById("dp-s-active").textContent  = rows.filter(r=>r.liveStatus==="Active").length;
+  document.getElementById("dp-s-consign").textContent = rows.filter(r=>(r.type||"").toLowerCase().includes("consignment")).length;
+  document.getElementById("dp-s-bulk").textContent    = rows.filter(r=>(r.type||"").toLowerCase().includes("bulk purchase")).length;
+}
+
+function applyDPFilters() {
+  const q      =(document.getElementById("dpSearch").value||"").toLowerCase();
+  const fType  =document.getElementById("dp-fil-type").value;
+  const fCh    =document.getElementById("dp-fil-channel").value;
+  const fLive  =document.getElementById("dp-fil-livestatus").value;
+  const fPic   =document.getElementById("dp-fil-pic").value;
+  ["dp-fil-type","dp-fil-channel","dp-fil-livestatus","dp-fil-pic"].forEach(id=>{const el=document.getElementById(id);if(el)el.classList.toggle("active-filter",!!el.value);});
+  const filtered=allDPRows.filter(r=>{
+    if(q    &&![r.name,r.region,r.contactPerson,r.contactInfo,r.notes].some(v=>(v||"").toLowerCase().includes(q))) return false;
+    if(fType&&!(r.type||"").toLowerCase().includes(fType.toLowerCase())) return false;
+    if(fCh  &&!(r.channel||"").toLowerCase().includes(fCh.toLowerCase())) return false;
+    if(fLive&&r.liveStatus!==fLive) return false;
+    if(fPic &&r.pic!==fPic) return false;
+    return true;
+  });
+  computeDPStats(filtered); renderDPTable(filtered);
+}
+
+function clearDPFilters() {
+  ["dp-fil-type","dp-fil-channel","dp-fil-livestatus","dp-fil-pic"].forEach(id=>{const el=document.getElementById(id);if(el){el.value="";el.classList.remove("active-filter");}});
+  document.getElementById("dpSearch").value="";
+  computeDPStats(allDPRows); renderDPTable(allDPRows);
+}
+
+function renderDPTable(rows) {
+  document.getElementById("dp-tcount").textContent=rows.length+" entri";
+  const body=document.getElementById("dpTableBody");
+  if(!rows.length){body.innerHTML=`<tr><td class="empty-td" colspan="11">Belum ada data.</td></tr>`;return;}
+  body.innerHTML=rows.map(r=>{
+    const types=(r.type||"").split(",").map(s=>s.trim()).filter(Boolean);
+    const channels=(r.channel||"").split(",").map(s=>s.trim()).filter(Boolean);
+    const agrs=(r.agreements||"").split(",").map(s=>s.trim()).filter(Boolean);
+    return`<tr>
+      <td class="td-id">${r.id||"—"}</td>
+      <td style="font-weight:500">${r.name||"—"}</td>
+      <td>${types.map(t=>{const cls=t.toLowerCase().includes("consignment")?"p-signings":t.toLowerCase().includes("bulk")?"p-active":"p-draft";return`<span class="pill ${cls}" style="margin-right:3px">${t}</span>`;}).join("")||"—"}</td>
+      <td>${channels.map(c=>`<span class="pill p-draft" style="margin-right:3px">${c}</span>`).join("")||"—"}</td>
+      <td style="font-size:12px">${r.region||"—"}</td>
+      <td style="font-size:12px">${r.pic||"—"}</td>
+      <td style="font-size:11px;color:var(--g600)">${r.contactPerson?`${r.contactPerson}${r.contactInfo?`<br><span style="font-size:10px;font-family:var(--mono)">${r.contactInfo}</span>`:""}` :"—"}</td>
+      <td>${agrs.length?agrs.map(a=>{const opt=acAgrOptions.find?acAgrOptions.find(o=>o.id===a):null;const link=acAgrLinks[a];return link?`<a href="${link}" target="_blank" class="pill" style="background:#E6F1FB;color:#0C447C;border:0.5px solid #85B7EB;margin-right:3px;text-decoration:none" title="${opt?opt.label:""}">${a} ↗</a>`:`<span class="pill" style="background:#E6F1FB;color:#0C447C;border:0.5px solid #85B7EB;margin-right:3px" title="${opt?opt.label:""}">${a}</span>`;}).join(""):`<span style="color:var(--g400);font-size:11px">—</span>`}</td>
+      <td>
+        <select class="pill live-toggle ${r.liveStatus==="Active"?"p-active":"p-inactive"}" onchange="updateDPLiveStatus(this,${r.rowIndex})">
+          <option ${r.liveStatus==="Active"?"selected":""}>Active</option>
+          <option ${r.liveStatus==="Inactive"?"selected":""}>Inactive</option>
+        </select>
+      </td>
+      <td style="font-size:11px;color:var(--g600)">${r.notes||"—"}</td>
+      <td><button class="btn-icon" onclick="openDPEdit(${r.rowIndex})">Edit</button></td>
+    </tr>
+    <tr id="dp-edit-row-${r.rowIndex}" style="display:none"><td colspan="11" style="padding:0 12px 12px;">
+      <div class="edit-row-form">
+        <div class="edit-row-grid">
+          <div class="fg"><label>Partner Name</label><input type="text" id="dp-e-name-${r.rowIndex}" value="${r.name||""}"></div>
+          <div class="fg"><label>Type</label><input type="text" id="dp-e-type-${r.rowIndex}" value="${r.type||""}" placeholder="Consignment, Bulk Purchase"></div>
+          <div class="fg"><label>Channel</label><input type="text" id="dp-e-channel-${r.rowIndex}" value="${r.channel||""}" placeholder="Online Store, Marketplace"></div>
+          <div class="fg"><label>Region</label><input type="text" id="dp-e-region-${r.rowIndex}" value="${r.region||""}"></div>
+          <div class="fg"><label>PIC</label><input type="text" id="dp-e-pic-${r.rowIndex}" value="${r.pic||""}"></div>
+          <div class="fg"><label>Contact Person</label><input type="text" id="dp-e-cperson-${r.rowIndex}" value="${r.contactPerson||""}"></div>
+          <div class="fg"><label>Contact Info</label><input type="text" id="dp-e-cinfo-${r.rowIndex}" value="${r.contactInfo||""}"></div>
+          <div class="fg"><label>Live Status</label><select id="dp-e-live-${r.rowIndex}"><option ${r.liveStatus==="Active"?"selected":""}>Active</option><option ${r.liveStatus==="Inactive"?"selected":""}>Inactive</option></select></div>
+          <div class="fg"><label>Related Agreement</label><input type="text" id="dp-e-agr-${r.rowIndex}" value="${r.agreements||""}"></div>
+          <div class="fg"><label>Notes</label><input type="text" id="dp-e-notes-${r.rowIndex}" value="${r.notes||""}"></div>
+        </div>
+        <div class="edit-row-btns">
+          <button class="btn-save" onclick="saveDPEdit(${r.rowIndex})">Simpan</button>
+          <button class="btn-cancel" onclick="closeDPEdit(${r.rowIndex})">Batal</button>
+        </div>
+      </div>
+    </td></tr>`;
+  }).join("");
+}
+
+function openDPEdit(rowIndex){document.querySelectorAll("[id^='dp-edit-row-']").forEach(el=>el.style.display="none");document.getElementById("dp-edit-row-"+rowIndex).style.display="table-row";}
+function closeDPEdit(rowIndex){document.getElementById("dp-edit-row-"+rowIndex).style.display="none";}
+
+async function updateDPLiveStatus(sel, rowIndex) {
+  const newStatus=sel.value;
+  sel.className=`pill live-toggle ${newStatus==="Active"?"p-active":"p-inactive"}`;
+  try {
+    const res=await apiGet({action:"updateDPLiveStatus",rowIndex,liveStatus:newStatus,by:currentUser});
+    if(!res.success){alert("Gagal update: "+res.error);return;}
+    const row=allDPRows.find(r=>r.rowIndex===rowIndex);
+    if(row) row.liveStatus=newStatus;
+    computeDPStats(allDPRows);
+  } catch(e){alert("Koneksi gagal.");}
+}
+
+async function saveDPEdit(rowIndex) {
+  try {
+    const res=await apiGet({action:"updateDP",rowIndex,
+      name:         document.getElementById("dp-e-name-"+rowIndex).value.trim(),
+      type:         document.getElementById("dp-e-type-"+rowIndex).value.trim(),
+      channel:      document.getElementById("dp-e-channel-"+rowIndex).value.trim(),
+      region:       document.getElementById("dp-e-region-"+rowIndex).value.trim(),
+      pic:          document.getElementById("dp-e-pic-"+rowIndex).value.trim(),
+      contactPerson:document.getElementById("dp-e-cperson-"+rowIndex).value.trim(),
+      contactInfo:  document.getElementById("dp-e-cinfo-"+rowIndex).value.trim(),
+      liveStatus:   document.getElementById("dp-e-live-"+rowIndex).value,
+      agreements:   document.getElementById("dp-e-agr-"+rowIndex).value.trim(),
+      notes:        document.getElementById("dp-e-notes-"+rowIndex).value.trim(),
+      by:           currentUser
+    });
+    if(res.success){closeDPEdit(rowIndex);loadDistPartner();}
+    else alert("Gagal simpan: "+res.error);
+  } catch(e){alert("Koneksi gagal.");}
+}
+
+setupACMulti("dp-type","ac-dp-type",()=>acDPTypes);
+setupACMulti("dp-channel","ac-dp-channel",()=>acDPChannels);
+setupAC("dp-pic","ac-dp-pic",()=>acPics);
+setupAC("dp-agreements","ac-dp-agr",()=>acAgrOptions.map(o=>o.id),()=>acAgrOptions);
 
 // ── DUPLICATE CHECK ──
 async function checkDuplicate(name, excludeSheet) {
