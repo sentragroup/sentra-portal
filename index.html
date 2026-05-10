@@ -358,7 +358,7 @@ tbody tr:hover td{background:var(--off);}
                 <div style="font-size:11px;color:var(--g400);margin-top:3px;font-family:var(--mono)">Pilih dari dropdown atau ketik manual, pisah dengan koma</div>
               </div>
               <div class="fg"><label>Category <span class="req">*</span></label><div class="ac-wrap"><input type="text" id="ip-category" placeholder="Musician, Brand, Filmmaker..." autocomplete="off"><div class="ac-list" id="ac-ip-category"></div></div></div>
-              <div class="fg"><label>Live Status <span class="req">*</span></label><select id="ip-live-status"><option value="">Pilih...</option><option>Active</option><option>Inactive</option></select></div>
+              <div class="fg"><label>Live Status <span class="req">*</span></label><select id="ip-live-status"><option value="Active" selected>Active</option><option>Inactive</option></select></div>
               <div class="fg"><label>Royalty Type</label><select id="ip-royalty-type"><option value="">Pilih tipe...</option><option>Post-Sales</option><option>Advance</option><option>Both</option></select></div>
               <div class="fg"><label>Percentage (%)</label><input type="number" id="ip-pct" placeholder="e.g. 10" step="0.1" min="0" max="100"></div>
               <div class="fg"><label>Fixed Amount (IDR)</label><input type="number" id="ip-fixed" placeholder="e.g. 5000000"></div>
@@ -424,7 +424,11 @@ tbody tr:hover td{background:var(--off);}
               <div class="fg"><label>Percentage (%)</label><input type="number" id="rr-pct" placeholder="e.g. 10" step="0.1" min="0" max="100"></div>
               <div class="fg"><label>Fixed Amount (IDR)</label><input type="number" id="rr-fixed" placeholder="e.g. 5000000"></div>
               <div class="fg"><label>Termin <span class="req">*</span></label><select id="rr-termin"><option value="">Pilih termin...</option><option>Per Bulan</option><option>Per Quarter</option><option>Per Tahun</option><option>Per Akhir Project</option></select></div>
-              <div class="fg" id="rr-pks-wrap" style="display:none"><label>Link PKS (Google Drive)</label><input type="url" id="rr-pks" placeholder="https://drive.google.com/..."></div>
+              <div class="fg" id="rr-pks-wrap" style="display:none">
+                <label>PKS Agreement <span class="req">*</span></label>
+                <div class="ac-wrap"><input type="text" id="rr-pks" placeholder="Pilih agreement PKS..." autocomplete="off"><div class="ac-list" id="ac-rr-pks"></div></div>
+                <div style="font-size:11px;color:var(--g400);margin-top:3px;font-family:var(--mono)">Pilih agreement → link Drive tersimpan otomatis</div>
+              </div>
               <div class="fg full"><label>Notes</label><input type="text" id="rr-notes" placeholder="Catatan tambahan"></div>
             </div>
             <div class="btn-row">
@@ -559,7 +563,7 @@ tbody tr:hover td{background:var(--off);}
             <div class="form-grid">
               <div class="fg full"><label>IP / Brand Name <span class="req">*</span></label><input type="text" id="bm-name" placeholder="e.g. Cooluncle"></div>
               <div class="fg"><label>Category <span class="req">*</span></label><div class="ac-wrap"><input type="text" id="bm-category" placeholder="Musician, Brand, Filmmaker..." autocomplete="off"><div class="ac-list" id="ac-bm-category"></div></div></div>
-              <div class="fg"><label>Live Status <span class="req">*</span></label><select id="bm-live-status"><option value="">Pilih...</option><option>Active</option><option>Inactive</option></select></div>
+              <div class="fg"><label>Live Status <span class="req">*</span></label><select id="bm-live-status"><option value="Active" selected>Active</option><option>Inactive</option></select></div>
               <div class="fg full"><label>Revenue Stream</label>
                 <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px;" id="bm-revenue-checks">
                   <label style="display:flex;align-items:center;gap:6px;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" value="SD&Y"> SD&Y</label>
@@ -567,7 +571,10 @@ tbody tr:hover td{background:var(--off);}
                   <label style="display:flex;align-items:center;gap:6px;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" value="Marte"> Marte</label>
                 </div>
               </div>
-              <div class="fg full"><label>Related Agreement</label><input type="text" id="bm-agreements" placeholder="AGR-xxx, AGR-yyy (pisah koma)"></div>
+              <div class="fg full"><label>Related Agreement</label>
+                <div class="ac-wrap"><input type="text" id="bm-agreements" placeholder="Ketik ID atau pilih agreement..." autocomplete="off"><div class="ac-list" id="ac-bm-agr"></div></div>
+                <div style="font-size:11px;color:var(--g400);margin-top:3px;font-family:var(--mono)">Pilih dari dropdown atau ketik manual, pisah dengan koma</div>
+              </div>
             </div>
             <div class="form-sec" style="margin-top:1.25rem;">Rate per Kategori <span style="font-size:10px;color:var(--g400);text-transform:none;letter-spacing:0;font-weight:400;">(kosongkan = pakai rate normal)</span></div>
             <div class="form-grid">
@@ -626,6 +633,7 @@ const MANUAL_STATUSES = ["Draft","Under Review","Signings","Signed"];
 let currentUser = "";
 let allRows = [], acBrands = [], acTypes = [], acPics = [];
 let allIPRows = [], acAgrOptions = [], acIPCategories = ["Musician","Brand","Filmmaker"];
+let acAgrLinks = {}; // agrId -> driveLink
 let allRRRows = [], acRRTipes = [], acRRIPs = [];
 
 function fmtDate(val) {
@@ -668,6 +676,7 @@ function doLogin() {
   document.getElementById("greetName").textContent = name.split(" ")[0];
   document.getElementById("greetDate").textContent = new Date().toLocaleDateString("id-ID",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
   loadStats();
+  preloadAutocomplete();
 }
 
 function doLogout() {
@@ -776,7 +785,12 @@ async function loadStats() {
     const res = await apiGet({action:"list"});
     if (res.success) {
       computeStats(res.rows||[]);
-      acAgrOptions = (res.rows||[]).map(r=>({id:r.id,label:[r.partner,r.type].filter(Boolean).join(" — ")}));
+      const rows = res.rows||[];
+      acAgrOptions = rows.map(r=>({id:r.id,label:[r.partner,r.type].filter(Boolean).join(" — ")}));
+      acAgrLinks = {}; rows.forEach(r=>{ if(r.id&&r.link) acAgrLinks[r.id]=r.link; });
+      // merge brands from IP Master + Brand Master (not from agreement history)
+      // acBrands is updated in preloadAutocomplete, here just update if empty
+      if(!acBrands.length) { acBrands=res.brands||[]; acTypes=res.types||[]; acPics=res.pics||[]; }
     }
   } catch(e) {}
 }
@@ -815,8 +829,13 @@ async function loadAgreements() {
   try {
     const res = await apiGet({action:"list"});
     if (!res.success) throw new Error(res.error);
-    allRows=res.rows||[]; acBrands=res.brands||[]; acTypes=res.types||[]; acPics=res.pics||[];
+    allRows=res.rows||[]; acTypes=res.types||[]; acPics=res.pics||[];
     acAgrOptions=allRows.map(r=>({id:r.id,label:[r.partner,r.type].filter(Boolean).join(" — ")}));
+    acAgrLinks={}; allRows.forEach(r=>{if(r.id&&r.link)acAgrLinks[r.id]=r.link;});
+    // acBrands = from IP Master + Brand Master (merged), keep agreement brands as fallback
+    const agrBrands = res.brands||[];
+    const ipBM = [...new Set([...allIPRows.map(r=>r.name),...allBMRows.map(r=>r.name)].filter(Boolean))];
+    acBrands = ipBM.length ? [...new Set([...ipBM,...agrBrands])] : agrBrands;
     populateFilterDropdowns(); applyFilters(); computeStats(allRows);
   } catch(e) { document.getElementById("tableBody").innerHTML=`<tr><td class="empty-td" colspan="14">Gagal: ${e.message}</td></tr>`; }
 }
@@ -878,12 +897,16 @@ async function submitIP() {
   const name=document.getElementById("ip-name").value.trim(), category=document.getElementById("ip-category").value.trim(), liveStatus=document.getElementById("ip-live-status").value;
   if(!name){showIPFeedback("IP / Brand Name wajib diisi.","err");return;}
   if(!category){showIPFeedback("Category wajib diisi.","err");return;}
-  if(!liveStatus){showIPFeedback("Live Status wajib diisi.","err");return;}
+  // liveStatus always has default "Active"
   const revenues=[...document.querySelectorAll("#ip-revenue-checks input:checked")].map(c=>c.value);
   if(!revenues.length){showIPFeedback("Pilih minimal satu Revenue Stream.","err");return;}
+  // Duplicate check
+  const dupIP = await checkDuplicate(name, "ip");
+  if (dupIP) { showIPFeedback(`"${name}" sudah ada di ${dupIP}. Nama tidak boleh duplikat.`, "err"); return; }
+  const liveStatusVal = liveStatus || "Active";
   const btn=document.getElementById("ipSubmitBtn"); btn.disabled=true; btn.textContent="Menyimpan...";
   try {
-    const res=await apiGet({action:"submitIP",name,category,liveStatus,revenue:revenues.join(", "),agreements:document.getElementById("ip-agreements").value.trim(),royaltyType:document.getElementById("ip-royalty-type").value,pct:document.getElementById("ip-pct").value.trim(),fixed:document.getElementById("ip-fixed").value.trim(),termin:document.getElementById("ip-termin").value,pph:document.getElementById("ip-pph").value.trim(),notes:document.getElementById("ip-notes").value.trim(),by:currentUser});
+    const res=await apiGet({action:"submitIP",name,category,liveStatus:liveStatusVal,revenue:revenues.join(", "),agreements:document.getElementById("ip-agreements").value.trim(),royaltyType:document.getElementById("ip-royalty-type").value,pct:document.getElementById("ip-pct").value.trim(),fixed:document.getElementById("ip-fixed").value.trim(),termin:document.getElementById("ip-termin").value,pph:document.getElementById("ip-pph").value.trim(),notes:document.getElementById("ip-notes").value.trim(),by:currentUser});
     if(res.success){
       showIPFeedback("✓ IP tersimpan — ID: "+res.id,"ok");
       if(!acRRIPs.includes(name))acRRIPs.push(name);
@@ -1042,7 +1065,9 @@ async function submitRR() {
   const btn=document.getElementById("rrSubmitBtn"); btn.disabled=true; btn.textContent="Menyimpan...";
   try {
     const tipe=document.getElementById("rr-tipe").value.trim();
-    const res=await apiGet({action:"submitRR",name:document.getElementById("rr-name").value.trim(),tipe,ip:document.getElementById("rr-ip").value.trim(),royaltyType:document.getElementById("rr-royalty-type").value,pct:document.getElementById("rr-pct").value.trim(),fixed:document.getElementById("rr-fixed").value.trim(),termin:document.getElementById("rr-termin").value,pks:tipe.toLowerCase()==="collaborator"?document.getElementById("rr-pks").value.trim():"",notes:document.getElementById("rr-notes").value.trim(),by:currentUser});
+    const pksInp = document.getElementById("rr-pks");
+    const pksLink = tipe.toLowerCase()==="collaborator" ? (pksInp.dataset.driveLink || acAgrLinks[pksInp.value.trim()] || pksInp.value.trim()) : "";
+    const res=await apiGet({action:"submitRR",name:document.getElementById("rr-name").value.trim(),tipe,ip:document.getElementById("rr-ip").value.trim(),royaltyType:document.getElementById("rr-royalty-type").value,pct:document.getElementById("rr-pct").value.trim(),fixed:document.getElementById("rr-fixed").value.trim(),termin:document.getElementById("rr-termin").value,pks:pksLink,notes:document.getElementById("rr-notes").value.trim(),by:currentUser});
     if(res.success){showRRFeedback("✓ Penerima tersimpan — ID: "+res.id,"ok");if(!acRRTipes.includes(tipe))acRRTipes.push(tipe);clearRRForm();}
     else{showRRFeedback("Gagal: "+res.error,"err");}
   } catch(e){showRRFeedback("Koneksi gagal.","err");}
@@ -1051,6 +1076,7 @@ async function submitRR() {
 
 function clearRRForm() {
   ["rr-name","rr-tipe","rr-ip","rr-pct","rr-fixed","rr-pks","rr-notes"].forEach(id=>document.getElementById(id).value="");
+  const pksEl = document.getElementById("rr-pks"); if(pksEl) pksEl.dataset.driveLink="";
   document.getElementById("rr-royalty-type").value=""; document.getElementById("rr-termin").value=""; document.getElementById("rr-pks-wrap").style.display="none";
 }
 
@@ -1176,13 +1202,17 @@ async function submitBM() {
   const liveStatus = document.getElementById("bm-live-status").value;
   if (!name)       { showBMFeedback("IP / Brand Name wajib diisi.","err"); return; }
   if (!category)   { showBMFeedback("Category wajib diisi.","err"); return; }
-  if (!liveStatus) { showBMFeedback("Live Status wajib diisi.","err"); return; }
+  // liveStatus always has default "Active"
   const revenues = [...document.querySelectorAll("#bm-revenue-checks input:checked")].map(c=>c.value);
+  // Duplicate check
+  const dupBM = await checkDuplicate(name, "bm");
+  if (dupBM) { showBMFeedback(`"${name}" sudah ada di ${dupBM}. Nama tidak boleh duplikat.`, "err"); return; }
+  const liveStatusBMVal = liveStatus || "Active";
   const btn = document.getElementById("bmSubmitBtn");
   btn.disabled=true; btn.textContent="Menyimpan...";
   try {
     const res = await apiGet({
-      action:"submitBM", name, category, liveStatus,
+      action:"submitBM", name, category, liveStatus:liveStatusBMVal,
       revenue:     revenues.join(", "),
       agreements:  document.getElementById("bm-agreements").value.trim(),
       apparel:     document.getElementById("bm-apparel").value.trim(),
@@ -1344,6 +1374,9 @@ async function saveBMEdit(rowIndex) {
 }
 
 setupAC("bm-category","ac-bm-category",()=>acBMCategories);
+setupAC("bm-agreements","ac-bm-agr",()=>acAgrOptions.map(o=>o.id),()=>acAgrOptions);
+// PKS autocomplete - special: picking sets hidden drive link
+setupACPKS("rr-pks","ac-rr-pks");
 
 // ── SALES REPORT ──
 const SR_MONTHS = [
@@ -1604,6 +1637,90 @@ async function saveStartDate() {
 // Close modals on backdrop click
 document.getElementById("sr-modal").addEventListener("click", function(e) { if(e.target===this) closeSRModal(); });
 document.getElementById("sr-startdate-modal").addEventListener("click", function(e) { if(e.target===this) closeSDModal(); });
+
+// ── PRELOAD AUTOCOMPLETE ON LOGIN ──
+async function preloadAutocomplete() {
+  try {
+    // Load agreements for acAgrOptions + acAgrLinks + acBrands/acTypes/acPics
+    const [agrRes, ipRes, bmRes] = await Promise.all([
+      apiGet({action:"list"}),
+      apiGet({action:"listIP"}),
+      apiGet({action:"listBM"})
+    ]);
+    if (agrRes.success) {
+      const rows = agrRes.rows||[];
+      acAgrOptions = rows.map(r=>({id:r.id, label:[r.partner,r.type].filter(Boolean).join(" — ")}));
+      acAgrLinks   = {};
+      rows.forEach(r=>{ if(r.id && r.link) acAgrLinks[r.id]=r.link; });
+      acBrands = agrRes.brands||[];
+      acTypes  = agrRes.types||[];
+      acPics   = agrRes.pics||[];
+    }
+    if (ipRes.success) {
+      allIPRows = ipRes.rows||[];
+      const ipNames = allIPRows.map(r=>r.name).filter(Boolean);
+      acRRIPs = [...new Set([...acRRIPs, ...ipNames])];
+      // merge IP names into acBrands for Agreement form
+      ipNames.forEach(n=>{ if(!acBrands.includes(n)) acBrands.push(n); });
+      const cats = allIPRows.map(r=>r.category).filter(Boolean);
+      cats.forEach(c=>{ if(!acIPCategories.includes(c)) acIPCategories.push(c); });
+    }
+    if (bmRes.success) {
+      allBMRows = bmRes.rows||[];
+      const bmNames = allBMRows.map(r=>r.name).filter(Boolean);
+      // merge BM names into acBrands for Agreement form
+      bmNames.forEach(n=>{ if(!acBrands.includes(n)) acBrands.push(n); });
+      acRRIPs = [...new Set([...acRRIPs, ...bmNames])];
+      const cats = allBMRows.map(r=>r.category).filter(Boolean);
+      cats.forEach(c=>{ if(!acIPCategories.includes(c)) acIPCategories.push(c); });
+      if(!acBMCategories) acBMCategories = ["Musician","Brand","Filmmaker"];
+      cats.forEach(c=>{ if(!acBMCategories.includes(c)) acBMCategories.push(c); });
+    }
+  } catch(e) { console.warn("Preload autocomplete failed:", e); }
+}
+
+// ── PKS AUTOCOMPLETE (special: stores drive link) ──
+function setupACPKS(inpId, lstId) {
+  const inp = document.getElementById(inpId), lst = document.getElementById(lstId);
+  if (!inp || !lst) return;
+  const render = () => {
+    const q = inp.value.toLowerCase();
+    const m = acAgrOptions.filter(o=>o.label.toLowerCase().includes(q)||o.id.toLowerCase().includes(q));
+    if (!m.length) { lst.style.display="none"; return; }
+    lst.innerHTML = m.map(o=>`<div class="ac-item" onclick="pickPKS('${o.id.replace(/'/g,"\'")}','${(o.label||"").replace(/'/g,"\'")}')">
+      <div>${o.id}</div><div class="ac-item-sub">${o.label}${acAgrLinks[o.id]?' · Drive ↗':' · No Drive link'}</div>
+    </div>`).join("");
+    lst.style.display="block";
+  };
+  inp.addEventListener("input", render);
+  inp.addEventListener("focus", ()=>{ if(acAgrOptions.length) render(); });
+  document.addEventListener("click", e=>{ if(!inp.contains(e.target)&&!lst.contains(e.target)) lst.style.display="none"; });
+}
+
+function pickPKS(agrId, label) {
+  const inp = document.getElementById("rr-pks");
+  const lst = document.getElementById("ac-rr-pks");
+  inp.value = agrId;
+  inp.dataset.driveLink = acAgrLinks[agrId] || "";
+  lst.style.display="none";
+  // show drive link hint
+  const hint = inp.parentElement.nextElementSibling;
+  if (hint && acAgrLinks[agrId]) {
+    hint.innerHTML = `<span style="color:var(--g600)">Drive: </span><a href="${acAgrLinks[agrId]}" target="_blank" style="color:var(--black);text-decoration:underline;font-size:11px;">Lihat dokumen ↗</a>`;
+  }
+}
+
+// ── DUPLICATE CHECK ──
+async function checkDuplicate(name, excludeSheet) {
+  // Check IP Master and Brand Master for duplicate name
+  const ipNames = allIPRows.map(r=>(r.name||"").toLowerCase().trim());
+  const bmNames = allBMRows.map(r=>(r.name||"").toLowerCase().trim());
+  const n = name.toLowerCase().trim();
+  if (excludeSheet !== "ip"  && ipNames.includes(n)) return "IP Master";
+  if (excludeSheet !== "bm"  && bmNames.includes(n)) return "Brand Master";
+  return null;
+}
+
 </script>
 </body>
 </html>
