@@ -21,7 +21,7 @@ const SHEETS = {
 
 const HEADERS = {
   agreements:    ["ID","Date Submitted","Agreement Title","Partner/Client","PIC","Related IP / Brand","Revenue Stream","Agreement Type","Start Date","End Date","Status","Link Agreement","Email Thread Link","Submitted By","Last Updated","Last Updated By"],
-  ip_master:     ["ID","IP / Brand Name","Category","Live Status","Revenue Stream","Related Agreement","Royalty Type","Percentage","Fixed Amount","Termin","PPh Tax Rate","Notes","Date Added","Added By"],
+  ip_master:     ["ID","IP / Brand Name","Category","Live Status","Revenue Stream","Related Agreement","Royalty Type","Percentage","Fixed Amount","Termin","PPh Tax Rate","Notes","Date Added","Added By","PIC"],
   recipients:    ["ID","Nama Penerima","Tipe","Related IP","Royalty Type","Percentage","Fixed Amount","Termin","Link PKS","Notes","Date Added","Added By"],
   brand_master:  ["ID","IP / Brand Name","Category","Live Status","Revenue Stream","Related Agreement","Apparel Rate","Accessories Rate","Collectible Rate","Preloved Goods Rate","Wellness Rate","Others Rate","Notes","Date Added","Added By","PIC"],
   sr_reports:    ["Brand ID","Brand Name","Month Index","Link","Notes","Submitted By","Submitted At"],
@@ -72,7 +72,7 @@ function doGet(e) {
       const now=new Date(),tz=Session.getScriptTimeZone();
       const sheet=getSheet(SHEETS.ip_master);
       const id="IP-"+Utilities.formatDate(now,tz,"yyyyMMdd")+"-"+String(sheet.getLastRow()).padStart(3,"0");
-      sheet.appendRow([id,p.name||"",p.category||"",p.liveStatus||"Active",p.revenue||"",p.agreements||"",p.royaltyType||"",p.pct||"",p.fixed||"",p.termin||"",p.pph||"",p.notes||"",Utilities.formatDate(now,tz,"dd MMM yyyy HH:mm"),p.by||""]);
+      sheet.appendRow([id,p.name||"",p.category||"",p.liveStatus||"Active",p.revenue||"",p.agreements||"",p.royaltyType||"",p.pct||"",p.fixed||"",p.termin||"",p.pph||"",p.notes||"",Utilities.formatDate(now,tz,"dd MMM yyyy HH:mm"),p.by||"",p.pic||""]);
       clearCache(CACHE_KEY_IP);return output({success:true,id});
     }
     if(action==="listIP") {
@@ -90,6 +90,7 @@ function doGet(e) {
       sheet.getRange(row,8).setValue(p.pct||"");sheet.getRange(row,9).setValue(p.fixed||"");
       sheet.getRange(row,10).setValue(p.termin||"");sheet.getRange(row,11).setValue(p.pph||"");
       sheet.getRange(row,12).setValue(p.notes||"");
+      sheet.getRange(row,15).setValue(p.pic||"");
       clearCache(CACHE_KEY_IP);return output({success:true});
     }
     if(action==="updateIPLiveStatus") {
@@ -332,7 +333,7 @@ function buildIPList() {
     rowIndex:i+2,id:String(r[0]||""),name:String(r[1]||""),category:String(r[2]||""),
     liveStatus:String(r[3]||"Active"),revenue:String(r[4]||""),agreements:String(r[5]||""),
     royaltyType:String(r[6]||""),pct:String(r[7]||""),fixed:String(r[8]||""),
-    termin:String(r[9]||""),pph:String(r[10]||""),notes:String(r[11]||""),
+    termin:String(r[9]||""),pph:String(r[10]||""),notes:String(r[11]||""),pic:String(r[14]||""),
     ipStatus:computeIPStatus(String(r[5]||""),agrMap,now)
   }));
   return{success:true,rows,agrIDs};
@@ -396,7 +397,7 @@ function buildSRList() {
 
   // 2. IP Master - live Active (empty cell treated as Active)
   const ipSheet=getSheet(SHEETS.ip_master),ipData=ipSheet.getDataRange().getValues();
-  ipData.slice(1).filter(r=>r[0]&&String(r[3]||"Active").trim()==="Active").forEach(r=>addBrand(String(r[0]),String(r[1]||""),String(r[4]||""),"IP",""));
+  ipData.slice(1).filter(r=>r[0]&&String(r[3]||"Active").trim()==="Active").forEach(r=>addBrand(String(r[0]),String(r[1]||""),String(r[4]||""),"IP",String(r[14]||"")));
 
   // 3. Royalty Recipients - all (no status field yet)
   const rrSheet=getSheet(SHEETS.recipients),rrData=rrSheet.getDataRange().getValues();
