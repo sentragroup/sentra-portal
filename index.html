@@ -1295,8 +1295,8 @@ async function submitRR() {
   try {
     const tipe=document.getElementById("rr-tipe").value.trim();
     const pksInp = document.getElementById("rr-pks");
-    const pksLink = tipe.toLowerCase()==="collaborator" ? (pksInp.dataset.driveLink || acAgrLinks[pksInp.value.trim()] || pksInp.value.trim()) : "";
-    const res=await apiGet({action:"submitRR",name:document.getElementById("rr-name").value.trim(),tipe,ip:document.getElementById("rr-ip").value.trim(),royaltyType:document.getElementById("rr-royalty-type").value,pct:document.getElementById("rr-pct").value.trim(),fixed:document.getElementById("rr-fixed").value.trim(),termin:document.getElementById("rr-termin").value,pks:pksLink,notes:document.getElementById("rr-notes").value.trim(),pic:document.getElementById("rr-pic").value.trim(),by:currentUser});
+    const pksVal = tipe.toLowerCase()==="collaborator" ? pksInp.value.trim() : "";
+    const res=await apiGet({action:"submitRR",name:document.getElementById("rr-name").value.trim(),tipe,ip:document.getElementById("rr-ip").value.trim(),royaltyType:document.getElementById("rr-royalty-type").value,pct:document.getElementById("rr-pct").value.trim(),fixed:document.getElementById("rr-fixed").value.trim(),termin:document.getElementById("rr-termin").value,pks:pksVal,notes:document.getElementById("rr-notes").value.trim(),pic:document.getElementById("rr-pic").value.trim(),by:currentUser});
     if(res.success){showRRFeedback("✓ Penerima tersimpan — ID: "+res.id,"ok");if(!acRRTipes.includes(tipe))acRRTipes.push(tipe);clearRRForm();}
     else{showRRFeedback("Gagal: "+res.error,"err");}
   } catch(e){showRRFeedback("Koneksi gagal.","err");}
@@ -1365,7 +1365,7 @@ function renderRRTable(rows) {
     <td><span class="pill ${r.royaltyType==="Post-Sales"?"p-active":r.royaltyType==="Advance"?"p-near":"p-signings"}">${r.royaltyType||"—"}</span></td>
     <td>${r.pct?r.pct+"%":"—"}</td><td>${r.fixed?"Rp "+Number(r.fixed).toLocaleString("id-ID"):"—"}</td>
     <td style="font-size:11px">${r.termin||"—"}</td>
-    <td class="td-link">${r.pks?(()=>{const agrId=Object.keys(acAgrLinks).find(k=>acAgrLinks[k]===r.pks)||"PKS";return`<a href="${r.pks}" target="_blank">${agrId} ↗</a>`;})():"—"}</td>
+    <td>${r.pks?(()=>{const isId=r.pks.startsWith("AGR-");const agrId=isId?r.pks:Object.keys(acAgrLinks).find(k=>acAgrLinks[k]===r.pks);const href=isId?(acAgrLinks[r.pks]||""):r.pks;return href?`<a href="${href}" target="_blank" class="pill" style="background:#E6F1FB;color:#0C447C;border:0.5px solid #85B7EB;text-decoration:none">${agrId||"PKS"} ↗</a>`:`<span class="pill" style="background:#E6F1FB;color:#0C447C;border:0.5px solid #85B7EB">${agrId||r.pks}</span>`;})():"—"}</td>
     <td style="color:var(--g600);font-size:11px">${r.notes||"—"}</td>
     <td><button class="btn-icon" onclick="openRREdit(${r.rowIndex})">Edit</button> <button class="btn-icon" style="color:#c0392b;" onclick="deleteRR(${r.rowIndex})">Del</button></td>
   </tr>
