@@ -118,6 +118,9 @@
         <div class="sb-item" onclick="showPage('jubsales',this)" id="nav-jubsales">
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="4" width="12" height="9" rx="1"/><path d="M5 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1"/><line x1="8" y1="8" x2="8" y2="10"/><line x1="6" y1="9" x2="10" y2="9"/></svg>Jubelio Offline Sales
         </div>
+        <div class="sb-item" onclick="showPage('mesign',this)" id="nav-mesign">
+          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2h10a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z"/><path d="M5 6h6M5 9h4"/><path d="M10 12l2-2-2-2"/></svg>Inbound/Outbound Note
+        </div>
       </div>
       <div class="sb-sec">
         <div class="sb-label">Logs</div>
@@ -676,12 +679,14 @@
             <button class="tab-btn" onclick="switchPBTab('list',this)">Semua</button>
           </div>
         </div>
-        <div class="stats-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:1.25rem">
+        <div class="stats-row" style="grid-template-columns:repeat(7,1fr);margin-bottom:1.25rem">
           <div class="stat-card"><div class="stat-num" id="pb-s-total">—</div><div class="stat-lbl">Total Events</div></div>
           <div class="stat-card"><div class="stat-num" id="pb-s-upcoming">—</div><div class="stat-lbl">Upcoming</div></div>
           <div class="stat-card"><div class="stat-num" id="pb-s-done">—</div><div class="stat-lbl">Done</div></div>
           <div class="stat-card"><div class="stat-num" id="pb-s-cancelled">—</div><div class="stat-lbl">Cancelled</div></div>
           <div class="stat-card"><div class="stat-num" id="pb-s-reinbound">—</div><div class="stat-lbl">Need Reinbound</div></div>
+          <div class="stat-card"><div class="stat-num" id="pb-s-overdue" style="color:#c0392b">—</div><div class="stat-lbl">Overdue</div></div>
+          <div class="stat-card"><div class="stat-num" id="pb-s-grandtotal" style="font-size:14px">—</div><div class="stat-lbl">Grand Total</div></div>
         </div>
         <div id="pbtab-new">
           <div class="form-card">
@@ -704,10 +709,6 @@
                 <input type="text" id="pb-iprelated" placeholder="Ketik untuk pilih dari IP Master, pisahkan dengan koma" autocomplete="off">
                 <div class="ac-list" id="ac-pb-iprelated"></div>
               </div>
-              <div class="fg">
-                <label>Qty Brought</label>
-                <input type="number" id="pb-qty" placeholder="Jumlah barang dibawa" min="0">
-              </div>
               <div class="fg" style="position:relative">
                 <label>Manpower</label>
                 <input type="text" id="pb-manpower" placeholder="Ketik nama, pisahkan dengan koma" autocomplete="off">
@@ -716,10 +717,6 @@
             </div>
             <div class="form-sec" style="margin-top:.5rem">Status &amp; Dokumen</div>
             <div class="form-grid">
-              <div class="fg">
-                <label>Delivery Status</label>
-                <select id="pb-delivery"><option value="">—</option><option>Delivered</option></select>
-              </div>
               <div class="fg">
                 <label>Event Status</label>
                 <select id="pb-eventstatus"><option value="">Planned</option><option>Done</option><option>Cancelled</option></select>
@@ -740,10 +737,11 @@
                   <label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pb-pm-cons"> Consignment</label>
                 </div>
               </div>
-              <div class="fg full">
-                <label>Surat Jalan <span style="font-size:11px;color:var(--g400)">(link Google Drive file — bukan Google Docs/Sheets)</span></label>
-                <input type="url" id="pb-sj" placeholder="https://drive.google.com/file/d/..." autocomplete="off" oninput="pbValidateSJ('pb-sj-hint',this.value)">
-                <div id="pb-sj-hint" style="color:#c0392b;font-size:11px;margin-top:3px"></div>
+              <div class="fg full" style="position:relative">
+                <label>Surat Jalan <span style="font-size:11px;color:var(--g400)">(pilih dari Inbound/Outbound Note)</span></label>
+                <input type="text" id="pb-sj" placeholder="Ketik subject atau message ID..." autocomplete="off" oninput="showPBSJInfo('pb-sj','pb-sj-hint')">
+                <div class="ac-list" id="ac-pb-sj"></div>
+                <div id="pb-sj-hint" style="font-size:11px;margin-top:3px"></div>
               </div>
               <div class="fg" style="position:relative">
                 <label>ID Pesanan Jubelio</label>
@@ -765,13 +763,24 @@
         </div>
         <div id="pbtab-list" style="display:none">
           <div class="filter-panel">
-            <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="document.getElementById('pb-fil-status').value='';document.getElementById('pbSearch').value='';applyPBFilters()">✕ Reset</button></div>
+            <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="['pb-fil-status','pb-fil-reinbound','pb-fil-ip'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});document.getElementById('pbSearch').value='';applyPBFilters()">✕ Reset</button></div>
             <div class="filter-grid">
               <select class="f-select" id="pb-fil-status" onchange="applyPBFilters()">
                 <option value="">Semua Status</option>
                 <option value="Planned">Planned</option>
                 <option value="Done">Done</option>
                 <option value="Cancelled">Cancelled</option>
+                <option value="Overdue">Overdue</option>
+              </select>
+              <select class="f-select" id="pb-fil-reinbound" onchange="applyPBFilters()">
+                <option value="">Semua Reinbound</option>
+                <option value="Done">Reinbound Done</option>
+                <option value="Not Yet">Not Yet</option>
+                <option value="Sold Out">Sold Out</option>
+                <option value="none">Belum Diisi</option>
+              </select>
+              <select class="f-select" id="pb-fil-ip" onchange="applyPBFilters()">
+                <option value="">Semua IP</option>
               </select>
               <input class="search-box" type="text" id="pbSearch" placeholder="Cari event, lokasi, IP..." oninput="applyPBFilters()" style="width:100%">
             </div>
@@ -789,19 +798,18 @@
                   <th>Lokasi</th>
                   <th>IP Related</th>
                   <th>Manpower</th>
-                  <th>Qty</th>
                   <th>SJ</th>
                   <th>Delivery</th>
                   <th class="sortable" data-col="eventStatus" onclick="sortPBBy('eventStatus')">Status</th>
                   <th>Reinbound</th>
-                  <th class="sortable" data-col="srDeadline" onclick="sortPBBy('srDeadline')">SR Deadline</th>
+                  <th class="sortable" data-col="srDeadline" onclick="sortPBBy('srDeadline')">Deadline</th>
                   <th class="sortable" data-col="grandTotal" onclick="sortPBBy('grandTotal')">Grand Total</th>
                   <th>Payment</th>
                   <th>ID Pesanan Jubelio</th>
                   <th>Aksi</th>
                 </tr>
               </thead>
-              <tbody id="pbTableBody"><tr><td class="empty-td" colspan="14">Klik "Semua" untuk memuat data.</td></tr></tbody>
+              <tbody id="pbTableBody"><tr><td class="empty-td" colspan="13">Klik "Semua" untuk memuat data.</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -845,14 +853,56 @@
                   <th class="sortable" data-col="grandTotal" onclick="sortJubBy('grandTotal')">Grand Total</th>
                   <th>Note</th>
                   <th>Mapped</th>
-                  <th>Aksi</th>
                 </tr>
               </thead>
-              <tbody id="jubTableBody"><tr><td class="empty-td" colspan="8">Klik "Semua" untuk memuat data.</td></tr></tbody>
+              <tbody id="jubTableBody"><tr><td class="empty-td" colspan="7">Klik "Semua" untuk memuat data.</td></tr></tbody>
             </table>
           </div>
         </div>
       </div>
+
+    <!-- INBOUND/OUTBOUND NOTE -->
+    <div class="page" id="page-mesign">
+      <div class="page-header">
+        <div><div class="page-title">Inbound/Outbound Note</div><div class="page-sub">Data surat jalan dari Mekari eSign, dengan status pemetaan ke Pop Up Booth.</div></div>
+        <div class="tab-bar">
+          <button class="tab-btn active">Semua</button>
+        </div>
+      </div>
+      <div class="stats-row" style="grid-template-columns:repeat(3,1fr);margin-bottom:1.25rem">
+        <div class="stat-card"><div class="stat-num" id="mek-s-total">—</div><div class="stat-lbl">Total Notes</div></div>
+        <div class="stat-card"><div class="stat-num" id="mek-s-mapped">—</div><div class="stat-lbl">Mapped</div></div>
+        <div class="stat-card"><div class="stat-num" id="mek-s-unmapped" style="color:#c0392b">—</div><div class="stat-lbl">Unmapped</div></div>
+      </div>
+      <div class="filter-panel">
+        <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="clearMekariFilters()">✕ Reset</button></div>
+        <div class="filter-grid">
+          <select class="f-select" id="mek-fil-mapped" onchange="applyMekariFilters()">
+            <option value="">Semua</option>
+            <option value="mapped">Mapped</option>
+            <option value="unmapped">Unmapped</option>
+          </select>
+          <input class="search-box" type="text" id="mekariSearch" placeholder="Cari subject atau message ID..." oninput="applyMekariFilters()" style="width:100%">
+        </div>
+      </div>
+      <div class="table-toolbar">
+        <button class="btn-refresh" onclick="loadMekariEsign()">↻ Refresh</button>
+        <div class="tcount" id="mek-tcount">— entri</div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead id="mekari-thead">
+            <tr>
+              <th class="sortable" data-col="id" onclick="sortMekariBy('id')">Message ID</th>
+              <th class="sortable" data-col="subject" onclick="sortMekariBy('subject')">Subject</th>
+              <th class="sortable" data-col="emailDate" onclick="sortMekariBy('emailDate')">Email Date</th>
+              <th>Mapped</th>
+            </tr>
+          </thead>
+          <tbody id="mekariTableBody"><tr><td class="empty-td" colspan="4">Klik "Semua" untuk memuat data.</td></tr></tbody>
+        </table>
+      </div>
+    </div>
 
     </div>
   </div>
