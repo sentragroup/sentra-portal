@@ -10,22 +10,25 @@ Internal tools portal for Sentra, a merchandise company that manages musicians, 
 
 ## Stack
 - **Frontend:** Single `index.html` — vanilla HTML/CSS/JS, no framework, no build step
-- **Backend:** Google Apps Script (`Code.gs`) deployed as web app
-- **Database:** Google Sheets (ID: `1sTG43OTwwNFpibT-l36ZjOW9pv8UDlLzmwlSgH-UdgE`)
+- **Backend:** Supabase (PostgreSQL + PostgREST) via `@supabase/supabase-js@2` CDN
+- **Database:** Supabase project `qyxdjdwgvwtrpnvfndnu`
 - **Deploy:** Push `index.html` to GitHub → auto-deploys via GitHub Pages
 
-**Apps Script URL:**
-```
-https://script.google.com/macros/s/AKfycbwBA8VlKGMKt48u4qlrKbLMDIWIhSkHCwvE7J0Ydl2qYtYoPZ1zKWRtdzse2BP7rPnF/exec
+**Supabase config (in `index.html` `<script>` head):**
+```js
+const SUPABASE_URL  = "https://qyxdjdwgvwtrpnvfndnu.supabase.co";
+const SUPABASE_ANON = "eyJhbGci...";   // anon/public key
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 ```
 
-> After editing `Code.gs`, deploy a new version in Apps Script editor and run `clearAllCache()`.
+> RLS is enabled on all tables with `allow_all` policies (`USING (true) WITH CHECK (true)`).
+> No backend deploy needed after frontend changes — push `index.html` and it's live.
 
 ---
 
 ## How to Edit Efficiently (Token Optimization)
 
-`index.html` is ~1977 lines (~42k tokens). **Never read the whole file.** Use section markers to target specific parts.
+`index.html` is ~2400 lines. **Never read the whole file.** Use section markers to target specific parts.
 
 ### Step 1 — Find the section line number
 ```bash
@@ -65,27 +68,54 @@ Read index.html  offset: <start_line>  limit: <lines_to_read>
 | preloadAutocomplete | `// ── PRELOAD AUTOCOMPLETE` | 1714 | 42 |
 | PKS autocomplete | `// ── PKS AUTOCOMPLETE` | 1755 | 32 |
 | Leads Tracker JS | `// ── LEADS TRACKER ──` | 1786 | 178 |
-| Duplicate check | `// ── DUPLICATE CHECK ──` | 1964 | 14 |
+| Distribution Partner JS | `// ── DISTRIBUTION PARTNER ──` | 2142 | 240 |
+| Duplicate check | `// ── DUPLICATE CHECK ──` | ~2380 | 14 |
 
 ### Adding a new module — what to touch
 1. **Sidebar nav** — read `<!-- APP -->` section (~line 194), add `sb-item` after the last tracker
 2. **Home card** — read `<!-- HOME -->` section (~line 241), add `tool-card` div
-3. **Page HTML** — insert new `<!-- PAGE_NAME -->` block before closing tags (~line 700)
-4. **JS** — insert new `// ── MODULE ──` block before `// ── DUPLICATE CHECK ──` (~line 1964)
-5. **Backend** — add to `SHEETS`, `HEADERS`, `CACHE_KEY_XX`, action handlers, `buildXXList()`, `clearAllCache()`
+3. **Page HTML** — insert new `<!-- PAGE_NAME -->` block before closing `</div></body>` (~line 700)
+4. **JS** — insert new `// ── MODULE ──` block before `// ── DUPLICATE CHECK ──`
+5. **Supabase** — create table via MCP, enable RLS, add `allow_all` policy
 
 ---
 
 ## API Convention
-All API calls use GET — more reliable from GitHub Pages static hosting.
+All reads/writes go directly to Supabase via the JS client. No server-side code.
 
 ```js
-const res = await apiGet({ action: "submitIP", name, category, ... });
-if (res.success) { ... } else { showFeedback("Gagal: " + res.error, "err"); }
+// Read
+const { data, error } = await sb.from("agreements").select("*").order("id");
+if (error) throw error;
+
+// Insert
+const { error } = await sb.from("agreements").insert({ id: genId("AGR"), title, ... });
+
+// Update
+const { error } = await sb.from("agreements").update({ status }).eq("id", rowIndex);
+
+// Delete
+const { error } = await sb.from("agreements").delete().eq("id", rowIndex);
 ```
 
-Apps Script always returns `{ success: true/false, ...data }`.
-Cache cleared on every write: `clearCache(CACHE_KEY_XX)`.
+**ID generation (client-side):**
+```js
+function genId(prefix) {
+  const d = new Date().toISOString().slice(0,10).replace(/-/g,"");
+  return `${prefix}-${d}-${String(Math.floor(Math.random()*9000)+1000)}`;
+}
+// e.g. "AGR-20260513-4521"
+```
+
+**Mapper functions** translate Supabase snake_case → JS camelCase and set `rowIndex: r.id` so all existing `onclick` handlers work unchanged:
+```js
+function mapAgr(r) { return { rowIndex: r.id, id: r.id, title: r.title, ... }; }
+function mapIP(r)  { return { rowIndex: r.id, id: r.id, name: r.name, liveStatus: r.live_status, ... }; }
+function mapBM(r)  { return { rowIndex: r.id, ..., apparel: r.apparel_rate, ... }; }
+function mapRR(r)  { return { rowIndex: r.id, ..., name: r.nama, ip: r.related_ip, ... }; }
+function mapLD(r)  { return { rowIndex: r.id, ..., name: r.lead_name, revenue: r.revenue_stream, ... }; }
+function mapDP(r)  { return { rowIndex: r.id, ..., name: r.partner_name, contactPerson: r.contact_person, ... }; }
+```
 
 ---
 
@@ -168,9 +198,9 @@ Cache cleared on every write: `clearCache(CACHE_KEY_XX)`.
 
 ### 1. Agreement Tracker
 **Page:** `page-agreement` | **JS:** `// ── AGREEMENT ──` (~line 844)
-**Sheet:** `agreements` | **Cache:** `CACHE_KEY` | **ID prefix:** `AGR-`
+**Table:** `agreements` | **ID prefix:** `AGR-`
 
-Columns: `ID | Date Submitted | Agreement Title | Partner/Client | PIC | Related IP/Brand | Revenue Stream | Agreement Type | Start Date | End Date | Status | Link Agreement | Email Thread Link | Submitted By | Last Updated | Last Updated By`
+Columns: `id | date_submitted | title | partner | pic | brand | revenue | type | start_date | end_date | status | link | email_link | notes | submitted_by | last_updated | last_updated_by`
 
 - Manual status: `Draft → Under Review → Signings → Signed`
 - Auto-status (computed from end date): `Active`, `Near Expiring` (≤30d), `Expired`
@@ -181,11 +211,12 @@ Columns: `ID | Date Submitted | Agreement Title | Partner/Client | PIC | Related
 
 ### 2. IP Master
 **Page:** `page-ipmaster` | **JS:** `// ── IP MASTER ──` (~line 968)
-**Sheet:** `ip_master` | **Cache:** `CACHE_KEY_IP` | **ID prefix:** `IP-`
+**Table:** `ip_master` | **ID prefix:** `IP-`
 
-Columns (1-indexed): `ID(1) | Name(2) | Category(3) | LiveStatus(4) | Revenue(5) | Agreements(6) | RoyaltyType(7) | Pct(8) | Fixed(9) | Termin(10) | PPh(11) | Notes(12) | DateAdded(13) | AddedBy(14)`
+Columns: `id | name | category | live_status | revenue_stream | related_agreement | royalty_type | percentage | fixed_amount | termin | pph_tax_rate | notes | date_added | added_by | pic | last_updated | last_updated_by`
 
-- Two statuses: **Agreement Status** (computed via `computeIPStatus()`) + **Live Status** (manual col 4)
+- Two statuses: **Agreement Status** (computed via `computeIPStatusLocal()`) + **Live Status** (manual)
+- `computeIPStatusLocal(relatedAgreements)` — client-side, uses already-loaded `allRows`
 - Agreement Status: Active / Near Expiring / Expired / In Progress / No Agreement
 - Revenue: multi-checkbox, stored comma-separated
 - **Duplicate check** across IP Master + Brand Master
@@ -194,23 +225,24 @@ Columns (1-indexed): `ID(1) | Name(2) | Category(3) | LiveStatus(4) | Revenue(5)
 
 ### 3. Collaborator Royalty
 **Page:** `page-recipients` | **JS:** `// ── ROYALTY RECIPIENTS ──` (~line 1132)
-**Sheet:** `royalty_recipients` | **Cache:** `CACHE_KEY_RR` | **ID prefix:** `RR-`
+**Table:** `royalty_recipients` | **ID prefix:** `RR-`
 
-Columns: `ID | Nama Penerima | Tipe | Related IP | RoyaltyType | Pct | Fixed | Termin | LinkPKS | Notes | DateAdded | AddedBy`
+Columns: `id | nama | tipe | related_ip | royalty_type | percentage | fixed_amount | termin | pks | notes | date_added | added_by | pic | last_updated | last_updated_by`
 
 - PKS field shows only when Tipe = "Collaborator"
-- PKS autocomplete (`setupACPKS`) picks from Agreement Tracker → stores **Drive link** (not ID)
+- PKS autocomplete (`setupACPKS`) picks from Agreement Tracker → stores **Drive link** (not AGR ID)
 - `acAgrLinks` map: `{agrId: driveLink}`
 
 ---
 
 ### 4. Brand Master
 **Page:** `page-brandmaster` | **JS:** `// ── BRAND MASTER ──` (~line 1244)
-**Sheet:** `brand_master` | **Cache:** `CACHE_KEY_BM` | **ID prefix:** `BM-`
+**Table:** `brand_master` | **ID prefix:** `BM-`
 
-Columns (1-indexed): `ID(1) | Name(2) | Category(3) | LiveStatus(4) | Revenue(5) | Agreements(6) | Apparel(7) | Accessories(8) | Collectible(9) | Preloved(10) | Wellness(11) | Others(12) | Notes(13) | DateAdded(14) | AddedBy(15)`
+Columns: `id | name | category | live_status | revenue_stream | related_agreement | apparel_rate | accessories_rate | collectible_rate | preloved_rate | wellness_rate | others_rate | notes | date_added | added_by | pic | last_updated | last_updated_by`
 
 Normal rates: Apparel 30% · Accessories 25% · Collectible 20% · Preloved 20% · Wellness 20% · Others 30%
+- Rates stored as NUMERIC — use `parseFloat()` in forms
 - Non-standard rates shown with yellow ⚠️ pill
 - **Duplicate check** across IP Master + Brand Master
 
@@ -218,28 +250,43 @@ Normal rates: Apparel 30% · Accessories 25% · Collectible 20% · Preloved 20% 
 
 ### 5. Sales Report
 **Page:** `page-salesreport` | **JS:** `// ── SALES REPORT ──` (~line 1454)
-**Sheets:** `sr_reports`, `sr_startdates` | **Cache:** `CACHE_KEY_SR`
+**Tables:** `sr_reports`, `sr_startdates`
 
 - Calendar grid: Brand rows × months (Jun–Dec 2026, 7 months fixed)
-- Brand sources merged: Brand Master (Active) + IP Master (Active) + Royalty Recipients
+- Brand sources merged client-side: Brand Master (Active) + IP Master (Active) + Royalty Recipients
 - Cell key format: `"brandId_monthIdx"` (0-indexed, Jun=0)
 - `SR_MONTHS` array defines the month config
 - `isCellDue(brand, monthIdx)` — false if before brand's startDate
 - Click cell → modal to submit/update/clear link
+- `sr_startdates` uses `upsert` with `onConflict: "brand_id"`
+
+`sr_reports` columns: `id BIGSERIAL | brand_id | brand_name | month_index | link | notes | submitted_by | submitted_at`
+`sr_startdates` columns: `id BIGSERIAL | brand_id UNIQUE | brand_name | start_date | set_by | set_at`
 
 ---
 
 ### 6. Leads Tracker
 **Page:** `page-leads` | **JS:** `// ── LEADS TRACKER ──` (~line 1786)
-**Sheet:** `leads` | **Cache:** `CACHE_KEY_LD` | **ID prefix:** `LD-`
+**Table:** `leads` | **ID prefix:** `LD-`
 
-Columns (1-indexed): `ID(1) | LeadName(2) | Category(3) | Stage(4) | PIC(5) | Revenue(6) | Contact(7) | Notes(8) | DateAdded(9) | AddedBy(10) | LastUpdated(11) | LastUpdatedBy(12)`
+Columns: `id | lead_name | category | stage | pic | revenue_stream | contact | notes | priority | date_added | added_by | last_updated | last_updated_by`
 
 - Stage flow: `New → Contacted → Meeting → Proposal → Negotiation → Won / Lost / On Hold`
 - Pipeline Aktif = stages: New, Contacted, Meeting, Proposal, Negotiation
-- Inline stage dropdown in table (action: `updateLeadStage`)
+- Inline stage dropdown in table
 - Filters: Stage, Category, Revenue, PIC, Search
-- Actions: `submitLead`, `listLeads`, `updateLead`, `updateLeadStage`
+
+---
+
+### 7. Distribution Partner
+**Page:** `page-distpartner` | **JS:** `// ── DISTRIBUTION PARTNER ──` (~line 2142)
+**Table:** `dist_partners` | **ID prefix:** `DP-`
+
+Columns: `id | partner_name | type | channel | region | pic | contact_person | contact_info | related_agreement | live_status | notes | date_added | added_by | last_updated | last_updated_by`
+
+- Type: `Consignment`, `Bulk Purchase` (multi-value, comma-separated)
+- Channel: `Online Store`, `Physical Store`, `Marketplace`, `Pop-up` (multi-value)
+- Filters: Type, Channel, Live Status, PIC, Search
 
 ---
 
@@ -254,6 +301,7 @@ let allRRRows = [], acRRTipes = [], acRRIPs = [];                      // Royalt
 let allBMRows = [], acBMCategories = ["Musician","Brand","Filmmaker"]; // Brand Master
 let srBrands = [], srReports = {};                                     // Sales Report
 let allLeadsRows = [], acLeadsCategories = ["Musician","Brand","Filmmaker"]; // Leads
+let allDPRows = [], acDPTypes = [...], acDPChannels = [...];           // Dist Partners
 ```
 
 `acAgrOptions` — `[{id, label}]` where label = `"Partner — Type"`
@@ -267,54 +315,30 @@ let allLeadsRows = [], acLeadsCategories = ["Musician","Brand","Filmmaker"]; // 
 setupAC("input-id", "ac-list-id", () => arrayOfStrings);
 setupAC("input-id", "ac-list-id", () => acAgrOptions.map(o=>o.id), () => acAgrOptions); // rich
 setupACPKS("rr-pks", "ac-rr-pks");  // special: picks AGR → stores drive link
+setupACMulti("dp-type", "ac-dp-type", () => acDPTypes);  // multi-value comma input
 ```
 
-All autocompletes preloaded on login via `preloadAutocomplete()` (parallel fetch of agreements + IP + brand master).
+All autocompletes preloaded on login via `preloadAutocomplete()` (parallel Supabase fetch of agreements + ip_master + brand_master).
 
 ---
 
-## Backend (Code.gs) Conventions
+## Supabase Tables
 
-**Adding a new module:**
-```js
-const CACHE_KEY_XX = "xx_data";
-SHEETS.xx = "sheet_tab_name";
-HEADERS.xx = ["ID", ...cols];
+| Table | Module | ID prefix |
+|-------|--------|-----------|
+| `agreements` | Agreement Tracker | `AGR-` |
+| `ip_master` | IP Master | `IP-` |
+| `royalty_recipients` | Collaborator Royalty | `RR-` |
+| `brand_master` | Brand Master | `BM-` |
+| `sr_reports` | Sales Report submissions | BIGSERIAL |
+| `sr_startdates` | Sales Report start dates | BIGSERIAL |
+| `leads` | Leads Tracker | `LD-` |
+| `dist_partners` | Distribution Partner | `DP-` |
 
-// in doGet:
-if(action==="submitXX") { /* appendRow + clearCache(CACHE_KEY_XX) */ }
-if(action==="listXX")   { /* cache check + buildXXList() */ }
-if(action==="updateXX") { /* setRange values + clearCache */ }
-
-function buildXXList() { /* read sheet, map to row objects */ }
-
-// in clearAllCache — add CACHE_KEY_XX to the array
+All tables have RLS enabled with `allow_all` policy:
+```sql
+CREATE POLICY "allow_all" ON table_name FOR ALL USING (true) WITH CHECK (true);
 ```
-
-**ID generation:**
-```js
-const id = "PFX-" + Utilities.formatDate(now, tz, "yyyyMMdd") + "-" + String(sheet.getLastRow()).padStart(3,"0");
-```
-
-**Column update (1-indexed):**
-```js
-sheet.getRange(row, 2).setValue(p.name||"");   // col 2 = Name
-sheet.getRange(row, 11).setValue(nowFmt);       // col 11 = Last Updated
-```
-
----
-
-## Google Sheet Tabs
-
-| Tab | Module | Cache Key |
-|-----|--------|-----------|
-| `agreements` | Agreement Tracker | `CACHE_KEY` |
-| `ip_master` | IP Master | `CACHE_KEY_IP` |
-| `royalty_recipients` | Collaborator Royalty | `CACHE_KEY_RR` |
-| `brand_master` | Brand Master | `CACHE_KEY_BM` |
-| `sr_reports` | Sales Report submissions | `CACHE_KEY_SR` |
-| `sr_startdates` | Sales Report start dates | `CACHE_KEY_SR` |
-| `leads` | Leads Tracker | `CACHE_KEY_LD` |
 
 ---
 
@@ -331,25 +355,26 @@ sheet.getRange(row, 11).setValue(nowFmt);       // col 11 = Last Updated
 
 ## Deploy Checklist
 
-**Frontend:**
+**Frontend only — no backend deploy ever needed:**
 ```bash
 git add index.html && git commit -m "feat: ..." && git push
 # GitHub Pages auto-deploys in ~1 min. Hard refresh: Ctrl+Shift+R
 ```
 
-**Backend:**
-1. Paste updated `Code.gs` into Apps Script editor
-2. Deploy → Manage Deployments → edit → New Version → Deploy
-3. Run `clearAllCache()` in Apps Script console
-4. URL stays the same — no frontend change needed
+**Schema changes (Supabase):**
+1. Use Supabase MCP `apply_migration` for DDL (CREATE TABLE, ALTER TABLE)
+2. Use `execute_sql` for data fixes
+3. No restart or cache clear needed — changes are live instantly
 
 ---
 
 ## Common Gotchas
-- Always GET not POST for API calls (GitHub Pages CORS)
-- `sheet.getLastRow()` includes header — IDs use this for sequential suffix
-- Cache TTL = 60s — always `clearCache()` after writes
-- Live Status must be "Active" or "Inactive" — never empty string
-- Duplicate names rejected across IP Master + Brand Master (client-side check)
+- `rowIndex` in all mapper functions is set to `r.id` (the string ID, e.g. "AGR-20260513-4521") — this is what gets passed to `openEdit(rowIndex)`, `delete(rowIndex)`, etc.
+- BM rates are NUMERIC in Postgres — use `parseFloat()` when reading form values, not string comparison
+- `computeIPStatusLocal()` runs client-side; `loadIPMaster()` pre-loads agreements if `allRows` is empty
+- Sales Report brand list is built client-side by merging BM + IP + RR fetches
+- `sr_startdates` upsert uses `onConflict: "brand_id"`
+- `sr_reports` insert/update uses check-then-insert pattern (no unique constraint on brand_id+month_index)
 - Revenue stored comma-separated: `"SD&Y, Lagaa"`
 - Related Agreements stored as comma-separated AGR IDs
+- Duplicate names rejected across IP Master + Brand Master (client-side `checkDuplicate()`)
