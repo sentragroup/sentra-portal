@@ -175,19 +175,21 @@ tbody tr:hover td{background:var(--off);}
     <div class="l-hero">
       <div class="l-eye">Portal v1.0</div>
       <h1 class="l-title">One place<br>for every<br>workflow.</h1>
-      <p class="l-desc">Agreement tracking, sales reports, royalty payments — semua terhubung ke Google Workspace kamu.</p>
+      <p class="l-desc">Agreement tracking, sales reports, royalty payments — semua tersimpan aman di Supabase.</p>
     </div>
     <div class="l-foot">© 2026 Sentra · Internal Use Only</div>
   </div>
   <div class="login-right">
     <div class="login-box">
       <h2 class="lb-title">Selamat datang</h2>
-      <p class="lb-sub">Masukkan nama kamu untuk lanjut.</p>
-      <label class="lb-label">Nama kamu</label>
-      <input class="lb-input" type="text" id="loginName" placeholder="e.g. Luthfi" onkeydown="if(event.key==='Enter')doLogin()">
-      <button class="btn-login" onclick="doLogin()">Masuk →</button>
+      <p class="lb-sub">Login dengan akun tim kamu.</p>
+      <label class="lb-label">Email</label>
+      <input class="lb-input" type="email" id="loginEmail" placeholder="nama@sentra.id" autocomplete="email" onkeydown="if(event.key==='Enter')document.getElementById('loginPass').focus()">
+      <label class="lb-label" style="margin-top:12px">Password</label>
+      <input class="lb-input" type="password" id="loginPass" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+      <button class="btn-login" id="loginBtn" onclick="doLogin()">Masuk →</button>
       <div class="lb-err" id="loginErr"></div>
-      <p class="lb-note">Data tersimpan di Google Sheet bersama.<br>Semua tim melihat data yang sama secara real-time.</p>
+      <p class="lb-note">Akun dikelola oleh admin Sentra.<br>Hubungi admin jika belum punya akses.</p>
     </div>
   </div>
 </div>
@@ -836,9 +838,22 @@ function pillClass(s) {
   return {"Draft":"p-draft","Under Review":"p-review","Signings":"p-signings","Signed":"p-signed","Active":"p-active","Near Expiring":"p-near","Expired":"p-expired","Inactive":"p-inactive","In Progress":"p-signings","No Agreement":"p-review"}[s]||"p-draft";
 }
 
-function doLogin() {
-  const name = document.getElementById("loginName").value.trim();
-  if (!name) { document.getElementById("loginErr").textContent = "Masukkan nama kamu dulu."; return; }
+async function doLogin() {
+  const email = document.getElementById("loginEmail").value.trim();
+  const pass  = document.getElementById("loginPass").value;
+  const err   = document.getElementById("loginErr");
+  const btn   = document.getElementById("loginBtn");
+  if (!email || !pass) { err.textContent = "Email dan password wajib diisi."; return; }
+  err.textContent = "";
+  btn.disabled = true; btn.textContent = "Memuat...";
+  const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
+  btn.disabled = false; btn.textContent = "Masuk →";
+  if (error) { err.textContent = "Login gagal: " + (error.message || "Periksa email & password."); return; }
+  enterApp(data.user);
+}
+
+function enterApp(user) {
+  const name = user.user_metadata?.name || user.email.split("@")[0];
   currentUser = name;
   document.getElementById("loginScreen").style.display = "none";
   document.getElementById("app").style.display = "flex";
@@ -849,11 +864,14 @@ function doLogin() {
   preloadAutocomplete();
 }
 
-function doLogout() {
+async function doLogout() {
+  await sb.auth.signOut();
   currentUser = ""; allRows = [];
   document.getElementById("app").style.display = "none";
   document.getElementById("loginScreen").style.display = "grid";
-  document.getElementById("loginName").value = "";
+  document.getElementById("loginEmail").value = "";
+  document.getElementById("loginPass").value = "";
+  document.getElementById("loginErr").textContent = "";
 }
 
 function showPage(name, el) {
@@ -2383,6 +2401,22 @@ async function checkDuplicate(name, excludeSheet) {
   if (excludeSheet !== "bm"  && bmNames.includes(n)) return "Brand Master";
   return null;
 }
+
+// ── SESSION RESTORE ──
+// On page load, check if user already has a valid Supabase session
+(async () => {
+  const { data: { session } } = await sb.auth.getSession();
+  if (session?.user) enterApp(session.user);
+})();
+
+// Keep session in sync (handles token refresh, tab-switching, etc.)
+sb.auth.onAuthStateChange((event, session) => {
+  if (event === "SIGNED_OUT") {
+    currentUser = ""; allRows = [];
+    document.getElementById("app").style.display = "none";
+    document.getElementById("loginScreen").style.display = "grid";
+  }
+});
 
 </script>
 </body>
