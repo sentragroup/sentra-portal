@@ -51,7 +51,7 @@
 <!-- APP -->
 <div id="app" style="display:none;flex-direction:column;min-height:100vh;">
   <div class="topbar">
-    <div class="t-logo">Sentra</div>
+    <div class="t-logo" onclick="showPage('home',document.getElementById('nav-home'))" style="cursor:pointer">Sentra</div>
     <div class="t-sep"></div>
     <div class="t-page" id="topbarPage">Internal Tools</div>
     <div class="t-right">
@@ -94,7 +94,7 @@
         <div class="sb-item" onclick="showPage('distpartner',this)" id="nav-distpartner">
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="6" width="5" height="5" rx="1"/><rect x="10" y="6" width="5" height="5" rx="1"/><rect x="5.5" y="1" width="5" height="5" rx="1"/><line x1="8" y1="6" x2="8" y2="11"/><line x1="3.5" y1="6" x2="8" y2="3.5"/><line x1="12.5" y1="6" x2="8" y2="3.5"/></svg>Distribution Partner
         </div>
-        <div class="sb-item" onclick="showPage('activitylog',this);loadActivityLog();" id="nav-activitylog">
+        <div class="sb-item" onclick="showPage('activitylog',this)" id="nav-activitylog">
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="12" rx="2"/><line x1="5" y1="6" x2="11" y2="6"/><line x1="5" y1="9" x2="11" y2="9"/><line x1="5" y1="12" x2="8" y2="12"/></svg>Activity Log
         </div>
       </div>
@@ -174,7 +174,7 @@
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>ID</th><th>Judul</th><th>Partner</th><th>PIC</th><th>IP / Brand</th><th>Revenue</th><th>Tipe</th><th>Mulai</th><th>Selesai</th><th>Status</th><th>Kondisi</th><th>Drive</th><th>Email</th><th>Notes</th><th>Last Update</th><th></th></tr></thead>
+              <thead id="agr-thead"><tr><th class="sortable" data-col="id" onclick="sortAgrBy('id')">ID</th><th class="sortable" data-col="title" onclick="sortAgrBy('title')">Judul</th><th class="sortable" data-col="partner" onclick="sortAgrBy('partner')">Partner</th><th class="sortable" data-col="pic" onclick="sortAgrBy('pic')">PIC</th><th class="sortable" data-col="brand" onclick="sortAgrBy('brand')">IP / Brand</th><th>Revenue</th><th>Tipe</th><th class="sortable" data-col="start" onclick="sortAgrBy('start')">Mulai</th><th class="sortable" data-col="end" onclick="sortAgrBy('end')">Selesai</th><th>Status</th><th>Kondisi</th><th>Drive</th><th>Email</th><th>Notes</th><th class="sortable" data-col="lastUpdate" onclick="sortAgrBy('lastUpdate')">Last Update</th><th></th></tr></thead>
               <tbody id="tableBody"><tr><td class="empty-td" colspan="16">Klik tab "Semua Agreement" untuk memuat data.</td></tr></tbody>
             </table>
           </div>
@@ -255,7 +255,7 @@
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>ID</th><th>IP / Brand</th><th>Category</th><th>PIC</th><th>Revenue</th><th>Related Agreement</th><th>Agr. Status</th><th>Live Status</th><th>Royalty Type</th><th>%</th><th>Fixed (IDR)</th><th>Termin</th><th>PPh %</th><th>Notes</th><th></th></tr></thead>
+              <thead id="ip-thead"><tr><th class="sortable" data-col="id" onclick="sortIPBy('id')">ID</th><th class="sortable" data-col="name" onclick="sortIPBy('name')">IP / Brand</th><th class="sortable" data-col="category" onclick="sortIPBy('category')">Category</th><th class="sortable" data-col="pic" onclick="sortIPBy('pic')">PIC</th><th>Revenue</th><th>Related Agreement</th><th class="sortable" data-col="ipStatus" onclick="sortIPBy('ipStatus')">Agr. Status</th><th class="sortable" data-col="liveStatus" onclick="sortIPBy('liveStatus')">Live Status</th><th>Royalty Type</th><th>%</th><th>Fixed (IDR)</th><th>Termin</th><th>PPh %</th><th>Notes</th><th></th></tr></thead>
               <tbody id="ipTableBody"><tr><td class="empty-td" colspan="15">Klik "Semua IP" untuk memuat.</td></tr></tbody>
             </table>
           </div>
@@ -319,7 +319,7 @@
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>ID</th><th>Nama</th><th>Tipe</th><th>PIC</th><th>Related IP</th><th>Royalty Type</th><th>Percentage</th><th>Fixed Amount</th><th>Termin</th><th>PKS</th><th>Notes</th><th></th></tr></thead>
+              <thead id="rr-thead"><tr><th class="sortable" data-col="id" onclick="sortRRBy('id')">ID</th><th class="sortable" data-col="name" onclick="sortRRBy('name')">Nama</th><th class="sortable" data-col="tipe" onclick="sortRRBy('tipe')">Tipe</th><th class="sortable" data-col="pic" onclick="sortRRBy('pic')">PIC</th><th class="sortable" data-col="ip" onclick="sortRRBy('ip')">Related IP</th><th>Royalty Type</th><th>Percentage</th><th>Fixed Amount</th><th>Termin</th><th>PKS</th><th>Notes</th><th></th></tr></thead>
               <tbody id="rrTableBody"><tr><td class="empty-td" colspan="12">Klik "Semua Penerima" untuk memuat.</td></tr></tbody>
             </table>
           </div>
@@ -467,7 +467,7 @@
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>ID</th><th>Brand</th><th>Category</th><th>Live</th><th>PIC</th><th>Revenue</th><th>Agreement</th><th>Apparel</th><th>Accessories</th><th>Collectible</th><th>Preloved</th><th>Wellness</th><th>Others</th><th>Notes</th><th></th></tr></thead>
+              <thead id="bm-thead"><tr><th class="sortable" data-col="id" onclick="sortBMBy('id')">ID</th><th class="sortable" data-col="name" onclick="sortBMBy('name')">Brand</th><th class="sortable" data-col="category" onclick="sortBMBy('category')">Category</th><th class="sortable" data-col="liveStatus" onclick="sortBMBy('liveStatus')">Live</th><th class="sortable" data-col="pic" onclick="sortBMBy('pic')">PIC</th><th>Revenue</th><th>Agreement</th><th>Apparel</th><th>Accessories</th><th>Collectible</th><th>Preloved</th><th>Wellness</th><th>Others</th><th>Notes</th><th></th></tr></thead>
               <tbody id="bmTableBody"><tr><td class="empty-td" colspan="15">Klik "Semua Brand" untuk memuat.</td></tr></tbody>
             </table>
           </div>
@@ -534,7 +534,7 @@
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>ID</th><th>Lead Name</th><th>Category</th><th>Stage</th><th>PIC</th><th>Revenue</th><th>Contact</th><th>Notes</th><th>Priority</th><th>Date Added</th><th>By</th><th></th></tr></thead>
+              <thead id="ld-thead"><tr><th class="sortable" data-col="id" onclick="sortLDBy('id')">ID</th><th class="sortable" data-col="name" onclick="sortLDBy('name')">Lead Name</th><th class="sortable" data-col="category" onclick="sortLDBy('category')">Category</th><th class="sortable" data-col="stage" onclick="sortLDBy('stage')">Stage</th><th class="sortable" data-col="pic" onclick="sortLDBy('pic')">PIC</th><th>Revenue</th><th>Contact</th><th>Notes</th><th class="sortable" data-col="priority" onclick="sortLDBy('priority')">Priority</th><th class="sortable" data-col="date" onclick="sortLDBy('date')">Date Added</th><th>By</th><th></th></tr></thead>
               <tbody id="ldTableBody"><tr><td class="empty-td" colspan="12">Klik "Semua Lead" untuk memuat.</td></tr></tbody>
             </table>
           </div>
@@ -604,7 +604,7 @@
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>ID</th><th>Partner Name</th><th>Type</th><th>Channel</th><th>Region</th><th>PIC</th><th>Contact</th><th>Agreement</th><th>Live</th><th>Notes</th><th></th></tr></thead>
+              <thead id="dp-thead"><tr><th class="sortable" data-col="id" onclick="sortDPBy('id')">ID</th><th class="sortable" data-col="name" onclick="sortDPBy('name')">Partner Name</th><th class="sortable" data-col="type" onclick="sortDPBy('type')">Type</th><th>Channel</th><th class="sortable" data-col="region" onclick="sortDPBy('region')">Region</th><th class="sortable" data-col="pic" onclick="sortDPBy('pic')">PIC</th><th>Contact</th><th>Agreement</th><th class="sortable" data-col="liveStatus" onclick="sortDPBy('liveStatus')">Live</th><th>Notes</th><th></th></tr></thead>
               <tbody id="dpTableBody"><tr><td class="empty-td" colspan="11">Klik "Semua Partner" untuk memuat.</td></tr></tbody>
             </table>
           </div>
@@ -630,7 +630,7 @@
         </div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Waktu</th><th>User</th><th>Modul</th><th>Aksi</th><th>Record ID</th><th>Detail</th></tr></thead>
+            <thead id="log-thead"><tr><th class="sortable" data-col="ts" onclick="sortLogBy('ts')">Waktu</th><th class="sortable" data-col="user_name" onclick="sortLogBy('user_name')">User</th><th class="sortable" data-col="module" onclick="sortLogBy('module')">Modul</th><th class="sortable" data-col="action" onclick="sortLogBy('action')">Aksi</th><th>Record ID</th><th>Detail</th></tr></thead>
             <tbody id="logTableBody"><tr><td class="empty-td" colspan="6">Memuat log...</td></tr></tbody>
           </table>
         </div>
