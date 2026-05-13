@@ -688,17 +688,14 @@
                 <label>Lokasi</label>
                 <input type="text" id="pb-location" placeholder="Kota / venue">
               </div>
-              <div class="fg">
+              <div class="fg" style="position:relative">
                 <label>IP Related</label>
-                <input type="text" id="pb-iprelated" placeholder="Pisahkan dengan koma">
+                <input type="text" id="pb-iprelated" placeholder="Ketik untuk pilih dari Brand Master, pisahkan dengan koma" autocomplete="off">
+                <div class="ac-list" id="ac-pb-iprelated"></div>
               </div>
               <div class="fg">
                 <label>Qty Brought</label>
                 <input type="number" id="pb-qty" placeholder="Jumlah barang dibawa" min="0">
-              </div>
-              <div class="fg">
-                <label>SR Deadline <span style="font-size:11px;color:var(--g400)">(otomatis: Tgl Event + 3 hari)</span></label>
-                <input type="date" id="pb-srdeadline">
               </div>
             </div>
             <div class="form-sec" style="margin-top:1rem">Manpower</div>
@@ -734,13 +731,14 @@
                   <label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pb-pm-cons"> Consignment</label>
                 </div>
               </div>
-              <div class="fg">
-                <label>Surat Jalan <span style="font-size:11px;color:var(--g400)">(PDF, maks 1MB)</span></label>
-                <input type="file" id="pb-sj" accept="application/pdf">
+              <div class="fg full">
+                <label>Surat Jalan <span style="font-size:11px;color:var(--g400)">(link Google Drive file — bukan Google Docs/Sheets)</span></label>
+                <input type="url" id="pb-sj" placeholder="https://drive.google.com/file/d/..." autocomplete="off" oninput="pbValidateSJ('pb-sj-hint',this.value)">
+                <div id="pb-sj-hint" style="color:#c0392b;font-size:11px;margin-top:3px"></div>
               </div>
               <div class="fg">
-                <label>Faktur Jubelio <span style="font-size:11px;color:var(--g400)">(PDF, maks 1MB)</span></label>
-                <input type="file" id="pb-fj" accept="application/pdf">
+                <label>ID Pesanan Jubelio</label>
+                <input type="text" id="pb-id-pesanan" placeholder="Nomor/ID pesanan di Jubelio">
               </div>
               <div class="fg full">
                 <label>Notes</label>
@@ -788,7 +786,7 @@
                   <th class="sortable" data-col="srDeadline" onclick="sortPBBy('srDeadline')">SR Deadline</th>
                   <th class="sortable" data-col="actualSales" onclick="sortPBBy('actualSales')">Actual Sales</th>
                   <th>Payment</th>
-                  <th>Faktur</th>
+                  <th>ID Pesanan Jubelio</th>
                   <th>Aksi</th>
                 </tr>
               </thead>
