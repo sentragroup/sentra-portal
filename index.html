@@ -678,7 +678,7 @@
             <div class="form-grid">
               <div class="fg">
                 <label>Tanggal Event <span class="req">*</span></label>
-                <input type="date" id="pb-eventdate" oninput="document.getElementById('pb-srdeadline').value=calcPBSRDeadline(this.value)">
+                <input type="date" id="pb-eventdate">
               </div>
               <div class="fg">
                 <label>Nama Event <span class="req">*</span></label>
@@ -690,7 +690,7 @@
               </div>
               <div class="fg" style="position:relative">
                 <label>IP Related</label>
-                <input type="text" id="pb-iprelated" placeholder="Ketik untuk pilih dari Brand Master, pisahkan dengan koma" autocomplete="off">
+                <input type="text" id="pb-iprelated" placeholder="Ketik untuk pilih dari IP Master, pisahkan dengan koma" autocomplete="off">
                 <div class="ac-list" id="ac-pb-iprelated"></div>
               </div>
               <div class="fg">
@@ -700,7 +700,7 @@
             </div>
             <div class="form-sec" style="margin-top:1rem">Manpower</div>
             <div id="pb-manpower-list" style="margin-bottom:8px"></div>
-            <button class="btn-ghost" style="font-size:12px;margin-bottom:1rem" onclick="addPBManpowerRow()">+ Tambah Manpower</button>
+            <button type="button" class="btn-ghost" style="font-size:12px;margin-bottom:1rem" onclick="addPBManpowerRow()">+ Tambah Manpower</button>
             <div class="form-sec" style="margin-top:.5rem">Status &amp; Dokumen</div>
             <div class="form-grid">
               <div class="fg">

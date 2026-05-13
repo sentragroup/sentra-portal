@@ -1722,17 +1722,14 @@ function sortPBBy(c){pbSort.dir=pbSort.col===c?(pbSort.dir==='asc'?'desc':'asc')
 let pbManpower = [];
 let pbEditManpower = {};
 
-// Manpower helpers — use named functions so inline handlers can reach `let` vars
-function pbMPInput(i,key,val){pbManpower[i][key]=val;}
-function pbMPRemove(i){pbManpower.splice(i,1);renderPBManpowerForm();}
-function pbEMPInput(rowIdx,i,key,val){if(pbEditManpower[rowIdx])pbEditManpower[rowIdx][i][key]=val;}
-function pbEMPRemove(rowIdx,i){if(pbEditManpower[rowIdx]){pbEditManpower[rowIdx].splice(i,1);renderPBEditManpowerForm(rowIdx);}}
-
 function renderPBManpowerForm() {
   const el = document.getElementById("pb-manpower-list");
   if (!el) return;
   if (!pbManpower.length) { el.innerHTML='<div style="color:var(--g400);font-size:12px;padding:4px 0">Belum ada manpower ditambahkan.</div>'; return; }
-  el.innerHTML = pbManpower.map((m,i)=>`<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><input type="text" value="${(m.name||'').replace(/"/g,'&quot;')}" oninput="pbMPInput(${i},'name',this.value)" placeholder="Nama" style="flex:1;padding:6px 8px;border:1px solid var(--g200);border-radius:6px;font-size:13px"><select onchange="pbMPInput(${i},'paid',this.value)" style="padding:6px 8px;border:1px solid var(--g200);border-radius:6px;font-size:13px"><option value="paid" ${m.paid==='paid'?'selected':''}>Dibayar</option><option value="unpaid" ${m.paid==='unpaid'?'selected':''}>Sukarela</option></select><button class="btn-icon" onclick="pbMPRemove(${i})" title="Hapus">✕</button></div>`).join("");
+  el.innerHTML = pbManpower.map((m,i)=>`<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><input type="text" class="pb-mp-name" data-i="${i}" value="${(m.name||'').replace(/"/g,'&quot;')}" placeholder="Nama" style="flex:1;padding:6px 8px;border:1px solid var(--g200);border-radius:6px;font-size:13px"><select class="pb-mp-paid" data-i="${i}" style="padding:6px 8px;border:1px solid var(--g200);border-radius:6px;font-size:13px"><option value="paid" ${m.paid==='paid'?'selected':''}>Dibayar</option><option value="unpaid" ${m.paid==='unpaid'?'selected':''}>Sukarela</option></select><button type="button" class="btn-icon pb-mp-del" data-i="${i}" title="Hapus">✕</button></div>`).join("");
+  el.querySelectorAll('.pb-mp-name').forEach(inp=>inp.addEventListener('input',function(){pbManpower[+this.dataset.i].name=this.value;}));
+  el.querySelectorAll('.pb-mp-paid').forEach(sel=>sel.addEventListener('change',function(){pbManpower[+this.dataset.i].paid=this.value;}));
+  el.querySelectorAll('.pb-mp-del').forEach(btn=>btn.addEventListener('click',function(){pbManpower.splice(+this.dataset.i,1);renderPBManpowerForm();}));
 }
 function addPBManpowerRow(){pbManpower.push({name:"",paid:"paid"});renderPBManpowerForm();}
 
@@ -1741,7 +1738,10 @@ function renderPBEditManpowerForm(rowIdx) {
   if (!el) return;
   const arr = pbEditManpower[rowIdx]||[];
   if (!arr.length) { el.innerHTML='<div style="color:var(--g400);font-size:12px;padding:4px 0">Belum ada manpower.</div>'; return; }
-  el.innerHTML = arr.map((m,i)=>`<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><input type="text" value="${(m.name||'').replace(/"/g,'&quot;')}" oninput="pbEMPInput('${rowIdx}',${i},'name',this.value)" placeholder="Nama" style="flex:1;padding:6px 8px;border:1px solid var(--g200);border-radius:6px;font-size:13px"><select onchange="pbEMPInput('${rowIdx}',${i},'paid',this.value)" style="padding:6px 8px;border:1px solid var(--g200);border-radius:6px;font-size:13px"><option value="paid" ${m.paid==='paid'?'selected':''}>Dibayar</option><option value="unpaid" ${m.paid==='unpaid'?'selected':''}>Sukarela</option></select><button class="btn-icon" onclick="pbEMPRemove('${rowIdx}',${i})" title="Hapus">✕</button></div>`).join("");
+  el.innerHTML = arr.map((m,i)=>`<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><input type="text" class="pbe-mp-name" data-i="${i}" value="${(m.name||'').replace(/"/g,'&quot;')}" placeholder="Nama" style="flex:1;padding:6px 8px;border:1px solid var(--g200);border-radius:6px;font-size:13px"><select class="pbe-mp-paid" data-i="${i}" style="padding:6px 8px;border:1px solid var(--g200);border-radius:6px;font-size:13px"><option value="paid" ${m.paid==='paid'?'selected':''}>Dibayar</option><option value="unpaid" ${m.paid==='unpaid'?'selected':''}>Sukarela</option></select><button type="button" class="btn-icon pbe-mp-del" data-i="${i}" title="Hapus">✕</button></div>`).join("");
+  el.querySelectorAll('.pbe-mp-name').forEach(inp=>inp.addEventListener('input',function(){if(arr[+this.dataset.i])arr[+this.dataset.i].name=this.value;}));
+  el.querySelectorAll('.pbe-mp-paid').forEach(sel=>sel.addEventListener('change',function(){if(arr[+this.dataset.i])arr[+this.dataset.i].paid=this.value;}));
+  el.querySelectorAll('.pbe-mp-del').forEach(btn=>btn.addEventListener('click',function(){arr.splice(+this.dataset.i,1);renderPBEditManpowerForm(rowIdx);}));
 }
 function addPBEditManpower(rowIdx){if(!pbEditManpower[rowIdx])pbEditManpower[rowIdx]=[];pbEditManpower[rowIdx].push({name:"",paid:"paid"});renderPBEditManpowerForm(rowIdx);}
 
@@ -1775,14 +1775,14 @@ async function loadPopupBooth() {
   const tbody = document.getElementById("pbTableBody");
   tbody.innerHTML = `<tr><td class="empty-td" colspan="15">Memuat...</td></tr>`;
   try {
-    if (!allBMRows.length) {
-      const {data} = await sb.from("brand_master").select("*");
-      if (data) allBMRows = data.map(mapBM);
+    if (!allIPRows.length) {
+      const {data} = await sb.from("ip_master").select("*");
+      if (data) allIPRows = data.map(mapIP);
     }
     const {data,error} = await sb.from("popup_booths").select("*").order("event_date",{ascending:false});
     if (error) throw error;
     allPBRows = (data||[]).map(mapPB);
-    setupACMulti("pb-iprelated","ac-pb-iprelated",()=>allBMRows.filter(r=>r.liveStatus==="Active").map(r=>r.name).filter(Boolean));
+    setupACMulti("pb-iprelated","ac-pb-iprelated",()=>allIPRows.filter(r=>r.liveStatus==="Active").map(r=>r.name).filter(Boolean));
     renderPBStats(allPBRows);
     applyPBFilters();
   } catch(e) {

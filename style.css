@@ -117,6 +117,7 @@ select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='ht
 .edit-row-btns{display:flex;gap:8px;}
 .btn-save{padding:6px 14px;background:var(--black);color:var(--white);border:none;border-radius:5px;font-size:12px;cursor:pointer;font-family:var(--body);}
 .btn-cancel{padding:6px 12px;background:transparent;border:1px solid var(--g200);border-radius:5px;font-size:12px;cursor:pointer;color:var(--g600);font-family:var(--body);}
+.btn-delete{padding:6px 12px;background:transparent;border:1px solid #e8b4b4;border-radius:5px;font-size:12px;cursor:pointer;color:#c0392b;font-family:var(--body);}
 .table-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:1rem;}
 .search-box{padding:8px 12px;border:1px solid var(--g200);border-radius:6px;font-family:var(--body);font-size:13px;outline:none;width:220px;transition:border-color 0.15s;}
 .search-box:focus{border-color:var(--black);}
