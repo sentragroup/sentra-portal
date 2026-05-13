@@ -180,7 +180,8 @@ tbody tr:hover td{background:var(--off);}
     <div class="l-foot">© 2026 Sentra · Internal Use Only</div>
   </div>
   <div class="login-right">
-    <div class="login-box">
+    <!-- normal login -->
+    <div class="login-box" id="loginBox">
       <h2 class="lb-title">Selamat datang</h2>
       <p class="lb-sub">Login dengan akun tim kamu.</p>
       <label class="lb-label">Email</label>
@@ -190,6 +191,17 @@ tbody tr:hover td{background:var(--off);}
       <button class="btn-login" id="loginBtn" onclick="doLogin()">Masuk →</button>
       <div class="lb-err" id="loginErr"></div>
       <p class="lb-note">Akun dikelola oleh admin Sentra.<br>Hubungi admin jika belum punya akses.</p>
+    </div>
+    <!-- password reset (shown when ?type=recovery token detected) -->
+    <div class="login-box" id="resetBox" style="display:none">
+      <h2 class="lb-title">Buat password baru</h2>
+      <p class="lb-sub">Masukkan password baru kamu.</p>
+      <label class="lb-label">Password baru</label>
+      <input class="lb-input" type="password" id="resetPass1" placeholder="Min. 8 karakter" onkeydown="if(event.key==='Enter')document.getElementById('resetPass2').focus()">
+      <label class="lb-label" style="margin-top:12px">Konfirmasi password</label>
+      <input class="lb-input" type="password" id="resetPass2" placeholder="Ulangi password" onkeydown="if(event.key==='Enter')doResetPassword()">
+      <button class="btn-login" id="resetBtn" onclick="doResetPassword()">Simpan Password →</button>
+      <div class="lb-err" id="resetErr"></div>
     </div>
   </div>
 </div>
@@ -2403,11 +2415,41 @@ async function checkDuplicate(name, excludeSheet) {
 }
 
 // ── SESSION RESTORE ──
-// On page load, check if user already has a valid Supabase session
 (async () => {
+  // Check for password recovery token in URL hash (#access_token=...&type=recovery)
+  const hash = Object.fromEntries(new URLSearchParams(location.hash.slice(1)));
+  if (hash.type === "recovery" && hash.access_token) {
+    // Set the session from the recovery token so updateUser() works
+    await sb.auth.setSession({ access_token: hash.access_token, refresh_token: hash.refresh_token || "" });
+    history.replaceState(null, "", location.pathname); // clean up URL
+    document.getElementById("loginBox").style.display = "none";
+    document.getElementById("resetBox").style.display = "block";
+    return;
+  }
+  // Normal session restore
   const { data: { session } } = await sb.auth.getSession();
   if (session?.user) enterApp(session.user);
 })();
+
+async function doResetPassword() {
+  const p1  = document.getElementById("resetPass1").value;
+  const p2  = document.getElementById("resetPass2").value;
+  const err = document.getElementById("resetErr");
+  const btn = document.getElementById("resetBtn");
+  if (!p1 || p1.length < 8) { err.textContent = "Password minimal 8 karakter."; return; }
+  if (p1 !== p2)             { err.textContent = "Password tidak cocok."; return; }
+  err.textContent = "";
+  btn.disabled = true; btn.textContent = "Menyimpan...";
+  const { error } = await sb.auth.updateUser({ password: p1 });
+  if (error) { err.textContent = "Gagal: " + error.message; btn.disabled = false; btn.textContent = "Simpan Password →"; return; }
+  // Password saved — sign in automatically
+  const { data: { session } } = await sb.auth.getSession();
+  if (session?.user) { enterApp(session.user); return; }
+  // Fallback: show login
+  document.getElementById("resetBox").style.display = "none";
+  document.getElementById("loginBox").style.display = "block";
+  document.getElementById("loginErr").textContent = "Password berhasil diubah. Silakan login.";
+}
 
 // Keep session in sync (handles token refresh, tab-switching, etc.)
 sb.auth.onAuthStateChange((event, session) => {
@@ -2415,6 +2457,8 @@ sb.auth.onAuthStateChange((event, session) => {
     currentUser = ""; allRows = [];
     document.getElementById("app").style.display = "none";
     document.getElementById("loginScreen").style.display = "grid";
+    document.getElementById("loginBox").style.display = "block";
+    document.getElementById("resetBox").style.display = "none";
   }
 });
 
