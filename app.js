@@ -326,7 +326,7 @@ function renderTable(rows) {
         <div class="fg"><label>Partner / Client</label><input type="text" id="agr-e-partner-${r.rowIndex}" value="${r.partner||""}"></div>
         <div class="fg"><label>PIC</label><input type="text" id="agr-e-pic-${r.rowIndex}" value="${r.pic||""}"></div>
         <div class="fg"><label>Related IP / Brand</label><input type="text" id="agr-e-brand-${r.rowIndex}" value="${r.brand||""}"></div>
-        <div class="fg"><label>Revenue Stream</label><select id="agr-e-revenue-${r.rowIndex}"><option value="" ${!r.revenue?"selected":""}>—</option><option ${r.revenue==="SD&Y"?"selected":""}>SD&Y</option><option ${r.revenue==="Lagaa"?"selected":""}>Lagaa</option><option ${r.revenue==="Marte"?"selected":""}>Marte</option></select></div>
+        <div class="fg"><label>Revenue Stream</label><select id="agr-e-revenue-${r.rowIndex}"><option value="" ${!r.revenue?"selected":""}>—</option><option ${r.revenue==="SD&Y"?"selected":""}>SD&Y</option><option ${r.revenue==="Lagaa"?"selected":""}>Lagaa</option><option ${r.revenue==="Marte"?"selected":""}>Marte</option><option ${r.revenue==="Distribution"?"selected":""}>Distribution</option></select></div>
         <div class="fg"><label>Agreement Type</label><input type="text" id="agr-e-type-${r.rowIndex}" value="${r.type||""}"></div>
         <div class="fg"><label>Status</label><select id="agr-e-status-${r.rowIndex}">${MANUAL_STATUSES.map(s=>`<option ${s===r.status?"selected":""}>${s}</option>`).join("")}</select></div>
         <div class="fg"><label>Start Date</label><input type="text" id="agr-e-start-${r.rowIndex}" value="${r.start||""}" placeholder="e.g. 01 Jan 2025"></div>
@@ -517,7 +517,7 @@ function renderIPTable(rows) {
           <div class="fg"><label>IP / Brand Name</label><input type="text" id="ip-e-name-${r.rowIndex}" value="${r.name||""}"></div>
           <div class="fg"><label>Category</label><input type="text" id="ip-e-category-${r.rowIndex}" value="${r.category||""}"></div>
           <div class="fg"><label>Live Status</label><select id="ip-e-live-${r.rowIndex}"><option ${r.liveStatus==="Active"?"selected":""}>Active</option><option ${r.liveStatus==="Inactive"?"selected":""}>Inactive</option></select></div>
-          <div class="fg"><label>Revenue Stream</label><input type="text" id="ip-e-revenue-${r.rowIndex}" value="${r.revenue||""}" placeholder="SD&Y, Lagaa"></div>
+          <div class="fg"><label>Revenue Stream</label><input type="text" id="ip-e-revenue-${r.rowIndex}" value="${r.revenue||""}" placeholder="SD&Y, Lagaa, Distribution"></div>
           <div class="fg"><label>Related Agreement</label><input type="text" id="ip-e-agr-${r.rowIndex}" value="${r.agreements||""}"></div>
           <div class="fg"><label>Royalty Type</label><select id="ip-e-roytype-${r.rowIndex}"><option value="" ${!r.royaltyType?"selected":""}>—</option><option ${r.royaltyType==="Post-Sales"?"selected":""}>Post-Sales</option><option ${r.royaltyType==="Advance"?"selected":""}>Advance</option><option ${r.royaltyType==="Both"?"selected":""}>Both</option></select></div>
           <div class="fg"><label>Percentage (%)</label><input type="number" id="ip-e-pct-${r.rowIndex}" value="${r.pct||""}" step="0.1"></div>
@@ -851,7 +851,7 @@ function renderBMTable(rows) {
           <div class="fg"><label>Brand Name</label><input type="text" id="bm-e-name-${r.rowIndex}" value="${r.name||""}"></div>
           <div class="fg"><label>Category</label><input type="text" id="bm-e-cat-${r.rowIndex}" value="${r.category||""}"></div>
           <div class="fg"><label>Live Status</label><select id="bm-e-live-${r.rowIndex}"><option ${r.liveStatus==="Active"?"selected":""}>Active</option><option ${r.liveStatus==="Inactive"?"selected":""}>Inactive</option></select></div>
-          <div class="fg"><label>Revenue Stream</label><input type="text" id="bm-e-rev-${r.rowIndex}" value="${r.revenue||""}" placeholder="SD&Y, Lagaa"></div>
+          <div class="fg"><label>Revenue Stream</label><input type="text" id="bm-e-rev-${r.rowIndex}" value="${r.revenue||""}" placeholder="SD&Y, Lagaa, Distribution"></div>
           <div class="fg"><label>Related Agreement</label><input type="text" id="bm-e-agr-${r.rowIndex}" value="${r.agreements||""}"></div>
           <div class="fg"><label>Apparel % <span style="color:var(--g400);font-size:9px;text-transform:none;letter-spacing:0;">normal: 30</span></label><input type="number" id="bm-e-apparel-${r.rowIndex}" value="${r.apparel||""}" step="0.1" placeholder="30"></div>
           <div class="fg"><label>Accessories % <span style="color:var(--g400);font-size:9px;text-transform:none;letter-spacing:0;">normal: 25</span></label><input type="number" id="bm-e-acc-${r.rowIndex}" value="${r.accessories||""}" step="0.1" placeholder="25"></div>
@@ -1388,7 +1388,7 @@ function renderLeadsTable(rows) {
           <div class="fg"><label>Stage</label><select id="ld-e-stage-${r.rowIndex}">${LD_STAGES.map(s=>`<option ${s===r.stage?"selected":""}>${s}</option>`).join("")}</select></div>
           <div class="fg"><label>PIC</label><input type="text" id="ld-e-pic-${r.rowIndex}" value="${r.pic||""}"></div>
           <div class="fg"><label>Contact</label><input type="text" id="ld-e-contact-${r.rowIndex}" value="${r.contact||""}"></div>
-          <div class="fg"><label>Revenue Stream</label><input type="text" id="ld-e-revenue-${r.rowIndex}" value="${r.revenue||""}" placeholder="SD&Y, Lagaa"></div>
+          <div class="fg"><label>Revenue Stream</label><input type="text" id="ld-e-revenue-${r.rowIndex}" value="${r.revenue||""}" placeholder="SD&Y, Lagaa, Distribution"></div>
           <div class="fg"><label>Notes</label><input type="text" id="ld-e-notes-${r.rowIndex}" value="${r.notes||""}"></div>
           <div class="fg"><label>Priority</label><select id="ld-e-priority-${r.rowIndex}"><option value="" ${!r.priority?"selected":""}>—</option><option ${r.priority==="Low"?"selected":""}>Low</option><option ${r.priority==="Medium"?"selected":""}>Medium</option><option ${r.priority==="High"?"selected":""}>High</option></select></div>
         </div>
