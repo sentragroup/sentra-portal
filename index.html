@@ -107,6 +107,9 @@
         <div class="sb-item" onclick="showPage('distpartner',this)" id="nav-distpartner">
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="6" width="5" height="5" rx="1"/><rect x="10" y="6" width="5" height="5" rx="1"/><rect x="5.5" y="1" width="5" height="5" rx="1"/><line x1="8" y1="6" x2="8" y2="11"/><line x1="3.5" y1="6" x2="8" y2="3.5"/><line x1="12.5" y1="6" x2="8" y2="3.5"/></svg>Distribution Partner
         </div>
+        <div class="sb-item" onclick="showPage('popupbooth',this)" id="nav-popupbooth">
+          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 6h12l-1 8H3L2 6z"/><path d="M1 3h14l-1 3H2L1 3z"/><line x1="6" y1="9" x2="6" y2="12"/><line x1="10" y1="9" x2="10" y2="12"/></svg>Pop Up Booth
+        </div>
         <div class="sb-item" onclick="showPage('activitylog',this)" id="nav-activitylog">
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="12" rx="2"/><line x1="5" y1="6" x2="11" y2="6"/><line x1="5" y1="9" x2="11" y2="9"/><line x1="5" y1="12" x2="8" y2="12"/></svg>Activity Log
         </div>
@@ -122,6 +125,7 @@
           <div class="tool-card" onclick="showPage('agreement',document.getElementById('nav-agreement'))"><span class="tc-icon">📄</span><div class="tc-name">Agreement Tracker</div><div class="tc-desc">Submit dan pantau semua perjanjian, kontrak, dan kemitraan.</div></div>
           <div class="tool-card" onclick="showPage('salesreport',document.getElementById('nav-salesreport'))"><span class="tc-icon">📈</span><div class="tc-name">Sales Report</div><div class="tc-desc">Track report submission per brand setiap bulan.</div></div>
           <div class="tool-card" onclick="showPage('leads',document.getElementById('nav-leads'))"><span class="tc-icon">🎯</span><div class="tc-name">Leads Tracker</div><div class="tc-desc">Track potential brand dan artist collaboration leads.</div></div>
+          <div class="tool-card" onclick="showPage('popupbooth',document.getElementById('nav-popupbooth'))"><span class="tc-icon">🛍️</span><div class="tc-name">Pop Up Booth</div><div class="tc-desc">Track event pop-up booth — manpower, stok, penjualan, dan reinbound.</div></div>
           <div class="tool-soon"><span class="tc-icon" style="opacity:0.3">💰</span><div class="tc-name" style="color:var(--g400)">Royalty Payment</div><div class="tc-desc">Coming soon</div></div>
         </div>
       </div>
@@ -635,7 +639,7 @@
         <div class="filter-panel">
           <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="clearLogFilters()">✕ Reset</button></div>
           <div class="filter-grid">
-            <select class="f-select" id="log-fil-module" onchange="applyLogFilters()"><option value="">Semua Modul</option><option>Auth</option><option>Agreement</option><option>IP Master</option><option>Royalty Recipients</option><option>Brand Master</option><option>Sales Report</option><option>Leads Tracker</option><option>Distribution Partner</option></select>
+            <select class="f-select" id="log-fil-module" onchange="applyLogFilters()"><option value="">Semua Modul</option><option>Auth</option><option>Agreement</option><option>IP Master</option><option>Royalty Recipients</option><option>Brand Master</option><option>Sales Report</option><option>Leads Tracker</option><option>Distribution Partner</option><option>Pop Up Booth</option></select>
             <select class="f-select" id="log-fil-action" onchange="applyLogFilters()"><option value="">Semua Aksi</option><option>login</option><option>logout</option><option>create</option><option>edit</option><option>delete</option><option>status_change</option><option>stage_change</option><option>submit</option><option>update</option><option>set_startdate</option></select>
             <input class="search-box" type="text" id="logSearch" placeholder="Cari user atau detail..." oninput="applyLogFilters()" style="width:100%">
           </div>
@@ -649,6 +653,148 @@
             <thead id="log-thead"><tr><th class="sortable" data-col="ts" onclick="sortLogBy('ts')">Waktu</th><th class="sortable" data-col="user_name" onclick="sortLogBy('user_name')">User</th><th class="sortable" data-col="module" onclick="sortLogBy('module')">Modul</th><th class="sortable" data-col="action" onclick="sortLogBy('action')">Aksi</th><th>Record ID</th><th>Detail</th></tr></thead>
             <tbody id="logTableBody"><tr><td class="empty-td" colspan="6">Memuat log...</td></tr></tbody>
           </table>
+        </div>
+      </div>
+
+      <!-- POP UP BOOTH -->
+      <div class="page" id="page-popupbooth">
+        <div class="page-header">
+          <div><div class="page-title">Pop Up Booth</div><div class="page-sub">Track event pop-up booth, manpower, stok, penjualan, dan reinbound.</div></div>
+          <div class="tab-bar">
+            <button class="tab-btn active" onclick="switchPBTab('new',this)">Tambah</button>
+            <button class="tab-btn" onclick="switchPBTab('list',this)">Semua</button>
+          </div>
+        </div>
+        <div class="stats-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:1.25rem">
+          <div class="stat-card"><div class="stat-num" id="pb-s-total">—</div><div class="stat-lbl">Total Events</div></div>
+          <div class="stat-card"><div class="stat-num" id="pb-s-upcoming">—</div><div class="stat-lbl">Upcoming</div></div>
+          <div class="stat-card"><div class="stat-num" id="pb-s-done">—</div><div class="stat-lbl">Done</div></div>
+          <div class="stat-card"><div class="stat-num" id="pb-s-cancelled">—</div><div class="stat-lbl">Cancelled</div></div>
+          <div class="stat-card"><div class="stat-num" id="pb-s-reinbound">—</div><div class="stat-lbl">Need Reinbound</div></div>
+        </div>
+        <div id="pbtab-new">
+          <div class="form-card">
+            <div class="form-sec">Informasi Event</div>
+            <div class="form-grid">
+              <div class="fg">
+                <label>Tanggal Event <span class="req">*</span></label>
+                <input type="date" id="pb-eventdate" oninput="document.getElementById('pb-srdeadline').value=calcPBSRDeadline(this.value)">
+              </div>
+              <div class="fg">
+                <label>Nama Event <span class="req">*</span></label>
+                <input type="text" id="pb-eventname" placeholder="Nama event">
+              </div>
+              <div class="fg">
+                <label>Lokasi</label>
+                <input type="text" id="pb-location" placeholder="Kota / venue">
+              </div>
+              <div class="fg">
+                <label>IP Related</label>
+                <input type="text" id="pb-iprelated" placeholder="Pisahkan dengan koma">
+              </div>
+              <div class="fg">
+                <label>Qty Brought</label>
+                <input type="number" id="pb-qty" placeholder="Jumlah barang dibawa" min="0">
+              </div>
+              <div class="fg">
+                <label>SR Deadline <span style="font-size:11px;color:var(--g400)">(otomatis: Tgl Event + 3 hari)</span></label>
+                <input type="date" id="pb-srdeadline">
+              </div>
+            </div>
+            <div class="form-sec" style="margin-top:1rem">Manpower</div>
+            <div id="pb-manpower-list" style="margin-bottom:8px"></div>
+            <button class="btn-ghost" style="font-size:12px;margin-bottom:1rem" onclick="addPBManpowerRow()">+ Tambah Manpower</button>
+            <div class="form-sec" style="margin-top:.5rem">Status &amp; Dokumen</div>
+            <div class="form-grid">
+              <div class="fg">
+                <label>Delivery Status</label>
+                <select id="pb-delivery"><option value="">—</option><option>Delivered</option></select>
+              </div>
+              <div class="fg">
+                <label>Event Status</label>
+                <select id="pb-eventstatus"><option value="">Planned</option><option>Done</option><option>Cancelled</option></select>
+              </div>
+              <div class="fg">
+                <label>Reinbound Status</label>
+                <select id="pb-reinbound"><option value="">—</option><option>Done</option><option>Not Yet</option><option>Sold Out</option></select>
+              </div>
+              <div class="fg">
+                <label>Reinbound Qty</label>
+                <input type="number" id="pb-reinboundqty" placeholder="Jumlah reinbound" min="0">
+              </div>
+              <div class="fg">
+                <label>Actual Sales (IDR)</label>
+                <input type="number" id="pb-actualsales" placeholder="0" min="0">
+              </div>
+              <div class="fg full">
+                <label>Payment Method</label>
+                <div style="display:flex;gap:16px;flex-wrap:wrap;padding:8px 0">
+                  <label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pb-pm-jpos"> Jubelio POS</label>
+                  <label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pb-pm-qris"> QRIS Xendit</label>
+                  <label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pb-pm-cons"> Consignment</label>
+                </div>
+              </div>
+              <div class="fg">
+                <label>Surat Jalan <span style="font-size:11px;color:var(--g400)">(PDF, maks 1MB)</span></label>
+                <input type="file" id="pb-sj" accept="application/pdf">
+              </div>
+              <div class="fg">
+                <label>Faktur Jubelio <span style="font-size:11px;color:var(--g400)">(PDF, maks 1MB)</span></label>
+                <input type="file" id="pb-fj" accept="application/pdf">
+              </div>
+              <div class="fg full">
+                <label>Notes</label>
+                <textarea id="pb-notes" rows="2" style="resize:vertical" placeholder="Catatan tambahan..."></textarea>
+              </div>
+            </div>
+            <div class="btn-row">
+              <button class="btn-primary" id="pbSubmitBtn" onclick="submitPB()">Simpan</button>
+              <button class="btn-ghost" onclick="clearPBForm()">Bersihkan</button>
+            </div>
+            <div class="feedback" id="pb-feedback"></div>
+          </div>
+        </div>
+        <div id="pbtab-list" style="display:none">
+          <div class="filter-panel">
+            <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="document.getElementById('pb-fil-status').value='';document.getElementById('pbSearch').value='';applyPBFilters()">✕ Reset</button></div>
+            <div class="filter-grid">
+              <select class="f-select" id="pb-fil-status" onchange="applyPBFilters()">
+                <option value="">Semua Status</option>
+                <option value="Planned">Planned</option>
+                <option value="Done">Done</option>
+                <option value="Cancelled">Cancelled</option>
+              </select>
+              <input class="search-box" type="text" id="pbSearch" placeholder="Cari event, lokasi, IP..." oninput="applyPBFilters()" style="width:100%">
+            </div>
+          </div>
+          <div class="table-toolbar">
+            <button class="btn-refresh" onclick="loadPopupBooth()">↻ Refresh</button>
+            <div class="tcount" id="pb-tcount">— entri</div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead id="pb-thead">
+                <tr>
+                  <th class="sortable" data-col="eventDate" onclick="sortPBBy('eventDate')">Tanggal</th>
+                  <th class="sortable" data-col="eventName" onclick="sortPBBy('eventName')">Event</th>
+                  <th>Lokasi</th>
+                  <th>IP Related</th>
+                  <th>Manpower</th>
+                  <th>Qty</th>
+                  <th>SJ</th>
+                  <th>Delivery</th>
+                  <th class="sortable" data-col="eventStatus" onclick="sortPBBy('eventStatus')">Status</th>
+                  <th>Reinbound</th>
+                  <th class="sortable" data-col="srDeadline" onclick="sortPBBy('srDeadline')">SR Deadline</th>
+                  <th class="sortable" data-col="actualSales" onclick="sortPBBy('actualSales')">Actual Sales</th>
+                  <th>Payment</th>
+                  <th>Faktur</th>
+                  <th>Aksi</th>
+                </tr>
+              </thead>
+              <tbody id="pbTableBody"><tr><td class="empty-td" colspan="15">Klik "Semua" untuk memuat data.</td></tr></tbody>
+            </table>
+          </div>
         </div>
       </div>
 
