@@ -9,74 +9,83 @@ Internal tools portal for Sentra, a merchandise company that manages musicians, 
 ---
 
 ## Stack
-- **Frontend:** Single `index.html` — vanilla HTML/CSS/JS, no framework, no build step
+- **Frontend:** Three files — `index.html` (HTML only), `style.css` (styles), `app.js` (all JS) — vanilla, no framework, no build step
 - **Backend:** Supabase (PostgreSQL + PostgREST) via `@supabase/supabase-js@2` CDN
 - **Database:** Supabase project `qyxdjdwgvwtrpnvfndnu`
-- **Deploy:** Push `index.html` to GitHub → auto-deploys via GitHub Pages
+- **Deploy:** Push to GitHub → auto-deploys via GitHub Pages
 
-**Supabase config (in `index.html` `<script>` head):**
+**Supabase config (top of `app.js`):**
 ```js
 const SUPABASE_URL  = "https://qyxdjdwgvwtrpnvfndnu.supabase.co";
 const SUPABASE_ANON = "eyJhbGci...";   // anon/public key
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 ```
 
-> RLS is enabled on all tables with `allow_all` policies (`USING (true) WITH CHECK (true)`).
-> No backend deploy needed after frontend changes — push `index.html` and it's live.
+> RLS is enabled on all tables with `authenticated_only` policies (require authenticated Supabase user).
+> No backend deploy needed after frontend changes — push and it's live.
 
 ---
 
 ## How to Edit Efficiently (Token Optimization)
 
-`index.html` is ~2400 lines. **Never read the whole file.** Use section markers to target specific parts.
+Files are split for targeted reads. **Never read a whole file unless necessary.**
+
+| File | Size | What's in it |
+|------|------|--------------|
+| `index.html` | ~620 lines | HTML structure only |
+| `style.css` | ~157 lines | All CSS |
+| `app.js` | ~1750 lines | All JavaScript |
 
 ### Step 1 — Find the section line number
 ```bash
-grep -n "<!-- SECTION_NAME\|// ── SECTION_NAME" index.html
+grep -n "<!-- SECTION_NAME" index.html
+grep -n "// ── SECTION_NAME" app.js
 ```
 
 ### Step 2 — Read only that section
 ```
-Read index.html  offset: <start_line>  limit: <lines_to_read>
+Read app.js  offset: <start_line>  limit: <lines_to_read>
 ```
 
-### HTML Section Map (comment markers in `index.html`)
+### HTML Section Map (`index.html`)
 
 | Section | Grep for | ~Start line | ~Lines |
 |---------|----------|-------------|--------|
-| CSS styles | `<style>` | 9 | 160 |
-| Login screen | `<!-- LOGIN -->` | 170 | 25 |
-| App shell + sidebar | `<!-- APP -->` | 194 | 48 |
-| Home page | `<!-- HOME -->` | 241 | 13 |
-| Agreement page | `<!-- AGREEMENT -->` | 253 | 68 |
-| IP Master page | `<!-- IP MASTER -->` | 320 | 87 |
-| Royalty Recipients page | `<!-- ROYALTY RECIPIENTS -->` | 406 | 64 |
-| Sales Report page | `<!-- SALES REPORT -->` | 469 | 79 |
-| Brand Master page | `<!-- BRAND MASTER -->` | 547 | 83 |
-| Leads Tracker page | `<!-- LEADS TRACKER -->` | 629 | 73 |
+| Login screen | `<!-- LOGIN -->` | 15 | 25 |
+| App shell + sidebar | `<!-- APP -->` | 40 | 48 |
+| Home page | `<!-- HOME -->` | 88 | 13 |
+| Agreement page | `<!-- AGREEMENT -->` | 100 | 68 |
+| IP Master page | `<!-- IP MASTER -->` | 168 | 87 |
+| Royalty Recipients page | `<!-- ROYALTY RECIPIENTS -->` | 255 | 64 |
+| Sales Report page | `<!-- SALES REPORT -->` | 318 | 79 |
+| Brand Master page | `<!-- BRAND MASTER -->` | 397 | 83 |
+| Leads Tracker page | `<!-- LEADS TRACKER -->` | 480 | 73 |
+| Dist Partner page | `<!-- DISTRIBUTION PARTNER -->` | 553 | 65 |
+| Activity Log page | `<!-- ACTIVITY LOG -->` | 618 | ~20 |
 
-### JS Section Map (`// ── markers` in `index.html`)
+### JS Section Map (`app.js`)
 
 | Section | Grep for | ~Start line | ~Lines |
 |---------|----------|-------------|--------|
-| Core (login, nav, utils) | `<script>` | 701 | 143 |
-| Agreement JS | `// ── AGREEMENT ──` | 844 | 124 |
-| IP Master JS | `// ── IP MASTER ──` | 968 | 164 |
-| Royalty Recipients JS | `// ── ROYALTY RECIPIENTS ──` | 1132 | 112 |
-| Brand Master JS | `// ── BRAND MASTER ──` | 1244 | 210 |
-| Sales Report JS | `// ── SALES REPORT ──` | 1454 | 327 |
-| preloadAutocomplete | `// ── PRELOAD AUTOCOMPLETE` | 1714 | 42 |
-| PKS autocomplete | `// ── PKS AUTOCOMPLETE` | 1755 | 32 |
-| Leads Tracker JS | `// ── LEADS TRACKER ──` | 1786 | 178 |
-| Distribution Partner JS | `// ── DISTRIBUTION PARTNER ──` | 2142 | 240 |
-| Duplicate check | `// ── DUPLICATE CHECK ──` | ~2380 | 14 |
+| Core (login, nav, utils) | top of file | 1 | 143 |
+| Agreement JS | `// ── AGREEMENT ──` | 144 | 124 |
+| IP Master JS | `// ── IP MASTER ──` | 268 | 164 |
+| Royalty Recipients JS | `// ── ROYALTY RECIPIENTS ──` | 432 | 112 |
+| Brand Master JS | `// ── BRAND MASTER ──` | 544 | 210 |
+| Sales Report JS | `// ── SALES REPORT ──` | 754 | 327 |
+| preloadAutocomplete | `// ── PRELOAD AUTOCOMPLETE` | 1014 | 42 |
+| PKS autocomplete | `// ── PKS AUTOCOMPLETE` | 1055 | 32 |
+| Leads Tracker JS | `// ── LEADS TRACKER ──` | 1086 | 178 |
+| Distribution Partner JS | `// ── DISTRIBUTION PARTNER ──` | 1442 | 240 |
+| Activity Log JS | `// ── ACTIVITY LOG ──` | ~1682 | ~40 |
+| Duplicate check | `// ── DUPLICATE CHECK ──` | ~1720 | 14 |
 
 ### Adding a new module — what to touch
-1. **Sidebar nav** — read `<!-- APP -->` section (~line 194), add `sb-item` after the last tracker
-2. **Home card** — read `<!-- HOME -->` section (~line 241), add `tool-card` div
-3. **Page HTML** — insert new `<!-- PAGE_NAME -->` block before closing `</div></body>` (~line 700)
-4. **JS** — insert new `// ── MODULE ──` block before `// ── DUPLICATE CHECK ──`
-5. **Supabase** — create table via MCP, enable RLS, add `allow_all` policy
+1. **Sidebar nav** — read `<!-- APP -->` section in `index.html`, add `sb-item`
+2. **Home card** — read `<!-- HOME -->` section in `index.html`, add `tool-card` div
+3. **Page HTML** — insert new `<!-- PAGE_NAME -->` block in `index.html` before closing `</div></body>`
+4. **JS** — insert new `// ── MODULE ──` block in `app.js` before `// ── DUPLICATE CHECK ──`
+5. **Supabase** — create table via MCP, enable RLS, add `authenticated_only` policy
 
 ---
 
@@ -335,10 +344,12 @@ All autocompletes preloaded on login via `preloadAutocomplete()` (parallel Supab
 | `leads` | Leads Tracker | `LD-` |
 | `dist_partners` | Distribution Partner | `DP-` |
 
-All tables have RLS enabled with `allow_all` policy:
+All tables have RLS enabled with `authenticated_only` policy (requires authenticated user):
 ```sql
-CREATE POLICY "allow_all" ON table_name FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "authenticated_only" ON table_name FOR ALL
+  USING (auth.role() = 'authenticated') WITH CHECK (auth.role() = 'authenticated');
 ```
+`activity_logs` is INSERT+SELECT only (immutable audit trail — no UPDATE/DELETE policies).
 
 ---
 
@@ -357,7 +368,7 @@ CREATE POLICY "allow_all" ON table_name FOR ALL USING (true) WITH CHECK (true);
 
 **Frontend only — no backend deploy ever needed:**
 ```bash
-git add index.html && git commit -m "feat: ..." && git push
+git add index.html style.css app.js && git commit -m "feat: ..." && git push
 # GitHub Pages auto-deploys in ~1 min. Hard refresh: Ctrl+Shift+R
 ```
 
