@@ -2134,7 +2134,7 @@ function sortJubBy(c){jubSort.dir=jubSort.col===c?(jubSort.dir==='asc'?'desc':'a
 function mapJub(r) {
   return {
     rowIndex:r.id, id:r.id,
-    salesorderId:r.salesorder_id||"",
+    salesorderId:r.salesorder_id!=null?String(r.salesorder_id):"",
     shippingFullName:r.shipping_full_name||"",
     transactionDate:r.transaction_date||"",
     internalStatus:r.internal_status||"",
@@ -2164,7 +2164,7 @@ async function loadJubSales() {
     if (jubErr) throw jubErr;
     allJubRows = (jubData||[]).map(mapJub);
     // Build set of mapped IDs from popup_booths
-    window._jubMappedSet = new Set((pbData||[]).map(r=>(r.id_pesanan_jubelio||"").trim()).filter(Boolean));
+    window._jubMappedSet = new Set((pbData||[]).map(r=>r.id_pesanan_jubelio!=null?String(r.id_pesanan_jubelio).trim():"").filter(Boolean));
     renderJubStats(allJubRows);
     applyJubFilters();
   } catch(e) {
@@ -2174,7 +2174,8 @@ async function loadJubSales() {
 
 function isJubMapped(row) {
   const s = (window._jubMappedSet||new Set());
-  return row.salesorderId && s.has(row.salesorderId.trim());
+  const sid = row.salesorderId!=null ? String(row.salesorderId).trim() : "";
+  return sid !== "" && s.has(sid);
 }
 
 function renderJubStats(rows) {
