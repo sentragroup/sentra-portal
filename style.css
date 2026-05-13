@@ -177,6 +177,7 @@ tbody tr:hover td{background:var(--off);}
 th.sortable{cursor:pointer;user-select:none;}
 th.sortable:hover{color:var(--black);background:var(--off);}
 .sa{font-family:var(--mono);font-size:10px;color:var(--g400);margin-left:2px;}
+.cell-overdue{background:#fdecea!important;color:#c0392b!important;font-weight:500;}
 .sb-subsection{font-family:var(--mono);font-size:8px;letter-spacing:0.12em;text-transform:uppercase;color:var(--g200);padding:6px 1.25rem 2px;margin-top:6px;}
 .menu-btn{display:none;background:none;border:none;cursor:pointer;padding:5px 7px;border-radius:6px;color:var(--g600);align-items:center;justify-content:center;}
 .menu-btn:hover{background:var(--off);color:var(--black);}
