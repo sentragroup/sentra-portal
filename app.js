@@ -49,7 +49,7 @@ function mapRR(r) { return {rowIndex:r.id,id:r.id,name:r.nama||"",tipe:r.tipe||"
 function mapBM(r) { return {rowIndex:r.id,id:r.id,name:r.name||"",category:r.category||"",liveStatus:r.live_status||"Active",revenue:r.revenue_stream||"",agreements:r.related_agreement||"",apparel:r.apparel_rate!=null?r.apparel_rate:"",accessories:r.accessories_rate!=null?r.accessories_rate:"",collectible:r.collectible_rate!=null?r.collectible_rate:"",preloved:r.preloved_rate!=null?r.preloved_rate:"",wellness:r.wellness_rate!=null?r.wellness_rate:"",others:r.others_rate!=null?r.others_rate:"",notes:r.notes||"",pic:r.pic||"",addedBy:r.added_by||""}; }
 function mapLD(r) { return {rowIndex:r.id,id:r.id,name:r.lead_name||"",category:r.category||"",stage:r.stage||"",pic:r.pic||"",revenue:r.revenue_stream||"",contact:r.contact||"",notes:r.notes||"",priority:r.priority||"",date:r.date_added?new Date(r.date_added).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"",by:r.added_by||"",lastUpdate:r.last_updated?new Date(r.last_updated).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"",lastBy:r.last_updated_by||"",addedBy:r.added_by||""}; }
 function mapDP(r) { return {rowIndex:r.id,id:r.id,name:r.partner_name||"",type:r.type||"",channel:r.channel||"",region:r.region||"",pic:r.pic||"",contactPerson:r.contact_person||"",contactInfo:r.contact_info||"",agreements:r.related_agreement||"",liveStatus:r.live_status||"Active",notes:r.notes||"",addedBy:r.added_by||""}; }
-function mapPB(r) { return {rowIndex:r.id,id:r.id,eventDate:r.event_date||"",eventName:r.event_name||"",location:r.location||"",ipRelated:r.ip_related||"",manpower:Array.isArray(r.manpower)?r.manpower:[],qtyBrought:r.qty_brought!=null?r.qty_brought:"",suratJalanUrl:r.surat_jalan_url||"",deliveryStatus:r.delivery_status||"",eventStatus:r.event_status||"",reinboundStatus:r.reinbound_status||"",reinboundQty:r.reinbound_qty!=null?r.reinbound_qty:"",srDeadline:r.sr_deadline||"",actualSales:r.actual_sales!=null?r.actual_sales:"",paymentMethod:r.payment_method||"",fakturJubileoUrl:r.faktur_jubelio_url||"",notes:r.notes||"",dateAdded:r.date_added||"",addedBy:r.added_by||"",lastUpdated:r.last_updated||"",lastUpdatedBy:r.last_updated_by||""}; }
+function mapPB(r) { return {rowIndex:r.id,id:r.id,eventDate:r.event_date||"",eventName:r.event_name||"",location:r.location||"",ipRelated:r.ip_related||"",manpower:Array.isArray(r.manpower)?r.manpower:[],qtyBrought:r.qty_brought!=null?r.qty_brought:"",suratJalanUrl:r.surat_jalan_url||"",deliveryStatus:r.delivery_status||"",eventStatus:r.event_status||"",reinboundStatus:r.reinbound_status||"",reinboundQty:r.reinbound_qty!=null?r.reinbound_qty:"",srDeadline:r.sr_deadline||"",actualSales:r.actual_sales!=null?r.actual_sales:"",paymentMethod:r.payment_method||"",idPesananJubelio:r.id_pesanan_jubelio||"",notes:r.notes||"",dateAdded:r.date_added||"",addedBy:r.added_by||"",lastUpdated:r.last_updated||"",lastUpdatedBy:r.last_updated_by||""}; }
 
 let currentUser = "";
 let allRows = [], acBrands = [], acTypes = [], acPics = [];
@@ -1722,11 +1722,17 @@ function sortPBBy(c){pbSort.dir=pbSort.col===c?(pbSort.dir==='asc'?'desc':'asc')
 let pbManpower = [];
 let pbEditManpower = {};
 
+// Manpower helpers — use named functions so inline handlers can reach `let` vars
+function pbMPInput(i,key,val){pbManpower[i][key]=val;}
+function pbMPRemove(i){pbManpower.splice(i,1);renderPBManpowerForm();}
+function pbEMPInput(rowIdx,i,key,val){if(pbEditManpower[rowIdx])pbEditManpower[rowIdx][i][key]=val;}
+function pbEMPRemove(rowIdx,i){if(pbEditManpower[rowIdx]){pbEditManpower[rowIdx].splice(i,1);renderPBEditManpowerForm(rowIdx);}}
+
 function renderPBManpowerForm() {
   const el = document.getElementById("pb-manpower-list");
   if (!el) return;
   if (!pbManpower.length) { el.innerHTML='<div style="color:var(--g400);font-size:12px;padding:4px 0">Belum ada manpower ditambahkan.</div>'; return; }
-  el.innerHTML = pbManpower.map((m,i)=>`<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><input type="text" value="${(m.name||'').replace(/"/g,'&quot;')}" oninput="pbManpower[${i}].name=this.value" placeholder="Nama" style="flex:1;padding:6px 8px;border:1px solid var(--g200);border-radius:6px;font-size:13px"><select onchange="pbManpower[${i}].paid=this.value" style="padding:6px 8px;border:1px solid var(--g200);border-radius:6px;font-size:13px"><option value="paid" ${m.paid==='paid'?'selected':''}>Dibayar</option><option value="unpaid" ${m.paid==='unpaid'?'selected':''}>Sukarela</option></select><button class="btn-icon" onclick="pbManpower.splice(${i},1);renderPBManpowerForm()" title="Hapus">✕</button></div>`).join("");
+  el.innerHTML = pbManpower.map((m,i)=>`<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><input type="text" value="${(m.name||'').replace(/"/g,'&quot;')}" oninput="pbMPInput(${i},'name',this.value)" placeholder="Nama" style="flex:1;padding:6px 8px;border:1px solid var(--g200);border-radius:6px;font-size:13px"><select onchange="pbMPInput(${i},'paid',this.value)" style="padding:6px 8px;border:1px solid var(--g200);border-radius:6px;font-size:13px"><option value="paid" ${m.paid==='paid'?'selected':''}>Dibayar</option><option value="unpaid" ${m.paid==='unpaid'?'selected':''}>Sukarela</option></select><button class="btn-icon" onclick="pbMPRemove(${i})" title="Hapus">✕</button></div>`).join("");
 }
 function addPBManpowerRow(){pbManpower.push({name:"",paid:"paid"});renderPBManpowerForm();}
 
@@ -1735,7 +1741,7 @@ function renderPBEditManpowerForm(rowIdx) {
   if (!el) return;
   const arr = pbEditManpower[rowIdx]||[];
   if (!arr.length) { el.innerHTML='<div style="color:var(--g400);font-size:12px;padding:4px 0">Belum ada manpower.</div>'; return; }
-  el.innerHTML = arr.map((m,i)=>`<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><input type="text" value="${(m.name||'').replace(/"/g,'&quot;')}" oninput="pbEditManpower['${rowIdx}'][${i}].name=this.value" placeholder="Nama" style="flex:1;padding:6px 8px;border:1px solid var(--g200);border-radius:6px;font-size:13px"><select onchange="pbEditManpower['${rowIdx}'][${i}].paid=this.value" style="padding:6px 8px;border:1px solid var(--g200);border-radius:6px;font-size:13px"><option value="paid" ${m.paid==='paid'?'selected':''}>Dibayar</option><option value="unpaid" ${m.paid==='unpaid'?'selected':''}>Sukarela</option></select><button class="btn-icon" onclick="pbEditManpower['${rowIdx}'].splice(${i},1);renderPBEditManpowerForm('${rowIdx}')" title="Hapus">✕</button></div>`).join("");
+  el.innerHTML = arr.map((m,i)=>`<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><input type="text" value="${(m.name||'').replace(/"/g,'&quot;')}" oninput="pbEMPInput('${rowIdx}',${i},'name',this.value)" placeholder="Nama" style="flex:1;padding:6px 8px;border:1px solid var(--g200);border-radius:6px;font-size:13px"><select onchange="pbEMPInput('${rowIdx}',${i},'paid',this.value)" style="padding:6px 8px;border:1px solid var(--g200);border-radius:6px;font-size:13px"><option value="paid" ${m.paid==='paid'?'selected':''}>Dibayar</option><option value="unpaid" ${m.paid==='unpaid'?'selected':''}>Sukarela</option></select><button class="btn-icon" onclick="pbEMPRemove('${rowIdx}',${i})" title="Hapus">✕</button></div>`).join("");
 }
 function addPBEditManpower(rowIdx){if(!pbEditManpower[rowIdx])pbEditManpower[rowIdx]=[];pbEditManpower[rowIdx].push({name:"",paid:"paid"});renderPBEditManpowerForm(rowIdx);}
 
@@ -1745,15 +1751,16 @@ function calcPBSRDeadline(eventDate) {
   return d.toISOString().slice(0,10);
 }
 
-async function uploadPBFile(file, fieldName, recordId) {
-  if (!file) return null;
-  if (file.size > 1048576) { alert("File terlalu besar. Maksimal 1MB."); return null; }
-  if (file.type !== "application/pdf") { alert("Hanya file PDF yang diperbolehkan."); return null; }
-  const path = `${recordId}/${fieldName}-${Date.now()}.pdf`;
-  const { error } = await sb.storage.from("popup-files").upload(path, file, {upsert:true});
-  if (error) throw error;
-  const { data } = sb.storage.from("popup-files").getPublicUrl(path);
-  return data.publicUrl;
+function validateSJLink(url) {
+  if (!url) return null;
+  if (/docs\.google\.com\/(document|spreadsheets|presentation|forms)/i.test(url))
+    return "⚠️ Link ini adalah Google Docs/Sheets/Slides yang bisa diedit. Gunakan link file Google Drive: drive.google.com/file/d/.../view";
+  return null;
+}
+function pbValidateSJ(hintId, url) {
+  const el = document.getElementById(hintId);
+  if (!el) return;
+  el.textContent = validateSJLink(url) || "";
 }
 
 function switchPBTab(name, el) {
@@ -1768,9 +1775,14 @@ async function loadPopupBooth() {
   const tbody = document.getElementById("pbTableBody");
   tbody.innerHTML = `<tr><td class="empty-td" colspan="15">Memuat...</td></tr>`;
   try {
+    if (!allBMRows.length) {
+      const {data} = await sb.from("brand_master").select("*");
+      if (data) allBMRows = data.map(mapBM);
+    }
     const {data,error} = await sb.from("popup_booths").select("*").order("event_date",{ascending:false});
     if (error) throw error;
     allPBRows = (data||[]).map(mapPB);
+    setupACMulti("pb-iprelated","ac-pb-iprelated",()=>allBMRows.filter(r=>r.liveStatus==="Active").map(r=>r.name).filter(Boolean));
     renderPBStats(allPBRows);
     applyPBFilters();
   } catch(e) {
@@ -1808,7 +1820,7 @@ function renderPBTable(rows) {
     const reinPill = r.reinboundStatus ? `<span class="pill ${r.reinboundStatus==="Done"?"p-active":r.reinboundStatus==="Not Yet"?"p-near":r.reinboundStatus==="Sold Out"?"p-expired":"p-draft"}" style="font-size:11px">${r.reinboundStatus}</span>${(r.reinboundQty!==""&&r.reinboundQty!=null)?" ("+r.reinboundQty+")":""}` : "—";
     const manpowerStr = r.manpower&&r.manpower.length ? `${r.manpower.length}×: ${r.manpower.map(m=>`${m.name||"?"}(${m.paid==="paid"?"💰":"🤝"})`).join(", ")}` : "—";
     const sjBtn = r.suratJalanUrl ? `<a href="${r.suratJalanUrl}" target="_blank" class="btn-icon" title="Lihat Surat Jalan">📎&nbsp;SJ</a>` : "—";
-    const ftBtn = r.fakturJubileoUrl ? `<a href="${r.fakturJubileoUrl}" target="_blank" class="btn-icon" title="Lihat Faktur Jubelio">📎&nbsp;FJ</a>` : "—";
+    const idPesananCell = r.idPesananJubelio ? `<span style="font-size:11px;font-family:var(--mono)">${r.idPesananJubelio}</span>` : `<span style="background:#fdecea;color:#c0392b;padding:2px 6px;border-radius:4px;font-size:11px">Belum diisi</span>`;
     const pm = r.paymentMethod ? r.paymentMethod.split(",").map(p=>`<span class="pill p-signings" style="font-size:10px;margin-right:2px">${p.trim()}</span>`).join("") : "—";
     const actualSales = (r.actualSales!==""&&r.actualSales!=null) ? `Rp ${Number(r.actualSales).toLocaleString("id-ID")}` : "—";
     return `<tr>
@@ -1825,14 +1837,14 @@ function renderPBTable(rows) {
       <td style="white-space:nowrap;font-size:12px">${fmtDate(r.srDeadline)}</td>
       <td style="white-space:nowrap;font-size:12px">${actualSales}</td>
       <td style="font-size:11px">${pm}</td>
-      <td style="text-align:center">${ftBtn}</td>
+      <td>${idPesananCell}</td>
       <td><button class="btn-icon" onclick="openPBEdit('${r.rowIndex}')">Edit</button> <button class="btn-icon" style="color:#c0392b" onclick="deletePB('${r.rowIndex}')">Del</button></td>
     </tr>
     <tr id="pb-edit-row-${r.rowIndex}" style="display:none">
       <td colspan="15" style="padding:0 12px 12px">
         <div class="edit-row-form">
           <div class="edit-row-grid">
-            <div class="fg"><label>Tanggal Event</label><input type="date" id="pbe-eventdate-${r.rowIndex}" value="${r.eventDate}" oninput="document.getElementById('pbe-srdeadline-${r.rowIndex}').value=calcPBSRDeadline(this.value)"></div>
+            <div class="fg"><label>Tanggal Event</label><input type="date" id="pbe-eventdate-${r.rowIndex}" value="${r.eventDate}"></div>
             <div class="fg"><label>Nama Event</label><input type="text" id="pbe-eventname-${r.rowIndex}" value="${(r.eventName||'').replace(/"/g,'&quot;')}"></div>
             <div class="fg"><label>Lokasi</label><input type="text" id="pbe-location-${r.rowIndex}" value="${(r.location||'').replace(/"/g,'&quot;')}"></div>
             <div class="fg"><label>IP Related</label><input type="text" id="pbe-iprelated-${r.rowIndex}" value="${(r.ipRelated||'').replace(/"/g,'&quot;')}" placeholder="Pisahkan dengan koma"></div>
@@ -1841,12 +1853,11 @@ function renderPBTable(rows) {
             <div class="fg"><label>Event Status</label><select id="pbe-eventstatus-${r.rowIndex}"><option value="">Planned</option><option ${r.eventStatus==="Done"?"selected":""}>Done</option><option ${r.eventStatus==="Cancelled"?"selected":""}>Cancelled</option></select></div>
             <div class="fg"><label>Reinbound Status</label><select id="pbe-reinbound-${r.rowIndex}"><option value="">—</option><option ${r.reinboundStatus==="Done"?"selected":""}>Done</option><option ${r.reinboundStatus==="Not Yet"?"selected":""}>Not Yet</option><option ${r.reinboundStatus==="Sold Out"?"selected":""}>Sold Out</option></select></div>
             <div class="fg"><label>Reinbound Qty</label><input type="number" id="pbe-reinboundqty-${r.rowIndex}" value="${r.reinboundQty!=null?r.reinboundQty:''}" min="0"></div>
-            <div class="fg"><label>SR Deadline</label><input type="date" id="pbe-srdeadline-${r.rowIndex}" value="${r.srDeadline}"></div>
             <div class="fg"><label>Actual Sales (IDR)</label><input type="number" id="pbe-actualsales-${r.rowIndex}" value="${r.actualSales!=null?r.actualSales:''}" min="0"></div>
             <div class="fg full"><label>Payment Method</label><div style="display:flex;gap:16px;flex-wrap:wrap;padding:8px 0"><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-jpos-${r.rowIndex}" ${(r.paymentMethod||"").includes("Jubelio POS")?"checked":""}> Jubelio POS</label><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-qris-${r.rowIndex}" ${(r.paymentMethod||"").includes("QRIS Xendit")?"checked":""}> QRIS Xendit</label><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-cons-${r.rowIndex}" ${(r.paymentMethod||"").includes("Consignment")?"checked":""}> Consignment</label></div></div>
             <div class="fg full"><label>Manpower</label><div id="pbe-manpower-list-${r.rowIndex}" style="margin-bottom:4px"></div><button class="btn-ghost" style="font-size:12px;margin-top:4px" onclick="addPBEditManpower('${r.rowIndex}')">+ Tambah Manpower</button></div>
-            <div class="fg full"><label>Surat Jalan (PDF, maks 1MB)${r.suratJalanUrl?` &mdash; <a href="${r.suratJalanUrl}" target="_blank" class="btn-icon" style="font-size:11px">📎 Lihat</a>`:""}</label><input type="file" id="pbe-sj-${r.rowIndex}" accept="application/pdf"></div>
-            <div class="fg full"><label>Faktur Jubelio (PDF, maks 1MB)${r.fakturJubileoUrl?` &mdash; <a href="${r.fakturJubileoUrl}" target="_blank" class="btn-icon" style="font-size:11px">📎 Lihat</a>`:""}</label><input type="file" id="pbe-fj-${r.rowIndex}" accept="application/pdf"></div>
+            <div class="fg full"><label>Surat Jalan <span style="font-size:11px;color:var(--g400)">(link Google Drive file)</span></label><input type="url" id="pbe-sj-${r.rowIndex}" value="${(r.suratJalanUrl||'').replace(/"/g,'&quot;')}" placeholder="https://drive.google.com/file/d/..." style="width:100%" oninput="pbValidateSJ('pbe-sj-hint-${r.rowIndex}',this.value)"><div id="pbe-sj-hint-${r.rowIndex}" style="color:#c0392b;font-size:11px;margin-top:3px"></div></div>
+            <div class="fg full"><label>ID Pesanan Jubelio</label><input type="text" id="pbe-idpesanan-${r.rowIndex}" value="${(r.idPesananJubelio||'').replace(/"/g,'&quot;')}" placeholder="Nomor/ID pesanan di Jubelio"></div>
             <div class="fg full"><label>Notes</label><textarea id="pbe-notes-${r.rowIndex}" rows="2" style="resize:vertical">${(r.notes||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea></div>
           </div>
           <div class="edit-row-btns">
@@ -1883,11 +1894,9 @@ async function savePBEdit(rowIdx) {
   if (btn) { btn.disabled=true; btn.textContent="Menyimpan..."; }
   try {
     const orig = allPBRows.find(r=>r.rowIndex===rowIdx);
-    const sjFile = document.getElementById("pbe-sj-"+rowIdx)?.files[0];
-    const fjFile = document.getElementById("pbe-fj-"+rowIdx)?.files[0];
-    let sjUrl = orig?.suratJalanUrl||null, fjUrl = orig?.fakturJubileoUrl||null;
-    if (sjFile) sjUrl = await uploadPBFile(sjFile,"sj",rowIdx);
-    if (fjFile) fjUrl = await uploadPBFile(fjFile,"fj",rowIdx);
+    const sjUrl = document.getElementById(`pbe-sj-${rowIdx}`)?.value.trim()||null;
+    const sjWarn = validateSJLink(sjUrl);
+    if (sjWarn) { if(btn){btn.disabled=false;btn.textContent="Simpan";} alert(sjWarn); return; }
     const pm = [
       document.getElementById(`pbe-pm-jpos-${rowIdx}`)?.checked?"Jubelio POS":"",
       document.getElementById(`pbe-pm-qris-${rowIdx}`)?.checked?"QRIS Xendit":"",
@@ -1895,7 +1904,7 @@ async function savePBEdit(rowIdx) {
     ].filter(Boolean).join(", ");
     const manpower = (pbEditManpower[rowIdx]||[]).filter(m=>(m.name||"").trim());
     const eventDate = document.getElementById(`pbe-eventdate-${rowIdx}`).value;
-    const srDeadline = document.getElementById(`pbe-srdeadline-${rowIdx}`).value || calcPBSRDeadline(eventDate);
+    const srDeadline = calcPBSRDeadline(eventDate);
     const nm = document.getElementById(`pbe-eventname-${rowIdx}`).value.trim();
     if (!nm) { if(btn){btn.disabled=false;btn.textContent="Simpan";} alert("Nama Event wajib diisi."); return; }
     const qtyVal = document.getElementById(`pbe-qty-${rowIdx}`).value;
@@ -1911,7 +1920,7 @@ async function savePBEdit(rowIdx) {
       reinbound_status:document.getElementById(`pbe-reinbound-${rowIdx}`).value||null,
       reinbound_qty:rqVal?parseInt(rqVal):null, sr_deadline:srDeadline||null,
       actual_sales:asVal?parseFloat(asVal):null, payment_method:pm||null,
-      faktur_jubelio_url:fjUrl,
+      id_pesanan_jubelio:document.getElementById(`pbe-idpesanan-${rowIdx}`)?.value.trim()||null,
       notes:document.getElementById(`pbe-notes-${rowIdx}`).value.trim()||null,
       last_updated:new Date().toISOString(), last_updated_by:currentUser
     }).eq("id",rowIdx);
@@ -1937,10 +1946,10 @@ async function deletePB(rowIdx) {
 }
 
 function clearPBForm() {
-  ["pb-eventdate","pb-eventname","pb-location","pb-iprelated","pb-qty","pb-srdeadline","pb-actualsales","pb-notes","pb-reinboundqty"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
+  ["pb-eventdate","pb-eventname","pb-location","pb-iprelated","pb-qty","pb-actualsales","pb-notes","pb-reinboundqty","pb-sj","pb-id-pesanan"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
   ["pb-delivery","pb-eventstatus","pb-reinbound"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
   ["pb-pm-jpos","pb-pm-qris","pb-pm-cons"].forEach(id=>{const el=document.getElementById(id);if(el)el.checked=false;});
-  ["pb-sj","pb-fj"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
+  const sjHint=document.getElementById("pb-sj-hint");if(sjHint)sjHint.textContent="";
   pbManpower=[]; renderPBManpowerForm();
   const fb=document.getElementById("pb-feedback"); if(fb) fb.textContent="";
 }
@@ -1954,11 +1963,9 @@ async function submitPB() {
   btn.disabled=true; btn.textContent="Menyimpan...";
   try {
     const id = genId("PB");
-    const sjFile = document.getElementById("pb-sj")?.files[0];
-    const fjFile = document.getElementById("pb-fj")?.files[0];
-    let sjUrl=null, fjUrl=null;
-    if (sjFile) sjUrl = await uploadPBFile(sjFile,"sj",id);
-    if (fjFile) fjUrl = await uploadPBFile(fjFile,"fj",id);
+    const sjUrl = document.getElementById("pb-sj")?.value.trim()||null;
+    const sjWarn = validateSJLink(sjUrl);
+    if (sjWarn) { document.getElementById("pb-feedback").innerHTML=`<span class="fb-err">${sjWarn}</span>`; btn.disabled=false; btn.textContent="Simpan"; return; }
     const pm = [
       document.getElementById("pb-pm-jpos")?.checked?"Jubelio POS":"",
       document.getElementById("pb-pm-qris")?.checked?"QRIS Xendit":"",
@@ -1982,7 +1989,7 @@ async function submitPB() {
       sr_deadline:srDeadline||null,
       actual_sales:asVal?parseFloat(asVal):null,
       payment_method:pm||null,
-      faktur_jubelio_url:fjUrl,
+      id_pesanan_jubelio:document.getElementById("pb-id-pesanan")?.value.trim()||null,
       notes:document.getElementById("pb-notes").value.trim()||null,
       date_added:new Date().toISOString().slice(0,10),
       added_by:currentUser,
