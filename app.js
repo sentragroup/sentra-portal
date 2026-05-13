@@ -1742,19 +1742,19 @@ function getManpowerOptions() {
   return Array.from(names).sort();
 }
 
-function checkPBJubelioMatch(sidId, asId, hintId) {
+function showPBJubelioInfo(sidId, hintId) {
   const sid = (document.getElementById(sidId)?.value||"").trim();
-  const asVal = document.getElementById(asId)?.value;
   const hint = document.getElementById(hintId);
   if (!hint) return;
-  if (!sid) { hint.textContent=""; return; }
-  const gt = (window._jubOrderMap||{})[sid];
-  if (gt==null) { hint.textContent=""; return; }
-  const gtNum = Number(gt);
-  const asNum = asVal!==""&&asVal!=null ? Number(asVal) : null;
-  if (asNum===null||isNaN(asNum)) { hint.innerHTML=`<span style="color:var(--g400)">Grand Total Jubelio: Rp ${gtNum.toLocaleString("id-ID")}</span>`; return; }
-  if (asNum===gtNum) hint.innerHTML=`<span style="color:#27ae60">✓ Sesuai dengan Grand Total Jubelio (Rp ${gtNum.toLocaleString("id-ID")})</span>`;
-  else hint.innerHTML=`<span style="color:#c0392b">⚠️ Tidak sesuai — Grand Total Jubelio: Rp ${gtNum.toLocaleString("id-ID")} | Actual Sales: Rp ${asNum.toLocaleString("id-ID")}</span>`;
+  if (!sid) { hint.innerHTML=""; return; }
+  const info = (window._jubOrderMap||{})[sid];
+  if (!info) { hint.innerHTML=`<span style="color:var(--g400);font-size:11px">Tidak ditemukan di Jubelio Offline Sales.</span>`; return; }
+  const gt = info.grand_total!=null ? `Rp ${Number(info.grand_total).toLocaleString("id-ID")}` : "—";
+  hint.innerHTML=`<div style="background:var(--off);border:1px solid var(--g100);border-radius:6px;padding:8px 10px;margin-top:4px;font-size:12px;display:grid;gap:3px">
+    <div style="display:grid;grid-template-columns:80px 1fr;gap:4px"><span style="color:var(--g400);font-family:var(--mono);font-size:10px;padding-top:1px">ID</span><span style="font-family:var(--mono);font-size:11px">${sid}</span></div>
+    <div style="display:grid;grid-template-columns:80px 1fr;gap:4px"><span style="color:var(--g400);font-family:var(--mono);font-size:10px;padding-top:1px">Grand Total</span><span style="font-weight:600">${gt}</span></div>
+    ${info.note?`<div style="display:grid;grid-template-columns:80px 1fr;gap:4px"><span style="color:var(--g400);font-family:var(--mono);font-size:10px;padding-top:1px">Note</span><span style="color:var(--g600)">${info.note.replace(/</g,"&lt;").replace(/>/g,"&gt;")}</span></div>`:""}
+  </div>`;
 }
 
 function calcPBSRDeadline(eventDate) {
@@ -1793,12 +1793,12 @@ async function loadPopupBooth() {
     }
     const [{data,error},{data:jubData}] = await Promise.all([
       sb.from("popup_booths").select("*").order("event_date",{ascending:false}),
-      sb.from("jubelio_offline_sales_orders").select("salesorder_id,grand_total")
+      sb.from("jubelio_offline_sales_orders").select("salesorder_id,grand_total,note")
     ]);
     if (error) throw error;
     allPBRows = (data||[]).map(mapPB);
     window._jubOrderMap = {};
-    (jubData||[]).forEach(r=>{ if(r.salesorder_id!=null) window._jubOrderMap[String(r.salesorder_id).trim()] = r.grand_total; });
+    (jubData||[]).forEach(r=>{ if(r.salesorder_id!=null) window._jubOrderMap[String(r.salesorder_id).trim()] = {grand_total:r.grand_total,note:r.note||""}; });
     setupACMulti("pb-iprelated","ac-pb-iprelated",()=>allIPRows.filter(r=>r.liveStatus==="Active").map(r=>r.name).filter(Boolean));
     setupACMulti("pb-manpower","ac-pb-manpower",()=>getManpowerOptions());
     setupAC("pb-id-pesanan","ac-pb-idpesanan",()=>Object.keys(window._jubOrderMap||{}));
@@ -1833,7 +1833,7 @@ function renderPBTable(rows) {
   updateSortTh("pb-thead", pbSort.col, pbSort.dir);
   const tbody = document.getElementById("pbTableBody");
   document.getElementById("pb-tcount").textContent = rows.length+" entri";
-  if (!rows.length) { tbody.innerHTML=`<tr><td class="empty-td" colspan="15">Tidak ada data.</td></tr>`; return; }
+  if (!rows.length) { tbody.innerHTML=`<tr><td class="empty-td" colspan="14">Tidak ada data.</td></tr>`; return; }
   tbody.innerHTML = rows.map(r => {
     const esPill = `<span class="pill ${r.eventStatus==="Done"?"p-active":r.eventStatus==="Cancelled"?"p-expired":"p-draft"}" style="font-size:11px">${r.eventStatus||"Planned"}</span>`;
     const reinPill = r.reinboundStatus ? `<span class="pill ${r.reinboundStatus==="Done"?"p-active":r.reinboundStatus==="Not Yet"?"p-near":r.reinboundStatus==="Sold Out"?"p-expired":"p-draft"}" style="font-size:11px">${r.reinboundStatus}</span>${(r.reinboundQty!==""&&r.reinboundQty!=null)?" ("+r.reinboundQty+")":""}` : "—";
@@ -1841,7 +1841,8 @@ function renderPBTable(rows) {
     const sjBtn = r.suratJalanUrl ? `<a href="${r.suratJalanUrl}" target="_blank" class="btn-icon" title="Lihat Surat Jalan">📎&nbsp;SJ</a>` : "—";
     const idPesananCell = r.idPesananJubelio ? `<span style="font-size:11px;font-family:var(--mono)">${r.idPesananJubelio}</span>` : `<span style="background:#fdecea;color:#c0392b;padding:2px 6px;border-radius:4px;font-size:11px">Belum diisi</span>`;
     const pm = r.paymentMethod ? r.paymentMethod.split(",").map(p=>`<span class="pill p-signings" style="font-size:10px;margin-right:2px">${p.trim()}</span>`).join("") : "—";
-    const actualSales = (r.actualSales!==""&&r.actualSales!=null) ? `Rp ${Number(r.actualSales).toLocaleString("id-ID")}` : "—";
+    const jubInfo = r.idPesananJubelio ? (window._jubOrderMap||{})[r.idPesananJubelio.trim()] : null;
+    const grandTotal = jubInfo?.grand_total!=null ? `Rp ${Number(jubInfo.grand_total).toLocaleString("id-ID")}` : "—";
     return `<tr>
       <td style="white-space:nowrap;font-size:12px">${fmtDate(r.eventDate)}</td>
       <td><strong>${r.eventName||"—"}</strong></td>
@@ -1854,13 +1855,13 @@ function renderPBTable(rows) {
       <td>${esPill}</td>
       <td style="font-size:12px;white-space:nowrap">${reinPill}</td>
       <td style="white-space:nowrap;font-size:12px">${fmtDate(r.srDeadline)}</td>
-      <td style="white-space:nowrap;font-size:12px">${actualSales}</td>
+      <td style="white-space:nowrap;font-size:12px">${grandTotal}</td>
       <td style="font-size:11px">${pm}</td>
       <td>${idPesananCell}</td>
       <td><button class="btn-icon" onclick="openPBEdit('${r.rowIndex}')">Edit</button> <button class="btn-icon" style="color:#c0392b" onclick="deletePB('${r.rowIndex}')">Del</button></td>
     </tr>
     <tr id="pb-edit-row-${r.rowIndex}" style="display:none">
-      <td colspan="15" style="padding:0 12px 12px">
+      <td colspan="14" style="padding:0 12px 12px">
         <div class="edit-row-form">
           <div class="edit-row-grid">
             <div class="fg"><label>Tanggal Event</label><input type="date" id="pbe-eventdate-${r.rowIndex}" value="${r.eventDate}"></div>
@@ -1872,11 +1873,10 @@ function renderPBTable(rows) {
             <div class="fg"><label>Event Status</label><select id="pbe-eventstatus-${r.rowIndex}"><option value="">Planned</option><option ${r.eventStatus==="Done"?"selected":""}>Done</option><option ${r.eventStatus==="Cancelled"?"selected":""}>Cancelled</option></select></div>
             <div class="fg"><label>Reinbound Status</label><select id="pbe-reinbound-${r.rowIndex}"><option value="">—</option><option ${r.reinboundStatus==="Done"?"selected":""}>Done</option><option ${r.reinboundStatus==="Not Yet"?"selected":""}>Not Yet</option><option ${r.reinboundStatus==="Sold Out"?"selected":""}>Sold Out</option></select></div>
             <div class="fg"><label>Reinbound Qty</label><input type="number" id="pbe-reinboundqty-${r.rowIndex}" value="${r.reinboundQty!=null?r.reinboundQty:''}" min="0"></div>
-            <div class="fg"><label>Actual Sales (IDR)</label><input type="number" id="pbe-actualsales-${r.rowIndex}" value="${r.actualSales!=null?r.actualSales:''}" min="0" oninput="checkPBJubelioMatch('pbe-idpesanan-${r.rowIndex}','pbe-actualsales-${r.rowIndex}','pbe-jubelio-hint-${r.rowIndex}')"></div>
             <div class="fg full"><label>Payment Method</label><div style="display:flex;gap:16px;flex-wrap:wrap;padding:8px 0"><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-jpos-${r.rowIndex}" ${(r.paymentMethod||"").includes("Jubelio POS")?"checked":""}> Jubelio POS</label><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-qris-${r.rowIndex}" ${(r.paymentMethod||"").includes("QRIS Xendit")?"checked":""}> QRIS Xendit</label><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-cons-${r.rowIndex}" ${(r.paymentMethod||"").includes("Consignment")?"checked":""}> Consignment</label></div></div>
             <div class="fg" style="position:relative"><label>Manpower</label><input type="text" id="pbe-manpower-${r.rowIndex}" value="${(r.manpower||'').replace(/"/g,'&quot;')}" placeholder="Ketik nama, pisahkan dengan koma" autocomplete="off"><div class="ac-list" id="ac-pbe-manpower-${r.rowIndex}"></div></div>
             <div class="fg full"><label>Surat Jalan <span style="font-size:11px;color:var(--g400)">(link Google Drive file)</span></label><input type="url" id="pbe-sj-${r.rowIndex}" value="${(r.suratJalanUrl||'').replace(/"/g,'&quot;')}" placeholder="https://drive.google.com/file/d/..." style="width:100%" oninput="pbValidateSJ('pbe-sj-hint-${r.rowIndex}',this.value)"><div id="pbe-sj-hint-${r.rowIndex}" style="color:#c0392b;font-size:11px;margin-top:3px"></div></div>
-            <div class="fg" style="position:relative"><label>ID Pesanan Jubelio</label><input type="text" id="pbe-idpesanan-${r.rowIndex}" value="${(r.idPesananJubelio||'').replace(/"/g,'&quot;')}" placeholder="Pilih dari Jubelio Offline Sales" autocomplete="off" oninput="checkPBJubelioMatch('pbe-idpesanan-${r.rowIndex}','pbe-actualsales-${r.rowIndex}','pbe-jubelio-hint-${r.rowIndex}')"><div class="ac-list" id="ac-pbe-idpesanan-${r.rowIndex}"></div><div id="pbe-jubelio-hint-${r.rowIndex}" style="font-size:11px;margin-top:3px"></div></div>
+            <div class="fg" style="position:relative"><label>ID Pesanan Jubelio</label><input type="text" id="pbe-idpesanan-${r.rowIndex}" value="${(r.idPesananJubelio||'').replace(/"/g,'&quot;')}" placeholder="Pilih dari Jubelio Offline Sales" autocomplete="off" oninput="showPBJubelioInfo('pbe-idpesanan-${r.rowIndex}','pbe-jubelio-hint-${r.rowIndex}')"><div class="ac-list" id="ac-pbe-idpesanan-${r.rowIndex}"></div><div id="pbe-jubelio-hint-${r.rowIndex}"></div></div>
             <div class="fg full"><label>Notes</label><textarea id="pbe-notes-${r.rowIndex}" rows="2" style="resize:vertical">${(r.notes||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea></div>
           </div>
           <div class="edit-row-btns">
@@ -1900,7 +1900,7 @@ function openPBEdit(rowIdx) {
     setupACMulti("pbe-manpower-"+rowIdx,"ac-pbe-manpower-"+rowIdx,()=>getManpowerOptions());
     setupAC("pbe-idpesanan-"+rowIdx,"ac-pbe-idpesanan-"+rowIdx,()=>Object.keys(window._jubOrderMap||{}));
     const orig = allPBRows.find(r=>r.rowIndex===rowIdx);
-    if (orig?.idPesananJubelio) checkPBJubelioMatch("pbe-idpesanan-"+rowIdx,"pbe-actualsales-"+rowIdx,"pbe-jubelio-hint-"+rowIdx);
+    if (orig?.idPesananJubelio) showPBJubelioInfo("pbe-idpesanan-"+rowIdx,"pbe-jubelio-hint-"+rowIdx);
   }
 }
 function closePBEdit(rowIdx) { const r=document.getElementById("pb-edit-row-"+rowIdx); if(r) r.style.display="none"; }
@@ -1925,7 +1925,6 @@ async function savePBEdit(rowIdx) {
     if (!nm) { if(btn){btn.disabled=false;btn.textContent="Simpan";} alert("Nama Event wajib diisi."); return; }
     const qtyVal = document.getElementById(`pbe-qty-${rowIdx}`).value;
     const rqVal  = document.getElementById(`pbe-reinboundqty-${rowIdx}`).value;
-    const asVal  = document.getElementById(`pbe-actualsales-${rowIdx}`).value;
     const {error} = await sb.from("popup_booths").update({
       event_name:nm, event_date:eventDate||null,
       location:document.getElementById(`pbe-location-${rowIdx}`).value.trim()||null,
@@ -1935,7 +1934,7 @@ async function savePBEdit(rowIdx) {
       event_status:document.getElementById(`pbe-eventstatus-${rowIdx}`).value||null,
       reinbound_status:document.getElementById(`pbe-reinbound-${rowIdx}`).value||null,
       reinbound_qty:rqVal?parseInt(rqVal):null, sr_deadline:srDeadline||null,
-      actual_sales:asVal?parseFloat(asVal):null, payment_method:pm||null,
+      payment_method:pm||null,
       id_pesanan_jubelio:document.getElementById(`pbe-idpesanan-${rowIdx}`)?.value.trim()||null,
       notes:document.getElementById(`pbe-notes-${rowIdx}`).value.trim()||null,
       last_updated:new Date().toISOString(), last_updated_by:currentUser
@@ -1962,7 +1961,7 @@ async function deletePB(rowIdx) {
 }
 
 function clearPBForm() {
-  ["pb-eventdate","pb-eventname","pb-location","pb-iprelated","pb-qty","pb-actualsales","pb-notes","pb-reinboundqty","pb-sj","pb-id-pesanan"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
+  ["pb-eventdate","pb-eventname","pb-location","pb-iprelated","pb-qty","pb-notes","pb-reinboundqty","pb-sj","pb-id-pesanan"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
   ["pb-delivery","pb-eventstatus","pb-reinbound"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
   ["pb-pm-jpos","pb-pm-qris","pb-pm-cons"].forEach(id=>{const el=document.getElementById(id);if(el)el.checked=false;});
   const sjHint=document.getElementById("pb-sj-hint");if(sjHint)sjHint.textContent="";
@@ -1992,7 +1991,6 @@ async function submitPB() {
     const srDeadline = calcPBSRDeadline(eventDate);
     const qtyVal = document.getElementById("pb-qty").value;
     const rqVal  = document.getElementById("pb-reinboundqty").value;
-    const asVal  = document.getElementById("pb-actualsales").value;
     const row = {
       id, event_name:eventName, event_date:eventDate,
       location:document.getElementById("pb-location").value.trim()||null,
@@ -2004,7 +2002,6 @@ async function submitPB() {
       reinbound_status:document.getElementById("pb-reinbound").value||null,
       reinbound_qty:rqVal?parseInt(rqVal):null,
       sr_deadline:srDeadline||null,
-      actual_sales:asVal?parseFloat(asVal):null,
       payment_method:pm||null,
       id_pesanan_jubelio:document.getElementById("pb-id-pesanan")?.value.trim()||null,
       notes:document.getElementById("pb-notes").value.trim()||null,
