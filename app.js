@@ -942,12 +942,13 @@ async function loadSalesReport() {
   document.getElementById("sr-loading").style.display = "block";
   document.getElementById("sr-table").style.display = "none";
   try {
-    const [bmRes,ipRes,rrRes,rptRes,sdRes] = await Promise.all([
+    const [bmRes,ipRes,rrRes,rptRes,sdRes,dpRes] = await Promise.all([
       sb.from("brand_master").select("*"),
       sb.from("ip_master").select("*"),
       sb.from("royalty_recipients").select("*"),
       sb.from("sr_reports").select("*"),
-      sb.from("sr_startdates").select("*")
+      sb.from("sr_startdates").select("*"),
+      sb.from("dist_partners").select("*")
     ]);
     const seen={};
     srBrands=[];
@@ -955,6 +956,8 @@ async function loadSalesReport() {
     (bmRes.data||[]).filter(r=>r.live_status==="Active").forEach(r=>addBrand(r.id,r.name,r.revenue_stream,"BM",r.pic,""));
     (ipRes.data||[]).filter(r=>r.live_status==="Active").forEach(r=>addBrand(r.id,r.name,r.revenue_stream,"IP",r.pic,""));
     (rrRes.data||[]).forEach(r=>addBrand(r.id,r.nama,r.revenue_stream||"","CR",r.pic,r.related_ip||""));
+    (dpRes.data||[]).filter(r=>r.live_status==="Active"&&(r.type||"").toLowerCase().includes("consignment"))
+      .forEach(r=>addBrand(r.id,r.partner_name,"Distribution","DP",r.pic||"",""));
     srReports={};
     (rptRes.data||[]).forEach(r=>{srReports[r.brand_id+"_"+r.month_index]={link:r.link||"",notes:r.notes||"",by:r.submitted_by||""};});
     const sdMap={};
@@ -1076,7 +1079,9 @@ function renderSRGrid() {
 
   tbody.innerHTML = srFiltered.map(b=>{
     const srcLabel  = {BM:"Brand Master",IP:"IP Master",CR:"Collaborator",DP:"Consignment"}[b.source]||b.source;
-    const startLabel = b.startDate ? fmtDate(b.startDate) : `<button class="btn-icon" onclick="openSDModal('${b.id}','${b.name.replace(/'/g,"\'")}')">+ Set</button>`;
+    const startLabel = b.startDate
+      ? `<button class="btn-icon" onclick="openSDModal('${b.id}','${b.name.replace(/'/g,"\\'")}')">✏ ${fmtDate(b.startDate)}</button>`
+      : `<button class="btn-icon" onclick="openSDModal('${b.id}','${b.name.replace(/'/g,"\\'")}')">+ Set</button>`;
     const cells = months.map(m=>{
       const due  = isCellDue(b, m.idx);
       const key  = b.id+"_"+m.idx;
@@ -1606,7 +1611,7 @@ function renderDPTable(rows) {
   updateSortTh('dp-thead',dpSort.col,dpSort.dir);
   document.getElementById("dp-tcount").textContent=rows.length+" entri";
   const body=document.getElementById("dpTableBody");
-  if(!rows.length){body.innerHTML=`<tr><td class="empty-td" colspan="11">Belum ada data.</td></tr>`;return;}
+  if(!rows.length){body.innerHTML=`<tr><td class="empty-td" colspan="12">Belum ada data.</td></tr>`;return;}
   body.innerHTML=rows.map(r=>{
     const types=(r.type||"").split(",").map(s=>s.trim()).filter(Boolean);
     const channels=(r.channel||"").split(",").map(s=>s.trim()).filter(Boolean);
@@ -1626,10 +1631,11 @@ function renderDPTable(rows) {
           <option ${r.liveStatus==="Inactive"?"selected":""}>Inactive</option>
         </select>
       </td>
+      <td><span class="pill" style="background:#EEEDFE;color:#3C3489;border:0.5px solid #AFA9EC">Distribution</span></td>
       <td style="font-size:11px;color:var(--g600)">${r.notes||"—"}</td>
       <td><button class="btn-icon" onclick="openDPEdit('${r.rowIndex}')">Edit</button> <button class="btn-icon" style="color:#c0392b;" onclick="deleteDP('${r.rowIndex}')">Del</button></td>
     </tr>
-    <tr id="dp-edit-row-${r.rowIndex}" style="display:none"><td colspan="11" style="padding:0 12px 12px;">
+    <tr id="dp-edit-row-${r.rowIndex}" style="display:none"><td colspan="12" style="padding:0 12px 12px;">
       <div class="edit-row-form">
         <div class="edit-row-grid">
           <div class="fg"><label>Partner Name</label><input type="text" id="dp-e-name-${r.rowIndex}" value="${r.name||""}"></div>
