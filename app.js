@@ -12,6 +12,31 @@ async function logActivity(module, action, recordId, details) {
     await sb.from("activity_logs").insert({user_name:currentUser||"system",module,action,record_id:recordId||null,details:details||null});
   } catch(e) { /* silent */ }
 }
+function sortBy(rows, col, dir) {
+  if (!col) return rows;
+  return [...rows].sort((a, b) => {
+    let av = a[col] ?? "", bv = b[col] ?? "";
+    const na = parseFloat(av), nb = parseFloat(bv);
+    if (!isNaN(na) && !isNaN(nb) && String(av) !== "" && String(bv) !== "") return dir==='asc'?na-nb:nb-na;
+    return dir==='asc' ? String(av).localeCompare(String(bv),'id') : String(bv).localeCompare(String(av),'id');
+  });
+}
+function updateSortTh(theadId, col, dir) {
+  document.querySelectorAll('#'+theadId+' th[data-col]').forEach(th=>{
+    const a=th.querySelector('.sa'); if(a) a.remove();
+    if(th.dataset.col===col){const s=document.createElement('span');s.className='sa';s.textContent=dir==='asc'?' ↑':' ↓';th.appendChild(s);}
+  });
+}
+// Sort state per module
+let agrSort={col:null,dir:'asc'}, ipSort={col:null,dir:'asc'}, rrSort={col:null,dir:'asc'};
+let bmSort={col:null,dir:'asc'}, ldSort={col:null,dir:'asc'}, dpSort={col:null,dir:'asc'}, logSort={col:'ts',dir:'desc'};
+function sortAgrBy(c){agrSort.dir=agrSort.col===c?(agrSort.dir==='asc'?'desc':'asc'):'asc';agrSort.col=c;applyFilters();}
+function sortIPBy(c){ipSort.dir=ipSort.col===c?(ipSort.dir==='asc'?'desc':'asc'):'asc';ipSort.col=c;applyIPFilters();}
+function sortRRBy(c){rrSort.dir=rrSort.col===c?(rrSort.dir==='asc'?'desc':'asc'):'asc';rrSort.col=c;applyRRFilters();}
+function sortBMBy(c){bmSort.dir=bmSort.col===c?(bmSort.dir==='asc'?'desc':'asc'):'asc';bmSort.col=c;applyBMFilters();}
+function sortLDBy(c){ldSort.dir=ldSort.col===c?(ldSort.dir==='asc'?'desc':'asc'):'asc';ldSort.col=c;applyLeadsFilters();}
+function sortDPBy(c){dpSort.dir=dpSort.col===c?(dpSort.dir==='asc'?'desc':'asc'):'asc';dpSort.col=c;applyDPFilters();}
+function sortLogBy(c){logSort.dir=logSort.col===c?(logSort.dir==='asc'?'desc':'asc'):'asc';logSort.col=c;applyLogFilters();}
 function mapAgr(r) { return {rowIndex:r.id,id:r.id,title:r.title||"",partner:r.partner||"",pic:r.pic||"",brand:r.brand||"",revenue:r.revenue||"",type:r.type||"",start:r.start_date||"",end:r.end_date||"",status:r.status||"Draft",link:r.link||"",emailLink:r.email_link||"",notes:r.notes||"",lastUpdate:r.last_updated?new Date(r.last_updated).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"",lastBy:r.last_updated_by||""}; }
 function mapIP(r) { return {rowIndex:r.id,id:r.id,name:r.name||"",category:r.category||"",liveStatus:r.live_status||"Active",revenue:r.revenue_stream||"",agreements:r.related_agreement||"",royaltyType:r.royalty_type||"",pct:r.percentage||"",fixed:r.fixed_amount||"",termin:r.termin||"",pph:r.pph_tax_rate||"",notes:r.notes||"",pic:r.pic||"",ipStatus:""}; }
 function mapRR(r) { return {rowIndex:r.id,id:r.id,name:r.nama||"",tipe:r.tipe||"",ip:r.related_ip||"",royaltyType:r.royalty_type||"",pct:r.percentage||"",fixed:r.fixed_amount||"",termin:r.termin||"",pks:r.pks||"",notes:r.notes||"",pic:r.pic||""}; }
@@ -80,11 +105,15 @@ function enterApp(user) {
   loadStats();
   preloadAutocomplete();
   logActivity("Auth","login",null,"Login berhasil");
+  const _pg = location.hash.slice(1);
+  if (['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','activitylog'].includes(_pg))
+    showPage(_pg, document.getElementById('nav-'+_pg));
 }
 
 async function doLogout() {
   await logActivity("Auth","logout",null,"Logout");
   await sb.auth.signOut();
+  history.replaceState(null, "", location.pathname);
   currentUser = ""; allRows = [];
   document.getElementById("app").style.display = "none";
   document.getElementById("loginScreen").style.display = "grid";
@@ -100,6 +129,7 @@ function showPage(name, el) {
   if (el) el.classList.add("active");
   const labels = {home:"Internal Tools",agreement:"Agreement Tracker",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Sales Report",leads:"Leads Tracker",distpartner:"Distribution Partner",activitylog:"Activity Log"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
+  history.replaceState(null, "", name==="home" ? location.pathname : "#"+name);
   if (name==="agreement") loadStats();
   if (name==="ipmaster") { loadIPMaster(); loadStats(); }
   if (name==="recipients") loadRecipients();
@@ -107,6 +137,7 @@ function showPage(name, el) {
   if (name==="salesreport") loadSalesReport();
   if (name==="leads") loadLeads();
   if (name==="distpartner") loadDistPartner();
+  if (name==="activitylog") loadActivityLog();
 }
 
 function switchTab(name, el) {
@@ -271,6 +302,8 @@ function clearFilters() {
 }
 
 function renderTable(rows) {
+  rows=sortBy(rows,agrSort.col,agrSort.dir);
+  updateSortTh('agr-thead',agrSort.col,agrSort.dir);
   document.getElementById("tcount").textContent=rows.length+" entri";
   const body=document.getElementById("tableBody");
   if(!rows.length){body.innerHTML=`<tr><td class="empty-td" colspan="16">Tidak ada data.</td></tr>`;return;}
@@ -448,6 +481,8 @@ function ipAgrStatusPill(s) {
 }
 
 function renderIPTable(rows) {
+  rows=sortBy(rows,ipSort.col,ipSort.dir);
+  updateSortTh('ip-thead',ipSort.col,ipSort.dir);
   document.getElementById("ip-tcount").textContent=rows.length+" entri";
   const body=document.getElementById("ipTableBody");
   if(!rows.length){body.innerHTML=`<tr><td class="empty-td" colspan="15">Belum ada data.</td></tr>`;return;}
@@ -608,6 +643,8 @@ function clearRRFilters() {
 }
 
 function renderRRTable(rows) {
+  rows=sortBy(rows,rrSort.col,rrSort.dir);
+  updateSortTh('rr-thead',rrSort.col,rrSort.dir);
   document.getElementById("rr-tcount").textContent=rows.length+" entri";
   const body=document.getElementById("rrTableBody");
   if(!rows.length){body.innerHTML=`<tr><td class="empty-td" colspan="12">Belum ada data.</td></tr>`;return;}
@@ -782,6 +819,8 @@ function clearBMFilters() {
 }
 
 function renderBMTable(rows) {
+  rows=sortBy(rows,bmSort.col,bmSort.dir);
+  updateSortTh('bm-thead',bmSort.col,bmSort.dir);
   document.getElementById("bm-tcount").textContent = rows.length+" entri";
   const body = document.getElementById("bmTableBody");
   if (!rows.length) { body.innerHTML=`<tr><td class="empty-td" colspan="15">Belum ada data.</td></tr>`; return; }
@@ -1319,6 +1358,8 @@ function clearLeadsFilters() {
 }
 
 function renderLeadsTable(rows) {
+  rows=sortBy(rows,ldSort.col,ldSort.dir);
+  updateSortTh('ld-thead',ldSort.col,ldSort.dir);
   document.getElementById("ld-tcount").textContent=rows.length+" entri";
   const body=document.getElementById("ldTableBody");
   if(!rows.length){body.innerHTML=`<tr><td class="empty-td" colspan="12">Belum ada data.</td></tr>`;return;}
@@ -1535,6 +1576,8 @@ function clearDPFilters() {
 }
 
 function renderDPTable(rows) {
+  rows=sortBy(rows,dpSort.col,dpSort.dir);
+  updateSortTh('dp-thead',dpSort.col,dpSort.dir);
   document.getElementById("dp-tcount").textContent=rows.length+" entri";
   const body=document.getElementById("dpTableBody");
   if(!rows.length){body.innerHTML=`<tr><td class="empty-td" colspan="11">Belum ada data.</td></tr>`;return;}
@@ -1671,6 +1714,8 @@ function clearLogFilters() {
 }
 
 function renderLogTable(rows) {
+  rows=sortBy(rows,logSort.col,logSort.dir);
+  updateSortTh('log-thead',logSort.col,logSort.dir);
   const tbody = document.getElementById("logTableBody");
   document.getElementById("log-tcount").textContent = rows.length+" entri";
   if(!rows.length){tbody.innerHTML=`<tr><td class="empty-td" colspan="6">Tidak ada data.</td></tr>`;return;}
