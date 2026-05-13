@@ -49,7 +49,7 @@ function mapRR(r) { return {rowIndex:r.id,id:r.id,name:r.nama||"",tipe:r.tipe||"
 function mapBM(r) { return {rowIndex:r.id,id:r.id,name:r.name||"",category:r.category||"",liveStatus:r.live_status||"Active",revenue:r.revenue_stream||"",agreements:r.related_agreement||"",apparel:r.apparel_rate!=null?r.apparel_rate:"",accessories:r.accessories_rate!=null?r.accessories_rate:"",collectible:r.collectible_rate!=null?r.collectible_rate:"",preloved:r.preloved_rate!=null?r.preloved_rate:"",wellness:r.wellness_rate!=null?r.wellness_rate:"",others:r.others_rate!=null?r.others_rate:"",notes:r.notes||"",pic:r.pic||"",addedBy:r.added_by||""}; }
 function mapLD(r) { return {rowIndex:r.id,id:r.id,name:r.lead_name||"",category:r.category||"",stage:r.stage||"",pic:r.pic||"",revenue:r.revenue_stream||"",contact:r.contact||"",notes:r.notes||"",priority:r.priority||"",date:r.date_added?new Date(r.date_added).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"",by:r.added_by||"",lastUpdate:r.last_updated?new Date(r.last_updated).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"",lastBy:r.last_updated_by||"",addedBy:r.added_by||""}; }
 function mapDP(r) { return {rowIndex:r.id,id:r.id,name:r.partner_name||"",type:r.type||"",channel:r.channel||"",region:r.region||"",pic:r.pic||"",contactPerson:r.contact_person||"",contactInfo:r.contact_info||"",agreements:r.related_agreement||"",liveStatus:r.live_status||"Active",notes:r.notes||"",addedBy:r.added_by||""}; }
-function mapPB(r) { return {rowIndex:r.id,id:r.id,eventDate:r.event_date||"",eventName:r.event_name||"",location:r.location||"",ipRelated:r.ip_related||"",manpower:Array.isArray(r.manpower)?r.manpower:[],qtyBrought:r.qty_brought!=null?r.qty_brought:"",suratJalanUrl:r.surat_jalan_url||"",deliveryStatus:r.delivery_status||"",eventStatus:r.event_status||"",reinboundStatus:r.reinbound_status||"",reinboundQty:r.reinbound_qty!=null?r.reinbound_qty:"",srDeadline:r.sr_deadline||"",actualSales:r.actual_sales!=null?r.actual_sales:"",paymentMethod:r.payment_method||"",idPesananJubelio:r.id_pesanan_jubelio||"",notes:r.notes||"",dateAdded:r.date_added||"",addedBy:r.added_by||"",lastUpdated:r.last_updated||"",lastUpdatedBy:r.last_updated_by||""}; }
+function mapPB(r) { return {rowIndex:r.id,id:r.id,eventDate:r.event_date||"",eventName:r.event_name||"",location:r.location||"",ipRelated:r.ip_related||"",manpower:r.manpower||"",qtyBrought:r.qty_brought!=null?r.qty_brought:"",suratJalanUrl:r.surat_jalan_url||"",deliveryStatus:r.delivery_status||"",eventStatus:r.event_status||"",reinboundStatus:r.reinbound_status||"",reinboundQty:r.reinbound_qty!=null?r.reinbound_qty:"",srDeadline:r.sr_deadline||"",actualSales:r.actual_sales!=null?r.actual_sales:"",paymentMethod:r.payment_method||"",idPesananJubelio:r.id_pesanan_jubelio||"",notes:r.notes||"",dateAdded:r.date_added||"",addedBy:r.added_by||"",lastUpdated:r.last_updated||"",lastUpdatedBy:r.last_updated_by||""}; }
 
 let currentUser = "";
 let allRows = [], acBrands = [], acTypes = [], acPics = [];
@@ -1736,15 +1736,25 @@ let allPBRows = [];
 let pbSort = {col:null,dir:'asc'};
 function sortPBBy(c){pbSort.dir=pbSort.col===c?(pbSort.dir==='asc'?'desc':'asc'):'asc';pbSort.col=c;applyPBFilters();}
 
-function parsePBManpowerText(text) {
-  return (text||"").split("\n").map(l=>l.trim()).filter(Boolean).map(l=>{
-    const unpaid = /\(sukarela\)/i.test(l);
-    const name = l.replace(/\s*\(sukarela\)/i,"").trim();
-    return {name, paid: unpaid?"unpaid":"paid"};
-  });
+function getManpowerOptions() {
+  const names = new Set();
+  allPBRows.forEach(r=>{ if(r.manpower) r.manpower.split(",").map(n=>n.trim()).filter(Boolean).forEach(n=>names.add(n)); });
+  return Array.from(names).sort();
 }
-function formatPBManpowerText(arr) {
-  return (arr||[]).filter(m=>(m.name||"").trim()).map(m=>m.paid==="unpaid"?`${m.name} (Sukarela)`:m.name).join("\n");
+
+function checkPBJubelioMatch(sidId, asId, hintId) {
+  const sid = (document.getElementById(sidId)?.value||"").trim();
+  const asVal = document.getElementById(asId)?.value;
+  const hint = document.getElementById(hintId);
+  if (!hint) return;
+  if (!sid) { hint.textContent=""; return; }
+  const gt = (window._jubOrderMap||{})[sid];
+  if (gt==null) { hint.textContent=""; return; }
+  const gtNum = Number(gt);
+  const asNum = asVal!==""&&asVal!=null ? Number(asVal) : null;
+  if (asNum===null||isNaN(asNum)) { hint.innerHTML=`<span style="color:var(--g400)">Grand Total Jubelio: Rp ${gtNum.toLocaleString("id-ID")}</span>`; return; }
+  if (asNum===gtNum) hint.innerHTML=`<span style="color:#27ae60">✓ Sesuai dengan Grand Total Jubelio (Rp ${gtNum.toLocaleString("id-ID")})</span>`;
+  else hint.innerHTML=`<span style="color:#c0392b">⚠️ Tidak sesuai — Grand Total Jubelio: Rp ${gtNum.toLocaleString("id-ID")} | Actual Sales: Rp ${asNum.toLocaleString("id-ID")}</span>`;
 }
 
 function calcPBSRDeadline(eventDate) {
@@ -1781,10 +1791,17 @@ async function loadPopupBooth() {
       const {data} = await sb.from("ip_master").select("*");
       if (data) allIPRows = data.map(mapIP);
     }
-    const {data,error} = await sb.from("popup_booths").select("*").order("event_date",{ascending:false});
+    const [{data,error},{data:jubData}] = await Promise.all([
+      sb.from("popup_booths").select("*").order("event_date",{ascending:false}),
+      sb.from("jubelio_offline_sales_orders").select("salesorder_id,grand_total")
+    ]);
     if (error) throw error;
     allPBRows = (data||[]).map(mapPB);
+    window._jubOrderMap = {};
+    (jubData||[]).forEach(r=>{ if(r.salesorder_id!=null) window._jubOrderMap[String(r.salesorder_id).trim()] = r.grand_total; });
     setupACMulti("pb-iprelated","ac-pb-iprelated",()=>allIPRows.filter(r=>r.liveStatus==="Active").map(r=>r.name).filter(Boolean));
+    setupACMulti("pb-manpower","ac-pb-manpower",()=>getManpowerOptions());
+    setupAC("pb-id-pesanan","ac-pb-idpesanan",()=>Object.keys(window._jubOrderMap||{}));
     renderPBStats(allPBRows);
     applyPBFilters();
   } catch(e) {
@@ -1820,7 +1837,7 @@ function renderPBTable(rows) {
   tbody.innerHTML = rows.map(r => {
     const esPill = `<span class="pill ${r.eventStatus==="Done"?"p-active":r.eventStatus==="Cancelled"?"p-expired":"p-draft"}" style="font-size:11px">${r.eventStatus||"Planned"}</span>`;
     const reinPill = r.reinboundStatus ? `<span class="pill ${r.reinboundStatus==="Done"?"p-active":r.reinboundStatus==="Not Yet"?"p-near":r.reinboundStatus==="Sold Out"?"p-expired":"p-draft"}" style="font-size:11px">${r.reinboundStatus}</span>${(r.reinboundQty!==""&&r.reinboundQty!=null)?" ("+r.reinboundQty+")":""}` : "—";
-    const manpowerStr = r.manpower&&r.manpower.length ? `${r.manpower.length}×: ${r.manpower.map(m=>`${m.name||"?"}(${m.paid==="paid"?"💰":"🤝"})`).join(", ")}` : "—";
+    const manpowerStr = r.manpower || "—";
     const sjBtn = r.suratJalanUrl ? `<a href="${r.suratJalanUrl}" target="_blank" class="btn-icon" title="Lihat Surat Jalan">📎&nbsp;SJ</a>` : "—";
     const idPesananCell = r.idPesananJubelio ? `<span style="font-size:11px;font-family:var(--mono)">${r.idPesananJubelio}</span>` : `<span style="background:#fdecea;color:#c0392b;padding:2px 6px;border-radius:4px;font-size:11px">Belum diisi</span>`;
     const pm = r.paymentMethod ? r.paymentMethod.split(",").map(p=>`<span class="pill p-signings" style="font-size:10px;margin-right:2px">${p.trim()}</span>`).join("") : "—";
@@ -1855,11 +1872,11 @@ function renderPBTable(rows) {
             <div class="fg"><label>Event Status</label><select id="pbe-eventstatus-${r.rowIndex}"><option value="">Planned</option><option ${r.eventStatus==="Done"?"selected":""}>Done</option><option ${r.eventStatus==="Cancelled"?"selected":""}>Cancelled</option></select></div>
             <div class="fg"><label>Reinbound Status</label><select id="pbe-reinbound-${r.rowIndex}"><option value="">—</option><option ${r.reinboundStatus==="Done"?"selected":""}>Done</option><option ${r.reinboundStatus==="Not Yet"?"selected":""}>Not Yet</option><option ${r.reinboundStatus==="Sold Out"?"selected":""}>Sold Out</option></select></div>
             <div class="fg"><label>Reinbound Qty</label><input type="number" id="pbe-reinboundqty-${r.rowIndex}" value="${r.reinboundQty!=null?r.reinboundQty:''}" min="0"></div>
-            <div class="fg"><label>Actual Sales (IDR)</label><input type="number" id="pbe-actualsales-${r.rowIndex}" value="${r.actualSales!=null?r.actualSales:''}" min="0"></div>
+            <div class="fg"><label>Actual Sales (IDR)</label><input type="number" id="pbe-actualsales-${r.rowIndex}" value="${r.actualSales!=null?r.actualSales:''}" min="0" oninput="checkPBJubelioMatch('pbe-idpesanan-${r.rowIndex}','pbe-actualsales-${r.rowIndex}','pbe-jubelio-hint-${r.rowIndex}')"></div>
             <div class="fg full"><label>Payment Method</label><div style="display:flex;gap:16px;flex-wrap:wrap;padding:8px 0"><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-jpos-${r.rowIndex}" ${(r.paymentMethod||"").includes("Jubelio POS")?"checked":""}> Jubelio POS</label><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-qris-${r.rowIndex}" ${(r.paymentMethod||"").includes("QRIS Xendit")?"checked":""}> QRIS Xendit</label><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-cons-${r.rowIndex}" ${(r.paymentMethod||"").includes("Consignment")?"checked":""}> Consignment</label></div></div>
-            <div class="fg full"><label>Manpower <span style="font-size:11px;color:var(--g400)">(satu nama per baris; tambah <code>(Sukarela)</code> untuk tidak dibayar)</span></label><textarea id="pbe-manpower-text-${r.rowIndex}" rows="3" style="resize:vertical;width:100%;padding:8px 10px;border:1px solid var(--g200);border-radius:6px;font-family:var(--body);font-size:13px" placeholder="Budi&#10;Sari (Sukarela)">${formatPBManpowerText(r.manpower)}</textarea></div>
+            <div class="fg" style="position:relative"><label>Manpower</label><input type="text" id="pbe-manpower-${r.rowIndex}" value="${(r.manpower||'').replace(/"/g,'&quot;')}" placeholder="Ketik nama, pisahkan dengan koma" autocomplete="off"><div class="ac-list" id="ac-pbe-manpower-${r.rowIndex}"></div></div>
             <div class="fg full"><label>Surat Jalan <span style="font-size:11px;color:var(--g400)">(link Google Drive file)</span></label><input type="url" id="pbe-sj-${r.rowIndex}" value="${(r.suratJalanUrl||'').replace(/"/g,'&quot;')}" placeholder="https://drive.google.com/file/d/..." style="width:100%" oninput="pbValidateSJ('pbe-sj-hint-${r.rowIndex}',this.value)"><div id="pbe-sj-hint-${r.rowIndex}" style="color:#c0392b;font-size:11px;margin-top:3px"></div></div>
-            <div class="fg full"><label>ID Pesanan Jubelio</label><input type="text" id="pbe-idpesanan-${r.rowIndex}" value="${(r.idPesananJubelio||'').replace(/"/g,'&quot;')}" placeholder="Nomor/ID pesanan di Jubelio"></div>
+            <div class="fg" style="position:relative"><label>ID Pesanan Jubelio</label><input type="text" id="pbe-idpesanan-${r.rowIndex}" value="${(r.idPesananJubelio||'').replace(/"/g,'&quot;')}" placeholder="Pilih dari Jubelio Offline Sales" autocomplete="off" oninput="checkPBJubelioMatch('pbe-idpesanan-${r.rowIndex}','pbe-actualsales-${r.rowIndex}','pbe-jubelio-hint-${r.rowIndex}')"><div class="ac-list" id="ac-pbe-idpesanan-${r.rowIndex}"></div><div id="pbe-jubelio-hint-${r.rowIndex}" style="font-size:11px;margin-top:3px"></div></div>
             <div class="fg full"><label>Notes</label><textarea id="pbe-notes-${r.rowIndex}" rows="2" style="resize:vertical">${(r.notes||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea></div>
           </div>
           <div class="edit-row-btns">
@@ -1880,9 +1897,10 @@ function openPBEdit(rowIdx) {
   const shown = row.style.display==="table-row";
   row.style.display = shown ? "none" : "table-row";
   if (!shown) {
+    setupACMulti("pbe-manpower-"+rowIdx,"ac-pbe-manpower-"+rowIdx,()=>getManpowerOptions());
+    setupAC("pbe-idpesanan-"+rowIdx,"ac-pbe-idpesanan-"+rowIdx,()=>Object.keys(window._jubOrderMap||{}));
     const orig = allPBRows.find(r=>r.rowIndex===rowIdx);
-    const ta = document.getElementById("pbe-manpower-text-"+rowIdx);
-    if (ta) ta.value = formatPBManpowerText(orig?.manpower||[]);
+    if (orig?.idPesananJubelio) checkPBJubelioMatch("pbe-idpesanan-"+rowIdx,"pbe-actualsales-"+rowIdx,"pbe-jubelio-hint-"+rowIdx);
   }
 }
 function closePBEdit(rowIdx) { const r=document.getElementById("pb-edit-row-"+rowIdx); if(r) r.style.display="none"; }
@@ -1900,7 +1918,7 @@ async function savePBEdit(rowIdx) {
       document.getElementById(`pbe-pm-qris-${rowIdx}`)?.checked?"QRIS Xendit":"",
       document.getElementById(`pbe-pm-cons-${rowIdx}`)?.checked?"Consignment":""
     ].filter(Boolean).join(", ");
-    const manpower = parsePBManpowerText(document.getElementById(`pbe-manpower-text-${rowIdx}`)?.value||"");
+    const manpower = document.getElementById(`pbe-manpower-${rowIdx}`)?.value.trim()||null;
     const eventDate = document.getElementById(`pbe-eventdate-${rowIdx}`).value;
     const srDeadline = calcPBSRDeadline(eventDate);
     const nm = document.getElementById(`pbe-eventname-${rowIdx}`).value.trim();
@@ -1948,7 +1966,8 @@ function clearPBForm() {
   ["pb-delivery","pb-eventstatus","pb-reinbound"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
   ["pb-pm-jpos","pb-pm-qris","pb-pm-cons"].forEach(id=>{const el=document.getElementById(id);if(el)el.checked=false;});
   const sjHint=document.getElementById("pb-sj-hint");if(sjHint)sjHint.textContent="";
-  const mptxt=document.getElementById("pb-manpower-text"); if(mptxt) mptxt.value="";
+  const mptxt=document.getElementById("pb-manpower"); if(mptxt) mptxt.value="";
+  const jubHint=document.getElementById("pb-jubelio-hint"); if(jubHint) jubHint.textContent="";
   const fb=document.getElementById("pb-feedback"); if(fb) fb.textContent="";
 }
 
@@ -1969,7 +1988,7 @@ async function submitPB() {
       document.getElementById("pb-pm-qris")?.checked?"QRIS Xendit":"",
       document.getElementById("pb-pm-cons")?.checked?"Consignment":""
     ].filter(Boolean).join(", ");
-    const manpower = parsePBManpowerText(document.getElementById("pb-manpower-text")?.value||"");
+    const manpower = document.getElementById("pb-manpower")?.value.trim()||null;
     const srDeadline = calcPBSRDeadline(eventDate);
     const qtyVal = document.getElementById("pb-qty").value;
     const rqVal  = document.getElementById("pb-reinboundqty").value;

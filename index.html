@@ -708,11 +708,11 @@
                 <label>Qty Brought</label>
                 <input type="number" id="pb-qty" placeholder="Jumlah barang dibawa" min="0">
               </div>
-            </div>
-            <div class="form-sec" style="margin-top:1rem">Manpower</div>
-            <div style="margin-bottom:1rem">
-              <textarea id="pb-manpower-text" rows="3" style="resize:vertical;width:100%;padding:8px 10px;border:1px solid var(--g200);border-radius:6px;font-family:var(--body);font-size:13px" placeholder="Satu nama per baris. Tambahkan (Sukarela) untuk yang tidak dibayar.&#10;Contoh:&#10;Budi&#10;Sari (Sukarela)"></textarea>
-              <div style="font-size:11px;color:var(--g400);margin-top:3px">Format: <code>Nama</code> untuk dibayar, <code>Nama (Sukarela)</code> untuk tidak dibayar.</div>
+              <div class="fg" style="position:relative">
+                <label>Manpower</label>
+                <input type="text" id="pb-manpower" placeholder="Ketik nama, pisahkan dengan koma" autocomplete="off">
+                <div class="ac-list" id="ac-pb-manpower"></div>
+              </div>
             </div>
             <div class="form-sec" style="margin-top:.5rem">Status &amp; Dokumen</div>
             <div class="form-grid">
@@ -734,7 +734,7 @@
               </div>
               <div class="fg">
                 <label>Actual Sales (IDR)</label>
-                <input type="number" id="pb-actualsales" placeholder="0" min="0">
+                <input type="number" id="pb-actualsales" placeholder="0" min="0" oninput="checkPBJubelioMatch('pb-id-pesanan','pb-actualsales','pb-jubelio-hint')">
               </div>
               <div class="fg full">
                 <label>Payment Method</label>
@@ -749,9 +749,11 @@
                 <input type="url" id="pb-sj" placeholder="https://drive.google.com/file/d/..." autocomplete="off" oninput="pbValidateSJ('pb-sj-hint',this.value)">
                 <div id="pb-sj-hint" style="color:#c0392b;font-size:11px;margin-top:3px"></div>
               </div>
-              <div class="fg">
+              <div class="fg" style="position:relative">
                 <label>ID Pesanan Jubelio</label>
-                <input type="text" id="pb-id-pesanan" placeholder="Nomor/ID pesanan di Jubelio">
+                <input type="text" id="pb-id-pesanan" placeholder="Pilih dari Jubelio Offline Sales" autocomplete="off" oninput="checkPBJubelioMatch('pb-id-pesanan','pb-actualsales','pb-jubelio-hint')">
+                <div class="ac-list" id="ac-pb-idpesanan"></div>
+                <div id="pb-jubelio-hint" style="font-size:11px;margin-top:3px"></div>
               </div>
               <div class="fg full">
                 <label>Notes</label>
