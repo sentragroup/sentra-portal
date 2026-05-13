@@ -1106,13 +1106,13 @@ function renderTable(rows) {
     <td class="td-id">${r.id||"—"}</td><td class="td-title">${r.title||"—"}</td><td>${r.partner||"—"}</td><td>${r.pic||"—"}</td><td>${r.brand||"—"}</td>
     <td><span class="pill p-draft">${r.revenue||"—"}</span></td><td style="color:var(--g600);font-size:11px">${r.type||"—"}</td>
     <td style="font-family:var(--mono);font-size:10px;color:var(--g400)">${fmtDate(r.start)}</td><td style="font-family:var(--mono);font-size:10px;color:var(--g400)">${fmtDate(r.end)}</td>
-    <td><select class="pill status-inline ${pillClass(r.status)}" onchange="updateStatus(this,${r.rowIndex})">${MANUAL_STATUSES.map(s=>`<option ${s===r.status?"selected":""}>${s}</option>`).join("")}</select></td>
+    <td><select class="pill status-inline ${pillClass(r.status)}" onchange="updateStatus(this,'${r.rowIndex}')">${MANUAL_STATUSES.map(s=>`<option ${s===r.status?"selected":""}>${s}</option>`).join("")}</select></td>
     <td>${as?`<span class="pill ${pillClass(as)}">${as}</span>`:"—"}</td>
     <td class="td-link">${r.link?`<a href="${r.link}" target="_blank">Drive ↗</a>`:"—"}</td>
     <td class="td-link">${r.emailLink?`<a href="${r.emailLink}" target="_blank">Email ↗</a>`:"—"}</td>
     <td style="color:var(--g600);font-size:11px;max-width:160px;">${r.notes||"—"}</td>
     <td class="td-audit">${r.lastUpdate||"—"}${r.lastBy?`<br><span style="color:var(--g400);font-size:9px">${r.lastBy}</span>`:""}</td>
-    <td><button class="btn-icon" onclick="openAgrEdit(${r.rowIndex})">Edit</button> <button class="btn-icon" style="color:#c0392b;" onclick="deleteAgreement(${r.rowIndex})">Del</button></td>
+    <td><button class="btn-icon" onclick="openAgrEdit('${r.rowIndex}')">Edit</button> <button class="btn-icon" style="color:#c0392b;" onclick="deleteAgreement('${r.rowIndex}')">Del</button></td>
   </tr>
   <tr id="agr-edit-row-${r.rowIndex}" style="display:none"><td colspan="16" style="padding:0 12px 12px;">
     <div class="edit-row-form">
@@ -1131,8 +1131,8 @@ function renderTable(rows) {
         <div class="fg full"><label>Notes</label><input type="text" id="agr-e-notes-${r.rowIndex}" value="${r.notes||""}"></div>
       </div>
       <div class="edit-row-btns">
-        <button class="btn-save" onclick="saveAgrEdit(${r.rowIndex})">Simpan</button>
-        <button class="btn-cancel" onclick="closeAgrEdit(${r.rowIndex})">Batal</button>
+        <button class="btn-save" onclick="saveAgrEdit('${r.rowIndex}')">Simpan</button>
+        <button class="btn-cancel" onclick="closeAgrEdit('${r.rowIndex}')">Batal</button>
       </div>
     </div>
   </td></tr>`;}).join("");
@@ -1291,7 +1291,7 @@ function renderIPTable(rows) {
       <td>${agrs.length?agrs.map(a=>{const opt=acAgrOptions.find?acAgrOptions.find(o=>o.id===a):null;const lnk=acAgrLinks[a];return lnk?`<a href="${lnk}" target="_blank" class="pill" style="background:#E6F1FB;color:#0C447C;border:0.5px solid #85B7EB;margin-right:3px;text-decoration:none" title="${opt?opt.label:""}">${a} ↗</a>`:`<span class="pill" style="background:#E6F1FB;color:#0C447C;border:0.5px solid #85B7EB;margin-right:3px" title="${opt?opt.label:""}">${a}</span>`;}).join(""):`<span style="color:var(--g400);font-size:11px">—</span>`}</td>
       <td>${ipAgrStatusPill(r.ipStatus)}</td>
       <td>
-        <select class="pill live-toggle ${r.liveStatus==="Active"?"p-active":"p-inactive"}" onchange="updateLiveStatus(this,${r.rowIndex})">
+        <select class="pill live-toggle ${r.liveStatus==="Active"?"p-active":"p-inactive"}" onchange="updateLiveStatus(this,'${r.rowIndex}')">
           <option ${r.liveStatus==="Active"?"selected":""}>Active</option>
           <option ${r.liveStatus==="Inactive"?"selected":""}>Inactive</option>
         </select>
@@ -1302,7 +1302,7 @@ function renderIPTable(rows) {
       <td style="font-size:11px">${r.termin||"—"}</td>
       <td style="font-family:var(--mono);font-size:11px">${r.pph?r.pph+"%":"—"}</td>
       <td style="color:var(--g600);font-size:11px">${r.notes||"—"}</td>
-      <td><button class="btn-icon" onclick="openIPEdit(${r.rowIndex})">Edit</button> <button class="btn-icon" style="color:#c0392b;" onclick="deleteIP(${r.rowIndex})">Del</button></td>
+      <td><button class="btn-icon" onclick="openIPEdit('${r.rowIndex}')">Edit</button> <button class="btn-icon" style="color:#c0392b;" onclick="deleteIP('${r.rowIndex}')">Del</button></td>
     </tr>
     <tr id="ip-edit-row-${r.rowIndex}" style="display:none"><td colspan="15" style="padding:0 12px 12px;">
       <div class="edit-row-form">
@@ -1321,8 +1321,8 @@ function renderIPTable(rows) {
           <div class="fg"><label>PIC</label><input type="text" id="ip-e-pic-${r.rowIndex}" value="${r.pic||""}"></div>
         </div>
         <div class="edit-row-btns">
-          <button class="btn-save" onclick="saveIPEdit(${r.rowIndex})">Simpan</button>
-          <button class="btn-cancel" onclick="closeIPEdit(${r.rowIndex})">Batal</button>
+          <button class="btn-save" onclick="saveIPEdit('${r.rowIndex}')">Simpan</button>
+          <button class="btn-cancel" onclick="closeIPEdit('${r.rowIndex}')">Batal</button>
         </div>
       </div>
     </td></tr>`;
@@ -1449,7 +1449,7 @@ function renderRRTable(rows) {
     <td style="font-size:11px">${r.termin||"—"}</td>
     <td>${r.pks?(()=>{const isId=r.pks.startsWith("AGR-");const agrId=isId?r.pks:Object.keys(acAgrLinks).find(k=>acAgrLinks[k]===r.pks);const href=isId?(acAgrLinks[r.pks]||""):r.pks;return href?`<a href="${href}" target="_blank" class="pill" style="background:#E6F1FB;color:#0C447C;border:0.5px solid #85B7EB;text-decoration:none">${agrId||"PKS"} ↗</a>`:`<span class="pill" style="background:#E6F1FB;color:#0C447C;border:0.5px solid #85B7EB">${agrId||r.pks}</span>`;})():"—"}</td>
     <td style="color:var(--g600);font-size:11px">${r.notes||"—"}</td>
-    <td><button class="btn-icon" onclick="openRREdit(${r.rowIndex})">Edit</button> <button class="btn-icon" style="color:#c0392b;" onclick="deleteRR(${r.rowIndex})">Del</button></td>
+    <td><button class="btn-icon" onclick="openRREdit('${r.rowIndex}')">Edit</button> <button class="btn-icon" style="color:#c0392b;" onclick="deleteRR('${r.rowIndex}')">Del</button></td>
   </tr>
   <tr id="rr-edit-row-${r.rowIndex}" style="display:none"><td colspan="12" style="padding:0 12px 12px;">
     <div class="edit-row-form">
@@ -1465,7 +1465,7 @@ function renderRRTable(rows) {
         <div class="fg"><label>Notes</label><input type="text" id="rr-e-notes-${r.rowIndex}" value="${r.notes||""}"></div>
         <div class="fg"><label>PIC</label><input type="text" id="rr-e-pic-${r.rowIndex}" value="${r.pic||""}"></div>
       </div>
-      <div class="edit-row-btns"><button class="btn-save" onclick="saveRREdit(${r.rowIndex})">Simpan</button><button class="btn-cancel" onclick="closeRREdit(${r.rowIndex})">Batal</button></div>
+      <div class="edit-row-btns"><button class="btn-save" onclick="saveRREdit('${r.rowIndex}')">Simpan</button><button class="btn-cancel" onclick="closeRREdit('${r.rowIndex}')">Batal</button></div>
     </div>
   </td></tr>`).join("");
 }
@@ -1632,7 +1632,7 @@ function renderBMTable(rows) {
       <td>${rateCell(r.wellness,  BM_NORMAL.wellness)}</td>
       <td>${rateCell(r.others,    BM_NORMAL.others)}</td>
       <td style="color:var(--g600);font-size:11px">${r.notes||"—"}</td>
-      <td><button class="btn-icon" onclick="openBMEdit(${r.rowIndex})">Edit</button> <button class="btn-icon" style="color:#c0392b;" onclick="deleteBM(${r.rowIndex})">Del</button></td>
+      <td><button class="btn-icon" onclick="openBMEdit('${r.rowIndex}')">Edit</button> <button class="btn-icon" style="color:#c0392b;" onclick="deleteBM('${r.rowIndex}')">Del</button></td>
     </tr>
     <tr id="bm-edit-row-${r.rowIndex}" style="display:none"><td colspan="15" style="padding:0 12px 12px;">
       <div class="edit-row-form">
@@ -1652,8 +1652,8 @@ function renderBMTable(rows) {
           <div class="fg"><label>PIC</label><input type="text" id="bm-e-pic-${r.rowIndex}" value="${r.pic||""}"></div>
         </div>
         <div class="edit-row-btns">
-          <button class="btn-save" onclick="saveBMEdit(${r.rowIndex})">Simpan</button>
-          <button class="btn-cancel" onclick="closeBMEdit(${r.rowIndex})">Batal</button>
+          <button class="btn-save" onclick="saveBMEdit('${r.rowIndex}')">Simpan</button>
+          <button class="btn-cancel" onclick="closeBMEdit('${r.rowIndex}')">Batal</button>
         </div>
       </div>
     </td></tr>`;
@@ -2157,7 +2157,7 @@ function renderLeadsTable(rows) {
       <td class="td-id">${r.id||"—"}</td>
       <td style="font-weight:500">${r.name||"—"}</td>
       <td><span class="pill p-draft">${r.category||"—"}</span></td>
-      <td><select class="pill status-inline ${stagePillClass(r.stage)}" onchange="updateLeadStage(this,${r.rowIndex})">${LD_STAGES.map(s=>`<option ${s===r.stage?"selected":""}>${s}</option>`).join("")}</select></td>
+      <td><select class="pill status-inline ${stagePillClass(r.stage)}" onchange="updateLeadStage(this,'${r.rowIndex}')">${LD_STAGES.map(s=>`<option ${s===r.stage?"selected":""}>${s}</option>`).join("")}</select></td>
       <td style="font-size:12px">${r.pic||"—"}</td>
       <td>${streams.map(s=>`<span class="pill" style="background:#EEEDFE;color:#3C3489;border:0.5px solid #AFA9EC;margin-right:3px">${s}</span>`).join("")||"—"}</td>
       <td style="font-size:11px;color:var(--g600)">${r.contact||"—"}</td>
@@ -2165,7 +2165,7 @@ function renderLeadsTable(rows) {
       <td>${priorityPill(r.priority)}</td>
       <td class="td-audit">${r.date||"—"}</td>
       <td class="td-audit">${r.by||"—"}</td>
-      <td><button class="btn-icon" onclick="openLeadEdit(${r.rowIndex})">Edit</button> <button class="btn-icon" style="color:#c0392b;" onclick="deleteLead(${r.rowIndex})">Del</button></td>
+      <td><button class="btn-icon" onclick="openLeadEdit('${r.rowIndex}')">Edit</button> <button class="btn-icon" style="color:#c0392b;" onclick="deleteLead('${r.rowIndex}')">Del</button></td>
     </tr>
     <tr id="ld-edit-row-${r.rowIndex}" style="display:none"><td colspan="12" style="padding:0 12px 12px;">
       <div class="edit-row-form">
@@ -2180,8 +2180,8 @@ function renderLeadsTable(rows) {
           <div class="fg"><label>Priority</label><select id="ld-e-priority-${r.rowIndex}"><option value="" ${!r.priority?"selected":""}>—</option><option ${r.priority==="Low"?"selected":""}>Low</option><option ${r.priority==="Medium"?"selected":""}>Medium</option><option ${r.priority==="High"?"selected":""}>High</option></select></div>
         </div>
         <div class="edit-row-btns">
-          <button class="btn-save" onclick="saveLeadEdit(${r.rowIndex})">Simpan</button>
-          <button class="btn-cancel" onclick="closeLeadEdit(${r.rowIndex})">Batal</button>
+          <button class="btn-save" onclick="saveLeadEdit('${r.rowIndex}')">Simpan</button>
+          <button class="btn-cancel" onclick="closeLeadEdit('${r.rowIndex}')">Batal</button>
         </div>
       </div>
     </td></tr>`;
@@ -2380,13 +2380,13 @@ function renderDPTable(rows) {
       <td style="font-size:11px;color:var(--g600)">${r.contactPerson?`${r.contactPerson}${r.contactInfo?`<br><span style="font-size:10px;font-family:var(--mono)">${r.contactInfo}</span>`:""}` :"—"}</td>
       <td>${agrs.length?agrs.map(a=>{const opt=acAgrOptions.find?acAgrOptions.find(o=>o.id===a):null;const link=acAgrLinks[a];return link?`<a href="${link}" target="_blank" class="pill" style="background:#E6F1FB;color:#0C447C;border:0.5px solid #85B7EB;margin-right:3px;text-decoration:none" title="${opt?opt.label:""}">${a} ↗</a>`:`<span class="pill" style="background:#E6F1FB;color:#0C447C;border:0.5px solid #85B7EB;margin-right:3px" title="${opt?opt.label:""}">${a}</span>`;}).join(""):`<span style="color:var(--g400);font-size:11px">—</span>`}</td>
       <td>
-        <select class="pill live-toggle ${r.liveStatus==="Active"?"p-active":"p-inactive"}" onchange="updateDPLiveStatus(this,${r.rowIndex})">
+        <select class="pill live-toggle ${r.liveStatus==="Active"?"p-active":"p-inactive"}" onchange="updateDPLiveStatus(this,'${r.rowIndex}')">
           <option ${r.liveStatus==="Active"?"selected":""}>Active</option>
           <option ${r.liveStatus==="Inactive"?"selected":""}>Inactive</option>
         </select>
       </td>
       <td style="font-size:11px;color:var(--g600)">${r.notes||"—"}</td>
-      <td><button class="btn-icon" onclick="openDPEdit(${r.rowIndex})">Edit</button> <button class="btn-icon" style="color:#c0392b;" onclick="deleteDP(${r.rowIndex})">Del</button></td>
+      <td><button class="btn-icon" onclick="openDPEdit('${r.rowIndex}')">Edit</button> <button class="btn-icon" style="color:#c0392b;" onclick="deleteDP('${r.rowIndex}')">Del</button></td>
     </tr>
     <tr id="dp-edit-row-${r.rowIndex}" style="display:none"><td colspan="11" style="padding:0 12px 12px;">
       <div class="edit-row-form">
@@ -2403,8 +2403,8 @@ function renderDPTable(rows) {
           <div class="fg"><label>Notes</label><input type="text" id="dp-e-notes-${r.rowIndex}" value="${r.notes||""}"></div>
         </div>
         <div class="edit-row-btns">
-          <button class="btn-save" onclick="saveDPEdit(${r.rowIndex})">Simpan</button>
-          <button class="btn-cancel" onclick="closeDPEdit(${r.rowIndex})">Batal</button>
+          <button class="btn-save" onclick="saveDPEdit('${r.rowIndex}')">Simpan</button>
+          <button class="btn-cancel" onclick="closeDPEdit('${r.rowIndex}')">Batal</button>
         </div>
       </div>
     </td></tr>`;
