@@ -252,6 +252,9 @@ tbody tr:hover td{background:var(--off);}
         <div class="sb-item" onclick="showPage('distpartner',this)" id="nav-distpartner">
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="6" width="5" height="5" rx="1"/><rect x="10" y="6" width="5" height="5" rx="1"/><rect x="5.5" y="1" width="5" height="5" rx="1"/><line x1="8" y1="6" x2="8" y2="11"/><line x1="3.5" y1="6" x2="8" y2="3.5"/><line x1="12.5" y1="6" x2="8" y2="3.5"/></svg>Distribution Partner
         </div>
+        <div class="sb-item" onclick="showPage('activitylog',this);loadActivityLog();" id="nav-activitylog">
+          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="12" rx="2"/><line x1="5" y1="6" x2="11" y2="6"/><line x1="5" y1="9" x2="11" y2="9"/><line x1="5" y1="12" x2="8" y2="12"/></svg>Activity Log
+        </div>
       </div>
     </nav>
     <div class="content">
@@ -793,6 +796,31 @@ tbody tr:hover td{background:var(--off);}
         </div>
       </div>
 
+      <!-- ACTIVITY LOG -->
+      <div class="page" id="page-activitylog">
+        <div class="page-header">
+          <div><div class="page-title">Activity Log</div><div class="page-sub">Riwayat semua aktivitas di portal — siapa mengubah apa dan kapan.</div></div>
+        </div>
+        <div class="filter-panel">
+          <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="clearLogFilters()">✕ Reset</button></div>
+          <div class="filter-grid">
+            <select class="f-select" id="log-fil-module" onchange="applyLogFilters()"><option value="">Semua Modul</option><option>Auth</option><option>Agreement</option><option>IP Master</option><option>Royalty Recipients</option><option>Brand Master</option><option>Sales Report</option><option>Leads Tracker</option><option>Distribution Partner</option></select>
+            <select class="f-select" id="log-fil-action" onchange="applyLogFilters()"><option value="">Semua Aksi</option><option>login</option><option>logout</option><option>create</option><option>edit</option><option>delete</option><option>status_change</option><option>stage_change</option><option>submit</option><option>update</option><option>set_startdate</option></select>
+            <input class="search-box" type="text" id="logSearch" placeholder="Cari user atau detail..." oninput="applyLogFilters()" style="width:100%">
+          </div>
+        </div>
+        <div class="table-toolbar">
+          <button class="btn-refresh" onclick="loadActivityLog()">↻ Refresh</button>
+          <div class="tcount" id="log-tcount">— entri</div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Waktu</th><th>User</th><th>Modul</th><th>Aksi</th><th>Record ID</th><th>Detail</th></tr></thead>
+            <tbody id="logTableBody"><tr><td class="empty-td" colspan="6">Memuat log...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
     </div>
   </div>
 </div>
@@ -806,6 +834,11 @@ const MANUAL_STATUSES = ["Draft","Under Review","Signings","Signed"];
 function genId(prefix) {
   const d = new Date().toISOString().slice(0,10).replace(/-/g,"");
   return `${prefix}-${d}-${String(Math.floor(Math.random()*9000)+1000)}`;
+}
+async function logActivity(module, action, recordId, details) {
+  try {
+    await sb.from("activity_logs").insert({user_name:currentUser||"system",module,action,record_id:recordId||null,details:details||null});
+  } catch(e) { /* silent */ }
 }
 function mapAgr(r) { return {rowIndex:r.id,id:r.id,title:r.title||"",partner:r.partner||"",pic:r.pic||"",brand:r.brand||"",revenue:r.revenue||"",type:r.type||"",start:r.start_date||"",end:r.end_date||"",status:r.status||"Draft",link:r.link||"",emailLink:r.email_link||"",notes:r.notes||"",lastUpdate:r.last_updated?new Date(r.last_updated).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"",lastBy:r.last_updated_by||""}; }
 function mapIP(r) { return {rowIndex:r.id,id:r.id,name:r.name||"",category:r.category||"",liveStatus:r.live_status||"Active",revenue:r.revenue_stream||"",agreements:r.related_agreement||"",royaltyType:r.royalty_type||"",pct:r.percentage||"",fixed:r.fixed_amount||"",termin:r.termin||"",pph:r.pph_tax_rate||"",notes:r.notes||"",pic:r.pic||"",ipStatus:""}; }
@@ -874,9 +907,11 @@ function enterApp(user) {
   document.getElementById("greetDate").textContent = new Date().toLocaleDateString("id-ID",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
   loadStats();
   preloadAutocomplete();
+  logActivity("Auth","login",null,"Login berhasil");
 }
 
 async function doLogout() {
+  await logActivity("Auth","logout",null,"Logout");
   await sb.auth.signOut();
   currentUser = ""; allRows = [];
   document.getElementById("app").style.display = "none";
@@ -891,7 +926,7 @@ function showPage(name, el) {
   document.querySelectorAll(".sb-item").forEach(i=>i.classList.remove("active"));
   document.getElementById("page-"+name).classList.add("active");
   if (el) el.classList.add("active");
-  const labels = {home:"Internal Tools",agreement:"Agreement Tracker",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Sales Report",leads:"Leads Tracker",distpartner:"Distribution Partner"};
+  const labels = {home:"Internal Tools",agreement:"Agreement Tracker",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Sales Report",leads:"Leads Tracker",distpartner:"Distribution Partner",activitylog:"Activity Log"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   if (name==="agreement") loadStats();
   if (name==="ipmaster") { loadIPMaster(); loadStats(); }
@@ -1002,6 +1037,7 @@ async function submitAgreement() {
     const {error} = await sb.from("agreements").insert(row);
     if (error) throw error;
     showFeedback("✓ Agreement tersimpan — ID: "+id,"ok");
+    logActivity("Agreement","create",id,row.title+" — "+row.partner);
     if (!acBrands.includes(row.brand)) acBrands.push(row.brand);
     if (!acTypes.includes(row.type))   acTypes.push(row.type);
     if (!acPics.includes(row.pic))     acPics.push(row.pic);
@@ -1109,6 +1145,7 @@ async function saveAgrEdit(rowIndex) {
   try {
     const {error}=await sb.from("agreements").update({title:document.getElementById("agr-e-title-"+rowIndex).value.trim(),partner:document.getElementById("agr-e-partner-"+rowIndex).value.trim(),pic:document.getElementById("agr-e-pic-"+rowIndex).value.trim(),brand:document.getElementById("agr-e-brand-"+rowIndex).value.trim(),revenue:document.getElementById("agr-e-revenue-"+rowIndex).value,type:document.getElementById("agr-e-type-"+rowIndex).value.trim(),status:document.getElementById("agr-e-status-"+rowIndex).value,start_date:document.getElementById("agr-e-start-"+rowIndex).value.trim()||null,end_date:document.getElementById("agr-e-end-"+rowIndex).value.trim()||null,link:document.getElementById("agr-e-link-"+rowIndex).value.trim(),email_link:document.getElementById("agr-e-email-"+rowIndex).value.trim(),notes:document.getElementById("agr-e-notes-"+rowIndex).value.trim(),last_updated:new Date().toISOString(),last_updated_by:currentUser}).eq("id",rowIndex);
     if(error){alert("Gagal simpan: "+error.message);return;}
+    logActivity("Agreement","edit",rowIndex,"Data diperbarui");
     closeAgrEdit(rowIndex); loadAgreements();
   } catch(e){alert("Koneksi gagal.");}
 }
@@ -1118,6 +1155,7 @@ async function deleteAgreement(rowIndex) {
   try {
     const {error}=await sb.from("agreements").delete().eq("id",rowIndex);
     if(error){alert("Gagal hapus: "+error.message);return;}
+    logActivity("Agreement","delete",rowIndex,"Dihapus");
     loadAgreements();
   } catch(e) { alert("Koneksi gagal."); }
 }
@@ -1127,6 +1165,7 @@ async function updateStatus(sel, rowIndex) {
   try {
     const {error}=await sb.from("agreements").update({status:newStatus,last_updated:new Date().toISOString(),last_updated_by:currentUser}).eq("id",rowIndex);
     if(error){alert("Gagal update: "+error.message);return;}
+    logActivity("Agreement","status_change",rowIndex,"Status → "+newStatus);
     const row=allRows.find(r=>r.rowIndex===rowIndex);
     if(row){row.status=newStatus;row.lastBy=currentUser;row.lastUpdate=new Date().toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"});}
     applyFilters();
@@ -1163,6 +1202,7 @@ async function submitIP() {
     const {error}=await sb.from("ip_master").insert({id,name,category,live_status:liveStatus||"Active",pic:document.getElementById("ip-pic").value.trim(),revenue_stream:revenues.join(", "),related_agreement:document.getElementById("ip-agreements").value.trim(),royalty_type:document.getElementById("ip-royalty-type").value,percentage:document.getElementById("ip-pct").value.trim()||null,fixed_amount:document.getElementById("ip-fixed").value.trim()||null,termin:document.getElementById("ip-termin").value,pph_tax_rate:document.getElementById("ip-pph").value.trim()||null,notes:document.getElementById("ip-notes").value.trim(),added_by:currentUser,last_updated:new Date().toISOString(),last_updated_by:currentUser});
     if(error)throw error;
     showIPFeedback("✓ IP tersimpan — ID: "+id,"ok");
+    logActivity("IP Master","create",id,name+" ("+category+")");
     if(!acRRIPs.includes(name))acRRIPs.push(name);
     if(!acIPCategories.includes(category))acIPCategories.push(category);
     clearIPForm(); loadIPMaster();
@@ -1297,6 +1337,7 @@ async function deleteIP(rowIndex) {
   try {
     const {error}=await sb.from("ip_master").delete().eq("id",rowIndex);
     if(error){alert("Gagal hapus: "+error.message);return;}
+    logActivity("IP Master","delete",rowIndex,"Dihapus");
     loadIPMaster();
   } catch(e) { alert("Koneksi gagal."); }
 }
@@ -1307,6 +1348,7 @@ async function updateLiveStatus(sel, rowIndex) {
   try {
     const {error}=await sb.from("ip_master").update({live_status:newStatus,last_updated:new Date().toISOString(),last_updated_by:currentUser}).eq("id",rowIndex);
     if(error){alert("Gagal update: "+error.message);return;}
+    logActivity("IP Master","status_change",rowIndex,"Live Status → "+newStatus);
     const row=allIPRows.find(r=>r.rowIndex===rowIndex);
     if(row)row.liveStatus=newStatus;
     computeIPStats(allIPRows);
@@ -1317,6 +1359,7 @@ async function saveIPEdit(rowIndex) {
   try {
     const {error}=await sb.from("ip_master").update({name:document.getElementById("ip-e-name-"+rowIndex).value.trim(),category:document.getElementById("ip-e-category-"+rowIndex).value.trim(),live_status:document.getElementById("ip-e-live-"+rowIndex).value,pic:document.getElementById("ip-e-pic-"+rowIndex).value.trim(),revenue_stream:document.getElementById("ip-e-revenue-"+rowIndex).value.trim(),related_agreement:document.getElementById("ip-e-agr-"+rowIndex).value.trim(),royalty_type:document.getElementById("ip-e-roytype-"+rowIndex).value,percentage:document.getElementById("ip-e-pct-"+rowIndex).value.trim()||null,fixed_amount:document.getElementById("ip-e-fixed-"+rowIndex).value.trim()||null,termin:document.getElementById("ip-e-termin-"+rowIndex).value,pph_tax_rate:document.getElementById("ip-e-pph-"+rowIndex).value.trim()||null,notes:document.getElementById("ip-e-notes-"+rowIndex).value.trim(),last_updated:new Date().toISOString(),last_updated_by:currentUser}).eq("id",rowIndex);
     if(error){alert("Gagal simpan: "+error.message);return;}
+    logActivity("IP Master","edit",rowIndex,"Data diperbarui");
     closeIPEdit(rowIndex); loadIPMaster();
   } catch(e){alert("Koneksi gagal.");}
 }
@@ -1334,6 +1377,7 @@ async function submitRR() {
     const {error}=await sb.from("royalty_recipients").insert({id,nama:document.getElementById("rr-name").value.trim(),tipe,related_ip:document.getElementById("rr-ip").value.trim(),royalty_type:document.getElementById("rr-royalty-type").value,percentage:document.getElementById("rr-pct").value.trim()||null,fixed_amount:document.getElementById("rr-fixed").value.trim()||null,termin:document.getElementById("rr-termin").value,pks:document.getElementById("rr-pks").value.trim(),notes:document.getElementById("rr-notes").value.trim(),pic:document.getElementById("rr-pic").value.trim(),added_by:currentUser,last_updated:new Date().toISOString(),last_updated_by:currentUser});
     if(error)throw error;
     showRRFeedback("✓ Penerima tersimpan — ID: "+id,"ok");
+    logActivity("Royalty Recipients","create",id,document.getElementById("rr-name").value.trim()+" ("+tipe+")");
     if(!acRRTipes.includes(tipe))acRRTipes.push(tipe);
     clearRRForm();
   } catch(e){showRRFeedback("Gagal: "+(e.message||e),"err");}
@@ -1434,6 +1478,7 @@ async function deleteRR(rowIndex) {
   try {
     const {error}=await sb.from("royalty_recipients").delete().eq("id",rowIndex);
     if(error){alert("Gagal hapus: "+error.message);return;}
+    logActivity("Royalty Recipients","delete",rowIndex,"Dihapus");
     loadRecipients();
   } catch(e) { alert("Koneksi gagal."); }
 }
@@ -1442,6 +1487,7 @@ async function saveRREdit(rowIndex) {
   try {
     const {error}=await sb.from("royalty_recipients").update({nama:document.getElementById("rr-e-name-"+rowIndex).value.trim(),tipe:document.getElementById("rr-e-tipe-"+rowIndex).value.trim(),related_ip:document.getElementById("rr-e-ip-"+rowIndex).value.trim(),royalty_type:document.getElementById("rr-e-type-"+rowIndex).value,percentage:document.getElementById("rr-e-pct-"+rowIndex).value.trim()||null,fixed_amount:document.getElementById("rr-e-fixed-"+rowIndex).value.trim()||null,termin:document.getElementById("rr-e-termin-"+rowIndex).value,pks:document.getElementById("rr-e-pks-"+rowIndex).value.trim(),notes:document.getElementById("rr-e-notes-"+rowIndex).value.trim(),pic:document.getElementById("rr-e-pic-"+rowIndex).value.trim(),last_updated:new Date().toISOString(),last_updated_by:currentUser}).eq("id",rowIndex);
     if(error){alert("Gagal simpan: "+error.message);return;}
+    logActivity("Royalty Recipients","edit",rowIndex,"Data diperbarui");
     closeRREdit(rowIndex); loadRecipients();
   } catch(e){alert("Koneksi gagal.");}
 }
@@ -1492,6 +1538,7 @@ async function submitBM() {
     const {error}=await sb.from("brand_master").insert({id,name,category,live_status:liveStatus||"Active",pic:document.getElementById("bm-pic").value.trim(),revenue_stream:revenues.join(", "),related_agreement:document.getElementById("bm-agreements").value.trim(),apparel_rate:parseFloat(document.getElementById("bm-apparel").value)||BM_NORMAL.apparel,accessories_rate:parseFloat(document.getElementById("bm-accessories").value)||BM_NORMAL.accessories,collectible_rate:parseFloat(document.getElementById("bm-collectible").value)||BM_NORMAL.collectible,preloved_rate:parseFloat(document.getElementById("bm-preloved").value)||BM_NORMAL.preloved,wellness_rate:parseFloat(document.getElementById("bm-wellness").value)||BM_NORMAL.wellness,others_rate:parseFloat(document.getElementById("bm-others").value)||BM_NORMAL.others,notes:document.getElementById("bm-notes").value.trim(),added_by:currentUser,last_updated:new Date().toISOString(),last_updated_by:currentUser});
     if(error)throw error;
     showBMFeedback("✓ Brand tersimpan — ID: "+id,"ok");
+    logActivity("Brand Master","create",id,name+" ("+category+")");
     if (!acBMCategories.includes(category)) acBMCategories.push(category);
     clearBMForm(); loadBrandMaster();
   } catch(e) { showBMFeedback("Gagal: "+(e.message||e),"err"); }
@@ -1621,6 +1668,7 @@ async function deleteBM(rowIndex) {
   try {
     const {error}=await sb.from("brand_master").delete().eq("id",rowIndex);
     if(error){alert("Gagal hapus: "+error.message);return;}
+    logActivity("Brand Master","delete",rowIndex,"Dihapus");
     loadBrandMaster();
   } catch(e) { alert("Koneksi gagal."); }
 }
@@ -1629,6 +1677,7 @@ async function saveBMEdit(rowIndex) {
   try {
     const {error}=await sb.from("brand_master").update({name:document.getElementById("bm-e-name-"+rowIndex).value.trim(),category:document.getElementById("bm-e-cat-"+rowIndex).value.trim(),live_status:document.getElementById("bm-e-live-"+rowIndex).value,revenue_stream:document.getElementById("bm-e-rev-"+rowIndex).value.trim(),related_agreement:document.getElementById("bm-e-agr-"+rowIndex).value.trim(),apparel_rate:parseFloat(document.getElementById("bm-e-apparel-"+rowIndex).value)||BM_NORMAL.apparel,accessories_rate:parseFloat(document.getElementById("bm-e-acc-"+rowIndex).value)||BM_NORMAL.accessories,collectible_rate:parseFloat(document.getElementById("bm-e-col-"+rowIndex).value)||BM_NORMAL.collectible,preloved_rate:parseFloat(document.getElementById("bm-e-pre-"+rowIndex).value)||BM_NORMAL.preloved,wellness_rate:parseFloat(document.getElementById("bm-e-wel-"+rowIndex).value)||BM_NORMAL.wellness,others_rate:parseFloat(document.getElementById("bm-e-oth-"+rowIndex).value)||BM_NORMAL.others,notes:document.getElementById("bm-e-notes-"+rowIndex).value.trim(),pic:document.getElementById("bm-e-pic-"+rowIndex).value.trim(),last_updated:new Date().toISOString(),last_updated_by:currentUser}).eq("id",rowIndex);
     if(error){alert("Gagal simpan: "+error.message);return;}
+    logActivity("Brand Master","edit",rowIndex,"Data diperbarui");
     closeBMEdit(rowIndex); loadBrandMaster();
   } catch(e) { alert("Koneksi gagal."); }
 }
@@ -1867,7 +1916,8 @@ async function submitSRReport() {
   try {
     const notes=document.getElementById("sr-modal-notes").value.trim();
     const key=srModalContext.brandId+"_"+srModalContext.monthIdx;
-    if(srReports[key]) {
+    const isUpdate=!!srReports[key];
+    if(isUpdate) {
       const {error}=await sb.from("sr_reports").update({link,notes,submitted_by:currentUser,submitted_at:new Date().toISOString()}).eq("brand_id",srModalContext.brandId).eq("month_index",String(srModalContext.monthIdx));
       if(error)throw error;
     } else {
@@ -1875,6 +1925,7 @@ async function submitSRReport() {
       if(error)throw error;
     }
     srReports[key]={link,notes,by:currentUser};
+    logActivity("Sales Report",isUpdate?"update":"submit",srModalContext.brandId,srModalContext.brandName+" — bulan "+(srModalContext.monthIdx+1));
     closeSRModal(); applySRFilters();
   } catch(e) { showSRModalFeedback("Gagal: "+(e.message||e),"err"); }
   btn.disabled=false; btn.textContent="Submit";
@@ -1886,6 +1937,7 @@ async function clearSRReport() {
   try {
     const {error}=await sb.from("sr_reports").delete().eq("brand_id",srModalContext.brandId).eq("month_index",String(srModalContext.monthIdx));
     if(error)throw error;
+    logActivity("Sales Report","delete",srModalContext.brandId,srModalContext.brandName+" — bulan "+(srModalContext.monthIdx+1));
     delete srReports[srModalContext.brandId+"_"+srModalContext.monthIdx];
     closeSRModal(); applySRFilters();
   } catch(e) { showSRModalFeedback("Gagal: "+(e.message||e),"err"); }
@@ -1918,6 +1970,7 @@ async function saveStartDate() {
     const brand=srBrands.find(b=>b.id===srSDContext.brandId);
     const {error}=await sb.from("sr_startdates").upsert({brand_id:srSDContext.brandId,brand_name:brand?brand.name:"",start_date:date,set_by:currentUser,set_at:new Date().toISOString()},{onConflict:"brand_id"});
     if(error)throw error;
+    logActivity("Sales Report","set_startdate",srSDContext.brandId,(brand?brand.name:srSDContext.brandId)+" → "+date);
     if(brand)brand.startDate=date;
     closeSDModal(); applySRFilters();
   } catch(e) { document.getElementById("sr-sd-feedback").textContent="Gagal: "+(e.message||e); document.getElementById("sr-sd-feedback").className="feedback err"; }
@@ -2021,6 +2074,7 @@ async function submitLead() {
     const {error}=await sb.from("leads").insert({id,lead_name:name,category,stage,pic:document.getElementById("ld-pic").value.trim(),contact:document.getElementById("ld-contact").value.trim(),revenue_stream:revenues.join(", "),notes:document.getElementById("ld-notes").value.trim(),priority:document.getElementById("ld-priority").value,added_by:currentUser,last_updated:new Date().toISOString(),last_updated_by:currentUser});
     if(error)throw error;
     showLdFeedback("✓ Lead tersimpan — ID: "+id,"ok");
+    logActivity("Leads Tracker","create",id,name+" ("+category+") — "+stage);
     if (!acLeadsCategories.includes(category)) acLeadsCategories.push(category);
     clearLeadForm(); loadLeads();
   } catch(e) { showLdFeedback("Gagal: "+(e.message||e),"err"); }
@@ -2142,6 +2196,7 @@ async function deleteLead(rowIndex) {
   try {
     const {error}=await sb.from("leads").delete().eq("id",rowIndex);
     if(error){alert("Gagal hapus: "+error.message);return;}
+    logActivity("Leads Tracker","delete",rowIndex,"Dihapus");
     loadLeads();
   } catch(e) { alert("Koneksi gagal."); }
 }
@@ -2152,6 +2207,7 @@ async function updateLeadStage(sel,rowIndex) {
   try {
     const {error}=await sb.from("leads").update({stage:newStage,last_updated:new Date().toISOString(),last_updated_by:currentUser}).eq("id",rowIndex);
     if(error){alert("Gagal update: "+error.message);return;}
+    logActivity("Leads Tracker","stage_change",rowIndex,"Stage → "+newStage);
     const row=allLeadsRows.find(r=>r.rowIndex===rowIndex);
     if(row)row.stage=newStage;
     computeLeadsStats(allLeadsRows);
@@ -2162,6 +2218,7 @@ async function saveLeadEdit(rowIndex) {
   try {
     const {error}=await sb.from("leads").update({lead_name:document.getElementById("ld-e-name-"+rowIndex).value.trim(),category:document.getElementById("ld-e-cat-"+rowIndex).value.trim(),stage:document.getElementById("ld-e-stage-"+rowIndex).value,pic:document.getElementById("ld-e-pic-"+rowIndex).value.trim(),contact:document.getElementById("ld-e-contact-"+rowIndex).value.trim(),revenue_stream:document.getElementById("ld-e-revenue-"+rowIndex).value.trim(),notes:document.getElementById("ld-e-notes-"+rowIndex).value.trim(),priority:document.getElementById("ld-e-priority-"+rowIndex).value,last_updated:new Date().toISOString(),last_updated_by:currentUser}).eq("id",rowIndex);
     if(error){alert("Gagal simpan: "+error.message);return;}
+    logActivity("Leads Tracker","edit",rowIndex,"Data diperbarui");
     closeLeadEdit(rowIndex); loadLeads();
   } catch(e){alert("Koneksi gagal.");}
 }
@@ -2236,6 +2293,7 @@ async function submitDP() {
     });
     if(error) throw error;
     showDPFeedback("✓ Partner tersimpan — ID: "+id,"ok");
+    logActivity("Distribution Partner","create",id,name+" ("+type+")");
     type.split(",").map(s=>s.trim()).filter(Boolean).forEach(t=>{ if(!acDPTypes.includes(t)) acDPTypes.push(t); });
     const ch=document.getElementById("dp-channel").value.trim();
     ch.split(",").map(s=>s.trim()).filter(Boolean).forEach(c=>{ if(!acDPChannels.includes(c)) acDPChannels.push(c); });
@@ -2361,6 +2419,7 @@ async function deleteDP(rowIndex) {
   try {
     const {error}=await sb.from("dist_partners").delete().eq("id",rowIndex);
     if(error) throw error;
+    logActivity("Distribution Partner","delete",rowIndex,"Dihapus");
     loadDistPartner();
   } catch(e){ alert("Gagal hapus: "+(e.message||e)); }
 }
@@ -2371,6 +2430,7 @@ async function updateDPLiveStatus(sel, rowIndex) {
   try {
     const {error}=await sb.from("dist_partners").update({live_status:newStatus,last_updated:new Date().toISOString(),last_updated_by:currentUser}).eq("id",rowIndex);
     if(error) throw error;
+    logActivity("Distribution Partner","status_change",rowIndex,"Live Status → "+newStatus);
     const row=allDPRows.find(r=>r.rowIndex===rowIndex);
     if(row) row.liveStatus=newStatus;
     computeDPStats(allDPRows);
@@ -2394,6 +2454,7 @@ async function saveDPEdit(rowIndex) {
       last_updated_by:  currentUser
     }).eq("id",rowIndex);
     if(error) throw error;
+    logActivity("Distribution Partner","edit",rowIndex,"Data diperbarui");
     closeDPEdit(rowIndex); loadDistPartner();
   } catch(e){alert("Gagal simpan: "+(e.message||e));}
 }
@@ -2402,6 +2463,59 @@ setupACMulti("dp-type","ac-dp-type",()=>acDPTypes);
 setupACMulti("dp-channel","ac-dp-channel",()=>acDPChannels);
 setupAC("dp-pic","ac-dp-pic",()=>acPics);
 setupAC("dp-agreements","ac-dp-agr",()=>acAgrOptions.map(o=>o.id),()=>acAgrOptions);
+
+// ── ACTIVITY LOG ──
+let allLogRows = [];
+
+async function loadActivityLog() {
+  const tbody = document.getElementById("logTableBody");
+  tbody.innerHTML = `<tr><td class="empty-td" colspan="6">Memuat...</td></tr>`;
+  try {
+    const {data,error} = await sb.from("activity_logs").select("*").order("ts",{ascending:false}).limit(500);
+    if(error) throw error;
+    allLogRows = data||[];
+    applyLogFilters();
+  } catch(e) {
+    tbody.innerHTML = `<tr><td class="empty-td" colspan="6">Gagal memuat: ${e.message||e}</td></tr>`;
+  }
+}
+
+function applyLogFilters() {
+  const mod = document.getElementById("log-fil-module").value;
+  const act = document.getElementById("log-fil-action").value;
+  const q   = (document.getElementById("logSearch").value||"").toLowerCase();
+  let rows = allLogRows;
+  if(mod) rows = rows.filter(r=>r.module===mod);
+  if(act) rows = rows.filter(r=>r.action===act);
+  if(q)   rows = rows.filter(r=>(r.user_name||"").toLowerCase().includes(q)||(r.details||"").toLowerCase().includes(q)||(r.record_id||"").toLowerCase().includes(q));
+  renderLogTable(rows);
+}
+
+function clearLogFilters() {
+  document.getElementById("log-fil-module").value="";
+  document.getElementById("log-fil-action").value="";
+  document.getElementById("logSearch").value="";
+  applyLogFilters();
+}
+
+function renderLogTable(rows) {
+  const tbody = document.getElementById("logTableBody");
+  document.getElementById("log-tcount").textContent = rows.length+" entri";
+  if(!rows.length){tbody.innerHTML=`<tr><td class="empty-td" colspan="6">Tidak ada data.</td></tr>`;return;}
+  const actionPill={login:"p-active",logout:"p-inactive",create:"p-signed",edit:"p-signings",delete:"p-expired",status_change:"p-review",stage_change:"p-review",submit:"p-signed",update:"p-signings",set_startdate:"p-near"};
+  tbody.innerHTML = rows.map(r=>{
+    const dt = r.ts ? new Date(r.ts).toLocaleString("id-ID",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}) : "—";
+    const pc = actionPill[r.action]||"p-draft";
+    return `<tr>
+      <td style="white-space:nowrap;font-size:12px;font-family:var(--mono)">${dt}</td>
+      <td><strong>${r.user_name||"—"}</strong></td>
+      <td style="font-size:12px">${r.module||"—"}</td>
+      <td><span class="pill ${pc}" style="font-size:11px">${r.action||"—"}</span></td>
+      <td style="font-size:11px;font-family:var(--mono);color:var(--g400)">${r.record_id||"—"}</td>
+      <td style="font-size:12px">${r.details||"—"}</td>
+    </tr>`;
+  }).join("");
+}
 
 // ── DUPLICATE CHECK ──
 async function checkDuplicate(name, excludeSheet) {
