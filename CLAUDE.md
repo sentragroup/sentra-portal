@@ -366,6 +366,34 @@ git add index.html && git commit -m "feat: ..." && git push
 2. Use `execute_sql` for data fixes
 3. No restart or cache clear needed — changes are live instantly
 
+**Adding a new user (run in Supabase SQL Editor):**
+Must insert into BOTH `auth.users` AND `auth.identities` — missing identities causes "Database error querying schema" on login.
+```sql
+DO $$
+DECLARE
+  uid uuid := gen_random_uuid();
+BEGIN
+  INSERT INTO auth.users (
+    instance_id, id, aud, role, email, encrypted_password,
+    email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at
+  ) VALUES (
+    '00000000-0000-0000-0000-000000000000', uid, 'authenticated', 'authenticated',
+    'email@domain.com',                     -- ✏️ email
+    crypt('Password123!', gen_salt('bf')),  -- ✏️ password
+    NOW(), '{"provider":"email","providers":["email"]}',
+    '{"name":"Nama"}',                      -- ✏️ nama
+    NOW(), NOW()
+  );
+  INSERT INTO auth.identities (id, user_id, identity_data, provider, provider_id, last_sign_in_at, created_at, updated_at)
+  VALUES (
+    gen_random_uuid(), uid,
+    jsonb_build_object('sub', uid, 'email', 'email@domain.com', 'email_verified', true), -- ✏️ email
+    'email', 'email@domain.com',            -- ✏️ email
+    NOW(), NOW(), NOW()
+  );
+END $$;
+```
+
 ---
 
 ## Common Gotchas
