@@ -49,6 +49,7 @@ function mapRR(r) { return {rowIndex:r.id,id:r.id,name:r.nama||"",tipe:r.tipe||"
 function mapBM(r) { return {rowIndex:r.id,id:r.id,name:r.name||"",category:r.category||"",liveStatus:r.live_status||"Active",revenue:r.revenue_stream||"",agreements:r.related_agreement||"",apparel:r.apparel_rate!=null?r.apparel_rate:"",accessories:r.accessories_rate!=null?r.accessories_rate:"",collectible:r.collectible_rate!=null?r.collectible_rate:"",preloved:r.preloved_rate!=null?r.preloved_rate:"",wellness:r.wellness_rate!=null?r.wellness_rate:"",others:r.others_rate!=null?r.others_rate:"",notes:r.notes||"",pic:r.pic||"",addedBy:r.added_by||""}; }
 function mapLD(r) { return {rowIndex:r.id,id:r.id,name:r.lead_name||"",category:r.category||"",stage:r.stage||"",pic:r.pic||"",revenue:r.revenue_stream||"",contact:r.contact||"",notes:r.notes||"",priority:r.priority||"",date:r.date_added?new Date(r.date_added).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"",by:r.added_by||"",lastUpdate:r.last_updated?new Date(r.last_updated).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"",lastBy:r.last_updated_by||"",addedBy:r.added_by||""}; }
 function mapDP(r) { return {rowIndex:r.id,id:r.id,name:r.partner_name||"",type:r.type||"",channel:r.channel||"",region:r.region||"",pic:r.pic||"",contactPerson:r.contact_person||"",contactInfo:r.contact_info||"",agreements:r.related_agreement||"",liveStatus:r.live_status||"Active",notes:r.notes||"",addedBy:r.added_by||""}; }
+function mapPB(r) { return {rowIndex:r.id,id:r.id,eventDate:r.event_date||"",eventName:r.event_name||"",location:r.location||"",ipRelated:r.ip_related||"",manpower:Array.isArray(r.manpower)?r.manpower:[],qtyBrought:r.qty_brought!=null?r.qty_brought:"",suratJalanUrl:r.surat_jalan_url||"",deliveryStatus:r.delivery_status||"",eventStatus:r.event_status||"",reinboundStatus:r.reinbound_status||"",reinboundQty:r.reinbound_qty!=null?r.reinbound_qty:"",srDeadline:r.sr_deadline||"",actualSales:r.actual_sales!=null?r.actual_sales:"",paymentMethod:r.payment_method||"",fakturJubileoUrl:r.faktur_jubelio_url||"",notes:r.notes||"",dateAdded:r.date_added||"",addedBy:r.added_by||"",lastUpdated:r.last_updated||"",lastUpdatedBy:r.last_updated_by||""}; }
 
 let currentUser = "";
 let allRows = [], acBrands = [], acTypes = [], acPics = [];
@@ -115,7 +116,7 @@ function enterApp(user) {
   if (notifPollTimer) clearInterval(notifPollTimer);
   notifPollTimer = setInterval(loadNotifications, 60000);
   const _pg = location.hash.slice(1);
-  if (['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','activitylog'].includes(_pg))
+  if (['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','popupbooth','activitylog'].includes(_pg))
     showPage(_pg, document.getElementById('nav-'+_pg));
 }
 
@@ -137,7 +138,7 @@ function showPage(name, el) {
   document.querySelectorAll(".sb-item").forEach(i=>i.classList.remove("active"));
   document.getElementById("page-"+name).classList.add("active");
   if (el) el.classList.add("active");
-  const labels = {home:"Internal Tools",agreement:"Agreement Tracker",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Sales Report",leads:"Leads Tracker",distpartner:"Distribution Partner",activitylog:"Activity Log"};
+  const labels = {home:"Internal Tools",agreement:"Agreement Tracker",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Sales Report",leads:"Leads Tracker",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   history.replaceState(null, "", name==="home" ? location.pathname : "#"+name);
   if (name==="agreement") loadStats();
@@ -147,6 +148,7 @@ function showPage(name, el) {
   if (name==="salesreport") loadSalesReport();
   if (name==="leads") loadLeads();
   if (name==="distpartner") loadDistPartner();
+  if (name==="popupbooth") loadPopupBooth();
   if (name==="activitylog") loadActivityLog();
 }
 
@@ -1713,6 +1715,292 @@ setupACMulti("dp-channel","ac-dp-channel",()=>acDPChannels);
 setupAC("dp-pic","ac-dp-pic",()=>acPics);
 setupAC("dp-agreements","ac-dp-agr",()=>acAgrOptions.map(o=>o.id),()=>acAgrOptions);
 
+// ── POP UP BOOTH ──
+let allPBRows = [];
+let pbSort = {col:null,dir:'asc'};
+function sortPBBy(c){pbSort.dir=pbSort.col===c?(pbSort.dir==='asc'?'desc':'asc'):'asc';pbSort.col=c;applyPBFilters();}
+let pbManpower = [];
+let pbEditManpower = {};
+
+function renderPBManpowerForm() {
+  const el = document.getElementById("pb-manpower-list");
+  if (!el) return;
+  if (!pbManpower.length) { el.innerHTML='<div style="color:var(--g400);font-size:12px;padding:4px 0">Belum ada manpower ditambahkan.</div>'; return; }
+  el.innerHTML = pbManpower.map((m,i)=>`<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><input type="text" value="${(m.name||'').replace(/"/g,'&quot;')}" oninput="pbManpower[${i}].name=this.value" placeholder="Nama" style="flex:1;padding:6px 8px;border:1px solid var(--g200);border-radius:6px;font-size:13px"><select onchange="pbManpower[${i}].paid=this.value" style="padding:6px 8px;border:1px solid var(--g200);border-radius:6px;font-size:13px"><option value="paid" ${m.paid==='paid'?'selected':''}>Dibayar</option><option value="unpaid" ${m.paid==='unpaid'?'selected':''}>Sukarela</option></select><button class="btn-icon" onclick="pbManpower.splice(${i},1);renderPBManpowerForm()" title="Hapus">✕</button></div>`).join("");
+}
+function addPBManpowerRow(){pbManpower.push({name:"",paid:"paid"});renderPBManpowerForm();}
+
+function renderPBEditManpowerForm(rowIdx) {
+  const el = document.getElementById("pbe-manpower-list-"+rowIdx);
+  if (!el) return;
+  const arr = pbEditManpower[rowIdx]||[];
+  if (!arr.length) { el.innerHTML='<div style="color:var(--g400);font-size:12px;padding:4px 0">Belum ada manpower.</div>'; return; }
+  el.innerHTML = arr.map((m,i)=>`<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><input type="text" value="${(m.name||'').replace(/"/g,'&quot;')}" oninput="pbEditManpower['${rowIdx}'][${i}].name=this.value" placeholder="Nama" style="flex:1;padding:6px 8px;border:1px solid var(--g200);border-radius:6px;font-size:13px"><select onchange="pbEditManpower['${rowIdx}'][${i}].paid=this.value" style="padding:6px 8px;border:1px solid var(--g200);border-radius:6px;font-size:13px"><option value="paid" ${m.paid==='paid'?'selected':''}>Dibayar</option><option value="unpaid" ${m.paid==='unpaid'?'selected':''}>Sukarela</option></select><button class="btn-icon" onclick="pbEditManpower['${rowIdx}'].splice(${i},1);renderPBEditManpowerForm('${rowIdx}')" title="Hapus">✕</button></div>`).join("");
+}
+function addPBEditManpower(rowIdx){if(!pbEditManpower[rowIdx])pbEditManpower[rowIdx]=[];pbEditManpower[rowIdx].push({name:"",paid:"paid"});renderPBEditManpowerForm(rowIdx);}
+
+function calcPBSRDeadline(eventDate) {
+  if (!eventDate) return "";
+  const d = new Date(eventDate+"T00:00:00"); d.setDate(d.getDate()+3);
+  return d.toISOString().slice(0,10);
+}
+
+async function uploadPBFile(file, fieldName, recordId) {
+  if (!file) return null;
+  if (file.size > 1048576) { alert("File terlalu besar. Maksimal 1MB."); return null; }
+  if (file.type !== "application/pdf") { alert("Hanya file PDF yang diperbolehkan."); return null; }
+  const path = `${recordId}/${fieldName}-${Date.now()}.pdf`;
+  const { error } = await sb.storage.from("popup-files").upload(path, file, {upsert:true});
+  if (error) throw error;
+  const { data } = sb.storage.from("popup-files").getPublicUrl(path);
+  return data.publicUrl;
+}
+
+function switchPBTab(name, el) {
+  document.querySelectorAll("#page-popupbooth .tab-btn").forEach(b=>b.classList.remove("active"));
+  el.classList.add("active");
+  document.getElementById("pbtab-new").style.display = name==="new" ? "block" : "none";
+  document.getElementById("pbtab-list").style.display = name==="list" ? "block" : "none";
+  if (name==="list") loadPopupBooth();
+}
+
+async function loadPopupBooth() {
+  const tbody = document.getElementById("pbTableBody");
+  tbody.innerHTML = `<tr><td class="empty-td" colspan="15">Memuat...</td></tr>`;
+  try {
+    const {data,error} = await sb.from("popup_booths").select("*").order("event_date",{ascending:false});
+    if (error) throw error;
+    allPBRows = (data||[]).map(mapPB);
+    renderPBStats(allPBRows);
+    applyPBFilters();
+  } catch(e) {
+    tbody.innerHTML = `<tr><td class="empty-td" colspan="15">Gagal memuat: ${e.message||e}</td></tr>`;
+  }
+}
+
+function renderPBStats(rows) {
+  const today = new Date(); today.setHours(0,0,0,0);
+  document.getElementById("pb-s-total").textContent = rows.length;
+  document.getElementById("pb-s-upcoming").textContent = rows.filter(r=>{ if(!r.eventDate)return false; const d=new Date(r.eventDate+"T00:00:00"); return d>=today&&r.eventStatus!=="Done"&&r.eventStatus!=="Cancelled"; }).length;
+  document.getElementById("pb-s-done").textContent = rows.filter(r=>r.eventStatus==="Done").length;
+  document.getElementById("pb-s-cancelled").textContent = rows.filter(r=>r.eventStatus==="Cancelled").length;
+  document.getElementById("pb-s-reinbound").textContent = rows.filter(r=>r.reinboundStatus==="Not Yet").length;
+}
+
+function applyPBFilters() {
+  const status = (document.getElementById("pb-fil-status")?.value)||"";
+  const q = ((document.getElementById("pbSearch")?.value)||"").toLowerCase();
+  let rows = allPBRows;
+  if (status==="Planned") rows = rows.filter(r=>!r.eventStatus||r.eventStatus==="Planned");
+  else if (status) rows = rows.filter(r=>r.eventStatus===status);
+  if (q) rows = rows.filter(r=>(r.eventName||"").toLowerCase().includes(q)||(r.location||"").toLowerCase().includes(q)||(r.ipRelated||"").toLowerCase().includes(q));
+  renderPBTable(rows);
+}
+
+function renderPBTable(rows) {
+  rows = sortBy(rows, pbSort.col, pbSort.dir);
+  updateSortTh("pb-thead", pbSort.col, pbSort.dir);
+  const tbody = document.getElementById("pbTableBody");
+  document.getElementById("pb-tcount").textContent = rows.length+" entri";
+  if (!rows.length) { tbody.innerHTML=`<tr><td class="empty-td" colspan="15">Tidak ada data.</td></tr>`; return; }
+  tbody.innerHTML = rows.map(r => {
+    const esPill = `<span class="pill ${r.eventStatus==="Done"?"p-active":r.eventStatus==="Cancelled"?"p-expired":"p-draft"}" style="font-size:11px">${r.eventStatus||"Planned"}</span>`;
+    const reinPill = r.reinboundStatus ? `<span class="pill ${r.reinboundStatus==="Done"?"p-active":r.reinboundStatus==="Not Yet"?"p-near":r.reinboundStatus==="Sold Out"?"p-expired":"p-draft"}" style="font-size:11px">${r.reinboundStatus}</span>${(r.reinboundQty!==""&&r.reinboundQty!=null)?" ("+r.reinboundQty+")":""}` : "—";
+    const manpowerStr = r.manpower&&r.manpower.length ? `${r.manpower.length}×: ${r.manpower.map(m=>`${m.name||"?"}(${m.paid==="paid"?"💰":"🤝"})`).join(", ")}` : "—";
+    const sjBtn = r.suratJalanUrl ? `<a href="${r.suratJalanUrl}" target="_blank" class="btn-icon" title="Lihat Surat Jalan">📎&nbsp;SJ</a>` : "—";
+    const ftBtn = r.fakturJubileoUrl ? `<a href="${r.fakturJubileoUrl}" target="_blank" class="btn-icon" title="Lihat Faktur Jubelio">📎&nbsp;FJ</a>` : "—";
+    const pm = r.paymentMethod ? r.paymentMethod.split(",").map(p=>`<span class="pill p-signings" style="font-size:10px;margin-right:2px">${p.trim()}</span>`).join("") : "—";
+    const actualSales = (r.actualSales!==""&&r.actualSales!=null) ? `Rp ${Number(r.actualSales).toLocaleString("id-ID")}` : "—";
+    return `<tr>
+      <td style="white-space:nowrap;font-size:12px">${fmtDate(r.eventDate)}</td>
+      <td><strong>${r.eventName||"—"}</strong></td>
+      <td style="font-size:12px">${r.location||"—"}</td>
+      <td style="font-size:12px;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.ipRelated||""}">${r.ipRelated||"—"}</td>
+      <td style="font-size:11px;max-width:160px;color:var(--g600)">${manpowerStr}</td>
+      <td style="text-align:center">${(r.qtyBrought!==""&&r.qtyBrought!=null)?r.qtyBrought:"—"}</td>
+      <td style="text-align:center">${sjBtn}</td>
+      <td><span class="pill ${r.deliveryStatus==="Delivered"?"p-active":"p-draft"}" style="font-size:11px">${r.deliveryStatus||"Pending"}</span></td>
+      <td>${esPill}</td>
+      <td style="font-size:12px;white-space:nowrap">${reinPill}</td>
+      <td style="white-space:nowrap;font-size:12px">${fmtDate(r.srDeadline)}</td>
+      <td style="white-space:nowrap;font-size:12px">${actualSales}</td>
+      <td style="font-size:11px">${pm}</td>
+      <td style="text-align:center">${ftBtn}</td>
+      <td><button class="btn-icon" onclick="openPBEdit('${r.rowIndex}')">Edit</button> <button class="btn-icon" style="color:#c0392b" onclick="deletePB('${r.rowIndex}')">Del</button></td>
+    </tr>
+    <tr id="pb-edit-row-${r.rowIndex}" style="display:none">
+      <td colspan="15" style="padding:0 12px 12px">
+        <div class="edit-row-form">
+          <div class="edit-row-grid">
+            <div class="fg"><label>Tanggal Event</label><input type="date" id="pbe-eventdate-${r.rowIndex}" value="${r.eventDate}" oninput="document.getElementById('pbe-srdeadline-${r.rowIndex}').value=calcPBSRDeadline(this.value)"></div>
+            <div class="fg"><label>Nama Event</label><input type="text" id="pbe-eventname-${r.rowIndex}" value="${(r.eventName||'').replace(/"/g,'&quot;')}"></div>
+            <div class="fg"><label>Lokasi</label><input type="text" id="pbe-location-${r.rowIndex}" value="${(r.location||'').replace(/"/g,'&quot;')}"></div>
+            <div class="fg"><label>IP Related</label><input type="text" id="pbe-iprelated-${r.rowIndex}" value="${(r.ipRelated||'').replace(/"/g,'&quot;')}" placeholder="Pisahkan dengan koma"></div>
+            <div class="fg"><label>Qty Brought</label><input type="number" id="pbe-qty-${r.rowIndex}" value="${r.qtyBrought!=null?r.qtyBrought:''}" min="0"></div>
+            <div class="fg"><label>Delivery Status</label><select id="pbe-delivery-${r.rowIndex}"><option value="">—</option><option ${r.deliveryStatus==="Delivered"?"selected":""}>Delivered</option></select></div>
+            <div class="fg"><label>Event Status</label><select id="pbe-eventstatus-${r.rowIndex}"><option value="">Planned</option><option ${r.eventStatus==="Done"?"selected":""}>Done</option><option ${r.eventStatus==="Cancelled"?"selected":""}>Cancelled</option></select></div>
+            <div class="fg"><label>Reinbound Status</label><select id="pbe-reinbound-${r.rowIndex}"><option value="">—</option><option ${r.reinboundStatus==="Done"?"selected":""}>Done</option><option ${r.reinboundStatus==="Not Yet"?"selected":""}>Not Yet</option><option ${r.reinboundStatus==="Sold Out"?"selected":""}>Sold Out</option></select></div>
+            <div class="fg"><label>Reinbound Qty</label><input type="number" id="pbe-reinboundqty-${r.rowIndex}" value="${r.reinboundQty!=null?r.reinboundQty:''}" min="0"></div>
+            <div class="fg"><label>SR Deadline</label><input type="date" id="pbe-srdeadline-${r.rowIndex}" value="${r.srDeadline}"></div>
+            <div class="fg"><label>Actual Sales (IDR)</label><input type="number" id="pbe-actualsales-${r.rowIndex}" value="${r.actualSales!=null?r.actualSales:''}" min="0"></div>
+            <div class="fg full"><label>Payment Method</label><div style="display:flex;gap:16px;flex-wrap:wrap;padding:8px 0"><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-jpos-${r.rowIndex}" ${(r.paymentMethod||"").includes("Jubelio POS")?"checked":""}> Jubelio POS</label><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-qris-${r.rowIndex}" ${(r.paymentMethod||"").includes("QRIS Xendit")?"checked":""}> QRIS Xendit</label><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-cons-${r.rowIndex}" ${(r.paymentMethod||"").includes("Consignment")?"checked":""}> Consignment</label></div></div>
+            <div class="fg full"><label>Manpower</label><div id="pbe-manpower-list-${r.rowIndex}" style="margin-bottom:4px"></div><button class="btn-ghost" style="font-size:12px;margin-top:4px" onclick="addPBEditManpower('${r.rowIndex}')">+ Tambah Manpower</button></div>
+            <div class="fg full"><label>Surat Jalan (PDF, maks 1MB)${r.suratJalanUrl?` &mdash; <a href="${r.suratJalanUrl}" target="_blank" class="btn-icon" style="font-size:11px">📎 Lihat</a>`:""}</label><input type="file" id="pbe-sj-${r.rowIndex}" accept="application/pdf"></div>
+            <div class="fg full"><label>Faktur Jubelio (PDF, maks 1MB)${r.fakturJubileoUrl?` &mdash; <a href="${r.fakturJubileoUrl}" target="_blank" class="btn-icon" style="font-size:11px">📎 Lihat</a>`:""}</label><input type="file" id="pbe-fj-${r.rowIndex}" accept="application/pdf"></div>
+            <div class="fg full"><label>Notes</label><textarea id="pbe-notes-${r.rowIndex}" rows="2" style="resize:vertical">${(r.notes||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea></div>
+          </div>
+          <div class="edit-row-btns">
+            <button class="btn-save" onclick="savePBEdit('${r.rowIndex}')">Simpan</button>
+            <button class="btn-cancel" onclick="closePBEdit('${r.rowIndex}')">Batal</button>
+            <button class="btn-delete" onclick="deletePB('${r.rowIndex}')">Hapus</button>
+          </div>
+        </div>
+      </td>
+    </tr>`;
+  }).join("");
+  rows.forEach(r => {
+    pbEditManpower[r.rowIndex] = JSON.parse(JSON.stringify(r.manpower||[]));
+    renderPBEditManpowerForm(r.rowIndex);
+  });
+}
+
+function openPBEdit(rowIdx) {
+  document.querySelectorAll("[id^='pb-edit-row-']").forEach(el=>{ if(el.id!=="pb-edit-row-"+rowIdx) el.style.display="none"; });
+  const row = document.getElementById("pb-edit-row-"+rowIdx);
+  if (!row) return;
+  const shown = row.style.display==="table-row";
+  row.style.display = shown ? "none" : "table-row";
+  if (!shown) {
+    const orig = allPBRows.find(r=>r.rowIndex===rowIdx);
+    pbEditManpower[rowIdx] = JSON.parse(JSON.stringify(orig?.manpower||[]));
+    renderPBEditManpowerForm(rowIdx);
+  }
+}
+function closePBEdit(rowIdx) { const r=document.getElementById("pb-edit-row-"+rowIdx); if(r) r.style.display="none"; }
+
+async function savePBEdit(rowIdx) {
+  const btn = document.querySelector(`#pb-edit-row-${rowIdx} .btn-save`);
+  if (btn) { btn.disabled=true; btn.textContent="Menyimpan..."; }
+  try {
+    const orig = allPBRows.find(r=>r.rowIndex===rowIdx);
+    const sjFile = document.getElementById("pbe-sj-"+rowIdx)?.files[0];
+    const fjFile = document.getElementById("pbe-fj-"+rowIdx)?.files[0];
+    let sjUrl = orig?.suratJalanUrl||null, fjUrl = orig?.fakturJubileoUrl||null;
+    if (sjFile) sjUrl = await uploadPBFile(sjFile,"sj",rowIdx);
+    if (fjFile) fjUrl = await uploadPBFile(fjFile,"fj",rowIdx);
+    const pm = [
+      document.getElementById(`pbe-pm-jpos-${rowIdx}`)?.checked?"Jubelio POS":"",
+      document.getElementById(`pbe-pm-qris-${rowIdx}`)?.checked?"QRIS Xendit":"",
+      document.getElementById(`pbe-pm-cons-${rowIdx}`)?.checked?"Consignment":""
+    ].filter(Boolean).join(", ");
+    const manpower = (pbEditManpower[rowIdx]||[]).filter(m=>(m.name||"").trim());
+    const eventDate = document.getElementById(`pbe-eventdate-${rowIdx}`).value;
+    const srDeadline = document.getElementById(`pbe-srdeadline-${rowIdx}`).value || calcPBSRDeadline(eventDate);
+    const nm = document.getElementById(`pbe-eventname-${rowIdx}`).value.trim();
+    if (!nm) { if(btn){btn.disabled=false;btn.textContent="Simpan";} alert("Nama Event wajib diisi."); return; }
+    const qtyVal = document.getElementById(`pbe-qty-${rowIdx}`).value;
+    const rqVal  = document.getElementById(`pbe-reinboundqty-${rowIdx}`).value;
+    const asVal  = document.getElementById(`pbe-actualsales-${rowIdx}`).value;
+    const {error} = await sb.from("popup_booths").update({
+      event_name:nm, event_date:eventDate||null,
+      location:document.getElementById(`pbe-location-${rowIdx}`).value.trim()||null,
+      ip_related:document.getElementById(`pbe-iprelated-${rowIdx}`).value.trim()||null,
+      manpower, qty_brought:qtyVal?parseInt(qtyVal):null,
+      surat_jalan_url:sjUrl, delivery_status:document.getElementById(`pbe-delivery-${rowIdx}`).value||null,
+      event_status:document.getElementById(`pbe-eventstatus-${rowIdx}`).value||null,
+      reinbound_status:document.getElementById(`pbe-reinbound-${rowIdx}`).value||null,
+      reinbound_qty:rqVal?parseInt(rqVal):null, sr_deadline:srDeadline||null,
+      actual_sales:asVal?parseFloat(asVal):null, payment_method:pm||null,
+      faktur_jubelio_url:fjUrl,
+      notes:document.getElementById(`pbe-notes-${rowIdx}`).value.trim()||null,
+      last_updated:new Date().toISOString(), last_updated_by:currentUser
+    }).eq("id",rowIdx);
+    if (error) throw error;
+    closePBEdit(rowIdx);
+    logActivity("Pop Up Booth","edit",rowIdx,nm);
+    if (orig?.addedBy) insertNotif(orig.addedBy,"Pop Up Booth",rowIdx,`${currentUser} mengedit Pop Up Booth: ${nm}`);
+    await loadPopupBooth();
+  } catch(e) {
+    if(btn){btn.disabled=false;btn.textContent="Simpan";}
+    alert("Gagal menyimpan: "+(e.message||e));
+  }
+}
+
+async function deletePB(rowIdx) {
+  if (!confirm("Hapus event ini? Tindakan tidak bisa dibatalkan.")) return;
+  try {
+    const {error} = await sb.from("popup_booths").delete().eq("id",rowIdx);
+    if (error) throw error;
+    logActivity("Pop Up Booth","delete",rowIdx,"Dihapus");
+    await loadPopupBooth();
+  } catch(e) { alert("Gagal menghapus: "+(e.message||e)); }
+}
+
+function clearPBForm() {
+  ["pb-eventdate","pb-eventname","pb-location","pb-iprelated","pb-qty","pb-srdeadline","pb-actualsales","pb-notes","pb-reinboundqty"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
+  ["pb-delivery","pb-eventstatus","pb-reinbound"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
+  ["pb-pm-jpos","pb-pm-qris","pb-pm-cons"].forEach(id=>{const el=document.getElementById(id);if(el)el.checked=false;});
+  ["pb-sj","pb-fj"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
+  pbManpower=[]; renderPBManpowerForm();
+  const fb=document.getElementById("pb-feedback"); if(fb) fb.textContent="";
+}
+
+async function submitPB() {
+  const eventName = document.getElementById("pb-eventname").value.trim();
+  const eventDate = document.getElementById("pb-eventdate").value;
+  if (!eventName) { document.getElementById("pb-feedback").innerHTML='<span class="fb-err">Nama Event wajib diisi.</span>'; return; }
+  if (!eventDate) { document.getElementById("pb-feedback").innerHTML='<span class="fb-err">Tanggal Event wajib diisi.</span>'; return; }
+  const btn = document.getElementById("pbSubmitBtn");
+  btn.disabled=true; btn.textContent="Menyimpan...";
+  try {
+    const id = genId("PB");
+    const sjFile = document.getElementById("pb-sj")?.files[0];
+    const fjFile = document.getElementById("pb-fj")?.files[0];
+    let sjUrl=null, fjUrl=null;
+    if (sjFile) sjUrl = await uploadPBFile(sjFile,"sj",id);
+    if (fjFile) fjUrl = await uploadPBFile(fjFile,"fj",id);
+    const pm = [
+      document.getElementById("pb-pm-jpos")?.checked?"Jubelio POS":"",
+      document.getElementById("pb-pm-qris")?.checked?"QRIS Xendit":"",
+      document.getElementById("pb-pm-cons")?.checked?"Consignment":""
+    ].filter(Boolean).join(", ");
+    const manpower = pbManpower.filter(m=>(m.name||"").trim());
+    const srDeadline = calcPBSRDeadline(eventDate);
+    const qtyVal = document.getElementById("pb-qty").value;
+    const rqVal  = document.getElementById("pb-reinboundqty").value;
+    const asVal  = document.getElementById("pb-actualsales").value;
+    const row = {
+      id, event_name:eventName, event_date:eventDate,
+      location:document.getElementById("pb-location").value.trim()||null,
+      ip_related:document.getElementById("pb-iprelated").value.trim()||null,
+      manpower, qty_brought:qtyVal?parseInt(qtyVal):null,
+      surat_jalan_url:sjUrl,
+      delivery_status:document.getElementById("pb-delivery").value||null,
+      event_status:document.getElementById("pb-eventstatus").value||null,
+      reinbound_status:document.getElementById("pb-reinbound").value||null,
+      reinbound_qty:rqVal?parseInt(rqVal):null,
+      sr_deadline:srDeadline||null,
+      actual_sales:asVal?parseFloat(asVal):null,
+      payment_method:pm||null,
+      faktur_jubelio_url:fjUrl,
+      notes:document.getElementById("pb-notes").value.trim()||null,
+      date_added:new Date().toISOString().slice(0,10),
+      added_by:currentUser,
+      last_updated:new Date().toISOString(),
+      last_updated_by:currentUser
+    };
+    const {error} = await sb.from("popup_booths").insert(row);
+    if (error) throw error;
+    document.getElementById("pb-feedback").innerHTML=`<span class="fb-ok">✓ Pop Up Booth tersimpan — ID: ${id}</span>`;
+    logActivity("Pop Up Booth","create",id,eventName);
+    clearPBForm();
+  } catch(e) {
+    document.getElementById("pb-feedback").innerHTML=`<span class="fb-err">Gagal: ${e.message||e}</span>`;
+  } finally {
+    btn.disabled=false; btn.textContent="Simpan";
+  }
+}
+
 // ── NOTIFICATIONS ──
 let notifPollTimer = null;
 
@@ -1744,7 +2032,7 @@ function renderNotifDropdown(items) {
 async function handleNotif(id, module, recordId) {
   await sb.from("notifications").update({is_read:true}).eq("id",id);
   document.getElementById("notif-dropdown").style.display = "none";
-  const pageMap = {"Agreement":"agreement","IP Master":"ipmaster","Royalty Recipients":"recipients","Brand Master":"brandmaster","Sales Report":"salesreport","Leads Tracker":"leads","Distribution Partner":"distpartner"};
+  const pageMap = {"Agreement":"agreement","IP Master":"ipmaster","Royalty Recipients":"recipients","Brand Master":"brandmaster","Sales Report":"salesreport","Leads Tracker":"leads","Distribution Partner":"distpartner","Pop Up Booth":"popupbooth"};
   const page = pageMap[module];
   if (page) {
     showPage(page, document.getElementById("nav-"+page));
