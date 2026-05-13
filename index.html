@@ -139,7 +139,7 @@
               <div class="fg"><label>Partner / Client <span class="req">*</span></label><input type="text" id="f-partner" placeholder="Nama perusahaan atau individu"></div>
               <div class="fg"><label>PIC <span class="req">*</span></label><div class="ac-wrap"><input type="text" id="f-pic" placeholder="Penanggung jawab" autocomplete="off"><div class="ac-list" id="ac-pic"></div></div></div>
               <div class="fg"><label>Related IP / Brand <span class="req">*</span></label><div class="ac-wrap"><input type="text" id="f-brand" placeholder="Ketik atau pilih dari history" autocomplete="off"><div class="ac-list" id="ac-brand"></div></div></div>
-              <div class="fg"><label>Revenue Stream <span class="req">*</span></label><select id="f-revenue"><option value="">Pilih revenue stream...</option><option>SD&amp;Y</option><option>Lagaa</option><option>Marte</option></select></div>
+              <div class="fg"><label>Revenue Stream <span class="req">*</span></label><select id="f-revenue"><option value="">Pilih revenue stream...</option><option>SD&amp;Y</option><option>Lagaa</option><option>Marte</option><option>Distribution</option></select></div>
               <div class="fg"><label>Agreement Type <span class="req">*</span></label><div class="ac-wrap"><input type="text" id="f-type" placeholder="e.g. Licensing, Distribution" autocomplete="off"><div class="ac-list" id="ac-type"></div></div></div>
               <div class="fg"><label>Status <span class="req">*</span></label><select id="f-status"><option value="">Pilih status...</option><option>Draft</option><option>Under Review</option><option>Signings</option><option>Signed</option></select></div>
               <div class="fg"><label>Start Date</label><input type="date" id="f-start"></div>
@@ -161,7 +161,7 @@
             <div class="filter-grid">
               <select class="f-select" id="fil-status" onchange="applyFilters()"><option value="">Semua Status</option><option>Draft</option><option>Under Review</option><option>Signings</option><option>Signed</option></select>
               <select class="f-select" id="fil-auto" onchange="applyFilters()"><option value="">Semua Kondisi</option><option value="Near Expiring">Near Expiring</option><option value="Expired">Expired</option><option value="Active">Active</option></select>
-              <select class="f-select" id="fil-revenue" onchange="applyFilters()"><option value="">Semua Revenue</option><option>SD&amp;Y</option><option>Lagaa</option><option>Marte</option></select>
+              <select class="f-select" id="fil-revenue" onchange="applyFilters()"><option value="">Semua Revenue</option><option>SD&amp;Y</option><option>Lagaa</option><option>Marte</option><option>Distribution</option></select>
               <select class="f-select" id="fil-brand" onchange="applyFilters()"><option value="">Semua Brand</option></select>
               <select class="f-select" id="fil-pic" onchange="applyFilters()"><option value="">Semua PIC</option></select>
               <select class="f-select" id="fil-type" onchange="applyFilters()"><option value="">Semua Tipe</option></select>
@@ -214,6 +214,7 @@
                   <label style="display:flex;align-items:center;gap:6px;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" value="SD&Y"> SD&Y</label>
                   <label style="display:flex;align-items:center;gap:6px;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" value="Lagaa"> Lagaa</label>
                   <label style="display:flex;align-items:center;gap:6px;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" value="Marte"> Marte</label>
+                  <label style="display:flex;align-items:center;gap:6px;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" value="Distribution"> Distribution</label>
                 </div>
               </div>
               <div class="fg full"><label>Related Agreement</label>
@@ -243,7 +244,7 @@
             <div class="filter-grid">
               <select class="f-select" id="ip-fil-agrstatus" onchange="applyIPFilters()"><option value="">Semua Agreement Status</option><option>Active</option><option>Near Expiring</option><option>Expired</option><option>In Progress</option><option>No Agreement</option></select>
               <select class="f-select" id="ip-fil-livestatus" onchange="applyIPFilters()"><option value="">Semua Live Status</option><option>Active</option><option>Inactive</option></select>
-              <select class="f-select" id="ip-fil-revenue" onchange="applyIPFilters()"><option value="">Semua Revenue</option><option>SD&amp;Y</option><option>Lagaa</option><option>Marte</option></select>
+              <select class="f-select" id="ip-fil-revenue" onchange="applyIPFilters()"><option value="">Semua Revenue</option><option>SD&amp;Y</option><option>Lagaa</option><option>Marte</option><option>Distribution</option></select>
               <select class="f-select" id="ip-fil-category" onchange="applyIPFilters()"><option value="">Semua Category</option></select>
               <select class="f-select" id="ip-fil-royalty" onchange="applyIPFilters()"><option value="">Semua Royalty Type</option><option>Post-Sales</option><option>Advance</option><option>Both</option></select>
               <input class="search-box" type="text" id="ipSearch" placeholder="Cari nama IP..." oninput="applyIPFilters()" style="width:100%">
@@ -340,7 +341,7 @@
         <div class="filter-panel">
           <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="clearSRFilters()">✕ Reset</button></div>
           <div class="filter-grid">
-            <select class="f-select" id="sr-fil-revenue" onchange="applySRFilters()"><option value="">Semua Revenue</option><option>SD&amp;Y</option><option>Lagaa</option><option>Marte</option></select>
+            <select class="f-select" id="sr-fil-revenue" onchange="applySRFilters()"><option value="">Semua Revenue</option><option>SD&amp;Y</option><option>Lagaa</option><option>Marte</option><option>Distribution</option></select>
             <select class="f-select" id="sr-fil-month" onchange="applySRFilters()">
               <option value="">Semua Bulan</option>
               <option value="5">Jun 2026</option><option value="6">Jul 2026</option><option value="7">Agu 2026</option>
@@ -426,6 +427,7 @@
                   <label style="display:flex;align-items:center;gap:6px;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" value="SD&Y"> SD&Y</label>
                   <label style="display:flex;align-items:center;gap:6px;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" value="Lagaa"> Lagaa</label>
                   <label style="display:flex;align-items:center;gap:6px;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" value="Marte"> Marte</label>
+                  <label style="display:flex;align-items:center;gap:6px;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" value="Distribution"> Distribution</label>
                 </div>
               </div>
               <div class="fg full"><label>Related Agreement</label>
@@ -456,7 +458,7 @@
             <div class="filter-grid">
               <select class="f-select" id="bm-fil-livestatus" onchange="applyBMFilters()"><option value="">Semua Live Status</option><option>Active</option><option>Inactive</option></select>
               <select class="f-select" id="bm-fil-rate" onchange="applyBMFilters()"><option value="">Semua Rate</option><option value="normal">Rate Normal</option><option value="nego">Ada Rate Nego</option></select>
-              <select class="f-select" id="bm-fil-revenue" onchange="applyBMFilters()"><option value="">Semua Revenue</option><option>SD&amp;Y</option><option>Lagaa</option><option>Marte</option></select>
+              <select class="f-select" id="bm-fil-revenue" onchange="applyBMFilters()"><option value="">Semua Revenue</option><option>SD&amp;Y</option><option>Lagaa</option><option>Marte</option><option>Distribution</option></select>
               <select class="f-select" id="bm-fil-category" onchange="applyBMFilters()"><option value="">Semua Category</option></select>
               <input class="search-box" type="text" id="bmSearch" placeholder="Cari nama brand..." oninput="applyBMFilters()" style="width:100%">
             </div>
@@ -504,6 +506,7 @@
                   <label style="display:flex;align-items:center;gap:6px;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" value="SD&Y"> SD&Y</label>
                   <label style="display:flex;align-items:center;gap:6px;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" value="Lagaa"> Lagaa</label>
                   <label style="display:flex;align-items:center;gap:6px;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" value="Marte"> Marte</label>
+                  <label style="display:flex;align-items:center;gap:6px;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" value="Distribution"> Distribution</label>
                 </div>
               </div>
               <div class="fg full"><label>Notes</label><input type="text" id="ld-notes" placeholder="Catatan, next action, dll"></div>
@@ -522,7 +525,7 @@
             <div class="filter-grid">
               <select class="f-select" id="ld-fil-stage" onchange="applyLeadsFilters()"><option value="">Semua Stage</option><option>New</option><option>Contacted</option><option>Meeting</option><option>Proposal</option><option>Negotiation</option><option>Won</option><option>Lost</option><option>On Hold</option></select>
               <select class="f-select" id="ld-fil-category" onchange="applyLeadsFilters()"><option value="">Semua Category</option></select>
-              <select class="f-select" id="ld-fil-revenue" onchange="applyLeadsFilters()"><option value="">Semua Revenue</option><option>SD&amp;Y</option><option>Lagaa</option><option>Marte</option></select>
+              <select class="f-select" id="ld-fil-revenue" onchange="applyLeadsFilters()"><option value="">Semua Revenue</option><option>SD&amp;Y</option><option>Lagaa</option><option>Marte</option><option>Distribution</option></select>
               <select class="f-select" id="ld-fil-pic" onchange="applyLeadsFilters()"><option value="">Semua PIC</option></select>
               <select class="f-select" id="ld-fil-priority" onchange="applyLeadsFilters()"><option value="">Semua Priority</option><option>Low</option><option>Medium</option><option>High</option></select>
               <input class="search-box" type="text" id="ldSearch" placeholder="Cari nama lead..." oninput="applyLeadsFilters()" style="width:100%">
