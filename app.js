@@ -2145,14 +2145,6 @@ function mapJub(r) {
   };
 }
 
-function switchJubTab(name, el) {
-  document.querySelectorAll("#page-jubsales .tab-btn").forEach(b=>b.classList.remove("active"));
-  el.classList.add("active");
-  document.getElementById("jubtab-new").style.display = name==="new" ? "block" : "none";
-  document.getElementById("jubtab-list").style.display = name==="list" ? "block" : "none";
-  if (name==="list") loadJubSales();
-}
-
 async function loadJubSales() {
   const tbody = document.getElementById("jubTableBody");
   tbody.innerHTML = `<tr><td class="empty-td" colspan="8">Memuat...</td></tr>`;
@@ -2290,37 +2282,6 @@ async function deleteJub(rowIdx) {
   } catch(e) { alert("Gagal menghapus: "+(e.message||e)); }
 }
 
-function clearJubForm() {
-  ["jub-salesorderid","jub-name","jub-txdate","jub-status","jub-total","jub-note"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
-  const fb=document.getElementById("jub-feedback"); if(fb) fb.textContent="";
-}
-
-async function submitJub() {
-  const btn = document.getElementById("jubSubmitBtn");
-  btn.disabled=true; btn.textContent="Menyimpan...";
-  try {
-    const gtVal = document.getElementById("jub-total").value;
-    const row = {
-      salesorder_id:document.getElementById("jub-salesorderid").value.trim()||null,
-      shipping_full_name:document.getElementById("jub-name").value.trim()||null,
-      transaction_date:document.getElementById("jub-txdate").value||null,
-      internal_status:document.getElementById("jub-status").value.trim()||null,
-      grand_total:gtVal?parseFloat(gtVal):null,
-      note:document.getElementById("jub-note").value.trim()||null,
-      date_added:new Date().toISOString().slice(0,10),
-      added_by:currentUser
-    };
-    const {error} = await sb.from("jubelio_offline_sales_orders").insert(row);
-    if (error) throw error;
-    document.getElementById("jub-feedback").innerHTML=`<span class="fb-ok">✓ Sales order tersimpan.</span>`;
-    logActivity("Jubelio Offline Sales","create",row.salesorder_id||"—",row.shipping_full_name||"—");
-    clearJubForm();
-  } catch(e) {
-    document.getElementById("jub-feedback").innerHTML=`<span class="fb-err">Gagal: ${e.message||e}</span>`;
-  } finally {
-    btn.disabled=false; btn.textContent="Simpan";
-  }
-}
 
 // ── DUPLICATE CHECK ──
 async function checkDuplicate(name, excludeSheet) {
