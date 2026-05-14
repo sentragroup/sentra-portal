@@ -3158,17 +3158,35 @@ async function loadDsgWorkflow() {
 }
 
 function renderDwStats(rows) {
+  const today=new Date().toISOString().slice(0,10);
+  // Deliverables status (compute for CD rows, use stored for manual)
+  const getDlStatus=r=>r.locked&&r.collectionId?computeColDeliverableStatus(r.collectionId,r.designer):r.deliverablesStatus;
+  const getDlDeadline=r=>r.locked&&r.collectionId?computeColDeadline(r.collectionId,r.designer):r.deadline;
+  const isLate=r=>{
+    const dl=getDlDeadline(r);
+    if(!dl||dl>=today) return false;
+    const st=getDlStatus(r);
+    if(r.locked) return st!=="Approved";
+    return st!=="Completed";
+  };
   document.getElementById("dw-s-total").textContent=rows.length;
+  document.getElementById("dw-s-inprogress").textContent=rows.filter(r=>getDlStatus(r)==="In Progress").length;
+  document.getElementById("dw-s-pending").textContent=rows.filter(r=>getDlStatus(r)==="Pending"||getDlStatus(r)==="Not Approved"||!getDlStatus(r)).length;
+  document.getElementById("dw-s-completed").textContent=rows.filter(r=>getDlStatus(r)==="Approved"||getDlStatus(r)==="Completed").length;
+  document.getElementById("dw-s-late").textContent=rows.filter(isLate).length;
+  document.getElementById("dw-s-notyetpaid").textContent=rows.filter(r=>r.paymentStatus==="Not Yet Paid").length;
   document.getElementById("dw-s-paid").textContent=rows.filter(r=>r.paymentStatus==="Paid").length;
-  document.getElementById("dw-s-unpaid").textContent=rows.filter(r=>r.paymentStatus==="Not Paid").length;
-  document.getElementById("dw-s-delivered").textContent=rows.filter(r=>r.deliverablesUrl).length;
+  document.getElementById("dw-s-kontrak").textContent=rows.filter(r=>r.agreementId).length;
 }
 
 function applyDwFilters() {
+  const source=document.getElementById("dw-fil-source")?.value||"";
   const payment=document.getElementById("dw-fil-payment")?.value||"";
   const dlStatus=document.getElementById("dw-fil-dlstatus")?.value||"";
   const q=(document.getElementById("dwSearch")?.value||"").toLowerCase();
   let rows=allDwRows;
+  if(source==="cd") rows=rows.filter(r=>r.locked);
+  if(source==="manual") rows=rows.filter(r=>!r.locked);
   if(payment) rows=rows.filter(r=>r.paymentStatus===payment);
   if(dlStatus) rows=rows.filter(r=>{
     if(r.locked&&r.collectionId) return computeColDeliverableStatus(r.collectionId,r.designer)===dlStatus;
@@ -3183,9 +3201,17 @@ function applyDwFilters() {
 }
 
 function clearDwFilters() {
-  ["dw-fil-payment","dw-fil-dlstatus"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
+  ["dw-fil-source","dw-fil-payment","dw-fil-dlstatus"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
   const s=document.getElementById("dwSearch");if(s)s.value="";
   applyDwFilters();
+}
+
+// Inline styles for manual deliverables status select (select elements ignore CSS class bg)
+function dwDlSelectStyle(s) {
+  if(s==="Completed") return "background:#edf8ee;color:#1a5c25;border:1px solid #90d4a0";
+  if(s==="In Progress") return "background:#e8f0fc;color:#1a4a8a;border:1px solid #a8c4f0";
+  if(s==="Revision") return "background:#fff3e0;color:#8a4000;border:1px solid #ffcc80";
+  return "background:#f0efe9;color:#5a5850;border:1px solid #d4d3cb"; // Pending
 }
 
 function renderDwTable(rows) {
@@ -3199,17 +3225,19 @@ function renderDwTable(rows) {
   tbody.innerHTML=rows.map(r=>{
     const projectLabel=(r.projectName||r.collectionName||"—");
     const lockedBadge=r.locked?`<span class="pill p-draft" style="font-size:9px;margin-left:4px;vertical-align:middle">🔒 CD</span>`:"";
+    const notesSnippet=r.notes?`<div style="font-size:10px;color:var(--g400);font-style:italic;margin-top:2px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.notes}</div>`:"";
 
     // ── Deliverables cell ──
     let dlCell;
     if(r.locked&&r.collectionId){
       const dlStatus=computeColDeliverableStatus(r.collectionId,r.designer);
       const dlPill=dlStatus==="Approved"?"p-active":dlStatus==="Partially Approved"?"p-near":dlStatus==="Not Approved"?"p-expired":"p-draft";
-      dlCell=`<span class="pill ${dlPill}" style="font-size:10px;cursor:pointer" onclick="toggleDwSKUs('${r.rowIndex}')">${dlStatus||"Belum ada SKU"} ▾</span>`;
+      const linkLine=r.deliverablesUrl?`<div style="margin-top:3px"><a href="${r.deliverablesUrl}" target="_blank" style="font-size:10px;color:#3C3489;text-decoration:none">↗ Lihat file</a></div>`:"";
+      dlCell=`<span class="pill ${dlPill}" style="font-size:10px;cursor:pointer" onclick="toggleDwSKUs('${r.rowIndex}')">${dlStatus||"Belum ada SKU"} ▾</span>${linkLine}`;
     } else {
       const dlOpts=["Pending","In Progress","Revision","Completed"];
-      const dlPill=r.deliverablesStatus==="Completed"?"p-active":r.deliverablesStatus==="In Progress"?"p-signings":r.deliverablesStatus==="Revision"?"p-near":"p-draft";
-      dlCell=`<select class="pill ${dlPill}" style="font-size:10px;border:none;cursor:pointer;padding:2px 6px;background:transparent" onchange="updateDwDeliverables('${r.rowIndex}',this.value)">${dlOpts.map(o=>`<option value="${o}"${r.deliverablesStatus===o?" selected":""}>${o}</option>`).join("")}</select>`;
+      const linkLine=r.deliverablesUrl?`<div style="margin-top:3px"><a href="${r.deliverablesUrl}" target="_blank" style="font-size:10px;color:#3C3489;text-decoration:none">↗ Lihat file</a></div>`:"";
+      dlCell=`<select style="font-size:10px;border-radius:99px;padding:2px 8px;cursor:pointer;appearance:none;-webkit-appearance:none;${dwDlSelectStyle(r.deliverablesStatus)}" onchange="updateDwDeliverables('${r.rowIndex}',this.value)">${dlOpts.map(o=>`<option value="${o}"${r.deliverablesStatus===o?" selected":""}>${o}</option>`).join("")}</select>${linkLine}`;
     }
 
     // ── Deadline cell ──
@@ -3220,7 +3248,10 @@ function renderDwTable(rows) {
 
     // ── Agreement & Payment ──
     const agrCell=r.agreementId?`<span style="font-size:11px;font-family:var(--mono)">${r.agreementId}</span>`:"—";
-    const payPill=r.paymentStatus==="Paid"?"p-active":r.paymentStatus==="Not Yet Paid"?"p-near":"p-expired";
+    // Not Paid = gray (internal/karyawan, no action needed)
+    // Not Yet Paid = red (needs payment)
+    // Paid = green
+    const payPill=r.paymentStatus==="Paid"?"p-active":r.paymentStatus==="Not Yet Paid"?"p-expired":"p-draft";
 
     // ── SKU sub-rows (for CD rows) ──
     const skus=r.collectionId?(r.designer?allColItems.filter(i=>i.collectionId===r.collectionId&&i.designer===r.designer):allColItems.filter(i=>i.collectionId===r.collectionId)):[];
@@ -3255,7 +3286,7 @@ function renderDwTable(rows) {
 
     return `<tr>
       <td><strong>${r.designer||`<span style="color:var(--g400);font-style:italic;font-size:12px">—</span>`}</strong></td>
-      <td style="font-size:12px">${projectLabel}${lockedBadge}</td>
+      <td style="font-size:12px">${projectLabel}${lockedBadge}${notesSnippet}</td>
       <td>${dlCell}</td>
       <td>${deadlineCell}</td>
       <td>${agrCell}</td>
@@ -3306,6 +3337,9 @@ function toggleDwSKUs(rowIdx) {
 }
 
 async function updateDwDeliverables(rowIdx, status) {
+  // Update select style immediately before DB round-trip
+  const sel=document.querySelector(`[onchange*="updateDwDeliverables('${rowIdx}'"]`);
+  if(sel) sel.style.cssText=`font-size:10px;border-radius:99px;padding:2px 8px;cursor:pointer;appearance:none;-webkit-appearance:none;${dwDlSelectStyle(status)}`;
   try {
     const {error}=await sb.from("designer_workflow").update({
       deliverables_status:status,
