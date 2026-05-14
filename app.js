@@ -2405,7 +2405,7 @@ function mapPOItem(r){
 
 async function loadPO(){
   const tbody=document.getElementById("poTableBody");
-  if(tbody) tbody.innerHTML=`<tr><td class="empty-td" colspan="9">Memuat...</td></tr>`;
+  if(tbody) tbody.innerHTML=`<tr><td class="empty-td" colspan="11">Memuat...</td></tr>`;
   try {
     const [{data:poData,error:poErr},{data:itemData}]=await Promise.all([
       sb.from("jubelio_purchase_orders").select("*").order("transaction_date",{ascending:false}),
@@ -2414,6 +2414,10 @@ async function loadPO(){
     if(poErr) throw poErr;
     allPORows=(poData||[]).map(mapPO);
     allPOItems=(itemData||[]).map(mapPOItem);
+    // attach totalQty to each PO row for sorting
+    const qtyByPO={};
+    allPOItems.forEach(i=>{qtyByPO[i.purchaseorderId]=(qtyByPO[i.purchaseorderId]||0)+(i.qty||0);});
+    allPORows.forEach(r=>{r.totalQty=qtyByPO[r.id]||0;});
     renderPOStats(allPORows);
     applyPOFilters();
     const lastSync=allPORows.reduce((mx,r)=>r.syncedAt>mx?r.syncedAt:mx,"");
@@ -2425,27 +2429,35 @@ async function loadPO(){
 }
 
 function renderPOStats(rows){
+  const rowIds=new Set(rows.map(r=>r.id));
+  const filteredItems=allPOItems.filter(i=>rowIds.has(i.purchaseorderId));
   const active=rows.filter(r=>r.status==="ACTIVE").length;
-  const totalItems=allPOItems.filter(i=>rows.some(r=>r.id===i.purchaseorderId)).length;
+  const totalItems=filteredItems.length;
+  const totalQty=filteredItems.reduce((s,i)=>s+(i.qty||0),0);
   const totalVal=rows.reduce((s,r)=>s+(r.grandTotal||0),0);
   document.getElementById("po-s-total").textContent=rows.length;
   document.getElementById("po-s-active").textContent=active;
   document.getElementById("po-s-items").textContent=totalItems;
+  document.getElementById("po-s-qty").textContent=totalQty?totalQty.toLocaleString("id-ID"):"—";
   document.getElementById("po-s-value").textContent=totalVal?"Rp "+Math.round(totalVal).toLocaleString("id-ID"):"—";
 }
 
 function applyPOFilters(){
   const status=document.getElementById("po-fil-status")?.value||"";
+  const dateFrom=document.getElementById("po-fil-from")?.value||"";
+  const dateTo=document.getElementById("po-fil-to")?.value||"";
   const q=(document.getElementById("poSearch")?.value||"").toLowerCase();
   let rows=allPORows;
   if(status) rows=rows.filter(r=>r.status===status);
-  if(q) rows=rows.filter(r=>(r.purchaseorderNo||"").toLowerCase().includes(q)||(r.supplierName||"").toLowerCase().includes(q)||(r.locationName||"").toLowerCase().includes(q));
+  if(dateFrom) rows=rows.filter(r=>r.transactionDate&&r.transactionDate.slice(0,10)>=dateFrom);
+  if(dateTo)   rows=rows.filter(r=>r.transactionDate&&r.transactionDate.slice(0,10)<=dateTo);
+  if(q) rows=rows.filter(r=>(r.purchaseorderNo||"").toLowerCase().includes(q)||(r.supplierName||"").toLowerCase().includes(q)||(r.locationName||"").toLowerCase().includes(q)||(r.note||"").toLowerCase().includes(q));
   renderPOStats(rows);
   renderPOTable(rows);
 }
 
 function clearPOFilters(){
-  const sf=document.getElementById("po-fil-status");if(sf)sf.value="";
+  ["po-fil-status","po-fil-from","po-fil-to"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
   const s=document.getElementById("poSearch");if(s)s.value="";
   applyPOFilters();
 }
@@ -2455,7 +2467,7 @@ function renderPOTable(rows){
   updateSortTh("po-thead",poSort.col,poSort.dir);
   const tbody=document.getElementById("poTableBody");
   document.getElementById("po-tcount").textContent=rows.length+" entri";
-  if(!rows.length){tbody.innerHTML=`<tr><td class="empty-td" colspan="9">Tidak ada data.</td></tr>`;return;}
+  if(!rows.length){tbody.innerHTML=`<tr><td class="empty-td" colspan="11">Tidak ada data.</td></tr>`;return;}
   const sPill=s=>{
     const c=s==="ACTIVE"?"p-signings":s==="COMPLETED"?"p-active":s==="CANCELLED"?"p-inactive":"p-draft";
     return `<span class="pill ${c}" style="font-size:11px">${s||"—"}</span>`;
@@ -2465,6 +2477,7 @@ function renderPOTable(rows){
     const gt=r.grandTotal!=null?`Rp ${Math.round(r.grandTotal).toLocaleString("id-ID")}`:"—";
     const dt=r.transactionDate?new Date(r.transactionDate).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"—";
     const hasItems=items.length>0;
+    const totalQty=items.reduce((s,it)=>s+(it.qty||0),0);
     const main=`<tr>
       <td style="text-align:center;cursor:${hasItems?"pointer":"default"};color:var(--g400);user-select:none" onclick="${hasItems?`togglePOItems(${r.id})`:""}" id="po-toggle-${r.id}">${hasItems?"▶":""}</td>
       <td><a href="https://v2.jubelio.com/purchase/orders/detail/${r.id}" target="_blank" style="font-family:var(--mono);font-size:12px;color:#3C3489;text-decoration:none">${r.purchaseorderNo||r.id}</a></td>
@@ -2473,12 +2486,14 @@ function renderPOTable(rows){
       <td style="white-space:nowrap;font-size:12px">${dt}</td>
       <td style="font-size:12px">${r.locationName||"—"}</td>
       <td style="white-space:nowrap;font-size:12px;font-weight:600">${gt}</td>
+      <td style="font-size:12px;text-align:right;font-weight:600">${totalQty?totalQty.toLocaleString("id-ID"):"—"}</td>
       <td style="font-size:12px;color:var(--g400)">${items.length} item${items.length!==1?"s":""}</td>
+      <td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--g600)" title="${(r.note||"").replace(/"/g,"&quot;")}">${r.note||"—"}</td>
       <td style="font-size:11px;color:var(--g400);white-space:nowrap">${relTime(r.syncedAt)}</td>
     </tr>`;
     const detail=`<tr id="po-items-${r.id}" style="display:none;background:var(--off)">
       <td></td>
-      <td colspan="8" style="padding:8px 12px 14px">
+      <td colspan="10" style="padding:8px 12px 14px">
         <table style="width:100%;font-size:11px;border-collapse:collapse">
           <thead><tr style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">
             <th style="padding:4px 8px;text-align:left">Item Code</th>
