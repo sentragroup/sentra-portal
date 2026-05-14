@@ -117,6 +117,15 @@
         </div>
       </div>
       <div class="sb-sec">
+        <div class="sb-label">Product Development</div>
+        <div class="sb-item" onclick="showPage('collections',this)" id="nav-collections">
+          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="3" width="14" height="10" rx="1.5"/><line x1="5" y1="3" x2="5" y2="13"/><line x1="8" y1="6" x2="12" y2="6"/><line x1="8" y1="9" x2="11" y2="9"/></svg>Collections
+        </div>
+        <div class="sb-item" onclick="showPage('designermaster',this)" id="nav-designermaster">
+          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="5" r="2.5"/><path d="M1 13c0-2.8 2.2-5 5-5"/><path d="M11 9l1.5 1.5L15 8"/><circle cx="12" cy="12" r="3"/></svg>Designer Master
+        </div>
+      </div>
+      <div class="sb-sec">
         <div class="sb-label">Logs</div>
         <div class="sb-item" onclick="showPage('jubsales',this)" id="nav-jubsales">
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="4" width="12" height="9" rx="1"/><path d="M5 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1"/><line x1="8" y1="8" x2="8" y2="10"/><line x1="6" y1="9" x2="10" y2="9"/></svg>Jubelio Offline Sales
@@ -908,6 +917,201 @@
           </thead>
           <tbody id="mekariTableBody"><tr><td class="empty-td" colspan="4">Klik "Semua" untuk memuat data.</td></tr></tbody>
         </table>
+      </div>
+    </div>
+
+    <!-- COLLECTIONS -->
+    <div class="page" id="page-collections">
+      <div class="page-header">
+        <div><div class="page-title">Collections</div><div class="page-sub">Manajemen collection merchandise — dari ideation hingga approval design.</div></div>
+        <div class="tab-bar">
+          <button class="tab-btn active" onclick="switchColTab('new',this)">Tambah</button>
+          <button class="tab-btn" onclick="switchColTab('list',this)">Semua</button>
+        </div>
+      </div>
+      <div class="stats-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:1.25rem">
+        <div class="stat-card"><div class="stat-num" id="col-s-total">—</div><div class="stat-lbl">Total</div></div>
+        <div class="stat-card"><div class="stat-num" id="col-s-draft">—</div><div class="stat-lbl">Draft</div></div>
+        <div class="stat-card"><div class="stat-num" id="col-s-inprogress">—</div><div class="stat-lbl">In Progress</div></div>
+        <div class="stat-card"><div class="stat-num" id="col-s-done">—</div><div class="stat-lbl">Done</div></div>
+        <div class="stat-card"><div class="stat-num" id="col-s-skus">—</div><div class="stat-lbl">Total SKUs</div></div>
+      </div>
+      <div id="coltab-new">
+        <div class="form-card">
+          <div class="form-sec">Informasi Collection</div>
+          <div class="form-grid">
+            <div class="fg">
+              <label>Nama Collection <span class="req">*</span></label>
+              <input type="text" id="col-name" placeholder="Nama collection">
+            </div>
+            <div class="fg" style="position:relative">
+              <label>IP Related</label>
+              <input type="text" id="col-ip" placeholder="Pilih dari IP Master" autocomplete="off">
+              <div class="ac-list" id="ac-col-ip"></div>
+            </div>
+            <div class="fg">
+              <label>Release Date</label>
+              <input type="date" id="col-releasedate">
+            </div>
+            <div class="fg">
+              <label>Priority</label>
+              <select id="col-priority"><option value="">—</option><option>High</option><option>Medium</option><option>Low</option></select>
+            </div>
+            <div class="fg">
+              <label>Status</label>
+              <select id="col-status"><option value="Draft">Draft</option><option value="In Progress">In Progress</option><option value="Done">Done</option></select>
+            </div>
+            <div class="fg full">
+              <label>Moodboard <span style="font-size:11px;color:var(--g400)">(Google Drive link)</span></label>
+              <input type="url" id="col-moodboard" placeholder="https://drive.google.com/...">
+            </div>
+            <div class="fg full">
+              <label>Notes</label>
+              <textarea id="col-notes" rows="2" style="resize:vertical" placeholder="Catatan tambahan..."></textarea>
+            </div>
+          </div>
+          <div class="form-sec" style="margin-top:.5rem">SKUs / Items <span style="font-size:11px;color:var(--g400);font-weight:400">— tambahkan setelah collection disimpan</span></div>
+          <div class="btn-row">
+            <button class="btn-primary" id="colSubmitBtn" onclick="submitCollection()">Simpan Collection</button>
+            <button class="btn-ghost" onclick="clearColForm()">Bersihkan</button>
+          </div>
+          <div class="feedback" id="col-feedback"></div>
+        </div>
+      </div>
+      <div id="coltab-list" style="display:none">
+        <div class="filter-panel">
+          <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="clearColFilters()">✕ Reset</button></div>
+          <div class="filter-grid">
+            <select class="f-select" id="col-fil-status" onchange="applyColFilters()">
+              <option value="">Semua Status</option>
+              <option value="Draft">Draft</option>
+              <option value="In Progress">In Progress</option>
+              <option value="Done">Done</option>
+            </select>
+            <select class="f-select" id="col-fil-priority" onchange="applyColFilters()">
+              <option value="">Semua Priority</option>
+              <option value="High">High</option>
+              <option value="Medium">Medium</option>
+              <option value="Low">Low</option>
+            </select>
+            <input class="search-box" type="text" id="colSearch" placeholder="Cari nama collection, IP..." oninput="applyColFilters()" style="width:100%">
+          </div>
+        </div>
+        <div class="table-toolbar">
+          <button class="btn-refresh" onclick="loadCollections()">↻ Refresh</button>
+          <div class="tcount" id="col-tcount">— entri</div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead id="col-thead">
+              <tr>
+                <th class="sortable" data-col="collectionName" onclick="sortColBy('collectionName')">Nama Collection</th>
+                <th class="sortable" data-col="ipRelated" onclick="sortColBy('ipRelated')">IP Related</th>
+                <th class="sortable" data-col="releaseDate" onclick="sortColBy('releaseDate')">Release Date</th>
+                <th class="sortable" data-col="priority" onclick="sortColBy('priority')">Priority</th>
+                <th>SKUs</th>
+                <th>Approval</th>
+                <th>Moodboard</th>
+                <th class="sortable" data-col="status" onclick="sortColBy('status')">Status</th>
+                <th>Aksi</th>
+              </tr>
+            </thead>
+            <tbody id="colTableBody"><tr><td class="empty-td" colspan="9">Klik "Semua" untuk memuat data.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- DESIGNER MASTER -->
+    <div class="page" id="page-designermaster">
+      <div class="page-header">
+        <div><div class="page-title">Designer Master</div><div class="page-sub">Database designer — kontak dan kategori.</div></div>
+        <div class="tab-bar">
+          <button class="tab-btn active" onclick="switchDsgTab('new',this)">Tambah</button>
+          <button class="tab-btn" onclick="switchDsgTab('list',this)">Semua</button>
+        </div>
+      </div>
+      <div class="stats-row" style="grid-template-columns:repeat(3,1fr);margin-bottom:1.25rem">
+        <div class="stat-card"><div class="stat-num" id="dsg-s-total">—</div><div class="stat-lbl">Total Designer</div></div>
+        <div class="stat-card"><div class="stat-num" id="dsg-s-active">—</div><div class="stat-lbl">Active</div></div>
+        <div class="stat-card"><div class="stat-num" id="dsg-s-inactive">—</div><div class="stat-lbl">Inactive</div></div>
+      </div>
+      <div id="dsgtab-new">
+        <div class="form-card">
+          <div class="form-sec">Informasi Designer</div>
+          <div class="form-grid">
+            <div class="fg">
+              <label>Nama <span class="req">*</span></label>
+              <input type="text" id="dsg-name" placeholder="Nama designer">
+            </div>
+            <div class="fg" style="position:relative">
+              <label>Kategori</label>
+              <input type="text" id="dsg-category" placeholder="Graphic Designer, Illustrator..." autocomplete="off">
+              <div class="ac-list" id="ac-dsg-category"></div>
+            </div>
+            <div class="fg">
+              <label>Email</label>
+              <input type="email" id="dsg-email" placeholder="email@domain.com">
+            </div>
+            <div class="fg">
+              <label>Phone / WhatsApp</label>
+              <input type="text" id="dsg-phone" placeholder="08xx...">
+            </div>
+            <div class="fg full">
+              <label>Portfolio <span style="font-size:11px;color:var(--g400)">(IG, Behance, website)</span></label>
+              <input type="url" id="dsg-portfolio" placeholder="https://...">
+            </div>
+            <div class="fg">
+              <label>Status</label>
+              <select id="dsg-status"><option value="Active">Active</option><option value="Inactive">Inactive</option></select>
+            </div>
+            <div class="fg full">
+              <label>Notes</label>
+              <textarea id="dsg-notes" rows="2" style="resize:vertical" placeholder="Catatan tambahan..."></textarea>
+            </div>
+          </div>
+          <div class="btn-row">
+            <button class="btn-primary" id="dsgSubmitBtn" onclick="submitDesigner()">Simpan</button>
+            <button class="btn-ghost" onclick="clearDsgForm()">Bersihkan</button>
+          </div>
+          <div class="feedback" id="dsg-feedback"></div>
+        </div>
+      </div>
+      <div id="dsgtab-list" style="display:none">
+        <div class="filter-panel">
+          <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="clearDsgFilters()">✕ Reset</button></div>
+          <div class="filter-grid">
+            <select class="f-select" id="dsg-fil-status" onchange="applyDsgFilters()">
+              <option value="">Semua Status</option>
+              <option value="Active">Active</option>
+              <option value="Inactive">Inactive</option>
+            </select>
+            <select class="f-select" id="dsg-fil-category" onchange="applyDsgFilters()">
+              <option value="">Semua Kategori</option>
+            </select>
+            <input class="search-box" type="text" id="dsgSearch" placeholder="Cari nama, email..." oninput="applyDsgFilters()" style="width:100%">
+          </div>
+        </div>
+        <div class="table-toolbar">
+          <button class="btn-refresh" onclick="loadDesignerMaster()">↻ Refresh</button>
+          <div class="tcount" id="dsg-tcount">— entri</div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead id="dsg-thead">
+              <tr>
+                <th class="sortable" data-col="name" onclick="sortDsgBy('name')">Nama</th>
+                <th class="sortable" data-col="category" onclick="sortDsgBy('category')">Kategori</th>
+                <th>Email</th>
+                <th>Phone</th>
+                <th>Portfolio</th>
+                <th class="sortable" data-col="status" onclick="sortDsgBy('status')">Status</th>
+                <th>Aksi</th>
+              </tr>
+            </thead>
+            <tbody id="dsgTableBody"><tr><td class="empty-td" colspan="7">Klik "Semua" untuk memuat data.</td></tr></tbody>
+          </table>
+        </div>
       </div>
     </div>
 
