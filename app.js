@@ -152,6 +152,7 @@ function showPage(name, el) {
   if (name==="activitylog") loadActivityLog();
   if (name==="jubsales") loadJubSales();
   if (name==="mesign") loadMekariEsign();
+  if (name==="po") loadPO();
   if (name==="collections") { loadCollections(); setupAC("col-ip","ac-col-ip",()=>allIPRows.map(r=>r.name).filter(Boolean)); setupAC("col-pic","ac-col-pic",()=>[...new Set(allColRows.map(r=>r.pic).filter(Boolean))]); }
   if (name==="designermaster") { loadDesignerMaster(); const cats=[...new Set([...DSG_CATEGORIES_DEFAULT,...allDsgRows.map(r=>r.category).filter(Boolean)])]; setupAC("dsg-category","ac-dsg-category",()=>cats); }
   if (name==="dsgworkflow") loadDsgWorkflow();
@@ -2370,6 +2371,177 @@ function renderMekariTable(rows) {
       <td>${mappedCell}</td>
     </tr>`;
   }).join("");
+}
+
+// ── PURCHASE ORDERS ──
+let allPORows=[], allPOItems=[];
+let poSort={col:null,dir:'asc'};
+let _poSyncCooldown=0;
+function sortPOBy(c){poSort.dir=poSort.col===c?(poSort.dir==='asc'?'desc':'asc'):'asc';poSort.col=c;applyPOFilters();}
+
+function mapPO(r){
+  return {
+    id:r.purchaseorder_id,rowIndex:r.purchaseorder_id,
+    purchaseorderId:r.purchaseorder_id,
+    purchaseorderNo:r.purchaseorder_no||"",
+    status:r.status||"",
+    supplierName:r.supplier_name||"",
+    transactionDate:r.transaction_date||"",
+    locationName:r.location_name||"",
+    grandTotal:r.grand_total!=null?Number(r.grand_total):null,
+    note:r.note||"",
+    syncedAt:r.synced_at||""
+  };
+}
+function mapPOItem(r){
+  return {
+    id:r.purchaseorder_detail_id,purchaseorderId:r.purchaseorder_id,
+    itemCode:r.item_code||"",itemName:r.item_name||"",
+    qty:r.qty!=null?Number(r.qty):null,unit:r.unit||"",
+    price:r.price!=null?Number(r.price):null,
+    amount:r.amount!=null?Number(r.amount):null
+  };
+}
+
+async function loadPO(){
+  const tbody=document.getElementById("poTableBody");
+  if(tbody) tbody.innerHTML=`<tr><td class="empty-td" colspan="9">Memuat...</td></tr>`;
+  try {
+    const [{data:poData,error:poErr},{data:itemData}]=await Promise.all([
+      sb.from("jubelio_purchase_orders").select("*").order("transaction_date",{ascending:false}),
+      sb.from("jubelio_purchase_order_items").select("*").order("purchaseorder_detail_id",{ascending:true})
+    ]);
+    if(poErr) throw poErr;
+    allPORows=(poData||[]).map(mapPO);
+    allPOItems=(itemData||[]).map(mapPOItem);
+    renderPOStats(allPORows);
+    applyPOFilters();
+    const lastSync=allPORows.reduce((mx,r)=>r.syncedAt>mx?r.syncedAt:mx,"");
+    const se=document.getElementById("po-sync-status");
+    if(se&&lastSync) se.textContent=`Terakhir sync: ${relTime(lastSync)}`;
+  } catch(e){
+    if(tbody) tbody.innerHTML=`<tr><td class="empty-td" colspan="9">Gagal memuat: ${e.message||e}</td></tr>`;
+  }
+}
+
+function renderPOStats(rows){
+  const active=rows.filter(r=>r.status==="ACTIVE").length;
+  const totalItems=allPOItems.filter(i=>rows.some(r=>r.id===i.purchaseorderId)).length;
+  const totalVal=rows.reduce((s,r)=>s+(r.grandTotal||0),0);
+  document.getElementById("po-s-total").textContent=rows.length;
+  document.getElementById("po-s-active").textContent=active;
+  document.getElementById("po-s-items").textContent=totalItems;
+  document.getElementById("po-s-value").textContent=totalVal?"Rp "+Math.round(totalVal).toLocaleString("id-ID"):"—";
+}
+
+function applyPOFilters(){
+  const status=document.getElementById("po-fil-status")?.value||"";
+  const q=(document.getElementById("poSearch")?.value||"").toLowerCase();
+  let rows=allPORows;
+  if(status) rows=rows.filter(r=>r.status===status);
+  if(q) rows=rows.filter(r=>(r.purchaseorderNo||"").toLowerCase().includes(q)||(r.supplierName||"").toLowerCase().includes(q)||(r.locationName||"").toLowerCase().includes(q));
+  renderPOStats(rows);
+  renderPOTable(rows);
+}
+
+function clearPOFilters(){
+  const sf=document.getElementById("po-fil-status");if(sf)sf.value="";
+  const s=document.getElementById("poSearch");if(s)s.value="";
+  applyPOFilters();
+}
+
+function renderPOTable(rows){
+  rows=sortBy(rows,poSort.col,poSort.dir);
+  updateSortTh("po-thead",poSort.col,poSort.dir);
+  const tbody=document.getElementById("poTableBody");
+  document.getElementById("po-tcount").textContent=rows.length+" entri";
+  if(!rows.length){tbody.innerHTML=`<tr><td class="empty-td" colspan="9">Tidak ada data.</td></tr>`;return;}
+  const sPill=s=>{
+    const c=s==="ACTIVE"?"p-signings":s==="COMPLETED"?"p-active":s==="CANCELLED"?"p-inactive":"p-draft";
+    return `<span class="pill ${c}" style="font-size:11px">${s||"—"}</span>`;
+  };
+  tbody.innerHTML=rows.flatMap(r=>{
+    const items=allPOItems.filter(i=>i.purchaseorderId===r.id);
+    const gt=r.grandTotal!=null?`Rp ${Math.round(r.grandTotal).toLocaleString("id-ID")}`:"—";
+    const dt=r.transactionDate?new Date(r.transactionDate).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"—";
+    const hasItems=items.length>0;
+    const main=`<tr>
+      <td style="text-align:center;cursor:${hasItems?"pointer":"default"};color:var(--g400);user-select:none" onclick="${hasItems?`togglePOItems(${r.id})`:""}" id="po-toggle-${r.id}">${hasItems?"▶":""}</td>
+      <td><a href="https://v2.jubelio.com/purchase/orders/detail/${r.id}" target="_blank" style="font-family:var(--mono);font-size:12px;color:#3C3489;text-decoration:none">${r.purchaseorderNo||r.id}</a></td>
+      <td style="font-size:13px">${r.supplierName||"—"}</td>
+      <td>${sPill(r.status)}</td>
+      <td style="white-space:nowrap;font-size:12px">${dt}</td>
+      <td style="font-size:12px">${r.locationName||"—"}</td>
+      <td style="white-space:nowrap;font-size:12px;font-weight:600">${gt}</td>
+      <td style="font-size:12px;color:var(--g400)">${items.length} item${items.length!==1?"s":""}</td>
+      <td style="font-size:11px;color:var(--g400);white-space:nowrap">${relTime(r.syncedAt)}</td>
+    </tr>`;
+    const detail=`<tr id="po-items-${r.id}" style="display:none;background:var(--off)">
+      <td></td>
+      <td colspan="8" style="padding:8px 12px 14px">
+        <table style="width:100%;font-size:11px;border-collapse:collapse">
+          <thead><tr style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">
+            <th style="padding:4px 8px;text-align:left">Item Code</th>
+            <th style="padding:4px 8px;text-align:left">Nama</th>
+            <th style="padding:4px 8px;text-align:right">Qty</th>
+            <th style="padding:4px 8px;text-align:left">Satuan</th>
+            <th style="padding:4px 8px;text-align:right">Harga Satuan</th>
+            <th style="padding:4px 8px;text-align:right">Total</th>
+          </tr></thead>
+          <tbody>${items.map(it=>`<tr style="border-top:1px solid var(--g100)">
+            <td style="padding:4px 8px;font-family:var(--mono);font-size:10px">${it.itemCode||"—"}</td>
+            <td style="padding:4px 8px">${it.itemName||"—"}</td>
+            <td style="padding:4px 8px;text-align:right">${it.qty!=null?Number(it.qty).toLocaleString("id-ID"):"—"}</td>
+            <td style="padding:4px 8px">${it.unit||"—"}</td>
+            <td style="padding:4px 8px;text-align:right">${it.price!=null?"Rp "+Math.round(it.price).toLocaleString("id-ID"):"—"}</td>
+            <td style="padding:4px 8px;text-align:right;font-weight:600">${it.amount!=null?"Rp "+Math.round(it.amount).toLocaleString("id-ID"):"—"}</td>
+          </tr>`).join("")}
+          </tbody>
+        </table>
+      </td>
+    </tr>`;
+    return [main,detail];
+  }).join("");
+}
+
+function togglePOItems(poId){
+  const row=document.getElementById(`po-items-${poId}`);
+  const tog=document.getElementById(`po-toggle-${poId}`);
+  if(!row) return;
+  const open=row.style.display==="table-row";
+  row.style.display=open?"none":"table-row";
+  if(tog) tog.textContent=open?"▶":"▼";
+}
+
+async function syncPONow(){
+  const btn=document.getElementById("po-sync-btn");
+  const se=document.getElementById("po-sync-status");
+  const now=Date.now();
+  if(now<_poSyncCooldown){
+    const rem=Math.ceil((_poSyncCooldown-now)/1000);
+    if(se) se.textContent=`Tunggu ${rem}s lagi sebelum sync ulang.`;
+    return;
+  }
+  if(btn){btn.disabled=true;btn.textContent="⟳ Syncing...";}
+  if(se) se.textContent="Menghubungi Jubelio...";
+  try {
+    const r=await fetch("https://qyxdjdwgvwtrpnvfndnu.supabase.co/functions/v1/sync-jubelio-purchase-orders",{method:"POST"});
+    const j=await r.json();
+    if(!r.ok||!j.ok) throw new Error(j.error||`HTTP ${r.status}`);
+    _poSyncCooldown=Date.now()+60000;
+    if(se) se.textContent=`✓ ${j.headersUpserted||0} PO, ${j.itemsUpserted||0} items diperbarui`;
+    await loadPO();
+  } catch(e){
+    _poSyncCooldown=Date.now()+15000;
+    if(se) se.textContent=`✗ Gagal: ${e.message||e}`;
+  } finally {
+    if(btn){btn.disabled=false;btn.textContent="⟳ Sync dari Jubelio";}
+    setTimeout(()=>{
+      const s2=document.getElementById("po-sync-status");
+      const lastSync=allPORows.reduce((mx,r)=>r.syncedAt>mx?r.syncedAt:mx,"");
+      if(s2&&lastSync) s2.textContent=`Terakhir sync: ${relTime(lastSync)}`;
+    },8000);
+  }
 }
 
 // ── DESIGNER MASTER ──

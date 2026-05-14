@@ -136,6 +136,9 @@
         <div class="sb-item" onclick="showPage('mesign',this)" id="nav-mesign">
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2h10a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z"/><path d="M5 6h6M5 9h4"/><path d="M10 12l2-2-2-2"/></svg>Inbound/Outbound Note
         </div>
+        <div class="sb-item" onclick="showPage('po',this)" id="nav-po">
+          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="12" rx="1"/><path d="M5 5h6M5 8h6M5 11h3"/><circle cx="12" cy="11" r="2.5" fill="currentColor" stroke="none" opacity=".3"/><path d="M11 11h2M12 10v2"/></svg>Purchase Orders
+        </div>
         <div class="sb-item" onclick="showPage('activitylog',this)" id="nav-activitylog">
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="12" rx="2"/><line x1="5" y1="6" x2="11" y2="6"/><line x1="5" y1="9" x2="11" y2="9"/><line x1="5" y1="12" x2="8" y2="12"/></svg>Activity Log
         </div>
@@ -919,6 +922,55 @@
             </tr>
           </thead>
           <tbody id="mekariTableBody"><tr><td class="empty-td" colspan="4">Klik "Semua" untuk memuat data.</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- PURCHASE ORDERS -->
+    <div class="page" id="page-po">
+      <div class="page-header">
+        <div><div class="page-title">Purchase Orders</div><div class="page-sub">Data PO dari Jubelio — sync otomatis harian, atau manual via tombol Sync.</div></div>
+      </div>
+      <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
+        <div class="stat-card"><div class="stat-num" id="po-s-total">—</div><div class="stat-lbl">Total PO</div></div>
+        <div class="stat-card"><div class="stat-num" id="po-s-active">—</div><div class="stat-lbl">Active</div></div>
+        <div class="stat-card"><div class="stat-num" id="po-s-items">—</div><div class="stat-lbl">Total Line Items</div></div>
+        <div class="stat-card"><div class="stat-num" id="po-s-value">—</div><div class="stat-lbl">Total Value</div></div>
+      </div>
+      <div class="filter-panel">
+        <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="clearPOFilters()">✕ Reset</button></div>
+        <div class="filter-grid">
+          <select class="f-select" id="po-fil-status" onchange="applyPOFilters()">
+            <option value="">Semua Status</option>
+            <option>ACTIVE</option>
+            <option>COMPLETED</option>
+            <option>CANCELLED</option>
+          </select>
+          <input class="search-box" type="text" id="poSearch" placeholder="Cari PO No, supplier, lokasi..." oninput="applyPOFilters()" style="width:100%">
+        </div>
+      </div>
+      <div class="table-toolbar">
+        <button class="btn-refresh" onclick="loadPO()">↻ Refresh</button>
+        <button id="po-sync-btn" class="btn-primary" style="font-size:12px;padding:5px 14px" onclick="syncPONow()">⟳ Sync dari Jubelio</button>
+        <span id="po-sync-status" style="font-size:11px;color:var(--g400);margin-left:4px"></span>
+        <div class="tcount" id="po-tcount">— entri</div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead id="po-thead">
+            <tr>
+              <th style="width:24px"></th>
+              <th class="sortable" data-col="purchaseorderNo" onclick="sortPOBy('purchaseorderNo')">PO No</th>
+              <th class="sortable" data-col="supplierName" onclick="sortPOBy('supplierName')">Supplier</th>
+              <th class="sortable" data-col="status" onclick="sortPOBy('status')">Status</th>
+              <th class="sortable" data-col="transactionDate" onclick="sortPOBy('transactionDate')">Tanggal</th>
+              <th class="sortable" data-col="locationName" onclick="sortPOBy('locationName')">Lokasi</th>
+              <th class="sortable" data-col="grandTotal" onclick="sortPOBy('grandTotal')">Grand Total</th>
+              <th>Items</th>
+              <th>Synced</th>
+            </tr>
+          </thead>
+          <tbody id="poTableBody"><tr><td class="empty-td" colspan="9">Klik "Refresh" untuk memuat data.</td></tr></tbody>
         </table>
       </div>
     </div>
