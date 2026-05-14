@@ -2181,9 +2181,8 @@ function mapJub(r) {
     transactionDate:r.transaction_date||"",
     internalStatus:r.internal_status||"",
     grandTotal:r.grand_total!=null?r.grand_total:"",
-    note:r.note||"",
-    dateAdded:r.date_added||"",
-    addedBy:r.added_by||""
+    locationName:r.location_name||"",
+    note:r.note||""
   };
 }
 
@@ -2229,17 +2228,20 @@ function renderJubStats(rows) {
 }
 
 function applyJubFilters() {
-  const mapFil = document.getElementById("jub-fil-mapped")?.value||"";
+  const mapFil  = document.getElementById("jub-fil-mapped")?.value||"";
+  const locFil  = document.getElementById("jub-fil-location")?.value||"";
   const q = (document.getElementById("jubSearch")?.value||"").toLowerCase();
   let rows = allJubRows;
   if (mapFil==="mapped") rows = rows.filter(r=>getJubMappedTo(r)!==null);
   else if (mapFil==="unmapped") rows = rows.filter(r=>getJubMappedTo(r)===null);
-  if (q) rows = rows.filter(r=>(r.salesorderId||"").toLowerCase().includes(q)||(r.shippingFullName||"").toLowerCase().includes(q)||(r.internalStatus||"").toLowerCase().includes(q));
+  if (locFil) rows = rows.filter(r=>r.locationName===locFil);
+  if (q) rows = rows.filter(r=>(r.salesorderId||"").toLowerCase().includes(q)||(r.shippingFullName||"").toLowerCase().includes(q)||(r.internalStatus||"").toLowerCase().includes(q)||(r.locationName||"").toLowerCase().includes(q));
   renderJubTable(rows);
 }
 
 function clearJubFilters() {
   const mf=document.getElementById("jub-fil-mapped"); if(mf) mf.value="";
+  const lf=document.getElementById("jub-fil-location"); if(lf) lf.value="";
   const s=document.getElementById("jubSearch"); if(s) s.value="";
   applyJubFilters();
 }
@@ -2249,17 +2251,24 @@ function renderJubTable(rows) {
   updateSortTh("jub-thead", jubSort.col, jubSort.dir);
   const tbody = document.getElementById("jubTableBody");
   document.getElementById("jub-tcount").textContent = rows.length+" entri";
-  if (!rows.length) { tbody.innerHTML=`<tr><td class="empty-td" colspan="7">Tidak ada data.</td></tr>`; return; }
+  if (!rows.length) { tbody.innerHTML=`<tr><td class="empty-td" colspan="8">Tidak ada data.</td></tr>`; return; }
   tbody.innerHTML = rows.map(r => {
     const mappedTo = getJubMappedTo(r);
     const mappedCell = mappedTo !== null
       ? `<span class="pill p-active" style="font-size:11px">Mapped to ${(mappedTo).replace(/</g,"&lt;")}</span>`
       : `<span style="color:#c0392b;font-size:11px;font-weight:500">Unmapped</span>`;
     const gt = (r.grandTotal!==""&&r.grandTotal!=null) ? `Rp ${Number(r.grandTotal).toLocaleString("id-ID")}` : "—";
+    const sidCell = r.salesorderId
+      ? `<a href="https://v2.jubelio.com/sales/transactions/orders/detail/${r.salesorderId}" target="_blank" style="font-family:var(--mono);font-size:12px;color:#3C3489;text-decoration:none">${r.salesorderId}</a>`
+      : "—";
+    const locPill = r.locationName
+      ? `<span class="pill ${r.locationName==="Gudang Marte"?"p-signings":"p-draft"}" style="font-size:11px">${r.locationName}</span>`
+      : "—";
     return `<tr>
-      <td style="font-family:var(--mono);font-size:12px">${r.salesorderId||"—"}</td>
+      <td>${sidCell}</td>
       <td>${r.shippingFullName||"—"}</td>
       <td style="white-space:nowrap;font-size:12px">${fmtDate(r.transactionDate)}</td>
+      <td>${locPill}</td>
       <td><span class="pill p-draft" style="font-size:11px">${r.internalStatus||"—"}</span></td>
       <td style="white-space:nowrap;font-size:12px">${gt}</td>
       <td style="font-size:12px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(r.note||'').replace(/"/g,'&quot;')}">${r.note||"—"}</td>

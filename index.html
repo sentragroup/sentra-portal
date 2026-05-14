@@ -830,12 +830,17 @@
           <div class="filter-panel">
             <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="clearJubFilters()">✕ Reset</button></div>
             <div class="filter-grid">
+              <select class="f-select" id="jub-fil-location" onchange="applyJubFilters()">
+                <option value="">Semua Gudang</option>
+                <option value="Gudang Marte">Gudang Marte</option>
+                <option value="Gudang Offline">Gudang Offline</option>
+              </select>
               <select class="f-select" id="jub-fil-mapped" onchange="applyJubFilters()">
                 <option value="">Semua Status</option>
                 <option value="mapped">Mapped</option>
                 <option value="unmapped">Unmapped</option>
               </select>
-              <input class="search-box" type="text" id="jubSearch" placeholder="Cari order ID, nama, status..." oninput="applyJubFilters()" style="width:100%">
+              <input class="search-box" type="text" id="jubSearch" placeholder="Cari order ID, nama, gudang..." oninput="applyJubFilters()" style="width:100%">
             </div>
           </div>
           <div class="table-toolbar">
@@ -849,13 +854,14 @@
                   <th class="sortable" data-col="salesorderId" onclick="sortJubBy('salesorderId')">Sales Order ID</th>
                   <th class="sortable" data-col="shippingFullName" onclick="sortJubBy('shippingFullName')">Nama Penerima</th>
                   <th class="sortable" data-col="transactionDate" onclick="sortJubBy('transactionDate')">Tgl Transaksi</th>
+                  <th class="sortable" data-col="locationName" onclick="sortJubBy('locationName')">Gudang</th>
                   <th class="sortable" data-col="internalStatus" onclick="sortJubBy('internalStatus')">Status</th>
                   <th class="sortable" data-col="grandTotal" onclick="sortJubBy('grandTotal')">Grand Total</th>
                   <th>Note</th>
                   <th>Mapped</th>
                 </tr>
               </thead>
-              <tbody id="jubTableBody"><tr><td class="empty-td" colspan="7">Klik "Semua" untuk memuat data.</td></tr></tbody>
+              <tbody id="jubTableBody"><tr><td class="empty-td" colspan="8">Klik "Semua" untuk memuat data.</td></tr></tbody>
             </table>
           </div>
         </div>
