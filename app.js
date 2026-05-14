@@ -2912,40 +2912,6 @@ function renderColDetail(col, items) {
     </td>
   </tr>`).join("");
 
-  // ── Design (DW preview) ──
-  const dwRows=allDwRows.filter(r=>r.collectionId===col.id);
-  const designContent=dwRows.length?`
-    <table style="width:100%">
-      <thead><tr style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">
-        <th style="padding:6px 10px;text-align:left">Designer</th>
-        <th style="padding:6px 10px;text-align:left">Deliverables</th>
-        <th style="padding:6px 10px;text-align:left">Link</th>
-        <th style="padding:6px 10px;text-align:left">Payment</th>
-      </tr></thead>
-      <tbody>${dwRows.map(r=>{
-        const dlSt=r.locked&&r.collectionId?computeColDeliverableStatus(r.collectionId,r.designer):r.deliverablesStatus;
-        const dlP=dlSt==="Approved"?"p-active":dlSt==="Partially Approved"?"p-near":dlSt==="Not Approved"?"p-expired":"p-draft";
-        const payP=r.paymentStatus==="Paid"?"p-active":r.paymentStatus==="Not Yet Paid"?"p-expired":"p-draft";
-        const linkDisp=r.deliverablesUrl
-          ?`<a href="${r.deliverablesUrl}" target="_blank" style="font-size:11px;color:#3C3489;text-decoration:none">↗ Lihat</a> <button class="btn-icon" style="font-size:10px" onclick="openDwLinkEdit('${r.id}')">✏</button>`
-          :`<button class="btn-icon" style="font-size:10px" onclick="openDwLinkEdit('${r.id}')">+ Tambah link</button>`;
-        return `<tr style="border-top:1px solid var(--g100)">
-          <td style="padding:8px 10px"><strong>${r.designer||`<span style="color:var(--g400)">—</span>`}</strong></td>
-          <td style="padding:8px 10px"><span class="pill ${dlP}" style="font-size:10px">${dlSt||"—"}</span></td>
-          <td style="padding:8px 10px">
-            <span id="dw-link-display-${r.id}">${linkDisp}</span>
-            <span id="dw-link-edit-${r.id}" style="display:none">
-              <input type="url" id="dw-link-input-${r.id}" value="${(r.deliverablesUrl||"").replace(/"/g,"&quot;")}" placeholder="https://drive.google.com/..." style="font-size:11px;padding:3px 6px;border:1px solid var(--g200);border-radius:4px;width:200px">
-              <button class="btn-icon" style="font-size:10px" onclick="saveDwLinkInline('${r.id}','${col.id}')">✓</button>
-              <button class="btn-icon" style="font-size:10px" onclick="closeDwLinkEdit('${r.id}')">✕</button>
-            </span>
-          </td>
-          <td style="padding:8px 10px"><span class="pill ${payP}" style="font-size:11px">${r.paymentStatus}</span></td>
-        </tr>`;
-      }).join("")}</tbody>
-    </table>
-    <div style="margin-top:10px;text-align:right"><a href="#" onclick="showPage('dsgworkflow');return false" style="font-size:11px;color:#3C3489">↗ Buka Designer Workflow lengkap →</a></div>`
-    :`<div style="color:var(--g400);font-size:12px">Belum ada data. Designer Workflow otomatis muncul saat SKU diberi designer.</div>`;
 
   // ── Sampling rows ──
   const samplingContent=items.length?`
@@ -2996,11 +2962,11 @@ function renderColDetail(col, items) {
 
   // ── Pipeline bar ──
   const ps=getPipelineStatuses(col.id);
-  const pipeStages=[["design","Design"],["sampling","Sampling"],["production","Production"],["inbound","Inbound"],["marketing","Marketing"]];
+  const pipeStages=[["sampling","Sampling"],["production","Production"],["inbound","Inbound"],["marketing","Marketing"]];
   const pdot=s=>s==="done"?"●":s==="in-progress"?"◐":"○";
   const pclr=s=>s==="done"?"#1a5c25":s==="in-progress"?"#1a4a8a":"#aaa";
 
-  document.getElementById("col-detail-content").innerHTML=`<div style="max-width:1000px">
+  document.getElementById("col-detail-content").innerHTML=`<div style="width:100%">
     <!-- Header -->
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--g100)">
       <button class="btn-ghost" onclick="closeCollectionDetail()" style="white-space:nowrap">← Kembali</button>
@@ -3066,8 +3032,6 @@ function renderColDetail(col, items) {
         </tr></thead>
         <tbody>${skuRows}</tbody>
       </table></div>`:`<div style="color:var(--g400);font-size:12px">Belum ada SKU. Tambah di atas.</div>`}`)}
-    <!-- Design (DW) -->
-    ${cdStageBox("🎨","Design",cdStageBadge(ps.design==="done"?"Done":ps.design==="in-progress"?"In Progress":"Not Started"),designContent)}
     <!-- Sampling -->
     ${cdStageBox("🧵","Sampling",cdStageBadge(items.length?items.every(i=>i.samplingStatus==="Done")?"Done":items.some(i=>i.samplingStatus!=="Not Started")?"In Progress":"Not Started":"Not Started"),samplingContent)}
     <!-- Production -->
@@ -3190,7 +3154,7 @@ async function updateSKUStageStatus(itemId, colId, stage, status) {
 }
 function renderPipelineBarHTML(colId) {
   const ps=getPipelineStatuses(colId);
-  const pipeStages=[["design","Design"],["sampling","Sampling"],["production","Production"],["inbound","Inbound"],["marketing","Marketing"]];
+  const pipeStages=[["sampling","Sampling"],["production","Production"],["inbound","Inbound"],["marketing","Marketing"]];
   const pdot=s=>s==="done"?"●":s==="in-progress"?"◐":"○";
   const pclr=s=>s==="done"?"#1a5c25":s==="in-progress"?"#1a4a8a":"#aaa";
   return pipeStages.map(([k,l],i)=>`${i>0?`<div style="flex:1;height:1px;background:var(--g200);min-width:12px;max-width:40px"></div>`:""}
