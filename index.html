@@ -1010,9 +1010,13 @@
       </div>
       <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
         <div class="stat-card"><div class="stat-num" id="dw-s-total">—</div><div class="stat-lbl">Total Projects</div></div>
-        <div class="stat-card"><div class="stat-num" id="dw-s-paid">—</div><div class="stat-lbl">Paid</div></div>
-        <div class="stat-card"><div class="stat-num" id="dw-s-unpaid" style="color:#c0392b">—</div><div class="stat-lbl">Not Paid</div></div>
-        <div class="stat-card"><div class="stat-num" id="dw-s-delivered">—</div><div class="stat-lbl">Delivered</div></div>
+        <div class="stat-card"><div class="stat-num" id="dw-s-inprogress" style="color:#1a4a8a">—</div><div class="stat-lbl">In Progress</div></div>
+        <div class="stat-card"><div class="stat-num" id="dw-s-pending">—</div><div class="stat-lbl">Pending</div></div>
+        <div class="stat-card"><div class="stat-num" id="dw-s-completed" style="color:#1a5c25">—</div><div class="stat-lbl">Completed</div></div>
+        <div class="stat-card"><div class="stat-num" id="dw-s-late" style="color:#c0392b">—</div><div class="stat-lbl">Telat</div></div>
+        <div class="stat-card"><div class="stat-num" id="dw-s-notyetpaid" style="color:#c0392b">—</div><div class="stat-lbl">Not Yet Paid</div></div>
+        <div class="stat-card"><div class="stat-num" id="dw-s-paid" style="color:#1a5c25">—</div><div class="stat-lbl">Paid</div></div>
+        <div class="stat-card"><div class="stat-num" id="dw-s-kontrak">—</div><div class="stat-lbl">Ada Kontrak</div></div>
       </div>
       <div id="dwtab-new">
         <div class="form-card">
@@ -1038,7 +1042,8 @@
         <div class="filter-panel">
           <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="clearDwFilters()">✕ Reset</button></div>
           <div class="filter-grid">
-            <select class="f-select" id="dw-fil-payment" onchange="applyDwFilters()"><option value="">Semua Payment</option><option value="Paid">Paid</option><option value="Not Yet Paid">Not Yet Paid</option><option value="Not Paid">Not Paid</option></select>
+            <select class="f-select" id="dw-fil-source" onchange="applyDwFilters()"><option value="">Semua Sumber</option><option value="cd">dari Collection Development</option><option value="manual">Manual (Sendiri)</option></select>
+            <select class="f-select" id="dw-fil-payment" onchange="applyDwFilters()"><option value="">Semua Payment</option><option value="Not Yet Paid">Not Yet Paid</option><option value="Paid">Paid</option><option value="Not Paid">Not Paid (Internal)</option></select>
             <select class="f-select" id="dw-fil-dlstatus" onchange="applyDwFilters()"><option value="">Semua Deliverables</option><option value="Approved">Approved (CD)</option><option value="Partially Approved">Partially Approved (CD)</option><option value="Not Approved">Not Approved (CD)</option><option value="Completed">Completed</option><option value="In Progress">In Progress</option><option value="Revision">Revision</option><option value="Pending">Pending</option></select>
             <input class="search-box" type="text" id="dwSearch" placeholder="Cari designer, project..." oninput="applyDwFilters()" style="width:100%">
           </div>
@@ -1164,6 +1169,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260514f"></script>
+<script src="app.js?v=20260514g"></script>
 </body>
 </html>
