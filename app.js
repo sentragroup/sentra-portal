@@ -2237,6 +2237,7 @@ function applyJubFilters() {
   if (locFil==="!Gudang Marte") rows = rows.filter(r=>r.locationName!=="Gudang Marte");
   else if (locFil) rows = rows.filter(r=>r.locationName===locFil);
   if (q) rows = rows.filter(r=>(r.salesorderId||"").toLowerCase().includes(q)||(r.shippingFullName||"").toLowerCase().includes(q)||(r.internalStatus||"").toLowerCase().includes(q)||(r.locationName||"").toLowerCase().includes(q));
+  renderJubStats(rows);
   renderJubTable(rows);
 }
 
