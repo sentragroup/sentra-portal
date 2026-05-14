@@ -2588,11 +2588,32 @@ function mapCI(r) {
 }
 
 let allColStages = [];
+let allColNotes = [];
 const COL_STAGE_NAMES = ["inbound","photoshoot","kol","offline_activation"];
 const COL_STAGE_LABELS = {inbound:"Inbound",photoshoot:"Photoshoot",kol:"KOL",offline_activation:"Offline Activation"};
 
 function mapCS(r) {
   return {rowIndex:r.id,id:r.id,collectionId:r.collection_id,stage:r.stage,status:r.status||"Not Started",notes:r.notes||""};
+}
+function mapCN(r) {
+  return {id:r.id,collectionId:r.collection_id,content:r.content||"",author:r.author||"",mentions:r.mentions||"",createdAt:r.created_at||""};
+}
+
+function relTime(ts) {
+  if(!ts) return "—";
+  const diff=Date.now()-new Date(ts);
+  const m=Math.floor(diff/60000);
+  if(m<1) return "baru saja";
+  if(m<60) return `${m}m lalu`;
+  const h=Math.floor(m/60);
+  if(h<24) return `${h}j lalu`;
+  const d=Math.floor(h/24);
+  if(d<7) return `${d}h lalu`;
+  return fmtDate(ts.slice(0,10));
+}
+
+function highlightMentions(text) {
+  return (text||"").replace(/</g,"&lt;").replace(/@([\w.]+)/g,'<span style="color:#3C3489;font-weight:600">@$1</span>');
 }
 
 async function loadCollections() {
@@ -2967,7 +2988,7 @@ function renderColDetail(col, items) {
   const pclr=s=>s==="done"?"#1a5c25":s==="in-progress"?"#1a4a8a":"#aaa";
 
   document.getElementById("col-detail-content").innerHTML=`<div style="width:100%">
-    <!-- Header -->
+    <!-- Header (full-width) -->
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--g100)">
       <button class="btn-ghost" onclick="closeCollectionDetail()" style="white-space:nowrap">← Kembali</button>
       <div style="flex:1">
@@ -3007,48 +3028,79 @@ function renderColDetail(col, items) {
       ${col.moodboardUrl?`<div class="stat-card" style="text-align:left;padding:12px 14px"><div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:4px">Moodboard</div><a href="${col.moodboardUrl}" target="_blank" style="color:#3C3489;font-weight:600;text-decoration:none;font-size:13px">↗ Lihat</a></div>`:""}
     </div>
     ${col.notes?`<div class="form-card" style="margin-bottom:16px;padding:12px 14px"><div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:4px">Notes</div><div style="font-size:13px">${col.notes.replace(/</g,"&lt;")}</div></div>`:""}
-    <!-- Pipeline bar -->
-    <div id="col-pipeline-${col.id}" style="display:flex;align-items:center;gap:4px;margin-bottom:20px;padding:14px 20px;background:var(--off);border-radius:8px;overflow-x:auto">
-      ${pipeStages.map(([k,l],i)=>`${i>0?`<div style="flex:1;height:1px;background:var(--g200);min-width:12px;max-width:40px"></div>`:""}
-      <div style="display:flex;flex-direction:column;align-items:center;gap:3px;min-width:60px">
-        <span style="font-size:20px;line-height:1;color:${pclr(ps[k])}">${pdot(ps[k])}</span>
-        <span style="font-size:9px;font-family:var(--mono);text-transform:uppercase;color:${pclr(ps[k])};white-space:nowrap">${l}</span>
-      </div>`).join("")}
-    </div>
-    <!-- SKU Master List -->
-    ${cdStageBox("📋","SKUs",`<span style="font-size:11px;color:var(--g400);font-family:var(--mono);margin-left:auto">${items.length} items</span>`,`
-      <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;padding:12px;background:var(--off);border-radius:6px;margin-bottom:14px">
-        <div class="fg" style="min-width:160px;flex:2"><label style="font-size:11px">Nama SKU *</label><input type="text" id="ci-dp-name-${col.id}" placeholder="Nama item/SKU"></div>
-        <div class="fg" style="min-width:130px;flex:1.5;position:relative"><label style="font-size:11px">Kategori</label><input type="text" id="ci-dp-cat-${col.id}" placeholder="T-Shirt, Bag Charm..." autocomplete="off"><div class="ac-list" id="ac-ci-dp-cat-${col.id}"></div></div>
-        <div class="fg" style="min-width:140px;flex:1.5;position:relative"><label style="font-size:11px">Designer</label><input type="text" id="ci-dp-dsg-${col.id}" placeholder="Pilih dari designer master" autocomplete="off"><div class="ac-list" id="ac-ci-dp-${col.id}"></div></div>
-        <div class="fg" style="min-width:120px;flex:1"><label style="font-size:11px">Deadline</label><input type="date" id="ci-dp-deadline-${col.id}"></div>
-        <div style="padding-bottom:2px"><button class="btn-primary" style="padding:6px 14px;font-size:12px" onclick="addCollectionItem('${col.id}')">+ Tambah</button></div>
+    <!-- Two-column body: left = stages, right = notes/activity -->
+    <div style="display:flex;gap:20px;align-items:flex-start">
+      <div style="flex:1;min-width:0">
+        <!-- Pipeline bar -->
+        <div id="col-pipeline-${col.id}" style="display:flex;align-items:center;gap:4px;margin-bottom:20px;padding:14px 20px;background:var(--off);border-radius:8px;overflow-x:auto">
+          ${pipeStages.map(([k,l],i)=>`${i>0?`<div style="flex:1;height:1px;background:var(--g200);min-width:12px;max-width:40px"></div>`:""}
+          <div style="display:flex;flex-direction:column;align-items:center;gap:3px;min-width:60px">
+            <span style="font-size:20px;line-height:1;color:${pclr(ps[k])}">${pdot(ps[k])}</span>
+            <span style="font-size:9px;font-family:var(--mono);text-transform:uppercase;color:${pclr(ps[k])};white-space:nowrap">${l}</span>
+          </div>`).join("")}
+        </div>
+        <!-- SKU Master List -->
+        ${cdStageBox("📋","SKUs",`<span style="font-size:11px;color:var(--g400);font-family:var(--mono);margin-left:auto">${items.length} items</span>`,`
+          <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;padding:12px;background:var(--off);border-radius:6px;margin-bottom:14px">
+            <div class="fg" style="min-width:160px;flex:2"><label style="font-size:11px">Nama SKU *</label><input type="text" id="ci-dp-name-${col.id}" placeholder="Nama item/SKU"></div>
+            <div class="fg" style="min-width:130px;flex:1.5;position:relative"><label style="font-size:11px">Kategori</label><input type="text" id="ci-dp-cat-${col.id}" placeholder="T-Shirt, Bag Charm..." autocomplete="off"><div class="ac-list" id="ac-ci-dp-cat-${col.id}"></div></div>
+            <div class="fg" style="min-width:140px;flex:1.5;position:relative"><label style="font-size:11px">Designer</label><input type="text" id="ci-dp-dsg-${col.id}" placeholder="Pilih dari designer master" autocomplete="off"><div class="ac-list" id="ac-ci-dp-${col.id}"></div></div>
+            <div class="fg" style="min-width:120px;flex:1"><label style="font-size:11px">Deadline</label><input type="date" id="ci-dp-deadline-${col.id}"></div>
+            <div style="padding-bottom:2px"><button class="btn-primary" style="padding:6px 14px;font-size:12px" onclick="addCollectionItem('${col.id}')">+ Tambah</button></div>
+          </div>
+          ${items.length?`<div class="table-wrap" style="max-height:400px;overflow-y:auto"><table style="width:100%">
+            <thead><tr style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">
+              <th style="padding:6px 10px;text-align:left">SKU</th><th style="padding:6px 10px;text-align:left">Kategori</th>
+              <th style="padding:6px 10px;text-align:left">Designer</th><th style="padding:6px 10px;text-align:left">Deadline</th>
+              <th style="padding:6px 10px;text-align:left">Preview</th><th style="padding:6px 10px;text-align:left">Approval</th><th style="padding:6px 10px;text-align:left">Aksi</th>
+            </tr></thead>
+            <tbody>${skuRows}</tbody>
+          </table></div>`:`<div style="color:var(--g400);font-size:12px">Belum ada SKU. Tambah di atas.</div>`}`)}
+        <!-- Sampling -->
+        ${cdStageBox("🧵","Sampling",cdStageBadge(items.length?items.every(i=>i.samplingStatus==="Done")?"Done":items.some(i=>i.samplingStatus!=="Not Started")?"In Progress":"Not Started":"Not Started"),samplingContent)}
+        <!-- Production -->
+        ${cdStageBox("🏭","Production",cdStageBadge(items.length?items.every(i=>i.productionStatus==="Done")?"Done":items.some(i=>i.productionStatus!=="Not Started")?"In Progress":"Not Started":"Not Started"),productionContent)}
+        <!-- Inbound -->
+        ${cdStageBox("📦","Inbound",cdStageBadge(inboundS.status),`
+          <select onchange="updateColStageStatus('${col.id}','inbound',this.value)" style="font-size:12px;padding:4px 8px;border:1px solid;border-radius:4px;width:200px;margin-bottom:10px;background:${inboundSelClr}">
+            <option${inboundS.status==="Not Started"?" selected":""}>Not Started</option>
+            <option${inboundS.status==="In Progress"?" selected":""}>In Progress</option>
+            <option${inboundS.status==="Done"?" selected":""}>Done</option>
+          </select>
+          <textarea placeholder="Notes..." rows="2" style="font-size:12px;padding:8px;border:1px solid var(--g100);border-radius:4px;width:100%;resize:vertical;box-sizing:border-box" onblur="saveColStageNote('${col.id}','inbound',this.value)">${(inboundS.notes||"").replace(/</g,"&lt;")}</textarea>`)}
+        <!-- Marketing -->
+        ${cdStageBox("📣","Marketing",cdStageBadge(ps.marketing==="done"?"Done":ps.marketing==="in-progress"?"In Progress":"Not Started"),`
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">
+            ${mktSubBox("photoshoot")}${mktSubBox("kol")}${mktSubBox("offline_activation")}
+          </div>`)}
       </div>
-      ${items.length?`<div class="table-wrap" style="max-height:400px;overflow-y:auto"><table style="width:100%">
-        <thead><tr style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">
-          <th style="padding:6px 10px;text-align:left">SKU</th><th style="padding:6px 10px;text-align:left">Kategori</th>
-          <th style="padding:6px 10px;text-align:left">Designer</th><th style="padding:6px 10px;text-align:left">Deadline</th>
-          <th style="padding:6px 10px;text-align:left">Preview</th><th style="padding:6px 10px;text-align:left">Approval</th><th style="padding:6px 10px;text-align:left">Aksi</th>
-        </tr></thead>
-        <tbody>${skuRows}</tbody>
-      </table></div>`:`<div style="color:var(--g400);font-size:12px">Belum ada SKU. Tambah di atas.</div>`}`)}
-    <!-- Sampling -->
-    ${cdStageBox("🧵","Sampling",cdStageBadge(items.length?items.every(i=>i.samplingStatus==="Done")?"Done":items.some(i=>i.samplingStatus!=="Not Started")?"In Progress":"Not Started":"Not Started"),samplingContent)}
-    <!-- Production -->
-    ${cdStageBox("🏭","Production",cdStageBadge(items.length?items.every(i=>i.productionStatus==="Done")?"Done":items.some(i=>i.productionStatus!=="Not Started")?"In Progress":"Not Started":"Not Started"),productionContent)}
-    <!-- Inbound -->
-    ${cdStageBox("📦","Inbound",cdStageBadge(inboundS.status),`
-      <select onchange="updateColStageStatus('${col.id}','inbound',this.value)" style="font-size:12px;padding:4px 8px;border:1px solid;border-radius:4px;width:200px;margin-bottom:10px;background:${inboundSelClr}">
-        <option${inboundS.status==="Not Started"?" selected":""}>Not Started</option>
-        <option${inboundS.status==="In Progress"?" selected":""}>In Progress</option>
-        <option${inboundS.status==="Done"?" selected":""}>Done</option>
-      </select>
-      <textarea placeholder="Notes..." rows="2" style="font-size:12px;padding:8px;border:1px solid var(--g100);border-radius:4px;width:100%;resize:vertical;box-sizing:border-box" onblur="saveColStageNote('${col.id}','inbound',this.value)">${(inboundS.notes||"").replace(/</g,"&lt;")}</textarea>`)}
-    <!-- Marketing -->
-    ${cdStageBox("📣","Marketing",cdStageBadge(ps.marketing==="done"?"Done":ps.marketing==="in-progress"?"In Progress":"Not Started"),`
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">
-        ${mktSubBox("photoshoot")}${mktSubBox("kol")}${mktSubBox("offline_activation")}
-      </div>`)}
+      <!-- Right sidebar: Notes + Activity -->
+      <div style="width:280px;flex-shrink:0;position:sticky;top:20px;max-height:calc(100vh - 80px);overflow-y:auto;display:flex;flex-direction:column;gap:12px">
+        <!-- Notes panel -->
+        <div style="border:1px solid var(--g100);border-radius:8px;overflow:hidden">
+          <div style="padding:10px 14px;background:var(--off);border-bottom:1px solid var(--g100);font-family:var(--mono);font-size:11px;text-transform:uppercase;font-weight:600">📝 Catatan</div>
+          <div style="padding:12px">
+            <div style="position:relative">
+              <textarea id="col-note-input-${col.id}" rows="3" placeholder="Tulis catatan...&#10;@nama untuk mention" style="width:100%;font-size:12px;padding:8px;border:1px solid var(--g100);border-radius:6px;resize:vertical;box-sizing:border-box;font-family:inherit"></textarea>
+              <div id="col-note-drop-${col.id}" style="display:none;position:absolute;left:0;right:0;bottom:100%;background:var(--white);border:1px solid var(--g100);border-radius:6px;z-index:200;box-shadow:0 4px 12px rgba(0,0,0,.08)"></div>
+            </div>
+            <div style="text-align:right;margin-top:6px">
+              <button id="col-note-btn-${col.id}" class="btn-primary" style="padding:5px 16px;font-size:12px" onclick="addColNote('${col.id}')">Kirim</button>
+            </div>
+          </div>
+          <div id="col-notes-list-${col.id}" style="border-top:1px solid var(--g100)">
+            <div style="padding:12px;color:var(--g400);font-size:12px;text-align:center">Memuat...</div>
+          </div>
+        </div>
+        <!-- Activity panel -->
+        <div style="border:1px solid var(--g100);border-radius:8px;overflow:hidden">
+          <div style="padding:10px 14px;background:var(--off);border-bottom:1px solid var(--g100);font-family:var(--mono);font-size:11px;text-transform:uppercase;font-weight:600">📋 Aktivitas</div>
+          <div id="col-activity-list-${col.id}" style="">
+            <div style="padding:12px;color:var(--g400);font-size:12px;text-align:center">Memuat...</div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>`;
 
   // Setup autocompletes
@@ -3060,6 +3112,8 @@ function renderColDetail(col, items) {
     setupAC(`cie-cat-${i.id}`,`ac-cie-cat-${i.id}`,()=>skuCats);
     setupAC(`cie-dsg-${i.id}`,`ac-cie-dsg-${i.id}`,()=>allDsgRows.filter(d=>d.status==="Active").map(d=>d.name));
   });
+  loadColSidebar(col.id);
+  setupNoteAC(col.id);
 }
 
 async function addCollectionItem(colId) {
@@ -3172,6 +3226,113 @@ async function saveSkuStageNote(itemId, colId, stage, notes) {
     const item=allColItems.find(i=>i.id===itemId);
     if(item){if(stage==="sampling")item.samplingNotes=notes;else item.productionNotes=notes;}
   } catch(e){/* silent */}
+}
+
+// ── COLLECTION SIDEBAR (notes + activity) ──────────────────────────────────
+
+async function loadColSidebar(colId) {
+  const itemIds=allColItems.filter(i=>i.collectionId===colId).map(i=>i.id);
+  const [notesRes, actRes]=await Promise.all([
+    sb.from("collection_notes").select("*").eq("collection_id",colId).order("created_at",{ascending:false}).limit(50),
+    sb.from("activity_logs").select("*").in("record_id",[colId,...itemIds]).order("ts",{ascending:false}).limit(30)
+  ]);
+  renderNotesList(colId, (notesRes.data||[]).map(mapCN));
+  renderActivityList(colId, actRes.data||[]);
+}
+
+async function addColNote(colId) {
+  const ta=document.getElementById(`col-note-input-${colId}`);
+  const content=ta?.value.trim();
+  if(!content) return;
+  const btn=document.getElementById(`col-note-btn-${colId}`);
+  if(btn){btn.disabled=true;btn.textContent="...";}
+  const mentions=(content.match(/@([\w.]+)/g)||[]).join(",");
+  const {error}=await sb.from("collection_notes").insert({
+    id:genId("CN"), collection_id:colId, content, author:currentUser,
+    mentions, created_at:new Date().toISOString()
+  });
+  if(!error){
+    ta.value="";
+    await loadColSidebar(colId);
+  } else {
+    alert("Gagal menyimpan catatan.");
+  }
+  if(btn){btn.disabled=false;btn.textContent="Kirim";}
+}
+
+function renderNotesList(colId, notes) {
+  const el=document.getElementById(`col-notes-list-${colId}`);
+  if(!el) return;
+  if(!notes.length){
+    el.innerHTML=`<div style="padding:12px;color:var(--g400);font-size:12px;text-align:center">Belum ada catatan</div>`;
+    return;
+  }
+  el.innerHTML=notes.map(n=>`
+    <div style="padding:10px 12px;border-top:1px solid var(--g100)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <span style="font-size:11px;font-weight:600;color:var(--black)">${(n.author||"Anonim").replace(/</g,"&lt;")}</span>
+        <span style="font-size:10px;color:var(--g400);white-space:nowrap">${relTime(n.createdAt)}</span>
+      </div>
+      <div style="font-size:12px;line-height:1.5;color:var(--black);white-space:pre-wrap">${highlightMentions(n.content)}</div>
+    </div>`).join("");
+}
+
+function renderActivityList(colId, activity) {
+  const el=document.getElementById(`col-activity-list-${colId}`);
+  if(!el) return;
+  if(!activity.length){
+    el.innerHTML=`<div style="padding:12px;color:var(--g400);font-size:12px;text-align:center">Belum ada aktivitas</div>`;
+    return;
+  }
+  el.innerHTML=activity.map(a=>`
+    <div style="padding:8px 12px;border-top:1px solid var(--g100);display:flex;gap:8px;align-items:flex-start">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:11px;color:var(--black);line-height:1.4">
+          <span style="font-weight:600">${(a.user_name||"System").replace(/</g,"&lt;")}</span>
+          <span style="color:var(--g600)"> ${(a.action||"").replace(/</g,"&lt;")} </span>
+          <span style="color:var(--g400)">${(a.details||"").replace(/</g,"&lt;")}</span>
+        </div>
+        <div style="font-size:10px;color:var(--g400);margin-top:2px">${relTime(a.ts)}</div>
+      </div>
+    </div>`).join("");
+}
+
+function setupNoteAC(colId) {
+  const ta=document.getElementById(`col-note-input-${colId}`);
+  const drop=document.getElementById(`col-note-drop-${colId}`);
+  if(!ta||!drop) return;
+  ta.addEventListener("keydown",e=>{if(e.key==="Enter"&&(e.ctrlKey||e.metaKey)){e.preventDefault();addColNote(colId);}});
+  ta.addEventListener("input",()=>{
+    const val=ta.value;
+    const cur=ta.selectionStart;
+    const before=val.slice(0,cur);
+    const m=before.match(/@([\w.]*)$/);
+    if(!m){drop.style.display="none";return;}
+    const q=(m[1]||"").toLowerCase();
+    const picsArr=[...new Set(allColRows.map(r=>r.pic).filter(Boolean))];
+    const dsgsArr=allDsgRows.filter(d=>d.status==="Active").map(d=>d.name);
+    const names=[...new Set([...picsArr,...dsgsArr])].filter(n=>n.toLowerCase().includes(q)).slice(0,6);
+    if(!names.length){drop.style.display="none";return;}
+    drop.style.display="block";
+    drop.innerHTML=names.map(n=>`<div onclick="insertMention('${colId}','${n.replace(/'/g,"\\'")}');event.stopPropagation()" style="padding:8px 12px;cursor:pointer;font-size:12px;hover:background:var(--off)" onmouseenter="this.style.background='var(--off)'" onmouseleave="this.style.background=''">${n}</div>`).join("");
+  });
+  document.addEventListener("click",e=>{if(!ta.contains(e.target)&&!drop.contains(e.target))drop.style.display="none";},{passive:true});
+}
+
+function insertMention(colId, name) {
+  const ta=document.getElementById(`col-note-input-${colId}`);
+  const drop=document.getElementById(`col-note-drop-${colId}`);
+  if(!ta) return;
+  const val=ta.value;
+  const cur=ta.selectionStart;
+  const before=val.slice(0,cur);
+  const after=val.slice(cur);
+  const newBefore=before.replace(/@([\w.]*)$/,`@${name} `);
+  ta.value=newBefore+after;
+  const newCur=newBefore.length;
+  ta.setSelectionRange(newCur,newCur);
+  ta.focus();
+  if(drop) drop.style.display="none";
 }
 
 // Collection-level stage status update
