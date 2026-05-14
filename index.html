@@ -83,25 +83,6 @@
         </div>
       </div>
       <div class="sb-sec">
-        <div class="sb-label">Trackers</div>
-        <div class="sb-subsection">Legal &amp; Finance</div>
-        <div class="sb-item" onclick="showPage('agreement',this)" id="nav-agreement">
-          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="13" rx="1"/><line x1="5" y1="6" x2="11" y2="6"/><line x1="5" y1="9" x2="11" y2="9"/><line x1="5" y1="12" x2="8" y2="12"/></svg>Agreement
-        </div>
-        <div class="sb-subsection">Account Management</div>
-        <div class="sb-item" onclick="showPage('salesreport',this)" id="nav-salesreport">
-          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="2,12 5,8 8,10 11,5 14,7"/></svg>Account Report
-        </div>
-        <div class="sb-item" onclick="showPage('leads',this)" id="nav-leads">
-          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="5" r="2.5"/><path d="M1 13c0-2.8 2.2-4.5 5-4.5"/><polyline points="10,9 11.5,10.5 14,8"/></svg>Leads Management
-        </div>
-        <div class="sb-subsection">Sales Operation</div>
-        <div class="sb-item" onclick="showPage('popupbooth',this)" id="nav-popupbooth">
-          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 6h12l-1 8H3L2 6z"/><path d="M1 3h14l-1 3H2L1 3z"/><line x1="6" y1="9" x2="6" y2="12"/><line x1="10" y1="9" x2="10" y2="12"/></svg>Pop Up Booth
-        </div>
-        <div class="sb-soon"><svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><line x1="8" y1="5" x2="8" y2="8"/><line x1="8" y1="8" x2="10" y2="10"/></svg>Royalty Payment<span class="soon-tag">Soon</span></div>
-      </div>
-      <div class="sb-sec">
         <div class="sb-label">Database</div>
         <div class="sb-item" onclick="showPage('ipmaster',this)" id="nav-ipmaster">
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><ellipse cx="8" cy="5" rx="6" ry="2.5"/><path d="M2 5v3c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5V5"/><path d="M2 8v3c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5V8"/></svg>IP Master
@@ -141,31 +122,27 @@
       <div class="page active" id="page-home">
         <div class="page-header"><div><div class="page-title">Halo, <span id="greetName">—</span> 👋</div><div class="page-sub" id="greetDate">—</div></div></div>
 
-        <div class="sb-label" style="margin-bottom:0.75rem;margin-top:0.25rem">Business Development</div>
-        <div class="home-grid" style="margin-top:0;margin-bottom:1.75rem">
-          <div class="tool-card" onclick="showPage('agreement',document.getElementById('nav-agreement'))"><span class="tc-icon">📄</span><div class="tc-name">Agreement Tracker</div><div class="tc-desc">Submit dan pantau semua perjanjian, kontrak, dan kemitraan.</div></div>
-          <div class="tool-card" onclick="showPage('leads',document.getElementById('nav-leads'))"><span class="tc-icon">🎯</span><div class="tc-name">Leads Management</div><div class="tc-desc">Track potential brand dan artist collaboration leads.</div></div>
-        </div>
-
-        <div class="sb-label" style="margin-bottom:0.75rem">Sales Operation</div>
-        <div class="home-grid" style="margin-top:0;margin-bottom:1.75rem">
-          <div class="tool-card" onclick="showPage('salesreport',document.getElementById('nav-salesreport'))"><span class="tc-icon">📈</span><div class="tc-name">Account Report</div><div class="tc-desc">Track report submission per brand setiap bulan.</div></div>
-          <div class="tool-card" onclick="showPage('popupbooth',document.getElementById('nav-popupbooth'))"><span class="tc-icon">🛍️</span><div class="tc-name">Pop Up Booth</div><div class="tc-desc">Track event pop-up booth — manpower, stok, penjualan, dan reinbound.</div></div>
+        <div class="sb-label" style="margin-bottom:0.6rem;margin-top:0.25rem">Legal &amp; Finance</div>
+        <div class="home-grid" style="margin-bottom:1.5rem">
+          <div class="tool-card" onclick="showPage('agreement',null)"><span class="tc-icon">📄</span><div class="tc-name">Agreement Tracker</div><div class="tc-desc">Submit dan pantau semua perjanjian, kontrak, dan kemitraan.</div></div>
           <div class="tool-soon"><span class="tc-icon" style="opacity:0.3">💰</span><div class="tc-name" style="color:var(--g400)">Royalty Payment</div><div class="tc-desc">Coming soon</div></div>
         </div>
 
-        <div class="sb-label" style="margin-bottom:0.75rem">Creative Operations</div>
-        <div class="home-grid" style="margin-top:0;margin-bottom:1.75rem">
+        <div class="sb-label" style="margin-bottom:0.6rem">Account Management</div>
+        <div class="home-grid" style="margin-bottom:1.5rem">
+          <div class="tool-card" onclick="showPage('salesreport',null)"><span class="tc-icon">📈</span><div class="tc-name">Sales Report</div><div class="tc-desc">Track report submission per brand setiap bulan.</div></div>
+          <div class="tool-card" onclick="showPage('leads',null)"><span class="tc-icon">🎯</span><div class="tc-name">Leads Management</div><div class="tc-desc">Track potential brand dan artist collaboration leads.</div></div>
+        </div>
+
+        <div class="sb-label" style="margin-bottom:0.6rem">Creative Operations</div>
+        <div class="home-grid" style="margin-bottom:1.5rem">
           <div class="tool-card" onclick="showPage('collections',null)"><span class="tc-icon">🎨</span><div class="tc-name">Collection Development</div><div class="tc-desc">Manajemen collection merchandise — dari ideation hingga approval design.</div></div>
           <div class="tool-card" onclick="showPage('dsgworkflow',null)"><span class="tc-icon">✏️</span><div class="tc-name">Designer Workflow</div><div class="tc-desc">Track deliverables, approval status, dan payment designer per collection.</div></div>
         </div>
 
-        <div class="sb-label" style="margin-bottom:0.75rem">Logs</div>
-        <div class="home-grid" style="margin-top:0">
-          <div class="tool-card" onclick="showPage('jubsales',document.getElementById('nav-jubsales'))"><span class="tc-icon">🛒</span><div class="tc-name">Jubelio Offline Sales</div><div class="tc-desc">Data sales order offline dari Jubelio.</div></div>
-          <div class="tool-card" onclick="showPage('mesign',document.getElementById('nav-mesign'))"><span class="tc-icon">📋</span><div class="tc-name">Inbound/Outbound Note</div><div class="tc-desc">Data surat jalan dari Mekari eSign.</div></div>
-          <div class="tool-card" onclick="showPage('po',document.getElementById('nav-po'))"><span class="tc-icon">📦</span><div class="tc-name">Purchase Orders</div><div class="tc-desc">Data PO dari Jubelio — sync otomatis harian.</div></div>
-          <div class="tool-card" onclick="showPage('activitylog',document.getElementById('nav-activitylog'))"><span class="tc-icon">📝</span><div class="tc-name">Activity Log</div><div class="tc-desc">Riwayat semua aktivitas di portal.</div></div>
+        <div class="sb-label" style="margin-bottom:0.6rem">Sales Operation</div>
+        <div class="home-grid">
+          <div class="tool-card" onclick="showPage('popupbooth',null)"><span class="tc-icon">🛍️</span><div class="tc-name">Pop Up Booth</div><div class="tc-desc">Track event pop-up booth — manpower, stok, penjualan, dan reinbound.</div></div>
         </div>
       </div>
 
