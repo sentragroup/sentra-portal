@@ -931,10 +931,11 @@
       <div class="page-header">
         <div><div class="page-title">Purchase Orders</div><div class="page-sub">Data PO dari Jubelio — sync otomatis harian, atau manual via tombol Sync.</div></div>
       </div>
-      <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
+      <div class="stats-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:1.25rem">
         <div class="stat-card"><div class="stat-num" id="po-s-total">—</div><div class="stat-lbl">Total PO</div></div>
         <div class="stat-card"><div class="stat-num" id="po-s-active">—</div><div class="stat-lbl">Active</div></div>
-        <div class="stat-card"><div class="stat-num" id="po-s-items">—</div><div class="stat-lbl">Total Line Items</div></div>
+        <div class="stat-card"><div class="stat-num" id="po-s-items">—</div><div class="stat-lbl">Line Items</div></div>
+        <div class="stat-card"><div class="stat-num" id="po-s-qty">—</div><div class="stat-lbl">Total Qty</div></div>
         <div class="stat-card"><div class="stat-num" id="po-s-value">—</div><div class="stat-lbl">Total Value</div></div>
       </div>
       <div class="filter-panel">
@@ -946,7 +947,9 @@
             <option>COMPLETED</option>
             <option>CANCELLED</option>
           </select>
-          <input class="search-box" type="text" id="poSearch" placeholder="Cari PO No, supplier, lokasi..." oninput="applyPOFilters()" style="width:100%">
+          <input class="f-select" type="date" id="po-fil-from" onchange="applyPOFilters()" title="Dari tanggal">
+          <input class="f-select" type="date" id="po-fil-to" onchange="applyPOFilters()" title="Sampai tanggal">
+          <input class="search-box" type="text" id="poSearch" placeholder="Cari PO No, supplier, lokasi, note..." oninput="applyPOFilters()" style="width:100%">
         </div>
       </div>
       <div class="table-toolbar">
@@ -966,11 +969,13 @@
               <th class="sortable" data-col="transactionDate" onclick="sortPOBy('transactionDate')">Tanggal</th>
               <th class="sortable" data-col="locationName" onclick="sortPOBy('locationName')">Lokasi</th>
               <th class="sortable" data-col="grandTotal" onclick="sortPOBy('grandTotal')">Grand Total</th>
+              <th class="sortable" data-col="totalQty" onclick="sortPOBy('totalQty')" style="text-align:right">Total Qty</th>
               <th>Items</th>
+              <th>Note</th>
               <th>Synced</th>
             </tr>
           </thead>
-          <tbody id="poTableBody"><tr><td class="empty-td" colspan="9">Klik "Refresh" untuk memuat data.</td></tr></tbody>
+          <tbody id="poTableBody"><tr><td class="empty-td" colspan="11">Klik "Refresh" untuk memuat data.</td></tr></tbody>
         </table>
       </div>
     </div>
