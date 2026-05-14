@@ -115,7 +115,7 @@ function enterApp(user) {
   loadNotifications();
   if (notifPollTimer) clearInterval(notifPollTimer);
   notifPollTimer = setInterval(loadNotifications, 60000);
-  const _pg = location.hash.slice(1);
+  const _pg = location.hash.slice(1).split('/')[0];
   if (['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','popupbooth','activitylog','jubsales','mesign','collections','designermaster','dsgworkflow'].includes(_pg))
     showPage(_pg, document.getElementById('nav-'+_pg));
 }
@@ -152,7 +152,7 @@ function showPage(name, el) {
   if (name==="activitylog") loadActivityLog();
   if (name==="jubsales") loadJubSales();
   if (name==="mesign") loadMekariEsign();
-  if (name==="collections") { loadCollections(); setupAC("col-ip","ac-col-ip",()=>allIPRows.map(r=>r.name).filter(Boolean)); }
+  if (name==="collections") { loadCollections(); setupAC("col-ip","ac-col-ip",()=>allIPRows.map(r=>r.name).filter(Boolean)); setupAC("col-pic","ac-col-pic",()=>[...new Set(allColRows.map(r=>r.pic).filter(Boolean))]); }
   if (name==="designermaster") { loadDesignerMaster(); const cats=[...new Set([...DSG_CATEGORIES_DEFAULT,...allDsgRows.map(r=>r.category).filter(Boolean)])]; setupAC("dsg-category","ac-dsg-category",()=>cats); }
   if (name==="dsgworkflow") loadDsgWorkflow();
   closeMobileSidebar();
@@ -2564,6 +2564,7 @@ let allColRows = [], allColItems = [];
 let colSort = {col:null,dir:'asc'};
 const SKU_CATEGORIES_DEFAULT = ["T-Shirt","Shirt","Hoodie","Jacket","Dress","Pants","Shorts","Tote Bag","Bag Charm","Keychain","Poster","Sticker","Cap","Accessories","Others"];
 function sortColBy(c){colSort.dir=colSort.col===c?(colSort.dir==='asc'?'desc':'asc'):'asc';colSort.col=c;applyColFilters();}
+function slugifyCol(name){return(name||"").toLowerCase().replace(/[^a-z0-9\s-]/g,"").trim().replace(/\s+/g,"-").replace(/-+/g,"-");}
 
 function mapCol(r) {
   return {
@@ -2571,7 +2572,7 @@ function mapCol(r) {
     collectionName:r.collection_name||"", ipRelated:r.ip_related||"",
     releaseDate:r.release_date||"", priority:r.priority||"",
     moodboardUrl:r.moodboard_url||"", status:r.status||"Draft",
-    notes:r.notes||"", dateAdded:r.date_added||"", addedBy:r.added_by||""
+    pic:r.pic||"", notes:r.notes||"", dateAdded:r.date_added||"", addedBy:r.added_by||""
   };
 }
 
@@ -2588,16 +2589,28 @@ async function loadCollections() {
   const tbody=document.getElementById("colTableBody");
   if(tbody) tbody.innerHTML=`<tr><td class="empty-td" colspan="8">Memuat...</td></tr>`;
   try {
-    const [{data,error},{data:ciData}]=await Promise.all([
+    const fetches=[
       sb.from("collections").select("*").order("release_date",{ascending:false}),
       sb.from("collection_items").select("*").order("date_added",{ascending:true})
-    ]);
+    ];
+    if(!allDsgRows.length) fetches.push(sb.from("designer_master").select("*").order("name"));
+    const results=await Promise.all(fetches);
+    const [{data,error},{data:ciData}]=results;
     if(error)throw error;
     allColRows=(data||[]).map(mapCol);
     allColItems=(ciData||[]).map(mapCI);
+    if(results[2]?.data) allDsgRows=results[2].data.map(mapDsg);
+    setupAC("col-ip","ac-col-ip",()=>allIPRows.map(r=>r.name).filter(Boolean));
+    setupAC("col-pic","ac-col-pic",()=>[...new Set(allColRows.map(r=>r.pic).filter(Boolean))]);
+    // Restore collection detail from URL slug
+    const hashParts=location.hash.slice(1).split("/");
+    if(hashParts[0]==="collections"&&hashParts[1]){
+      const slug=hashParts[1];
+      const col=allColRows.find(r=>slugifyCol(r.collectionName)===slug);
+      if(col){openCollectionDetail(col.id);return;}
+    }
     renderColStats(allColRows,allColItems);
     applyColFilters();
-    setupAC("col-ip","ac-col-ip",()=>allIPRows.map(r=>r.name).filter(Boolean));
   } catch(e){
     if(tbody) tbody.innerHTML=`<tr><td class="empty-td" colspan="8">Gagal memuat: ${e.message||e}</td></tr>`;
   }
@@ -2664,12 +2677,14 @@ function openCollectionDetail(colId) {
   if(!col) return;
   document.getElementById("col-list-view").style.display="none";
   document.getElementById("col-detail-view").style.display="block";
+  history.replaceState(null,"",`#collections/${slugifyCol(col.collectionName)}`);
   renderColDetail(col, allColItems.filter(i=>i.collectionId===colId));
 }
 
 function closeCollectionDetail() {
   document.getElementById("col-detail-view").style.display="none";
   document.getElementById("col-list-view").style.display="block";
+  history.replaceState(null,"","#collections");
 }
 
 function toggleColEditPanel() {
@@ -2681,31 +2696,54 @@ function toggleColEditPanel() {
 function renderColDetail(col, items) {
   const prioColor={High:"p-expired",Medium:"p-near",Low:"p-draft"};
   const statusColor=col.status==="Done"?"p-active":col.status==="In Progress"?"p-signings":"p-draft";
-  const skuRows=items.map(i=>`<tr style="border-top:1px solid var(--g100)">
-    <td style="padding:8px 10px"><strong style="font-size:13px">${i.skuName}</strong></td>
-    <td style="padding:8px 10px">${i.category?`<span class="pill p-signings" style="font-size:10px">${i.category}</span>`:`<span style="color:var(--g400);font-size:11px">—</span>`}</td>
-    <td style="padding:8px 10px;color:var(--g600)">${i.designer||"—"}</td>
-    <td style="padding:8px 10px;white-space:nowrap">${fmtDate(i.deadline)}</td>
-    <td style="padding:8px 10px">${i.designPreviewUrl?`<a href="${i.designPreviewUrl}" target="_blank" style="color:#3C3489;text-decoration:none">↗ Preview</a>`:`<span style="color:var(--g400);font-size:11px">Placeholder</span>`}</td>
-    <td style="padding:8px 10px">
-      <select onchange="updateSKUApproval('${i.id}','${col.id}',this.value)" style="font-size:11px;padding:2px 6px;border:1px solid var(--g100);border-radius:4px;background:var(--white)">
-        <option ${i.approvalStatus==="Pending"?"selected":""}>Pending</option>
-        <option ${i.approvalStatus==="Revision"?"selected":""}>Revision</option>
-        <option ${i.approvalStatus==="Approved"?"selected":""}>Approved</option>
-      </select>
-    </td>
-    <td style="padding:8px 10px"><button class="btn-icon" style="color:#c0392b;font-size:11px" onclick="deleteSKU('${i.id}','${col.id}')">Del</button></td>
-  </tr>`).join("");
+  const skuRows=items.map(i=>{
+    const skuCatsEdit=[...new Set([...SKU_CATEGORIES_DEFAULT,...allColItems.map(x=>x.category).filter(Boolean)])];
+    const catOpts=skuCatsEdit.map(c=>`<option ${i.category===c?"selected":""}>${c}</option>`).join("");
+    return `<tr id="ci-row-${i.id}" style="border-top:1px solid var(--g100)">
+      <td style="padding:8px 10px"><strong style="font-size:13px">${i.skuName}</strong></td>
+      <td style="padding:8px 10px">${i.category?`<span class="pill p-signings" style="font-size:10px">${i.category}</span>`:`<span style="color:var(--g400);font-size:11px">—</span>`}</td>
+      <td style="padding:8px 10px;color:var(--g600)">${i.designer||"—"}</td>
+      <td style="padding:8px 10px;white-space:nowrap">${fmtDate(i.deadline)}</td>
+      <td style="padding:8px 10px">${i.designPreviewUrl?`<a href="${i.designPreviewUrl}" target="_blank" style="color:#3C3489;text-decoration:none">↗ Preview</a>`:`<span style="color:var(--g400);font-size:11px">Placeholder</span>`}</td>
+      <td style="padding:8px 10px">
+        <select onchange="updateSKUApproval('${i.id}','${col.id}',this.value)" style="font-size:11px;padding:2px 6px;border:1px solid var(--g100);border-radius:4px;background:var(--white)">
+          <option ${i.approvalStatus==="Pending"?"selected":""}>Pending</option>
+          <option ${i.approvalStatus==="Revision"?"selected":""}>Revision</option>
+          <option ${i.approvalStatus==="Approved"?"selected":""}>Approved</option>
+        </select>
+      </td>
+      <td style="padding:8px 10px;white-space:nowrap">
+        <button class="btn-icon" style="font-size:11px" onclick="openSKUEdit('${i.id}')">Edit</button>
+        <button class="btn-icon" style="color:#c0392b;font-size:11px" onclick="deleteSKU('${i.id}','${col.id}')">Del</button>
+      </td>
+    </tr>
+    <tr id="ci-edit-${i.id}" style="display:none;border-top:1px solid var(--g100)">
+      <td colspan="7" style="padding:8px 10px 12px">
+        <div class="edit-row-form" style="background:var(--off)">
+          <div class="edit-row-grid">
+            <div class="fg"><label style="font-size:11px">Nama SKU *</label><input type="text" id="cie-name-${i.id}" value="${(i.skuName||"").replace(/"/g,"&quot;")}"></div>
+            <div class="fg" style="position:relative"><label style="font-size:11px">Kategori</label><input type="text" id="cie-cat-${i.id}" value="${(i.category||"").replace(/"/g,"&quot;")}" autocomplete="off"><div class="ac-list" id="ac-cie-cat-${i.id}"></div></div>
+            <div class="fg" style="position:relative"><label style="font-size:11px">Designer</label><input type="text" id="cie-dsg-${i.id}" value="${(i.designer||"").replace(/"/g,"&quot;")}" autocomplete="off"><div class="ac-list" id="ac-cie-dsg-${i.id}"></div></div>
+            <div class="fg"><label style="font-size:11px">Deadline</label><input type="date" id="cie-deadline-${i.id}" value="${i.deadline||""}"></div>
+            <div class="fg full"><label style="font-size:11px">Design Preview URL</label><input type="url" id="cie-preview-${i.id}" value="${(i.designPreviewUrl||"").replace(/"/g,"&quot;")}" placeholder="https://drive.google.com/..."></div>
+          </div>
+          <div class="edit-row-btns">
+            <button class="btn-save" onclick="saveSKUEdit('${i.id}','${col.id}')">Simpan</button>
+            <button class="btn-cancel" onclick="closeSKUEdit('${i.id}')">Batal</button>
+          </div>
+        </div>
+      </td>
+    </tr>`;
+  }).join("");
 
   document.getElementById("col-detail-content").innerHTML=`<div style="max-width:1000px">
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--g100)">
       <button class="btn-ghost" onclick="closeCollectionDetail()" style="white-space:nowrap">← Kembali</button>
       <div style="flex:1">
         <div style="font-size:20px;font-weight:700;font-family:var(--syne)">${col.collectionName}</div>
-        <div style="font-size:11px;color:var(--g400);margin-top:2px">Ditambahkan ${col.dateAdded?fmtDate(col.dateAdded):"—"} · ${col.addedBy||"—"}</div>
+        <div style="font-size:11px;color:var(--g400);margin-top:2px">Ditambahkan ${col.dateAdded?fmtDate(col.dateAdded):"—"} · ${col.addedBy||"—"}${col.pic?` · PIC: <strong>${col.pic}</strong>`:""}</div>
       </div>
       <span class="pill ${statusColor}">${col.status}</span>
-      <button class="btn-primary" onclick="pushToDesignerWorkflow('${col.id}')" style="padding:6px 14px;font-size:12px;white-space:nowrap">↗ Push ke DW</button>
       <button class="btn-icon" onclick="toggleColEditPanel()" style="padding:6px 12px">✏ Edit</button>
       <button class="btn-icon" onclick="deleteCol('${col.id}')" style="color:#c0392b;padding:6px 12px">Hapus</button>
     </div>
@@ -2718,6 +2756,7 @@ function renderColDetail(col, items) {
           <div class="fg"><label>Release Date</label><input type="date" id="col-dp-releasedate" value="${col.releaseDate||""}"></div>
           <div class="fg"><label>Priority</label><select id="col-dp-priority"><option value="">—</option><option ${col.priority==="High"?"selected":""}>High</option><option ${col.priority==="Medium"?"selected":""}>Medium</option><option ${col.priority==="Low"?"selected":""}>Low</option></select></div>
           <div class="fg"><label>Status</label><select id="col-dp-status"><option ${col.status==="Draft"?"selected":""}>Draft</option><option ${col.status==="In Progress"?"selected":""}>In Progress</option><option ${col.status==="Done"?"selected":""}>Done</option></select></div>
+          <div class="fg" style="position:relative"><label>PIC</label><input type="text" id="col-dp-pic" value="${(col.pic||"").replace(/"/g,"&quot;")}" autocomplete="off"><div class="ac-list" id="ac-col-dp-pic"></div></div>
           <div class="fg full"><label>Moodboard URL</label><input type="url" id="col-dp-moodboard" value="${(col.moodboardUrl||"").replace(/"/g,"&quot;")}" placeholder="https://drive.google.com/..."></div>
           <div class="fg full"><label>Notes</label><textarea id="col-dp-notes" rows="2" style="resize:vertical">${(col.notes||"").replace(/</g,"&lt;")}</textarea></div>
         </div>
@@ -2727,7 +2766,7 @@ function renderColDetail(col, items) {
         </div>
       </div>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:16px">
       <div class="stat-card" style="text-align:left;padding:14px">
         <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:6px">IP Related</div>
         <div style="font-weight:600">${col.ipRelated||"—"}</div>
@@ -2739,6 +2778,10 @@ function renderColDetail(col, items) {
       <div class="stat-card" style="text-align:left;padding:14px">
         <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:6px">Priority</div>
         <div>${col.priority?`<span class="pill ${prioColor[col.priority]||"p-draft"}">${col.priority}</span>`:"—"}</div>
+      </div>
+      <div class="stat-card" style="text-align:left;padding:14px">
+        <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:6px">PIC</div>
+        <div style="font-weight:600">${col.pic||"—"}</div>
       </div>
       ${col.moodboardUrl?`<div class="stat-card" style="text-align:left;padding:14px">
         <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:6px">Moodboard</div>
@@ -2753,11 +2796,11 @@ function renderColDetail(col, items) {
       <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;padding:12px;background:var(--off);border-radius:6px;margin-bottom:14px">
         <div class="fg" style="min-width:160px;flex:2"><label style="font-size:11px">Nama SKU *</label><input type="text" id="ci-dp-name-${col.id}" placeholder="Nama item/SKU"></div>
         <div class="fg" style="min-width:130px;flex:1.5;position:relative"><label style="font-size:11px">Kategori</label><input type="text" id="ci-dp-cat-${col.id}" placeholder="T-Shirt, Bag Charm..." autocomplete="off"><div class="ac-list" id="ac-ci-dp-cat-${col.id}"></div></div>
-        <div class="fg" style="min-width:140px;flex:1.5;position:relative"><label style="font-size:11px">Designer</label><input type="text" id="ci-dp-dsg-${col.id}" placeholder="Pilih designer" autocomplete="off"><div class="ac-list" id="ac-ci-dp-${col.id}"></div></div>
+        <div class="fg" style="min-width:140px;flex:1.5;position:relative"><label style="font-size:11px">Designer</label><input type="text" id="ci-dp-dsg-${col.id}" placeholder="Pilih dari designer master" autocomplete="off"><div class="ac-list" id="ac-ci-dp-${col.id}"></div></div>
         <div class="fg" style="min-width:130px;flex:1"><label style="font-size:11px">Deadline</label><input type="date" id="ci-dp-deadline-${col.id}"></div>
         <div style="padding-bottom:2px"><button class="btn-primary" style="padding:6px 14px;font-size:12px" onclick="addCollectionItem('${col.id}')">+ Tambah SKU</button></div>
       </div>
-      ${items.length?`<div class="table-wrap" style="max-height:400px;overflow-y:auto"><table style="width:100%">
+      ${items.length?`<div class="table-wrap" style="max-height:500px;overflow-y:auto"><table style="width:100%">
         <thead><tr style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">
           <th style="padding:6px 10px;text-align:left">SKU</th>
           <th style="padding:6px 10px;text-align:left">Kategori</th>
@@ -2767,14 +2810,19 @@ function renderColDetail(col, items) {
           <th style="padding:6px 10px;text-align:left">Status Approval</th>
           <th style="padding:6px 10px;text-align:left">Aksi</th>
         </tr></thead>
-        <tbody>${skuRows}</tbody>
-      </table></div>`:`<div style="color:var(--g400);font-size:12px;padding:8px 0">Belum ada SKU.</div>`}
+        <tbody id="col-sku-tbody-${col.id}">${skuRows}</tbody>
+      </table></div>`:`<div style="color:var(--g400);font-size:12px;padding:8px 0" id="col-sku-empty-${col.id}">Belum ada SKU.</div>`}
     </div>
   </div>`;
   setupAC("col-dp-ip","ac-col-dp-ip",()=>allIPRows.map(x=>x.name).filter(Boolean));
+  setupAC("col-dp-pic","ac-col-dp-pic",()=>[...new Set(allColRows.map(r=>r.pic).filter(Boolean))]);
   const skuCats=[...new Set([...SKU_CATEGORIES_DEFAULT,...allColItems.map(i=>i.category).filter(Boolean)])];
   setupAC(`ci-dp-cat-${col.id}`,`ac-ci-dp-cat-${col.id}`,()=>skuCats);
   setupAC(`ci-dp-dsg-${col.id}`,`ac-ci-dp-${col.id}`,()=>allDsgRows.filter(d=>d.status==="Active").map(d=>d.name));
+  items.forEach(i=>{
+    setupAC(`cie-cat-${i.id}`,`ac-cie-cat-${i.id}`,()=>skuCats);
+    setupAC(`cie-dsg-${i.id}`,`ac-cie-dsg-${i.id}`,()=>allDsgRows.filter(d=>d.status==="Active").map(d=>d.name));
+  });
 }
 
 async function addCollectionItem(colId) {
@@ -2826,6 +2874,37 @@ async function pushToDesignerWorkflow(colId) {
   } catch(e){alert("Gagal: "+(e.message||e));}
 }
 
+function openSKUEdit(itemId) {
+  document.querySelectorAll("[id^='ci-edit-']").forEach(el=>{if(el.id!=="ci-edit-"+itemId)el.style.display="none";});
+  const row=document.getElementById("ci-edit-"+itemId);if(!row)return;
+  row.style.display=row.style.display==="table-row"?"none":"table-row";
+}
+function closeSKUEdit(itemId){const r=document.getElementById("ci-edit-"+itemId);if(r)r.style.display="none";}
+
+async function saveSKUEdit(itemId, colId) {
+  const btn=document.querySelector(`#ci-edit-${itemId} .btn-save`);
+  if(btn){btn.disabled=true;btn.textContent="Menyimpan...";}
+  try {
+    const nm=document.getElementById(`cie-name-${itemId}`)?.value.trim();
+    if(!nm){if(btn){btn.disabled=false;btn.textContent="Simpan";}alert("Nama SKU wajib diisi.");return;}
+    const cat=document.getElementById(`cie-cat-${itemId}`)?.value.trim()||null;
+    const dsg=document.getElementById(`cie-dsg-${itemId}`)?.value.trim()||null;
+    const dl=document.getElementById(`cie-deadline-${itemId}`)?.value||null;
+    const pv=document.getElementById(`cie-preview-${itemId}`)?.value.trim()||null;
+    const {error}=await sb.from("collection_items").update({
+      sku_name:nm, category:cat, designer:dsg, deadline:dl, design_preview_url:pv,
+      last_updated:new Date().toISOString(), last_updated_by:currentUser
+    }).eq("id",itemId);
+    if(error)throw error;
+    const idx=allColItems.findIndex(i=>i.id===itemId);
+    if(idx>-1) allColItems[idx]={...allColItems[idx],skuName:nm,category:cat||"",designer:dsg||"",deadline:dl||"",designPreviewUrl:pv||""};
+    logActivity("Collections","edit",itemId,`SKU: ${nm}`);
+    const col=allColRows.find(r=>r.id===colId);
+    if(col) renderColDetail(col, allColItems.filter(i=>i.collectionId===colId));
+    applyColFilters();
+  } catch(e){if(btn){btn.disabled=false;btn.textContent="Simpan";}alert("Gagal: "+(e.message||e));}
+}
+
 async function updateSKUApproval(itemId, colId, status) {
   try {
     const {error}=await sb.from("collection_items").update({
@@ -2864,6 +2943,7 @@ async function saveColDetailEdit(colId) {
       release_date:document.getElementById("col-dp-releasedate")?.value||null,
       priority:document.getElementById("col-dp-priority")?.value||null,
       status:document.getElementById("col-dp-status")?.value||"Draft",
+      pic:document.getElementById("col-dp-pic")?.value.trim()||null,
       moodboard_url:document.getElementById("col-dp-moodboard")?.value.trim()||null,
       notes:document.getElementById("col-dp-notes")?.value.trim()||null,
       last_updated:new Date().toISOString(), last_updated_by:currentUser
@@ -2875,6 +2955,7 @@ async function saveColDetailEdit(colId) {
       const updated=mapCol(data[0]);
       const idx=allColRows.findIndex(r=>r.id===colId);
       if(idx>-1) allColRows[idx]=updated;
+      history.replaceState(null,"",`#collections/${slugifyCol(updated.collectionName)}`);
       renderColDetail(updated, allColItems.filter(i=>i.collectionId===colId));
     }
     applyColFilters();
@@ -2916,14 +2997,28 @@ async function submitCollection() {
       release_date:document.getElementById("col-releasedate").value||null,
       priority:document.getElementById("col-priority").value||null,
       status:document.getElementById("col-status").value||"Draft",
+      pic:document.getElementById("col-pic")?.value.trim()||null,
       moodboard_url:document.getElementById("col-moodboard").value.trim()||null,
       notes:document.getElementById("col-notes").value.trim()||null,
       date_added:new Date().toISOString().slice(0,10), added_by:currentUser,
       last_updated:new Date().toISOString(), last_updated_by:currentUser
     });
     if(error)throw error;
-    document.getElementById("col-feedback").innerHTML=`<span class="fb-ok">✓ Collection tersimpan — ID: ${id}. Buka tab Semua untuk menambah SKU.</span>`;
     logActivity("Collections","create",id,nm);
+    // Auto-create locked Designer Workflow project
+    try {
+      const dwId=genId("DW");
+      await sb.from("designer_workflow").insert({
+        id:dwId, collection_id:id,
+        payment_status:"Not Paid", locked:true,
+        date_added:new Date().toISOString().slice(0,10), added_by:currentUser,
+        last_updated:new Date().toISOString(), last_updated_by:currentUser
+      });
+      allDwRows.push({rowIndex:dwId,id:dwId,designer:"",collectionId:id,collectionName:nm,
+        deliverablesUrl:"",agreementId:"",paymentStatus:"Not Paid",locked:true,
+        notes:"",dateAdded:new Date().toISOString().slice(0,10),addedBy:currentUser});
+    } catch(e2){/* silent — DW auto-create failure doesn't block collection save */}
+    document.getElementById("col-feedback").innerHTML=`<span class="fb-ok">✓ Collection tersimpan — ID: ${id}. Buka tab Semua untuk menambah SKU.</span>`;
     clearColForm();
   } catch(e){
     document.getElementById("col-feedback").innerHTML=`<span class="fb-err">Gagal: ${e.message||e}</span>`;
@@ -2931,7 +3026,7 @@ async function submitCollection() {
 }
 
 function clearColForm() {
-  ["col-name","col-ip","col-releasedate","col-moodboard","col-notes"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
+  ["col-name","col-ip","col-pic","col-releasedate","col-moodboard","col-notes"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
   const p=document.getElementById("col-priority");if(p)p.value="";
   const s=document.getElementById("col-status");if(s)s.value="Draft";
 }
