@@ -2591,17 +2591,20 @@ async function loadCollections() {
   try {
     const fetches=[
       sb.from("collections").select("*").order("release_date",{ascending:false}),
-      sb.from("collection_items").select("*").order("date_added",{ascending:true})
+      sb.from("collection_items").select("*").order("date_added",{ascending:true}),
+      sb.from("designer_workflow").select("id,collection_id").not("collection_id","is",null)
     ];
     if(!allDsgRows.length) fetches.push(sb.from("designer_master").select("*").order("name"));
     const results=await Promise.all(fetches);
-    const [{data,error},{data:ciData}]=results;
+    const [{data,error},{data:ciData},{data:dwCheck}]=results;
     if(error)throw error;
     allColRows=(data||[]).map(mapCol);
     allColItems=(ciData||[]).map(mapCI);
-    if(results[2]?.data) allDsgRows=results[2].data.map(mapDsg);
+    if(results[3]?.data) allDsgRows=results[3].data.map(mapDsg);
     setupAC("col-ip","ac-col-ip",()=>allIPRows.map(r=>r.name).filter(Boolean));
     setupAC("col-pic","ac-col-pic",()=>[...new Set(allColRows.map(r=>r.pic).filter(Boolean))]);
+    // Auto-create DW projects for any collection that doesn't have one yet (background)
+    ensureDWProjects(allColRows, dwCheck||[]);
     // Restore collection detail from URL slug
     const hashParts=location.hash.slice(1).split("/");
     if(hashParts[0]==="collections"&&hashParts[1]){
@@ -2613,6 +2616,27 @@ async function loadCollections() {
     applyColFilters();
   } catch(e){
     if(tbody) tbody.innerHTML=`<tr><td class="empty-td" colspan="8">Gagal memuat: ${e.message||e}</td></tr>`;
+  }
+}
+
+async function ensureDWProjects(cols, existingDW) {
+  const dwColIds=new Set(existingDW.map(r=>r.collection_id).filter(Boolean));
+  const missing=cols.filter(r=>r.id&&!dwColIds.has(r.id));
+  if(!missing.length) return;
+  for(const col of missing){
+    try{
+      const dwId=genId("DW");
+      const {error}=await sb.from("designer_workflow").insert({
+        id:dwId, collection_id:col.id,
+        payment_status:"Not Paid", locked:true,
+        date_added:new Date().toISOString().slice(0,10), added_by:currentUser,
+        last_updated:new Date().toISOString(), last_updated_by:currentUser
+      });
+      if(!error) allDwRows.push({rowIndex:dwId,id:dwId,designer:"",collectionId:col.id,
+        collectionName:col.collectionName,deliverablesUrl:"",agreementId:"",
+        paymentStatus:"Not Paid",locked:true,notes:"",
+        dateAdded:new Date().toISOString().slice(0,10),addedBy:currentUser});
+    }catch(e){/* silent */}
   }
 }
 
@@ -2957,6 +2981,9 @@ async function saveColDetailEdit(colId) {
       if(idx>-1) allColRows[idx]=updated;
       history.replaceState(null,"",`#collections/${slugifyCol(updated.collectionName)}`);
       renderColDetail(updated, allColItems.filter(i=>i.collectionId===colId));
+      // Re-ensure DW project exists (in case it was deleted)
+      const dwExists=allDwRows.some(r=>r.collectionId===colId);
+      if(!dwExists) ensureDWProjects([updated],[]);
     }
     applyColFilters();
   } catch(e){if(btn){btn.disabled=false;btn.textContent="Simpan";}alert("Gagal: "+(e.message||e));}
