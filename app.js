@@ -2581,8 +2581,18 @@ function mapCI(r) {
     rowIndex:r.id, id:r.id, collectionId:r.collection_id,
     skuName:r.sku_name||"", category:r.category||"", designer:r.designer||"",
     deadline:r.deadline||"", designPreviewUrl:r.design_preview_url||"",
-    approvalStatus:r.approval_status||"Pending", notes:r.notes||""
+    approvalStatus:r.approval_status||"Pending", notes:r.notes||"",
+    samplingStatus:r.sampling_status||"Not Started", samplingNotes:r.sampling_notes||"",
+    productionStatus:r.production_status||"Not Started", productionNotes:r.production_notes||""
   };
+}
+
+let allColStages = [];
+const COL_STAGE_NAMES = ["inbound","photoshoot","kol","offline_activation"];
+const COL_STAGE_LABELS = {inbound:"Inbound",photoshoot:"Photoshoot",kol:"KOL",offline_activation:"Offline Activation"};
+
+function mapCS(r) {
+  return {rowIndex:r.id,id:r.id,collectionId:r.collection_id,stage:r.stage,status:r.status||"Not Started",notes:r.notes||""};
 }
 
 async function loadCollections() {
@@ -2592,19 +2602,22 @@ async function loadCollections() {
     const fetches=[
       sb.from("collections").select("*").order("release_date",{ascending:false}),
       sb.from("collection_items").select("*").order("date_added",{ascending:true}),
-      sb.from("designer_workflow").select("id,collection_id,designer").not("collection_id","is",null)
+      sb.from("designer_workflow").select("id,collection_id,designer").not("collection_id","is",null),
+      sb.from("collection_stages").select("*")
     ];
     if(!allDsgRows.length) fetches.push(sb.from("designer_master").select("*").order("name"));
     const results=await Promise.all(fetches);
-    const [{data,error},{data:ciData},{data:dwCheck}]=results;
+    const [{data,error},{data:ciData},{data:dwCheck},{data:csData}]=results;
     if(error)throw error;
     allColRows=(data||[]).map(mapCol);
     allColItems=(ciData||[]).map(mapCI);
-    if(results[3]?.data) allDsgRows=results[3].data.map(mapDsg);
+    allColStages=(csData||[]).map(mapCS);
+    if(results[4]?.data) allDsgRows=results[4].data.map(mapDsg);
     setupAC("col-ip","ac-col-ip",()=>allIPRows.map(r=>r.name).filter(Boolean));
     setupAC("col-pic","ac-col-pic",()=>[...new Set(allColRows.map(r=>r.pic).filter(Boolean))]);
-    // Auto-create DW projects for any collection that doesn't have one yet (background)
+    // Auto-create DW projects + stage placeholders for any collection missing them (background)
     ensureDWProjects(allColRows, dwCheck||[]);
+    ensureColStages(allColRows, csData||[]);
     // Restore collection detail from URL slug
     const hashParts=location.hash.slice(1).split("/");
     if(hashParts[0]==="collections"&&hashParts[1]){
@@ -2688,6 +2701,77 @@ function computeColDeadline(colId, designer) {
   return skus.map(i=>i.deadline).sort().pop(); // latest deadline
 }
 
+async function ensureColStages(cols, existingStages) {
+  const existingKeys=new Set(existingStages.map(s=>`${s.collection_id}|${s.stage}`));
+  for(const col of cols){
+    if(!col.id) continue;
+    for(const stage of COL_STAGE_NAMES){
+      const key=`${col.id}|${stage}`;
+      if(existingKeys.has(key)) continue;
+      try{
+        const id=genId("CS");
+        const {error}=await sb.from("collection_stages").insert({
+          id,collection_id:col.id,stage,status:"Not Started",
+          last_updated:new Date().toISOString(),last_updated_by:currentUser
+        });
+        if(!error){
+          existingKeys.add(key);
+          allColStages.push({rowIndex:id,id,collectionId:col.id,stage,status:"Not Started",notes:""});
+        }
+      }catch(e){/* silent */}
+    }
+  }
+}
+
+function getPipelineStatuses(colId) {
+  const items=allColItems.filter(i=>i.collectionId===colId);
+  const stages=allColStages.filter(s=>s.collectionId===colId);
+  // Design: from DW approval
+  const dwRows=allDwRows.filter(r=>r.collectionId===colId&&r.locked);
+  let design="not-started";
+  if(dwRows.length){
+    const dlStats=dwRows.map(r=>computeColDeliverableStatus(r.collectionId,r.designer));
+    if(dlStats.every(s=>s==="Approved")) design="done";
+    else if(dlStats.some(s=>s&&s!=="Not Approved")) design="in-progress";
+    else design="not-started";
+  } else if(items.some(i=>i.designer)) design="in-progress";
+  // Sampling
+  let sampling="not-started";
+  if(items.length){
+    if(items.every(i=>i.samplingStatus==="Done")) sampling="done";
+    else if(items.some(i=>i.samplingStatus==="In Progress"||i.samplingStatus==="Done")) sampling="in-progress";
+  }
+  // Production
+  let production="not-started";
+  if(items.length){
+    if(items.every(i=>i.productionStatus==="Done")) production="done";
+    else if(items.some(i=>i.productionStatus==="In Progress"||i.productionStatus==="Done")) production="in-progress";
+  }
+  const getStage=s=>stages.find(r=>r.stage===s)?.status||"Not Started";
+  const stageToKey=s=>s==="Done"?"done":s==="In Progress"?"in-progress":"not-started";
+  const inbound=stageToKey(getStage("inbound"));
+  const mkt=["photoshoot","kol","offline_activation"].map(s=>getStage(s));
+  let marketing="not-started";
+  if(mkt.every(s=>s==="Done")) marketing="done";
+  else if(mkt.some(s=>s==="In Progress"||s==="Done")) marketing="in-progress";
+  return {design,sampling,production,inbound,marketing};
+}
+
+function renderPipelineBarHTML(colId) {
+  const ps=getPipelineStatuses(colId);
+  const stages=[["design","Design"],["sampling","Sampling"],["production","Production"],["inbound","Inbound"],["marketing","Marketing"]];
+  const dot=s=>s==="done"?"●":s==="in-progress"?"◐":"○";
+  const clr=s=>s==="done"?"#1a5c25":s==="in-progress"?"#1a4a8a":"#aaa";
+  const lbl=s=>s==="done"?"Done":s==="in-progress"?"In Progress":"Not Started";
+  return stages.map((([k,l],i)=>`
+    ${i>0?`<div style="flex:1;height:1px;background:var(--g200);min-width:12px;max-width:32px;margin-top:-10px"></div>`:""}
+    <div style="display:flex;flex-direction:column;align-items:center;gap:3px">
+      <span style="font-size:20px;line-height:1;color:${clr(ps[k])}">${dot(ps[k])}</span>
+      <span style="font-size:9px;font-family:var(--mono);text-transform:uppercase;color:${clr(ps[k])};white-space:nowrap">${l}</span>
+    </div>`
+  )).join("")
+}
+
 function renderColStats(rows,items) {
   document.getElementById("col-s-total").textContent=rows.length;
   document.getElementById("col-s-draft").textContent=rows.filter(r=>r.status==="Draft").length;
@@ -2765,50 +2849,159 @@ function toggleColEditPanel() {
   panel.style.display=panel.style.display==="none"?"block":"none";
 }
 
+// ── helpers for collection detail boxes ──
+function cdStageBox(icon, title, badgeHTML, contentHTML) {
+  return `<div style="border:1px solid var(--g100);border-radius:8px;margin-bottom:16px;overflow:hidden">
+    <div style="padding:10px 16px;background:var(--off);border-bottom:1px solid var(--g100);display:flex;align-items:center;gap:8px">
+      <span>${icon}</span>
+      <span style="font-family:var(--mono);font-size:11px;text-transform:uppercase;font-weight:600">${title}</span>
+      ${badgeHTML||""}
+    </div>
+    <div style="padding:16px">${contentHTML}</div>
+  </div>`;
+}
+function cdStageBadge(status) {
+  const c=status==="Done"?"p-active":status==="In Progress"?"p-signings":"p-draft";
+  return `<span class="pill ${c}" style="font-size:9px;margin-left:auto">${status}</span>`;
+}
+function cdSkuStatusSelect(itemId, colId, stageKey, currentVal) {
+  const opts=["Not Started","In Progress","Done"];
+  const clr=currentVal==="Done"?"#edf8ee;color:#1a5c25;border-color:#90d4a0":currentVal==="In Progress"?"#e8f0fc;color:#1a4a8a;border-color:#a8c4f0":"#f0efe9;color:#5a5850;border-color:#d4d3cb";
+  return `<select onchange="updateSKUStageStatus('${itemId}','${colId}','${stageKey}',this.value)" style="font-size:11px;padding:2px 8px;border:1px solid;border-radius:99px;background:${clr}">${opts.map(o=>`<option${currentVal===o?" selected":""}>${o}</option>`).join("")}</select>`;
+}
+
 function renderColDetail(col, items) {
   const prioColor={High:"p-expired",Medium:"p-near",Low:"p-draft"};
   const statusColor=col.status==="Done"?"p-active":col.status==="In Progress"?"p-signings":"p-draft";
-  const skuRows=items.map(i=>{
-    const skuCatsEdit=[...new Set([...SKU_CATEGORIES_DEFAULT,...allColItems.map(x=>x.category).filter(Boolean)])];
-    const catOpts=skuCatsEdit.map(c=>`<option ${i.category===c?"selected":""}>${c}</option>`).join("");
-    return `<tr id="ci-row-${i.id}" style="border-top:1px solid var(--g100)">
-      <td style="padding:8px 10px"><strong style="font-size:13px">${i.skuName}</strong></td>
-      <td style="padding:8px 10px">${i.category?`<span class="pill p-signings" style="font-size:10px">${i.category}</span>`:`<span style="color:var(--g400);font-size:11px">—</span>`}</td>
-      <td style="padding:8px 10px;color:var(--g600)">${i.designer||"—"}</td>
-      <td style="padding:8px 10px;white-space:nowrap">${fmtDate(i.deadline)}</td>
-      <td style="padding:8px 10px">${i.designPreviewUrl?`<a href="${i.designPreviewUrl}" target="_blank" style="color:#3C3489;text-decoration:none">↗ Preview</a>`:`<span style="color:var(--g400);font-size:11px">Placeholder</span>`}</td>
-      <td style="padding:8px 10px">
-        <select onchange="updateSKUApproval('${i.id}','${col.id}',this.value)" style="font-size:11px;padding:2px 6px;border:1px solid var(--g100);border-radius:4px;background:var(--white)">
-          <option ${i.approvalStatus==="Pending"?"selected":""}>Pending</option>
-          <option ${i.approvalStatus==="Revision"?"selected":""}>Revision</option>
-          <option ${i.approvalStatus==="Approved"?"selected":""}>Approved</option>
-        </select>
-      </td>
-      <td style="padding:8px 10px;white-space:nowrap">
-        <button class="btn-icon" style="font-size:11px" onclick="openSKUEdit('${i.id}')">Edit</button>
-        <button class="btn-icon" style="color:#c0392b;font-size:11px" onclick="deleteSKU('${i.id}','${col.id}')">Del</button>
-      </td>
-    </tr>
-    <tr id="ci-edit-${i.id}" style="display:none;border-top:1px solid var(--g100)">
-      <td colspan="7" style="padding:8px 10px 12px">
-        <div class="edit-row-form" style="background:var(--off)">
-          <div class="edit-row-grid">
-            <div class="fg"><label style="font-size:11px">Nama SKU *</label><input type="text" id="cie-name-${i.id}" value="${(i.skuName||"").replace(/"/g,"&quot;")}"></div>
-            <div class="fg" style="position:relative"><label style="font-size:11px">Kategori</label><input type="text" id="cie-cat-${i.id}" value="${(i.category||"").replace(/"/g,"&quot;")}" autocomplete="off"><div class="ac-list" id="ac-cie-cat-${i.id}"></div></div>
-            <div class="fg" style="position:relative"><label style="font-size:11px">Designer</label><input type="text" id="cie-dsg-${i.id}" value="${(i.designer||"").replace(/"/g,"&quot;")}" autocomplete="off"><div class="ac-list" id="ac-cie-dsg-${i.id}"></div></div>
-            <div class="fg"><label style="font-size:11px">Deadline</label><input type="date" id="cie-deadline-${i.id}" value="${i.deadline||""}"></div>
-            <div class="fg full"><label style="font-size:11px">Design Preview URL</label><input type="url" id="cie-preview-${i.id}" value="${(i.designPreviewUrl||"").replace(/"/g,"&quot;")}" placeholder="https://drive.google.com/..."></div>
-          </div>
-          <div class="edit-row-btns">
-            <button class="btn-save" onclick="saveSKUEdit('${i.id}','${col.id}')">Simpan</button>
-            <button class="btn-cancel" onclick="closeSKUEdit('${i.id}')">Batal</button>
-          </div>
+  const skuCats=[...new Set([...SKU_CATEGORIES_DEFAULT,...allColItems.map(i=>i.category).filter(Boolean)])];
+
+  // ── SKU rows (master list) ──
+  const skuRows=items.map(i=>`<tr id="ci-row-${i.id}" style="border-top:1px solid var(--g100)">
+    <td style="padding:8px 10px"><strong style="font-size:13px">${i.skuName}</strong></td>
+    <td style="padding:8px 10px">${i.category?`<span class="pill p-signings" style="font-size:10px">${i.category}</span>`:`<span style="color:var(--g400);font-size:11px">—</span>`}</td>
+    <td style="padding:8px 10px;color:var(--g600)">${i.designer||"—"}</td>
+    <td style="padding:8px 10px;white-space:nowrap">${fmtDate(i.deadline)}</td>
+    <td style="padding:8px 10px">${i.designPreviewUrl?`<a href="${i.designPreviewUrl}" target="_blank" style="color:#3C3489;text-decoration:none">↗ Preview</a>`:`<span style="color:var(--g400);font-size:11px">—</span>`}</td>
+    <td style="padding:8px 10px">
+      <select onchange="updateSKUApproval('${i.id}','${col.id}',this.value)" style="font-size:11px;padding:2px 6px;border:1px solid var(--g100);border-radius:4px;background:var(--white)">
+        <option${i.approvalStatus==="Pending"?" selected":""}>Pending</option>
+        <option${i.approvalStatus==="Revision"?" selected":""}>Revision</option>
+        <option${i.approvalStatus==="Approved"?" selected":""}>Approved</option>
+      </select>
+    </td>
+    <td style="padding:8px 10px;white-space:nowrap">
+      <button class="btn-icon" style="font-size:11px" onclick="openSKUEdit('${i.id}')">Edit</button>
+      <button class="btn-icon" style="color:#c0392b;font-size:11px" onclick="deleteSKU('${i.id}','${col.id}')">Del</button>
+    </td>
+  </tr>
+  <tr id="ci-edit-${i.id}" style="display:none;border-top:1px solid var(--g100)">
+    <td colspan="7" style="padding:8px 10px 12px">
+      <div class="edit-row-form" style="background:var(--off)">
+        <div class="edit-row-grid">
+          <div class="fg"><label style="font-size:11px">Nama SKU *</label><input type="text" id="cie-name-${i.id}" value="${(i.skuName||"").replace(/"/g,"&quot;")}"></div>
+          <div class="fg" style="position:relative"><label style="font-size:11px">Kategori</label><input type="text" id="cie-cat-${i.id}" value="${(i.category||"").replace(/"/g,"&quot;")}" autocomplete="off"><div class="ac-list" id="ac-cie-cat-${i.id}"></div></div>
+          <div class="fg" style="position:relative"><label style="font-size:11px">Designer</label><input type="text" id="cie-dsg-${i.id}" value="${(i.designer||"").replace(/"/g,"&quot;")}" autocomplete="off"><div class="ac-list" id="ac-cie-dsg-${i.id}"></div></div>
+          <div class="fg"><label style="font-size:11px">Deadline</label><input type="date" id="cie-deadline-${i.id}" value="${i.deadline||""}"></div>
+          <div class="fg full"><label style="font-size:11px">Design Preview URL</label><input type="url" id="cie-preview-${i.id}" value="${(i.designPreviewUrl||"").replace(/"/g,"&quot;")}" placeholder="https://drive.google.com/..."></div>
         </div>
-      </td>
-    </tr>`;
-  }).join("");
+        <div class="edit-row-btns">
+          <button class="btn-save" onclick="saveSKUEdit('${i.id}','${col.id}')">Simpan</button>
+          <button class="btn-cancel" onclick="closeSKUEdit('${i.id}')">Batal</button>
+        </div>
+      </div>
+    </td>
+  </tr>`).join("");
+
+  // ── Design (DW preview) ──
+  const dwRows=allDwRows.filter(r=>r.collectionId===col.id);
+  const designContent=dwRows.length?`
+    <table style="width:100%">
+      <thead><tr style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">
+        <th style="padding:6px 10px;text-align:left">Designer</th>
+        <th style="padding:6px 10px;text-align:left">Deliverables</th>
+        <th style="padding:6px 10px;text-align:left">Link</th>
+        <th style="padding:6px 10px;text-align:left">Payment</th>
+      </tr></thead>
+      <tbody>${dwRows.map(r=>{
+        const dlSt=r.locked&&r.collectionId?computeColDeliverableStatus(r.collectionId,r.designer):r.deliverablesStatus;
+        const dlP=dlSt==="Approved"?"p-active":dlSt==="Partially Approved"?"p-near":dlSt==="Not Approved"?"p-expired":"p-draft";
+        const payP=r.paymentStatus==="Paid"?"p-active":r.paymentStatus==="Not Yet Paid"?"p-expired":"p-draft";
+        const linkDisp=r.deliverablesUrl
+          ?`<a href="${r.deliverablesUrl}" target="_blank" style="font-size:11px;color:#3C3489;text-decoration:none">↗ Lihat</a> <button class="btn-icon" style="font-size:10px" onclick="openDwLinkEdit('${r.id}')">✏</button>`
+          :`<button class="btn-icon" style="font-size:10px" onclick="openDwLinkEdit('${r.id}')">+ Tambah link</button>`;
+        return `<tr style="border-top:1px solid var(--g100)">
+          <td style="padding:8px 10px"><strong>${r.designer||`<span style="color:var(--g400)">—</span>`}</strong></td>
+          <td style="padding:8px 10px"><span class="pill ${dlP}" style="font-size:10px">${dlSt||"—"}</span></td>
+          <td style="padding:8px 10px">
+            <span id="dw-link-display-${r.id}">${linkDisp}</span>
+            <span id="dw-link-edit-${r.id}" style="display:none">
+              <input type="url" id="dw-link-input-${r.id}" value="${(r.deliverablesUrl||"").replace(/"/g,"&quot;")}" placeholder="https://drive.google.com/..." style="font-size:11px;padding:3px 6px;border:1px solid var(--g200);border-radius:4px;width:200px">
+              <button class="btn-icon" style="font-size:10px" onclick="saveDwLinkInline('${r.id}','${col.id}')">✓</button>
+              <button class="btn-icon" style="font-size:10px" onclick="closeDwLinkEdit('${r.id}')">✕</button>
+            </span>
+          </td>
+          <td style="padding:8px 10px"><span class="pill ${payP}" style="font-size:11px">${r.paymentStatus}</span></td>
+        </tr>`;
+      }).join("")}</tbody>
+    </table>
+    <div style="margin-top:10px;text-align:right"><a href="#" onclick="showPage('dsgworkflow');return false" style="font-size:11px;color:#3C3489">↗ Buka Designer Workflow lengkap →</a></div>`
+    :`<div style="color:var(--g400);font-size:12px">Belum ada data. Designer Workflow otomatis muncul saat SKU diberi designer.</div>`;
+
+  // ── Sampling rows ──
+  const samplingContent=items.length?`
+    <table style="width:100%">
+      <thead><tr style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">
+        <th style="padding:6px 10px;text-align:left">SKU</th>
+        <th style="padding:6px 10px;text-align:left">Status</th>
+        <th style="padding:6px 10px;text-align:left">Notes</th>
+      </tr></thead>
+      <tbody>${items.map(i=>`<tr style="border-top:1px solid var(--g100)">
+        <td style="padding:8px 10px"><strong style="font-size:13px">${i.skuName}</strong>${i.category?` <span class="pill p-signings" style="font-size:9px">${i.category}</span>`:""}</td>
+        <td style="padding:8px 10px">${cdSkuStatusSelect(i.id,col.id,"sampling",i.samplingStatus)}</td>
+        <td style="padding:8px 10px"><input type="text" value="${(i.samplingNotes||"").replace(/"/g,"&quot;")}" placeholder="Notes..." style="font-size:11px;padding:3px 8px;border:1px solid var(--g100);border-radius:4px;width:100%;min-width:140px" onblur="saveSkuStageNote('${i.id}','${col.id}','sampling',this.value)"></td>
+      </tr>`).join("")}</tbody>
+    </table>`:`<div style="color:var(--g400);font-size:12px">Belum ada SKU.</div>`;
+
+  // ── Production rows ──
+  const productionContent=items.length?`
+    <table style="width:100%">
+      <thead><tr style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">
+        <th style="padding:6px 10px;text-align:left">SKU</th>
+        <th style="padding:6px 10px;text-align:left">Status</th>
+        <th style="padding:6px 10px;text-align:left">Notes</th>
+      </tr></thead>
+      <tbody>${items.map(i=>`<tr style="border-top:1px solid var(--g100)">
+        <td style="padding:8px 10px"><strong style="font-size:13px">${i.skuName}</strong>${i.category?` <span class="pill p-signings" style="font-size:9px">${i.category}</span>`:""}</td>
+        <td style="padding:8px 10px">${cdSkuStatusSelect(i.id,col.id,"production",i.productionStatus)}</td>
+        <td style="padding:8px 10px"><input type="text" value="${(i.productionNotes||"").replace(/"/g,"&quot;")}" placeholder="Notes..." style="font-size:11px;padding:3px 8px;border:1px solid var(--g100);border-radius:4px;width:100%;min-width:140px" onblur="saveSkuStageNote('${i.id}','${col.id}','production',this.value)"></td>
+      </tr>`).join("")}</tbody>
+    </table>`:`<div style="color:var(--g400);font-size:12px">Belum ada SKU.</div>`;
+
+  // ── Marketing sub-boxes ──
+  const mktSubBox=(stage)=>{
+    const s=allColStages.find(r=>r.collectionId===col.id&&r.stage===stage)||{stage,status:"Not Started",notes:""};
+    const selClr=s.status==="Done"?"#edf8ee;color:#1a5c25;border-color:#90d4a0":s.status==="In Progress"?"#e8f0fc;color:#1a4a8a;border-color:#a8c4f0":"#f0efe9;color:#5a5850;border-color:#d4d3cb";
+    return `<div style="border:1px solid var(--g100);border-radius:6px;padding:12px">
+      <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:10px">${COL_STAGE_LABELS[stage]}</div>
+      <select onchange="updateColStageStatus('${col.id}','${stage}',this.value)" style="font-size:11px;padding:3px 8px;border:1px solid;border-radius:4px;width:100%;margin-bottom:8px;background:${selClr}">
+        <option${s.status==="Not Started"?" selected":""}>Not Started</option>
+        <option${s.status==="In Progress"?" selected":""}>In Progress</option>
+        <option${s.status==="Done"?" selected":""}>Done</option>
+      </select>
+      <textarea placeholder="Notes..." rows="2" style="font-size:11px;padding:6px 8px;border:1px solid var(--g100);border-radius:4px;width:100%;resize:vertical;box-sizing:border-box" onblur="saveColStageNote('${col.id}','${stage}',this.value)">${(s.notes||"").replace(/</g,"&lt;")}</textarea>
+    </div>`;
+  };
+  const inboundS=allColStages.find(r=>r.collectionId===col.id&&r.stage==="inbound")||{status:"Not Started",notes:""};
+  const inboundSelClr=inboundS.status==="Done"?"#edf8ee;color:#1a5c25;border-color:#90d4a0":inboundS.status==="In Progress"?"#e8f0fc;color:#1a4a8a;border-color:#a8c4f0":"#f0efe9;color:#5a5850;border-color:#d4d3cb";
+
+  // ── Pipeline bar ──
+  const ps=getPipelineStatuses(col.id);
+  const pipeStages=[["design","Design"],["sampling","Sampling"],["production","Production"],["inbound","Inbound"],["marketing","Marketing"]];
+  const pdot=s=>s==="done"?"●":s==="in-progress"?"◐":"○";
+  const pclr=s=>s==="done"?"#1a5c25":s==="in-progress"?"#1a4a8a":"#aaa";
 
   document.getElementById("col-detail-content").innerHTML=`<div style="max-width:1000px">
+    <!-- Header -->
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--g100)">
       <button class="btn-ghost" onclick="closeCollectionDetail()" style="white-space:nowrap">← Kembali</button>
       <div style="flex:1">
@@ -2819,6 +3012,7 @@ function renderColDetail(col, items) {
       <button class="btn-icon" onclick="toggleColEditPanel()" style="padding:6px 12px">✏ Edit</button>
       <button class="btn-icon" onclick="deleteCol('${col.id}')" style="color:#c0392b;padding:6px 12px">Hapus</button>
     </div>
+    <!-- Edit panel -->
     <div id="col-dp-edit-panel" style="display:none;margin-bottom:16px">
       <div class="form-card">
         <div class="form-sec">Edit Collection</div>
@@ -2826,8 +3020,8 @@ function renderColDetail(col, items) {
           <div class="fg"><label>Nama Collection</label><input type="text" id="col-dp-name" value="${(col.collectionName||"").replace(/"/g,"&quot;")}"></div>
           <div class="fg" style="position:relative"><label>IP Related</label><input type="text" id="col-dp-ip" value="${(col.ipRelated||"").replace(/"/g,"&quot;")}" autocomplete="off"><div class="ac-list" id="ac-col-dp-ip"></div></div>
           <div class="fg"><label>Release Date</label><input type="date" id="col-dp-releasedate" value="${col.releaseDate||""}"></div>
-          <div class="fg"><label>Priority</label><select id="col-dp-priority"><option value="">—</option><option ${col.priority==="High"?"selected":""}>High</option><option ${col.priority==="Medium"?"selected":""}>Medium</option><option ${col.priority==="Low"?"selected":""}>Low</option></select></div>
-          <div class="fg"><label>Status</label><select id="col-dp-status"><option ${col.status==="Draft"?"selected":""}>Draft</option><option ${col.status==="In Progress"?"selected":""}>In Progress</option><option ${col.status==="Done"?"selected":""}>Done</option></select></div>
+          <div class="fg"><label>Priority</label><select id="col-dp-priority"><option value="">—</option><option${col.priority==="High"?" selected":""}>High</option><option${col.priority==="Medium"?" selected":""}>Medium</option><option${col.priority==="Low"?" selected":""}>Low</option></select></div>
+          <div class="fg"><label>Status</label><select id="col-dp-status"><option${col.status==="Draft"?" selected":""}>Draft</option><option${col.status==="In Progress"?" selected":""}>In Progress</option><option${col.status==="Done"?" selected":""}>Done</option></select></div>
           <div class="fg" style="position:relative"><label>PIC</label><input type="text" id="col-dp-pic" value="${(col.pic||"").replace(/"/g,"&quot;")}" autocomplete="off"><div class="ac-list" id="ac-col-dp-pic"></div></div>
           <div class="fg full"><label>Moodboard URL</label><input type="url" id="col-dp-moodboard" value="${(col.moodboardUrl||"").replace(/"/g,"&quot;")}" placeholder="https://drive.google.com/..."></div>
           <div class="fg full"><label>Notes</label><textarea id="col-dp-notes" rows="2" style="resize:vertical">${(col.notes||"").replace(/</g,"&lt;")}</textarea></div>
@@ -2838,57 +3032,64 @@ function renderColDetail(col, items) {
         </div>
       </div>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:16px">
-      <div class="stat-card" style="text-align:left;padding:14px">
-        <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:6px">IP Related</div>
-        <div style="font-weight:600">${col.ipRelated||"—"}</div>
-      </div>
-      <div class="stat-card" style="text-align:left;padding:14px">
-        <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:6px">Release Date</div>
-        <div style="font-weight:600">${fmtDate(col.releaseDate)||"—"}</div>
-      </div>
-      <div class="stat-card" style="text-align:left;padding:14px">
-        <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:6px">Priority</div>
-        <div>${col.priority?`<span class="pill ${prioColor[col.priority]||"p-draft"}">${col.priority}</span>`:"—"}</div>
-      </div>
-      <div class="stat-card" style="text-align:left;padding:14px">
-        <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:6px">PIC</div>
-        <div style="font-weight:600">${col.pic||"—"}</div>
-      </div>
-      ${col.moodboardUrl?`<div class="stat-card" style="text-align:left;padding:14px">
-        <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:6px">Moodboard</div>
-        <a href="${col.moodboardUrl}" target="_blank" style="color:#3C3489;font-weight:600;text-decoration:none">↗ Lihat Moodboard</a>
-      </div>`:""}
+    <!-- Metadata cards -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px">
+      <div class="stat-card" style="text-align:left;padding:12px 14px"><div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:4px">IP Related</div><div style="font-weight:600;font-size:13px">${col.ipRelated||"—"}</div></div>
+      <div class="stat-card" style="text-align:left;padding:12px 14px"><div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:4px">Release Date</div><div style="font-weight:600;font-size:13px">${fmtDate(col.releaseDate)||"—"}</div></div>
+      <div class="stat-card" style="text-align:left;padding:12px 14px"><div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:4px">Priority</div><div>${col.priority?`<span class="pill ${prioColor[col.priority]||"p-draft"}">${col.priority}</span>`:"—"}</div></div>
+      <div class="stat-card" style="text-align:left;padding:12px 14px"><div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:4px">PIC</div><div style="font-weight:600;font-size:13px">${col.pic||"—"}</div></div>
+      ${col.moodboardUrl?`<div class="stat-card" style="text-align:left;padding:12px 14px"><div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:4px">Moodboard</div><a href="${col.moodboardUrl}" target="_blank" style="color:#3C3489;font-weight:600;text-decoration:none;font-size:13px">↗ Lihat</a></div>`:""}
     </div>
-    ${col.notes?`<div class="form-card" style="margin-bottom:16px;padding:14px"><div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:6px">Notes</div><div style="font-size:13px">${col.notes.replace(/</g,"&lt;")}</div></div>`:""}
-    <div class="form-card">
-      <div style="display:flex;align-items:center;margin-bottom:14px">
-        <div class="form-sec" style="margin:0">SKUs <span style="font-size:13px;font-weight:400;color:var(--g400)">(${items.length})</span></div>
-      </div>
+    ${col.notes?`<div class="form-card" style="margin-bottom:16px;padding:12px 14px"><div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:4px">Notes</div><div style="font-size:13px">${col.notes.replace(/</g,"&lt;")}</div></div>`:""}
+    <!-- Pipeline bar -->
+    <div id="col-pipeline-${col.id}" style="display:flex;align-items:center;gap:4px;margin-bottom:20px;padding:14px 20px;background:var(--off);border-radius:8px;overflow-x:auto">
+      ${pipeStages.map(([k,l],i)=>`${i>0?`<div style="flex:1;height:1px;background:var(--g200);min-width:12px;max-width:40px"></div>`:""}
+      <div style="display:flex;flex-direction:column;align-items:center;gap:3px;min-width:60px">
+        <span style="font-size:20px;line-height:1;color:${pclr(ps[k])}">${pdot(ps[k])}</span>
+        <span style="font-size:9px;font-family:var(--mono);text-transform:uppercase;color:${pclr(ps[k])};white-space:nowrap">${l}</span>
+      </div>`).join("")}
+    </div>
+    <!-- SKU Master List -->
+    ${cdStageBox("📋","SKUs",`<span style="font-size:11px;color:var(--g400);font-family:var(--mono);margin-left:auto">${items.length} items</span>`,`
       <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;padding:12px;background:var(--off);border-radius:6px;margin-bottom:14px">
         <div class="fg" style="min-width:160px;flex:2"><label style="font-size:11px">Nama SKU *</label><input type="text" id="ci-dp-name-${col.id}" placeholder="Nama item/SKU"></div>
         <div class="fg" style="min-width:130px;flex:1.5;position:relative"><label style="font-size:11px">Kategori</label><input type="text" id="ci-dp-cat-${col.id}" placeholder="T-Shirt, Bag Charm..." autocomplete="off"><div class="ac-list" id="ac-ci-dp-cat-${col.id}"></div></div>
         <div class="fg" style="min-width:140px;flex:1.5;position:relative"><label style="font-size:11px">Designer</label><input type="text" id="ci-dp-dsg-${col.id}" placeholder="Pilih dari designer master" autocomplete="off"><div class="ac-list" id="ac-ci-dp-${col.id}"></div></div>
-        <div class="fg" style="min-width:130px;flex:1"><label style="font-size:11px">Deadline</label><input type="date" id="ci-dp-deadline-${col.id}"></div>
-        <div style="padding-bottom:2px"><button class="btn-primary" style="padding:6px 14px;font-size:12px" onclick="addCollectionItem('${col.id}')">+ Tambah SKU</button></div>
+        <div class="fg" style="min-width:120px;flex:1"><label style="font-size:11px">Deadline</label><input type="date" id="ci-dp-deadline-${col.id}"></div>
+        <div style="padding-bottom:2px"><button class="btn-primary" style="padding:6px 14px;font-size:12px" onclick="addCollectionItem('${col.id}')">+ Tambah</button></div>
       </div>
-      ${items.length?`<div class="table-wrap" style="max-height:500px;overflow-y:auto"><table style="width:100%">
+      ${items.length?`<div class="table-wrap" style="max-height:400px;overflow-y:auto"><table style="width:100%">
         <thead><tr style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">
-          <th style="padding:6px 10px;text-align:left">SKU</th>
-          <th style="padding:6px 10px;text-align:left">Kategori</th>
-          <th style="padding:6px 10px;text-align:left">Designer</th>
-          <th style="padding:6px 10px;text-align:left">Deadline</th>
-          <th style="padding:6px 10px;text-align:left">Preview</th>
-          <th style="padding:6px 10px;text-align:left">Status Approval</th>
-          <th style="padding:6px 10px;text-align:left">Aksi</th>
+          <th style="padding:6px 10px;text-align:left">SKU</th><th style="padding:6px 10px;text-align:left">Kategori</th>
+          <th style="padding:6px 10px;text-align:left">Designer</th><th style="padding:6px 10px;text-align:left">Deadline</th>
+          <th style="padding:6px 10px;text-align:left">Preview</th><th style="padding:6px 10px;text-align:left">Approval</th><th style="padding:6px 10px;text-align:left">Aksi</th>
         </tr></thead>
-        <tbody id="col-sku-tbody-${col.id}">${skuRows}</tbody>
-      </table></div>`:`<div style="color:var(--g400);font-size:12px;padding:8px 0" id="col-sku-empty-${col.id}">Belum ada SKU.</div>`}
-    </div>
+        <tbody>${skuRows}</tbody>
+      </table></div>`:`<div style="color:var(--g400);font-size:12px">Belum ada SKU. Tambah di atas.</div>`}`)}
+    <!-- Design (DW) -->
+    ${cdStageBox("🎨","Design",cdStageBadge(ps.design==="done"?"Done":ps.design==="in-progress"?"In Progress":"Not Started"),designContent)}
+    <!-- Sampling -->
+    ${cdStageBox("🧵","Sampling",cdStageBadge(items.length?items.every(i=>i.samplingStatus==="Done")?"Done":items.some(i=>i.samplingStatus!=="Not Started")?"In Progress":"Not Started":"Not Started"),samplingContent)}
+    <!-- Production -->
+    ${cdStageBox("🏭","Production",cdStageBadge(items.length?items.every(i=>i.productionStatus==="Done")?"Done":items.some(i=>i.productionStatus!=="Not Started")?"In Progress":"Not Started":"Not Started"),productionContent)}
+    <!-- Inbound -->
+    ${cdStageBox("📦","Inbound",cdStageBadge(inboundS.status),`
+      <select onchange="updateColStageStatus('${col.id}','inbound',this.value)" style="font-size:12px;padding:4px 8px;border:1px solid;border-radius:4px;width:200px;margin-bottom:10px;background:${inboundSelClr}">
+        <option${inboundS.status==="Not Started"?" selected":""}>Not Started</option>
+        <option${inboundS.status==="In Progress"?" selected":""}>In Progress</option>
+        <option${inboundS.status==="Done"?" selected":""}>Done</option>
+      </select>
+      <textarea placeholder="Notes..." rows="2" style="font-size:12px;padding:8px;border:1px solid var(--g100);border-radius:4px;width:100%;resize:vertical;box-sizing:border-box" onblur="saveColStageNote('${col.id}','inbound',this.value)">${(inboundS.notes||"").replace(/</g,"&lt;")}</textarea>`)}
+    <!-- Marketing -->
+    ${cdStageBox("📣","Marketing",cdStageBadge(ps.marketing==="done"?"Done":ps.marketing==="in-progress"?"In Progress":"Not Started"),`
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">
+        ${mktSubBox("photoshoot")}${mktSubBox("kol")}${mktSubBox("offline_activation")}
+      </div>`)}
   </div>`;
+
+  // Setup autocompletes
   setupAC("col-dp-ip","ac-col-dp-ip",()=>allIPRows.map(x=>x.name).filter(Boolean));
   setupAC("col-dp-pic","ac-col-dp-pic",()=>[...new Set(allColRows.map(r=>r.pic).filter(Boolean))]);
-  const skuCats=[...new Set([...SKU_CATEGORIES_DEFAULT,...allColItems.map(i=>i.category).filter(Boolean)])];
   setupAC(`ci-dp-cat-${col.id}`,`ac-ci-dp-cat-${col.id}`,()=>skuCats);
   setupAC(`ci-dp-dsg-${col.id}`,`ac-ci-dp-${col.id}`,()=>allDsgRows.filter(d=>d.status==="Active").map(d=>d.name));
   items.forEach(i=>{
@@ -2954,6 +3155,82 @@ function openSKUEdit(itemId) {
   row.style.display=row.style.display==="table-row"?"none":"table-row";
 }
 function closeSKUEdit(itemId){const r=document.getElementById("ci-edit-"+itemId);if(r)r.style.display="none";}
+
+// DW deliverables link inline edit (from collection detail)
+function openDwLinkEdit(dwId){const d=document.getElementById(`dw-link-display-${dwId}`);const e=document.getElementById(`dw-link-edit-${dwId}`);if(d)d.style.display="none";if(e)e.style.display="inline";}
+function closeDwLinkEdit(dwId){const d=document.getElementById(`dw-link-display-${dwId}`);const e=document.getElementById(`dw-link-edit-${dwId}`);if(d)d.style.display="inline";if(e)e.style.display="none";}
+async function saveDwLinkInline(dwId, colId) {
+  const url=document.getElementById(`dw-link-input-${dwId}`)?.value.trim()||null;
+  try {
+    const {error}=await sb.from("designer_workflow").update({
+      deliverables_url:url, last_updated:new Date().toISOString(), last_updated_by:currentUser
+    }).eq("id",dwId);
+    if(error)throw error;
+    const dw=allDwRows.find(r=>r.id===dwId);
+    if(dw) dw.deliverablesUrl=url||"";
+    closeDwLinkEdit(dwId);
+    const disp=document.getElementById(`dw-link-display-${dwId}`);
+    if(disp) disp.innerHTML=url
+      ?`<a href="${url}" target="_blank" style="font-size:11px;color:#3C3489;text-decoration:none">↗ Lihat</a> <button class="btn-icon" style="font-size:10px" onclick="openDwLinkEdit('${dwId}')">✏</button>`
+      :`<button class="btn-icon" style="font-size:10px" onclick="openDwLinkEdit('${dwId}')">+ Tambah link</button>`;
+  } catch(e){alert("Gagal: "+(e.message||e));}
+}
+
+// SKU stage status inline update (sampling / production)
+async function updateSKUStageStatus(itemId, colId, stage, status) {
+  const field=stage==="sampling"?"sampling_status":"production_status";
+  try {
+    await sb.from("collection_items").update({[field]:status,last_updated:new Date().toISOString(),last_updated_by:currentUser}).eq("id",itemId);
+    const item=allColItems.find(i=>i.id===itemId);
+    if(item){if(stage==="sampling")item.samplingStatus=status;else item.productionStatus=status;}
+    // Update pipeline bar only
+    const pipeEl=document.getElementById(`col-pipeline-${colId}`);
+    if(pipeEl) pipeEl.innerHTML=renderPipelineBarHTML(colId);
+  } catch(e){/* silent */}
+}
+function renderPipelineBarHTML(colId) {
+  const ps=getPipelineStatuses(colId);
+  const pipeStages=[["design","Design"],["sampling","Sampling"],["production","Production"],["inbound","Inbound"],["marketing","Marketing"]];
+  const pdot=s=>s==="done"?"●":s==="in-progress"?"◐":"○";
+  const pclr=s=>s==="done"?"#1a5c25":s==="in-progress"?"#1a4a8a":"#aaa";
+  return pipeStages.map(([k,l],i)=>`${i>0?`<div style="flex:1;height:1px;background:var(--g200);min-width:12px;max-width:40px"></div>`:""}
+    <div style="display:flex;flex-direction:column;align-items:center;gap:3px;min-width:60px">
+      <span style="font-size:20px;line-height:1;color:${pclr(ps[k])}">${pdot(ps[k])}</span>
+      <span style="font-size:9px;font-family:var(--mono);text-transform:uppercase;color:${pclr(ps[k])};white-space:nowrap">${l}</span>
+    </div>`).join("");
+}
+
+// SKU stage notes save on blur
+async function saveSkuStageNote(itemId, colId, stage, notes) {
+  const field=stage==="sampling"?"sampling_notes":"production_notes";
+  try {
+    await sb.from("collection_items").update({[field]:notes,last_updated:new Date().toISOString(),last_updated_by:currentUser}).eq("id",itemId);
+    const item=allColItems.find(i=>i.id===itemId);
+    if(item){if(stage==="sampling")item.samplingNotes=notes;else item.productionNotes=notes;}
+  } catch(e){/* silent */}
+}
+
+// Collection-level stage status update
+async function updateColStageStatus(colId, stage, status) {
+  const s=allColStages.find(r=>r.collectionId===colId&&r.stage===stage);
+  if(!s) return;
+  try {
+    await sb.from("collection_stages").update({status,last_updated:new Date().toISOString(),last_updated_by:currentUser}).eq("id",s.id);
+    s.status=status;
+    const pipeEl=document.getElementById(`col-pipeline-${colId}`);
+    if(pipeEl) pipeEl.innerHTML=renderPipelineBarHTML(colId);
+  } catch(e){/* silent */}
+}
+
+// Collection-level stage notes save on blur
+async function saveColStageNote(colId, stage, notes) {
+  const s=allColStages.find(r=>r.collectionId===colId&&r.stage===stage);
+  if(!s) return;
+  try {
+    await sb.from("collection_stages").update({notes,last_updated:new Date().toISOString(),last_updated_by:currentUser}).eq("id",s.id);
+    s.notes=notes;
+  } catch(e){/* silent */}
+}
 
 async function saveSKUEdit(itemId, colId) {
   const btn=document.querySelector(`#ci-edit-${itemId} .btn-save`);
@@ -3083,11 +3360,11 @@ async function submitCollection() {
     });
     if(error)throw error;
     logActivity("Collections","create",id,nm);
-    // DW project auto-created by ensureDWProjects on next loadCollections
+    // DW + stage placeholders auto-created
     const newCol={rowIndex:id,id,collectionName:nm,ipRelated:"",releaseDate:"",priority:"",moodboardUrl:"",status:document.getElementById("col-status")?.value||"Draft",pic:"",notes:"",dateAdded:new Date().toISOString().slice(0,10),addedBy:currentUser};
     allColRows.push(newCol);
-    // Create placeholder DW entry now so it appears immediately
     ensureDWProjects([newCol],[]);
+    ensureColStages([newCol],[]);
     document.getElementById("col-feedback").innerHTML=`<span class="fb-ok">✓ Collection tersimpan — ID: ${id}. Buka tab Semua untuk menambah SKU.</span>`;
     clearColForm();
   } catch(e){
