@@ -2562,6 +2562,7 @@ function clearDsgForm() {
 // ── COLLECTIONS ──
 let allColRows = [], allColItems = [];
 let colSort = {col:null,dir:'asc'};
+const SKU_CATEGORIES_DEFAULT = ["T-Shirt","Shirt","Hoodie","Jacket","Dress","Pants","Shorts","Tote Bag","Bag Charm","Keychain","Poster","Sticker","Cap","Accessories","Others"];
 function sortColBy(c){colSort.dir=colSort.col===c?(colSort.dir==='asc'?'desc':'asc'):'asc';colSort.col=c;applyColFilters();}
 
 function mapCol(r) {
@@ -2577,7 +2578,7 @@ function mapCol(r) {
 function mapCI(r) {
   return {
     rowIndex:r.id, id:r.id, collectionId:r.collection_id,
-    skuName:r.sku_name||"", designer:r.designer||"",
+    skuName:r.sku_name||"", category:r.category||"", designer:r.designer||"",
     deadline:r.deadline||"", designPreviewUrl:r.design_preview_url||"",
     approvalStatus:r.approval_status||"Pending", notes:r.notes||""
   };
@@ -2682,6 +2683,7 @@ function renderColDetail(col, items) {
   const statusColor=col.status==="Done"?"p-active":col.status==="In Progress"?"p-signings":"p-draft";
   const skuRows=items.map(i=>`<tr style="border-top:1px solid var(--g100)">
     <td style="padding:8px 10px"><strong style="font-size:13px">${i.skuName}</strong></td>
+    <td style="padding:8px 10px">${i.category?`<span class="pill p-signings" style="font-size:10px">${i.category}</span>`:`<span style="color:var(--g400);font-size:11px">—</span>`}</td>
     <td style="padding:8px 10px;color:var(--g600)">${i.designer||"—"}</td>
     <td style="padding:8px 10px;white-space:nowrap">${fmtDate(i.deadline)}</td>
     <td style="padding:8px 10px">${i.designPreviewUrl?`<a href="${i.designPreviewUrl}" target="_blank" style="color:#3C3489;text-decoration:none">↗ Preview</a>`:`<span style="color:var(--g400);font-size:11px">Placeholder</span>`}</td>
@@ -2703,6 +2705,7 @@ function renderColDetail(col, items) {
         <div style="font-size:11px;color:var(--g400);margin-top:2px">Ditambahkan ${col.dateAdded?fmtDate(col.dateAdded):"—"} · ${col.addedBy||"—"}</div>
       </div>
       <span class="pill ${statusColor}">${col.status}</span>
+      <button class="btn-primary" onclick="pushToDesignerWorkflow('${col.id}')" style="padding:6px 14px;font-size:12px;white-space:nowrap">↗ Push ke DW</button>
       <button class="btn-icon" onclick="toggleColEditPanel()" style="padding:6px 12px">✏ Edit</button>
       <button class="btn-icon" onclick="deleteCol('${col.id}')" style="color:#c0392b;padding:6px 12px">Hapus</button>
     </div>
@@ -2749,6 +2752,7 @@ function renderColDetail(col, items) {
       </div>
       <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;padding:12px;background:var(--off);border-radius:6px;margin-bottom:14px">
         <div class="fg" style="min-width:160px;flex:2"><label style="font-size:11px">Nama SKU *</label><input type="text" id="ci-dp-name-${col.id}" placeholder="Nama item/SKU"></div>
+        <div class="fg" style="min-width:130px;flex:1.5;position:relative"><label style="font-size:11px">Kategori</label><input type="text" id="ci-dp-cat-${col.id}" placeholder="T-Shirt, Bag Charm..." autocomplete="off"><div class="ac-list" id="ac-ci-dp-cat-${col.id}"></div></div>
         <div class="fg" style="min-width:140px;flex:1.5;position:relative"><label style="font-size:11px">Designer</label><input type="text" id="ci-dp-dsg-${col.id}" placeholder="Pilih designer" autocomplete="off"><div class="ac-list" id="ac-ci-dp-${col.id}"></div></div>
         <div class="fg" style="min-width:130px;flex:1"><label style="font-size:11px">Deadline</label><input type="date" id="ci-dp-deadline-${col.id}"></div>
         <div style="padding-bottom:2px"><button class="btn-primary" style="padding:6px 14px;font-size:12px" onclick="addCollectionItem('${col.id}')">+ Tambah SKU</button></div>
@@ -2756,6 +2760,7 @@ function renderColDetail(col, items) {
       ${items.length?`<div class="table-wrap" style="max-height:400px;overflow-y:auto"><table style="width:100%">
         <thead><tr style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">
           <th style="padding:6px 10px;text-align:left">SKU</th>
+          <th style="padding:6px 10px;text-align:left">Kategori</th>
           <th style="padding:6px 10px;text-align:left">Designer</th>
           <th style="padding:6px 10px;text-align:left">Deadline</th>
           <th style="padding:6px 10px;text-align:left">Preview</th>
@@ -2767,6 +2772,8 @@ function renderColDetail(col, items) {
     </div>
   </div>`;
   setupAC("col-dp-ip","ac-col-dp-ip",()=>allIPRows.map(x=>x.name).filter(Boolean));
+  const skuCats=[...new Set([...SKU_CATEGORIES_DEFAULT,...allColItems.map(i=>i.category).filter(Boolean)])];
+  setupAC(`ci-dp-cat-${col.id}`,`ac-ci-dp-cat-${col.id}`,()=>skuCats);
   setupAC(`ci-dp-dsg-${col.id}`,`ac-ci-dp-${col.id}`,()=>allDsgRows.filter(d=>d.status==="Active").map(d=>d.name));
 }
 
@@ -2778,6 +2785,7 @@ async function addCollectionItem(colId) {
     const {error}=await sb.from("collection_items").insert({
       id, collection_id:colId,
       sku_name:nm,
+      category:document.getElementById(`ci-dp-cat-${colId}`)?.value.trim()||null,
       designer:document.getElementById(`ci-dp-dsg-${colId}`)?.value.trim()||null,
       deadline:document.getElementById(`ci-dp-deadline-${colId}`)?.value||null,
       approval_status:"Pending",
@@ -2785,13 +2793,36 @@ async function addCollectionItem(colId) {
       last_updated:new Date().toISOString(), last_updated_by:currentUser
     });
     if(error)throw error;
-    [`ci-dp-name-${colId}`,`ci-dp-dsg-${colId}`,`ci-dp-deadline-${colId}`].forEach(eid=>{const el=document.getElementById(eid);if(el)el.value="";});
+    [`ci-dp-name-${colId}`,`ci-dp-cat-${colId}`,`ci-dp-dsg-${colId}`,`ci-dp-deadline-${colId}`].forEach(eid=>{const el=document.getElementById(eid);if(el)el.value="";});
     logActivity("Collections","create",id,`SKU: ${nm}`);
     const {data}=await sb.from("collection_items").select("*").eq("collection_id",colId);
     allColItems=allColItems.filter(i=>i.collectionId!==colId).concat((data||[]).map(mapCI));
     const col=allColRows.find(r=>r.id===colId);
     if(col) renderColDetail(col, allColItems.filter(i=>i.collectionId===colId));
     applyColFilters();
+  } catch(e){alert("Gagal: "+(e.message||e));}
+}
+
+async function pushToDesignerWorkflow(colId) {
+  const existing=allDwRows.find(r=>r.collectionId===colId);
+  if(existing){alert("Collection ini sudah ada projectnya di Designer Workflow.");return;}
+  const col=allColRows.find(r=>r.id===colId);
+  if(!col)return;
+  try {
+    const id=genId("DW");
+    const {error}=await sb.from("designer_workflow").insert({
+      id, collection_id:colId,
+      payment_status:"Not Paid", locked:true,
+      date_added:new Date().toISOString().slice(0,10), added_by:currentUser,
+      last_updated:new Date().toISOString(), last_updated_by:currentUser
+    });
+    if(error)throw error;
+    logActivity("Designer Workflow","create",id,`Pushed from: ${col.collectionName}`);
+    // Add to local cache so repeat-push detection works without full reload
+    allDwRows.push({rowIndex:id,id,designer:"",collectionId:colId,collectionName:col.collectionName,
+      deliverablesUrl:"",agreementId:"",paymentStatus:"Not Paid",locked:true,notes:"",
+      dateAdded:new Date().toISOString().slice(0,10),addedBy:currentUser});
+    alert(`✓ Project "${col.collectionName}" berhasil dibuat di Designer Workflow!`);
   } catch(e){alert("Gagal: "+(e.message||e));}
 }
 
@@ -2916,8 +2947,8 @@ function mapDw(r) {
     designer:r.designer||"", collectionId:r.collection_id||null,
     collectionName:"", // populated after join
     deliverablesUrl:r.deliverables_url||"", agreementId:r.agreement_id||"",
-    paymentStatus:r.payment_status||"Not Paid", notes:r.notes||"",
-    dateAdded:r.date_added||"", addedBy:r.added_by||""
+    paymentStatus:r.payment_status||"Not Paid", locked:!!r.locked,
+    notes:r.notes||"", dateAdded:r.date_added||"", addedBy:r.added_by||""
   };
 }
 
@@ -2989,19 +3020,30 @@ function renderDwTable(rows) {
   if(!rows.length){tbody.innerHTML=`<tr><td class="empty-td" colspan="7">Tidak ada data.</td></tr>`;return;}
   tbody.innerHTML=rows.map(r=>{
     const skus=allColItems.filter(i=>i.collectionId===r.collectionId);
-    const skuCell=r.collectionId
-      ? (skus.length?`<span style="font-size:11px">${skus.length} SKU</span>`:`<span style="color:var(--g400);font-size:11px">—</span>`)
-      : `<span style="color:var(--g400);font-size:11px">—</span>`;
+    const skuCell=r.collectionId&&skus.length
+      ?`<span style="font-size:11px;cursor:pointer;text-decoration:underline;color:#3C3489" onclick="toggleDwSKUs('${r.rowIndex}')">${skus.length} SKU</span>`
+      :`<span style="color:var(--g400);font-size:11px">—</span>`;
     const dlCell=r.deliverablesUrl
       ?`<a href="${r.deliverablesUrl}" target="_blank" style="color:#3C3489;font-size:12px;text-decoration:none">↗ Lihat</a>`
       :`<span style="color:var(--g400);font-size:11px">Belum upload</span>`;
-    const agrCell=r.agreementId
-      ?`<span style="font-size:11px;font-family:var(--mono)">${r.agreementId}</span>`
-      :"—";
+    const agrCell=r.agreementId?`<span style="font-size:11px;font-family:var(--mono)">${r.agreementId}</span>`:"—";
     const payClass=r.paymentStatus==="Paid"?"p-active":"p-expired";
+    const lockedBadge=r.locked?`<span class="pill p-draft" style="font-size:9px;margin-left:4px;vertical-align:middle">🔒 dari CD</span>`:"";
+    // SKU sub-list (hidden)
+    const skuSubRows=skus.map(i=>`<tr style="border-top:1px solid var(--g100)">
+      <td style="padding:5px 8px;font-size:11px"><strong>${i.skuName}</strong></td>
+      <td style="padding:5px 8px;font-size:11px">${i.category?`<span class="pill p-signings" style="font-size:9px">${i.category}</span>`:"—"}</td>
+      <td style="padding:5px 8px;font-size:11px;color:var(--g600)">${i.designer||"—"}</td>
+      <td style="padding:5px 8px;font-size:11px;white-space:nowrap">${fmtDate(i.deadline)}</td>
+      <td style="padding:5px 8px"><span class="pill ${i.approvalStatus==="Approved"?"p-active":i.approvalStatus==="Revision"?"p-near":"p-draft"}" style="font-size:9px">${i.approvalStatus}</span></td>
+    </tr>`).join("");
+    // Edit form — project field locked if r.locked
+    const projectField=r.locked
+      ?`<div class="fg"><label>Project <span style="font-size:10px;color:var(--g400)">(dari Collection Development)</span></label><input type="text" value="${(r.collectionName||"").replace(/"/g,"&quot;")}" disabled style="opacity:0.6;cursor:not-allowed;background:var(--off)"></div>`
+      :`<div class="fg" style="position:relative"><label>Project / Collection</label><input type="text" id="dwe-collection-${r.rowIndex}" value="${(r.collectionName||"").replace(/"/g,"&quot;")}" autocomplete="off"><div class="ac-list" id="ac-dwe-col-${r.rowIndex}"></div></div>`;
     return `<tr>
-      <td><strong>${r.designer||"—"}</strong></td>
-      <td style="font-size:12px">${r.collectionName||"—"}</td>
+      <td><strong>${r.designer||`<span style="color:var(--g400);font-style:italic;font-size:12px">Belum diisi</span>`}</strong></td>
+      <td style="font-size:12px">${r.collectionName||"—"}${lockedBadge}</td>
       <td>${skuCell}</td>
       <td>${dlCell}</td>
       <td>${agrCell}</td>
@@ -3011,12 +3053,27 @@ function renderDwTable(rows) {
         <button class="btn-icon" style="color:#c0392b" onclick="deleteDw('${r.rowIndex}')">Del</button>
       </td>
     </tr>
+    <tr id="dw-sku-row-${r.rowIndex}" style="display:none">
+      <td colspan="7" style="padding:0 12px 10px;background:var(--off)">
+        <div style="padding:8px 0 4px;font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">SKUs — ${r.collectionName}</div>
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr style="font-family:var(--mono);font-size:9px;text-transform:uppercase;color:var(--g400)">
+            <th style="padding:4px 8px;text-align:left">SKU</th>
+            <th style="padding:4px 8px;text-align:left">Kategori</th>
+            <th style="padding:4px 8px;text-align:left">Designer</th>
+            <th style="padding:4px 8px;text-align:left">Deadline</th>
+            <th style="padding:4px 8px;text-align:left">Approval</th>
+          </tr></thead>
+          <tbody>${skuSubRows||`<tr><td colspan="5" style="padding:6px 8px;color:var(--g400);font-size:11px">Belum ada SKU.</td></tr>`}</tbody>
+        </table>
+      </td>
+    </tr>
     <tr id="dw-edit-row-${r.rowIndex}" style="display:none">
       <td colspan="7" style="padding:0 12px 12px">
         <div class="edit-row-form">
           <div class="edit-row-grid">
             <div class="fg" style="position:relative"><label>Designer</label><input type="text" id="dwe-designer-${r.rowIndex}" value="${(r.designer||"").replace(/"/g,"&quot;")}" autocomplete="off"><div class="ac-list" id="ac-dwe-dsg-${r.rowIndex}"></div></div>
-            <div class="fg" style="position:relative"><label>Collection</label><input type="text" id="dwe-collection-${r.rowIndex}" value="${(r.collectionName||"").replace(/"/g,"&quot;")}" autocomplete="off"><div class="ac-list" id="ac-dwe-col-${r.rowIndex}"></div></div>
+            ${projectField}
             <div class="fg full"><label>Deliverables URL</label><input type="url" id="dwe-deliverables-${r.rowIndex}" value="${(r.deliverablesUrl||"").replace(/"/g,"&quot;")}" placeholder="https://drive.google.com/..."></div>
             <div class="fg" style="position:relative"><label>Kontrak (Agreement)</label><input type="text" id="dwe-agreement-${r.rowIndex}" value="${(r.agreementId||"").replace(/"/g,"&quot;")}" autocomplete="off"><div class="ac-list" id="ac-dwe-agr-${r.rowIndex}"></div></div>
             <div class="fg"><label>Payment Status</label><select id="dwe-payment-${r.rowIndex}"><option ${r.paymentStatus==="Not Paid"?"selected":""}>Not Paid</option><option ${r.paymentStatus==="Paid"?"selected":""}>Paid</option></select></div>
@@ -3033,9 +3090,15 @@ function renderDwTable(rows) {
   }).join("");
   rows.forEach(r=>{
     setupAC("dwe-designer-"+r.rowIndex,"ac-dwe-dsg-"+r.rowIndex,()=>allDsgRows.map(d=>d.name).filter(Boolean));
-    setupAC("dwe-collection-"+r.rowIndex,"ac-dwe-col-"+r.rowIndex,()=>allColRows.map(c=>c.collectionName).filter(Boolean));
+    if(!r.locked) setupAC("dwe-collection-"+r.rowIndex,"ac-dwe-col-"+r.rowIndex,()=>allColRows.map(c=>c.collectionName).filter(Boolean));
     setupAC("dwe-agreement-"+r.rowIndex,"ac-dwe-agr-"+r.rowIndex,()=>acAgrOptions.map(o=>o.id),()=>acAgrOptions);
   });
+}
+
+function toggleDwSKUs(rowIdx) {
+  document.querySelectorAll("[id^='dw-sku-row-']").forEach(el=>{if(el.id!=="dw-sku-row-"+rowIdx)el.style.display="none";});
+  const row=document.getElementById("dw-sku-row-"+rowIdx);if(!row)return;
+  row.style.display=row.style.display==="table-row"?"none":"table-row";
 }
 
 function openDwEdit(rowIdx) {
@@ -3051,17 +3114,21 @@ async function saveDwEdit(rowIdx) {
   try {
     const dsg=document.getElementById(`dwe-designer-${rowIdx}`)?.value.trim();
     if(!dsg){if(btn){btn.disabled=false;btn.textContent="Simpan";}alert("Designer wajib diisi.");return;}
-    const colName=document.getElementById(`dwe-collection-${rowIdx}`)?.value.trim()||"";
-    const col=allColRows.find(c=>c.collectionName===colName)||null;
-    const {error}=await sb.from("designer_workflow").update({
+    const isLocked=!!(allDwRows.find(r=>r.id===rowIdx)?.locked);
+    const updatePayload={
       designer:dsg,
-      collection_id:col?col.id:null,
       deliverables_url:document.getElementById(`dwe-deliverables-${rowIdx}`)?.value.trim()||null,
       agreement_id:document.getElementById(`dwe-agreement-${rowIdx}`)?.value.trim()||null,
       payment_status:document.getElementById(`dwe-payment-${rowIdx}`)?.value||"Not Paid",
       notes:document.getElementById(`dwe-notes-${rowIdx}`)?.value.trim()||null,
       last_updated:new Date().toISOString(), last_updated_by:currentUser
-    }).eq("id",rowIdx);
+    };
+    if(!isLocked){
+      const colName=document.getElementById(`dwe-collection-${rowIdx}`)?.value.trim()||"";
+      const col=allColRows.find(c=>c.collectionName===colName)||null;
+      updatePayload.collection_id=col?col.id:null;
+    }
+    const {error}=await sb.from("designer_workflow").update(updatePayload).eq("id",rowIdx);
     if(error)throw error;
     closeDwEdit(rowIdx);
     logActivity("Designer Workflow","edit",rowIdx,dsg);

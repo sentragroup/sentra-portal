@@ -1018,7 +1018,7 @@
           <div class="form-sec">Project Designer</div>
           <div class="form-grid">
             <div class="fg" style="position:relative"><label>Designer <span class="req">*</span></label><input type="text" id="dw-designer" placeholder="Pilih designer" autocomplete="off"><div class="ac-list" id="ac-dw-designer"></div></div>
-            <div class="fg" style="position:relative"><label>Collection</label><input type="text" id="dw-collection" placeholder="Pilih collection" autocomplete="off"><div class="ac-list" id="ac-dw-collection"></div></div>
+            <div class="fg" style="position:relative"><label>Project / Collection <span style="font-size:10px;color:var(--g400)">(opsional, kalau manual)</span></label><input type="text" id="dw-collection" placeholder="Pilih collection" autocomplete="off"><div class="ac-list" id="ac-dw-collection"></div></div>
             <div class="fg full"><label>Deliverables <span style="font-size:11px;color:var(--g400)">(Google Drive link)</span></label><input type="url" id="dw-deliverables" placeholder="https://drive.google.com/..."></div>
             <div class="fg" style="position:relative"><label>Kontrak <span style="font-size:11px;color:var(--g400)">(dari Agreement)</span></label><input type="text" id="dw-agreement" placeholder="Pilih agreement" autocomplete="off"><div class="ac-list" id="ac-dw-agreement"></div></div>
             <div class="fg"><label>Payment Status</label><select id="dw-payment"><option value="Not Paid">Not Paid</option><option value="Paid">Paid</option></select></div>
@@ -1049,7 +1049,7 @@
             <thead id="dw-thead">
               <tr>
                 <th class="sortable" data-col="designer" onclick="sortDwBy('designer')">Designer</th>
-                <th class="sortable" data-col="collectionName" onclick="sortDwBy('collectionName')">Collection</th>
+                <th class="sortable" data-col="collectionName" onclick="sortDwBy('collectionName')">Project</th>
                 <th>SKUs</th>
                 <th>Deliverables</th>
                 <th>Kontrak</th>
@@ -1160,6 +1160,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260514b"></script>
+<script src="app.js?v=20260514c"></script>
 </body>
 </html>
