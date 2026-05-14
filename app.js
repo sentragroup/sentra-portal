@@ -2881,9 +2881,24 @@ function cdStageBox(icon, title, badgeHTML, contentHTML) {
     <div style="padding:16px">${contentHTML}</div>
   </div>`;
 }
-function cdStageBadge(status) {
+function cdStageBadge(status, id="") {
   const c=status==="Done"?"p-active":status==="In Progress"?"p-signings":"p-draft";
-  return `<span class="pill ${c}" style="font-size:9px;margin-left:auto">${status}</span>`;
+  return `<span class="pill ${c}" style="font-size:9px;margin-left:auto"${id?` id="${id}"`:""}>${status}</span>`;
+}
+function refreshStageHeaderBadge(colId, stage) {
+  const el=document.getElementById(`col-${stage}-badge-${colId}`);
+  if(!el) return;
+  const items=allColItems.filter(i=>i.collectionId===colId);
+  const ps=getPipelineStatuses(colId);
+  let s;
+  if(stage==="sampling") s=items.length?(items.every(i=>i.samplingStatus==="Done")?"Done":items.some(i=>i.samplingStatus!=="Not Started")?"In Progress":"Not Started"):"Not Started";
+  else if(stage==="production") s=items.length?(items.every(i=>i.productionStatus==="Done")?"Done":items.some(i=>i.productionStatus!=="Not Started")?"In Progress":"Not Started"):"Not Started";
+  else if(stage==="inbound"){const st=allColStages.find(r=>r.collectionId===colId&&r.stage==="inbound");s=st?.status||"Not Started";}
+  else if(stage==="marketing") s=ps.marketing==="done"?"Done":ps.marketing==="in-progress"?"In Progress":"Not Started";
+  const c=s==="Done"?"p-active":s==="In Progress"?"p-signings":"p-draft";
+  el.className=`pill ${c}`;
+  el.style.cssText="font-size:9px;margin-left:auto";
+  el.textContent=s;
 }
 function cdSkuStatusSelect(itemId, colId, stageKey, currentVal) {
   const opts=["Not Started","In Progress","Done"];
@@ -2895,14 +2910,19 @@ function renderColDetail(col, items) {
   const prioColor={High:"p-expired",Medium:"p-near",Low:"p-draft"};
   const statusColor=col.status==="Done"?"p-active":col.status==="In Progress"?"p-signings":"p-draft";
   const skuCats=[...new Set([...SKU_CATEGORIES_DEFAULT,...allColItems.map(i=>i.category).filter(Boolean)])];
+  // DW rows for this collection (for preview links + design card)
+  const colDwRows=allDwRows.filter(r=>r.collectionId===col.id&&r.locked);
 
   // ── SKU rows (master list) ──
-  const skuRows=items.map(i=>`<tr id="ci-row-${i.id}" style="border-top:1px solid var(--g100)">
+  const skuRows=items.map(i=>{
+    // Preview: pull from DW deliverables link for this SKU's designer
+    const dwLink=colDwRows.find(r=>r.designer===i.designer)?.deliverablesUrl||"";
+    return `<tr id="ci-row-${i.id}" style="border-top:1px solid var(--g100)">
     <td style="padding:8px 10px"><strong style="font-size:13px">${i.skuName}</strong></td>
     <td style="padding:8px 10px">${i.category?`<span class="pill p-signings" style="font-size:10px">${i.category}</span>`:`<span style="color:var(--g400);font-size:11px">—</span>`}</td>
     <td style="padding:8px 10px;color:var(--g600)">${i.designer||"—"}</td>
     <td style="padding:8px 10px;white-space:nowrap">${fmtDate(i.deadline)}</td>
-    <td style="padding:8px 10px">${i.designPreviewUrl?`<a href="${i.designPreviewUrl}" target="_blank" style="color:#3C3489;text-decoration:none">↗ Preview</a>`:`<span style="color:var(--g400);font-size:11px">—</span>`}</td>
+    <td style="padding:8px 10px">${dwLink?`<a href="${dwLink}" target="_blank" style="color:#3C3489;text-decoration:none">↗ Design</a>`:`<span style="color:var(--g400);font-size:11px">—</span>`}</td>
     <td style="padding:8px 10px">
       <select onchange="updateSKUApproval('${i.id}','${col.id}',this.value)" style="font-size:11px;padding:2px 6px;border:1px solid var(--g100);border-radius:4px;background:var(--white)">
         <option${i.approvalStatus==="Pending"?" selected":""}>Pending</option>
@@ -2931,7 +2951,7 @@ function renderColDetail(col, items) {
         </div>
       </div>
     </td>
-  </tr>`).join("");
+  </tr>`;}).join("");
 
 
   // ── Sampling rows ──
@@ -2983,7 +3003,7 @@ function renderColDetail(col, items) {
 
   // ── Pipeline bar ──
   const ps=getPipelineStatuses(col.id);
-  const pipeStages=[["sampling","Sampling"],["production","Production"],["inbound","Inbound"],["marketing","Marketing"]];
+  const pipeStages=[["design","Design"],["sampling","Sampling"],["production","Production"],["inbound","Inbound"],["marketing","Marketing"]];
   const pdot=s=>s==="done"?"●":s==="in-progress"?"◐":"○";
   const pclr=s=>s==="done"?"#1a5c25":s==="in-progress"?"#1a4a8a":"#aaa";
 
@@ -3026,21 +3046,22 @@ function renderColDetail(col, items) {
       <div class="stat-card" style="text-align:left;padding:12px 14px"><div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:4px">Priority</div><div>${col.priority?`<span class="pill ${prioColor[col.priority]||"p-draft"}">${col.priority}</span>`:"—"}</div></div>
       <div class="stat-card" style="text-align:left;padding:12px 14px"><div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:4px">PIC</div><div style="font-weight:600;font-size:13px">${col.pic||"—"}</div></div>
       ${col.moodboardUrl?`<div class="stat-card" style="text-align:left;padding:12px 14px"><div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:4px">Moodboard</div><a href="${col.moodboardUrl}" target="_blank" style="color:#3C3489;font-weight:600;text-decoration:none;font-size:13px">↗ Lihat</a></div>`:""}
+      ${colDwRows.some(r=>r.deliverablesUrl)?`<div class="stat-card" style="text-align:left;padding:12px 14px"><div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:4px">Design Files</div>${colDwRows.filter(r=>r.deliverablesUrl).map(r=>`<div style="margin-bottom:2px"><a href="${r.deliverablesUrl}" target="_blank" style="color:#3C3489;font-weight:600;text-decoration:none;font-size:12px">↗ ${r.designer||"File"}</a></div>`).join("")}</div>`:""}
     </div>
     ${col.notes?`<div class="form-card" style="margin-bottom:16px;padding:12px 14px"><div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:4px">Notes</div><div style="font-size:13px">${col.notes.replace(/</g,"&lt;")}</div></div>`:""}
     <!-- Two-column body: left = stages, right = notes/activity -->
     <div style="display:flex;gap:20px;align-items:flex-start">
       <div style="flex:1;min-width:0">
         <!-- Pipeline bar -->
-        <div id="col-pipeline-${col.id}" style="display:flex;align-items:center;gap:4px;margin-bottom:20px;padding:14px 20px;background:var(--off);border-radius:8px;overflow-x:auto">
-          ${pipeStages.map(([k,l],i)=>`${i>0?`<div style="flex:1;height:1px;background:var(--g200);min-width:12px;max-width:40px"></div>`:""}
-          <div style="display:flex;flex-direction:column;align-items:center;gap:3px;min-width:60px">
+        <div id="col-pipeline-${col.id}" style="display:flex;align-items:center;justify-content:center;gap:4px;margin-bottom:20px;padding:14px 20px;background:var(--off);border-radius:8px;overflow-x:auto">
+          ${pipeStages.map(([k,l],i)=>`${i>0?`<div style="width:32px;flex-shrink:0;height:1px;background:var(--g200)"></div>`:""}
+          <div style="display:flex;flex-direction:column;align-items:center;gap:3px;min-width:64px">
             <span style="font-size:20px;line-height:1;color:${pclr(ps[k])}">${pdot(ps[k])}</span>
             <span style="font-size:9px;font-family:var(--mono);text-transform:uppercase;color:${pclr(ps[k])};white-space:nowrap">${l}</span>
           </div>`).join("")}
         </div>
         <!-- SKU Master List -->
-        ${cdStageBox("📋","SKUs",`<span style="font-size:11px;color:var(--g400);font-family:var(--mono);margin-left:auto">${items.length} items</span>`,`
+        ${cdStageBox("📋","SKUs & Design",`<span style="font-size:11px;color:var(--g400);font-family:var(--mono);margin-left:auto">${items.length} items</span>`,`
           <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;padding:12px;background:var(--off);border-radius:6px;margin-bottom:14px">
             <div class="fg" style="min-width:160px;flex:2"><label style="font-size:11px">Nama SKU *</label><input type="text" id="ci-dp-name-${col.id}" placeholder="Nama item/SKU"></div>
             <div class="fg" style="min-width:130px;flex:1.5;position:relative"><label style="font-size:11px">Kategori</label><input type="text" id="ci-dp-cat-${col.id}" placeholder="T-Shirt, Bag Charm..." autocomplete="off"><div class="ac-list" id="ac-ci-dp-cat-${col.id}"></div></div>
@@ -3052,16 +3073,16 @@ function renderColDetail(col, items) {
             <thead><tr style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">
               <th style="padding:6px 10px;text-align:left">SKU</th><th style="padding:6px 10px;text-align:left">Kategori</th>
               <th style="padding:6px 10px;text-align:left">Designer</th><th style="padding:6px 10px;text-align:left">Deadline</th>
-              <th style="padding:6px 10px;text-align:left">Preview</th><th style="padding:6px 10px;text-align:left">Approval</th><th style="padding:6px 10px;text-align:left">Aksi</th>
+              <th style="padding:6px 10px;text-align:left">Design File</th><th style="padding:6px 10px;text-align:left">Approval</th><th style="padding:6px 10px;text-align:left">Aksi</th>
             </tr></thead>
             <tbody>${skuRows}</tbody>
           </table></div>`:`<div style="color:var(--g400);font-size:12px">Belum ada SKU. Tambah di atas.</div>`}`)}
         <!-- Sampling -->
-        ${cdStageBox("🧵","Sampling",cdStageBadge(items.length?items.every(i=>i.samplingStatus==="Done")?"Done":items.some(i=>i.samplingStatus!=="Not Started")?"In Progress":"Not Started":"Not Started"),samplingContent)}
+        ${cdStageBox("🧵","Sampling",cdStageBadge(items.length?items.every(i=>i.samplingStatus==="Done")?"Done":items.some(i=>i.samplingStatus!=="Not Started")?"In Progress":"Not Started":"Not Started",`col-sampling-badge-${col.id}`),samplingContent)}
         <!-- Production -->
-        ${cdStageBox("🏭","Production",cdStageBadge(items.length?items.every(i=>i.productionStatus==="Done")?"Done":items.some(i=>i.productionStatus!=="Not Started")?"In Progress":"Not Started":"Not Started"),productionContent)}
+        ${cdStageBox("🏭","Production",cdStageBadge(items.length?items.every(i=>i.productionStatus==="Done")?"Done":items.some(i=>i.productionStatus!=="Not Started")?"In Progress":"Not Started":"Not Started",`col-production-badge-${col.id}`),productionContent)}
         <!-- Inbound -->
-        ${cdStageBox("📦","Inbound",cdStageBadge(inboundS.status),`
+        ${cdStageBox("📦","Inbound",cdStageBadge(inboundS.status,`col-inbound-badge-${col.id}`),`
           <select onchange="updateColStageStatus('${col.id}','inbound',this.value)" style="font-size:12px;padding:4px 8px;border:1px solid;border-radius:4px;width:200px;margin-bottom:10px;background:${inboundSelClr}">
             <option${inboundS.status==="Not Started"?" selected":""}>Not Started</option>
             <option${inboundS.status==="In Progress"?" selected":""}>In Progress</option>
@@ -3069,7 +3090,7 @@ function renderColDetail(col, items) {
           </select>
           <textarea placeholder="Notes..." rows="2" style="font-size:12px;padding:8px;border:1px solid var(--g100);border-radius:4px;width:100%;resize:vertical;box-sizing:border-box" onblur="saveColStageNote('${col.id}','inbound',this.value)">${(inboundS.notes||"").replace(/</g,"&lt;")}</textarea>`)}
         <!-- Marketing -->
-        ${cdStageBox("📣","Marketing",cdStageBadge(ps.marketing==="done"?"Done":ps.marketing==="in-progress"?"In Progress":"Not Started"),`
+        ${cdStageBox("📣","Marketing",cdStageBadge(ps.marketing==="done"?"Done":ps.marketing==="in-progress"?"In Progress":"Not Started",`col-marketing-badge-${col.id}`),`
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">
             ${mktSubBox("photoshoot")}${mktSubBox("kol")}${mktSubBox("offline_activation")}
           </div>`)}
@@ -3201,18 +3222,19 @@ async function updateSKUStageStatus(itemId, colId, stage, status) {
     await sb.from("collection_items").update({[field]:status,last_updated:new Date().toISOString(),last_updated_by:currentUser}).eq("id",itemId);
     const item=allColItems.find(i=>i.id===itemId);
     if(item){if(stage==="sampling")item.samplingStatus=status;else item.productionStatus=status;}
-    // Update pipeline bar only
+    // Update pipeline bar + header badge
     const pipeEl=document.getElementById(`col-pipeline-${colId}`);
     if(pipeEl) pipeEl.innerHTML=renderPipelineBarHTML(colId);
+    refreshStageHeaderBadge(colId, stage);
   } catch(e){/* silent */}
 }
 function renderPipelineBarHTML(colId) {
   const ps=getPipelineStatuses(colId);
-  const pipeStages=[["sampling","Sampling"],["production","Production"],["inbound","Inbound"],["marketing","Marketing"]];
+  const pipeStages=[["design","Design"],["sampling","Sampling"],["production","Production"],["inbound","Inbound"],["marketing","Marketing"]];
   const pdot=s=>s==="done"?"●":s==="in-progress"?"◐":"○";
   const pclr=s=>s==="done"?"#1a5c25":s==="in-progress"?"#1a4a8a":"#aaa";
-  return pipeStages.map(([k,l],i)=>`${i>0?`<div style="flex:1;height:1px;background:var(--g200);min-width:12px;max-width:40px"></div>`:""}
-    <div style="display:flex;flex-direction:column;align-items:center;gap:3px;min-width:60px">
+  return pipeStages.map(([k,l],i)=>`${i>0?`<div style="width:32px;flex-shrink:0;height:1px;background:var(--g200)"></div>`:""}
+    <div style="display:flex;flex-direction:column;align-items:center;gap:3px;min-width:64px">
       <span style="font-size:20px;line-height:1;color:${pclr(ps[k])}">${pdot(ps[k])}</span>
       <span style="font-size:9px;font-family:var(--mono);text-transform:uppercase;color:${pclr(ps[k])};white-space:nowrap">${l}</span>
     </div>`).join("");
@@ -3344,6 +3366,8 @@ async function updateColStageStatus(colId, stage, status) {
     s.status=status;
     const pipeEl=document.getElementById(`col-pipeline-${colId}`);
     if(pipeEl) pipeEl.innerHTML=renderPipelineBarHTML(colId);
+    refreshStageHeaderBadge(colId, stage);
+    if(stage!=="inbound") refreshStageHeaderBadge(colId,"marketing");
   } catch(e){/* silent */}
 }
 
