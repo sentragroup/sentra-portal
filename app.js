@@ -138,7 +138,7 @@ function showPage(name, el) {
   document.querySelectorAll(".sb-item").forEach(i=>i.classList.remove("active"));
   document.getElementById("page-"+name).classList.add("active");
   if (el) el.classList.add("active");
-  const labels = {home:"Internal Tools",agreement:"Agreement Tracker",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Jubelio Offline Sales",mesign:"Inbound/Outbound Note",po:"Purchase Orders",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow"};
+  const labels = {home:"Internal Tools",agreement:"Agreement Tracker",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Jubelio Offline Sales",mesign:"Inbound/Outbound Note",po:"Purchase Orders",productmap:"Product Mapping",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   history.replaceState(null, "", name==="home" ? location.pathname : "#"+name);
   if (name==="agreement") loadStats();
@@ -153,6 +153,7 @@ function showPage(name, el) {
   if (name==="jubsales") loadJubSales();
   if (name==="mesign") loadMekariEsign();
   if (name==="po") loadPO();
+  if (name==="productmap") loadProductMap();
   if (name==="collections") { loadCollections(); setupAC("col-ip","ac-col-ip",()=>allIPRows.map(r=>r.name).filter(Boolean)); setupAC("col-pic","ac-col-pic",()=>[...new Set(allColRows.map(r=>r.pic).filter(Boolean))]); }
   if (name==="designermaster") { loadDesignerMaster(); const cats=[...new Set([...DSG_CATEGORIES_DEFAULT,...allDsgRows.map(r=>r.category).filter(Boolean)])]; setupAC("dsg-category","ac-dsg-category",()=>cats); }
   if (name==="dsgworkflow") loadDsgWorkflow();
@@ -2557,6 +2558,99 @@ async function syncPONow(){
       if(s2&&lastSync) s2.textContent=`Terakhir sync: ${relTime(lastSync)}`;
     },8000);
   }
+}
+
+// ── PRODUCT MAPPING ──
+let allPMRows=[];  // product_mappings rows
+
+function mapPM(r){
+  return {id:r.id,itemName:r.item_name||"",brand:r.brand||"",ip:r.ip||"",royaltyRecipient:r.royalty_recipient||"",collection:r.collection||""};
+}
+
+async function loadProductMap(){
+  const tbody=document.getElementById("pmTableBody");
+  if(tbody) tbody.innerHTML=`<tr><td class="empty-td" colspan="6">Memuat...</td></tr>`;
+  try {
+    // Ensure master data loaded
+    if(!allBMRows.length){const{data}=await sb.from("brand_master").select("id,name").order("name");allBMRows=(data||[]).map(mapBM);}
+    if(!allIPRows.length){const{data}=await sb.from("ip_master").select("id,name").order("name");allIPRows=(data||[]).map(mapIP);}
+    if(!allRRRows.length){const{data}=await sb.from("royalty_recipients").select("id,nama").order("nama");allRRRows=(data||[]).map(mapRR);}
+    const [{data:itemData},{data:pmData,error:pmErr}]=await Promise.all([
+      sb.from("jubelio_purchase_order_items").select("item_name").order("item_name"),
+      sb.from("product_mappings").select("*")
+    ]);
+    if(pmErr) throw pmErr;
+    // Deduplicate item names
+    const uniqueNames=[...new Set((itemData||[]).map(r=>r.item_name).filter(Boolean))].sort();
+    allPMRows=(pmData||[]).map(mapPM);
+    const pmByName={};allPMRows.forEach(r=>{pmByName[r.itemName]=r;});
+    renderPMStats(uniqueNames,allPMRows);
+    renderPMTable(uniqueNames,pmByName);
+  } catch(e){
+    if(tbody) tbody.innerHTML=`<tr><td class="empty-td" colspan="6">Gagal: ${e.message||e}</td></tr>`;
+  }
+}
+
+function renderPMStats(names,mapped){
+  const total=names.length;
+  const done=mapped.filter(r=>r.brand||r.ip||r.royaltyRecipient||r.collection).length;
+  document.getElementById("pm-s-total").textContent=total;
+  document.getElementById("pm-s-mapped").textContent=done;
+  document.getElementById("pm-s-unmapped").textContent=total-done;
+}
+
+function renderPMTable(uniqueNames, pmByName){
+  const tbody=document.getElementById("pmTableBody");
+  if(!tbody) return;
+  document.getElementById("pm-tcount").textContent=uniqueNames.length+" produk";
+  if(!uniqueNames.length){tbody.innerHTML=`<tr><td class="empty-td" colspan="6">Tidak ada data produk.</td></tr>`;return;}
+  const bmOpts=allBMRows.map(r=>`<option value="${(r.name||"").replace(/"/g,"&quot;")}">${r.name}</option>`).join("");
+  const ipOpts=allIPRows.map(r=>`<option value="${(r.name||"").replace(/"/g,"&quot;")}">${r.name}</option>`).join("");
+  const rrOpts=allRRRows.map(r=>`<option value="${(r.name||r.rowIndex||"").replace(/"/g,"&quot;")}">${r.name||r.rowIndex}</option>`).join("");
+  tbody.innerHTML=uniqueNames.map(name=>{
+    const m=pmByName[name]||{brand:"",ip:"",royaltyRecipient:"",collection:""};
+    const esc=name.replace(/"/g,"&quot;").replace(/'/g,"\\'");
+    const sel=(opts,val,field)=>`<select onchange="savePMField('${esc}','${field}',this.value)" style="font-size:11px;padding:3px 6px;border:1px solid var(--g100);border-radius:4px;width:100%;background:var(--white)"><option value=""></option>${opts.replace(`value="${val}"`,`value="${val}" selected`)}</select>`;
+    return `<tr style="border-top:1px solid var(--g100)">
+      <td style="padding:8px 10px;font-size:12px;max-width:260px">${name.replace(/</g,"&lt;")}</td>
+      <td style="padding:6px 8px;min-width:130px">${sel(bmOpts,m.brand,"brand")}</td>
+      <td style="padding:6px 8px;min-width:130px">${sel(ipOpts,m.ip,"ip")}</td>
+      <td style="padding:6px 8px;min-width:130px">${sel(rrOpts,m.royaltyRecipient,"royalty_recipient")}</td>
+      <td style="padding:6px 8px;min-width:120px"><input type="text" value="${(m.collection||"").replace(/"/g,"&quot;")}" placeholder="Nama collection..." style="font-size:11px;padding:3px 8px;border:1px solid var(--g100);border-radius:4px;width:100%;box-sizing:border-box" onblur="savePMField('${esc}','collection',this.value)"></td>
+      <td style="padding:6px 8px;text-align:center" id="pm-status-${btoa(name).replace(/[^a-zA-Z0-9]/g,'')}">
+        ${(m.brand||m.ip||m.royaltyRecipient||m.collection)?'<span class="pill p-active" style="font-size:10px">Mapped</span>':'<span style="color:var(--g400);font-size:11px">—</span>'}
+      </td>
+    </tr>`;
+  }).join("");
+}
+
+async function savePMField(itemName, field, value){
+  const existing=allPMRows.find(r=>r.itemName===itemName);
+  try {
+    if(existing){
+      const upd={[field]:value||null,updated_at:new Date().toISOString(),updated_by:currentUser};
+      await sb.from("product_mappings").update(upd).eq("item_name",itemName);
+      if(field==="brand") existing.brand=value;
+      else if(field==="ip") existing.ip=value;
+      else if(field==="royalty_recipient") existing.royaltyRecipient=value;
+      else if(field==="collection") existing.collection=value;
+    } else {
+      const row={id:genId("PM"),item_name:itemName,[field]:value||null,updated_at:new Date().toISOString(),updated_by:currentUser};
+      await sb.from("product_mappings").insert(row);
+      allPMRows.push(mapPM({...row,royalty_recipient:field==="royalty_recipient"?value:""}));
+    }
+    // Refresh status cell
+    const safeId=btoa(itemName).replace(/[^a-zA-Z0-9]/g,'');
+    const cell=document.getElementById(`pm-status-${safeId}`);
+    const r=allPMRows.find(x=>x.itemName===itemName)||{};
+    if(cell) cell.innerHTML=(r.brand||r.ip||r.royaltyRecipient||r.collection)
+      ?'<span class="pill p-active" style="font-size:10px">Mapped</span>'
+      :'<span style="color:var(--g400);font-size:11px">—</span>';
+    // Refresh stats
+    const {data:itemData}=await sb.from("jubelio_purchase_order_items").select("item_name");
+    const uniqueNames=[...new Set((itemData||[]).map(r=>r.item_name).filter(Boolean))];
+    renderPMStats(uniqueNames,allPMRows);
+  } catch(e){console.error("savePMField:",e);}
 }
 
 // ── DESIGNER MASTER ──
