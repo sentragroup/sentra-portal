@@ -1016,13 +1016,15 @@
       </div>
       <div id="dwtab-new">
         <div class="form-card">
-          <div class="form-sec">Project Designer</div>
+          <div class="form-sec">Project Designer (Manual / Sendiri)</div>
           <div class="form-grid">
             <div class="fg" style="position:relative"><label>Designer <span class="req">*</span></label><input type="text" id="dw-designer" placeholder="Pilih designer" autocomplete="off"><div class="ac-list" id="ac-dw-designer"></div></div>
-            <div class="fg" style="position:relative"><label>Project / Collection <span style="font-size:10px;color:var(--g400)">(opsional, kalau manual)</span></label><input type="text" id="dw-collection" placeholder="Pilih collection" autocomplete="off"><div class="ac-list" id="ac-dw-collection"></div></div>
-            <div class="fg full"><label>Deliverables <span style="font-size:11px;color:var(--g400)">(Google Drive link)</span></label><input type="url" id="dw-deliverables" placeholder="https://drive.google.com/..."></div>
+            <div class="fg"><label>Project <span style="font-size:10px;color:var(--g400)">(nama bebas)</span></label><input type="text" id="dw-project" placeholder="Nama project..."></div>
+            <div class="fg"><label>Deadline</label><input type="date" id="dw-deadline"></div>
+            <div class="fg"><label>Status Deliverables</label><select id="dw-dl-status"><option value="Pending">Pending</option><option value="In Progress">In Progress</option><option value="Revision">Revision</option><option value="Completed">Completed</option></select></div>
+            <div class="fg full"><label>Deliverables URL <span style="font-size:11px;color:var(--g400)">(Google Drive)</span></label><input type="url" id="dw-deliverables" placeholder="https://drive.google.com/..."></div>
             <div class="fg" style="position:relative"><label>Kontrak <span style="font-size:11px;color:var(--g400)">(dari Agreement)</span></label><input type="text" id="dw-agreement" placeholder="Pilih agreement" autocomplete="off"><div class="ac-list" id="ac-dw-agreement"></div></div>
-            <div class="fg"><label>Payment Status</label><select id="dw-payment"><option value="Not Paid">Not Paid</option><option value="Paid">Paid</option></select></div>
+            <div class="fg"><label>Payment Status</label><select id="dw-payment"><option value="Not Paid">Not Paid</option><option value="Not Yet Paid">Not Yet Paid</option><option value="Paid">Paid</option></select></div>
             <div class="fg full"><label>Notes</label><textarea id="dw-notes" rows="2" style="resize:vertical" placeholder="Catatan..."></textarea></div>
           </div>
           <div class="btn-row">
@@ -1036,9 +1038,9 @@
         <div class="filter-panel">
           <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="clearDwFilters()">✕ Reset</button></div>
           <div class="filter-grid">
-            <select class="f-select" id="dw-fil-payment" onchange="applyDwFilters()"><option value="">Semua Payment</option><option value="Paid">Paid</option><option value="Not Paid">Not Paid</option></select>
-            <select class="f-select" id="dw-fil-delivered" onchange="applyDwFilters()"><option value="">Semua Deliverables</option><option value="yes">Sudah Delivered</option><option value="no">Belum Delivered</option></select>
-            <input class="search-box" type="text" id="dwSearch" placeholder="Cari designer, collection..." oninput="applyDwFilters()" style="width:100%">
+            <select class="f-select" id="dw-fil-payment" onchange="applyDwFilters()"><option value="">Semua Payment</option><option value="Paid">Paid</option><option value="Not Yet Paid">Not Yet Paid</option><option value="Not Paid">Not Paid</option></select>
+            <select class="f-select" id="dw-fil-dlstatus" onchange="applyDwFilters()"><option value="">Semua Deliverables</option><option value="Approved">Approved (CD)</option><option value="Partially Approved">Partially Approved (CD)</option><option value="Not Approved">Not Approved (CD)</option><option value="Completed">Completed</option><option value="In Progress">In Progress</option><option value="Revision">Revision</option><option value="Pending">Pending</option></select>
+            <input class="search-box" type="text" id="dwSearch" placeholder="Cari designer, project..." oninput="applyDwFilters()" style="width:100%">
           </div>
         </div>
         <div class="table-toolbar">
@@ -1050,15 +1052,16 @@
             <thead id="dw-thead">
               <tr>
                 <th class="sortable" data-col="designer" onclick="sortDwBy('designer')">Designer</th>
-                <th class="sortable" data-col="collectionName" onclick="sortDwBy('collectionName')">Project</th>
-                <th>SKUs</th>
+                <th class="sortable" data-col="projectName" onclick="sortDwBy('projectName')">Project</th>
                 <th>Deliverables</th>
+                <th class="sortable" data-col="deadline" onclick="sortDwBy('deadline')">Deadline</th>
                 <th>Kontrak</th>
                 <th class="sortable" data-col="paymentStatus" onclick="sortDwBy('paymentStatus')">Payment</th>
                 <th>Aksi</th>
               </tr>
             </thead>
             <tbody id="dwTableBody"><tr><td class="empty-td" colspan="7">Klik "Semua" untuk memuat data.</td></tr></tbody>
+
           </table>
         </div>
       </div>
@@ -1161,6 +1164,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260514e"></script>
+<script src="app.js?v=20260514f"></script>
 </body>
 </html>

@@ -2592,7 +2592,7 @@ async function loadCollections() {
     const fetches=[
       sb.from("collections").select("*").order("release_date",{ascending:false}),
       sb.from("collection_items").select("*").order("date_added",{ascending:true}),
-      sb.from("designer_workflow").select("id,collection_id").not("collection_id","is",null)
+      sb.from("designer_workflow").select("id,collection_id,designer").not("collection_id","is",null)
     ];
     if(!allDsgRows.length) fetches.push(sb.from("designer_master").select("*").order("name"));
     const results=await Promise.all(fetches);
@@ -2620,24 +2620,72 @@ async function loadCollections() {
 }
 
 async function ensureDWProjects(cols, existingDW) {
-  const dwColIds=new Set(existingDW.map(r=>r.collection_id).filter(Boolean));
-  const missing=cols.filter(r=>r.id&&!dwColIds.has(r.id));
-  if(!missing.length) return;
-  for(const col of missing){
-    try{
-      const dwId=genId("DW");
-      const {error}=await sb.from("designer_workflow").insert({
-        id:dwId, collection_id:col.id,
-        payment_status:"Not Paid", locked:true,
-        date_added:new Date().toISOString().slice(0,10), added_by:currentUser,
-        last_updated:new Date().toISOString(), last_updated_by:currentUser
-      });
-      if(!error) allDwRows.push({rowIndex:dwId,id:dwId,designer:"",collectionId:col.id,
-        collectionName:col.collectionName,deliverablesUrl:"",agreementId:"",
-        paymentStatus:"Not Paid",locked:true,notes:"",
-        dateAdded:new Date().toISOString().slice(0,10),addedBy:currentUser});
-    }catch(e){/* silent */}
+  // One DW project per (collection_id, designer) pair
+  const existingKeys=new Set(existingDW.map(r=>`${r.collection_id}|${r.designer||""}`));
+  for(const col of cols){
+    if(!col.id) continue;
+    // Find unique designers assigned to SKUs in this collection
+    const designers=[...new Set(
+      allColItems.filter(i=>i.collectionId===col.id&&i.designer).map(i=>i.designer)
+    )];
+    // If no designers yet, create one placeholder with designer=""
+    const targets=designers.length?designers:[""];
+    for(const designer of targets){
+      const key=`${col.id}|${designer}`;
+      if(existingKeys.has(key)) continue;
+      try{
+        const dwId=genId("DW");
+        const {error}=await sb.from("designer_workflow").insert({
+          id:dwId, collection_id:col.id,
+          project_name:col.collectionName,
+          designer:designer||null,
+          payment_status:"Not Paid", locked:true,
+          deliverables_status:"Pending",
+          date_added:new Date().toISOString().slice(0,10), added_by:currentUser,
+          last_updated:new Date().toISOString(), last_updated_by:currentUser
+        });
+        if(!error){
+          existingKeys.add(key);
+          allDwRows.push({
+            rowIndex:dwId,id:dwId,
+            designer:designer||"",collectionId:col.id,
+            collectionName:col.collectionName,projectName:col.collectionName,
+            deliverablesUrl:"",agreementId:"",
+            deliverablesStatus:"Pending",deadline:"",
+            paymentStatus:"Not Paid",locked:true,
+            notes:"",dateAdded:new Date().toISOString().slice(0,10),addedBy:currentUser
+          });
+        }
+      }catch(e){/* silent */}
+    }
   }
+}
+
+async function ensureDWForCollection(colId) {
+  const col=allColRows.find(r=>r.id===colId);
+  if(!col) return;
+  const {data}=await sb.from("designer_workflow")
+    .select("id,collection_id,designer").eq("collection_id",colId);
+  await ensureDWProjects([col], data||[]);
+}
+
+function computeColDeliverableStatus(colId, designer) {
+  const skus=designer
+    ?allColItems.filter(i=>i.collectionId===colId&&i.designer===designer)
+    :allColItems.filter(i=>i.collectionId===colId);
+  if(!skus.length) return null;
+  const approved=skus.filter(i=>i.approvalStatus==="Approved").length;
+  if(approved===0) return "Not Approved";
+  if(approved===skus.length) return "Approved";
+  return "Partially Approved";
+}
+
+function computeColDeadline(colId, designer) {
+  const skus=designer
+    ?allColItems.filter(i=>i.collectionId===colId&&i.designer===designer&&i.deadline)
+    :allColItems.filter(i=>i.collectionId===colId&&i.deadline);
+  if(!skus.length) return null;
+  return skus.map(i=>i.deadline).sort().pop(); // latest deadline
 }
 
 function renderColStats(rows,items) {
@@ -2872,6 +2920,8 @@ async function addCollectionItem(colId) {
     const col=allColRows.find(r=>r.id===colId);
     if(col) renderColDetail(col, allColItems.filter(i=>i.collectionId===colId));
     applyColFilters();
+    // Auto-create DW project for any new designer assignment
+    ensureDWForCollection(colId);
   } catch(e){alert("Gagal: "+(e.message||e));}
 }
 
@@ -2926,6 +2976,8 @@ async function saveSKUEdit(itemId, colId) {
     const col=allColRows.find(r=>r.id===colId);
     if(col) renderColDetail(col, allColItems.filter(i=>i.collectionId===colId));
     applyColFilters();
+    // Auto-create DW project if designer changed to someone new
+    ensureDWForCollection(colId);
   } catch(e){if(btn){btn.disabled=false;btn.textContent="Simpan";}alert("Gagal: "+(e.message||e));}
 }
 
@@ -2981,9 +3033,8 @@ async function saveColDetailEdit(colId) {
       if(idx>-1) allColRows[idx]=updated;
       history.replaceState(null,"",`#collections/${slugifyCol(updated.collectionName)}`);
       renderColDetail(updated, allColItems.filter(i=>i.collectionId===colId));
-      // Re-ensure DW project exists (in case it was deleted)
-      const dwExists=allDwRows.some(r=>r.collectionId===colId);
-      if(!dwExists) ensureDWProjects([updated],[]);
+      // Re-ensure DW projects (in case they were deleted or new designers added)
+      ensureDWForCollection(colId);
     }
     applyColFilters();
   } catch(e){if(btn){btn.disabled=false;btn.textContent="Simpan";}alert("Gagal: "+(e.message||e));}
@@ -3032,19 +3083,11 @@ async function submitCollection() {
     });
     if(error)throw error;
     logActivity("Collections","create",id,nm);
-    // Auto-create locked Designer Workflow project
-    try {
-      const dwId=genId("DW");
-      await sb.from("designer_workflow").insert({
-        id:dwId, collection_id:id,
-        payment_status:"Not Paid", locked:true,
-        date_added:new Date().toISOString().slice(0,10), added_by:currentUser,
-        last_updated:new Date().toISOString(), last_updated_by:currentUser
-      });
-      allDwRows.push({rowIndex:dwId,id:dwId,designer:"",collectionId:id,collectionName:nm,
-        deliverablesUrl:"",agreementId:"",paymentStatus:"Not Paid",locked:true,
-        notes:"",dateAdded:new Date().toISOString().slice(0,10),addedBy:currentUser});
-    } catch(e2){/* silent — DW auto-create failure doesn't block collection save */}
+    // DW project auto-created by ensureDWProjects on next loadCollections
+    const newCol={rowIndex:id,id,collectionName:nm,ipRelated:"",releaseDate:"",priority:"",moodboardUrl:"",status:document.getElementById("col-status")?.value||"Draft",pic:"",notes:"",dateAdded:new Date().toISOString().slice(0,10),addedBy:currentUser};
+    allColRows.push(newCol);
+    // Create placeholder DW entry now so it appears immediately
+    ensureDWProjects([newCol],[]);
     document.getElementById("col-feedback").innerHTML=`<span class="fb-ok">✓ Collection tersimpan — ID: ${id}. Buka tab Semua untuk menambah SKU.</span>`;
     clearColForm();
   } catch(e){
@@ -3068,7 +3111,10 @@ function mapDw(r) {
     rowIndex:r.id, id:r.id,
     designer:r.designer||"", collectionId:r.collection_id||null,
     collectionName:"", // populated after join
+    projectName:r.project_name||"",
     deliverablesUrl:r.deliverables_url||"", agreementId:r.agreement_id||"",
+    deliverablesStatus:r.deliverables_status||"Pending",
+    deadline:r.deadline||"",
     paymentStatus:r.payment_status||"Not Paid", locked:!!r.locked,
     notes:r.notes||"", dateAdded:r.date_added||"", addedBy:r.added_by||""
   };
@@ -3078,29 +3124,33 @@ async function loadDsgWorkflow() {
   const tbody=document.getElementById("dwTableBody");
   if(tbody) tbody.innerHTML=`<tr><td class="empty-td" colspan="7">Memuat...</td></tr>`;
   try {
-    const {data,error}=await sb.from("designer_workflow").select("*").order("date_added",{ascending:false});
+    const fetches=[sb.from("designer_workflow").select("*").order("date_added",{ascending:false})];
+    if(!allColRows.length) fetches.push(sb.from("collections").select("id,collection_name"));
+    if(!allColItems.length) fetches.push(sb.from("collection_items").select("*"));
+    if(!allDsgRows.length) fetches.push(sb.from("designer_master").select("*").order("name"));
+    const results=await Promise.all(fetches);
+    const {data,error}=results[0];
     if(error)throw error;
+    // Load auxiliary data if fetched
+    results.slice(1).forEach(res=>{
+      if(!res?.data?.length) return;
+      const d=res.data[0];
+      if("collection_name" in d) allColRows=res.data.map(r=>({rowIndex:r.id,id:r.id,collectionName:r.collection_name||""}));
+      else if("collection_id" in d) allColItems=res.data.map(mapCI);
+      else if("portfolio_url" in d) allDsgRows=res.data.map(mapDsg);
+    });
     allDwRows=(data||[]).map(r=>{
       const row=mapDw(r);
-      // Resolve collection name
       const col=allColRows.find(c=>c.id===r.collection_id);
       row.collectionName=col?col.collectionName:"";
+      // For CD entries, projectName defaults to collection name if not set
+      if(row.locked&&!row.projectName&&row.collectionName) row.projectName=row.collectionName;
       return row;
     });
-    // If collections not yet loaded, load them for name resolution
-    if(!allColRows.length){
-      const {data:cd}=await sb.from("collections").select("id,collection_name");
-      allDwRows.forEach(row=>{
-        const col=(cd||[]).find(c=>c.id===row.collectionId);
-        if(col) row.collectionName=col.collection_name||"";
-      });
-    }
     renderDwStats(allDwRows);
     applyDwFilters();
-    // Setup ACs
-    const dsgNames=allDsgRows.map(d=>d.name).filter(Boolean);
-    setupAC("dw-designer","ac-dw-designer",()=>dsgNames);
-    setupAC("dw-collection","ac-dw-collection",()=>allColRows.map(c=>c.collectionName).filter(Boolean));
+    // Setup form ACs
+    setupAC("dw-designer","ac-dw-designer",()=>allDsgRows.map(d=>d.name).filter(Boolean));
     setupAC("dw-agreement","ac-dw-agreement",()=>acAgrOptions.map(o=>o.id),()=>acAgrOptions);
   } catch(e){
     if(tbody) tbody.innerHTML=`<tr><td class="empty-td" colspan="7">Gagal memuat: ${e.message||e}</td></tr>`;
@@ -3116,19 +3166,24 @@ function renderDwStats(rows) {
 
 function applyDwFilters() {
   const payment=document.getElementById("dw-fil-payment")?.value||"";
-  const delivered=document.getElementById("dw-fil-delivered")?.value||"";
+  const dlStatus=document.getElementById("dw-fil-dlstatus")?.value||"";
   const q=(document.getElementById("dwSearch")?.value||"").toLowerCase();
   let rows=allDwRows;
   if(payment) rows=rows.filter(r=>r.paymentStatus===payment);
-  if(delivered==="yes") rows=rows.filter(r=>!!r.deliverablesUrl);
-  if(delivered==="no") rows=rows.filter(r=>!r.deliverablesUrl);
-  if(q) rows=rows.filter(r=>(r.designer||"").toLowerCase().includes(q)||(r.collectionName||"").toLowerCase().includes(q));
+  if(dlStatus) rows=rows.filter(r=>{
+    if(r.locked&&r.collectionId) return computeColDeliverableStatus(r.collectionId,r.designer)===dlStatus;
+    return r.deliverablesStatus===dlStatus;
+  });
+  if(q) rows=rows.filter(r=>
+    (r.designer||"").toLowerCase().includes(q)||
+    (r.projectName||r.collectionName||"").toLowerCase().includes(q)
+  );
   renderDwStats(rows);
   renderDwTable(rows);
 }
 
 function clearDwFilters() {
-  ["dw-fil-payment","dw-fil-delivered"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
+  ["dw-fil-payment","dw-fil-dlstatus"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
   const s=document.getElementById("dwSearch");if(s)s.value="";
   applyDwFilters();
 }
@@ -3140,18 +3195,35 @@ function renderDwTable(rows) {
   if(!tbody) return;
   document.getElementById("dw-tcount").textContent=rows.length+" entri";
   if(!rows.length){tbody.innerHTML=`<tr><td class="empty-td" colspan="7">Tidak ada data.</td></tr>`;return;}
+  const today=new Date().toISOString().slice(0,10);
   tbody.innerHTML=rows.map(r=>{
-    const skus=allColItems.filter(i=>i.collectionId===r.collectionId);
-    const skuCell=r.collectionId&&skus.length
-      ?`<span style="font-size:11px;cursor:pointer;text-decoration:underline;color:#3C3489" onclick="toggleDwSKUs('${r.rowIndex}')">${skus.length} SKU</span>`
+    const projectLabel=(r.projectName||r.collectionName||"—");
+    const lockedBadge=r.locked?`<span class="pill p-draft" style="font-size:9px;margin-left:4px;vertical-align:middle">🔒 CD</span>`:"";
+
+    // ── Deliverables cell ──
+    let dlCell;
+    if(r.locked&&r.collectionId){
+      const dlStatus=computeColDeliverableStatus(r.collectionId,r.designer);
+      const dlPill=dlStatus==="Approved"?"p-active":dlStatus==="Partially Approved"?"p-near":dlStatus==="Not Approved"?"p-expired":"p-draft";
+      dlCell=`<span class="pill ${dlPill}" style="font-size:10px;cursor:pointer" onclick="toggleDwSKUs('${r.rowIndex}')">${dlStatus||"Belum ada SKU"} ▾</span>`;
+    } else {
+      const dlOpts=["Pending","In Progress","Revision","Completed"];
+      const dlPill=r.deliverablesStatus==="Completed"?"p-active":r.deliverablesStatus==="In Progress"?"p-signings":r.deliverablesStatus==="Revision"?"p-near":"p-draft";
+      dlCell=`<select class="pill ${dlPill}" style="font-size:10px;border:none;cursor:pointer;padding:2px 6px;background:transparent" onchange="updateDwDeliverables('${r.rowIndex}',this.value)">${dlOpts.map(o=>`<option value="${o}"${r.deliverablesStatus===o?" selected":""}>${o}</option>`).join("")}</select>`;
+    }
+
+    // ── Deadline cell ──
+    const dlVal=r.locked&&r.collectionId?computeColDeadline(r.collectionId,r.designer):r.deadline;
+    const deadlineCell=dlVal
+      ?`<span style="${dlVal<today?"color:#c0392b;font-weight:600":""}">${fmtDate(dlVal)}</span>`
       :`<span style="color:var(--g400);font-size:11px">—</span>`;
-    const dlCell=r.deliverablesUrl
-      ?`<a href="${r.deliverablesUrl}" target="_blank" style="color:#3C3489;font-size:12px;text-decoration:none">↗ Lihat</a>`
-      :`<span style="color:var(--g400);font-size:11px">Belum upload</span>`;
+
+    // ── Agreement & Payment ──
     const agrCell=r.agreementId?`<span style="font-size:11px;font-family:var(--mono)">${r.agreementId}</span>`:"—";
-    const payClass=r.paymentStatus==="Paid"?"p-active":"p-expired";
-    const lockedBadge=r.locked?`<span class="pill p-draft" style="font-size:9px;margin-left:4px;vertical-align:middle">🔒 dari CD</span>`:"";
-    // SKU sub-list (hidden)
+    const payPill=r.paymentStatus==="Paid"?"p-active":r.paymentStatus==="Not Yet Paid"?"p-near":"p-expired";
+
+    // ── SKU sub-rows (for CD rows) ──
+    const skus=r.collectionId?(r.designer?allColItems.filter(i=>i.collectionId===r.collectionId&&i.designer===r.designer):allColItems.filter(i=>i.collectionId===r.collectionId)):[];
     const skuSubRows=skus.map(i=>`<tr style="border-top:1px solid var(--g100)">
       <td style="padding:5px 8px;font-size:11px"><strong>${i.skuName}</strong></td>
       <td style="padding:5px 8px;font-size:11px">${i.category?`<span class="pill p-signings" style="font-size:9px">${i.category}</span>`:"—"}</td>
@@ -3159,17 +3231,35 @@ function renderDwTable(rows) {
       <td style="padding:5px 8px;font-size:11px;white-space:nowrap">${fmtDate(i.deadline)}</td>
       <td style="padding:5px 8px"><span class="pill ${i.approvalStatus==="Approved"?"p-active":i.approvalStatus==="Revision"?"p-near":"p-draft"}" style="font-size:9px">${i.approvalStatus}</span></td>
     </tr>`).join("");
-    // Edit form — project field locked if r.locked
-    const projectField=r.locked
-      ?`<div class="fg"><label>Project <span style="font-size:10px;color:var(--g400)">(dari Collection Development)</span></label><input type="text" value="${(r.collectionName||"").replace(/"/g,"&quot;")}" disabled style="opacity:0.6;cursor:not-allowed;background:var(--off)"></div>`
-      :`<div class="fg" style="position:relative"><label>Project / Collection</label><input type="text" id="dwe-collection-${r.rowIndex}" value="${(r.collectionName||"").replace(/"/g,"&quot;")}" autocomplete="off"><div class="ac-list" id="ac-dwe-col-${r.rowIndex}"></div></div>`;
+
+    // ── Edit form ──
+    const editForm=r.locked
+      ?`<div class="edit-row-grid">
+          <div class="fg"><label>Designer <span style="font-size:10px;color:var(--g400)">(dari CD)</span></label><input type="text" value="${(r.designer||"").replace(/"/g,"&quot;")}" disabled style="opacity:0.6;cursor:not-allowed;background:var(--off)"></div>
+          <div class="fg"><label>Project <span style="font-size:10px;color:var(--g400)">(dari CD)</span></label><input type="text" value="${projectLabel.replace(/"/g,"&quot;")}" disabled style="opacity:0.6;cursor:not-allowed;background:var(--off)"></div>
+          <div class="fg full"><label>Deliverables URL <span style="font-size:11px;color:var(--g400)">(Google Drive)</span></label><input type="url" id="dwe-deliverables-${r.rowIndex}" value="${(r.deliverablesUrl||"").replace(/"/g,"&quot;")}" placeholder="https://drive.google.com/..."></div>
+          <div class="fg" style="position:relative"><label>Kontrak (Agreement)</label><input type="text" id="dwe-agreement-${r.rowIndex}" value="${(r.agreementId||"").replace(/"/g,"&quot;")}" autocomplete="off"><div class="ac-list" id="ac-dwe-agr-${r.rowIndex}"></div></div>
+          <div class="fg"><label>Payment Status</label><select id="dwe-payment-${r.rowIndex}"><option value="Not Paid"${r.paymentStatus==="Not Paid"?" selected":""}>Not Paid</option><option value="Not Yet Paid"${r.paymentStatus==="Not Yet Paid"?" selected":""}>Not Yet Paid</option><option value="Paid"${r.paymentStatus==="Paid"?" selected":""}>Paid</option></select></div>
+          <div class="fg full"><label>Notes</label><textarea id="dwe-notes-${r.rowIndex}" rows="2" style="resize:vertical">${(r.notes||"").replace(/</g,"&lt;")}</textarea></div>
+        </div>`
+      :`<div class="edit-row-grid">
+          <div class="fg" style="position:relative"><label>Designer</label><input type="text" id="dwe-designer-${r.rowIndex}" value="${(r.designer||"").replace(/"/g,"&quot;")}" autocomplete="off"><div class="ac-list" id="ac-dwe-dsg-${r.rowIndex}"></div></div>
+          <div class="fg"><label>Project</label><input type="text" id="dwe-project-${r.rowIndex}" value="${(r.projectName||"").replace(/"/g,"&quot;")}" placeholder="Nama project..."></div>
+          <div class="fg"><label>Deadline</label><input type="date" id="dwe-deadline-${r.rowIndex}" value="${r.deadline||""}"></div>
+          <div class="fg"><label>Status Deliverables</label><select id="dwe-dlstatus-${r.rowIndex}"><option value="Pending"${r.deliverablesStatus==="Pending"?" selected":""}>Pending</option><option value="In Progress"${r.deliverablesStatus==="In Progress"?" selected":""}>In Progress</option><option value="Revision"${r.deliverablesStatus==="Revision"?" selected":""}>Revision</option><option value="Completed"${r.deliverablesStatus==="Completed"?" selected":""}>Completed</option></select></div>
+          <div class="fg full"><label>Deliverables URL <span style="font-size:11px;color:var(--g400)">(Google Drive)</span></label><input type="url" id="dwe-deliverables-${r.rowIndex}" value="${(r.deliverablesUrl||"").replace(/"/g,"&quot;")}" placeholder="https://drive.google.com/..."></div>
+          <div class="fg" style="position:relative"><label>Kontrak (Agreement)</label><input type="text" id="dwe-agreement-${r.rowIndex}" value="${(r.agreementId||"").replace(/"/g,"&quot;")}" autocomplete="off"><div class="ac-list" id="ac-dwe-agr-${r.rowIndex}"></div></div>
+          <div class="fg"><label>Payment Status</label><select id="dwe-payment-${r.rowIndex}"><option value="Not Paid"${r.paymentStatus==="Not Paid"?" selected":""}>Not Paid</option><option value="Not Yet Paid"${r.paymentStatus==="Not Yet Paid"?" selected":""}>Not Yet Paid</option><option value="Paid"${r.paymentStatus==="Paid"?" selected":""}>Paid</option></select></div>
+          <div class="fg full"><label>Notes</label><textarea id="dwe-notes-${r.rowIndex}" rows="2" style="resize:vertical">${(r.notes||"").replace(/</g,"&lt;")}</textarea></div>
+        </div>`;
+
     return `<tr>
-      <td><strong>${r.designer||`<span style="color:var(--g400);font-style:italic;font-size:12px">Belum diisi</span>`}</strong></td>
-      <td style="font-size:12px">${r.collectionName||"—"}${lockedBadge}</td>
-      <td>${skuCell}</td>
+      <td><strong>${r.designer||`<span style="color:var(--g400);font-style:italic;font-size:12px">—</span>`}</strong></td>
+      <td style="font-size:12px">${projectLabel}${lockedBadge}</td>
       <td>${dlCell}</td>
+      <td>${deadlineCell}</td>
       <td>${agrCell}</td>
-      <td><span class="pill ${payClass}" style="font-size:11px">${r.paymentStatus}</span></td>
+      <td><span class="pill ${payPill}" style="font-size:11px">${r.paymentStatus}</span></td>
       <td style="white-space:nowrap">
         <button class="btn-icon" onclick="openDwEdit('${r.rowIndex}')">Edit</button>
         <button class="btn-icon" style="color:#c0392b" onclick="deleteDw('${r.rowIndex}')">Del</button>
@@ -3177,7 +3267,7 @@ function renderDwTable(rows) {
     </tr>
     <tr id="dw-sku-row-${r.rowIndex}" style="display:none">
       <td colspan="7" style="padding:0 12px 10px;background:var(--off)">
-        <div style="padding:8px 0 4px;font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">SKUs — ${r.collectionName}</div>
+        <div style="padding:8px 0 4px;font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">Deliverables — ${projectLabel}${r.designer?" / "+r.designer:""}</div>
         <table style="width:100%;border-collapse:collapse">
           <thead><tr style="font-family:var(--mono);font-size:9px;text-transform:uppercase;color:var(--g400)">
             <th style="padding:4px 8px;text-align:left">SKU</th>
@@ -3193,14 +3283,7 @@ function renderDwTable(rows) {
     <tr id="dw-edit-row-${r.rowIndex}" style="display:none">
       <td colspan="7" style="padding:0 12px 12px">
         <div class="edit-row-form">
-          <div class="edit-row-grid">
-            <div class="fg" style="position:relative"><label>Designer</label><input type="text" id="dwe-designer-${r.rowIndex}" value="${(r.designer||"").replace(/"/g,"&quot;")}" autocomplete="off"><div class="ac-list" id="ac-dwe-dsg-${r.rowIndex}"></div></div>
-            ${projectField}
-            <div class="fg full"><label>Deliverables URL</label><input type="url" id="dwe-deliverables-${r.rowIndex}" value="${(r.deliverablesUrl||"").replace(/"/g,"&quot;")}" placeholder="https://drive.google.com/..."></div>
-            <div class="fg" style="position:relative"><label>Kontrak (Agreement)</label><input type="text" id="dwe-agreement-${r.rowIndex}" value="${(r.agreementId||"").replace(/"/g,"&quot;")}" autocomplete="off"><div class="ac-list" id="ac-dwe-agr-${r.rowIndex}"></div></div>
-            <div class="fg"><label>Payment Status</label><select id="dwe-payment-${r.rowIndex}"><option ${r.paymentStatus==="Not Paid"?"selected":""}>Not Paid</option><option ${r.paymentStatus==="Paid"?"selected":""}>Paid</option></select></div>
-            <div class="fg full"><label>Notes</label><textarea id="dwe-notes-${r.rowIndex}" rows="2" style="resize:vertical">${(r.notes||"").replace(/</g,"&lt;")}</textarea></div>
-          </div>
+          ${editForm}
           <div class="edit-row-btns">
             <button class="btn-save" onclick="saveDwEdit('${r.rowIndex}')">Simpan</button>
             <button class="btn-cancel" onclick="closeDwEdit('${r.rowIndex}')">Batal</button>
@@ -3211,8 +3294,7 @@ function renderDwTable(rows) {
     </tr>`;
   }).join("");
   rows.forEach(r=>{
-    setupAC("dwe-designer-"+r.rowIndex,"ac-dwe-dsg-"+r.rowIndex,()=>allDsgRows.map(d=>d.name).filter(Boolean));
-    if(!r.locked) setupAC("dwe-collection-"+r.rowIndex,"ac-dwe-col-"+r.rowIndex,()=>allColRows.map(c=>c.collectionName).filter(Boolean));
+    if(!r.locked) setupAC("dwe-designer-"+r.rowIndex,"ac-dwe-dsg-"+r.rowIndex,()=>allDsgRows.map(d=>d.name).filter(Boolean));
     setupAC("dwe-agreement-"+r.rowIndex,"ac-dwe-agr-"+r.rowIndex,()=>acAgrOptions.map(o=>o.id),()=>acAgrOptions);
   });
 }
@@ -3221,6 +3303,19 @@ function toggleDwSKUs(rowIdx) {
   document.querySelectorAll("[id^='dw-sku-row-']").forEach(el=>{if(el.id!=="dw-sku-row-"+rowIdx)el.style.display="none";});
   const row=document.getElementById("dw-sku-row-"+rowIdx);if(!row)return;
   row.style.display=row.style.display==="table-row"?"none":"table-row";
+}
+
+async function updateDwDeliverables(rowIdx, status) {
+  try {
+    const {error}=await sb.from("designer_workflow").update({
+      deliverables_status:status,
+      last_updated:new Date().toISOString(), last_updated_by:currentUser
+    }).eq("id",rowIdx);
+    if(!error){
+      const r=allDwRows.find(r=>r.id===rowIdx);
+      if(r) r.deliverablesStatus=status;
+    }
+  } catch(e){/* silent — select already shows new value */}
 }
 
 function openDwEdit(rowIdx) {
@@ -3234,11 +3329,9 @@ async function saveDwEdit(rowIdx) {
   const btn=document.querySelector(`#dw-edit-row-${rowIdx} .btn-save`);
   if(btn){btn.disabled=true;btn.textContent="Menyimpan...";}
   try {
-    const dsg=document.getElementById(`dwe-designer-${rowIdx}`)?.value.trim();
-    if(!dsg){if(btn){btn.disabled=false;btn.textContent="Simpan";}alert("Designer wajib diisi.");return;}
-    const isLocked=!!(allDwRows.find(r=>r.id===rowIdx)?.locked);
+    const row=allDwRows.find(r=>r.id===rowIdx);
+    const isLocked=!!(row?.locked);
     const updatePayload={
-      designer:dsg,
       deliverables_url:document.getElementById(`dwe-deliverables-${rowIdx}`)?.value.trim()||null,
       agreement_id:document.getElementById(`dwe-agreement-${rowIdx}`)?.value.trim()||null,
       payment_status:document.getElementById(`dwe-payment-${rowIdx}`)?.value||"Not Paid",
@@ -3246,14 +3339,16 @@ async function saveDwEdit(rowIdx) {
       last_updated:new Date().toISOString(), last_updated_by:currentUser
     };
     if(!isLocked){
-      const colName=document.getElementById(`dwe-collection-${rowIdx}`)?.value.trim()||"";
-      const col=allColRows.find(c=>c.collectionName===colName)||null;
-      updatePayload.collection_id=col?col.id:null;
+      const dsg=document.getElementById(`dwe-designer-${rowIdx}`)?.value.trim()||null;
+      updatePayload.designer=dsg;
+      updatePayload.project_name=document.getElementById(`dwe-project-${rowIdx}`)?.value.trim()||null;
+      updatePayload.deadline=document.getElementById(`dwe-deadline-${rowIdx}`)?.value||null;
+      updatePayload.deliverables_status=document.getElementById(`dwe-dlstatus-${rowIdx}`)?.value||"Pending";
     }
     const {error}=await sb.from("designer_workflow").update(updatePayload).eq("id",rowIdx);
     if(error)throw error;
     closeDwEdit(rowIdx);
-    logActivity("Designer Workflow","edit",rowIdx,dsg);
+    logActivity("Designer Workflow","edit",rowIdx,row?.designer||rowIdx);
     await loadDsgWorkflow();
   } catch(e){if(btn){btn.disabled=false;btn.textContent="Simpan";}alert("Gagal: "+(e.message||e));}
 }
@@ -3282,15 +3377,16 @@ async function submitDsgWorkflow() {
   const btn=document.getElementById("dwSubmitBtn");btn.disabled=true;btn.textContent="Menyimpan...";
   try {
     const id=genId("DW");
-    const colName=document.getElementById("dw-collection")?.value.trim()||"";
-    const col=allColRows.find(c=>c.collectionName===colName)||null;
     const {error}=await sb.from("designer_workflow").insert({
       id, designer:dsg,
-      collection_id:col?col.id:null,
+      project_name:document.getElementById("dw-project")?.value.trim()||null,
       deliverables_url:document.getElementById("dw-deliverables")?.value.trim()||null,
+      deliverables_status:document.getElementById("dw-dl-status")?.value||"Pending",
+      deadline:document.getElementById("dw-deadline")?.value||null,
       agreement_id:document.getElementById("dw-agreement")?.value.trim()||null,
       payment_status:document.getElementById("dw-payment")?.value||"Not Paid",
       notes:document.getElementById("dw-notes")?.value.trim()||null,
+      locked:false,
       date_added:new Date().toISOString().slice(0,10), added_by:currentUser,
       last_updated:new Date().toISOString(), last_updated_by:currentUser
     });
@@ -3304,8 +3400,10 @@ async function submitDsgWorkflow() {
 }
 
 function clearDwForm() {
-  ["dw-designer","dw-collection","dw-deliverables","dw-agreement","dw-notes"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
+  ["dw-designer","dw-project","dw-deliverables","dw-agreement","dw-notes"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
   const p=document.getElementById("dw-payment");if(p)p.value="Not Paid";
+  const dl=document.getElementById("dw-deadline");if(dl)dl.value="";
+  const dls=document.getElementById("dw-dl-status");if(dls)dls.value="Pending";
 }
 
 // ── DUPLICATE CHECK ──
