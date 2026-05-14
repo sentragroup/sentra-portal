@@ -2576,7 +2576,7 @@ async function loadProductMap(){
     if(!allIPRows.length){const{data}=await sb.from("ip_master").select("id,name").order("name");allIPRows=(data||[]).map(mapIP);}
     if(!allRRRows.length){const{data}=await sb.from("royalty_recipients").select("id,nama").order("nama");allRRRows=(data||[]).map(mapRR);}
     const [{data:itemData},{data:pmData,error:pmErr}]=await Promise.all([
-      sb.from("jubelio_purchase_order_items").select("item_name").order("item_name"),
+      sb.from("jubelio_items").select("item_name").order("item_name").limit(5000),
       sb.from("product_mappings").select("*")
     ]);
     if(pmErr) throw pmErr;
@@ -2647,7 +2647,7 @@ async function savePMField(itemName, field, value){
       ?'<span class="pill p-active" style="font-size:10px">Mapped</span>'
       :'<span style="color:var(--g400);font-size:11px">—</span>';
     // Refresh stats
-    const {data:itemData}=await sb.from("jubelio_purchase_order_items").select("item_name");
+    const {data:itemData}=await sb.from("jubelio_items").select("item_name").limit(5000);
     const uniqueNames=[...new Set((itemData||[]).map(r=>r.item_name).filter(Boolean))];
     renderPMStats(uniqueNames,allPMRows);
   } catch(e){console.error("savePMField:",e);}
