@@ -115,14 +115,17 @@
         <div class="sb-item" onclick="showPage('distpartner',this)" id="nav-distpartner">
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="6" width="5" height="5" rx="1"/><rect x="10" y="6" width="5" height="5" rx="1"/><rect x="5.5" y="1" width="5" height="5" rx="1"/><line x1="8" y1="6" x2="8" y2="11"/><line x1="3.5" y1="6" x2="8" y2="3.5"/><line x1="12.5" y1="6" x2="8" y2="3.5"/></svg>Distribution Partner
         </div>
-      </div>
-      <div class="sb-sec">
-        <div class="sb-label">Product Development</div>
-        <div class="sb-item" onclick="showPage('collections',this)" id="nav-collections">
-          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="3" width="14" height="10" rx="1.5"/><line x1="5" y1="3" x2="5" y2="13"/><line x1="8" y1="6" x2="12" y2="6"/><line x1="8" y1="9" x2="11" y2="9"/></svg>Collections
-        </div>
         <div class="sb-item" onclick="showPage('designermaster',this)" id="nav-designermaster">
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="5" r="2.5"/><path d="M1 13c0-2.8 2.2-5 5-5"/><path d="M11 9l1.5 1.5L15 8"/><circle cx="12" cy="12" r="3"/></svg>Designer Master
+        </div>
+      </div>
+      <div class="sb-sec">
+        <div class="sb-label">Creative Operations</div>
+        <div class="sb-item" onclick="showPage('collections',this)" id="nav-collections">
+          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="3" width="14" height="10" rx="1.5"/><line x1="5" y1="3" x2="5" y2="13"/><line x1="8" y1="6" x2="12" y2="6"/><line x1="8" y1="9" x2="11" y2="9"/></svg>Collection Development
+        </div>
+        <div class="sb-item" onclick="showPage('dsgworkflow',this)" id="nav-dsgworkflow">
+          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h8M2 12h5"/><circle cx="13" cy="11" r="2.5"/><path d="M13 9v2l1.5 1"/></svg>Designer Workflow
         </div>
       </div>
       <div class="sb-sec">
@@ -920,103 +923,141 @@
       </div>
     </div>
 
-    <!-- COLLECTIONS -->
+    <!-- COLLECTION DEVELOPMENT -->
     <div class="page" id="page-collections">
+      <!-- LIST VIEW -->
+      <div id="col-list-view">
+        <div class="page-header">
+          <div><div class="page-title">Collection Development</div><div class="page-sub">Manajemen collection merchandise — dari ideation hingga approval design.</div></div>
+          <div class="tab-bar">
+            <button class="tab-btn active" onclick="switchColTab('new',this)">+ Tambah</button>
+            <button class="tab-btn" onclick="switchColTab('list',this)">Semua</button>
+          </div>
+        </div>
+        <div class="stats-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:1.25rem">
+          <div class="stat-card"><div class="stat-num" id="col-s-total">—</div><div class="stat-lbl">Total</div></div>
+          <div class="stat-card"><div class="stat-num" id="col-s-draft">—</div><div class="stat-lbl">Draft</div></div>
+          <div class="stat-card"><div class="stat-num" id="col-s-inprogress">—</div><div class="stat-lbl">In Progress</div></div>
+          <div class="stat-card"><div class="stat-num" id="col-s-done">—</div><div class="stat-lbl">Done</div></div>
+          <div class="stat-card"><div class="stat-num" id="col-s-skus">—</div><div class="stat-lbl">Total SKUs</div></div>
+        </div>
+        <div id="coltab-new">
+          <div class="form-card">
+            <div class="form-sec">Informasi Collection</div>
+            <div class="form-grid">
+              <div class="fg"><label>Nama Collection <span class="req">*</span></label><input type="text" id="col-name" placeholder="Nama collection"></div>
+              <div class="fg" style="position:relative"><label>IP Related</label><input type="text" id="col-ip" placeholder="Pilih dari IP Master" autocomplete="off"><div class="ac-list" id="ac-col-ip"></div></div>
+              <div class="fg"><label>Release Date</label><input type="date" id="col-releasedate"></div>
+              <div class="fg"><label>Priority</label><select id="col-priority"><option value="">—</option><option>High</option><option>Medium</option><option>Low</option></select></div>
+              <div class="fg"><label>Status</label><select id="col-status"><option value="Draft">Draft</option><option value="In Progress">In Progress</option><option value="Done">Done</option></select></div>
+              <div class="fg full"><label>Moodboard <span style="font-size:11px;color:var(--g400)">(Google Drive link)</span></label><input type="url" id="col-moodboard" placeholder="https://drive.google.com/..."></div>
+              <div class="fg full"><label>Notes</label><textarea id="col-notes" rows="2" style="resize:vertical" placeholder="Catatan tambahan..."></textarea></div>
+            </div>
+            <div class="btn-row">
+              <button class="btn-primary" id="colSubmitBtn" onclick="submitCollection()">Simpan Collection</button>
+              <button class="btn-ghost" onclick="clearColForm()">Bersihkan</button>
+            </div>
+            <div class="feedback" id="col-feedback"></div>
+          </div>
+        </div>
+        <div id="coltab-list" style="display:none">
+          <div class="filter-panel">
+            <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="clearColFilters()">✕ Reset</button></div>
+            <div class="filter-grid">
+              <select class="f-select" id="col-fil-status" onchange="applyColFilters()"><option value="">Semua Status</option><option>Draft</option><option>In Progress</option><option>Done</option></select>
+              <select class="f-select" id="col-fil-priority" onchange="applyColFilters()"><option value="">Semua Priority</option><option>High</option><option>Medium</option><option>Low</option></select>
+              <input class="search-box" type="text" id="colSearch" placeholder="Cari nama collection, IP..." oninput="applyColFilters()" style="width:100%">
+            </div>
+          </div>
+          <div class="table-toolbar">
+            <button class="btn-refresh" onclick="loadCollections()">↻ Refresh</button>
+            <div class="tcount" id="col-tcount">— entri</div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead id="col-thead">
+                <tr>
+                  <th class="sortable" data-col="collectionName" onclick="sortColBy('collectionName')">Nama Collection</th>
+                  <th class="sortable" data-col="ipRelated" onclick="sortColBy('ipRelated')">IP Related</th>
+                  <th class="sortable" data-col="releaseDate" onclick="sortColBy('releaseDate')">Release Date</th>
+                  <th class="sortable" data-col="priority" onclick="sortColBy('priority')">Priority</th>
+                  <th>SKUs</th>
+                  <th>Approval</th>
+                  <th>Moodboard</th>
+                  <th class="sortable" data-col="status" onclick="sortColBy('status')">Status</th>
+                </tr>
+              </thead>
+              <tbody id="colTableBody"><tr><td class="empty-td" colspan="8">Klik "Semua" untuk memuat data.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <!-- DETAIL VIEW -->
+      <div id="col-detail-view" style="display:none">
+        <div id="col-detail-content"></div>
+      </div>
+    </div>
+
+    <!-- DESIGNER WORKFLOW -->
+    <div class="page" id="page-dsgworkflow">
       <div class="page-header">
-        <div><div class="page-title">Collections</div><div class="page-sub">Manajemen collection merchandise — dari ideation hingga approval design.</div></div>
+        <div><div class="page-title">Designer Workflow</div><div class="page-sub">Tracking deliverables, kontrak, dan pembayaran per project designer.</div></div>
         <div class="tab-bar">
-          <button class="tab-btn active" onclick="switchColTab('new',this)">Tambah</button>
-          <button class="tab-btn" onclick="switchColTab('list',this)">Semua</button>
+          <button class="tab-btn active" onclick="switchDwTab('new',this)">+ Tambah</button>
+          <button class="tab-btn" onclick="switchDwTab('list',this)">Semua</button>
         </div>
       </div>
-      <div class="stats-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:1.25rem">
-        <div class="stat-card"><div class="stat-num" id="col-s-total">—</div><div class="stat-lbl">Total</div></div>
-        <div class="stat-card"><div class="stat-num" id="col-s-draft">—</div><div class="stat-lbl">Draft</div></div>
-        <div class="stat-card"><div class="stat-num" id="col-s-inprogress">—</div><div class="stat-lbl">In Progress</div></div>
-        <div class="stat-card"><div class="stat-num" id="col-s-done">—</div><div class="stat-lbl">Done</div></div>
-        <div class="stat-card"><div class="stat-num" id="col-s-skus">—</div><div class="stat-lbl">Total SKUs</div></div>
+      <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
+        <div class="stat-card"><div class="stat-num" id="dw-s-total">—</div><div class="stat-lbl">Total Projects</div></div>
+        <div class="stat-card"><div class="stat-num" id="dw-s-paid">—</div><div class="stat-lbl">Paid</div></div>
+        <div class="stat-card"><div class="stat-num" id="dw-s-unpaid" style="color:#c0392b">—</div><div class="stat-lbl">Not Paid</div></div>
+        <div class="stat-card"><div class="stat-num" id="dw-s-delivered">—</div><div class="stat-lbl">Delivered</div></div>
       </div>
-      <div id="coltab-new">
+      <div id="dwtab-new">
         <div class="form-card">
-          <div class="form-sec">Informasi Collection</div>
+          <div class="form-sec">Project Designer</div>
           <div class="form-grid">
-            <div class="fg">
-              <label>Nama Collection <span class="req">*</span></label>
-              <input type="text" id="col-name" placeholder="Nama collection">
-            </div>
-            <div class="fg" style="position:relative">
-              <label>IP Related</label>
-              <input type="text" id="col-ip" placeholder="Pilih dari IP Master" autocomplete="off">
-              <div class="ac-list" id="ac-col-ip"></div>
-            </div>
-            <div class="fg">
-              <label>Release Date</label>
-              <input type="date" id="col-releasedate">
-            </div>
-            <div class="fg">
-              <label>Priority</label>
-              <select id="col-priority"><option value="">—</option><option>High</option><option>Medium</option><option>Low</option></select>
-            </div>
-            <div class="fg">
-              <label>Status</label>
-              <select id="col-status"><option value="Draft">Draft</option><option value="In Progress">In Progress</option><option value="Done">Done</option></select>
-            </div>
-            <div class="fg full">
-              <label>Moodboard <span style="font-size:11px;color:var(--g400)">(Google Drive link)</span></label>
-              <input type="url" id="col-moodboard" placeholder="https://drive.google.com/...">
-            </div>
-            <div class="fg full">
-              <label>Notes</label>
-              <textarea id="col-notes" rows="2" style="resize:vertical" placeholder="Catatan tambahan..."></textarea>
-            </div>
+            <div class="fg" style="position:relative"><label>Designer <span class="req">*</span></label><input type="text" id="dw-designer" placeholder="Pilih designer" autocomplete="off"><div class="ac-list" id="ac-dw-designer"></div></div>
+            <div class="fg" style="position:relative"><label>Collection</label><input type="text" id="dw-collection" placeholder="Pilih collection" autocomplete="off"><div class="ac-list" id="ac-dw-collection"></div></div>
+            <div class="fg full"><label>Deliverables <span style="font-size:11px;color:var(--g400)">(Google Drive link)</span></label><input type="url" id="dw-deliverables" placeholder="https://drive.google.com/..."></div>
+            <div class="fg" style="position:relative"><label>Kontrak <span style="font-size:11px;color:var(--g400)">(dari Agreement)</span></label><input type="text" id="dw-agreement" placeholder="Pilih agreement" autocomplete="off"><div class="ac-list" id="ac-dw-agreement"></div></div>
+            <div class="fg"><label>Payment Status</label><select id="dw-payment"><option value="Not Paid">Not Paid</option><option value="Paid">Paid</option></select></div>
+            <div class="fg full"><label>Notes</label><textarea id="dw-notes" rows="2" style="resize:vertical" placeholder="Catatan..."></textarea></div>
           </div>
-          <div class="form-sec" style="margin-top:.5rem">SKUs / Items <span style="font-size:11px;color:var(--g400);font-weight:400">— tambahkan setelah collection disimpan</span></div>
           <div class="btn-row">
-            <button class="btn-primary" id="colSubmitBtn" onclick="submitCollection()">Simpan Collection</button>
-            <button class="btn-ghost" onclick="clearColForm()">Bersihkan</button>
+            <button class="btn-primary" id="dwSubmitBtn" onclick="submitDsgWorkflow()">Simpan</button>
+            <button class="btn-ghost" onclick="clearDwForm()">Bersihkan</button>
           </div>
-          <div class="feedback" id="col-feedback"></div>
+          <div class="feedback" id="dw-feedback"></div>
         </div>
       </div>
-      <div id="coltab-list" style="display:none">
+      <div id="dwtab-list" style="display:none">
         <div class="filter-panel">
-          <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="clearColFilters()">✕ Reset</button></div>
+          <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="clearDwFilters()">✕ Reset</button></div>
           <div class="filter-grid">
-            <select class="f-select" id="col-fil-status" onchange="applyColFilters()">
-              <option value="">Semua Status</option>
-              <option value="Draft">Draft</option>
-              <option value="In Progress">In Progress</option>
-              <option value="Done">Done</option>
-            </select>
-            <select class="f-select" id="col-fil-priority" onchange="applyColFilters()">
-              <option value="">Semua Priority</option>
-              <option value="High">High</option>
-              <option value="Medium">Medium</option>
-              <option value="Low">Low</option>
-            </select>
-            <input class="search-box" type="text" id="colSearch" placeholder="Cari nama collection, IP..." oninput="applyColFilters()" style="width:100%">
+            <select class="f-select" id="dw-fil-payment" onchange="applyDwFilters()"><option value="">Semua Payment</option><option value="Paid">Paid</option><option value="Not Paid">Not Paid</option></select>
+            <select class="f-select" id="dw-fil-delivered" onchange="applyDwFilters()"><option value="">Semua Deliverables</option><option value="yes">Sudah Delivered</option><option value="no">Belum Delivered</option></select>
+            <input class="search-box" type="text" id="dwSearch" placeholder="Cari designer, collection..." oninput="applyDwFilters()" style="width:100%">
           </div>
         </div>
         <div class="table-toolbar">
-          <button class="btn-refresh" onclick="loadCollections()">↻ Refresh</button>
-          <div class="tcount" id="col-tcount">— entri</div>
+          <button class="btn-refresh" onclick="loadDsgWorkflow()">↻ Refresh</button>
+          <div class="tcount" id="dw-tcount">— entri</div>
         </div>
         <div class="table-wrap">
           <table>
-            <thead id="col-thead">
+            <thead id="dw-thead">
               <tr>
-                <th class="sortable" data-col="collectionName" onclick="sortColBy('collectionName')">Nama Collection</th>
-                <th class="sortable" data-col="ipRelated" onclick="sortColBy('ipRelated')">IP Related</th>
-                <th class="sortable" data-col="releaseDate" onclick="sortColBy('releaseDate')">Release Date</th>
-                <th class="sortable" data-col="priority" onclick="sortColBy('priority')">Priority</th>
+                <th class="sortable" data-col="designer" onclick="sortDwBy('designer')">Designer</th>
+                <th class="sortable" data-col="collectionName" onclick="sortDwBy('collectionName')">Collection</th>
                 <th>SKUs</th>
-                <th>Approval</th>
-                <th>Moodboard</th>
-                <th class="sortable" data-col="status" onclick="sortColBy('status')">Status</th>
+                <th>Deliverables</th>
+                <th>Kontrak</th>
+                <th class="sortable" data-col="paymentStatus" onclick="sortDwBy('paymentStatus')">Payment</th>
                 <th>Aksi</th>
               </tr>
             </thead>
-            <tbody id="colTableBody"><tr><td class="empty-td" colspan="9">Klik "Semua" untuk memuat data.</td></tr></tbody>
+            <tbody id="dwTableBody"><tr><td class="empty-td" colspan="7">Klik "Semua" untuk memuat data.</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -1119,6 +1160,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260514"></script>
+<script src="app.js?v=20260514b"></script>
 </body>
 </html>
