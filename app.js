@@ -3589,9 +3589,6 @@ function renderColDetail(col, items) {
             ${productionContent}
           </div>`);
         })()}
-          <div id="col-production-body-${col.id}">
-            ${productionContent}
-          </div>`)}
         <!-- Inbound -->
         ${cdStageBox("📦","Inbound",cdStageBadge(inboundS.status,`col-inbound-badge-${col.id}`),`
           <select onchange="updateColStageStatus('${col.id}','inbound',this.value)" style="font-size:12px;padding:4px 8px;border:1px solid;border-radius:4px;width:200px;margin-bottom:10px;background:${inboundSelClr}">
