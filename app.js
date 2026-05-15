@@ -2375,7 +2375,7 @@ function renderMekariTable(rows) {
 }
 
 // ── PURCHASE ORDERS ──
-let allPORows=[], allPOItems=[], allPOBills=[], allPOBillItems=[];
+let allPORows=[], allPOItems=[], allPOBills=[], allPOBillItems=[], allPOReceives=[];
 let allCPLinks=[];            // collection_po_links rows
 let poToCollections={};       // purchaseorder_id → [collection_name, ...]
 let colToPos={};              // collection_id → [{id, purchaseorder_id, purchaseorder_no, ...}, ...]
@@ -2412,17 +2412,19 @@ async function loadPO(){
   const tbody=document.getElementById("poTableBody");
   if(tbody) tbody.innerHTML=`<tr><td class="empty-td" colspan="12">Memuat...</td></tr>`;
   try {
-    const [{data:poData,error:poErr},{data:itemData},{data:billData},{data:billItemData}]=await Promise.all([
+    const [{data:poData,error:poErr},{data:itemData},{data:billData},{data:billItemData},{data:rcvData}]=await Promise.all([
       sb.from("jubelio_purchase_orders").select("*").order("transaction_date",{ascending:false}),
       sb.from("jubelio_purchase_order_items").select("*").order("purchaseorder_detail_id",{ascending:true}),
       sb.from("jubelio_purchase_bills").select("*"),
-      sb.from("jubelio_purchase_bill_items").select("*")
+      sb.from("jubelio_purchase_bill_items").select("*"),
+      sb.from("jubelio_purchase_receives").select("*")
     ]);
     if(poErr) throw poErr;
     allPORows=(poData||[]).map(mapPO);
     allPOItems=(itemData||[]).map(mapPOItem);
     allPOBills=(billData||[]);
     allPOBillItems=(billItemData||[]);
+    allPOReceives=(rcvData||[]);
     // Load collection_po_links and build bidirectional maps
     await refreshCPLinks();
     // attach totalQty to each PO row for sorting
@@ -2503,6 +2505,8 @@ function renderPOTable(rows){
     const totalPOQty=items.reduce((s,it)=>s+(it.qty||0),0);
     const totalRcvd=Object.values(rcvdByDetailId).reduce((s,v)=>s+v,0);
     const rcvStatus=bills.length===0?"Belum":totalRcvd>=totalPOQty?"Lunas":"Sebagian";
+    const rcv=allPOReceives.find(rx=>rx.purchaseorder_no===r.purchaseorderNo);
+    const rcvDate=rcv?new Date(rcv.transaction_date).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"2-digit"}):null;
     const gt=r.grandTotal!=null?`Rp ${Math.round(r.grandTotal).toLocaleString("id-ID")}`:"—";
     const dt=r.transactionDate?new Date(r.transactionDate).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"—";
     const hasItems=items.length>0;
@@ -2512,7 +2516,7 @@ function renderPOTable(rows){
       <td><a href="https://v2.jubelio.com/purchase/orders/detail/${r.id}" target="_blank" style="font-family:var(--mono);font-size:12px;color:#3C3489;text-decoration:none">${r.purchaseorderNo||r.id}</a></td>
       <td style="font-size:13px">${r.supplierName||"—"}</td>
       <td>${sPill(r.status)}</td>
-      <td>${rPill(rcvStatus)}</td>
+      <td style="white-space:nowrap">${rPill(rcvStatus)}${rcvDate?`<span style="font-size:10px;color:var(--g400);display:block;margin-top:2px">${rcvDate}</span>`:""}</td>
       <td style="white-space:nowrap;font-size:12px">${dt}</td>
       <td style="font-size:12px">${r.locationName||"—"}</td>
       <td style="white-space:nowrap;font-size:12px;font-weight:600">${gt}</td>
@@ -3109,13 +3113,15 @@ async function loadCollections() {
     if(!allPOItems.length) poFetches.push(sb.from("jubelio_purchase_order_items").select("*"));
     if(!allPOBills.length) poFetches.push(sb.from("jubelio_purchase_bills").select("*"));
     if(!allPOBillItems.length) poFetches.push(sb.from("jubelio_purchase_bill_items").select("*"));
+    if(!allPOReceives.length) poFetches.push(sb.from("jubelio_purchase_receives").select("*"));
     if(poFetches.length){
       const poResults=await Promise.all(poFetches);
       let pi=0;
       if(!allPORows.length&&poFetches[pi]) { allPORows=(poResults[pi]?.data||[]).map(mapPO); pi++; }
       if(!allPOItems.length&&poFetches[pi]) { allPOItems=(poResults[pi]?.data||[]).map(mapPOItem); pi++; }
       if(!allPOBills.length&&poFetches[pi]) { allPOBills=poResults[pi]?.data||[]; pi++; }
-      if(!allPOBillItems.length&&poFetches[pi]) { allPOBillItems=poResults[pi]?.data||[]; }
+      if(!allPOBillItems.length&&poFetches[pi]) { allPOBillItems=poResults[pi]?.data||[]; pi++; }
+      if(!allPOReceives.length&&poFetches[pi]) { allPOReceives=poResults[pi]?.data||[]; }
     }
     setupAC("col-ip","ac-col-ip",()=>allIPRows.map(r=>r.name).filter(Boolean));
     setupAC("col-pic","ac-col-pic",()=>[...new Set(allColRows.map(r=>r.pic).filter(Boolean))]);
@@ -3635,8 +3641,11 @@ function renderColPOCards(colId) {
     }));
     const totalPO=poItems.reduce((s,i)=>s+(i.qty||0),0);
     const totalRcvd=Object.values(rcvdMap).reduce((s,v)=>s+v,0);
-    // actual received date = earliest bill transaction_date
-    const actualDate=bills.length?bills.map(b=>b.transaction_date).sort()[0]:null;
+    // actual received date: from penerimaan (nerima barang), fallback to bill date
+    const receive=allPOReceives.find(rx=>rx.purchaseorder_no===r.purchaseorderNo);
+    const actualDate=receive?receive.transaction_date:(bills.length?bills.map(b=>b.transaction_date).sort()[0]:null);
+    // putaway status from bill
+    const isPutaway=bills.some(b=>b.is_putaway===true);
     // status pills
     const stC=r.status==="ACTIVE"?"p-signings":r.status==="COMPLETED"?"p-active":r.status==="CANCELLED"?"p-inactive":"p-draft";
     const rcvLabel=bills.length===0?"Belum Diterima":totalRcvd>=totalPO?"Lunas":"Sebagian";
@@ -3675,11 +3684,17 @@ function renderColPOCards(colId) {
             onchange="saveCPLExpectedDate('${linkId}','${colId}',this.value)">
         </div>
         <div style="display:flex;align-items:center;gap:8px">
-          <span style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">Actual</span>
+          <span style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">Diterima</span>
           <span style="font-size:12px;font-weight:600;color:${actualDate?"#1a5c25":"var(--g400)"}">
-            ${actualDate?new Date(actualDate).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"Belum ada data"}
+            ${actualDate?new Date(actualDate).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"—"}
           </span>
         </div>
+        ${actualDate?`<div style="display:flex;align-items:center;gap:6px">
+          <span style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">Putaway</span>
+          ${isPutaway
+            ?`<span class="pill p-active" style="font-size:9px">✓ Selesai</span>`
+            :`<span class="pill p-review" style="font-size:9px">Pending</span>`}
+        </div>`:""}
       </div>
       <!-- Items (collapsible) -->
       <div id="cpl-items-${linkId}" style="display:none">
