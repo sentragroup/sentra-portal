@@ -1138,16 +1138,18 @@
         <table>
           <thead>
             <tr>
-              <th style="min-width:200px">Nama Produk</th>
-              <th style="min-width:140px">Brand</th>
-              <th style="min-width:140px">IP</th>
+              <th style="width:65px;cursor:pointer;white-space:nowrap" onclick="sortPMBy('jubelio_item_id')">Item ID <span id="pm-sort-jubelio_item_id">↓</span></th>
+              <th style="min-width:200px;cursor:pointer" onclick="sortPMBy('item_name')">Nama Produk <span id="pm-sort-item_name"></span></th>
+              <th style="min-width:140px;cursor:pointer" onclick="sortPMBy('brand')">Brand <span id="pm-sort-brand"></span></th>
+              <th style="min-width:140px;cursor:pointer" onclick="sortPMBy('ip')">IP <span id="pm-sort-ip"></span></th>
               <th style="min-width:140px">Royalty Recipient</th>
-              <th style="min-width:130px">Collection</th>
+              <th style="min-width:150px">Collection</th>
               <th style="width:80px;text-align:center">Status</th>
             </tr>
           </thead>
-          <tbody id="pmTableBody"><tr><td class="empty-td" colspan="6">Klik "Refresh" untuk memuat data.</td></tr></tbody>
+          <tbody id="pmTableBody"><tr><td class="empty-td" colspan="7">Klik "Refresh" untuk memuat data.</td></tr></tbody>
         </table>
+        <datalist id="pm-col-datalist"></datalist>
       </div>
       <div id="pm-pagination" style="display:flex;align-items:center;gap:10px;padding:12px 0;justify-content:center"></div>
     </div>
