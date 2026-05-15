@@ -2377,6 +2377,8 @@ function renderMekariTable(rows) {
 // ── PURCHASE ORDERS ──
 let allPORows=[], allPOItems=[], allPOBills=[], allPOBillItems=[], allPOReceives=[];
 let allCPLinks=[];            // collection_po_links rows
+let allCPLinkItems=[];        // collection_po_link_items rows
+let cplItemsByLink={};        // link_id → Set<purchaseorder_detail_id>
 let poToCollections={};       // purchaseorder_id → [collection_name, ...]
 let colToPos={};              // collection_id → [{id, purchaseorder_id, purchaseorder_no, ...}, ...]
 let poSort={col:null,dir:'asc'};
@@ -2569,9 +2571,19 @@ function togglePOItems(poId){
 }
 
 async function refreshCPLinks(){
-  const {data}=await sb.from("collection_po_links").select("*");
-  allCPLinks=data||[];
-  // purchaseorder_id → collection names (need collection name from allColRows)
+  const [{data:links},{data:litems}]=await Promise.all([
+    sb.from("collection_po_links").select("*"),
+    sb.from("collection_po_link_items").select("*")
+  ]);
+  allCPLinks=links||[];
+  allCPLinkItems=litems||[];
+  // rebuild cplItemsByLink: link_id → Set<purchaseorder_detail_id>
+  cplItemsByLink={};
+  allCPLinkItems.forEach(r=>{
+    if(!cplItemsByLink[r.link_id]) cplItemsByLink[r.link_id]=new Set();
+    cplItemsByLink[r.link_id].add(r.purchaseorder_detail_id);
+  });
+  // purchaseorder_id → collection names
   poToCollections={};
   colToPos={};
   allCPLinks.forEach(lnk=>{
@@ -3639,8 +3651,12 @@ function renderColPOCards(colId) {
     bills.forEach(b=>allPOBillItems.filter(i=>i.bill_id===b.bill_id).forEach(i=>{
       rcvdMap[i.purchaseorder_detail_id]=(rcvdMap[i.purchaseorder_detail_id]||0)+(Number(i.qty)||0);
     }));
-    const totalPO=poItems.reduce((s,i)=>s+(i.qty||0),0);
-    const totalRcvd=Object.values(rcvdMap).reduce((s,v)=>s+v,0);
+    // item filter: if any items checked for this link, only count those
+    const checkedSet=cplItemsByLink[linkId]||new Set();
+    const isFiltered=checkedSet.size>0;
+    const activeItems=isFiltered?poItems.filter(it=>checkedSet.has(it.id)):poItems;
+    const totalPO=activeItems.reduce((s,i)=>s+(i.qty||0),0);
+    const totalRcvd=activeItems.reduce((s,i)=>s+(rcvdMap[i.id]||0),0);
     // actual received date: from penerimaan (nerima barang), fallback to bill date
     const receive=allPOReceives.find(rx=>rx.purchaseorder_no===r.purchaseorderNo);
     const actualDate=receive?receive.transaction_date:(bills.length?bills.map(b=>b.transaction_date).sort()[0]:null);
@@ -3651,11 +3667,18 @@ function renderColPOCards(colId) {
     const rcvLabel=bills.length===0?"Belum Diterima":totalRcvd>=totalPO?"Lunas":"Sebagian";
     const rcvC=bills.length===0?"p-draft":totalRcvd>=totalPO?"p-active":"p-review";
     const dt=r.transactionDate?new Date(r.transactionDate).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"—";
-    // item rows
+    // item rows — all PO items shown, with checkbox to include/exclude per collection
     const itemRows=poItems.map(it=>{
+      const checked=checkedSet.has(it.id);
+      const active=!isFiltered||checked;
       const rcvd=rcvdMap[it.id]||0;
-      const rcvdClr=rcvd===0?"var(--g400)":rcvd>=it.qty?"#2d8a4e":"#c0700a";
-      return `<tr style="border-top:1px solid var(--g100)">
+      const rcvdClr=!active?"var(--g300)":rcvd===0?"var(--g400)":rcvd>=it.qty?"#2d8a4e":"#c0700a";
+      const rowOp=active?"1":"0.4";
+      return `<tr style="border-top:1px solid var(--g100);opacity:${rowOp}">
+        <td style="padding:5px 8px;text-align:center">
+          <input type="checkbox" ${checked?"checked":""} style="cursor:pointer;accent-color:#3C3489"
+            onchange="toggleCPLinkItem('${linkId}','${colId}',${it.id},this.checked)">
+        </td>
         <td style="padding:5px 8px;font-family:var(--mono);font-size:10px;color:var(--g400)">${it.itemCode||"—"}</td>
         <td style="padding:5px 8px;font-size:12px">${it.itemName||"—"}</td>
         <td style="padding:5px 8px;font-size:12px;text-align:right">${it.qty!=null?Number(it.qty).toLocaleString("id-ID"):"—"}</td>
@@ -3674,6 +3697,7 @@ function renderColPOCards(colId) {
         <span class="pill ${stC}" style="font-size:10px">${r.status||"—"}</span>
         <span class="pill ${rcvC}" style="font-size:10px">${rcvLabel}</span>
         <span style="font-size:11px;color:var(--g600)">${totalRcvd.toLocaleString("id-ID")} / ${totalPO.toLocaleString("id-ID")} pcs</span>
+        ${isFiltered?`<span class="pill p-near" style="font-size:9px" title="${checkedSet.size} dari ${poItems.length} item digunakan">⚑ ${checkedSet.size}/${poItems.length} items</span>`:""}
         <button onclick="handleRemoveCPLink('${linkId}','${colId}')" style="margin-left:auto;background:none;border:none;cursor:pointer;color:var(--g400);font-size:15px;padding:0 2px;line-height:1" title="Hapus PO">×</button>
       </div>
       <!-- Expected / Actual dates -->
@@ -3700,6 +3724,7 @@ function renderColPOCards(colId) {
       <div id="cpl-items-${linkId}" style="display:none">
         ${poItems.length?`<table style="width:100%;border-collapse:collapse">
           <thead><tr style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">
+            <th style="padding:5px 8px;text-align:center;width:28px" title="Centang item yang relevan untuk collection ini">✓</th>
             <th style="padding:5px 8px;text-align:left">Kode</th>
             <th style="padding:5px 8px;text-align:left">Item</th>
             <th style="padding:5px 8px;text-align:right">PO Qty</th>
@@ -3730,6 +3755,25 @@ async function saveCPLExpectedDate(linkId, colId, date){
   if(lnk) lnk.expected_date=date||null;
   const entry=(colToPos[colId]||[]).find(l=>l.linkId===linkId);
   if(entry) entry.expectedDate=date||"";
+}
+
+async function toggleCPLinkItem(linkId, colId, detailId, checked){
+  if(checked){
+    // insert
+    const {error}=await sb.from("collection_po_link_items").insert({link_id:linkId,purchaseorder_detail_id:detailId});
+    if(error&&error.code!=="23505") { console.error(error); return; } // ignore duplicate
+    if(!cplItemsByLink[linkId]) cplItemsByLink[linkId]=new Set();
+    cplItemsByLink[linkId].add(detailId);
+    allCPLinkItems.push({link_id:linkId,purchaseorder_detail_id:detailId});
+  } else {
+    // delete
+    await sb.from("collection_po_link_items").delete().eq("link_id",linkId).eq("purchaseorder_detail_id",detailId);
+    if(cplItemsByLink[linkId]) cplItemsByLink[linkId].delete(detailId);
+    const idx=allCPLinkItems.findIndex(r=>r.link_id===linkId&&r.purchaseorder_detail_id===detailId);
+    if(idx>-1) allCPLinkItems.splice(idx,1);
+  }
+  // re-render just the production section header to update filter badge + qty counts
+  refreshProductionBody(colId);
 }
 
 function renderColPOChips(colId) {
