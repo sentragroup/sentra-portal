@@ -1126,11 +1126,12 @@
       </div>
       <div class="stats-row" style="grid-template-columns:repeat(3,1fr);margin-bottom:1.25rem">
         <div class="stat-card"><div class="stat-num" id="pm-s-total">—</div><div class="stat-lbl">Total Produk</div></div>
-        <div class="stat-card"><div class="stat-num" id="pm-s-mapped">—</div><div class="stat-lbl">Ditampilkan</div></div>
-        <div class="stat-card"><div class="stat-num" id="pm-s-unmapped">—</div><div class="stat-lbl">Lainnya</div></div>
+        <div class="stat-card"><div class="stat-num" id="pm-s-mapped">—</div><div class="stat-lbl">Sudah Mapped</div></div>
+        <div class="stat-card"><div class="stat-num" id="pm-s-unmapped">—</div><div class="stat-lbl">Belum Mapped</div></div>
       </div>
       <div class="table-toolbar">
-        <button class="btn-refresh" onclick="loadProductMap()">↻ Refresh</button>
+        <button class="btn-refresh" onclick="loadProductMap(0,'')">↻ Refresh</button>
+        <input type="text" id="pm-search" placeholder="Cari nama produk..." style="padding:5px 10px;font-size:12px;border:1px solid var(--g100);border-radius:6px;width:220px;outline:none" oninput="onPMSearch(this.value)" onkeydown="if(event.key==='Escape'){this.value='';loadProductMap(0,'');}">
         <div class="tcount" id="pm-tcount">— produk</div>
       </div>
       <div class="table-wrap">
@@ -1148,6 +1149,7 @@
           <tbody id="pmTableBody"><tr><td class="empty-td" colspan="6">Klik "Refresh" untuk memuat data.</td></tr></tbody>
         </table>
       </div>
+      <div id="pm-pagination" style="display:flex;align-items:center;gap:10px;padding:12px 0;justify-content:center"></div>
     </div>
 
     <!-- DESIGNER MASTER -->
