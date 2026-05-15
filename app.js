@@ -2564,6 +2564,7 @@ async function syncPONow(){
 let allPMRows=[];
 let pmPage=0, pmSearchQuery='';
 let pmSort={col:'jubelio_item_id',dir:'desc'};
+let pmFilters={brand:'',ip:'',collection:'',mappingCount:''};
 const PM_PAGE_SIZE=20;
 let _pmSearchTimer=null;
 let allColNames=[];
@@ -2577,6 +2578,41 @@ function sortPMBy(col){
   pmSort.dir=pmSort.col===col?(pmSort.dir==='asc'?'desc':'asc'):'asc';
   pmSort.col=col;
   loadProductMap(0,pmSearchQuery);
+}
+
+function applyPMFilters(){
+  pmFilters.brand=document.getElementById("pm-fil-brand")?.value||'';
+  pmFilters.ip=document.getElementById("pm-fil-ip")?.value||'';
+  pmFilters.collection=document.getElementById("pm-fil-collection")?.value||'';
+  pmFilters.mappingCount=document.getElementById("pm-fil-mapping")?.value??'';
+  loadProductMap(0,pmSearchQuery);
+}
+
+function clearPMFilters(){
+  pmFilters={brand:'',ip:'',collection:'',mappingCount:''};
+  pmSearchQuery='';
+  ['pm-fil-brand','pm-fil-ip','pm-fil-collection','pm-fil-mapping'].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.value='';
+  });
+  const s=document.getElementById("pm-search"); if(s) s.value='';
+  loadProductMap(0,'');
+}
+
+function populatePMFilters(){
+  const bSel=document.getElementById("pm-fil-brand");
+  const iSel=document.getElementById("pm-fil-ip");
+  const cSel=document.getElementById("pm-fil-collection");
+  if(bSel && bSel.options.length<=1){
+    const brands=[...new Set([...allBMRows.map(r=>r.name)].filter(Boolean))].sort();
+    brands.forEach(n=>{const o=document.createElement("option");o.value=n;o.textContent=n;bSel.appendChild(o);});
+  }
+  if(iSel && iSel.options.length<=1){
+    const ips=[...new Set(allIPRows.map(r=>r.name).filter(Boolean))].sort();
+    ips.forEach(n=>{const o=document.createElement("option");o.value=n;o.textContent=n;iSel.appendChild(o);});
+  }
+  if(cSel && cSel.options.length<=1){
+    allColNames.forEach(n=>{const o=document.createElement("option");o.value=n;o.textContent=n;cSel.appendChild(o);});
+  }
 }
 
 function mapPM(r){
@@ -2598,10 +2634,18 @@ async function loadProductMap(page=0, search=''){
       allColNames=(colData||[]).map(r=>r.collection_name).filter(Boolean);
       updatePMColDatalist();
     }
+    populatePMFilters();
     const from=page*PM_PAGE_SIZE, to=from+PM_PAGE_SIZE-1;
-    const applyFilter=q=>search
-      ? q.ilike("item_name",`%${search}%`)
-      : q.is("ip_master_id",null).is("royalty_recipient_id",null).is("collection",null);
+    const hasFilter=search||pmFilters.brand||pmFilters.ip||pmFilters.collection||pmFilters.mappingCount!=='';
+    const applyFilter=q=>{
+      if(!hasFilter) return q.is("ip_master_id",null).is("royalty_recipient_id",null).is("collection",null);
+      if(search) q=q.ilike("item_name",`%${search}%`);
+      if(pmFilters.brand) q=q.eq("brand",pmFilters.brand);
+      if(pmFilters.ip) q=q.eq("ip",pmFilters.ip);
+      if(pmFilters.collection) q=q.eq("collection",pmFilters.collection);
+      if(pmFilters.mappingCount!=='') q=q.eq("mapping_count",parseInt(pmFilters.mappingCount));
+      return q;
+    };
     const [
       {data:rows,count:filteredCount,error:rowsErr},
       {count:totalCount},
@@ -2620,8 +2664,9 @@ async function loadProductMap(page=0, search=''){
     document.getElementById("pm-s-total").textContent=totalCount||0;
     document.getElementById("pm-s-mapped").textContent=(totalCount||0)-(unmappedCount||0);
     document.getElementById("pm-s-unmapped").textContent=unmappedCount||0;
-    document.getElementById("pm-tcount").textContent=search
-      ? `${filteredCount||0} hasil untuk "${search}"`
+    const activeFilters=[search&&`"${search}"`,pmFilters.brand,pmFilters.ip,pmFilters.collection,pmFilters.mappingCount!==''&&`mapping ${pmFilters.mappingCount}/3`].filter(Boolean);
+    document.getElementById("pm-tcount").textContent=hasFilter
+      ? `${filteredCount||0} hasil${activeFilters.length?` · ${activeFilters.join(" · ")}`:""}`
       : `${unmappedCount||0} belum mapped`;
     renderPMTable(uniqueNames,pmByName);
     renderPMPagination(page,filteredCount||0);

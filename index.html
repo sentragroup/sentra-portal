@@ -1129,9 +1129,22 @@
         <div class="stat-card"><div class="stat-num" id="pm-s-mapped">—</div><div class="stat-lbl">Sudah Mapped</div></div>
         <div class="stat-card"><div class="stat-num" id="pm-s-unmapped">—</div><div class="stat-lbl">Belum Mapped</div></div>
       </div>
+      <div class="filter-panel">
+        <select id="pm-fil-brand" onchange="applyPMFilters()"><option value="">Semua Brand</option></select>
+        <select id="pm-fil-ip" onchange="applyPMFilters()"><option value="">Semua IP</option></select>
+        <select id="pm-fil-collection" onchange="applyPMFilters()"><option value="">Semua Collection</option></select>
+        <select id="pm-fil-mapping" onchange="applyPMFilters()">
+          <option value="">Semua Status</option>
+          <option value="0">Belum Mapped</option>
+          <option value="1">Mapped 1/3</option>
+          <option value="2">Mapped 2/3</option>
+          <option value="3">Mapped 3/3</option>
+        </select>
+        <button class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="clearPMFilters()">✕ Reset</button>
+      </div>
       <div class="table-toolbar">
         <button class="btn-refresh" onclick="loadProductMap(0,'')">↻ Refresh</button>
-        <input type="text" id="pm-search" placeholder="Cari nama produk..." style="padding:5px 10px;font-size:12px;border:1px solid var(--g100);border-radius:6px;width:220px;outline:none" oninput="onPMSearch(this.value)" onkeydown="if(event.key==='Escape'){this.value='';loadProductMap(0,'');}">
+        <input type="text" id="pm-search" placeholder="Cari nama produk..." style="padding:5px 10px;font-size:12px;border:1px solid var(--g100);border-radius:6px;width:220px;outline:none" oninput="onPMSearch(this.value)" onkeydown="if(event.key==='Escape'){this.value='';clearPMFilters();}">
         <div class="tcount" id="pm-tcount">— produk</div>
       </div>
       <div class="table-wrap">
