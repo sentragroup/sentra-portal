@@ -2563,26 +2563,41 @@ async function syncPONow(){
 // ── PRODUCT MAPPING ──
 let allPMRows=[];
 let pmPage=0, pmSearchQuery='';
+let pmSort={col:'jubelio_item_id',dir:'desc'};
 const PM_PAGE_SIZE=20;
 let _pmSearchTimer=null;
+let allColNames=[];
 
 function onPMSearch(val){
   clearTimeout(_pmSearchTimer);
   _pmSearchTimer=setTimeout(()=>loadProductMap(0,val.trim()),300);
 }
 
+function sortPMBy(col){
+  pmSort.dir=pmSort.col===col?(pmSort.dir==='asc'?'desc':'asc'):'asc';
+  pmSort.col=col;
+  loadProductMap(0,pmSearchQuery);
+}
+
 function mapPM(r){
-  return {id:r.id,itemName:r.item_name||"",brand:r.brand||"",ip:r.ip||"",royaltyRecipient:r.royalty_recipient||"",collection:r.collection||""};
+  return {id:r.id,itemName:r.item_name||"",brand:r.brand||"",ip:r.ip||"",
+    royaltyRecipient:r.royalty_recipient||"",collection:r.collection||"",
+    jubItemId:r.jubelio_item_id||null};
 }
 
 async function loadProductMap(page=0, search=''){
   pmPage=page; pmSearchQuery=search;
   const tbody=document.getElementById("pmTableBody");
-  if(tbody) tbody.innerHTML=`<tr><td class="empty-td" colspan="6">Memuat...</td></tr>`;
+  if(tbody) tbody.innerHTML=`<tr><td class="empty-td" colspan="7">Memuat...</td></tr>`;
   try {
     if(!allBMRows.length){const{data}=await sb.from("brand_master").select("id,name").order("name");allBMRows=(data||[]).map(mapBM);}
     if(!allIPRows.length){const{data}=await sb.from("ip_master").select("id,name").order("name");allIPRows=(data||[]).map(mapIP);}
     if(!allRRRows.length){const{data}=await sb.from("royalty_recipients").select("id,nama").order("nama");allRRRows=(data||[]).map(mapRR);}
+    if(!allColNames.length){
+      const{data:colData}=await sb.from("collections").select("collection_name").order("collection_name");
+      allColNames=(colData||[]).map(r=>r.collection_name).filter(Boolean);
+      updatePMColDatalist();
+    }
     const from=page*PM_PAGE_SIZE, to=from+PM_PAGE_SIZE-1;
     const applyFilter=q=>search
       ? q.ilike("item_name",`%${search}%`)
@@ -2593,7 +2608,7 @@ async function loadProductMap(page=0, search=''){
       {count:unmappedCount}
     ]=await Promise.all([
       applyFilter(sb.from("product_mappings").select("*",{count:"exact"}))
-        .order("jubelio_item_id",{ascending:false}).range(from,to),
+        .order(pmSort.col,{ascending:pmSort.dir==='asc'}).range(from,to),
       sb.from("product_mappings").select("*",{count:"exact",head:true}),
       sb.from("product_mappings").select("*",{count:"exact",head:true})
         .is("ip_master_id",null).is("royalty_recipient_id",null).is("collection",null)
@@ -2610,9 +2625,23 @@ async function loadProductMap(page=0, search=''){
       : `${unmappedCount||0} belum mapped`;
     renderPMTable(uniqueNames,pmByName);
     renderPMPagination(page,filteredCount||0);
+    renderPMSortHeaders();
   } catch(e){
-    if(tbody) tbody.innerHTML=`<tr><td class="empty-td" colspan="6">Gagal: ${e.message||e}</td></tr>`;
+    if(tbody) tbody.innerHTML=`<tr><td class="empty-td" colspan="7">Gagal: ${e.message||e}</td></tr>`;
   }
+}
+
+function updatePMColDatalist(){
+  const dl=document.getElementById("pm-col-datalist");
+  if(!dl) return;
+  dl.innerHTML=allColNames.map(n=>`<option value="${n.replace(/"/g,'&quot;')}">`).join('');
+}
+
+function renderPMSortHeaders(){
+  ['jubelio_item_id','item_name','brand','ip'].forEach(col=>{
+    const el=document.getElementById(`pm-sort-${col}`);
+    if(el) el.textContent=pmSort.col===col?(pmSort.dir==='asc'?'↑':'↓'):'';
+  });
 }
 
 function renderPMPagination(page,total){
@@ -2631,23 +2660,24 @@ function renderPMPagination(page,total){
 function renderPMTable(uniqueNames, pmByName){
   const tbody=document.getElementById("pmTableBody");
   if(!tbody) return;
-  document.getElementById("pm-tcount").textContent=uniqueNames.length+" produk";
-  if(!uniqueNames.length){tbody.innerHTML=`<tr><td class="empty-td" colspan="6">Tidak ada data produk.</td></tr>`;return;}
+  if(!uniqueNames.length){tbody.innerHTML=`<tr><td class="empty-td" colspan="7">Tidak ada produk.</td></tr>`;return;}
   const bmOpts=allBMRows.map(r=>`<option value="${(r.name||"").replace(/"/g,"&quot;")}">${r.name}</option>`).join("");
   const ipOpts=allIPRows.map(r=>`<option value="${(r.name||"").replace(/"/g,"&quot;")}">${r.name}</option>`).join("");
   const rrOpts=allRRRows.map(r=>`<option value="${(r.name||r.rowIndex||"").replace(/"/g,"&quot;")}">${r.name||r.rowIndex}</option>`).join("");
   tbody.innerHTML=uniqueNames.map(name=>{
-    const m=pmByName[name]||{brand:"",ip:"",royaltyRecipient:"",collection:""};
+    const m=pmByName[name]||{brand:"",ip:"",royaltyRecipient:"",collection:"",jubItemId:null};
     const esc=name.replace(/"/g,"&quot;").replace(/'/g,"\\'");
-    const sel=(opts,val,field)=>`<select onchange="savePMField('${esc}','${field}',this.value)" style="font-size:11px;padding:3px 6px;border:1px solid var(--g100);border-radius:4px;width:100%;background:var(--white)"><option value=""></option>${opts.replace(`value="${val}"`,`value="${val}" selected`)}</select>`;
+    const sel=(opts,val,field)=>`<select onchange="savePMField('${esc}','${field}',this.value)" style="font-size:11px;padding:3px 6px;border:1px solid var(--g100);border-radius:4px;width:100%;background:var(--white)"><option value=""></option>${opts.replace(`value="${(val||"").replace(/"/g,"&quot;")}"`,`value="${(val||"").replace(/"/g,"&quot;")}" selected`)}</select>`;
+    const safeId=btoa(unescape(encodeURIComponent(name))).replace(/[^a-zA-Z0-9]/g,'');
     return `<tr style="border-top:1px solid var(--g100)">
-      <td style="padding:8px 10px;font-size:12px;max-width:260px">${name.replace(/</g,"&lt;")}</td>
+      <td style="padding:8px 6px;font-size:11px;color:var(--g400);text-align:center;white-space:nowrap">${m.jubItemId||'—'}</td>
+      <td style="padding:8px 10px;font-size:12px;max-width:220px">${name.replace(/</g,"&lt;")}</td>
       <td style="padding:6px 8px;min-width:130px">${sel(bmOpts,m.brand,"brand")}</td>
       <td style="padding:6px 8px;min-width:130px">${sel(ipOpts,m.ip,"ip")}</td>
       <td style="padding:6px 8px;min-width:130px">${sel(rrOpts,m.royaltyRecipient,"royalty_recipient")}</td>
-      <td style="padding:6px 8px;min-width:120px"><input type="text" value="${(m.collection||"").replace(/"/g,"&quot;")}" placeholder="Nama collection..." style="font-size:11px;padding:3px 8px;border:1px solid var(--g100);border-radius:4px;width:100%;box-sizing:border-box" onblur="savePMField('${esc}','collection',this.value)"></td>
-      <td style="padding:6px 8px;text-align:center" id="pm-status-${btoa(unescape(encodeURIComponent(name))).replace(/[^a-zA-Z0-9]/g,'')}">
-        ${(m.brand||m.ip||m.royaltyRecipient||m.collection)?'<span class="pill p-active" style="font-size:10px">Mapped</span>':'<span style="color:var(--g400);font-size:11px">—</span>'}
+      <td style="padding:6px 8px;min-width:150px"><input type="text" list="pm-col-datalist" value="${(m.collection||"").replace(/"/g,"&quot;")}" placeholder="Pilih atau ketik baru..." style="font-size:11px;padding:3px 8px;border:1px solid var(--g100);border-radius:4px;width:100%;box-sizing:border-box" onblur="savePMField('${esc}','collection',this.value)" onkeydown="if(event.key==='Enter')this.blur()"></td>
+      <td style="padding:6px 8px;text-align:center" id="pm-status-${safeId}">
+        ${(m.ip||m.royaltyRecipient||m.collection)?'<span class="pill p-active" style="font-size:10px">Mapped</span>':'<span style="color:var(--g400);font-size:11px">—</span>'}
       </td>
     </tr>`;
   }).join("");
@@ -2656,29 +2686,42 @@ function renderPMTable(uniqueNames, pmByName){
 async function savePMField(itemName, field, value){
   const existing=allPMRows.find(r=>r.itemName===itemName);
   try {
+    const upd={updated_at:new Date().toISOString(),updated_by:currentUser};
+    upd[field]=value||null;
+    // Sync corresponding ID column
+    if(field==='brand'){
+      const bm=allBMRows.find(r=>r.name===value);
+      upd.brand_master_id=bm?bm.rowIndex:null;
+    } else if(field==='ip'){
+      const im=allIPRows.find(r=>r.name===value);
+      upd.ip_master_id=im?im.rowIndex:null;
+    } else if(field==='royalty_recipient'){
+      const rr=allRRRows.find(r=>(r.name||r.rowIndex)===value);
+      upd.royalty_recipient_id=rr?rr.rowIndex:null;
+    } else if(field==='collection' && value && !allColNames.includes(value)){
+      await sb.from("collections").insert({id:genId("COL"),collection_name:value,added_by:currentUser,date_added:new Date().toISOString()});
+      allColNames.push(value); allColNames.sort(); updatePMColDatalist();
+    }
+    await sb.from("product_mappings").update(upd).eq("item_name",itemName);
     if(existing){
-      const upd={[field]:value||null,updated_at:new Date().toISOString(),updated_by:currentUser};
-      await sb.from("product_mappings").update(upd).eq("item_name",itemName);
-      if(field==="brand") existing.brand=value;
-      else if(field==="ip") existing.ip=value;
-      else if(field==="royalty_recipient") existing.royaltyRecipient=value;
-      else if(field==="collection") existing.collection=value;
-    } else {
-      const row={id:genId("PM"),item_name:itemName,[field]:value||null,updated_at:new Date().toISOString(),updated_by:currentUser};
-      await sb.from("product_mappings").insert(row);
-      allPMRows.push(mapPM({...row,royalty_recipient:field==="royalty_recipient"?value:""}));
+      if(field==='brand') existing.brand=value;
+      else if(field==='ip') existing.ip=value;
+      else if(field==='royalty_recipient') existing.royaltyRecipient=value;
+      else if(field==='collection') existing.collection=value;
     }
     // Refresh status cell
-    const safeId=btoa(itemName).replace(/[^a-zA-Z0-9]/g,'');
+    const safeId=btoa(unescape(encodeURIComponent(itemName))).replace(/[^a-zA-Z0-9]/g,'');
     const cell=document.getElementById(`pm-status-${safeId}`);
-    const r=allPMRows.find(x=>x.itemName===itemName)||{};
-    if(cell) cell.innerHTML=(r.brand||r.ip||r.royaltyRecipient||r.collection)
+    const r=existing||{};
+    if(cell) cell.innerHTML=(r.ip||r.royaltyRecipient||r.collection)
       ?'<span class="pill p-active" style="font-size:10px">Mapped</span>'
       :'<span style="color:var(--g400);font-size:11px">—</span>';
-    // Refresh stats
-    const {data:itemData}=await sb.rpc("get_jubelio_item_names");
-    const uniqueNames=[...new Set((itemData||[]).map(r=>r.item_name).filter(Boolean))];
-    renderPMStats(uniqueNames,allPMRows);
+    // Refresh unmapped count
+    const{count:uc}=await sb.from("product_mappings").select("*",{count:"exact",head:true})
+      .is("ip_master_id",null).is("royalty_recipient_id",null).is("collection",null);
+    const tot=parseInt(document.getElementById("pm-s-total").textContent)||0;
+    document.getElementById("pm-s-mapped").textContent=tot-(uc||0);
+    document.getElementById("pm-s-unmapped").textContent=uc||0;
   } catch(e){console.error("savePMField:",e);}
 }
 
