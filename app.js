@@ -3417,15 +3417,20 @@ function renderColDetail(col, items) {
   const colDwRows=allDwRows.filter(r=>r.collectionId===col.id&&r.locked);
 
   // ── SKU rows (master list) ──
+  const _today=new Date(); _today.setHours(0,0,0,0);
   const skuRows=items.map(i=>{
-    // Preview: pull from DW deliverables link for this SKU's designer
+    // Preview: SKU's own designPreviewUrl first, fall back to DW deliverables link for this designer
     const dwLink=colDwRows.find(r=>r.designer===i.designer)?.deliverablesUrl||"";
+    const previewUrl=i.designPreviewUrl||dwLink;
+    // Deadline coloring: red if past and not yet Approved
+    const dlPast=i.deadline&&new Date(i.deadline+"T00:00:00")<_today&&i.approvalStatus!=="Approved";
+    const dlStyle=`padding:8px 10px;white-space:nowrap;${dlPast?"color:#c0392b;font-weight:600":""}`;
     return `<tr id="ci-row-${i.id}" style="border-top:1px solid var(--g100)">
     <td style="padding:8px 10px"><strong style="font-size:13px">${i.skuName}</strong></td>
     <td style="padding:8px 10px">${i.category?`<span class="pill p-signings" style="font-size:10px">${i.category}</span>`:`<span style="color:var(--g400);font-size:11px">—</span>`}</td>
     <td style="padding:8px 10px;color:var(--g600)">${i.designer||"—"}</td>
-    <td style="padding:8px 10px;white-space:nowrap">${fmtDate(i.deadline)}</td>
-    <td style="padding:8px 10px">${dwLink?`<a href="${dwLink}" target="_blank" style="color:#3C3489;text-decoration:none">↗ Design</a>`:`<span style="color:var(--g400);font-size:11px">—</span>`}</td>
+    <td style="${dlStyle}">${dlPast?"⚠ ":""}${fmtDate(i.deadline)||"—"}</td>
+    <td style="padding:8px 10px">${previewUrl?`<a href="${previewUrl}" target="_blank" style="color:#3C3489;text-decoration:none">↗ Design</a>`:`<span style="color:var(--g400);font-size:11px">—</span>`}</td>
     <td style="padding:8px 10px">
       <select onchange="updateSKUApproval('${i.id}','${col.id}',this.value)" style="font-size:11px;padding:2px 6px;border:1px solid var(--g100);border-radius:4px;background:var(--white)">
         <option${i.approvalStatus==="Pending"?" selected":""}>Pending</option>
@@ -3714,12 +3719,22 @@ function renderColPOCards(colId) {
         <button onclick="handleRemoveCPLink('${linkId}','${colId}')" style="margin-left:auto;background:none;border:none;cursor:pointer;color:var(--g400);font-size:15px;padding:0 2px;line-height:1" title="Hapus PO">×</button>
       </div>
       <!-- Expected / Actual dates -->
-      <div style="padding:10px 14px;display:flex;gap:24px;align-items:center;border-bottom:1px solid var(--g100);flex-wrap:wrap">
+      ${(()=>{
+        const today=new Date(); today.setHours(0,0,0,0);
+        const expPast=expectedDate&&new Date(expectedDate+"T00:00:00")<today;
+        const expOverdue=expPast&&!actualDate;
+        const expLate=expPast&&actualDate&&new Date(actualDate)>new Date(expectedDate+"T00:00:00");
+        const inputBorder=expOverdue?"1px solid #e74c3c":expLate?"1px solid #e67e22":"1px solid var(--g100)";
+        const inputBg=expOverdue?"#fdecea":expLate?"#fff3e0":"var(--white)";
+        return `<div style="padding:10px 14px;display:flex;gap:24px;align-items:center;border-bottom:1px solid var(--g100);flex-wrap:wrap">
         <div style="display:flex;align-items:center;gap:8px">
           <span style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">Expected</span>
-          <input type="date" value="${expectedDate||""}" style="font-size:12px;padding:3px 8px;border:1px solid var(--g100);border-radius:4px;background:var(--white)"
+          <input type="date" value="${expectedDate||""}" style="font-size:12px;padding:3px 8px;border:${inputBorder};border-radius:4px;background:${inputBg}"
             onchange="saveCPLExpectedDate('${linkId}','${colId}',this.value)">
-        </div>
+          ${expOverdue?`<span class="pill p-expired" style="font-size:9px">Overdue</span>`:""}
+          ${expLate?`<span class="pill p-near" style="font-size:9px">Terlambat</span>`:""}
+        </div>`;
+      })()}
         <div style="display:flex;align-items:center;gap:8px">
           <span style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">Diterima</span>
           <span style="font-size:12px;font-weight:600;color:${actualDate?"#1a5c25":"var(--g400)"}">
