@@ -2638,7 +2638,7 @@ async function loadProductMap(page=0, search=''){
     const from=page*PM_PAGE_SIZE, to=from+PM_PAGE_SIZE-1;
     const hasFilter=search||pmFilters.brand||pmFilters.ip||pmFilters.collection||pmFilters.mappingCount!=='';
     const applyFilter=q=>{
-      if(!hasFilter) return q.is("ip_master_id",null).is("royalty_recipient_id",null).is("collection",null);
+      if(!hasFilter) return q.eq("mapping_count",0);
       if(search) q=q.ilike("item_name",`%${search}%`);
       if(pmFilters.brand) q=q.eq("brand",pmFilters.brand);
       if(pmFilters.ip) q=q.eq("ip",pmFilters.ip);
@@ -2654,8 +2654,7 @@ async function loadProductMap(page=0, search=''){
       applyFilter(sb.from("product_mappings").select("*",{count:"exact"}))
         .order(pmSort.col,{ascending:pmSort.dir==='asc'}).range(from,to),
       sb.from("product_mappings").select("*",{count:"exact",head:true}),
-      sb.from("product_mappings").select("*",{count:"exact",head:true})
-        .is("ip_master_id",null).is("royalty_recipient_id",null).is("collection",null)
+      sb.from("product_mappings").select("*",{count:"exact",head:true}).eq("mapping_count",0)
     ]);
     if(rowsErr) throw rowsErr;
     allPMRows=(rows||[]).map(mapPM);
@@ -2722,7 +2721,7 @@ function renderPMTable(uniqueNames, pmByName){
       <td style="padding:6px 8px;min-width:130px">${sel(rrOpts,m.royaltyRecipient,"royalty_recipient")}</td>
       <td style="padding:6px 8px;min-width:150px"><input type="text" list="pm-col-datalist" value="${(m.collection||"").replace(/"/g,"&quot;")}" placeholder="Pilih atau ketik baru..." style="font-size:11px;padding:3px 8px;border:1px solid var(--g100);border-radius:4px;width:100%;box-sizing:border-box" onblur="savePMField('${esc}','collection',this.value)" onkeydown="if(event.key==='Enter')this.blur()"></td>
       <td style="padding:6px 8px;text-align:center" id="pm-status-${safeId}">
-        ${(m.ip||m.royaltyRecipient||m.collection)?'<span class="pill p-active" style="font-size:10px">Mapped</span>':'<span style="color:var(--g400);font-size:11px">—</span>'}
+        ${(m.brand&&m.brand!=='SD&Y')||m.ip||m.royaltyRecipient||m.collection?'<span class="pill p-active" style="font-size:10px">Mapped</span>':'<span style="color:var(--g400);font-size:11px">—</span>'}
       </td>
     </tr>`;
   }).join("");
@@ -2762,8 +2761,7 @@ async function savePMField(itemName, field, value){
       ?'<span class="pill p-active" style="font-size:10px">Mapped</span>'
       :'<span style="color:var(--g400);font-size:11px">—</span>';
     // Refresh unmapped count
-    const{count:uc}=await sb.from("product_mappings").select("*",{count:"exact",head:true})
-      .is("ip_master_id",null).is("royalty_recipient_id",null).is("collection",null);
+    const{count:uc}=await sb.from("product_mappings").select("*",{count:"exact",head:true}).eq("mapping_count",0);
     const tot=parseInt(document.getElementById("pm-s-total").textContent)||0;
     document.getElementById("pm-s-mapped").textContent=tot-(uc||0);
     document.getElementById("pm-s-unmapped").textContent=uc||0;
