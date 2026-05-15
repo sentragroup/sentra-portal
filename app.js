@@ -3264,11 +3264,12 @@ function getPipelineStatuses(colId) {
     if(items.every(i=>i.samplingStatus==="Done")) sampling="done";
     else if(items.some(i=>i.samplingStatus==="In Progress"||i.samplingStatus==="Done")) sampling="in-progress";
   }
-  // Production
+  // Production — driven by linked PO putaway status
   let production="not-started";
-  if(items.length){
-    if(items.every(i=>i.productionStatus==="Done")) production="done";
-    else if(items.some(i=>i.productionStatus==="In Progress"||i.productionStatus==="Done")) production="in-progress";
+  const poLinks=colToPos[colId]||[];
+  if(poLinks.length){
+    const allPutaway=poLinks.every(({poId})=>allPOBills.some(b=>b.purchaseorder_id===poId&&b.is_putaway===true));
+    production=allPutaway?"done":"in-progress";
   }
   const getStage=s=>stages.find(r=>r.stage===s)?.status||"Not Started";
   const stageToKey=s=>s==="Done"?"done":s==="In Progress"?"in-progress":"not-started";
@@ -3394,7 +3395,7 @@ function refreshStageHeaderBadge(colId, stage) {
   const ps=getPipelineStatuses(colId);
   let s;
   if(stage==="sampling") s=items.length?(items.every(i=>i.samplingStatus==="Done")?"Done":items.some(i=>i.samplingStatus!=="Not Started")?"In Progress":"Not Started"):"Not Started";
-  else if(stage==="production") s=items.length?(items.every(i=>i.productionStatus==="Done")?"Done":items.some(i=>i.productionStatus!=="Not Started")?"In Progress":"Not Started"):"Not Started";
+  else if(stage==="production"){const pl=colToPos[colId]||[];s=pl.length?(pl.every(({poId})=>allPOBills.some(b=>b.purchaseorder_id===poId&&b.is_putaway===true))?"Done":"In Progress"):"Not Started";}
   else if(stage==="inbound"){const st=allColStages.find(r=>r.collectionId===colId&&r.stage==="inbound");s=st?.status||"Not Started";}
   else if(stage==="marketing") s=ps.marketing==="done"?"Done":ps.marketing==="in-progress"?"In Progress":"Not Started";
   const c=s==="Done"?"p-active":s==="In Progress"?"p-signings":"p-draft";
@@ -3570,7 +3571,19 @@ function renderColDetail(col, items) {
         <!-- Sampling -->
         ${cdStageBox("🧵","Sampling",cdStageBadge(items.length?items.every(i=>i.samplingStatus==="Done")?"Done":items.some(i=>i.samplingStatus!=="Not Started")?"In Progress":"Not Started":"Not Started",`col-sampling-badge-${col.id}`),samplingContent)}
         <!-- Production -->
-        ${cdStageBox("🏭","Production",cdStageBadge((colToPos[col.id]||[]).length?"In Progress":"Not Started",`col-production-badge-${col.id}`),`
+        ${(()=>{
+          const poLinks=colToPos[col.id]||[];
+          let prodStatus="Not Started";
+          if(poLinks.length){
+            // Done = all linked POs have at least one bill with is_putaway=true
+            const allPutaway=poLinks.every(({poId})=>allPOBills.some(b=>b.purchaseorder_id===poId&&b.is_putaway===true));
+            prodStatus=allPutaway?"Done":"In Progress";
+          }
+          return cdStageBox("🏭","Production",cdStageBadge(prodStatus,`col-production-badge-${col.id}`),`
+          <div id="col-production-body-${col.id}">
+            ${productionContent}
+          </div>`);
+        })()}
           <div id="col-production-body-${col.id}">
             ${productionContent}
           </div>`)}
