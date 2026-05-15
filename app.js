@@ -153,7 +153,7 @@ function showPage(name, el) {
   if (name==="jubsales") loadJubSales();
   if (name==="mesign") loadMekariEsign();
   if (name==="po") loadPO();
-  if (name==="productmap") loadProductMap();
+  if (name==="productmap") loadProductMap(0,'');
   if (name==="collections") { loadCollections(); setupAC("col-ip","ac-col-ip",()=>allIPRows.map(r=>r.name).filter(Boolean)); setupAC("col-pic","ac-col-pic",()=>[...new Set(allColRows.map(r=>r.pic).filter(Boolean))]); }
   if (name==="designermaster") { loadDesignerMaster(); const cats=[...new Set([...DSG_CATEGORIES_DEFAULT,...allDsgRows.map(r=>r.category).filter(Boolean)])]; setupAC("dsg-category","ac-dsg-category",()=>cats); }
   if (name==="dsgworkflow") loadDsgWorkflow();
@@ -2561,34 +2561,71 @@ async function syncPONow(){
 }
 
 // ── PRODUCT MAPPING ──
-let allPMRows=[];  // product_mappings rows
+let allPMRows=[];
+let pmPage=0, pmSearchQuery='';
+const PM_PAGE_SIZE=20;
+let _pmSearchTimer=null;
+
+function onPMSearch(val){
+  clearTimeout(_pmSearchTimer);
+  _pmSearchTimer=setTimeout(()=>loadProductMap(0,val.trim()),300);
+}
 
 function mapPM(r){
   return {id:r.id,itemName:r.item_name||"",brand:r.brand||"",ip:r.ip||"",royaltyRecipient:r.royalty_recipient||"",collection:r.collection||""};
 }
 
-async function loadProductMap(){
+async function loadProductMap(page=0, search=''){
+  pmPage=page; pmSearchQuery=search;
   const tbody=document.getElementById("pmTableBody");
   if(tbody) tbody.innerHTML=`<tr><td class="empty-td" colspan="6">Memuat...</td></tr>`;
   try {
     if(!allBMRows.length){const{data}=await sb.from("brand_master").select("id,name").order("name");allBMRows=(data||[]).map(mapBM);}
     if(!allIPRows.length){const{data}=await sb.from("ip_master").select("id,name").order("name");allIPRows=(data||[]).map(mapIP);}
     if(!allRRRows.length){const{data}=await sb.from("royalty_recipients").select("id,nama").order("nama");allRRRows=(data||[]).map(mapRR);}
-    const [{data:recentData,error:recentErr},{count:totalCount}]=await Promise.all([
-      sb.from("product_mappings").select("*").order("jubelio_item_id",{ascending:false}).limit(50),
+    const from=page*PM_PAGE_SIZE, to=from+PM_PAGE_SIZE-1;
+    const applyFilter=q=>search
+      ? q.ilike("item_name",`%${search}%`)
+      : q.is("ip_master_id",null).is("royalty_recipient_id",null).is("collection",null);
+    const [
+      {data:rows,count:filteredCount,error:rowsErr},
+      {count:totalCount},
+      {count:unmappedCount}
+    ]=await Promise.all([
+      applyFilter(sb.from("product_mappings").select("*",{count:"exact"}))
+        .order("jubelio_item_id",{ascending:false}).range(from,to),
+      sb.from("product_mappings").select("*",{count:"exact",head:true}),
       sb.from("product_mappings").select("*",{count:"exact",head:true})
+        .is("ip_master_id",null).is("royalty_recipient_id",null).is("collection",null)
     ]);
-    if(recentErr) throw recentErr;
-    allPMRows=(recentData||[]).map(mapPM);
+    if(rowsErr) throw rowsErr;
+    allPMRows=(rows||[]).map(mapPM);
     const pmByName={};allPMRows.forEach(r=>{pmByName[r.itemName]=r;});
     const uniqueNames=allPMRows.map(r=>r.itemName);
     document.getElementById("pm-s-total").textContent=totalCount||0;
-    document.getElementById("pm-s-mapped").textContent=uniqueNames.length;
-    document.getElementById("pm-s-unmapped").textContent=(totalCount||0)-uniqueNames.length;
+    document.getElementById("pm-s-mapped").textContent=(totalCount||0)-(unmappedCount||0);
+    document.getElementById("pm-s-unmapped").textContent=unmappedCount||0;
+    document.getElementById("pm-tcount").textContent=search
+      ? `${filteredCount||0} hasil untuk "${search}"`
+      : `${unmappedCount||0} belum mapped`;
     renderPMTable(uniqueNames,pmByName);
+    renderPMPagination(page,filteredCount||0);
   } catch(e){
     if(tbody) tbody.innerHTML=`<tr><td class="empty-td" colspan="6">Gagal: ${e.message||e}</td></tr>`;
   }
+}
+
+function renderPMPagination(page,total){
+  const el=document.getElementById("pm-pagination");
+  if(!el) return;
+  const totalPages=Math.ceil(total/PM_PAGE_SIZE);
+  if(totalPages<=1){el.innerHTML='';return;}
+  const esc=pmSearchQuery.replace(/'/g,"\\'");
+  el.innerHTML=`
+    <button class="btn-ghost" style="padding:4px 12px;font-size:12px" onclick="loadProductMap(${page-1},'${esc}')" ${page===0?'disabled':''}>← Prev</button>
+    <span style="font-size:12px;color:var(--g400);font-family:var(--mono)">${page+1} / ${totalPages}</span>
+    <button class="btn-ghost" style="padding:4px 12px;font-size:12px" onclick="loadProductMap(${page+1},'${esc}')" ${page>=totalPages-1?'disabled':''}>Next →</button>
+  `;
 }
 
 function renderPMTable(uniqueNames, pmByName){
