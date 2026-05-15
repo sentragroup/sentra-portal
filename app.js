@@ -2575,7 +2575,7 @@ async function loadProductMap(){
     if(!allIPRows.length){const{data}=await sb.from("ip_master").select("id,name").order("name");allIPRows=(data||[]).map(mapIP);}
     if(!allRRRows.length){const{data}=await sb.from("royalty_recipients").select("id,nama").order("nama");allRRRows=(data||[]).map(mapRR);}
     const [{data:recentData,error:recentErr},{count:totalCount}]=await Promise.all([
-      sb.from("product_mappings").select("*").order("first_seen_at",{ascending:false}).limit(50),
+      sb.from("product_mappings").select("*").order("jubelio_item_id",{ascending:false}).limit(50),
       sb.from("product_mappings").select("*",{count:"exact",head:true})
     ]);
     if(recentErr) throw recentErr;
