@@ -2636,14 +2636,17 @@ async function loadProductMap(page=0, search=''){
     }
     populatePMFilters();
     const from=page*PM_PAGE_SIZE, to=from+PM_PAGE_SIZE-1;
+    const isUnmapped=q=>q.eq("brand","SD&Y").is("ip",null).is("royalty_recipient",null).is("collection",null);
+    const isMapped=q=>q.or("brand.neq.SD&Y,ip.not.is.null,royalty_recipient.not.is.null,collection.not.is.null");
     const hasFilter=search||pmFilters.brand||pmFilters.ip||pmFilters.collection||pmFilters.mappingCount!=='';
     const applyFilter=q=>{
-      if(!hasFilter) return q.eq("mapping_count",0);
+      if(!hasFilter) return isUnmapped(q);
       if(search) q=q.ilike("item_name",`%${search}%`);
       if(pmFilters.brand) q=q.eq("brand",pmFilters.brand);
       if(pmFilters.ip) q=q.eq("ip",pmFilters.ip);
       if(pmFilters.collection) q=q.eq("collection",pmFilters.collection);
-      if(pmFilters.mappingCount!=='') q=q.eq("mapping_count",parseInt(pmFilters.mappingCount));
+      if(pmFilters.mappingCount==='unmapped') q=isUnmapped(q);
+      if(pmFilters.mappingCount==='mapped') q=isMapped(q);
       return q;
     };
     const [
@@ -2654,7 +2657,7 @@ async function loadProductMap(page=0, search=''){
       applyFilter(sb.from("product_mappings").select("*",{count:"exact"}))
         .order(pmSort.col,{ascending:pmSort.dir==='asc'}).range(from,to),
       sb.from("product_mappings").select("*",{count:"exact",head:true}),
-      sb.from("product_mappings").select("*",{count:"exact",head:true}).eq("mapping_count",0)
+      isUnmapped(sb.from("product_mappings").select("*",{count:"exact",head:true}))
     ]);
     if(rowsErr) throw rowsErr;
     allPMRows=(rows||[]).map(mapPM);
@@ -2761,7 +2764,7 @@ async function savePMField(itemName, field, value){
       ?'<span class="pill p-active" style="font-size:10px">Mapped</span>'
       :'<span style="color:var(--g400);font-size:11px">—</span>';
     // Refresh unmapped count
-    const{count:uc}=await sb.from("product_mappings").select("*",{count:"exact",head:true}).eq("mapping_count",0);
+    const{count:uc}=await isUnmapped(sb.from("product_mappings").select("*",{count:"exact",head:true}));
     const tot=parseInt(document.getElementById("pm-s-total").textContent)||0;
     document.getElementById("pm-s-mapped").textContent=tot-(uc||0);
     document.getElementById("pm-s-unmapped").textContent=uc||0;
