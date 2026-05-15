@@ -2578,7 +2578,7 @@ async function refreshCPLinks(){
       poToCollections[lnk.purchaseorder_id].push(col.collectionName);
     }
     if(!colToPos[lnk.collection_id]) colToPos[lnk.collection_id]=[];
-    colToPos[lnk.collection_id].push({linkId:lnk.id, poId:lnk.purchaseorder_id, po});
+    colToPos[lnk.collection_id].push({linkId:lnk.id, poId:lnk.purchaseorder_id, expectedDate:lnk.expected_date||"", po});
   });
 }
 
@@ -3103,10 +3103,19 @@ async function loadCollections() {
     allColItems=(ciData||[]).map(mapCI);
     allColStages=(csData||[]).map(mapCS);
     if(results[4]?.data) allDsgRows=results[4].data.map(mapDsg);
-    // Ensure PO data available for the link dropdown
-    if(!allPORows.length){
-      const{data:poData}=await sb.from("jubelio_purchase_orders").select("*").order("transaction_date",{ascending:false});
-      allPORows=(poData||[]).map(mapPO);
+    // Ensure PO data available for the link dropdown + production cards
+    const poFetches=[];
+    if(!allPORows.length) poFetches.push(sb.from("jubelio_purchase_orders").select("*").order("transaction_date",{ascending:false}));
+    if(!allPOItems.length) poFetches.push(sb.from("jubelio_purchase_order_items").select("*"));
+    if(!allPOBills.length) poFetches.push(sb.from("jubelio_purchase_bills").select("*"));
+    if(!allPOBillItems.length) poFetches.push(sb.from("jubelio_purchase_bill_items").select("*"));
+    if(poFetches.length){
+      const poResults=await Promise.all(poFetches);
+      let pi=0;
+      if(!allPORows.length&&poFetches[pi]) { allPORows=(poResults[pi]?.data||[]).map(mapPO); pi++; }
+      if(!allPOItems.length&&poFetches[pi]) { allPOItems=(poResults[pi]?.data||[]).map(mapPOItem); pi++; }
+      if(!allPOBills.length&&poFetches[pi]) { allPOBills=poResults[pi]?.data||[]; pi++; }
+      if(!allPOBillItems.length&&poFetches[pi]) { allPOBillItems=poResults[pi]?.data||[]; }
     }
     setupAC("col-ip","ac-col-ip",()=>allIPRows.map(r=>r.name).filter(Boolean));
     setupAC("col-pic","ac-col-pic",()=>[...new Set(allColRows.map(r=>r.pic).filter(Boolean))]);
@@ -3444,20 +3453,8 @@ function renderColDetail(col, items) {
       </tr>`).join("")}</tbody>
     </table>`:`<div style="color:var(--g400);font-size:12px">Belum ada SKU.</div>`;
 
-  // ── Production rows ──
-  const productionContent=items.length?`
-    <table style="width:100%">
-      <thead><tr style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">
-        <th style="padding:6px 10px;text-align:left">SKU</th>
-        <th style="padding:6px 10px;text-align:left">Status</th>
-        <th style="padding:6px 10px;text-align:left">Notes</th>
-      </tr></thead>
-      <tbody>${items.map(i=>`<tr style="border-top:1px solid var(--g100)">
-        <td style="padding:8px 10px"><strong style="font-size:13px">${i.skuName}</strong>${i.category?` <span class="pill p-signings" style="font-size:9px">${i.category}</span>`:""}</td>
-        <td style="padding:8px 10px">${cdSkuStatusSelect(i.id,col.id,"production",i.productionStatus)}</td>
-        <td style="padding:8px 10px"><input type="text" value="${(i.productionNotes||"").replace(/"/g,"&quot;")}" placeholder="Notes..." style="font-size:11px;padding:3px 8px;border:1px solid var(--g100);border-radius:4px;width:100%;min-width:140px" onblur="saveSkuStageNote('${i.id}','${col.id}','production',this.value)"></td>
-      </tr>`).join("")}</tbody>
-    </table>`:`<div style="color:var(--g400);font-size:12px">Belum ada SKU.</div>`;
+  // ── Production: PO cards ──
+  const productionContent=renderColPOCards(col.id);
 
   // ── Marketing sub-boxes ──
   const mktSubBox=(stage)=>{
@@ -3555,18 +3552,9 @@ function renderColDetail(col, items) {
         <!-- Sampling -->
         ${cdStageBox("🧵","Sampling",cdStageBadge(items.length?items.every(i=>i.samplingStatus==="Done")?"Done":items.some(i=>i.samplingStatus!=="Not Started")?"In Progress":"Not Started":"Not Started",`col-sampling-badge-${col.id}`),samplingContent)}
         <!-- Production -->
-        ${cdStageBox("🏭","Production",cdStageBadge(items.length?items.every(i=>i.productionStatus==="Done")?"Done":items.some(i=>i.productionStatus!=="Not Started")?"In Progress":"Not Started":"Not Started",`col-production-badge-${col.id}`),`
-          ${productionContent}
-          <div style="margin-top:14px;border-top:1px solid var(--g100);padding-top:14px">
-            <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:10px">Purchase Orders Terkait</div>
-            <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
-              <select id="col-po-select-${col.id}" style="font-size:12px;padding:4px 8px;border:1px solid var(--g100);border-radius:4px;flex:1;max-width:320px;background:var(--white)">
-                <option value="">Pilih PO...</option>
-                ${allPORows.map(p=>`<option value="${p.id}">${p.purchaseorderNo} — ${p.supplierName||"—"} (${p.status})</option>`).join("")}
-              </select>
-              <button class="btn-primary" style="padding:5px 14px;font-size:12px" onclick="handleAddCPLink('${col.id}')">+ Tambah</button>
-            </div>
-            <div id="col-po-chips-${col.id}">${renderColPOChips(col.id)}</div>
+        ${cdStageBox("🏭","Production",cdStageBadge((colToPos[col.id]||[]).length?"In Progress":"Not Started",`col-production-badge-${col.id}`),`
+          <div id="col-production-body-${col.id}">
+            ${productionContent}
           </div>`)}
         <!-- Inbound -->
         ${cdStageBox("📦","Inbound",cdStageBadge(inboundS.status,`col-inbound-badge-${col.id}`),`
@@ -3624,6 +3612,111 @@ function renderColDetail(col, items) {
   setupNoteAC(col.id);
 }
 
+function renderColPOCards(colId) {
+  const links=colToPos[colId]||[];
+  const addRow=`
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+      <select id="col-po-select-${colId}" style="font-size:12px;padding:4px 8px;border:1px solid var(--g100);border-radius:4px;flex:1;max-width:340px;background:var(--white)">
+        <option value="">+ Link PO...</option>
+        ${allPORows.map(p=>`<option value="${p.id}">${p.purchaseorderNo} — ${p.supplierName||"—"} (${p.status})</option>`).join("")}
+      </select>
+      <button class="btn-primary" style="padding:5px 14px;font-size:12px" onclick="handleAddCPLink('${colId}')">Tambah</button>
+    </div>`;
+  if(!links.length) return addRow+`<div style="color:var(--g400);font-size:12px">Belum ada PO terkait.</div>`;
+
+  const cards=links.map(({linkId,poId,expectedDate,po})=>{
+    const r=po||allPORows.find(p=>p.id===poId)||{};
+    const poItems=allPOItems.filter(i=>i.purchaseorderId===poId);
+    const bills=allPOBills.filter(b=>b.purchaseorder_id===poId);
+    // received qty per detail id
+    const rcvdMap={};
+    bills.forEach(b=>allPOBillItems.filter(i=>i.bill_id===b.bill_id).forEach(i=>{
+      rcvdMap[i.purchaseorder_detail_id]=(rcvdMap[i.purchaseorder_detail_id]||0)+(Number(i.qty)||0);
+    }));
+    const totalPO=poItems.reduce((s,i)=>s+(i.qty||0),0);
+    const totalRcvd=Object.values(rcvdMap).reduce((s,v)=>s+v,0);
+    // actual received date = earliest bill transaction_date
+    const actualDate=bills.length?bills.map(b=>b.transaction_date).sort()[0]:null;
+    // status pills
+    const stC=r.status==="ACTIVE"?"p-signings":r.status==="COMPLETED"?"p-active":r.status==="CANCELLED"?"p-inactive":"p-draft";
+    const rcvLabel=bills.length===0?"Belum Diterima":totalRcvd>=totalPO?"Lunas":"Sebagian";
+    const rcvC=bills.length===0?"p-draft":totalRcvd>=totalPO?"p-active":"p-review";
+    const dt=r.transactionDate?new Date(r.transactionDate).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"—";
+    // item rows
+    const itemRows=poItems.map(it=>{
+      const rcvd=rcvdMap[it.id]||0;
+      const rcvdClr=rcvd===0?"var(--g400)":rcvd>=it.qty?"#2d8a4e":"#c0700a";
+      return `<tr style="border-top:1px solid var(--g100)">
+        <td style="padding:5px 8px;font-family:var(--mono);font-size:10px;color:var(--g400)">${it.itemCode||"—"}</td>
+        <td style="padding:5px 8px;font-size:12px">${it.itemName||"—"}</td>
+        <td style="padding:5px 8px;font-size:12px;text-align:right">${it.qty!=null?Number(it.qty).toLocaleString("id-ID"):"—"}</td>
+        <td style="padding:5px 8px;font-size:12px;text-align:right;font-weight:600;color:${rcvdClr}">${rcvd?rcvd.toLocaleString("id-ID"):"—"}</td>
+        <td style="padding:5px 8px;font-size:11px;color:var(--g400)">${it.unit||""}</td>
+      </tr>`;
+    }).join("");
+    return `
+    <div style="border:1px solid var(--g100);border-radius:8px;margin-bottom:10px;overflow:hidden">
+      <!-- PO Header -->
+      <div style="padding:10px 14px;background:var(--off);display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span style="cursor:pointer;color:var(--g400);font-size:12px;user-select:none" onclick="toggleCPItems('${linkId}')" id="cpl-toggle-${linkId}">${poItems.length?"▶":""}</span>
+        <a href="https://v2.jubelio.com/purchase/orders/detail/${poId}" target="_blank" style="font-family:var(--mono);font-size:13px;color:#3C3489;text-decoration:none;font-weight:700">${r.purchaseorderNo||poId}</a>
+        <span style="font-size:12px;color:var(--g600)">${r.supplierName||"—"}</span>
+        <span style="font-size:11px;color:var(--g400)">${dt}</span>
+        <span class="pill ${stC}" style="font-size:10px">${r.status||"—"}</span>
+        <span class="pill ${rcvC}" style="font-size:10px">${rcvLabel}</span>
+        <span style="font-size:11px;color:var(--g600)">${totalRcvd.toLocaleString("id-ID")} / ${totalPO.toLocaleString("id-ID")} pcs</span>
+        <button onclick="handleRemoveCPLink('${linkId}','${colId}')" style="margin-left:auto;background:none;border:none;cursor:pointer;color:var(--g400);font-size:15px;padding:0 2px;line-height:1" title="Hapus PO">×</button>
+      </div>
+      <!-- Expected / Actual dates -->
+      <div style="padding:10px 14px;display:flex;gap:24px;align-items:center;border-bottom:1px solid var(--g100);flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">Expected</span>
+          <input type="date" value="${expectedDate||""}" style="font-size:12px;padding:3px 8px;border:1px solid var(--g100);border-radius:4px;background:var(--white)"
+            onchange="saveCPLExpectedDate('${linkId}','${colId}',this.value)">
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">Actual</span>
+          <span style="font-size:12px;font-weight:600;color:${actualDate?"#1a5c25":"var(--g400)"}">
+            ${actualDate?new Date(actualDate).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"Belum ada data"}
+          </span>
+        </div>
+      </div>
+      <!-- Items (collapsible) -->
+      <div id="cpl-items-${linkId}" style="display:none">
+        ${poItems.length?`<table style="width:100%;border-collapse:collapse">
+          <thead><tr style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">
+            <th style="padding:5px 8px;text-align:left">Kode</th>
+            <th style="padding:5px 8px;text-align:left">Item</th>
+            <th style="padding:5px 8px;text-align:right">PO Qty</th>
+            <th style="padding:5px 8px;text-align:right">Diterima</th>
+            <th style="padding:5px 8px;text-align:left">Satuan</th>
+          </tr></thead>
+          <tbody>${itemRows}</tbody>
+        </table>`:`<div style="padding:10px 14px;color:var(--g400);font-size:12px">Tidak ada items.</div>`}
+      </div>
+    </div>`;
+  }).join("");
+  return addRow+cards;
+}
+
+function toggleCPItems(linkId){
+  const el=document.getElementById(`cpl-items-${linkId}`);
+  const tog=document.getElementById(`cpl-toggle-${linkId}`);
+  if(!el) return;
+  const open=el.style.display==="table"||el.style.display==="block";
+  el.style.display=open?"none":"block";
+  if(tog) tog.textContent=open?"▶":"▼";
+}
+
+async function saveCPLExpectedDate(linkId, colId, date){
+  await sb.from("collection_po_links").update({expected_date:date||null}).eq("id",linkId);
+  // update local cache
+  const lnk=allCPLinks.find(l=>l.id===linkId);
+  if(lnk) lnk.expected_date=date||null;
+  const entry=(colToPos[colId]||[]).find(l=>l.linkId===linkId);
+  if(entry) entry.expectedDate=date||"";
+}
+
 function renderColPOChips(colId) {
   const links=colToPos[colId]||[];
   if(!links.length) return `<span style="color:var(--g400);font-size:12px">Belum ada PO terkait.</span>`;
@@ -3658,14 +3751,19 @@ function renderColPOLinks(colId){
   if(el) el.innerHTML=renderColPOChips(colId);
 }
 
+function refreshProductionBody(colId){
+  const el=document.getElementById(`col-production-body-${colId}`);
+  if(el) el.innerHTML=renderColPOCards(colId);
+}
+
 async function handleAddCPLink(colId){
   const sel=document.getElementById(`col-po-select-${colId}`);
   if(!sel||!sel.value){alert("Pilih PO dulu.");return;}
   try{
     await addCPLink(colId, sel.value);
     sel.value="";
-    renderColPOLinks(colId);
-    renderPOTable(allPORows); // refresh badges in PO table
+    refreshProductionBody(colId);
+    renderPOTable(allPORows);
   }catch(e){alert("Gagal: "+(e.message||e));}
 }
 
@@ -3673,6 +3771,7 @@ async function handleRemoveCPLink(linkId, colId){
   if(!confirm("Hapus link PO ini?")) return;
   try{
     await removeCPLink(linkId, colId);
+    refreshProductionBody(colId);
     renderPOTable(allPORows);
   }catch(e){alert("Gagal: "+(e.message||e));}
 }
