@@ -2375,7 +2375,7 @@ function renderMekariTable(rows) {
 }
 
 // ── PURCHASE ORDERS ──
-let allPORows=[], allPOItems=[];
+let allPORows=[], allPOItems=[], allPOBills=[], allPOBillItems=[];
 let poSort={col:null,dir:'asc'};
 let _poSyncCooldown=0;
 function sortPOBy(c){poSort.dir=poSort.col===c?(poSort.dir==='asc'?'desc':'asc'):'asc';poSort.col=c;applyPOFilters();}
@@ -2406,15 +2406,19 @@ function mapPOItem(r){
 
 async function loadPO(){
   const tbody=document.getElementById("poTableBody");
-  if(tbody) tbody.innerHTML=`<tr><td class="empty-td" colspan="11">Memuat...</td></tr>`;
+  if(tbody) tbody.innerHTML=`<tr><td class="empty-td" colspan="12">Memuat...</td></tr>`;
   try {
-    const [{data:poData,error:poErr},{data:itemData}]=await Promise.all([
+    const [{data:poData,error:poErr},{data:itemData},{data:billData},{data:billItemData}]=await Promise.all([
       sb.from("jubelio_purchase_orders").select("*").order("transaction_date",{ascending:false}),
-      sb.from("jubelio_purchase_order_items").select("*").order("purchaseorder_detail_id",{ascending:true})
+      sb.from("jubelio_purchase_order_items").select("*").order("purchaseorder_detail_id",{ascending:true}),
+      sb.from("jubelio_purchase_bills").select("*"),
+      sb.from("jubelio_purchase_bill_items").select("*")
     ]);
     if(poErr) throw poErr;
     allPORows=(poData||[]).map(mapPO);
     allPOItems=(itemData||[]).map(mapPOItem);
+    allPOBills=(billData||[]);
+    allPOBillItems=(billItemData||[]);
     // attach totalQty to each PO row for sorting
     const qtyByPO={};
     allPOItems.forEach(i=>{qtyByPO[i.purchaseorderId]=(qtyByPO[i.purchaseorderId]||0)+(i.qty||0);});
@@ -2468,13 +2472,31 @@ function renderPOTable(rows){
   updateSortTh("po-thead",poSort.col,poSort.dir);
   const tbody=document.getElementById("poTableBody");
   document.getElementById("po-tcount").textContent=rows.length+" entri";
-  if(!rows.length){tbody.innerHTML=`<tr><td class="empty-td" colspan="11">Tidak ada data.</td></tr>`;return;}
+  if(!rows.length){tbody.innerHTML=`<tr><td class="empty-td" colspan="12">Tidak ada data.</td></tr>`;return;}
   const sPill=s=>{
     const c=s==="ACTIVE"?"p-signings":s==="COMPLETED"?"p-active":s==="CANCELLED"?"p-inactive":"p-draft";
     return `<span class="pill ${c}" style="font-size:11px">${s||"—"}</span>`;
   };
+  const rPill=s=>{
+    if(s==="Lunas") return `<span class="pill p-active" style="font-size:11px">Lunas</span>`;
+    if(s==="Sebagian") return `<span class="pill p-review" style="font-size:11px">Sebagian</span>`;
+    return `<span class="pill p-draft" style="font-size:11px">Belum</span>`;
+  };
   tbody.innerHTML=rows.flatMap(r=>{
     const items=allPOItems.filter(i=>i.purchaseorderId===r.id);
+    const bills=allPOBills.filter(b=>b.purchaseorder_id===r.id);
+    // received qty per item (sum across all bills for this PO)
+    const rcvdByDetailId={};
+    bills.forEach(b=>{
+      allPOBillItems.filter(bi=>bi.bill_id===b.bill_id).forEach(bi=>{
+        const key=bi.purchaseorder_detail_id;
+        rcvdByDetailId[key]=(rcvdByDetailId[key]||0)+(Number(bi.qty)||0);
+      });
+    });
+    // receive status
+    const totalPOQty=items.reduce((s,it)=>s+(it.qty||0),0);
+    const totalRcvd=Object.values(rcvdByDetailId).reduce((s,v)=>s+v,0);
+    const rcvStatus=bills.length===0?"Belum":totalRcvd>=totalPOQty?"Lunas":"Sebagian";
     const gt=r.grandTotal!=null?`Rp ${Math.round(r.grandTotal).toLocaleString("id-ID")}`:"—";
     const dt=r.transactionDate?new Date(r.transactionDate).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"—";
     const hasItems=items.length>0;
@@ -2484,6 +2506,7 @@ function renderPOTable(rows){
       <td><a href="https://v2.jubelio.com/purchase/orders/detail/${r.id}" target="_blank" style="font-family:var(--mono);font-size:12px;color:#3C3489;text-decoration:none">${r.purchaseorderNo||r.id}</a></td>
       <td style="font-size:13px">${r.supplierName||"—"}</td>
       <td>${sPill(r.status)}</td>
+      <td>${rPill(rcvStatus)}</td>
       <td style="white-space:nowrap;font-size:12px">${dt}</td>
       <td style="font-size:12px">${r.locationName||"—"}</td>
       <td style="white-space:nowrap;font-size:12px;font-weight:600">${gt}</td>
@@ -2494,24 +2517,29 @@ function renderPOTable(rows){
     </tr>`;
     const detail=`<tr id="po-items-${r.id}" style="display:none;background:var(--off)">
       <td></td>
-      <td colspan="10" style="padding:8px 12px 14px">
+      <td colspan="11" style="padding:8px 12px 14px">
         <table style="width:100%;font-size:11px;border-collapse:collapse">
           <thead><tr style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">
             <th style="padding:4px 8px;text-align:left">Item Code</th>
             <th style="padding:4px 8px;text-align:left">Nama</th>
-            <th style="padding:4px 8px;text-align:right">Qty</th>
+            <th style="padding:4px 8px;text-align:right">PO Qty</th>
+            <th style="padding:4px 8px;text-align:right">Diterima</th>
             <th style="padding:4px 8px;text-align:left">Satuan</th>
             <th style="padding:4px 8px;text-align:right">Harga Satuan</th>
             <th style="padding:4px 8px;text-align:right">Total</th>
           </tr></thead>
-          <tbody>${items.map(it=>`<tr style="border-top:1px solid var(--g100)">
+          <tbody>${items.map(it=>{
+            const rcvd=rcvdByDetailId[it.id]||0;
+            const rcvdColor=rcvd===0?"color:var(--g400)":rcvd>=it.qty?"color:#2d8a4e":"color:#c0700a";
+            return `<tr style="border-top:1px solid var(--g100)">
             <td style="padding:4px 8px;font-family:var(--mono);font-size:10px">${it.itemCode||"—"}</td>
             <td style="padding:4px 8px">${it.itemName||"—"}</td>
             <td style="padding:4px 8px;text-align:right">${it.qty!=null?Number(it.qty).toLocaleString("id-ID"):"—"}</td>
+            <td style="padding:4px 8px;text-align:right;font-weight:600;${rcvdColor}">${rcvd?rcvd.toLocaleString("id-ID"):"—"}</td>
             <td style="padding:4px 8px">${it.unit||"—"}</td>
             <td style="padding:4px 8px;text-align:right">${it.price!=null?"Rp "+Math.round(it.price).toLocaleString("id-ID"):"—"}</td>
             <td style="padding:4px 8px;text-align:right;font-weight:600">${it.amount!=null?"Rp "+Math.round(it.amount).toLocaleString("id-ID"):"—"}</td>
-          </tr>`).join("")}
+          </tr>`;}).join("")}
           </tbody>
         </table>
       </td>
