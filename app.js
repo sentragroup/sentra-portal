@@ -2636,8 +2636,8 @@ async function loadProductMap(page=0, search=''){
     }
     populatePMFilters();
     const from=page*PM_PAGE_SIZE, to=from+PM_PAGE_SIZE-1;
-    const isUnmapped=q=>q.is("ip",null).is("royalty_recipient",null).is("collection",null);
-    const isMapped=q=>q.or("ip.not.is.null,royalty_recipient.not.is.null,collection.not.is.null");
+    const isUnmapped=q=>q.is("brand",null).is("ip",null).is("royalty_recipient",null).is("collection",null);
+    const isMapped=q=>q.or("brand.not.is.null,ip.not.is.null,royalty_recipient.not.is.null,collection.not.is.null");
     const hasFilter=search||pmFilters.brand||pmFilters.ip||pmFilters.collection||pmFilters.mappingCount!=='';
     const applyFilter=q=>{
       if(!hasFilter) return isUnmapped(q);
@@ -2760,11 +2760,11 @@ async function savePMField(itemName, field, value){
     const safeId=btoa(unescape(encodeURIComponent(itemName))).replace(/[^a-zA-Z0-9]/g,'');
     const cell=document.getElementById(`pm-status-${safeId}`);
     const r=existing||{};
-    if(cell) cell.innerHTML=(r.ip||r.royaltyRecipient||r.collection)
+    if(cell) cell.innerHTML=(r.brand||r.ip||r.royaltyRecipient||r.collection)
       ?'<span class="pill p-active" style="font-size:10px">Mapped</span>'
       :'<span style="color:var(--g400);font-size:11px">—</span>';
     // Refresh unmapped count
-    const{count:uc}=await isUnmapped(sb.from("product_mappings").select("*",{count:"exact",head:true}));
+    const{count:uc}=await sb.from("product_mappings").select("*",{count:"exact",head:true}).is("brand",null).is("ip",null).is("royalty_recipient",null).is("collection",null);
     const tot=parseInt(document.getElementById("pm-s-total").textContent)||0;
     document.getElementById("pm-s-mapped").textContent=tot-(uc||0);
     document.getElementById("pm-s-unmapped").textContent=uc||0;
