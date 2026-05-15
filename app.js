@@ -2724,7 +2724,7 @@ function renderPMTable(uniqueNames, pmByName){
       <td style="padding:6px 8px;min-width:130px">${sel(rrOpts,m.royaltyRecipient,"royalty_recipient")}</td>
       <td style="padding:6px 8px;min-width:150px"><input type="text" list="pm-col-datalist" value="${(m.collection||"").replace(/"/g,"&quot;")}" placeholder="Pilih atau ketik baru..." style="font-size:11px;padding:3px 8px;border:1px solid var(--g100);border-radius:4px;width:100%;box-sizing:border-box" onblur="savePMField('${esc}','collection',this.value)" onkeydown="if(event.key==='Enter')this.blur()"></td>
       <td style="padding:6px 8px;text-align:center" id="pm-status-${safeId}">
-        ${m.ip||m.royaltyRecipient||m.collection?'<span class="pill p-active" style="font-size:10px">Mapped</span>':'<span style="color:var(--g400);font-size:11px">—</span>'}
+        ${m.brand||m.ip||m.royaltyRecipient||m.collection?'<span class="pill p-active" style="font-size:10px">Mapped</span>':'<span style="color:var(--g400);font-size:11px">—</span>'}
       </td>
     </tr>`;
   }).join("");
