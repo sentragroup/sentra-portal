@@ -3103,6 +3103,11 @@ async function loadCollections() {
     allColItems=(ciData||[]).map(mapCI);
     allColStages=(csData||[]).map(mapCS);
     if(results[4]?.data) allDsgRows=results[4].data.map(mapDsg);
+    // Ensure PO data available for the link dropdown
+    if(!allPORows.length){
+      const{data:poData}=await sb.from("jubelio_purchase_orders").select("*").order("transaction_date",{ascending:false});
+      allPORows=(poData||[]).map(mapPO);
+    }
     setupAC("col-ip","ac-col-ip",()=>allIPRows.map(r=>r.name).filter(Boolean));
     setupAC("col-pic","ac-col-pic",()=>[...new Set(allColRows.map(r=>r.pic).filter(Boolean))]);
     // Auto-create DW projects + stage placeholders for any collection missing them (background)
