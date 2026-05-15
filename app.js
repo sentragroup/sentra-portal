@@ -2571,32 +2571,24 @@ async function loadProductMap(){
   const tbody=document.getElementById("pmTableBody");
   if(tbody) tbody.innerHTML=`<tr><td class="empty-td" colspan="6">Memuat...</td></tr>`;
   try {
-    // Ensure master data loaded
     if(!allBMRows.length){const{data}=await sb.from("brand_master").select("id,name").order("name");allBMRows=(data||[]).map(mapBM);}
     if(!allIPRows.length){const{data}=await sb.from("ip_master").select("id,name").order("name");allIPRows=(data||[]).map(mapIP);}
     if(!allRRRows.length){const{data}=await sb.from("royalty_recipients").select("id,nama").order("nama");allRRRows=(data||[]).map(mapRR);}
-    const [{data:itemData},{data:pmData,error:pmErr}]=await Promise.all([
-      sb.rpc("get_jubelio_item_names"),
-      sb.from("product_mappings").select("*")
+    const [{data:recentData,error:recentErr},{count:totalCount}]=await Promise.all([
+      sb.from("product_mappings").select("*").order("first_seen_at",{ascending:false}).limit(50),
+      sb.from("product_mappings").select("*",{count:"exact",head:true})
     ]);
-    if(pmErr) throw pmErr;
-    // Deduplicate item names
-    const uniqueNames=[...new Set((itemData||[]).map(r=>r.item_name).filter(Boolean))].sort();
-    allPMRows=(pmData||[]).map(mapPM);
+    if(recentErr) throw recentErr;
+    allPMRows=(recentData||[]).map(mapPM);
     const pmByName={};allPMRows.forEach(r=>{pmByName[r.itemName]=r;});
-    renderPMStats(uniqueNames,allPMRows);
+    const uniqueNames=allPMRows.map(r=>r.itemName);
+    document.getElementById("pm-s-total").textContent=totalCount||0;
+    document.getElementById("pm-s-mapped").textContent=uniqueNames.length;
+    document.getElementById("pm-s-unmapped").textContent=(totalCount||0)-uniqueNames.length;
     renderPMTable(uniqueNames,pmByName);
   } catch(e){
     if(tbody) tbody.innerHTML=`<tr><td class="empty-td" colspan="6">Gagal: ${e.message||e}</td></tr>`;
   }
-}
-
-function renderPMStats(names,mapped){
-  const total=names.length;
-  const done=mapped.filter(r=>r.brand||r.ip||r.royaltyRecipient||r.collection).length;
-  document.getElementById("pm-s-total").textContent=total;
-  document.getElementById("pm-s-mapped").textContent=done;
-  document.getElementById("pm-s-unmapped").textContent=total-done;
 }
 
 function renderPMTable(uniqueNames, pmByName){
