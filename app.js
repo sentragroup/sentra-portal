@@ -138,7 +138,7 @@ function showPage(name, el) {
   document.querySelectorAll(".sb-item").forEach(i=>i.classList.remove("active"));
   document.getElementById("page-"+name).classList.add("active");
   if (el) el.classList.add("active");
-  const labels = {home:"Internal Tools",agreement:"Agreement Tracker",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Jubelio Offline Sales",mesign:"Inbound/Outbound Note",po:"Purchase Orders",productmap:"Product Mapping",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow"};
+  const labels = {home:"Internal Tools",agreement:"Agreement Tracker",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Jubelio Offline Sales",mesign:"Mekari Sign",po:"Purchase Orders",productmap:"Product Mapping",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   history.replaceState(null, "", name==="home" ? location.pathname : "#"+name);
   if (name==="agreement") loadStats();
@@ -1775,7 +1775,7 @@ function showPBSJInfo(sidId, hintId) {
   if (!hint) return;
   if (!sid) { hint.innerHTML=""; return; }
   const info = (window._mekariMap||{})[sid];
-  if (!info) { hint.innerHTML=`<span style="color:var(--g400);font-size:11px">Tidak ditemukan di Inbound/Outbound Note.</span>`; return; }
+  if (!info) { hint.innerHTML=`<span style="color:var(--g400);font-size:11px">Tidak ditemukan di Mekari Sign.</span>`; return; }
   const dt = info.email_date ? new Date(info.email_date).toLocaleString("id-ID",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}) : "—";
   hint.innerHTML=`<div style="background:var(--off);border:1px solid var(--g100);border-radius:6px;padding:8px 10px;margin-top:4px;font-size:12px;display:grid;gap:3px">
     <div style="display:grid;grid-template-columns:80px 1fr;gap:4px"><span style="color:var(--g400);font-family:var(--mono);font-size:10px">Subject</span><span>${(info.subject||"").replace(/</g,"&lt;")}</span></div>
@@ -1910,7 +1910,7 @@ function renderPBTable(rows) {
             <div class="fg"><label>Reinbound Qty</label><input type="number" id="pbe-reinboundqty-${r.rowIndex}" value="${r.reinboundQty!=null?r.reinboundQty:''}" min="0"></div>
             <div class="fg full"><label>Payment Method</label><div style="display:flex;gap:16px;flex-wrap:wrap;padding:8px 0"><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-jpos-${r.rowIndex}" ${(r.paymentMethod||"").includes("Jubelio POS")?"checked":""}> Jubelio POS</label><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-qris-${r.rowIndex}" ${(r.paymentMethod||"").includes("QRIS Xendit")?"checked":""}> QRIS Xendit</label><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-cons-${r.rowIndex}" ${(r.paymentMethod||"").includes("Consignment")?"checked":""}> Consignment</label></div></div>
             <div class="fg" style="position:relative"><label>Manpower</label><input type="text" id="pbe-manpower-${r.rowIndex}" value="${(r.manpower||'').replace(/"/g,'&quot;')}" placeholder="Ketik nama, pisahkan dengan koma" autocomplete="off"><div class="ac-list" id="ac-pbe-manpower-${r.rowIndex}"></div></div>
-            <div class="fg" style="position:relative"><label>Surat Jalan</label><input type="text" id="pbe-sj-${r.rowIndex}" value="${(r.suratJalanUrl||'').replace(/"/g,'&quot;')}" placeholder="Pilih dari Inbound/Outbound Note" autocomplete="off" oninput="showPBSJInfo('pbe-sj-${r.rowIndex}','pbe-sj-hint-${r.rowIndex}')"><div class="ac-list" id="ac-pbe-sj-${r.rowIndex}"></div><div id="pbe-sj-hint-${r.rowIndex}"></div></div>
+            <div class="fg" style="position:relative"><label>Surat Jalan</label><input type="text" id="pbe-sj-${r.rowIndex}" value="${(r.suratJalanUrl||'').replace(/"/g,'&quot;')}" placeholder="Pilih dari Mekari Sign" autocomplete="off" oninput="showPBSJInfo('pbe-sj-${r.rowIndex}','pbe-sj-hint-${r.rowIndex}')"><div class="ac-list" id="ac-pbe-sj-${r.rowIndex}"></div><div id="pbe-sj-hint-${r.rowIndex}"></div></div>
             <div class="fg" style="position:relative"><label>ID Pesanan Jubelio</label><input type="text" id="pbe-idpesanan-${r.rowIndex}" value="${(r.idPesananJubelio||'').replace(/"/g,'&quot;')}" placeholder="Pilih dari Jubelio Offline Sales" autocomplete="off" oninput="showPBJubelioInfo('pbe-idpesanan-${r.rowIndex}','pbe-jubelio-hint-${r.rowIndex}')"><div class="ac-list" id="ac-pbe-idpesanan-${r.rowIndex}"></div><div id="pbe-jubelio-hint-${r.rowIndex}"></div></div>
             <div class="fg full"><label>Notes</label><textarea id="pbe-notes-${r.rowIndex}" rows="2" style="resize:vertical">${(r.notes||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea></div>
           </div>
