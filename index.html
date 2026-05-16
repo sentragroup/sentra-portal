@@ -835,15 +835,20 @@
           <div class="filter-panel">
             <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="clearJubFilters()">✕ Reset</button></div>
             <div class="filter-grid">
-              <select class="f-select" id="jub-fil-location" onchange="applyJubFilters()">
+              <select class="f-select" id="jub-fil-location" onchange="loadJubSales()">
                 <option value="">Semua Gudang</option>
               </select>
+              <select class="f-select" id="jub-fil-status" onchange="loadJubSales()">
+                <option value="">Semua Status Transaksi</option>
+              </select>
+              <input class="f-select" type="date" id="jub-fil-from" onchange="loadJubSales()" title="Dari tanggal">
+              <input class="f-select" type="date" id="jub-fil-to" onchange="loadJubSales()" title="Sampai tanggal">
               <select class="f-select" id="jub-fil-mapped" onchange="applyJubFilters()">
-                <option value="">Semua Status</option>
+                <option value="">Semua Mapped Status</option>
                 <option value="mapped">Mapped</option>
                 <option value="unmapped">Unmapped</option>
               </select>
-              <input class="search-box" type="text" id="jubSearch" placeholder="Cari order ID, nama, gudang..." oninput="applyJubFilters()" style="width:100%">
+              <input class="search-box" type="text" id="jubSearch" placeholder="Cari order ID, nama..." oninput="applyJubFilters()" style="width:100%">
             </div>
           </div>
           <div class="table-toolbar">
@@ -928,14 +933,14 @@
       <div class="filter-panel">
         <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="clearPOFilters()">✕ Reset</button></div>
         <div class="filter-grid">
-          <select class="f-select" id="po-fil-status" onchange="applyPOFilters()">
+          <select class="f-select" id="po-fil-status" onchange="loadPO()">
             <option value="">Semua Status</option>
             <option>ACTIVE</option>
             <option>COMPLETED</option>
             <option>CANCELLED</option>
           </select>
-          <input class="f-select" type="date" id="po-fil-from" onchange="applyPOFilters()" title="Dari tanggal">
-          <input class="f-select" type="date" id="po-fil-to" onchange="applyPOFilters()" title="Sampai tanggal">
+          <input class="f-select" type="date" id="po-fil-from" onchange="loadPO()" title="Dari tanggal">
+          <input class="f-select" type="date" id="po-fil-to" onchange="loadPO()" title="Sampai tanggal">
           <input class="search-box" type="text" id="poSearch" placeholder="Cari PO No, supplier, lokasi, note..." oninput="applyPOFilters()" style="width:100%">
         </div>
       </div>
