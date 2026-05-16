@@ -2191,18 +2191,36 @@ function mapJub(r) {
   };
 }
 
-const JUB_ONLINE_LOCATION = "Gudang Bintaro"; // online warehouse — excluded by default
+// Gudang yang di-exclude dari "offline sales" (online & event warehouse)
+const JUB_EXCLUDE_LOCATIONS = ["Gudang Bintaro","Gudang Marte"];
 
 async function loadJubSales() {
   const tbody = document.getElementById("jubTableBody");
   tbody.innerHTML = `<tr><td class="empty-td" colspan="7">Memuat...</td></tr>`;
   try {
-    const [{data:jubData,error:jubErr},{data:pbData}] = await Promise.all([
-      sb.from("jubelio_sales_orders").select("salesorder_id,salesorder_no,shipping_full_name,transaction_date,internal_status,grand_total,location_name,note").order("transaction_date",{ascending:false}),
+    // Fetch semua halaman (pagination 1000/page) + popup_booths paralel
+    const [jubRows, {data:pbData}] = await Promise.all([
+      (async()=>{
+        const PAGE = 1000;
+        const cols = "salesorder_id,salesorder_no,shipping_full_name,transaction_date,internal_status,grand_total,location_name,note";
+        const excl = `(${JUB_EXCLUDE_LOCATIONS.map(l=>`"${l}"`).join(",")})`;
+        let all=[], from=0;
+        while(true){
+          const {data,error} = await sb.from("jubelio_sales_orders")
+            .select(cols)
+            .not("location_name","in",excl)
+            .order("transaction_date",{ascending:false})
+            .range(from, from+PAGE-1);
+          if(error) throw error;
+          all = all.concat(data||[]);
+          if(!data||data.length<PAGE) break;
+          from += PAGE;
+        }
+        return all;
+      })(),
       sb.from("popup_booths").select("id_pesanan_jubelio,event_name")
     ]);
-    if (jubErr) throw jubErr;
-    allJubRows = (jubData||[]).map(mapJub);
+    allJubRows = jubRows.map(mapJub);
     // Build map: salesorder_id → event_name
     window._jubMappedToMap = {};
     (pbData||[]).forEach(r=>{
@@ -2215,9 +2233,7 @@ async function loadJubSales() {
     if (locSel) {
       const prev = locSel.value;
       const locs = [...new Set(allJubRows.map(r=>r.locationName).filter(Boolean))].sort();
-      locSel.innerHTML =
-        `<option value="">Semua Gudang</option>`
-        +`<option value="!${JUB_ONLINE_LOCATION}"${prev==="!"+JUB_ONLINE_LOCATION||!prev?" selected":""}>≠ ${JUB_ONLINE_LOCATION}</option>`
+      locSel.innerHTML = `<option value="">Semua Gudang</option>`
         + locs.map(l=>`<option value="${l}"${l===prev?" selected":""}>${l}</option>`).join("");
     }
     renderJubStats(allJubRows);
@@ -2251,8 +2267,7 @@ function applyJubFilters() {
   let rows = allJubRows;
   if (mapFil==="mapped") rows = rows.filter(r=>getJubMappedTo(r)!==null);
   else if (mapFil==="unmapped") rows = rows.filter(r=>getJubMappedTo(r)===null);
-  if (locFil.startsWith("!")) rows = rows.filter(r=>r.locationName!==locFil.slice(1));
-  else if (locFil) rows = rows.filter(r=>r.locationName===locFil);
+  if (locFil) rows = rows.filter(r=>r.locationName===locFil);
   if (q) rows = rows.filter(r=>(r.salesorderId||"").toLowerCase().includes(q)||(r.shippingFullName||"").toLowerCase().includes(q)||(r.internalStatus||"").toLowerCase().includes(q)||(r.locationName||"").toLowerCase().includes(q));
   renderJubStats(rows);
   renderJubTable(rows);
