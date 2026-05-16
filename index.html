@@ -114,6 +114,9 @@
         <div class="sb-item" onclick="showPage('po',this)" id="nav-po">
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="12" rx="1"/><path d="M5 5h6M5 8h6M5 11h3"/><circle cx="12" cy="11" r="2.5" fill="currentColor" stroke="none" opacity=".3"/><path d="M11 11h2M12 10v2"/></svg>Purchase Orders
         </div>
+        <div class="sb-item" onclick="showPage('stockmovement',this)" id="nav-stockmovement">
+          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 8h3l2-5 3 10 2-5h2"/></svg>Stock Movement
+        </div>
         <div class="sb-item" onclick="showPage('activitylog',this)" id="nav-activitylog">
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="12" rx="2"/><line x1="5" y1="6" x2="11" y2="6"/><line x1="5" y1="9" x2="11" y2="9"/><line x1="5" y1="12" x2="8" y2="12"/></svg>Activity Log
         </div>
@@ -1259,6 +1262,59 @@
             <tbody id="dsgTableBody"><tr><td class="empty-td" colspan="7">Klik "Semua" untuk memuat data.</td></tr></tbody>
           </table>
         </div>
+      </div>
+    </div>
+
+    <!-- STOCK MOVEMENT -->
+    <div class="page" id="page-stockmovement">
+      <div class="page-header">
+        <div><div class="page-title">Stock Movement</div><div class="page-sub">Alur barang dari PO → penerimaan → putaway → stok, sales, dan adjustment per item.</div></div>
+      </div>
+      <div class="stats-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:1.25rem">
+        <div class="stat-card"><div class="stat-num" id="sm-s-total">—</div><div class="stat-lbl">Total PO</div></div>
+        <div class="stat-card"><div class="stat-num" id="sm-s-putaway">—</div><div class="stat-lbl">Sudah Putaway</div></div>
+        <div class="stat-card"><div class="stat-num" id="sm-s-rcvd">—</div><div class="stat-lbl">Total Diterima</div></div>
+        <div class="stat-card"><div class="stat-num" id="sm-s-sales">—</div><div class="stat-lbl">Total Sales Qty</div></div>
+        <div class="stat-card"><div class="stat-num" id="sm-s-adj">—</div><div class="stat-lbl">Total Adjustment</div></div>
+      </div>
+      <div class="filter-panel">
+        <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="clearSmFilters()">✕ Reset</button></div>
+        <div class="filter-grid">
+          <select class="f-select" id="sm-fil-status" onchange="loadStockMovement()">
+            <option value="">Semua Status PO</option>
+            <option>ACTIVE</option><option>COMPLETED</option><option>CANCELLED</option>
+          </select>
+          <select class="f-select" id="sm-fil-putaway" onchange="applySmFilters()">
+            <option value="">Semua Putaway</option>
+            <option value="yes">Sudah Putaway</option>
+            <option value="no">Belum Putaway</option>
+          </select>
+          <input class="f-select" type="date" id="sm-fil-from" onchange="loadStockMovement()" title="Dari tanggal PO">
+          <input class="f-select" type="date" id="sm-fil-to" onchange="loadStockMovement()" title="Sampai tanggal PO">
+          <input class="search-box" type="text" id="smSearch" placeholder="Cari PO No, supplier, item..." oninput="applySmFilters()" style="width:100%">
+        </div>
+      </div>
+      <div class="table-toolbar">
+        <button class="btn-refresh" onclick="loadStockMovement()">↻ Refresh</button>
+        <div class="tcount" id="sm-tcount">— entri</div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead id="sm-thead">
+            <tr>
+              <th style="width:24px"></th>
+              <th class="sortable" data-col="purchaseorderNo" onclick="sortSmBy('purchaseorderNo')">PO No</th>
+              <th class="sortable" data-col="supplierName" onclick="sortSmBy('supplierName')">Supplier</th>
+              <th class="sortable" data-col="transactionDate" onclick="sortSmBy('transactionDate')">Tgl PO</th>
+              <th class="sortable" data-col="receiveDate" onclick="sortSmBy('receiveDate')">Tgl Terima</th>
+              <th>Putaway</th>
+              <th>Lokasi</th>
+              <th style="text-align:right">SKUs</th>
+              <th class="sortable" data-col="grandTotal" onclick="sortSmBy('grandTotal')" style="text-align:right">Grand Total</th>
+            </tr>
+          </thead>
+          <tbody id="smTableBody"><tr><td class="empty-td" colspan="9">Klik "↻ Refresh" untuk memuat data.</td></tr></tbody>
+        </table>
       </div>
     </div>
 
