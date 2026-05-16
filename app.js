@@ -2686,23 +2686,32 @@ async function removeCPLink(linkId, colId){
   renderColPOLinks(colId);
 }
 
+// Helper: call a Supabase edge function with anon key auth
+async function callEdgeFunction(slug, body={}){
+  const r=await fetch(`${SUPABASE_URL}/functions/v1/${slug}`,{
+    method:"POST",
+    headers:{"Content-Type":"application/json","Authorization":`Bearer ${SUPABASE_ANON}`},
+    body:JSON.stringify(body)
+  });
+  const j=await r.json();
+  if(!r.ok||j.ok===false) throw new Error(j.error||`HTTP ${r.status}`);
+  return j;
+}
+
 async function syncPONow(){
   const btn=document.getElementById("po-sync-btn");
   const se=document.getElementById("po-sync-status");
   const now=Date.now();
   if(now<_poSyncCooldown){
-    const rem=Math.ceil((_poSyncCooldown-now)/1000);
-    if(se) se.textContent=`Tunggu ${rem}s lagi sebelum sync ulang.`;
+    if(se) se.textContent=`Tunggu ${Math.ceil((_poSyncCooldown-now)/1000)}s lagi.`;
     return;
   }
   if(btn){btn.disabled=true;btn.textContent="⟳ Syncing...";}
   if(se) se.textContent="Menghubungi Jubelio...";
   try {
-    const r=await fetch("https://qyxdjdwgvwtrpnvfndnu.supabase.co/functions/v1/sync-jubelio-purchase-orders",{method:"POST"});
-    const j=await r.json();
-    if(!r.ok||!j.ok) throw new Error(j.error||`HTTP ${r.status}`);
+    const j=await callEdgeFunction("sync-jubelio-purchase-orders");
     _poSyncCooldown=Date.now()+60000;
-    if(se) se.textContent=`✓ ${j.headersUpserted||0} PO, ${j.itemsUpserted||0} items diperbarui`;
+    if(se) se.textContent=`✓ ${j.headersUpserted||j.listed||0} PO, ${j.itemsUpserted||0} items diperbarui`;
     await loadPO();
   } catch(e){
     _poSyncCooldown=Date.now()+15000;
@@ -4684,7 +4693,9 @@ function clearDwForm() {
 
 // ── STOCK MOVEMENT ──
 let smPORows=[], smPOItems=[], smPOBills=[], smPOBillItems=[], smPOReceives=[];
-let smStockMap={};  // item_id → [{location_name, on_hand}]
+let smStockMap={};   // item_id → [{loc, qty}]
+let smLocNames={};   // location_id → location_name
+let _smSyncCooldown=0;
 let smSalesMap={};  // item_id → total qty sold
 let smAdjMap={};    // item_id → count of adjustment events
 let smSort={col:null,dir:'asc'};
@@ -4712,7 +4723,7 @@ async function loadStockMovement(){
     const from=document.getElementById("sm-fil-from")?.value||"";
     const to=document.getElementById("sm-fil-to")?.value||"";
 
-    const [poData,itemData,billData,billItemData,rcvData,stockData,salesItemData,adjItemData]=await Promise.all([
+    const [poData,itemData,billData,billItemData,rcvData,stockData,salesItemData,adjItemData,adjData]=await Promise.all([
       // POs: server-side filter + pagination
       (async()=>{
         const PAGE=1000; let all=[], f=0;
@@ -4733,6 +4744,7 @@ async function loadStockMovement(){
       _fetchAllPages("jubelio_inventory_stocks","item_id,location_id,location_code,on_hand"),
       _fetchAllPages("jubelio_sales_order_items","item_id,qty"),
       _fetchAllPages("jubelio_inventory_adjustment_items","item_id,item_adj_id"),
+      _fetchAllPages("jubelio_inventory_adjustments","location_id,location_name"),
     ]);
 
     smPORows=poData.map(r=>({
@@ -4746,11 +4758,18 @@ async function loadStockMovement(){
     smPOBillItems=billItemData;
     smPOReceives=rcvData;
 
-    // Build stock map: item_id → [{location_name, on_hand}]
+    // Build location name map from adjustments: location_id → location_name
+    smLocNames={};
+    (adjData||[]).forEach(r=>{ if(r.location_id!=null&&r.location_name) smLocNames[r.location_id]=r.location_name; });
+
+    // Build stock map: item_id → [{loc (readable name), qty}]
     smStockMap={};
     (stockData||[]).forEach(r=>{
       if(!smStockMap[r.item_id]) smStockMap[r.item_id]=[];
-      if((r.on_hand||0)>0) smStockMap[r.item_id].push({loc:r.location_code||String(r.location_id)||"—",qty:Number(r.on_hand)});
+      if((r.on_hand||0)>0){
+        const loc=smLocNames[r.location_id]||r.location_code||`ID:${r.location_id}`;
+        smStockMap[r.item_id].push({loc, qty:Number(r.on_hand)});
+      }
     });
 
     // Build sales map: item_id → total qty sold
@@ -4903,6 +4922,38 @@ function clearSmFilters(){
   ["sm-fil-status","sm-fil-putaway","sm-fil-from","sm-fil-to"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
   const s=document.getElementById("smSearch");if(s)s.value="";
   loadStockMovement();
+}
+
+async function syncSMNow(){
+  const btn=document.getElementById("sm-sync-btn");
+  const se=document.getElementById("sm-sync-status");
+  const now=Date.now();
+  if(now<_smSyncCooldown){
+    if(se) se.textContent=`Tunggu ${Math.ceil((_smSyncCooldown-now)/1000)}s lagi.`;
+    return;
+  }
+  if(btn){btn.disabled=true;btn.textContent="⟳ Syncing...";}
+  // Sync sequence: PO bills → receives → inventory → adjustments
+  const steps=[
+    {slug:"sync-jubelio-purchase-bills",  label:"bills"},
+    {slug:"sync-jubelio-purchase-receives",label:"receives"},
+    {slug:"sync-jubelio-inventory",        label:"inventory"},
+    {slug:"sync-jubelio-inventory-adjustments",label:"adjustments"},
+  ];
+  const results=[];
+  for(const step of steps){
+    if(se) se.textContent=`Syncing ${step.label}...`;
+    try{
+      const j=await callEdgeFunction(step.slug);
+      results.push(`${step.label} ✓`);
+    }catch(e){
+      results.push(`${step.label} ✗`);
+    }
+  }
+  _smSyncCooldown=Date.now()+60000;
+  if(se) se.textContent=results.join(" · ");
+  if(btn){btn.disabled=false;btn.textContent="⟳ Sync dari Jubelio";}
+  await loadStockMovement();
 }
 
 // ── DUPLICATE CHECK ──
