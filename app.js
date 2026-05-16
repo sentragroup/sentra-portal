@@ -3579,7 +3579,22 @@ function renderColDetail(col, items) {
               <th style="padding:6px 10px;text-align:left">Design File</th><th style="padding:6px 10px;text-align:left">Approval</th><th style="padding:6px 10px;text-align:left">Aksi</th>
             </tr></thead>
             <tbody>${skuRows}</tbody>
-          </table></div>`:`<div style="color:var(--g400);font-size:12px">Belum ada SKU. Tambah di atas.</div>`}`)}
+          </table></div>`:`<div style="color:var(--g400);font-size:12px">Belum ada SKU. Tambah di atas.</div>`}
+          ${colDwRows.length?`
+          <div style="margin-top:14px;border-top:1px solid var(--g100);padding-top:12px">
+            <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:8px">Designer Payment</div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px">
+              ${colDwRows.map(dw=>{
+                const pC=dw.paymentStatus==="Paid"?"p-active":dw.paymentStatus==="Not Yet Paid"?"p-near":"p-expired";
+                return `<div style="display:flex;align-items:center;gap:8px;padding:7px 12px;border:1px solid var(--g100);border-radius:6px;background:var(--off)">
+                  <span style="font-size:12px;font-weight:600;color:var(--g600)">${dw.designer||"—"}</span>
+                  <span class="pill ${pC}" style="font-size:10px">${dw.paymentStatus}</span>
+                  ${dw.agreementId?`<a href="#" style="font-size:10px;color:#3C3489;text-decoration:none" title="Agreement: ${dw.agreementId}">PKS ↗</a>`:""}
+                </div>`;
+              }).join("")}
+            </div>
+          </div>`:""}
+          `)}
         <!-- Sampling -->
         ${cdStageBox("🧵","Sampling",cdStageBadge(items.length?items.every(i=>i.samplingStatus==="Done")?"Done":items.some(i=>i.samplingStatus!=="Not Started")?"In Progress":"Not Started":"Not Started",`col-sampling-badge-${col.id}`),samplingContent)}
         <!-- Production -->
