@@ -4901,7 +4901,11 @@ function renderSmTable(rows){
           <tbody>${items.map(it=>{
             const rcvd=rcvdByDetail[it.purchaseorder_detail_id]||0;
             const rcvdC=rcvd===0?"color:var(--g400)":rcvd>=(it.qty||0)?"color:#2d8a4e":"color:#c0700a";
-            const stock=(smStockMap[it.item_id]||[]);
+            const stock=[...(smStockMap[it.item_id]||[])].sort((a,b)=>{
+              if(a.loc===location) return -1;
+              if(b.loc===location) return 1;
+              return a.loc.localeCompare(b.loc,"id");
+            });
             const stockHtml=stock.length
               ? stock.map(s=>`<span style="display:inline-block;margin:1px 3px 1px 0;padding:1px 6px;border-radius:4px;border:1px solid var(--g200);background:var(--white);font-size:10px;font-family:var(--mono)">${s.loc} <b>${s.qty.toLocaleString("id-ID")}</b></span>`).join("")
               : `<span style="color:var(--g400);font-size:11px">—</span>`;
