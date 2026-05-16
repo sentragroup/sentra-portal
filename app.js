@@ -1801,7 +1801,7 @@ async function loadPopupBooth() {
     }
     const [{data,error},{data:jubData},{data:mekData}] = await Promise.all([
       sb.from("popup_booths").select("*").order("event_date",{ascending:false}),
-      sb.from("jubelio_offline_sales_orders").select("salesorder_id,grand_total,note"),
+      sb.from("jubelio_sales_orders").select("salesorder_id,grand_total,note"),
       sb.from("mekari_esign_completions").select("message_id,subject,email_date").order("email_date",{ascending:false})
     ]);
     if (error) throw error;
@@ -2191,12 +2191,14 @@ function mapJub(r) {
   };
 }
 
+const JUB_ONLINE_LOCATION = "Gudang Bintaro"; // online warehouse — excluded by default
+
 async function loadJubSales() {
   const tbody = document.getElementById("jubTableBody");
   tbody.innerHTML = `<tr><td class="empty-td" colspan="7">Memuat...</td></tr>`;
   try {
     const [{data:jubData,error:jubErr},{data:pbData}] = await Promise.all([
-      sb.from("jubelio_offline_sales_orders").select("*").order("transaction_date",{ascending:false}),
+      sb.from("jubelio_sales_orders").select("id,salesorder_id,salesorder_no,shipping_full_name,transaction_date,internal_status,grand_total,location_name,note").order("transaction_date",{ascending:false}),
       sb.from("popup_booths").select("id_pesanan_jubelio,event_name")
     ]);
     if (jubErr) throw jubErr;
@@ -2208,6 +2210,16 @@ async function loadJubSales() {
         window._jubMappedToMap[String(r.id_pesanan_jubelio).trim()] = r.event_name||"";
       }
     });
+    // Populate location filter dynamically
+    const locSel = document.getElementById("jub-fil-location");
+    if (locSel) {
+      const prev = locSel.value;
+      const locs = [...new Set(allJubRows.map(r=>r.locationName).filter(Boolean))].sort();
+      locSel.innerHTML =
+        `<option value="">Semua Gudang</option>`
+        +`<option value="!${JUB_ONLINE_LOCATION}"${prev==="!"+JUB_ONLINE_LOCATION||!prev?" selected":""}>≠ ${JUB_ONLINE_LOCATION}</option>`
+        + locs.map(l=>`<option value="${l}"${l===prev?" selected":""}>${l}</option>`).join("");
+    }
     renderJubStats(allJubRows);
     applyJubFilters();
   } catch(e) {
@@ -2239,7 +2251,7 @@ function applyJubFilters() {
   let rows = allJubRows;
   if (mapFil==="mapped") rows = rows.filter(r=>getJubMappedTo(r)!==null);
   else if (mapFil==="unmapped") rows = rows.filter(r=>getJubMappedTo(r)===null);
-  if (locFil==="!Gudang Marte") rows = rows.filter(r=>r.locationName!=="Gudang Marte");
+  if (locFil.startsWith("!")) rows = rows.filter(r=>r.locationName!==locFil.slice(1));
   else if (locFil) rows = rows.filter(r=>r.locationName===locFil);
   if (q) rows = rows.filter(r=>(r.salesorderId||"").toLowerCase().includes(q)||(r.shippingFullName||"").toLowerCase().includes(q)||(r.internalStatus||"").toLowerCase().includes(q)||(r.locationName||"").toLowerCase().includes(q));
   renderJubStats(rows);
@@ -3175,7 +3187,7 @@ async function ensureDWProjects(cols, existingDW) {
           id:dwId, collection_id:col.id,
           project_name:col.collectionName,
           designer:designer||null,
-          payment_status:"Not Paid", locked:true,
+          payment_status:"No Fee", locked:true,
           deliverables_status:"Pending",
           date_added:new Date().toISOString().slice(0,10), added_by:currentUser,
           last_updated:new Date().toISOString(), last_updated_by:currentUser
@@ -3188,7 +3200,7 @@ async function ensureDWProjects(cols, existingDW) {
             collectionName:col.collectionName,projectName:col.collectionName,
             deliverablesUrl:"",agreementId:"",
             deliverablesStatus:"Pending",deadline:"",
-            paymentStatus:"Not Paid",locked:true,
+            paymentStatus:"No Fee",locked:true,
             notes:"",dateAdded:new Date().toISOString().slice(0,10),addedBy:currentUser
           });
         }
@@ -3585,7 +3597,7 @@ function renderColDetail(col, items) {
             <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:8px">Designer Payment</div>
             <div style="display:flex;flex-wrap:wrap;gap:8px">
               ${colDwRows.map(dw=>{
-                const pC=dw.paymentStatus==="Paid"?"p-active":dw.paymentStatus==="Not Yet Paid"?"p-near":"p-expired";
+                const pC=dw.paymentStatus==="Paid"?"p-active":dw.paymentStatus==="Not Yet Paid"?"p-near":"p-draft";
                 return `<div style="display:flex;align-items:center;gap:8px;padding:7px 12px;border:1px solid var(--g100);border-radius:6px;background:var(--off)">
                   <span style="font-size:12px;font-weight:600;color:var(--g600)">${dw.designer||"—"}</span>
                   <span class="pill ${pC}" style="font-size:10px">${dw.paymentStatus}</span>
@@ -3919,7 +3931,7 @@ async function pushToDesignerWorkflow(colId) {
     const id=genId("DW");
     const {error}=await sb.from("designer_workflow").insert({
       id, collection_id:colId,
-      payment_status:"Not Paid", locked:true,
+      payment_status:"No Fee", locked:true,
       date_added:new Date().toISOString().slice(0,10), added_by:currentUser,
       last_updated:new Date().toISOString(), last_updated_by:currentUser
     });
@@ -3927,7 +3939,7 @@ async function pushToDesignerWorkflow(colId) {
     logActivity("Designer Workflow","create",id,`Pushed from: ${col.collectionName}`);
     // Add to local cache so repeat-push detection works without full reload
     allDwRows.push({rowIndex:id,id,designer:"",collectionId:colId,collectionName:col.collectionName,
-      deliverablesUrl:"",agreementId:"",paymentStatus:"Not Paid",locked:true,notes:"",
+      deliverablesUrl:"",agreementId:"",paymentStatus:"No Fee",locked:true,notes:"",
       dateAdded:new Date().toISOString().slice(0,10),addedBy:currentUser});
     alert(`✓ Project "${col.collectionName}" berhasil dibuat di Designer Workflow!`);
   } catch(e){alert("Gagal: "+(e.message||e));}
@@ -4286,7 +4298,7 @@ function mapDw(r) {
     deliverablesUrl:r.deliverables_url||"", agreementId:r.agreement_id||"",
     deliverablesStatus:r.deliverables_status||"Pending",
     deadline:r.deadline||"",
-    paymentStatus:r.payment_status||"Not Paid", locked:!!r.locked,
+    paymentStatus:r.payment_status||"No Fee", locked:!!r.locked,
     notes:r.notes||"", dateAdded:r.date_added||"", addedBy:r.added_by||""
   };
 }
@@ -4419,7 +4431,7 @@ function renderDwTable(rows) {
 
     // ── Agreement & Payment ──
     const agrCell=r.agreementId?`<span style="font-size:11px;font-family:var(--mono)">${r.agreementId}</span>`:"—";
-    // Not Paid = gray (internal/karyawan, no action needed)
+    // No Fee = gray (internal/karyawan, no action needed)
     // Not Yet Paid = red (needs payment)
     // Paid = green
     const payPill=r.paymentStatus==="Paid"?"p-active":r.paymentStatus==="Not Yet Paid"?"p-expired":"p-draft";
@@ -4441,7 +4453,7 @@ function renderDwTable(rows) {
           <div class="fg"><label>Project <span style="font-size:10px;color:var(--g400)">(dari CD)</span></label><input type="text" value="${projectLabel.replace(/"/g,"&quot;")}" disabled style="opacity:0.6;cursor:not-allowed;background:var(--off)"></div>
           <div class="fg full"><label>Deliverables URL <span style="font-size:11px;color:var(--g400)">(Google Drive)</span></label><input type="url" id="dwe-deliverables-${r.rowIndex}" value="${(r.deliverablesUrl||"").replace(/"/g,"&quot;")}" placeholder="https://drive.google.com/..."></div>
           <div class="fg" style="position:relative"><label>Kontrak (Agreement)</label><input type="text" id="dwe-agreement-${r.rowIndex}" value="${(r.agreementId||"").replace(/"/g,"&quot;")}" autocomplete="off"><div class="ac-list" id="ac-dwe-agr-${r.rowIndex}"></div></div>
-          <div class="fg"><label>Payment Status</label><select id="dwe-payment-${r.rowIndex}"><option value="Not Paid"${r.paymentStatus==="Not Paid"?" selected":""}>Not Paid</option><option value="Not Yet Paid"${r.paymentStatus==="Not Yet Paid"?" selected":""}>Not Yet Paid</option><option value="Paid"${r.paymentStatus==="Paid"?" selected":""}>Paid</option></select></div>
+          <div class="fg"><label>Payment Status</label><select id="dwe-payment-${r.rowIndex}"><option value="No Fee"${r.paymentStatus==="No Fee"?" selected":""}>No Fee</option><option value="Not Yet Paid"${r.paymentStatus==="Not Yet Paid"?" selected":""}>Not Yet Paid</option><option value="Paid"${r.paymentStatus==="Paid"?" selected":""}>Paid</option></select></div>
           <div class="fg full"><label>Notes</label><textarea id="dwe-notes-${r.rowIndex}" rows="2" style="resize:vertical">${(r.notes||"").replace(/</g,"&lt;")}</textarea></div>
         </div>`
       :`<div class="edit-row-grid">
@@ -4451,7 +4463,7 @@ function renderDwTable(rows) {
           <div class="fg"><label>Status Deliverables</label><select id="dwe-dlstatus-${r.rowIndex}"><option value="Pending"${r.deliverablesStatus==="Pending"?" selected":""}>Pending</option><option value="In Progress"${r.deliverablesStatus==="In Progress"?" selected":""}>In Progress</option><option value="Revision"${r.deliverablesStatus==="Revision"?" selected":""}>Revision</option><option value="Completed"${r.deliverablesStatus==="Completed"?" selected":""}>Completed</option></select></div>
           <div class="fg full"><label>Deliverables URL <span style="font-size:11px;color:var(--g400)">(Google Drive)</span></label><input type="url" id="dwe-deliverables-${r.rowIndex}" value="${(r.deliverablesUrl||"").replace(/"/g,"&quot;")}" placeholder="https://drive.google.com/..."></div>
           <div class="fg" style="position:relative"><label>Kontrak (Agreement)</label><input type="text" id="dwe-agreement-${r.rowIndex}" value="${(r.agreementId||"").replace(/"/g,"&quot;")}" autocomplete="off"><div class="ac-list" id="ac-dwe-agr-${r.rowIndex}"></div></div>
-          <div class="fg"><label>Payment Status</label><select id="dwe-payment-${r.rowIndex}"><option value="Not Paid"${r.paymentStatus==="Not Paid"?" selected":""}>Not Paid</option><option value="Not Yet Paid"${r.paymentStatus==="Not Yet Paid"?" selected":""}>Not Yet Paid</option><option value="Paid"${r.paymentStatus==="Paid"?" selected":""}>Paid</option></select></div>
+          <div class="fg"><label>Payment Status</label><select id="dwe-payment-${r.rowIndex}"><option value="No Fee"${r.paymentStatus==="No Fee"?" selected":""}>No Fee</option><option value="Not Yet Paid"${r.paymentStatus==="Not Yet Paid"?" selected":""}>Not Yet Paid</option><option value="Paid"${r.paymentStatus==="Paid"?" selected":""}>Paid</option></select></div>
           <div class="fg full"><label>Notes</label><textarea id="dwe-notes-${r.rowIndex}" rows="2" style="resize:vertical">${(r.notes||"").replace(/</g,"&lt;")}</textarea></div>
         </div>`;
 
@@ -4539,7 +4551,7 @@ async function saveDwEdit(rowIdx) {
     const updatePayload={
       deliverables_url:document.getElementById(`dwe-deliverables-${rowIdx}`)?.value.trim()||null,
       agreement_id:document.getElementById(`dwe-agreement-${rowIdx}`)?.value.trim()||null,
-      payment_status:document.getElementById(`dwe-payment-${rowIdx}`)?.value||"Not Paid",
+      payment_status:document.getElementById(`dwe-payment-${rowIdx}`)?.value||"No Fee",
       notes:document.getElementById(`dwe-notes-${rowIdx}`)?.value.trim()||null,
       last_updated:new Date().toISOString(), last_updated_by:currentUser
     };
@@ -4589,7 +4601,7 @@ async function submitDsgWorkflow() {
       deliverables_status:document.getElementById("dw-dl-status")?.value||"Pending",
       deadline:document.getElementById("dw-deadline")?.value||null,
       agreement_id:document.getElementById("dw-agreement")?.value.trim()||null,
-      payment_status:document.getElementById("dw-payment")?.value||"Not Paid",
+      payment_status:document.getElementById("dw-payment")?.value||"No Fee",
       notes:document.getElementById("dw-notes")?.value.trim()||null,
       locked:false,
       date_added:new Date().toISOString().slice(0,10), added_by:currentUser,
@@ -4606,7 +4618,7 @@ async function submitDsgWorkflow() {
 
 function clearDwForm() {
   ["dw-designer","dw-project","dw-deliverables","dw-agreement","dw-notes"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
-  const p=document.getElementById("dw-payment");if(p)p.value="Not Paid";
+  const p=document.getElementById("dw-payment");if(p)p.value="No Fee";
   const dl=document.getElementById("dw-deadline");if(dl)dl.value="";
   const dls=document.getElementById("dw-dl-status");if(dls)dls.value="Pending";
 }
