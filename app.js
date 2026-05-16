@@ -4730,7 +4730,7 @@ async function loadStockMovement(){
       _fetchAllPages("jubelio_purchase_bills","bill_id,purchaseorder_id,is_putaway,location_name,transaction_date"),
       _fetchAllPages("jubelio_purchase_bill_items","bill_id,purchaseorder_detail_id,qty"),
       _fetchAllPages("jubelio_purchase_receives","bill_id,purchaseorder_no,transaction_date"),
-      _fetchAllPages("jubelio_inventory_stocks","item_id,location_name,on_hand"),
+      _fetchAllPages("jubelio_inventory_stocks","item_id,location_id,location_code,on_hand"),
       _fetchAllPages("jubelio_sales_order_items","item_id,qty"),
       _fetchAllPages("jubelio_inventory_adjustment_items","item_id,item_adj_id"),
     ]);
@@ -4750,7 +4750,7 @@ async function loadStockMovement(){
     smStockMap={};
     (stockData||[]).forEach(r=>{
       if(!smStockMap[r.item_id]) smStockMap[r.item_id]=[];
-      if((r.on_hand||0)>0) smStockMap[r.item_id].push({loc:r.location_name||"—",qty:Number(r.on_hand)});
+      if((r.on_hand||0)>0) smStockMap[r.item_id].push({loc:r.location_code||String(r.location_id)||"—",qty:Number(r.on_hand)});
     });
 
     // Build sales map: item_id → total qty sold
