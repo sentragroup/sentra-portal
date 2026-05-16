@@ -2180,7 +2180,7 @@ function sortJubBy(c){jubSort.dir=jubSort.col===c?(jubSort.dir==='asc'?'desc':'a
 
 function mapJub(r) {
   return {
-    rowIndex:r.id, id:r.id,
+    rowIndex:r.salesorder_id, id:r.salesorder_id,
     salesorderId:r.salesorder_id!=null?String(r.salesorder_id):"",
     shippingFullName:r.shipping_full_name||"",
     transactionDate:r.transaction_date||"",
@@ -2198,7 +2198,7 @@ async function loadJubSales() {
   tbody.innerHTML = `<tr><td class="empty-td" colspan="7">Memuat...</td></tr>`;
   try {
     const [{data:jubData,error:jubErr},{data:pbData}] = await Promise.all([
-      sb.from("jubelio_sales_orders").select("id,salesorder_id,salesorder_no,shipping_full_name,transaction_date,internal_status,grand_total,location_name,note").order("transaction_date",{ascending:false}),
+      sb.from("jubelio_sales_orders").select("salesorder_id,salesorder_no,shipping_full_name,transaction_date,internal_status,grand_total,location_name,note").order("transaction_date",{ascending:false}),
       sb.from("popup_booths").select("id_pesanan_jubelio,event_name")
     ]);
     if (jubErr) throw jubErr;
