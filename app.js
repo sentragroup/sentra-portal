@@ -4723,8 +4723,8 @@ async function loadStockMovement(){
     const from=document.getElementById("sm-fil-from")?.value||"";
     const to=document.getElementById("sm-fil-to")?.value||"";
 
-    const [poData,itemData,billData,billItemData,rcvData,stockData,salesItemData,adjItemData,adjData]=await Promise.all([
-      // POs: server-side filter + pagination
+    // Phase 1: load PO data + stocks + location names (fast, targeted)
+    const [poData,itemData,billData,billItemData,rcvData,stockData,adjData]=await Promise.all([
       (async()=>{
         const PAGE=1000; let all=[], f=0;
         while(true){
@@ -4742,8 +4742,6 @@ async function loadStockMovement(){
       _fetchAllPages("jubelio_purchase_bill_items","bill_id,purchaseorder_detail_id,qty"),
       _fetchAllPages("jubelio_purchase_receives","bill_id,purchaseorder_no,transaction_date"),
       _fetchAllPages("jubelio_inventory_stocks","item_id,location_id,location_code,on_hand"),
-      _fetchAllPages("jubelio_sales_order_items","item_id,qty"),
-      _fetchAllPages("jubelio_inventory_adjustment_items","item_id,item_adj_id"),
       _fetchAllPages("jubelio_inventory_adjustments","location_id,location_name"),
     ]);
 
@@ -4757,12 +4755,13 @@ async function loadStockMovement(){
     smPOBills=billData;
     smPOBillItems=billItemData;
     smPOReceives=rcvData;
+    smSalesMap={}; smAdjMap={};
 
-    // Build location name map from adjustments: location_id → location_name
+    // Location name map: location_id → location_name
     smLocNames={};
     (adjData||[]).forEach(r=>{ if(r.location_id!=null&&r.location_name) smLocNames[r.location_id]=r.location_name; });
 
-    // Build stock map: item_id → [{loc (readable name), qty}]
+    // Stock map: item_id → [{loc, qty}]
     smStockMap={};
     (stockData||[]).forEach(r=>{
       if(!smStockMap[r.item_id]) smStockMap[r.item_id]=[];
@@ -4772,24 +4771,34 @@ async function loadStockMovement(){
       }
     });
 
-    // Build sales map: item_id → total qty sold
-    smSalesMap={};
-    (salesItemData||[]).forEach(r=>{
-      if(r.item_id!=null) smSalesMap[r.item_id]=(smSalesMap[r.item_id]||0)+(Number(r.qty)||0);
-    });
-
-    // Build adj map: item_id → unique adjustment count
-    smAdjMap={};
-    (adjItemData||[]).forEach(r=>{
-      if(r.item_id!=null){
-        if(!smAdjMap[r.item_id]) smAdjMap[r.item_id]=new Set();
-        smAdjMap[r.item_id].add(r.item_adj_id);
-      }
-    });
-    // Convert sets to counts
-    Object.keys(smAdjMap).forEach(k=>{smAdjMap[k]=smAdjMap[k].size;});
-
+    // Show table immediately after phase 1
     applySmFilters();
+
+    // Phase 2: load sales + adj only for item_ids in loaded PO items (much faster)
+    const itemIds=[...new Set(smPOItems.map(i=>i.item_id).filter(Boolean))];
+    if(itemIds.length){
+      const BATCH=500;
+      const salesChunks=[], adjChunks=[];
+      for(let i=0;i<itemIds.length;i+=BATCH){
+        const ids=itemIds.slice(i,i+BATCH);
+        salesChunks.push(sb.from("jubelio_sales_order_items").select("item_id,qty").in("item_id",ids));
+        adjChunks.push(sb.from("jubelio_inventory_adjustment_items").select("item_id,item_adj_id").in("item_id",ids));
+      }
+      const results=await Promise.all([...salesChunks,...adjChunks]);
+      const half=salesChunks.length;
+      results.slice(0,half).forEach(({data})=>(data||[]).forEach(r=>{
+        if(r.item_id!=null) smSalesMap[r.item_id]=(smSalesMap[r.item_id]||0)+(Number(r.qty)||0);
+      }));
+      results.slice(half).forEach(({data})=>(data||[]).forEach(r=>{
+        if(r.item_id!=null){
+          if(!smAdjMap[r.item_id]) smAdjMap[r.item_id]=new Set();
+          smAdjMap[r.item_id].add(r.item_adj_id);
+        }
+      }));
+      Object.keys(smAdjMap).forEach(k=>{smAdjMap[k]=smAdjMap[k].size;});
+      // Re-render with sales+adj data
+      applySmFilters();
+    }
   }catch(e){
     if(tbody) tbody.innerHTML=`<tr><td class="empty-td" colspan="9">Gagal memuat: ${e.message||e}</td></tr>`;
   }
