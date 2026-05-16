@@ -2193,54 +2193,69 @@ function mapJub(r) {
 
 // Gudang yang di-exclude dari "offline sales" (online & event warehouse)
 const JUB_EXCLUDE_LOCATIONS = ["Gudang Bintaro","Gudang Marte"];
+const JUB_PAGE = 1000;
+
+// Fetch all pages from jubelio_sales_orders with server-side filters applied
+async function fetchJubPages(filters={}){
+  const cols = "salesorder_id,salesorder_no,shipping_full_name,transaction_date,internal_status,grand_total,location_name,note";
+  const excl = `(${JUB_EXCLUDE_LOCATIONS.map(l=>`"${l}"`).join(",")})`;
+  let all=[], from=0;
+  while(true){
+    let q = sb.from("jubelio_sales_orders").select(cols)
+      .not("location_name","in",excl)
+      .order("transaction_date",{ascending:false})
+      .range(from, from+JUB_PAGE-1);
+    if(filters.location) q=q.eq("location_name",filters.location);
+    if(filters.status)   q=q.eq("internal_status",filters.status);
+    if(filters.from)     q=q.gte("transaction_date",filters.from);
+    if(filters.to)       q=q.lte("transaction_date",filters.to+"T23:59:59");
+    const {data,error}=await q;
+    if(error) throw error;
+    all=all.concat(data||[]);
+    if(!data||data.length<JUB_PAGE) break;
+    from+=JUB_PAGE;
+  }
+  return all;
+}
 
 async function loadJubSales() {
   const tbody = document.getElementById("jubTableBody");
   tbody.innerHTML = `<tr><td class="empty-td" colspan="7">Memuat...</td></tr>`;
   try {
-    // Fetch semua halaman (pagination 1000/page) + popup_booths paralel
+    const filters = {
+      location: document.getElementById("jub-fil-location")?.value||"",
+      status:   document.getElementById("jub-fil-status")?.value||"",
+      from:     document.getElementById("jub-fil-from")?.value||"",
+      to:       document.getElementById("jub-fil-to")?.value||""
+    };
     const [jubRows, {data:pbData}] = await Promise.all([
-      (async()=>{
-        const PAGE = 1000;
-        const cols = "salesorder_id,salesorder_no,shipping_full_name,transaction_date,internal_status,grand_total,location_name,note";
-        const excl = `(${JUB_EXCLUDE_LOCATIONS.map(l=>`"${l}"`).join(",")})`;
-        let all=[], from=0;
-        while(true){
-          const {data,error} = await sb.from("jubelio_sales_orders")
-            .select(cols)
-            .not("location_name","in",excl)
-            .order("transaction_date",{ascending:false})
-            .range(from, from+PAGE-1);
-          if(error) throw error;
-          all = all.concat(data||[]);
-          if(!data||data.length<PAGE) break;
-          from += PAGE;
-        }
-        return all;
-      })(),
+      fetchJubPages(filters),
       sb.from("popup_booths").select("id_pesanan_jubelio,event_name")
     ]);
     allJubRows = jubRows.map(mapJub);
     // Build map: salesorder_id → event_name
     window._jubMappedToMap = {};
     (pbData||[]).forEach(r=>{
-      if (r.id_pesanan_jubelio!=null && String(r.id_pesanan_jubelio).trim()) {
+      if (r.id_pesanan_jubelio!=null && String(r.id_pesanan_jubelio).trim())
         window._jubMappedToMap[String(r.id_pesanan_jubelio).trim()] = r.event_name||"";
-      }
     });
-    // Populate location filter dynamically
-    const locSel = document.getElementById("jub-fil-location");
-    if (locSel) {
-      const prev = locSel.value;
-      const locs = [...new Set(allJubRows.map(r=>r.locationName).filter(Boolean))].sort();
-      locSel.innerHTML = `<option value="">Semua Gudang</option>`
-        + locs.map(l=>`<option value="${l}"${l===prev?" selected":""}>${l}</option>`).join("");
-    }
+    // Populate location + status dropdowns from loaded data (preserve selection)
+    _populateJubDropdown("jub-fil-location", allJubRows.map(r=>r.locationName), "Semua Gudang");
+    _populateJubDropdown("jub-fil-status",   allJubRows.map(r=>r.internalStatus), "Semua Status Transaksi");
     renderJubStats(allJubRows);
     applyJubFilters();
   } catch(e) {
     tbody.innerHTML = `<tr><td class="empty-td" colspan="7">Gagal memuat: ${e.message||e}</td></tr>`;
   }
+}
+
+function _populateJubDropdown(id, values, placeholder){
+  const sel = document.getElementById(id);
+  if(!sel) return;
+  const prev = sel.value;
+  const opts = [...new Set(values.filter(Boolean))].sort();
+  sel.innerHTML = `<option value="">${placeholder}</option>`
+    + opts.map(v=>`<option value="${v}"${v===prev?" selected":""}>${v}</option>`).join("");
 }
 
 function getJubMappedTo(row) {
@@ -2260,24 +2275,29 @@ function renderJubStats(rows) {
   document.getElementById("jub-s-total-sales").textContent = totalSales ? "Rp "+totalSales.toLocaleString("id-ID") : "—";
 }
 
+// Client-side only: mapped filter + text search on already-loaded rows
 function applyJubFilters() {
-  const mapFil  = document.getElementById("jub-fil-mapped")?.value||"";
-  const locFil  = document.getElementById("jub-fil-location")?.value||"";
+  const mapFil = document.getElementById("jub-fil-mapped")?.value||"";
   const q = (document.getElementById("jubSearch")?.value||"").toLowerCase();
   let rows = allJubRows;
-  if (mapFil==="mapped") rows = rows.filter(r=>getJubMappedTo(r)!==null);
+  if (mapFil==="mapped")   rows = rows.filter(r=>getJubMappedTo(r)!==null);
   else if (mapFil==="unmapped") rows = rows.filter(r=>getJubMappedTo(r)===null);
-  if (locFil) rows = rows.filter(r=>r.locationName===locFil);
-  if (q) rows = rows.filter(r=>(r.salesorderId||"").toLowerCase().includes(q)||(r.shippingFullName||"").toLowerCase().includes(q)||(r.internalStatus||"").toLowerCase().includes(q)||(r.locationName||"").toLowerCase().includes(q));
+  if (q) rows = rows.filter(r=>
+    (r.salesorderId||"").toLowerCase().includes(q)||
+    (r.shippingFullName||"").toLowerCase().includes(q)||
+    (r.internalStatus||"").toLowerCase().includes(q)||
+    (r.locationName||"").toLowerCase().includes(q)
+  );
   renderJubStats(rows);
   renderJubTable(rows);
 }
 
 function clearJubFilters() {
-  const mf=document.getElementById("jub-fil-mapped"); if(mf) mf.value="";
-  const lf=document.getElementById("jub-fil-location"); if(lf) lf.value="";
+  ["jub-fil-location","jub-fil-status","jub-fil-from","jub-fil-to","jub-fil-mapped"].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.value="";
+  });
   const s=document.getElementById("jubSearch"); if(s) s.value="";
-  applyJubFilters();
+  loadJubSales();
 }
 
 function renderJubTable(rows) {
@@ -2437,26 +2457,49 @@ function mapPOItem(r){
   };
 }
 
+const PO_PAGE = 1000;
+
+async function fetchPOPages(filters={}){
+  let all=[], from=0;
+  while(true){
+    let q = sb.from("jubelio_purchase_orders").select("*")
+      .order("transaction_date",{ascending:false})
+      .range(from, from+PO_PAGE-1);
+    if(filters.status) q=q.eq("status",filters.status);
+    if(filters.from)   q=q.gte("transaction_date",filters.from);
+    if(filters.to)     q=q.lte("transaction_date",filters.to+"T23:59:59");
+    const {data,error}=await q;
+    if(error) throw error;
+    all=all.concat(data||[]);
+    if(!data||data.length<PO_PAGE) break;
+    from+=PO_PAGE;
+  }
+  return all;
+}
+
 async function loadPO(){
   const tbody=document.getElementById("poTableBody");
   if(tbody) tbody.innerHTML=`<tr><td class="empty-td" colspan="12">Memuat...</td></tr>`;
   try {
-    const [{data:poData,error:poErr},{data:itemData},{data:billData},{data:billItemData},{data:rcvData}]=await Promise.all([
-      sb.from("jubelio_purchase_orders").select("*").order("transaction_date",{ascending:false}),
+    const filters = {
+      status: document.getElementById("po-fil-status")?.value||"",
+      from:   document.getElementById("po-fil-from")?.value||"",
+      to:     document.getElementById("po-fil-to")?.value||""
+    };
+    // POs with server-side filter+pagination; items/bills/receives load full (supplementary)
+    const [poData,{data:itemData},{data:billData},{data:billItemData},{data:rcvData}]=await Promise.all([
+      fetchPOPages(filters),
       sb.from("jubelio_purchase_order_items").select("*").order("purchaseorder_detail_id",{ascending:true}),
       sb.from("jubelio_purchase_bills").select("*"),
       sb.from("jubelio_purchase_bill_items").select("*"),
       sb.from("jubelio_purchase_receives").select("*")
     ]);
-    if(poErr) throw poErr;
-    allPORows=(poData||[]).map(mapPO);
+    allPORows=poData.map(mapPO);
     allPOItems=(itemData||[]).map(mapPOItem);
     allPOBills=(billData||[]);
     allPOBillItems=(billItemData||[]);
     allPOReceives=(rcvData||[]);
-    // Load collection_po_links and build bidirectional maps
     await refreshCPLinks();
-    // attach totalQty to each PO row for sorting
     const qtyByPO={};
     allPOItems.forEach(i=>{qtyByPO[i.purchaseorderId]=(qtyByPO[i.purchaseorderId]||0)+(i.qty||0);});
     allPORows.forEach(r=>{r.totalQty=qtyByPO[r.id]||0;});
@@ -2484,16 +2527,16 @@ function renderPOStats(rows){
   document.getElementById("po-s-value").textContent=totalVal?"Rp "+Math.round(totalVal).toLocaleString("id-ID"):"—";
 }
 
+// Client-side only: text search on already-loaded rows
 function applyPOFilters(){
-  const status=document.getElementById("po-fil-status")?.value||"";
-  const dateFrom=document.getElementById("po-fil-from")?.value||"";
-  const dateTo=document.getElementById("po-fil-to")?.value||"";
   const q=(document.getElementById("poSearch")?.value||"").toLowerCase();
   let rows=allPORows;
-  if(status) rows=rows.filter(r=>r.status===status);
-  if(dateFrom) rows=rows.filter(r=>r.transactionDate&&r.transactionDate.slice(0,10)>=dateFrom);
-  if(dateTo)   rows=rows.filter(r=>r.transactionDate&&r.transactionDate.slice(0,10)<=dateTo);
-  if(q) rows=rows.filter(r=>(r.purchaseorderNo||"").toLowerCase().includes(q)||(r.supplierName||"").toLowerCase().includes(q)||(r.locationName||"").toLowerCase().includes(q)||(r.note||"").toLowerCase().includes(q));
+  if(q) rows=rows.filter(r=>
+    (r.purchaseorderNo||"").toLowerCase().includes(q)||
+    (r.supplierName||"").toLowerCase().includes(q)||
+    (r.locationName||"").toLowerCase().includes(q)||
+    (r.note||"").toLowerCase().includes(q)
+  );
   renderPOStats(rows);
   renderPOTable(rows);
 }
@@ -2501,7 +2544,7 @@ function applyPOFilters(){
 function clearPOFilters(){
   ["po-fil-status","po-fil-from","po-fil-to"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
   const s=document.getElementById("poSearch");if(s)s.value="";
-  applyPOFilters();
+  loadPO();
 }
 
 function renderPOTable(rows){
