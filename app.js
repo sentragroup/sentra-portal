@@ -3249,15 +3249,22 @@ async function ensureColStages(cols, existingStages) {
 function getPipelineStatuses(colId) {
   const items=allColItems.filter(i=>i.collectionId===colId);
   const stages=allColStages.filter(s=>s.collectionId===colId);
-  // Design: from DW approval
+  // Design: SKU approval_status is primary source; DW deliverables as fallback
   const dwRows=allDwRows.filter(r=>r.collectionId===colId&&r.locked);
   let design="not-started";
-  if(dwRows.length){
+  if(items.length){
+    if(items.every(i=>i.approvalStatus==="Approved")) design="done";
+    else if(items.some(i=>i.approvalStatus==="Approved"||i.approvalStatus==="Revision")) design="in-progress";
+    else if(dwRows.length){
+      const dlStats=dwRows.map(r=>computeColDeliverableStatus(r.collectionId,r.designer));
+      if(dlStats.every(s=>s==="Approved")) design="done";
+      else if(dlStats.some(s=>s&&s!=="Not Approved")) design="in-progress";
+    } else if(items.some(i=>i.designer)) design="in-progress";
+  } else if(dwRows.length){
     const dlStats=dwRows.map(r=>computeColDeliverableStatus(r.collectionId,r.designer));
     if(dlStats.every(s=>s==="Approved")) design="done";
     else if(dlStats.some(s=>s&&s!=="Not Approved")) design="in-progress";
-    else design="not-started";
-  } else if(items.some(i=>i.designer)) design="in-progress";
+  }
   // Sampling
   let sampling="not-started";
   if(items.length){
