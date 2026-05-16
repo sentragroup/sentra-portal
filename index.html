@@ -1295,7 +1295,11 @@
         </div>
       </div>
       <div class="table-toolbar">
-        <button class="btn-refresh" onclick="loadStockMovement()">↻ Refresh</button>
+        <div style="display:flex;align-items:center;gap:8px">
+          <button class="btn-refresh" onclick="loadStockMovement()">↻ Refresh</button>
+          <button id="sm-sync-btn" class="btn-primary" style="font-size:12px;padding:5px 14px" onclick="syncSMNow()">⟳ Sync dari Jubelio</button>
+          <span id="sm-sync-status" style="font-size:11px;color:var(--g400)"></span>
+        </div>
         <div class="tcount" id="sm-tcount">— entri</div>
       </div>
       <div class="table-wrap">
