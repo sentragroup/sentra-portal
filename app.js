@@ -116,7 +116,7 @@ function enterApp(user) {
   if (notifPollTimer) clearInterval(notifPollTimer);
   notifPollTimer = setInterval(loadNotifications, 60000);
   const _pg = location.hash.slice(1).split('/')[0];
-  if (['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','popupbooth','activitylog','jubsales','mesign','collections','designermaster','dsgworkflow'].includes(_pg))
+  if (['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','popupbooth','activitylog','jubsales','mesign','po','stockmovement','collections','designermaster','dsgworkflow'].includes(_pg))
     showPage(_pg, document.getElementById('nav-'+_pg));
 }
 
@@ -138,7 +138,7 @@ function showPage(name, el) {
   document.querySelectorAll(".sb-item").forEach(i=>i.classList.remove("active"));
   document.getElementById("page-"+name).classList.add("active");
   if (el) el.classList.add("active");
-  const labels = {home:"Internal Tools",agreement:"Agreement Tracker",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Jubelio Offline Sales",mesign:"Mekari Sign",po:"Purchase Orders",productmap:"Product Mapping",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow"};
+  const labels = {home:"Internal Tools",agreement:"Agreement Tracker",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Jubelio Offline Sales",mesign:"Mekari Sign",po:"Purchase Orders",stockmovement:"Stock Movement",productmap:"Product Mapping",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   history.replaceState(null, "", name==="home" ? location.pathname : "#"+name);
   if (name==="agreement") loadStats();
@@ -153,6 +153,7 @@ function showPage(name, el) {
   if (name==="jubsales") loadJubSales();
   if (name==="mesign") loadMekariEsign();
   if (name==="po") loadPO();
+  if (name==="stockmovement") loadStockMovement();
   if (name==="productmap") loadProductMap(0,'');
   if (name==="collections") { loadCollections(); setupAC("col-ip","ac-col-ip",()=>allIPRows.map(r=>r.name).filter(Boolean)); setupAC("col-pic","ac-col-pic",()=>[...new Set(allColRows.map(r=>r.pic).filter(Boolean))]); }
   if (name==="designermaster") { loadDesignerMaster(); const cats=[...new Set([...DSG_CATEGORIES_DEFAULT,...allDsgRows.map(r=>r.category).filter(Boolean)])]; setupAC("dsg-category","ac-dsg-category",()=>cats); }
@@ -4679,6 +4680,229 @@ function clearDwForm() {
   const p=document.getElementById("dw-payment");if(p)p.value="No Fee";
   const dl=document.getElementById("dw-deadline");if(dl)dl.value="";
   const dls=document.getElementById("dw-dl-status");if(dls)dls.value="Pending";
+}
+
+// ── STOCK MOVEMENT ──
+let smPORows=[], smPOItems=[], smPOBills=[], smPOBillItems=[], smPOReceives=[];
+let smStockMap={};  // item_id → [{location_name, on_hand}]
+let smSalesMap={};  // item_id → total qty sold
+let smAdjMap={};    // item_id → count of adjustment events
+let smSort={col:null,dir:'asc'};
+let _smFiltered=[];
+function sortSmBy(c){smSort.dir=smSort.col===c?(smSort.dir==='asc'?'desc':'asc'):'asc';smSort.col=c;renderSmTable(_smFiltered);}
+
+async function _fetchAllPages(table, select, extraQ){
+  const PAGE=1000; let all=[], from=0;
+  while(true){
+    let q=sb.from(table).select(select).range(from,from+PAGE-1);
+    if(extraQ) q=extraQ(q);
+    const {data,error}=await q; if(error) throw error;
+    all=all.concat(data||[]);
+    if(!data||data.length<PAGE) break;
+    from+=PAGE;
+  }
+  return all;
+}
+
+async function loadStockMovement(){
+  const tbody=document.getElementById("smTableBody");
+  if(tbody) tbody.innerHTML=`<tr><td class="empty-td" colspan="9">Memuat...</td></tr>`;
+  try{
+    const status=document.getElementById("sm-fil-status")?.value||"";
+    const from=document.getElementById("sm-fil-from")?.value||"";
+    const to=document.getElementById("sm-fil-to")?.value||"";
+
+    const [poData,itemData,billData,billItemData,rcvData,stockData,salesItemData,adjItemData]=await Promise.all([
+      // POs: server-side filter + pagination
+      (async()=>{
+        const PAGE=1000; let all=[], f=0;
+        while(true){
+          let q=sb.from("jubelio_purchase_orders").select("*").order("transaction_date",{ascending:false}).range(f,f+PAGE-1);
+          if(status) q=q.eq("status",status);
+          if(from)   q=q.gte("transaction_date",from);
+          if(to)     q=q.lte("transaction_date",to+"T23:59:59");
+          const {data,error}=await q; if(error) throw error;
+          all=all.concat(data||[]); if(!data||data.length<PAGE) break; f+=PAGE;
+        }
+        return all;
+      })(),
+      _fetchAllPages("jubelio_purchase_order_items","purchaseorder_id,purchaseorder_detail_id,item_id,item_code,item_name,qty,unit"),
+      _fetchAllPages("jubelio_purchase_bills","bill_id,purchaseorder_id,is_putaway,location_name,transaction_date"),
+      _fetchAllPages("jubelio_purchase_bill_items","bill_id,purchaseorder_detail_id,qty"),
+      _fetchAllPages("jubelio_purchase_receives","bill_id,purchaseorder_no,transaction_date"),
+      _fetchAllPages("jubelio_inventory_stocks","item_id,location_name,on_hand"),
+      _fetchAllPages("jubelio_sales_order_items","item_id,qty"),
+      _fetchAllPages("jubelio_inventory_adjustment_items","item_id,item_adj_id"),
+    ]);
+
+    smPORows=poData.map(r=>({
+      id:r.purchaseorder_id, purchaseorderId:r.purchaseorder_id,
+      purchaseorderNo:r.purchaseorder_no||"", status:r.status||"",
+      supplierName:r.supplier_name||"", transactionDate:r.transaction_date||"",
+      locationName:r.location_name||"", grandTotal:r.grand_total!=null?Number(r.grand_total):null
+    }));
+    smPOItems=itemData;
+    smPOBills=billData;
+    smPOBillItems=billItemData;
+    smPOReceives=rcvData;
+
+    // Build stock map: item_id → [{location_name, on_hand}]
+    smStockMap={};
+    (stockData||[]).forEach(r=>{
+      if(!smStockMap[r.item_id]) smStockMap[r.item_id]=[];
+      if((r.on_hand||0)>0) smStockMap[r.item_id].push({loc:r.location_name||"—",qty:Number(r.on_hand)});
+    });
+
+    // Build sales map: item_id → total qty sold
+    smSalesMap={};
+    (salesItemData||[]).forEach(r=>{
+      if(r.item_id!=null) smSalesMap[r.item_id]=(smSalesMap[r.item_id]||0)+(Number(r.qty)||0);
+    });
+
+    // Build adj map: item_id → unique adjustment count
+    smAdjMap={};
+    (adjItemData||[]).forEach(r=>{
+      if(r.item_id!=null){
+        if(!smAdjMap[r.item_id]) smAdjMap[r.item_id]=new Set();
+        smAdjMap[r.item_id].add(r.item_adj_id);
+      }
+    });
+    // Convert sets to counts
+    Object.keys(smAdjMap).forEach(k=>{smAdjMap[k]=smAdjMap[k].size;});
+
+    applySmFilters();
+  }catch(e){
+    if(tbody) tbody.innerHTML=`<tr><td class="empty-td" colspan="9">Gagal memuat: ${e.message||e}</td></tr>`;
+  }
+}
+
+function applySmFilters(){
+  const putaway=document.getElementById("sm-fil-putaway")?.value||"";
+  const q=(document.getElementById("smSearch")?.value||"").toLowerCase();
+  let rows=smPORows;
+  if(putaway==="yes") rows=rows.filter(r=>smPOBills.some(b=>b.purchaseorder_id===r.id&&b.is_putaway===true));
+  else if(putaway==="no") rows=rows.filter(r=>!smPOBills.some(b=>b.purchaseorder_id===r.id&&b.is_putaway===true));
+  if(q){
+    const items=smPOItems.filter(i=>(i.item_code||"").toLowerCase().includes(q)||(i.item_name||"").toLowerCase().includes(q));
+    const matchedPOs=new Set(items.map(i=>i.purchaseorder_id));
+    rows=rows.filter(r=>(r.purchaseorderNo||"").toLowerCase().includes(q)||(r.supplierName||"").toLowerCase().includes(q)||matchedPOs.has(r.id));
+  }
+  _smFiltered=rows;
+  renderSmStats(rows);
+  renderSmTable(rows);
+}
+
+function renderSmStats(rows){
+  const poIds=new Set(rows.map(r=>r.id));
+  const putawayCount=rows.filter(r=>smPOBills.some(b=>b.purchaseorder_id===r.id&&b.is_putaway===true)).length;
+  // received qty: sum bill_items for bills linked to these POs
+  const billIds=new Set(smPOBills.filter(b=>poIds.has(b.purchaseorder_id)).map(b=>b.bill_id));
+  const rcvdQty=smPOBillItems.filter(bi=>billIds.has(bi.bill_id)).reduce((s,bi)=>s+(Number(bi.qty)||0),0);
+  // sales + adj for items in these POs
+  const itemIds=new Set(smPOItems.filter(i=>poIds.has(i.purchaseorder_id)).map(i=>i.item_id).filter(Boolean));
+  const salesQty=[...itemIds].reduce((s,id)=>s+(smSalesMap[id]||0),0);
+  const adjCount=[...itemIds].reduce((s,id)=>s+(smAdjMap[id]||0),0);
+  document.getElementById("sm-s-total").textContent=rows.length;
+  document.getElementById("sm-s-putaway").textContent=putawayCount;
+  document.getElementById("sm-s-rcvd").textContent=rcvdQty?rcvdQty.toLocaleString("id-ID"):"—";
+  document.getElementById("sm-s-sales").textContent=salesQty?salesQty.toLocaleString("id-ID"):"—";
+  document.getElementById("sm-s-adj").textContent=adjCount||"—";
+}
+
+function renderSmTable(rows){
+  rows=sortBy(rows,smSort.col,smSort.dir);
+  updateSortTh("sm-thead",smSort.col,smSort.dir);
+  const tbody=document.getElementById("smTableBody");
+  document.getElementById("sm-tcount").textContent=rows.length+" entri";
+  if(!rows.length){tbody.innerHTML=`<tr><td class="empty-td" colspan="9">Tidak ada data.</td></tr>`;return;}
+  const putawayPill=isPutaway=>{
+    if(isPutaway) return `<span class="pill p-active" style="font-size:11px">✓ Putaway</span>`;
+    return `<span class="pill p-near" style="font-size:11px">⏳ Belum</span>`;
+  };
+  tbody.innerHTML=rows.flatMap(r=>{
+    const bills=smPOBills.filter(b=>b.purchaseorder_id===r.id);
+    const isPutaway=bills.some(b=>b.is_putaway===true);
+    const rcv=smPOReceives.find(rx=>rx.purchaseorder_no===r.purchaseorderNo);
+    const rcvDate=rcv?fmtDate(rcv.transaction_date):"—";
+    const location=bills.find(b=>b.location_name)?.location_name||r.locationName||"—";
+    const items=smPOItems.filter(i=>i.purchaseorder_id===r.id);
+    const hasItems=items.length>0;
+    const gt=r.grandTotal!=null?`Rp ${Math.round(r.grandTotal).toLocaleString("id-ID")}`:"—";
+
+    // Attach receive date for sorting
+    r.receiveDate=rcv?.transaction_date||"";
+
+    const main=`<tr>
+      <td style="text-align:center;cursor:${hasItems?"pointer":"default"};color:var(--g400);user-select:none" onclick="${hasItems?`toggleSmItems(${r.id})`:""}" id="sm-toggle-${r.id}">${hasItems?"▶":""}</td>
+      <td><a href="https://v2.jubelio.com/purchase/orders/detail/${r.id}" target="_blank" style="font-family:var(--mono);font-size:12px;color:#3C3489;text-decoration:none">${r.purchaseorderNo||r.id}</a></td>
+      <td style="font-size:13px">${r.supplierName||"—"}</td>
+      <td style="white-space:nowrap;font-size:12px">${fmtDate(r.transactionDate)||"—"}</td>
+      <td style="white-space:nowrap;font-size:12px">${rcvDate}</td>
+      <td>${isPutaway?putawayPill(true):(bills.length?putawayPill(false):`<span class="pill p-draft" style="font-size:11px">Menunggu</span>`)}</td>
+      <td><span style="font-size:12px">${location}</span></td>
+      <td style="text-align:right;font-size:12px;font-weight:600">${items.length}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:12px;font-weight:600">${gt}</td>
+    </tr>`;
+
+    // Build received qty map for this PO's bill items
+    const billIds=new Set(bills.map(b=>b.bill_id));
+    const rcvdByDetail={};
+    smPOBillItems.filter(bi=>billIds.has(bi.bill_id)).forEach(bi=>{
+      rcvdByDetail[bi.purchaseorder_detail_id]=(rcvdByDetail[bi.purchaseorder_detail_id]||0)+(Number(bi.qty)||0);
+    });
+
+    const detail=`<tr id="sm-items-${r.id}" style="display:none;background:var(--off)">
+      <td></td>
+      <td colspan="8" style="padding:8px 12px 14px">
+        <table style="width:100%;font-size:11px;border-collapse:collapse">
+          <thead><tr style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">
+            <th style="padding:4px 8px;text-align:left">Kode</th>
+            <th style="padding:4px 8px;text-align:left">Nama Item</th>
+            <th style="padding:4px 8px;text-align:right">PO Qty</th>
+            <th style="padding:4px 8px;text-align:right">Diterima</th>
+            <th style="padding:4px 8px">Stok Saat Ini</th>
+            <th style="padding:4px 8px;text-align:right">Sales Qty</th>
+            <th style="padding:4px 8px;text-align:right">Adj</th>
+          </tr></thead>
+          <tbody>${items.map(it=>{
+            const rcvd=rcvdByDetail[it.purchaseorder_detail_id]||0;
+            const rcvdC=rcvd===0?"color:var(--g400)":rcvd>=(it.qty||0)?"color:#2d8a4e":"color:#c0700a";
+            const stock=(smStockMap[it.item_id]||[]);
+            const stockHtml=stock.length
+              ? stock.map(s=>`<span style="display:inline-block;margin:1px 3px 1px 0;padding:1px 6px;border-radius:4px;border:1px solid var(--g200);background:var(--white);font-size:10px;font-family:var(--mono)">${s.loc} <b>${s.qty.toLocaleString("id-ID")}</b></span>`).join("")
+              : `<span style="color:var(--g400);font-size:11px">—</span>`;
+            const sales=smSalesMap[it.item_id]||0;
+            const adj=smAdjMap[it.item_id]||0;
+            return `<tr style="border-top:1px solid var(--g100)">
+              <td style="padding:5px 8px;font-family:var(--mono);font-size:10px">${it.item_code||"—"}</td>
+              <td style="padding:5px 8px">${it.item_name||"—"}</td>
+              <td style="padding:5px 8px;text-align:right;font-weight:600">${it.qty!=null?Number(it.qty).toLocaleString("id-ID"):"—"}</td>
+              <td style="padding:5px 8px;text-align:right;font-weight:600;${rcvdC}">${rcvd?rcvd.toLocaleString("id-ID"):"—"}</td>
+              <td style="padding:5px 8px">${stockHtml}</td>
+              <td style="padding:5px 8px;text-align:right;font-weight:600;color:#3C3489">${sales?sales.toLocaleString("id-ID"):"—"}</td>
+              <td style="padding:5px 8px;text-align:right;color:${adj?"#c0700a":"var(--g400)"};font-weight:${adj?600:400}">${adj||"—"}</td>
+            </tr>`;
+          }).join("")}</tbody>
+        </table>
+      </td>
+    </tr>`;
+    return [main,detail];
+  }).join("");
+}
+
+function toggleSmItems(poId){
+  const row=document.getElementById(`sm-items-${poId}`);
+  const tog=document.getElementById(`sm-toggle-${poId}`);
+  if(!row) return;
+  const open=row.style.display==="table-row";
+  row.style.display=open?"none":"table-row";
+  if(tog) tog.textContent=open?"▶":"▼";
+}
+
+function clearSmFilters(){
+  ["sm-fil-status","sm-fil-putaway","sm-fil-from","sm-fil-to"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
+  const s=document.getElementById("smSearch");if(s)s.value="";
+  loadStockMovement();
 }
 
 // ── DUPLICATE CHECK ──
