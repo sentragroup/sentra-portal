@@ -2688,12 +2688,18 @@ async function removeCPLink(linkId, colId){
 
 // Helper: call a Supabase edge function with anon key auth
 async function callEdgeFunction(slug, body={}){
-  const r=await fetch(`${SUPABASE_URL}/functions/v1/${slug}`,{
-    method:"POST",
-    headers:{"Content-Type":"application/json","Authorization":`Bearer ${SUPABASE_ANON}`},
-    body:JSON.stringify(body)
-  });
-  const j=await r.json();
+  let r;
+  try {
+    r=await fetch(`${SUPABASE_URL}/functions/v1/${slug}`,{
+      method:"POST",
+      headers:{"Content-Type":"application/json","apikey":SUPABASE_ANON,"Authorization":`Bearer ${SUPABASE_ANON}`},
+      body:JSON.stringify(body)
+    });
+  } catch(netErr){
+    throw new Error(`Network error: ${netErr.message}`);
+  }
+  let j;
+  try { j=await r.json(); } catch(_){ j={}; }
   if(!r.ok||j.ok===false) throw new Error(j.error||`HTTP ${r.status}`);
   return j;
 }
