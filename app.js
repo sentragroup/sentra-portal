@@ -5303,32 +5303,51 @@ function renderWHOutbound(periodShips, periodRets) {
   }
   renderWHLocBars("wh-o-courier-vol", courierVol, "order");
 
-  // ── Courier reliability ────────────────────────────────────
-  const courierRet = {};
-  for (const r of (periodRets || [])) {
-    const c = (r.courier || "").trim() || "(tanpa kurir)";
-    courierRet[c] = (courierRet[c] || 0) + 1;
+  // ── Courier reliability — always all-time (returns lag behind shipments) ──
+  // Using whShipments + whReturns (global all-time arrays) so numerator and
+  // denominator come from the same cohort, not period-filtered slices.
+  const allCompleted = {};
+  for (const s of whShipments) {
+    const c = (s.courier || "").trim() || "(tanpa kurir)";
+    allCompleted[c] = (allCompleted[c] || 0) + 1;
   }
+  const allReturned = {};
+  for (const r of whReturns) {
+    const c = (r.courier || "").trim() || "(tanpa kurir)";
+    allReturned[c] = (allReturned[c] || 0) + 1;
+  }
+
   const relEl = document.getElementById("wh-o-courier-rel");
   if (relEl) {
-    const couriers = Object.keys(courierVol).sort((a, b) => courierVol[b] - courierVol[a]).slice(0, 8);
+    // Show top couriers by all-time volume, skip tanpa kurir if 0 returns
+    const couriers = Object.keys(allCompleted)
+      .filter(c => c !== "(tanpa kurir)" || allReturned[c])
+      .sort((a, b) => allCompleted[b] - allCompleted[a])
+      .slice(0, 8);
+
     if (!couriers.length) {
       relEl.innerHTML = `<div style="color:var(--g400);font-size:12px">Belum ada data.</div>`;
     } else {
-      relEl.innerHTML = couriers.map(c => {
-        const shipped = courierVol[c] || 0;
-        const returned = courierRet[c] || 0;
-        const total = shipped + returned;
-        const retRate = total > 0 ? ((returned / total) * 100).toFixed(1) : "0.0";
-        const pct = Math.max(parseFloat(retRate), 0.5);
-        const color = parseFloat(retRate) === 0 ? "var(--black)" : parseFloat(retRate) < 2 ? "#2d7a2d" : parseFloat(retRate) < 5 ? "#e67e00" : "#c0392b";
+      // Compute rates then scale bars to max rate in this set
+      const rates = couriers.map(c => {
+        const comp = allCompleted[c] || 0;
+        const ret  = allReturned[c]  || 0;
+        const rate = comp + ret > 0 ? (ret / (comp + ret)) * 100 : 0;
+        return { c, comp, ret, rate };
+      });
+      const maxRate = Math.max(...rates.map(r => r.rate), 0.1);
+
+      relEl.innerHTML = rates.map(({ c, comp, ret, rate }) => {
+        const rateStr = rate.toFixed(1);
+        const barPct  = Math.max((rate / maxRate) * 100, rate > 0 ? 3 : 0);
+        const color   = rate === 0 ? "var(--g400)" : rate < 2 ? "#2d7a2d" : rate < 5 ? "#e67e00" : "#c0392b";
         return `<div style="margin-bottom:10px">
           <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
             <span>${c}</span>
-            <span style="font-family:'DM Mono',monospace;color:${color}">${retRate}% retur (${returned}/${total})</span>
+            <span style="font-family:'DM Mono',monospace;color:${color}">${rateStr}% — ${ret} retur / ${comp} shipped</span>
           </div>
           <div style="height:6px;background:var(--off);border-radius:3px">
-            <div style="height:6px;width:${Math.min(pct * 10, 100)}%;background:${color};border-radius:3px"></div>
+            <div style="height:6px;width:${barPct}%;background:${color};border-radius:3px"></div>
           </div>
         </div>`;
       }).join("");
