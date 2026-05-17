@@ -141,7 +141,7 @@ function showPage(name, el) {
   document.querySelectorAll(".sb-item").forEach(i=>i.classList.remove("active"));
   document.getElementById("page-"+name).classList.add("active");
   if (el) el.classList.add("active");
-  const labels = {home:"Internal Tools",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",stockmovement:"Stock Movement",productmap:"Product Mapping",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Trade Orders"};
+  const labels = {home:"Internal Tools",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",stockmovement:"Stock Movement",productmap:"Product Mapping",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -6752,7 +6752,7 @@ async function loadTradeOrders(){
   if(tbody)tbody.innerHTML=`<tr><td class="empty-td" colspan="9">Memuat...</td></tr>`;
   try{
     // 1. Get CNSGNE/WHLSR contact_ids
-    const {data:contacts,error:cErr}=await sb.from('jubelio_contacts').select('contact_id,contact_name,category_display').or('category_display.ilike.CNSGNE%,category_display.ilike.WHLSR%');
+    const {data:contacts,error:cErr}=await sb.from('jubelio_contacts').select('contact_id,contact_name,category_display').ilike('category_display','WHLSR%');
     if(cErr)throw cErr;
     trdContactCategories={};
     const contactIds=(contacts||[]).map(c=>{
@@ -6780,24 +6780,20 @@ async function loadTradeOrders(){
 }
 
 function renderTrdStats(orders){
-  const cnsgne=orders.filter(o=>o.categoryDisplay==='CNSGNE').length;
-  const whlsr=orders.filter(o=>o.categoryDisplay==='WHLSR').length;
   const unpaid=orders.filter(o=>!o.is_paid&&!o.is_canceled).length;
+  const active=orders.filter(o=>!o.is_canceled&&(o.channel_status||'').toLowerCase()!=='done').length;
   const total=orders.reduce((s,o)=>s+(parseFloat(o.grand_total)||0),0);
   document.getElementById('trd-s-total').textContent=orders.length;
-  document.getElementById('trd-s-consignment').textContent=cnsgne;
-  document.getElementById('trd-s-wholesale').textContent=whlsr;
   document.getElementById('trd-s-unpaid').textContent=unpaid;
+  document.getElementById('trd-s-active').textContent=active;
   document.getElementById('trd-s-value').textContent=total?fmtRp(total):'—';
 }
 
 function applyTrdFilters(){
-  const type=document.getElementById('trd-fil-type')?.value||'';
   const status=document.getElementById('trd-fil-status')?.value||'';
   const pay=document.getElementById('trd-fil-pay')?.value||'';
   const q=(document.getElementById('trd-search')?.value||'').toLowerCase();
   let rows=allTrdOrders;
-  if(type)rows=rows.filter(r=>r.categoryDisplay===type);
   if(status)rows=rows.filter(r=>(r.channel_status||r.internal_status||'').toLowerCase()===status);
   if(pay==='paid')rows=rows.filter(r=>r.is_paid);
   if(pay==='unpaid')rows=rows.filter(r=>!r.is_paid&&!r.is_canceled);
@@ -6822,18 +6818,14 @@ function renderTrdTable(rows){
   if(!tbody)return;
   if(!rows.length){tbody.innerHTML=`<tr><td class="empty-td" colspan="9">Tidak ada data.</td></tr>`;return;}
   tbody.innerHTML=rows.map(r=>{
-    const cat=r.categoryDisplay;
-    const catLabel=cat==='CNSGNE'?'Consignment':cat==='WHLSR'?'Wholesale':cat;
-    const catPill=cat==='CNSGNE'?'p-signings':'p-review';
     const status=r.channel_status||r.internal_status||'—';
     const stClr={open:'p-draft',confirmed:'p-signings',delivered:'p-signings',done:'p-active',cancelled:'p-inactive'}[status.toLowerCase()]||'p-draft';
     const payPill=r.is_paid?'p-active':r.is_canceled?'p-inactive':'p-draft';
     const payLabel=r.is_paid?'Lunas':r.is_canceled?'Dibatalkan':'Belum Lunas';
     const trk=allTrdTracking[r.salesorder_id];
     return `<tr style="cursor:pointer" onclick="openTrdDetail(${r.salesorder_id})">
-      <td style="white-space:nowrap"><strong>${r.salesorder_no||'—'}</strong>${r.invoice_no?`<div style="font-size:10px;color:var(--g400)">${r.invoice_no}</div>`:''}  </td>
+      <td style="white-space:nowrap"><strong>${r.salesorder_no||'—'}</strong>${r.invoice_no?`<div style="font-size:10px;color:var(--g400)">${r.invoice_no}</div>`:''}</td>
       <td>${r.customer_name||'—'}</td>
-      <td><span class="pill ${catPill}" style="font-size:10px">${catLabel}</span></td>
       <td style="white-space:nowrap">${fmtDate(r.transaction_date)||'—'}</td>
       <td style="text-align:right;white-space:nowrap">${r.grand_total?fmtRp(r.grand_total):'—'}</td>
       <td><span class="pill ${stClr}" style="font-size:10px">${status}</span></td>
