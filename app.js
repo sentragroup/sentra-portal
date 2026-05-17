@@ -2939,12 +2939,13 @@ async function savePMField(itemName, field, value){
       allColNames.push(value); allColNames.sort(); updatePMColDatalist();
     }
     await sb.from("product_mappings").update(upd).eq("item_name",itemName);
-    if(existing){
-      if(field==='brand') existing.brand=value;
-      else if(field==='ip') existing.ip=value;
-      else if(field==='royalty_recipient') existing.royaltyRecipient=value;
-      else if(field==='collection') existing.collection=value;
-    }
+    // Update ALL local rows with same item_name (variants)
+    allPMRows.filter(r=>r.itemName===itemName).forEach(r=>{
+      if(field==='brand') r.brand=value;
+      else if(field==='ip') r.ip=value;
+      else if(field==='royalty_recipient') r.royaltyRecipient=value;
+      else if(field==='collection') r.collection=value;
+    });
     // Refresh status cell
     const safeId=btoa(unescape(encodeURIComponent(itemName))).replace(/[^a-zA-Z0-9]/g,'');
     const cell=document.getElementById(`pm-status-${safeId}`);
