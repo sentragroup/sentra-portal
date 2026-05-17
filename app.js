@@ -5343,28 +5343,56 @@ function renderWHOutbound(periodShips, periodRets) {
   }
   renderWHLocBars("wh-o-courier-vol", courierVol, "order");
 
-  // ── Courier reliability — uses wh_courier_stats aggregate view (all-time, no 1000-row cap) ──
-  // Only shows couriers with ≥50 total orders to ensure statistical validity.
+  // ── Courier reliability — period-aware ──────────────────────
+  // "Semua waktu": use wh_courier_stats aggregate view (bypasses 1000-row cap, accurate).
+  // Any other period: compute directly from periodShips + periodRets (already filtered).
   const relEl = document.getElementById("wh-o-courier-rel");
   if (relEl) {
-    const MIN_SAMPLE = 50;
-    const reliStats = whCourierStats
-      .filter(r => r.courier !== "(tanpa kurir)" && (r.completed_count + r.returned_count) >= MIN_SAMPLE)
-      .sort((a, b) => b.completed_count - a.completed_count)
-      .slice(0, 8)
-      .map(r => {
-        const total = r.completed_count + r.returned_count;
-        const rate  = total > 0 ? (r.returned_count / total) * 100 : 0;
-        return { c: r.courier, comp: r.completed_count, ret: r.returned_count, total, rate };
+    const isAllTime = (document.getElementById("wh-period")?.value || "30") === "all";
+    let reliStats;
+
+    if (isAllTime) {
+      // All-time: aggregate view has accurate totals across all 11k+ orders
+      reliStats = whCourierStats
+        .filter(r => r.courier !== "(tanpa kurir)")
+        .sort((a, b) => b.completed_count - a.completed_count)
+        .slice(0, 8)
+        .map(r => {
+          const total = r.completed_count + r.returned_count;
+          const rate  = total > 0 ? (r.returned_count / total) * 100 : 0;
+          return { c: r.courier, comp: r.completed_count, ret: r.returned_count, total, rate };
+        });
+    } else {
+      // Period-filtered: count from the same arrays driving the rest of the dashboard
+      const compByC = {}, retByC = {};
+      for (const s of periodShips) {
+        const c = (s.courier || "").trim() || "(tanpa kurir)";
+        compByC[c] = (compByC[c] || 0) + 1;
+      }
+      for (const r of periodRets) {
+        const c = (r.courier || "").trim() || "(tanpa kurir)";
+        retByC[c] = (retByC[c] || 0) + 1;
+      }
+      const couriers = [...new Set([...Object.keys(compByC), ...Object.keys(retByC)])]
+        .filter(c => c !== "(tanpa kurir)")
+        .sort((a, b) => (compByC[b] || 0) - (compByC[a] || 0))
+        .slice(0, 8);
+      reliStats = couriers.map(c => {
+        const comp  = compByC[c] || 0;
+        const ret   = retByC[c]  || 0;
+        const total = comp + ret;
+        const rate  = total > 0 ? (ret / total) * 100 : 0;
+        return { c, comp, ret, total, rate };
       });
+    }
 
     if (!reliStats.length) {
       relEl.innerHTML = `<div style="color:var(--g400);font-size:12px">Belum ada data.</div>`;
     } else {
-      // Fixed 10% scale: 10% return rate = full bar. Honest, not relative.
+      // Fixed 10% scale: 10% return rate = full bar width. Honest, not relative.
       relEl.innerHTML = reliStats.map(({ c, comp, ret, total, rate }) => {
         const rateStr = rate.toFixed(1);
-        const barPct  = Math.max(Math.min(rate * 10, 100), rate > 0 ? 3 : 0);
+        const barPct  = Math.max(Math.min(rate * 10, 100), ret > 0 ? 3 : 0);
         const color   = rate === 0 ? "var(--g400)" : rate < 1 ? "#2d7a2d" : rate < 3 ? "#e67e00" : "#c0392b";
         return `<div style="margin-bottom:10px">
           <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
