@@ -4990,7 +4990,7 @@ async function syncSMNow(){
 // bill_items join via bill_id (NOT purchaseorder_id — that column doesn't exist on bill_items)
 let whBills      = [];   // jubelio_purchase_bills
 let whPOItems    = [];   // jubelio_purchase_order_items (ordered qty)
-let whShipments  = [];   // jubelio_sales_shipments
+let whShipments  = [];   // jubelio_sales_orders WHERE wms_status=COMPLETED
 let whAdjHeaders = [];   // jubelio_inventory_adjustments
 let whBillItems= [];   // jubelio_purchase_bill_items  (received qty, key: bill_id)
 let whPORows   = [];   // jubelio_purchase_orders (for PO header display)
@@ -5011,8 +5011,9 @@ async function loadWHData() {
     sb.from("jubelio_purchase_order_items").select("purchaseorder_id,qty"),
     sb.from("jubelio_purchase_bill_items").select("bill_id,qty"),
     sb.from("jubelio_purchase_orders").select("purchaseorder_id,purchaseorder_no,supplier_name,transaction_date,status"),
-    sb.from("jubelio_sales_shipments")
-      .select("salesorder_id,salesorder_no,transaction_date,location_name,customer_name,item_count,courier_name")
+    sb.from("jubelio_sales_orders")
+      .select("salesorder_id,salesorder_no,transaction_date,location_name,customer_name,courier")
+      .eq("wms_status", "COMPLETED")
       .order("transaction_date", { ascending: false }),
     sb.from("jubelio_inventory_adjustments")
       .select("item_adj_id,item_adj_no,transaction_date,location_name,net_qty,item_count,note")
@@ -5233,19 +5234,16 @@ function renderWHRecvDetail(poQtyMap, billPoQty) {
 }
 
 function renderWHOutbound(periodShips) {
-  // KPI cards
-  const shipped  = periodShips.length;
-  const items    = periodShips.reduce((s, r) => s + (r.item_count || 0), 0);
-  // open orders is stored from last sync response — read from a data attr if available
-  const openEl   = document.getElementById("wh-o-open");
-  // fulfillment rate: shipped / (shipped + open) — only meaningful if open count known
+  // KPI cards — data from jubelio_sales_orders WHERE wms_status=COMPLETED
+  const shipped   = periodShips.length;
+  const openEl    = document.getElementById("wh-o-open");
   const openCount = openEl ? (parseInt(openEl.dataset.live || "0") || 0) : 0;
   const fRate = (shipped + openCount) > 0
     ? ((shipped / (shipped + openCount)) * 100).toFixed(1) + "%"
     : shipped > 0 ? "100%" : "—";
 
   if (document.getElementById("wh-o-shipped")) document.getElementById("wh-o-shipped").textContent = shipped;
-  if (document.getElementById("wh-o-items"))   document.getElementById("wh-o-items").textContent   = items;
+  if (document.getElementById("wh-o-items"))   document.getElementById("wh-o-items").textContent   = "—";
   if (document.getElementById("wh-o-rate"))    document.getElementById("wh-o-rate").textContent    = fRate;
 
   // Trend chart (follow period filter)
@@ -5265,7 +5263,7 @@ function renderWHOutbound(periodShips) {
   if (tcount) tcount.textContent = `${periodShips.length} entri`;
   if (!tbody) return;
   if (!periodShips.length) {
-    tbody.innerHTML = `<tr><td class="empty-td" colspan="6">Belum ada data. Klik "⟳ Sync" untuk menarik data dari Jubelio.</td></tr>`;
+    tbody.innerHTML = `<tr><td class="empty-td" colspan="5">Belum ada data dalam periode ini.</td></tr>`;
     return;
   }
   tbody.innerHTML = periodShips.map(s => {
@@ -5275,8 +5273,7 @@ function renderWHOutbound(periodShips) {
       <td>${tgl}</td>
       <td>${s.customer_name || "—"}</td>
       <td>${s.location_name || "—"}</td>
-      <td>${s.courier_name || "—"}</td>
-      <td style="text-align:right;font-family:'DM Mono',monospace">${s.item_count ?? "—"}</td>
+      <td>${s.courier || "—"}</td>
     </tr>`;
   }).join("");
 }
