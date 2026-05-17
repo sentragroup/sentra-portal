@@ -3219,17 +3219,26 @@ async function loadCollections() {
     const fetches=[
       sb.from("collections").select("*").order("release_date",{ascending:false}),
       sb.from("collection_items").select("*").order("date_added",{ascending:true}),
-      sb.from("designer_workflow").select("id,collection_id,designer").not("collection_id","is",null),
+      sb.from("designer_workflow").select("*").not("collection_id","is",null),
       sb.from("collection_stages").select("*")
     ];
     if(!allDsgRows.length) fetches.push(sb.from("designer_master").select("*").order("name"));
     const results=await Promise.all(fetches);
-    const [{data,error},{data:ciData},{data:dwCheck},{data:csData}]=results;
+    const [{data,error},{data:ciData},{data:dwData},{data:csData}]=results;
     if(error)throw error;
     allColRows=(data||[]).map(mapCol);
     allColItems=(ciData||[]).map(mapCI);
     allColStages=(csData||[]).map(mapCS);
     if(results[4]?.data) allDsgRows=results[4].data.map(mapDsg);
+    // Populate allDwRows with full data (payment, URL, agreement, etc.)
+    allDwRows=(dwData||[]).filter(r=>r.locked).map(r=>{
+      const row=mapDw(r);
+      const col=allColRows.find(c=>c.id===r.collection_id);
+      row.collectionName=col?col.collectionName:"";
+      if(!row.projectName&&row.collectionName) row.projectName=row.collectionName;
+      return row;
+    });
+    const dwCheck=dwData; // used by ensureDWProjects below
     // Ensure PO data available for the link dropdown + production cards
     const poFetches=[];
     if(!allPORows.length) poFetches.push(sb.from("jubelio_purchase_orders").select("*").order("transaction_date",{ascending:false}));
@@ -3312,8 +3321,35 @@ async function ensureDWForCollection(colId) {
   const col=allColRows.find(r=>r.id===colId);
   if(!col) return;
   const {data}=await sb.from("designer_workflow")
-    .select("id,collection_id,designer").eq("collection_id",colId);
+    .select("*").eq("collection_id",colId);
+  // Sync allDwRows for this collection with fresh DB data
+  allDwRows=allDwRows.filter(r=>r.collectionId!==colId);
+  (data||[]).filter(r=>r.locked).forEach(r=>{
+    const row=mapDw(r);
+    row.collectionName=col.collectionName;
+    if(!row.projectName) row.projectName=col.collectionName;
+    allDwRows.push(row);
+  });
   await ensureDWProjects([col], data||[]);
+}
+
+// Sync DW rows for a collection: delete orphaned designers, create missing ones
+async function syncDWForCollection(colId) {
+  const col=allColRows.find(r=>r.id===colId);
+  if(!col) return;
+  const currentDesigners=new Set(
+    allColItems.filter(i=>i.collectionId===colId&&i.designer).map(i=>i.designer)
+  );
+  // Delete DW rows for designers no longer assigned to any SKU in this collection
+  const orphans=allDwRows.filter(r=>r.collectionId===colId&&r.locked&&r.designer&&!currentDesigners.has(r.designer));
+  for(const dw of orphans){
+    try {
+      await sb.from("designer_workflow").delete().eq("id",dw.id);
+      allDwRows=allDwRows.filter(r=>r.id!==dw.id);
+    } catch(e){/* silent */}
+  }
+  // Create rows for new designers
+  await ensureDWForCollection(colId);
 }
 
 function computeColDeliverableStatus(colId, designer) {
@@ -4524,8 +4560,8 @@ async function saveSKUEdit(itemId, colId) {
     const col=allColRows.find(r=>r.id===colId);
     if(col) renderColDetail(col, allColItems.filter(i=>i.collectionId===colId));
     applyColFilters();
-    // Auto-create DW project if designer changed to someone new
-    ensureDWForCollection(colId);
+    // Sync DW rows: remove orphaned designers, add new ones
+    syncDWForCollection(colId);
   } catch(e){if(btn){btn.disabled=false;btn.textContent="Simpan";}alert("Gagal: "+(e.message||e));}
 }
 
@@ -4552,6 +4588,8 @@ async function deleteSKU(itemId, colId) {
     const col=allColRows.find(r=>r.id===colId);
     if(col) renderColDetail(col, allColItems.filter(i=>i.collectionId===colId));
     applyColFilters();
+    // Remove DW row if this designer no longer has any SKUs in the collection
+    syncDWForCollection(colId);
   } catch(e){alert("Gagal: "+(e.message||e));}
 }
 
@@ -4594,8 +4632,11 @@ async function deleteCol(rowIdx) {
     const {error}=await sb.from("collections").delete().eq("id",rowIdx);
     if(error)throw error;
     logActivity("Collections","delete",rowIdx,"Dihapus");
+    // Cascade: remove DW rows for this collection
+    await sb.from("designer_workflow").delete().eq("collection_id",rowIdx);
     allColRows=allColRows.filter(r=>r.id!==rowIdx);
     allColItems=allColItems.filter(i=>i.collectionId!==rowIdx);
+    allDwRows=allDwRows.filter(r=>r.collectionId!==rowIdx);
     closeCollectionDetail();
     applyColFilters();
   } catch(e){alert("Gagal: "+(e.message||e));}
