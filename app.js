@@ -4988,39 +4988,43 @@ async function syncSMNow(){
 // All data from existing jubelio_purchase_* tables — no separate putaway sync needed.
 // jubelio_purchase_bills.is_putaway = true  ←  the "putaway done" flag
 // bill_items join via bill_id (NOT purchaseorder_id — that column doesn't exist on bill_items)
-let whBills    = [];   // jubelio_purchase_bills
-let whPOItems  = [];   // jubelio_purchase_order_items (ordered qty)
+let whBills      = [];   // jubelio_purchase_bills
+let whPOItems    = [];   // jubelio_purchase_order_items (ordered qty)
+let whShipments  = [];   // jubelio_sales_shipments
+let whAdjHeaders = [];   // jubelio_inventory_adjustments
 let whBillItems= [];   // jubelio_purchase_bill_items  (received qty, key: bill_id)
 let whPORows   = [];   // jubelio_purchase_orders (for PO header display)
 
 async function loadWHData() {
   const tbody  = document.getElementById("wh-log-body");
   const recvTb = document.getElementById("wh-recv-body");
-  if (tbody)  tbody.innerHTML  = `<tr><td class="empty-td" colspan="6">Memuat...</td></tr>`;
+  if (tbody)  tbody.innerHTML  = `<tr><td class="empty-td" colspan="5">Memuat...</td></tr>`;
   if (recvTb) recvTb.innerHTML = `<tr><td class="empty-td" colspan="7">Memuat...</td></tr>`;
 
   const [
-    { data: bills,   error: e1 },
-    { data: poItems, error: e2 },
-    { data: bItems,  error: e3 },
-    { data: poRows,  error: e4 },
+    { data: bills   }, { data: poItems }, { data: bItems }, { data: poRows },
+    { data: ships   }, { data: adjs    },
   ] = await Promise.all([
     sb.from("jubelio_purchase_bills")
-      .select("bill_id,bill_no,purchaseorder_id,purchaseorder_no,supplier_name,transaction_date,location_name,is_putaway,created_by")
+      .select("bill_id,bill_no,purchaseorder_id,supplier_name,transaction_date,location_name,is_putaway")
       .order("transaction_date", { ascending: false }),
     sb.from("jubelio_purchase_order_items").select("purchaseorder_id,qty"),
     sb.from("jubelio_purchase_bill_items").select("bill_id,qty"),
     sb.from("jubelio_purchase_orders").select("purchaseorder_id,purchaseorder_no,supplier_name,transaction_date,status"),
+    sb.from("jubelio_sales_shipments")
+      .select("salesorder_id,salesorder_no,transaction_date,location_name,customer_name,item_count,courier_name")
+      .order("transaction_date", { ascending: false }),
+    sb.from("jubelio_inventory_adjustments")
+      .select("item_adj_id,item_adj_no,transaction_date,location_name,net_qty,item_count,note")
+      .order("transaction_date", { ascending: false }),
   ]);
 
-  if (e1) { console.error(e1); if (tbody) tbody.innerHTML=`<tr><td class="empty-td" colspan="6">Gagal: ${e1.message}</td></tr>`; return; }
-  if (e2) console.warn("PO items error:", e2.message);
-  if (e3) console.warn("Bill items error:", e3.message);
-
-  whBills     = bills    || [];
-  whPOItems   = poItems  || [];
-  whBillItems = bItems   || [];
-  whPORows    = poRows   || [];
+  whBills      = bills  || [];
+  whPOItems    = poItems || [];
+  whBillItems  = bItems  || [];
+  whPORows     = poRows  || [];
+  whShipments  = ships   || [];
+  whAdjHeaders = adjs    || [];
 
   renderWHDashboard();
 }
@@ -5093,46 +5097,28 @@ function renderWHDashboard() {
   document.getElementById("wh-k-pending").textContent  = notPutaway;
   document.getElementById("wh-k-recv").textContent     = accuracyStr;
 
-  // Trend + location always use ALL-TIME putaway bills (ignore period filter)
+  // Inbound trend + location — always ALL-TIME
   const allTimePutaway = whBills.filter(b => b.is_putaway === true);
   renderWHTrendChart(allTimePutaway);
   renderWHLocTable(allTimePutaway, billItemQty);
   renderWHLog(putawayBills, billItemQty);
   renderWHRecvDetail(poQtyMap, billPoQty);
+
+  // Outbound
+  const periodShips = cutoff
+    ? whShipments.filter(s => s.transaction_date && s.transaction_date >= cutoff)
+    : whShipments;
+  renderWHOutbound(periodShips);
+
+  // Inventory
+  const periodAdjs = cutoff
+    ? whAdjHeaders.filter(a => a.transaction_date && a.transaction_date >= cutoff)
+    : whAdjHeaders;
+  renderWHInventory(periodAdjs);
 }
 
 function renderWHTrendChart(putawayBills) {
-  const el = document.getElementById("wh-trend-chart");
-  if (!el) return;
-
-  const monthMap = {};
-  for (const b of putawayBills) {
-    if (!b.transaction_date) continue;
-    const key = b.transaction_date.slice(0, 7);
-    monthMap[key] = (monthMap[key] || 0) + 1;
-  }
-  const keys = Object.keys(monthMap).sort();
-
-  if (!keys.length) {
-    el.innerHTML = `<div style="color:var(--g400);font-size:12px;padding:1rem">Belum ada bill yang sudah putaway.</div>`;
-    return;
-  }
-
-  const maxVal = Math.max(...keys.map(k => monthMap[k]), 1);
-  const chartH = 100;
-  const barW   = Math.min(44, Math.floor((el.offsetWidth || 360) / keys.length) - 4);
-
-  el.innerHTML = keys.map(k => {
-    const v   = monthMap[k];
-    const pct = Math.max((v / maxVal) * chartH, 4);
-    const lbl = k.slice(5) + "/" + k.slice(2, 4);
-    return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:${barW}px">
-      <div style="font-size:10px;color:var(--g600);font-family:'DM Mono',monospace">${v}</div>
-      <div style="width:${barW - 6}px;height:${pct}px;background:var(--black);border-radius:3px 3px 0 0"></div>
-      <div style="font-size:9px;color:var(--g400);font-family:'DM Mono',monospace;white-space:nowrap">${lbl}</div>
-    </div>`;
-  }).join("") +
-  `<div style="position:absolute;bottom:18px;left:0;right:0;height:1px;background:var(--g200)"></div>`;
+  renderWHBarChart("wh-trend-chart", putawayBills, "transaction_date");
 }
 
 function renderWHLocTable(putawayBills, billItemQty) {
@@ -5142,7 +5128,7 @@ function renderWHLocTable(putawayBills, billItemQty) {
     el.innerHTML = `<div style="color:var(--g400);font-size:12px">Belum ada data penerimaan.</div>`;
     return;
   }
-
+  // Build locMap weighted by items received (richer than just count)
   const locMap = {};
   for (const b of putawayBills) {
     const loc = b.location_name || "(tanpa lokasi)";
@@ -5150,10 +5136,8 @@ function renderWHLocTable(putawayBills, billItemQty) {
     locMap[loc].count++;
     locMap[loc].items += billItemQty[b.bill_id] || 0;
   }
-
-  const sorted = Object.entries(locMap).sort((a, b) => b[1].items - a[1].items);
+  const sorted   = Object.entries(locMap).sort((a, b) => b[1].items - a[1].items);
   const maxItems = sorted[0]?.[1].items || 1;
-
   el.innerHTML = sorted.map(([loc, s]) => {
     const pct = Math.max(Math.round((s.items / maxItems) * 100), 3);
     return `<div style="margin-bottom:10px">
@@ -5239,19 +5223,184 @@ function renderWHRecvDetail(poQtyMap, billPoQty) {
   }).join("");
 }
 
+function renderWHOutbound(periodShips) {
+  // KPI cards
+  const shipped  = periodShips.length;
+  const items    = periodShips.reduce((s, r) => s + (r.item_count || 0), 0);
+  // open orders is stored from last sync response — read from a data attr if available
+  const openEl   = document.getElementById("wh-o-open");
+  // fulfillment rate: shipped / (shipped + open) — only meaningful if open count known
+  const openCount = openEl ? (parseInt(openEl.dataset.live || "0") || 0) : 0;
+  const fRate = (shipped + openCount) > 0
+    ? ((shipped / (shipped + openCount)) * 100).toFixed(1) + "%"
+    : shipped > 0 ? "100%" : "—";
+
+  if (document.getElementById("wh-o-shipped")) document.getElementById("wh-o-shipped").textContent = shipped;
+  if (document.getElementById("wh-o-items"))   document.getElementById("wh-o-items").textContent   = items;
+  if (document.getElementById("wh-o-rate"))    document.getElementById("wh-o-rate").textContent    = fRate;
+
+  // Trend chart (all-time)
+  renderWHBarChart("wh-o-trend", whShipments, "transaction_date");
+
+  // Per-gudang bars (all-time)
+  const locMap = {};
+  for (const s of whShipments) {
+    const loc = s.location_name || "(tanpa lokasi)";
+    locMap[loc] = (locMap[loc] || 0) + 1;
+  }
+  renderWHLocBars("wh-o-loc", locMap, "order");
+
+  // Log table
+  const tbody  = document.getElementById("wh-o-body");
+  const tcount = document.getElementById("wh-o-tcount");
+  if (tcount) tcount.textContent = `${periodShips.length} entri`;
+  if (!tbody) return;
+  if (!periodShips.length) {
+    tbody.innerHTML = `<tr><td class="empty-td" colspan="6">Belum ada data. Klik "⟳ Sync" untuk menarik data dari Jubelio.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = periodShips.map(s => {
+    const tgl = s.transaction_date ? s.transaction_date.slice(0, 10) : "—";
+    return `<tr>
+      <td style="font-family:'DM Mono',monospace;font-size:11px">${s.salesorder_no || "—"}</td>
+      <td>${tgl}</td>
+      <td>${s.customer_name || "—"}</td>
+      <td>${s.location_name || "—"}</td>
+      <td>${s.courier_name || "—"}</td>
+      <td style="text-align:right;font-family:'DM Mono',monospace">${s.item_count ?? "—"}</td>
+    </tr>`;
+  }).join("");
+}
+
+function renderWHInventory(periodAdjs) {
+  const total    = periodAdjs.length;
+  const shrink   = periodAdjs.filter(a => parseFloat(a.net_qty || 0) < 0).length;
+  const skus     = periodAdjs.reduce((s, a) => s + (a.item_count || 0), 0);
+  const netQty   = periodAdjs.reduce((s, a) => s + parseFloat(a.net_qty || 0), 0);
+  const netStr   = netQty > 0 ? "+" + Math.round(netQty) : Math.round(netQty).toString();
+
+  if (document.getElementById("wh-i-total"))  document.getElementById("wh-i-total").textContent  = total;
+  if (document.getElementById("wh-i-shrink")) document.getElementById("wh-i-shrink").textContent = shrink;
+  if (document.getElementById("wh-i-items"))  document.getElementById("wh-i-items").textContent  = skus;
+  if (document.getElementById("wh-i-net"))    document.getElementById("wh-i-net").textContent    = netStr;
+
+  // Trend (all-time)
+  renderWHBarChart("wh-i-trend", whAdjHeaders, "transaction_date");
+
+  // Per-gudang (all-time)
+  const locMap = {};
+  for (const a of whAdjHeaders) {
+    const loc = a.location_name || "(tanpa lokasi)";
+    locMap[loc] = (locMap[loc] || 0) + 1;
+  }
+  renderWHLocBars("wh-i-loc", locMap, "adj");
+
+  // Log table
+  const tbody  = document.getElementById("wh-i-body");
+  const tcount = document.getElementById("wh-i-tcount");
+  if (tcount) tcount.textContent = `${periodAdjs.length} entri`;
+  if (!tbody) return;
+  if (!periodAdjs.length) {
+    tbody.innerHTML = `<tr><td class="empty-td" colspan="6">Belum ada data. Klik "⟳ Sync" untuk menarik data dari Jubelio.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = periodAdjs.map(a => {
+    const tgl  = a.transaction_date ? a.transaction_date.slice(0, 10) : "—";
+    const qty  = parseFloat(a.net_qty || 0);
+    const qStr = qty > 0
+      ? `<span style="color:#2d7a2d">+${Math.round(qty)}</span>`
+      : qty < 0
+        ? `<span style="color:#c0392b">${Math.round(qty)}</span>`
+        : "0";
+    return `<tr>
+      <td style="font-family:'DM Mono',monospace;font-size:11px">${a.item_adj_no || "—"}</td>
+      <td>${tgl}</td>
+      <td>${a.location_name || "—"}</td>
+      <td style="text-align:right;font-family:'DM Mono',monospace">${a.item_count ?? "—"}</td>
+      <td style="text-align:right;font-family:'DM Mono',monospace">${qStr}</td>
+      <td style="font-size:11px;color:var(--g600)">${a.note || "—"}</td>
+    </tr>`;
+  }).join("");
+}
+
+// Shared bar chart helper (by month, always all-time)
+function renderWHBarChart(elId, rows, dateField) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  const monthMap = {};
+  for (const r of rows) {
+    if (!r[dateField]) continue;
+    const key = r[dateField].slice(0, 7);
+    monthMap[key] = (monthMap[key] || 0) + 1;
+  }
+  const keys = Object.keys(monthMap).sort();
+  if (!keys.length) {
+    el.innerHTML = `<div style="color:var(--g400);font-size:12px;padding:0.5rem 0">Belum ada data.</div>`;
+    return;
+  }
+  const maxVal = Math.max(...keys.map(k => monthMap[k]), 1);
+  const chartH = 100;
+  const barW   = Math.min(44, Math.floor((el.offsetWidth || 360) / keys.length) - 4);
+  el.innerHTML = keys.map(k => {
+    const v   = monthMap[k];
+    const pct = Math.max((v / maxVal) * chartH, 4);
+    const lbl = k.slice(5) + "/" + k.slice(2, 4);
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:${barW}px">
+      <div style="font-size:10px;color:var(--g600);font-family:'DM Mono',monospace">${v}</div>
+      <div style="width:${barW-6}px;height:${pct}px;background:var(--black);border-radius:3px 3px 0 0"></div>
+      <div style="font-size:9px;color:var(--g400);font-family:'DM Mono',monospace;white-space:nowrap">${lbl}</div>
+    </div>`;
+  }).join("") + `<div style="position:absolute;bottom:18px;left:0;right:0;height:1px;background:var(--g200)"></div>`;
+}
+
+// Shared location bar helper
+function renderWHLocBars(elId, locMap, unit) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  const sorted = Object.entries(locMap).sort((a, b) => b[1] - a[1]);
+  if (!sorted.length) { el.innerHTML = `<div style="color:var(--g400);font-size:12px">Belum ada data.</div>`; return; }
+  const maxVal = sorted[0][1] || 1;
+  el.innerHTML = sorted.map(([loc, v]) => {
+    const pct = Math.max(Math.round((v / maxVal) * 100), 3);
+    return `<div style="margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
+        <span>${loc}</span>
+        <span style="font-family:'DM Mono',monospace;color:var(--g600)">${v} ${unit}</span>
+      </div>
+      <div style="height:6px;background:var(--off);border-radius:3px">
+        <div style="height:6px;width:${pct}%;background:var(--black);border-radius:3px"></div>
+      </div>
+    </div>`;
+  }).join("");
+}
+
 async function whSyncNow() {
-  // Warehouse data comes from PO sync — redirect to PO sync
   const btn = document.getElementById("wh-sync-btn");
   const se  = document.getElementById("wh-sync-status");
-  if (btn) { btn.disabled = true; btn.textContent = "Syncing PO..."; }
+  if (btn) { btn.disabled = true; btn.textContent = "Syncing..."; }
   if (se) se.textContent = "";
   try {
-    const res = await callEdgeFunction("sync-jubelio-purchase-orders");
-    if (se) se.textContent = `✓ ${res.headersUpserted || 0} PO, ${res.itemsUpserted || 0} items`;
+    // Run warehouse sync (putaway + shipments + adjustments) + PO sync in parallel
+    const [wh, po] = await Promise.all([
+      callEdgeFunction("sync-jubelio-warehouse"),
+      callEdgeFunction("sync-jubelio-purchase-orders"),
+    ]);
+    // Store live open order count for fulfillment rate calculation
+    const openEl = document.getElementById("wh-o-open");
+    if (openEl && wh.openOrders != null) {
+      openEl.textContent       = wh.openOrders;
+      openEl.dataset.live      = wh.openOrders;
+    }
+    const parts = [
+      `✓ ${po.headersUpserted||0} PO`,
+      `${wh.shipmentsUpserted||0} shipped`,
+      `${wh.adjUpserted||0} adj`,
+    ];
+    if (se) se.textContent = parts.join(" · ");
   } catch (err) {
     if (se) se.textContent = `✗ ${err.message}`;
   }
-  if (btn) { btn.disabled = false; btn.textContent = "⟳ Sync Jubelio"; }
+  if (btn) { btn.disabled = false; btn.textContent = "⟳ Sync"; }
   await loadWHData();
 }
 
