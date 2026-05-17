@@ -116,7 +116,7 @@ function enterApp(user) {
   if (notifPollTimer) clearInterval(notifPollTimer);
   notifPollTimer = setInterval(loadNotifications, 60000);
   const _pg = location.hash.slice(1).split('/')[0];
-  if (['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','popupbooth','activitylog','jubsales','mesign','po','stockmovement','collections','designermaster','dsgworkflow'].includes(_pg))
+  if (['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','popupbooth','activitylog','jubsales','mesign','po','stockmovement','productmap','collections','designermaster','dsgworkflow','warehousekpi','stockadjmgmt','returnreason'].includes(_pg))
     showPage(_pg, document.getElementById('nav-'+_pg));
 }
 
@@ -140,7 +140,11 @@ function showPage(name, el) {
   if (el) el.classList.add("active");
   const labels = {home:"Internal Tools",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Jubelio Offline Sales",mesign:"Mekari Sign",po:"Purchase Orders",stockmovement:"Stock Movement",productmap:"Product Mapping",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
-  history.replaceState(null, "", name==="home" ? location.pathname : "#"+name);
+  // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
+  const _curHash = location.hash.slice(1);
+  const _newHash = name==="home" ? location.pathname
+    : (_curHash===name||_curHash.startsWith(name+'/')) ? location.hash : "#"+name;
+  history.replaceState(null, "", _newHash);
   if (name==="agreement") loadStats();
   if (name==="ipmaster") { loadIPMaster(); loadStats(); }
   if (name==="recipients") loadRecipients();
