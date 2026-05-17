@@ -3188,6 +3188,7 @@ function mapCI(r) {
     deadline:r.deadline||"", designPreviewUrl:r.design_preview_url||"",
     approvalStatus:r.approval_status||"Pending", notes:r.notes||"",
     samplingStatus:r.sampling_status||"Not Started", samplingNotes:r.sampling_notes||"",
+    samplingDriveUrl:r.sampling_drive_url||"",
     productionStatus:r.production_status||"Not Started", productionNotes:r.production_notes||""
   };
 }
@@ -3644,11 +3645,20 @@ function renderColDetail(col, items) {
       <thead><tr style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">
         <th style="padding:6px 10px;text-align:left">SKU</th>
         <th style="padding:6px 10px;text-align:left">Status</th>
+        <th style="padding:6px 10px;text-align:left">Drive</th>
         <th style="padding:6px 10px;text-align:left">Notes</th>
       </tr></thead>
       <tbody>${items.map(i=>`<tr style="border-top:1px solid var(--g100)">
         <td style="padding:8px 10px"><strong style="font-size:13px">${i.skuName}</strong>${i.category?` <span class="pill p-signings" style="font-size:9px">${i.category}</span>`:""}</td>
         <td style="padding:8px 10px">${cdSkuStatusSelect(i.id,col.id,"sampling",i.samplingStatus)}</td>
+        <td style="padding:8px 10px;white-space:nowrap">
+          <div id="sl-disp-${i.id}">${i.samplingDriveUrl
+            ?`<a href="${i.samplingDriveUrl}" target="_blank" style="font-size:11px;color:#3C3489;text-decoration:none">↗ Lihat</a> <button class="btn-icon" style="font-size:10px" onclick="openSamplingLink('${i.id}')">✏</button>`
+            :`<button class="btn-icon" style="font-size:10px" onclick="openSamplingLink('${i.id}')">+ Link</button>`}</div>
+          <div id="sl-edit-${i.id}" style="display:none">
+            <input type="url" id="sl-inp-${i.id}" value="${(i.samplingDriveUrl||"").replace(/"/g,"&quot;")}" placeholder="https://drive.google.com/..." style="font-size:11px;padding:3px 6px;border:1px solid var(--g200);border-radius:4px;width:180px" onblur="saveSamplingLink('${i.id}','${col.id}',this.value)">
+          </div>
+        </td>
         <td style="padding:8px 10px"><input type="text" value="${(i.samplingNotes||"").replace(/"/g,"&quot;")}" placeholder="Notes..." style="font-size:11px;padding:3px 8px;border:1px solid var(--g100);border-radius:4px;width:100%;min-width:140px" onblur="saveSkuStageNote('${i.id}','${col.id}','sampling',this.value)"></td>
       </tr>`).join("")}</tbody>
     </table>`:`<div style="color:var(--g400);font-size:12px">Belum ada SKU.</div>`;
@@ -4341,6 +4351,33 @@ function renderPipelineBarHTML(colId) {
       <span style="font-size:20px;line-height:1;color:${pclr(ps[k])}">${pdot(ps[k])}</span>
       <span style="font-size:9px;font-family:var(--mono);text-transform:uppercase;color:${pclr(ps[k])};white-space:nowrap">${l}</span>
     </div>`).join("");
+}
+
+// Sampling drive link toggle + save
+function openSamplingLink(itemId) {
+  const disp=document.getElementById(`sl-disp-${itemId}`);
+  const edit=document.getElementById(`sl-edit-${itemId}`);
+  if(disp) disp.style.display='none';
+  if(edit){ edit.style.display=''; document.getElementById(`sl-inp-${itemId}`)?.focus(); }
+}
+async function saveSamplingLink(itemId, colId, url) {
+  const val=url.trim()||null;
+  try {
+    await sb.from("collection_items").update({
+      sampling_drive_url:val, last_updated:new Date().toISOString(), last_updated_by:currentUser
+    }).eq("id",itemId);
+    const item=allColItems.find(i=>i.id===itemId);
+    if(item) item.samplingDriveUrl=val||"";
+    const disp=document.getElementById(`sl-disp-${itemId}`);
+    const edit=document.getElementById(`sl-edit-${itemId}`);
+    if(disp){
+      disp.innerHTML=val
+        ?`<a href="${val}" target="_blank" style="font-size:11px;color:#3C3489;text-decoration:none">↗ Lihat</a> <button class="btn-icon" style="font-size:10px" onclick="openSamplingLink('${itemId}')">✏</button>`
+        :`<button class="btn-icon" style="font-size:10px" onclick="openSamplingLink('${itemId}')">+ Link</button>`;
+      disp.style.display='';
+    }
+    if(edit) edit.style.display='none';
+  } catch(e){/* silent */}
 }
 
 // SKU stage notes save on blur
