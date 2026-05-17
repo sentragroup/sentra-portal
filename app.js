@@ -6742,51 +6742,48 @@ async function syncAllJubelio() {
 }
 
 // ── TRADE ORDERS ──
-let allTrdOrders=[], allTrdItems=[];
-
-function mapTrdOrder(r){
-  return {rowIndex:r.id,id:r.id,type:r.type||'',partnerName:r.partner_name||'',contactPerson:r.contact_person||'',channel:r.channel||'',orderDate:r.order_date||'',dueDate:r.due_date||'',invoiceNumber:r.invoice_number||'',status:r.status||'Active',paymentStatus:r.payment_status||'Unpaid',notes:r.notes||'',addedBy:r.added_by||'',dateAdded:r.date_added||''};
-}
-function mapTrdItem(r){
-  return {rowIndex:r.id,id:r.id,orderId:r.order_id||'',collectionName:r.collection_name||'',skuName:r.sku_name||'',qtyOrdered:parseInt(r.qty_ordered)||0,qtySold:parseInt(r.qty_sold)||0,qtyReturned:parseInt(r.qty_returned)||0,unitPrice:parseFloat(r.unit_price)||0,notes:r.notes||''};
-}
-function trdOrderValue(orderId){
-  return allTrdItems.filter(i=>i.orderId===orderId).reduce((s,i)=>s+i.qtyOrdered*i.unitPrice,0);
-}
+let allTrdOrders = [];
+let allTrdTracking = {};
+let trdContactCategories = {};
 function fmtRp(n){return 'Rp '+Math.round(n||0).toLocaleString('id-ID');}
-
-function switchTrdTab(tab,btn){
-  document.getElementById('trdtab-new').style.display=tab==='new'?'block':'none';
-  document.getElementById('trdtab-list').style.display=tab==='list'?'block':'none';
-  document.querySelectorAll('#page-tradorders .tab-btn').forEach(b=>b.classList.remove('active'));
-  if(btn)btn.classList.add('active');
-  if(tab==='list')loadTradeOrders();
-}
 
 async function loadTradeOrders(){
   const tbody=document.getElementById('trdTableBody');
   if(tbody)tbody.innerHTML=`<tr><td class="empty-td" colspan="9">Memuat...</td></tr>`;
   try{
-    const [ordRes,itmRes]=await Promise.all([
-      sb.from('trade_orders').select('*').order('date_added',{ascending:false}),
-      sb.from('trade_order_items').select('*')
-    ]);
-    if(ordRes.error)throw ordRes.error;
-    allTrdOrders=(ordRes.data||[]).map(mapTrdOrder);
-    allTrdItems=(itmRes.data||[]).map(mapTrdItem);
+    // 1. Get CNSGNE/WHLSR contact_ids
+    const {data:contacts,error:cErr}=await sb.from('jubelio_contacts').select('contact_id,contact_name,category_display').in('category_display',['CNSGNE','WHLSR']);
+    if(cErr)throw cErr;
+    trdContactCategories={};
+    const contactIds=(contacts||[]).map(c=>{trdContactCategories[c.contact_id]=c.category_display;return c.contact_id;});
+    if(!contactIds.length){allTrdOrders=[];renderTrdStats([]);applyTrdFilters();return;}
+    // 2. Get orders for those contacts
+    const {data:orders,error:oErr}=await sb.from('jubelio_sales_orders')
+      .select('salesorder_id,salesorder_no,invoice_no,transaction_date,customer_name,contact_id,channel_status,internal_status,is_paid,is_canceled,grand_total,buyer_shipping_cost')
+      .in('contact_id',contactIds).order('transaction_date',{ascending:false});
+    if(oErr)throw oErr;
+    // 3. Get tracking
+    const orderIds=(orders||[]).map(o=>o.salesorder_id);
+    let trackingMap={};
+    if(orderIds.length){
+      const {data:tracking}=await sb.from('trade_order_tracking').select('*').in('salesorder_id',orderIds);
+      (tracking||[]).forEach(t=>{trackingMap[t.salesorder_id]=t;});
+    }
+    allTrdOrders=(orders||[]).map(o=>({...o,categoryDisplay:trdContactCategories[o.contact_id]||''}));
+    allTrdTracking=trackingMap;
     renderTrdStats(allTrdOrders);
     applyTrdFilters();
   }catch(e){if(tbody)tbody.innerHTML=`<tr><td class="empty-td" colspan="9">Gagal: ${e.message||e}</td></tr>`;}
 }
 
 function renderTrdStats(orders){
-  const consActive=orders.filter(o=>o.type==='Consignment'&&!['Settled','Cancelled','Returned'].includes(o.status)).length;
-  const wholesale=orders.filter(o=>o.type==='Wholesale').length;
-  const unpaid=orders.filter(o=>o.paymentStatus==='Unpaid'&&o.status!=='Cancelled').length;
-  const total=orders.reduce((s,o)=>s+trdOrderValue(o.id),0);
+  const cnsgne=orders.filter(o=>o.categoryDisplay==='CNSGNE').length;
+  const whlsr=orders.filter(o=>o.categoryDisplay==='WHLSR').length;
+  const unpaid=orders.filter(o=>!o.is_paid&&!o.is_canceled).length;
+  const total=orders.reduce((s,o)=>s+(parseFloat(o.grand_total)||0),0);
   document.getElementById('trd-s-total').textContent=orders.length;
-  document.getElementById('trd-s-consignment').textContent=consActive;
-  document.getElementById('trd-s-wholesale').textContent=wholesale;
+  document.getElementById('trd-s-consignment').textContent=cnsgne;
+  document.getElementById('trd-s-wholesale').textContent=whlsr;
   document.getElementById('trd-s-unpaid').textContent=unpaid;
   document.getElementById('trd-s-value').textContent=total?fmtRp(total):'—';
 }
@@ -6797,296 +6794,253 @@ function applyTrdFilters(){
   const pay=document.getElementById('trd-fil-pay')?.value||'';
   const q=(document.getElementById('trd-search')?.value||'').toLowerCase();
   let rows=allTrdOrders;
-  if(type)rows=rows.filter(r=>r.type===type);
-  if(status)rows=rows.filter(r=>r.status===status);
-  if(pay)rows=rows.filter(r=>r.paymentStatus===pay);
-  if(q)rows=rows.filter(r=>(r.partnerName||'').toLowerCase().includes(q)||(r.channel||'').toLowerCase().includes(q)||(r.invoiceNumber||'').toLowerCase().includes(q));
+  if(type)rows=rows.filter(r=>r.categoryDisplay===type);
+  if(status)rows=rows.filter(r=>(r.channel_status||r.internal_status||'').toLowerCase()===status);
+  if(pay==='paid')rows=rows.filter(r=>r.is_paid);
+  if(pay==='unpaid')rows=rows.filter(r=>!r.is_paid&&!r.is_canceled);
+  if(q)rows=rows.filter(r=>(r.customer_name||'').toLowerCase().includes(q)||(r.salesorder_no||'').toLowerCase().includes(q)||(r.invoice_no||'').toLowerCase().includes(q));
   renderTrdTable(rows);
   const el=document.getElementById('trd-tcount');
   if(el)el.textContent=rows.length+' entri';
 }
 
-function renderTrdItemsHTML(orderId,orderType){
-  const items=allTrdItems.filter(i=>i.orderId===orderId);
-  const isCons=orderType==='Consignment';
-  if(!items.length)return `<div style="color:var(--g400);font-size:12px;padding:6px 0">Belum ada item.</div>`;
-  const colSpan=isCons?8:6;
-  return `<table style="width:100%;font-size:12px;border-collapse:collapse">
-    <thead><tr style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">
-      <th style="padding:4px 8px;text-align:left">SKU</th>
-      <th style="padding:4px 8px;text-align:left">Collection</th>
-      <th style="padding:4px 8px;text-align:right">Qty Order</th>
-      ${isCons?'<th style="padding:4px 8px;text-align:right">Terjual</th><th style="padding:4px 8px;text-align:right">Retur</th>':''}
-      <th style="padding:4px 8px;text-align:right">Harga Satuan</th>
-      <th style="padding:4px 8px;text-align:right">Subtotal</th>
-      <th style="padding:4px 8px"></th>
-    </tr></thead>
-    <tbody>${items.map(i=>`
-      <tr id="trd-irow-${i.id}" style="border-top:1px solid var(--g100)">
-        <td style="padding:6px 8px"><strong>${i.skuName}</strong></td>
-        <td style="padding:6px 8px;color:var(--g400)">${i.collectionName||'—'}</td>
-        <td style="padding:6px 8px;text-align:right">${i.qtyOrdered}</td>
-        ${isCons?`<td style="padding:6px 8px;text-align:right">${i.qtySold}</td><td style="padding:6px 8px;text-align:right">${i.qtyReturned}</td>`:''}
-        <td style="padding:6px 8px;text-align:right;white-space:nowrap">${fmtRp(i.unitPrice)}</td>
-        <td style="padding:6px 8px;text-align:right;font-weight:600;white-space:nowrap">${fmtRp(i.qtyOrdered*i.unitPrice)}</td>
-        <td style="padding:6px 8px;white-space:nowrap">
-          <button class="btn-icon" style="font-size:11px" onclick="openTrdItemEdit('${i.id}','${orderId}','${orderType}')">✏</button>
-          <button class="btn-icon" style="font-size:11px;color:#c0392b" onclick="deleteTrdItem('${i.id}','${orderId}','${orderType}')">✕</button>
-        </td>
-      </tr>
-      <tr id="trd-iedit-${i.id}" style="display:none">
-        <td colspan="${colSpan}" style="padding:0 8px 10px">
-          <div style="background:var(--off);padding:10px;border-radius:6px;display:grid;grid-template-columns:2fr 1fr 1fr ${isCons?'1fr 1fr ':''} 1fr 1fr auto;gap:8px;align-items:end">
-            <div class="fg"><label style="font-size:11px">SKU *</label><input id="trd-ei-sku-${i.id}" value="${(i.skuName||'').replace(/"/g,'&quot;')}"></div>
-            <div class="fg"><label style="font-size:11px">Collection</label><input id="trd-ei-col-${i.id}" value="${(i.collectionName||'').replace(/"/g,'&quot;')}"></div>
-            <div class="fg"><label style="font-size:11px">Qty Order</label><input type="number" id="trd-ei-qty-${i.id}" value="${i.qtyOrdered}" min="0"></div>
-            ${isCons?`<div class="fg"><label style="font-size:11px">Terjual</label><input type="number" id="trd-ei-sold-${i.id}" value="${i.qtySold}" min="0"></div>
-            <div class="fg"><label style="font-size:11px">Retur</label><input type="number" id="trd-ei-ret-${i.id}" value="${i.qtyReturned}" min="0"></div>`:''}
-            <div class="fg"><label style="font-size:11px">Harga Satuan</label><input type="number" id="trd-ei-price-${i.id}" value="${i.unitPrice}" min="0"></div>
-            <div class="fg"><label style="font-size:11px">Notes</label><input id="trd-ei-notes-${i.id}" value="${(i.notes||'').replace(/"/g,'&quot;')}"></div>
-            <div style="display:flex;gap:4px;padding-bottom:2px">
-              <button class="btn-save" style="font-size:11px;padding:4px 8px" onclick="saveTrdItem('${i.id}','${orderId}','${orderType}')">✓</button>
-              <button class="btn-cancel" style="font-size:11px;padding:4px 8px" onclick="closeTrdItemEdit('${i.id}')">✕</button>
-            </div>
-          </div>
-        </td>
-      </tr>`).join('')}
-    </tbody>
-    <tfoot><tr style="border-top:2px solid var(--g200)">
-      <td colspan="${isCons?5:3}" style="padding:6px 8px;text-align:right;font-weight:600;font-size:11px;font-family:var(--mono)">Total</td>
-      <td colspan="2" style="padding:6px 8px;text-align:right;font-weight:700;white-space:nowrap">${fmtRp(items.reduce((s,i)=>s+i.qtyOrdered*i.unitPrice,0))}</td>
-      <td></td>
-    </tfoot>
-  </table>`;
+function trdProgress(t){
+  const steps=[
+    {l:'PO',done:!!(t&&t.customer_po_url)},
+    {l:'DP1',done:!!(t&&t.dp1_paid)},
+    {l:'DP2',done:!!(t&&t.dp2_amount&&t.dp2_paid)},
+    {l:'Kirim',done:!!(t&&t.shipped_date)},
+  ];
+  return steps.map(s=>`<span style="font-size:10px;padding:2px 5px;border-radius:3px;background:${s.done?'var(--black)':'var(--g100)'};color:${s.done?'var(--white)':'var(--g400)'};font-family:var(--mono)">${s.l}</span>`).join(' ');
 }
 
 function renderTrdTable(rows){
   const tbody=document.getElementById('trdTableBody');
   if(!tbody)return;
   if(!rows.length){tbody.innerHTML=`<tr><td class="empty-td" colspan="9">Tidak ada data.</td></tr>`;return;}
-  const payClr=s=>s==='Paid'?'p-active':s==='Partial'?'p-near':'p-draft';
-  const stClr=s=>({Active:'p-active',Draft:'p-draft',Confirmed:'p-signings',Delivered:'p-signings','Partially Reported':'p-near',Settled:'p-active',Paid:'p-active',Returned:'p-draft',Cancelled:'p-inactive'}[s]||'p-draft');
-  const TRD_STATUSES=['Active','Draft','Confirmed','Delivered','Partially Reported','Settled','Paid','Returned','Cancelled'];
   tbody.innerHTML=rows.map(r=>{
-    const itemCount=allTrdItems.filter(i=>i.orderId===r.id).length;
-    const val=trdOrderValue(r.id);
-    const isCons=r.type==='Consignment';
-    return `<tr>
-      <td><span class="pill ${isCons?'p-signings':'p-review'}" style="font-size:10px">${r.type}</span></td>
-      <td><strong>${r.partnerName}</strong>${r.contactPerson?`<div style="font-size:11px;color:var(--g400)">${r.contactPerson}</div>`:''}</td>
-      <td>${r.channel||'—'}</td>
-      <td style="white-space:nowrap">${fmtDate(r.orderDate)||'—'}</td>
-      <td style="text-align:center">${itemCount}</td>
-      <td style="white-space:nowrap">${val?fmtRp(val):'—'}</td>
-      <td><span class="pill ${stClr(r.status)}" style="font-size:10px">${r.status}</span></td>
-      <td><span class="pill ${payClr(r.paymentStatus)}" style="font-size:10px">${r.paymentStatus}</span></td>
-      <td style="white-space:nowrap">
-        <button class="btn-icon" onclick="openTrdEdit('${r.id}')">Edit</button>
-        <button class="btn-icon" style="color:#c0392b" onclick="deleteTrdOrder('${r.id}')">Del</button>
-      </td>
-    </tr>
-    <tr id="trd-erow-${r.id}" style="display:none">
-      <td colspan="9" style="padding:0 12px 16px">
-        <div class="edit-row-form">
-          <div style="font-family:var(--mono);font-size:11px;text-transform:uppercase;color:var(--g400);margin-bottom:12px;display:flex;align-items:center;justify-content:space-between">
-            <span>Edit — ${r.partnerName}</span>
-            <button class="btn-icon" onclick="closeTrdEdit('${r.id}')">✕ Tutup</button>
-          </div>
-          <div class="edit-row-grid">
-            <div class="fg"><label>Tipe</label>
-              <select id="trd-e-type-${r.id}"><option${r.type==='Consignment'?' selected':''}>Consignment</option><option${r.type==='Wholesale'?' selected':''}>Wholesale</option></select>
-            </div>
-            <div class="fg"><label>Partner *</label><input id="trd-e-partner-${r.id}" value="${(r.partnerName||'').replace(/"/g,'&quot;')}"></div>
-            <div class="fg"><label>Contact Person</label><input id="trd-e-contact-${r.id}" value="${(r.contactPerson||'').replace(/"/g,'&quot;')}"></div>
-            <div class="fg"><label>Channel</label>
-              <select id="trd-e-channel-${r.id}"><option value=""${!r.channel?' selected':''}>—</option>${['Physical Store','Online Store','Marketplace','Pop-up','Other'].map(c=>`<option${r.channel===c?' selected':''}>${c}</option>`).join('')}</select>
-            </div>
-            <div class="fg"><label>Tanggal Order</label><input type="date" id="trd-e-orderdate-${r.id}" value="${r.orderDate||''}"></div>
-            <div class="fg"><label>Due Date</label><input type="date" id="trd-e-duedate-${r.id}" value="${r.dueDate||''}"></div>
-            <div class="fg"><label>No. Invoice</label><input id="trd-e-invoice-${r.id}" value="${(r.invoiceNumber||'').replace(/"/g,'&quot;')}"></div>
-            <div class="fg"><label>Status</label>
-              <select id="trd-e-status-${r.id}">${TRD_STATUSES.map(s=>`<option${r.status===s?' selected':''}>${s}</option>`).join('')}</select>
-            </div>
-            <div class="fg"><label>Payment Status</label>
-              <select id="trd-e-paystatus-${r.id}">${['Unpaid','Partial','Paid'].map(s=>`<option${r.paymentStatus===s?' selected':''}>${s}</option>`).join('')}</select>
-            </div>
-            <div class="fg full"><label>Notes</label><textarea id="trd-e-notes-${r.id}" rows="2" style="resize:vertical">${(r.notes||'').replace(/</g,'&lt;')}</textarea></div>
-          </div>
-          <div class="edit-row-btns" style="margin-bottom:20px">
-            <button class="btn-save" onclick="saveTrdEdit('${r.id}')">Simpan</button>
-            <button class="btn-cancel" onclick="closeTrdEdit('${r.id}')">Batal</button>
-          </div>
-          <!-- Line Items -->
-          <div style="border-top:1px solid var(--g100);padding-top:14px">
-            <div style="font-family:var(--mono);font-size:11px;text-transform:uppercase;color:var(--g400);margin-bottom:10px">Line Items</div>
-            <div id="trd-items-${r.id}">${renderTrdItemsHTML(r.id,r.type)}</div>
-            <!-- Add item form -->
-            <div style="margin-top:12px;padding:12px;border:1px dashed var(--g200);border-radius:6px;background:var(--off)">
-              <div style="font-size:11px;font-family:var(--mono);color:var(--g400);margin-bottom:8px">+ Tambah Item</div>
-              <div class="edit-row-grid">
-                <div class="fg"><label style="font-size:11px">SKU / Produk *</label><input type="text" id="trd-ni-sku-${r.id}" placeholder="Nama produk"></div>
-                <div class="fg"><label style="font-size:11px">Collection</label><input type="text" id="trd-ni-col-${r.id}" placeholder="Opsional"></div>
-                <div class="fg"><label style="font-size:11px">Qty Order</label><input type="number" id="trd-ni-qty-${r.id}" placeholder="0" min="0"></div>
-                ${isCons?`<div class="fg"><label style="font-size:11px">Qty Terjual</label><input type="number" id="trd-ni-sold-${r.id}" placeholder="0" min="0"></div>
-                <div class="fg"><label style="font-size:11px">Qty Retur</label><input type="number" id="trd-ni-ret-${r.id}" placeholder="0" min="0"></div>`:''}
-                <div class="fg"><label style="font-size:11px">Harga Satuan (Rp)</label><input type="number" id="trd-ni-price-${r.id}" placeholder="0" min="0"></div>
-                <div class="fg"><label style="font-size:11px">Notes</label><input type="text" id="trd-ni-notes-${r.id}" placeholder="—"></div>
-              </div>
-              <div style="margin-top:8px"><button class="btn-save" style="font-size:12px" onclick="addTrdItem('${r.id}','${r.type}')">+ Tambah Item</button></div>
-            </div>
-          </div>
-        </div>
-      </td>
+    const cat=r.categoryDisplay;
+    const catLabel=cat==='CNSGNE'?'Consignment':cat==='WHLSR'?'Wholesale':cat;
+    const catPill=cat==='CNSGNE'?'p-signings':'p-review';
+    const status=r.channel_status||r.internal_status||'—';
+    const stClr={open:'p-draft',confirmed:'p-signings',delivered:'p-signings',done:'p-active',cancelled:'p-inactive'}[status.toLowerCase()]||'p-draft';
+    const payPill=r.is_paid?'p-active':r.is_canceled?'p-inactive':'p-draft';
+    const payLabel=r.is_paid?'Lunas':r.is_canceled?'Dibatalkan':'Belum Lunas';
+    const trk=allTrdTracking[r.salesorder_id];
+    return `<tr style="cursor:pointer" onclick="openTrdDetail(${r.salesorder_id})">
+      <td style="white-space:nowrap"><strong>${r.salesorder_no||'—'}</strong>${r.invoice_no?`<div style="font-size:10px;color:var(--g400)">${r.invoice_no}</div>`:''}  </td>
+      <td>${r.customer_name||'—'}</td>
+      <td><span class="pill ${catPill}" style="font-size:10px">${catLabel}</span></td>
+      <td style="white-space:nowrap">${fmtDate(r.transaction_date)||'—'}</td>
+      <td style="text-align:right;white-space:nowrap">${r.grand_total?fmtRp(r.grand_total):'—'}</td>
+      <td><span class="pill ${stClr}" style="font-size:10px">${status}</span></td>
+      <td><span class="pill ${payPill}" style="font-size:10px">${payLabel}</span></td>
+      <td style="white-space:nowrap">${trdProgress(trk)}</td>
+      <td><button class="btn-icon" onclick="event.stopPropagation();openTrdDetail(${r.salesorder_id})">Detail →</button></td>
     </tr>`;
   }).join('');
 }
 
-function openTrdEdit(id){
-  document.querySelectorAll('[id^="trd-erow-"]').forEach(r=>r.style.display='none');
-  const row=document.getElementById(`trd-erow-${id}`);
-  if(row)row.style.display='table-row';
+function openTrdDetail(salesorderId){
+  document.getElementById('trd-list-view').style.display='none';
+  document.getElementById('trd-detail-view').style.display='block';
+  document.getElementById('trd-detail-content').innerHTML=`<div style="padding:24px;color:var(--g400);font-family:var(--mono);font-size:12px">Memuat detail...</div>`;
+  loadTrdDetail(salesorderId);
 }
-function closeTrdEdit(id){const row=document.getElementById(`trd-erow-${id}`);if(row)row.style.display='none';}
-function openTrdItemEdit(itemId){
-  document.querySelectorAll('[id^="trd-iedit-"]').forEach(r=>r.style.display='none');
-  const row=document.getElementById(`trd-iedit-${itemId}`);
-  if(row)row.style.display='table-row';
-}
-function closeTrdItemEdit(itemId){const row=document.getElementById(`trd-iedit-${itemId}`);if(row)row.style.display='none';}
 
-async function submitTradeOrder(){
-  const partner=(document.getElementById('trd-partner')?.value||'').trim();
-  if(!partner){document.getElementById('trd-feedback').innerHTML='<span class="fb-err">Partner wajib diisi.</span>';return;}
+function closeTrdDetail(){
+  document.getElementById('trd-detail-view').style.display='none';
+  document.getElementById('trd-list-view').style.display='block';
+}
+
+async function loadTrdDetail(salesorderId){
   try{
-    const id=genId('TO');
+    const [ordRes,itmRes,trkRes,poRes]=await Promise.all([
+      sb.from('jubelio_sales_orders').select('*').eq('salesorder_id',salesorderId).single(),
+      sb.from('jubelio_sales_order_items').select('*').eq('salesorder_id',salesorderId),
+      sb.from('trade_order_tracking').select('*').eq('salesorder_id',salesorderId).maybeSingle(),
+      sb.from('jubelio_purchase_orders').select('purchaseorder_id,purchaseorder_no,supplier_name,transaction_date,status').order('transaction_date',{ascending:false}).limit(200)
+    ]);
+    if(ordRes.error)throw ordRes.error;
+    const tracking=trkRes.data||{};
+    allTrdTracking[salesorderId]=tracking;
+    renderTrdDetail(ordRes.data,itmRes.data||[],tracking,poRes.data||[]);
+  }catch(e){
+    document.getElementById('trd-detail-content').innerHTML=`<div style="padding:24px;color:#c0392b;font-family:var(--mono);font-size:12px">Gagal: ${e.message||e}</div>`;
+  }
+}
+
+function _trdLinkField(label,value,inputId){
+  const esc=(value||'').replace(/"/g,'&quot;');
+  return `<div class="fg"><label style="font-size:11px">${label}</label>
+    <div style="display:flex;gap:4px;align-items:center">
+      <input type="url" id="${inputId}" value="${esc}" placeholder="https://..." style="flex:1;min-width:0">
+      ${value?`<a href="${value}" target="_blank" style="font-size:11px;padding:4px 8px;border:1px solid var(--g200);border-radius:4px;text-decoration:none;white-space:nowrap;color:var(--black)">↗</a>`:''}
+    </div></div>`;
+}
+
+function _trdPayBlock(prefix,label,amount,proofUrl,paid){
+  const amtId=`trd-trk-${prefix}-amt`,proofId=`trd-trk-${prefix}-proof`,paidId=`trd-trk-${prefix}-paid`;
+  return `<div style="padding:12px;border:1px solid var(--g200);border-radius:6px;background:${paid?'rgba(39,174,96,0.06)':'var(--off)'}">
+    <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:8px;display:flex;align-items:center;gap:8px">
+      ${label}
+      <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;color:${paid?'#27ae60':'var(--g400)'};text-transform:none;font-family:var(--sans)">
+        <input type="checkbox" id="${paidId}" ${paid?'checked':''} style="margin:0"> Lunas
+      </label>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 2fr;gap:8px">
+      <div class="fg"><label style="font-size:11px">Nominal (Rp)</label>
+        <input type="number" id="${amtId}" value="${amount||''}" placeholder="0" min="0">
+      </div>
+      ${_trdLinkField('Bukti Bayar',proofUrl,proofId)}
+    </div></div>`;
+}
+
+function renderTrdDetail(order,items,tracking,poList){
+  const cat=trdContactCategories[order.contact_id]||'';
+  const catLabel=cat==='CNSGNE'?'Consignment':cat==='WHLSR'?'Wholesale':cat;
+  const catPill=cat==='CNSGNE'?'p-signings':'p-review';
+  const t=tracking||{};
+  const sid=order.salesorder_id;
+  const poOpts=poList.map(p=>`<option value="${p.purchaseorder_id}" ${t.linked_po_id==p.purchaseorder_id?'selected':''}>${p.purchaseorder_no} — ${p.supplier_name||''} (${fmtDate(p.transaction_date)||''})</option>`).join('');
+  const html=`<div style="padding:0 0 32px">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+      <button class="btn-ghost" style="padding:6px 12px;font-size:12px" onclick="closeTrdDetail()">← Kembali</button>
+      <div style="flex:1">
+        <div style="font-size:18px;font-weight:700;font-family:var(--heading)">${order.salesorder_no||'—'}</div>
+        <div style="font-size:12px;color:var(--g400);font-family:var(--mono)">${order.customer_name||''} · ${fmtDate(order.transaction_date)||''}</div>
+      </div>
+      <span class="pill ${catPill}" style="font-size:11px">${catLabel}</span>
+      <span class="pill ${order.is_paid?'p-active':'p-draft'}" style="font-size:11px">${order.is_paid?'Lunas':'Belum Lunas'}</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:20px">
+      <div class="stat-card" style="padding:10px 14px"><div style="font-size:10px;color:var(--g400);font-family:var(--mono);text-transform:uppercase">Status</div><div style="font-weight:600;margin-top:2px">${order.channel_status||order.internal_status||'—'}</div></div>
+      <div class="stat-card" style="padding:10px 14px"><div style="font-size:10px;color:var(--g400);font-family:var(--mono);text-transform:uppercase">Invoice</div><div style="font-weight:600;margin-top:2px">${order.invoice_no||'—'}</div></div>
+      <div class="stat-card" style="padding:10px 14px"><div style="font-size:10px;color:var(--g400);font-family:var(--mono);text-transform:uppercase">Total</div><div style="font-weight:700;margin-top:2px">${order.grand_total?fmtRp(order.grand_total):'—'}</div></div>
+      <div class="stat-card" style="padding:10px 14px"><div style="font-size:10px;color:var(--g400);font-family:var(--mono);text-transform:uppercase">Ongkir Pembeli</div><div style="font-weight:600;margin-top:2px">${order.buyer_shipping_cost?fmtRp(order.buyer_shipping_cost):'—'}</div></div>
+    </div>
+    <!-- Line Items -->
+    <div class="form-card" style="margin-bottom:16px">
+      <div class="form-sec">Barang</div>
+      ${items.length?`<div class="table-wrap" style="margin-top:8px"><table>
+        <thead><tr><th>Kode</th><th>Nama Produk</th><th style="text-align:right">Qty</th><th style="text-align:right">Harga</th><th style="text-align:right">Subtotal</th></tr></thead>
+        <tbody>${items.map(i=>`<tr>
+          <td style="font-family:var(--mono);font-size:11px">${i.item_code||'—'}</td>
+          <td>${i.item_name||'—'}${i.variant?`<span style="font-size:10px;color:var(--g400);margin-left:4px">${i.variant}</span>`:''}</td>
+          <td style="text-align:right">${i.qty||0} ${i.unit||''}</td>
+          <td style="text-align:right;white-space:nowrap">${i.price?fmtRp(i.price):'—'}</td>
+          <td style="text-align:right;font-weight:600;white-space:nowrap">${i.amount?fmtRp(i.amount):'—'}</td>
+        </tr>`).join('')}</tbody>
+        <tfoot><tr style="border-top:2px solid var(--g200)">
+          <td colspan="4" style="text-align:right;font-weight:600;padding:6px 12px;font-family:var(--mono);font-size:11px">TOTAL</td>
+          <td style="text-align:right;font-weight:700;padding:6px 12px;white-space:nowrap">${fmtRp(items.reduce((s,i)=>s+(parseFloat(i.amount)||0),0))}</td>
+        </tr></tfoot>
+      </table></div>`:
+      `<div style="color:var(--g400);font-size:12px;padding:8px 0">Tidak ada data item — sync ulang untuk memuat.</div>`}
+    </div>
+    <!-- Tracking -->
+    <div class="form-card">
+      <div class="form-sec" style="margin-bottom:16px">Process Tracking</div>
+      <div style="margin-bottom:20px">
+        <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:8px">Customer PO</div>
+        ${_trdLinkField('Link Dokumen PO dari Mitra',t.customer_po_url,`trd-trk-${sid}-po-url`)}
+      </div>
+      <div style="margin-bottom:20px">
+        <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:8px">Pembayaran</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          ${_trdPayBlock(`${sid}-dp1`,'DP 1',t.dp1_amount,t.dp1_proof_url,t.dp1_paid)}
+          ${_trdPayBlock(`${sid}-dp2`,'DP 2',t.dp2_amount,t.dp2_proof_url,t.dp2_paid)}
+        </div>
+      </div>
+      <div style="margin-bottom:20px">
+        <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:8px">Purchase Order & Penerimaan Gudang</div>
+        <div style="display:grid;grid-template-columns:2fr 1fr;gap:12px">
+          <div class="fg"><label style="font-size:11px">Link ke Purchase Order</label>
+            <select id="trd-trk-${sid}-po-id"><option value="">— Belum ditautkan —</option>${poOpts}</select>
+          </div>
+          <div class="fg"><label style="font-size:11px">Tanggal Terima Gudang</label>
+            <input type="date" id="trd-trk-${sid}-rcv-date" value="${t.warehouse_received_date||''}">
+          </div>
+        </div>
+      </div>
+      <div style="margin-bottom:20px">
+        <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:8px">Pengiriman</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div class="fg"><label style="font-size:11px">Tanggal Kirim</label>
+            <input type="date" id="trd-trk-${sid}-ship-date" value="${t.shipped_date||''}">
+          </div>
+          ${_trdLinkField('Surat Jalan (Mekari Sign)',t.surat_jalan_url,`trd-trk-${sid}-sj-url`)}
+        </div>
+      </div>
+      <div style="margin-bottom:20px">
+        <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:8px">Ongkos Kirim</div>
+        <div style="display:grid;grid-template-columns:1fr 2fr;gap:12px">
+          <div class="fg"><label style="font-size:11px">Biaya Ongkir (Rp)</label>
+            <input type="number" id="trd-trk-${sid}-ship-cost" value="${t.shipping_cost||''}" placeholder="0" min="0">
+          </div>
+          <div style="padding:12px;border:1px solid var(--g200);border-radius:6px;background:${t.shipping_reimb_paid?'rgba(39,174,96,0.06)':'var(--off)'}">
+            <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:8px;display:flex;align-items:center;gap:8px">
+              Reimbursement Ongkir dari Mitra
+              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;color:${t.shipping_reimb_paid?'#27ae60':'var(--g400)'};text-transform:none;font-family:var(--sans)">
+                <input type="checkbox" id="trd-trk-${sid}-reimb-paid" ${t.shipping_reimb_paid?'checked':''} style="margin:0"> Sudah Dibayar
+              </label>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 2fr;gap:8px">
+              <div class="fg"><label style="font-size:11px">Nominal (Rp)</label>
+                <input type="number" id="trd-trk-${sid}-reimb-amt" value="${t.shipping_reimb_amount||''}" placeholder="0" min="0">
+              </div>
+              ${_trdLinkField('Bukti Pembayaran',t.shipping_reimb_proof_url,`trd-trk-${sid}-reimb-proof`)}
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-bottom:20px">
+        <div class="fg"><label style="font-size:11px">Catatan</label>
+          <textarea id="trd-trk-${sid}-notes" rows="2" style="resize:vertical" placeholder="Catatan internal...">${(t.notes||'').replace(/</g,'&lt;')}</textarea>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <button class="btn-primary" onclick="saveTrdTracking(${sid})">Simpan Tracking</button>
+        <div id="trd-trk-fb-${sid}" style="font-size:12px"></div>
+      </div>
+    </div>
+  </div>`;
+  document.getElementById('trd-detail-content').innerHTML=html;
+}
+
+async function saveTrdTracking(sid){
+  const g=id=>document.getElementById(id);
+  const fb=document.getElementById(`trd-trk-fb-${sid}`);
+  if(fb)fb.innerHTML='';
+  try{
     const row={
-      id, type:document.getElementById('trd-type')?.value||'Consignment',
-      partner_name:partner,
-      contact_person:document.getElementById('trd-contact')?.value?.trim()||null,
-      channel:document.getElementById('trd-channel')?.value||null,
-      order_date:document.getElementById('trd-orderdate')?.value||null,
-      due_date:document.getElementById('trd-duedate')?.value||null,
-      invoice_number:document.getElementById('trd-invoice')?.value?.trim()||null,
-      status:document.getElementById('trd-status')?.value||'Active',
-      payment_status:document.getElementById('trd-paystatus')?.value||'Unpaid',
-      notes:document.getElementById('trd-notes')?.value?.trim()||null,
-      added_by:currentUser,
-      date_added:new Date().toISOString(),
+      salesorder_id:sid,
+      customer_po_url:g(`trd-trk-${sid}-po-url`)?.value?.trim()||null,
+      dp1_amount:parseFloat(g(`trd-trk-${sid}-dp1-amt`)?.value)||null,
+      dp1_proof_url:g(`trd-trk-${sid}-dp1-proof`)?.value?.trim()||null,
+      dp1_paid:g(`trd-trk-${sid}-dp1-paid`)?.checked||false,
+      dp2_amount:parseFloat(g(`trd-trk-${sid}-dp2-amt`)?.value)||null,
+      dp2_proof_url:g(`trd-trk-${sid}-dp2-proof`)?.value?.trim()||null,
+      dp2_paid:g(`trd-trk-${sid}-dp2-paid`)?.checked||false,
+      linked_po_id:g(`trd-trk-${sid}-po-id`)?.value||null,
+      warehouse_received_date:g(`trd-trk-${sid}-rcv-date`)?.value||null,
+      shipped_date:g(`trd-trk-${sid}-ship-date`)?.value||null,
+      surat_jalan_url:g(`trd-trk-${sid}-sj-url`)?.value?.trim()||null,
+      shipping_cost:parseFloat(g(`trd-trk-${sid}-ship-cost`)?.value)||null,
+      shipping_reimb_amount:parseFloat(g(`trd-trk-${sid}-reimb-amt`)?.value)||null,
+      shipping_reimb_proof_url:g(`trd-trk-${sid}-reimb-proof`)?.value?.trim()||null,
+      shipping_reimb_paid:g(`trd-trk-${sid}-reimb-paid`)?.checked||false,
+      notes:g(`trd-trk-${sid}-notes`)?.value?.trim()||null,
       last_updated:new Date().toISOString(),
       last_updated_by:currentUser
     };
-    const {error}=await sb.from('trade_orders').insert(row);
+    const {error}=await sb.from('trade_order_tracking').upsert(row,{onConflict:'salesorder_id'});
     if(error)throw error;
-    document.getElementById('trd-feedback').innerHTML=`<span class="fb-ok">✓ Order tersimpan — ID: ${id}</span>`;
-    logActivity('Trade Orders','create',id,`${partner} (${row.type})`);
-    allTrdOrders.unshift(mapTrdOrder(row));
-    renderTrdStats(allTrdOrders);
-    clearTrdForm();
-  }catch(e){document.getElementById('trd-feedback').innerHTML=`<span class="fb-err">Gagal: ${e.message||e}</span>`;}
-}
-
-function clearTrdForm(){
-  ['trd-partner','trd-contact','trd-invoice','trd-notes'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
-  ['trd-orderdate','trd-duedate'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
-  document.getElementById('trd-feedback').innerHTML='';
-}
-
-async function saveTrdEdit(id){
-  const partner=(document.getElementById(`trd-e-partner-${id}`)?.value||'').trim();
-  if(!partner){alert('Partner wajib diisi.');return;}
-  try{
-    const upd={
-      type:document.getElementById(`trd-e-type-${id}`)?.value||'Consignment',
-      partner_name:partner,
-      contact_person:document.getElementById(`trd-e-contact-${id}`)?.value?.trim()||null,
-      channel:document.getElementById(`trd-e-channel-${id}`)?.value||null,
-      order_date:document.getElementById(`trd-e-orderdate-${id}`)?.value||null,
-      due_date:document.getElementById(`trd-e-duedate-${id}`)?.value||null,
-      invoice_number:document.getElementById(`trd-e-invoice-${id}`)?.value?.trim()||null,
-      status:document.getElementById(`trd-e-status-${id}`)?.value||'Active',
-      payment_status:document.getElementById(`trd-e-paystatus-${id}`)?.value||'Unpaid',
-      notes:document.getElementById(`trd-e-notes-${id}`)?.value?.trim()||null,
-      last_updated:new Date().toISOString(),last_updated_by:currentUser
-    };
-    const {error}=await sb.from('trade_orders').update(upd).eq('id',id);
-    if(error)throw error;
-    const idx=allTrdOrders.findIndex(r=>r.id===id);
-    if(idx>=0)allTrdOrders[idx]={...allTrdOrders[idx],...mapTrdOrder({id,...upd,date_added:allTrdOrders[idx].dateAdded})};
-    closeTrdEdit(id);
-    renderTrdStats(allTrdOrders);
-    applyTrdFilters();
-  }catch(e){alert('Gagal: '+(e.message||e));}
-}
-
-async function deleteTrdOrder(id){
-  const o=allTrdOrders.find(r=>r.id===id);
-  if(!confirm(`Hapus order ${o?.partnerName||id}? Semua line items juga akan dihapus.`))return;
-  try{
-    const {error}=await sb.from('trade_orders').delete().eq('id',id);
-    if(error)throw error;
-    allTrdOrders=allTrdOrders.filter(r=>r.id!==id);
-    allTrdItems=allTrdItems.filter(i=>i.orderId!==id);
-    renderTrdStats(allTrdOrders);
-    applyTrdFilters();
-  }catch(e){alert('Gagal: '+(e.message||e));}
-}
-
-async function addTrdItem(orderId,orderType){
-  const sku=(document.getElementById(`trd-ni-sku-${orderId}`)?.value||'').trim();
-  if(!sku){alert('SKU wajib diisi.');return;}
-  const isCons=orderType==='Consignment';
-  try{
-    const id=genId('TI');
-    const row={
-      id,order_id:orderId,sku_name:sku,
-      collection_name:document.getElementById(`trd-ni-col-${orderId}`)?.value?.trim()||null,
-      qty_ordered:parseInt(document.getElementById(`trd-ni-qty-${orderId}`)?.value)||0,
-      qty_sold:isCons?(parseInt(document.getElementById(`trd-ni-sold-${orderId}`)?.value)||0):0,
-      qty_returned:isCons?(parseInt(document.getElementById(`trd-ni-ret-${orderId}`)?.value)||0):0,
-      unit_price:parseFloat(document.getElementById(`trd-ni-price-${orderId}`)?.value)||0,
-      notes:document.getElementById(`trd-ni-notes-${orderId}`)?.value?.trim()||null
-    };
-    const {error}=await sb.from('trade_order_items').insert(row);
-    if(error)throw error;
-    allTrdItems.push(mapTrdItem(row));
-    const div=document.getElementById(`trd-items-${orderId}`);
-    if(div)div.innerHTML=renderTrdItemsHTML(orderId,orderType);
-    [`trd-ni-sku-${orderId}`,`trd-ni-col-${orderId}`,`trd-ni-qty-${orderId}`,`trd-ni-price-${orderId}`,`trd-ni-notes-${orderId}`].forEach(i=>{const el=document.getElementById(i);if(el)el.value='';});
-    if(isCons)[`trd-ni-sold-${orderId}`,`trd-ni-ret-${orderId}`].forEach(i=>{const el=document.getElementById(i);if(el)el.value='';});
-  }catch(e){alert('Gagal: '+(e.message||e));}
-}
-
-async function saveTrdItem(itemId,orderId,orderType){
-  const sku=(document.getElementById(`trd-ei-sku-${itemId}`)?.value||'').trim();
-  if(!sku){alert('SKU wajib diisi.');return;}
-  const isCons=orderType==='Consignment';
-  try{
-    const upd={
-      sku_name:sku,
-      collection_name:document.getElementById(`trd-ei-col-${itemId}`)?.value?.trim()||null,
-      qty_ordered:parseInt(document.getElementById(`trd-ei-qty-${itemId}`)?.value)||0,
-      qty_sold:isCons?(parseInt(document.getElementById(`trd-ei-sold-${itemId}`)?.value)||0):0,
-      qty_returned:isCons?(parseInt(document.getElementById(`trd-ei-ret-${itemId}`)?.value)||0):0,
-      unit_price:parseFloat(document.getElementById(`trd-ei-price-${itemId}`)?.value)||0,
-      notes:document.getElementById(`trd-ei-notes-${itemId}`)?.value?.trim()||null
-    };
-    const {error}=await sb.from('trade_order_items').update(upd).eq('id',itemId);
-    if(error)throw error;
-    const idx=allTrdItems.findIndex(i=>i.id===itemId);
-    if(idx>=0)allTrdItems[idx]={...allTrdItems[idx],...mapTrdItem({id:itemId,order_id:orderId,...upd})};
-    const div=document.getElementById(`trd-items-${orderId}`);
-    if(div)div.innerHTML=renderTrdItemsHTML(orderId,orderType);
-  }catch(e){alert('Gagal: '+(e.message||e));}
-}
-
-async function deleteTrdItem(itemId,orderId,orderType){
-  try{
-    const {error}=await sb.from('trade_order_items').delete().eq('id',itemId);
-    if(error)throw error;
-    allTrdItems=allTrdItems.filter(i=>i.id!==itemId);
-    const div=document.getElementById(`trd-items-${orderId}`);
-    if(div)div.innerHTML=renderTrdItemsHTML(orderId,orderType);
-  }catch(e){alert('Gagal: '+(e.message||e));}
+    allTrdTracking[sid]=row;
+    logActivity('Trade Orders','update',String(sid),'Update tracking order');
+    if(fb)fb.innerHTML='<span class="fb-ok">✓ Tersimpan</span>';
+    setTimeout(()=>{if(fb)fb.innerHTML='';},3000);
+  }catch(e){if(fb)fb.innerHTML=`<span class="fb-err">Gagal: ${e.message||e}</span>`;}
 }
 
 // ── DUPLICATE CHECK ──
