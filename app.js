@@ -3603,7 +3603,7 @@ function renderColDetail(col, items) {
 
   // ── Pipeline bar ──
   const ps=getPipelineStatuses(col.id);
-  const pipeStages=[["design","Design"],["sampling","Sampling"],["production","Production"],["inbound","Inbound"],["marketing","Marketing"]];
+  const pipeStages=[["design","Design"],["sampling","Sampling"],["production","Prod & Inbound"],["marketing","Marketing"]];
   const pdot=s=>s==="done"?"●":s==="in-progress"?"◐":"○";
   const pclr=s=>s==="done"?"#1a5c25":s==="in-progress"?"#1a4a8a":"#aaa";
 
@@ -3703,24 +3703,27 @@ function renderColDetail(col, items) {
             const allPutaway=poLinks.every(({poId})=>allPOBills.some(b=>b.purchaseorder_id===poId&&b.is_putaway===true));
             prodStatus=allPutaway?"Done":"In Progress";
           }
-          return cdStageBox("🏭","Production",cdStageBadge(prodStatus,`col-production-badge-${col.id}`),`
+          return cdStageBox("🏭","Production & Inbound",cdStageBadge(prodStatus,`col-production-badge-${col.id}`),`
           <div id="col-production-body-${col.id}">
             ${productionContent}
+          </div>
+          <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--g100)">
+            <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:10px">Inbound Status</div>
+            <select onchange="updateColStageStatus('${col.id}','inbound',this.value)" style="font-size:12px;padding:4px 8px;border:1px solid;border-radius:4px;width:200px;margin-bottom:10px;background:${inboundSelClr}">
+              <option${inboundS.status==="Not Started"?" selected":""}>Not Started</option>
+              <option${inboundS.status==="In Progress"?" selected":""}>In Progress</option>
+              <option${inboundS.status==="Done"?" selected":""}>Done</option>
+            </select>
+            <textarea placeholder="Notes..." rows="2" style="font-size:12px;padding:8px;border:1px solid var(--g100);border-radius:4px;width:100%;resize:vertical;box-sizing:border-box" onblur="saveColStageNote('${col.id}','inbound',this.value)">${(inboundS.notes||"").replace(/</g,"&lt;")}</textarea>
           </div>`);
         })()}
-        <!-- Inbound -->
-        ${cdStageBox("📦","Inbound",cdStageBadge(inboundS.status,`col-inbound-badge-${col.id}`),`
-          <select onchange="updateColStageStatus('${col.id}','inbound',this.value)" style="font-size:12px;padding:4px 8px;border:1px solid;border-radius:4px;width:200px;margin-bottom:10px;background:${inboundSelClr}">
-            <option${inboundS.status==="Not Started"?" selected":""}>Not Started</option>
-            <option${inboundS.status==="In Progress"?" selected":""}>In Progress</option>
-            <option${inboundS.status==="Done"?" selected":""}>Done</option>
-          </select>
-          <textarea placeholder="Notes..." rows="2" style="font-size:12px;padding:8px;border:1px solid var(--g100);border-radius:4px;width:100%;resize:vertical;box-sizing:border-box" onblur="saveColStageNote('${col.id}','inbound',this.value)">${(inboundS.notes||"").replace(/</g,"&lt;")}</textarea>`)}
         <!-- Marketing -->
         ${cdStageBox("📣","Marketing",cdStageBadge(ps.marketing==="done"?"Done":ps.marketing==="in-progress"?"In Progress":"Not Started",`col-marketing-badge-${col.id}`),`
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">
             ${mktSubBox("photoshoot")}${mktSubBox("kol")}${mktSubBox("offline_activation")}
           </div>`)}
+        <!-- Product Performance -->
+        ${cdStageBox("📊","Product Performance","",`<div id="col-perf-${col.id}" style="color:var(--g400);font-size:12px">Memuat...</div>`)}
       </div>
       <!-- Right sidebar: Notes + Activity -->
       <div style="width:280px;flex-shrink:0;position:sticky;top:20px;max-height:calc(100vh - 80px);overflow-y:auto;display:flex;flex-direction:column;gap:12px">
@@ -3762,6 +3765,142 @@ function renderColDetail(col, items) {
   });
   loadColSidebar(col.id);
   setupNoteAC(col.id);
+  loadColProductPerf(col.id, col.collectionName);
+}
+
+async function loadColProductPerf(colId, colName) {
+  const el = document.getElementById(`col-perf-${colId}`);
+  if (!el) return;
+
+  // 1. Get products mapped to this collection
+  const { data: mappings, error: mErr } = await sb.from("product_mappings")
+    .select("jubelio_item_id, item_name")
+    .ilike("collection", colName);
+
+  if (mErr || !mappings || !mappings.length) {
+    el.innerHTML = `<div style="color:var(--g400);font-size:12px;padding:4px 0">Belum ada produk yang di-mapping ke koleksi ini.</div>`;
+    return;
+  }
+
+  const itemIds = [...new Set(mappings.map(m => m.jubelio_item_id).filter(Boolean))];
+
+  // 2. Fetch sales items, stock, adjustments in parallel
+  const [salesItemsRes, stockRes, adjItemsRes] = await Promise.all([
+    sb.from("jubelio_sales_order_items").select("item_id, qty, salesorder_id").in("item_id", itemIds).limit(5000),
+    sb.from("jubelio_inventory_stocks").select("item_id, on_hand").in("item_id", itemIds),
+    sb.from("jubelio_inventory_adjustment_items").select("item_id, qty").in("item_id", itemIds).limit(5000),
+  ]);
+
+  const salesItems = salesItemsRes.data || [];
+  const stocks     = stockRes.data || [];
+  const adjItems   = adjItemsRes.data || [];
+
+  // 3. Get completed orders + dates for those salesorder_ids
+  let completedMap = new Map(); // salesorder_id → transaction_date
+  if (salesItems.length) {
+    const soIds = [...new Set(salesItems.map(s => s.salesorder_id))];
+    // Chunk into 200 to avoid URL length limits
+    const chunks = [];
+    for (let i = 0; i < soIds.length; i += 200) chunks.push(soIds.slice(i, i + 200));
+    const results = await Promise.all(chunks.map(chunk =>
+      sb.from("jubelio_sales_orders")
+        .select("salesorder_id, transaction_date")
+        .in("salesorder_id", chunk)
+        .eq("wms_status", "COMPLETED")
+    ));
+    for (const r of results) {
+      for (const o of (r.data || [])) completedMap.set(o.salesorder_id, o.transaction_date);
+    }
+  }
+
+  // 4. Compute aggregates
+  let totalSold = 0, firstSaleDate = null;
+  for (const si of salesItems) {
+    if (!completedMap.has(si.salesorder_id)) continue;
+    totalSold += parseFloat(si.qty || 0);
+    const d = completedMap.get(si.salesorder_id);
+    if (d && (!firstSaleDate || d < firstSaleDate)) firstSaleDate = d;
+  }
+
+  const totalStock = stocks.reduce((s, r) => s + parseFloat(r.on_hand || 0), 0);
+  const netAdj     = adjItems.reduce((s, r) => s + parseFloat(r.qty || 0), 0);
+
+  const str = (totalSold + totalStock) > 0
+    ? ((totalSold / (totalSold + totalStock)) * 100).toFixed(1) + "%"
+    : "—";
+  const strNum = parseFloat(str) || 0;
+  const strClrMain = str !== "—" ? (strNum >= 70 ? "#2d7a2d" : strNum >= 30 ? "#e67e00" : "#c0392b") : "var(--black)";
+
+  let avgPerDay = "—";
+  if (firstSaleDate && totalSold > 0) {
+    const days = Math.max(1, Math.ceil((Date.now() - new Date(firstSaleDate)) / 86400000));
+    avgPerDay = (totalSold / days).toFixed(1) + "/hari";
+  }
+  const fds = firstSaleDate ? firstSaleDate.slice(0, 10) : "—";
+
+  // 5. Per-item breakdown
+  const perItem = {};
+  for (const m of mappings) {
+    if (!m.jubelio_item_id) continue;
+    perItem[m.jubelio_item_id] = { name: m.item_name, sold: 0, stock: 0, adj: 0 };
+  }
+  for (const si of salesItems) {
+    if (!completedMap.has(si.salesorder_id) || !perItem[si.item_id]) continue;
+    perItem[si.item_id].sold += parseFloat(si.qty || 0);
+  }
+  for (const s of stocks) {
+    if (perItem[s.item_id]) perItem[s.item_id].stock += parseFloat(s.on_hand || 0);
+  }
+  for (const a of adjItems) {
+    if (perItem[a.item_id]) perItem[a.item_id].adj += parseFloat(a.qty || 0);
+  }
+  const rows = Object.values(perItem).sort((a, b) => b.sold - a.sold);
+
+  // 6. Render
+  const metricCard = (lbl, val, clr) => `
+    <div style="border:1px solid var(--g100);border-radius:6px;padding:10px 12px">
+      <div style="font-family:var(--mono);font-size:9px;text-transform:uppercase;color:var(--g400);margin-bottom:4px">${lbl}</div>
+      <div style="font-weight:700;font-size:15px;color:${clr}">${val}</div>
+    </div>`;
+
+  const adjStr  = netAdj > 0 ? `+${Math.round(netAdj)}` : `${Math.round(netAdj)}`;
+  const adjClr  = netAdj > 0 ? "#2d7a2d" : netAdj < 0 ? "#c0392b" : "var(--g400)";
+
+  el.innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:16px">
+      ${metricCard("Sell-through", str, strClrMain)}
+      ${metricCard("Total Terjual", Math.round(totalSold) + " pcs", "var(--black)")}
+      ${metricCard("First Sale", fds, "var(--black)")}
+      ${metricCard("Avg / Hari", avgPerDay, "var(--black)")}
+      ${metricCard("Stock Skrg", Math.round(totalStock) + " pcs", totalStock === 0 ? "#c0392b" : "var(--black)")}
+      ${metricCard("Net Adj", adjStr, adjClr)}
+    </div>
+    ${rows.length ? `<div class="table-wrap" style="max-height:320px;overflow-y:auto">
+      <table style="width:100%">
+        <thead><tr style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">
+          <th style="padding:6px 10px;text-align:left">Produk</th>
+          <th style="padding:6px 10px;text-align:right">Terjual</th>
+          <th style="padding:6px 10px;text-align:right">STR</th>
+          <th style="padding:6px 10px;text-align:right">Stock</th>
+          <th style="padding:6px 10px;text-align:right">Net Adj</th>
+        </tr></thead>
+        <tbody>${rows.map(r => {
+          const iStr  = (r.sold + r.stock) > 0 ? ((r.sold / (r.sold + r.stock)) * 100).toFixed(0) + "%" : "—";
+          const iSClr = iStr !== "—" ? (parseFloat(iStr) >= 70 ? "#2d7a2d" : parseFloat(iStr) >= 30 ? "#e67e00" : "#c0392b") : "var(--g400)";
+          const iAStr = r.adj > 0 ? `+${Math.round(r.adj)}` : `${Math.round(r.adj)}`;
+          const iAClr = r.adj > 0 ? "#2d7a2d" : r.adj < 0 ? "#c0392b" : "var(--g400)";
+          return `<tr style="border-top:1px solid var(--g100)">
+            <td style="padding:7px 10px;font-size:12px">${r.name}</td>
+            <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px">${Math.round(r.sold)}</td>
+            <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px;color:${iSClr}">${iStr}</td>
+            <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px${r.stock === 0 && r.sold > 0 ? ";color:#c0392b" : ""}">${Math.round(r.stock)}</td>
+            <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px;color:${iAClr}">${iAStr}</td>
+          </tr>`;
+        }).join("")}</tbody>
+      </table>
+    </div>` : ""}
+    <div style="margin-top:10px;font-size:10px;color:var(--g400);font-family:var(--mono)">${mappings.length} produk ter-mapping</div>
+  `;
 }
 
 function renderColPOCards(colId) {
@@ -4072,7 +4211,7 @@ async function updateSKUStageStatus(itemId, colId, stage, status) {
 }
 function renderPipelineBarHTML(colId) {
   const ps=getPipelineStatuses(colId);
-  const pipeStages=[["design","Design"],["sampling","Sampling"],["production","Production"],["inbound","Inbound"],["marketing","Marketing"]];
+  const pipeStages=[["design","Design"],["sampling","Sampling"],["production","Prod & Inbound"],["marketing","Marketing"]];
   const pdot=s=>s==="done"?"●":s==="in-progress"?"◐":"○";
   const pclr=s=>s==="done"?"#1a5c25":s==="in-progress"?"#1a4a8a":"#aaa";
   return pipeStages.map(([k,l],i)=>`${i>0?`<div style="width:32px;flex-shrink:0;height:1px;background:var(--g200)"></div>`:""}
