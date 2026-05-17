@@ -2844,17 +2844,23 @@ async function loadProductMap(page=0, search=''){
     ]);
     if(rowsErr) throw rowsErr;
     allPMRows=(rows||[]).map(mapPM);
-    const pmByName={};allPMRows.forEach(r=>{pmByName[r.itemName]=r;});
-    const uniqueNames=allPMRows.map(r=>r.itemName);
+    // De-duplicate by item_name; track variant count per product
+    const pmByName={};
+    allPMRows.forEach(r=>{
+      if(!pmByName[r.itemName]){pmByName[r.itemName]={...r,variantCount:0};}
+      pmByName[r.itemName].variantCount++;
+    });
+    const uniqueNames=Object.keys(pmByName);
     document.getElementById("pm-s-total").textContent=totalCount||0;
     document.getElementById("pm-s-mapped").textContent=(totalCount||0)-(unmappedCount||0);
     document.getElementById("pm-s-unmapped").textContent=unmappedCount||0;
     const activeFilters=[search&&`"${search}"`,pmFilters.brand,pmFilters.ip,pmFilters.collection,pmFilters.mappingCount!==''&&`mapping ${pmFilters.mappingCount}/3`].filter(Boolean);
+    const uniqueCount=uniqueNames.length;
     document.getElementById("pm-tcount").textContent=hasFilter
-      ? `${filteredCount||0} hasil${activeFilters.length?` · ${activeFilters.join(" · ")}`:""}`
+      ? `${uniqueCount} produk${activeFilters.length?` · ${activeFilters.join(" · ")}`:""}`
       : `${unmappedCount||0} belum mapped`;
     renderPMTable(uniqueNames,pmByName);
-    renderPMPagination(page,filteredCount||0);
+    renderPMPagination(page,uniqueCount);
     renderPMSortHeaders();
   } catch(e){
     if(tbody) tbody.innerHTML=`<tr><td class="empty-td" colspan="7">Gagal: ${e.message||e}</td></tr>`;
@@ -2900,7 +2906,7 @@ function renderPMTable(uniqueNames, pmByName){
     const sel=(opts,val,field)=>`<select onchange="savePMField('${esc}','${field}',this.value)" style="font-size:11px;padding:3px 6px;border:1px solid var(--g100);border-radius:4px;width:100%;background:var(--white)"><option value=""></option>${opts.replace(`value="${(val||"").replace(/"/g,"&quot;")}"`,`value="${(val||"").replace(/"/g,"&quot;")}" selected`)}</select>`;
     const safeId=btoa(unescape(encodeURIComponent(name))).replace(/[^a-zA-Z0-9]/g,'');
     return `<tr style="border-top:1px solid var(--g100)">
-      <td style="padding:8px 6px;font-size:11px;color:var(--g400);text-align:center;white-space:nowrap">${m.jubItemId||'—'}</td>
+      <td style="padding:8px 6px;font-size:11px;color:var(--g400);text-align:center;white-space:nowrap">${m.variantCount>1?`<span title="Item ID: ${m.jubItemId||'?'}">${m.variantCount} var</span>`:(m.jubItemId||'—')}</td>
       <td style="padding:8px 10px;font-size:12px;max-width:220px">${name.replace(/</g,"&lt;")}</td>
       <td style="padding:6px 8px;min-width:130px">${sel(bmOpts,m.brand,"brand")}</td>
       <td style="padding:6px 8px;min-width:130px">${sel(ipOpts,m.ip,"ip")}</td>
