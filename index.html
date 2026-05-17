@@ -1337,56 +1337,73 @@
         <div class="page-header">
           <div>
             <div class="page-title">Warehouse KPI</div>
-            <div class="page-sub">Putaway performance, receiving accuracy, dan stock adjustment.</div>
+            <div class="page-sub">Inbound · Outbound · Inventory</div>
           </div>
           <div style="display:flex;align-items:center;gap:8px">
-            <button id="wh-sync-btn" class="btn-primary" style="font-size:12px;padding:5px 14px" onclick="whSyncNow()">⟳ Sync Jubelio</button>
+            <select class="f-select" id="wh-period" onchange="renderWHDashboard()" style="font-size:12px;padding:5px 10px">
+              <option value="7">7 hari</option>
+              <option value="30" selected>30 hari</option>
+              <option value="90">3 bulan</option>
+              <option value="all">Semua</option>
+            </select>
+            <button id="wh-sync-btn" class="btn-primary" style="font-size:12px;padding:5px 14px" onclick="whSyncNow()">⟳ Sync</button>
             <span id="wh-sync-status" style="font-size:11px;color:var(--g400)"></span>
           </div>
         </div>
 
-        <!-- Period selector -->
-        <div class="filter-panel" style="margin-bottom:1.25rem">
-          <select class="f-select" id="wh-period" onchange="renderWHDashboard()">
-            <option value="7">7 hari terakhir</option>
-            <option value="30" selected>30 hari terakhir</option>
-            <option value="90">3 bulan terakhir</option>
-            <option value="all">Semua waktu</option>
-          </select>
-        </div>
+        <!-- ── INBOUND ── -->
+        <div class="sb-label" style="margin-bottom:0.75rem;margin-top:0.25rem">📦 Inbound</div>
 
-        <!-- KPI cards -->
-        <div class="stats-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:1.5rem" id="wh-kpi-row">
+        <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
           <div class="stat-card"><div class="stat-num" id="wh-k-putaway">—</div><div class="stat-lbl">Bill Putaway</div></div>
           <div class="stat-card"><div class="stat-num" id="wh-k-items">—</div><div class="stat-lbl">Items Diterima</div></div>
           <div class="stat-card warn"><div class="stat-num" id="wh-k-pending">—</div><div class="stat-lbl">Belum Putaway</div></div>
           <div class="stat-card"><div class="stat-num" id="wh-k-recv">—</div><div class="stat-lbl">Receiving Accuracy</div></div>
-          <div class="stat-card danger"><div class="stat-num" id="wh-k-adj">—</div><div class="stat-lbl">PO Qty Kurang</div></div>
         </div>
 
-        <!-- Two-col layout: trend + staff -->
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;margin-bottom:1.5rem" id="wh-mid-grid">
-
-          <!-- Monthly putaway trend -->
+        <!-- Trend + per-gudang (always all-time) -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;margin-bottom:1.25rem">
           <div class="form-card" style="padding:1.25rem">
-            <div class="form-sec" style="margin-bottom:1rem">Putaway per Bulan</div>
+            <div class="form-sec" style="margin-bottom:1rem">Penerimaan per Bulan <span style="font-weight:400;color:var(--g400);font-size:11px">(semua waktu)</span></div>
             <div id="wh-trend-chart" style="min-height:120px;display:flex;align-items:flex-end;gap:4px;padding-bottom:20px;position:relative"></div>
           </div>
-
-          <!-- Staff performance -->
           <div class="form-card" style="padding:1.25rem">
-            <div class="form-sec" style="margin-bottom:1rem">Performa Staff</div>
-            <div id="wh-staff-table"></div>
+            <div class="form-sec" style="margin-bottom:1rem">Penerimaan per Gudang <span style="font-weight:400;color:var(--g400);font-size:11px">(semua waktu)</span></div>
+            <div id="wh-loc-table"></div>
           </div>
         </div>
 
-        <!-- Putaway log -->
-        <div class="form-sec" style="margin-bottom:0.75rem">Log Penerimaan (Putaway)</div>
-        <div class="table-toolbar">
-          <button class="btn-refresh" onclick="loadWHData()">↻ Refresh</button>
-          <div class="tcount" id="wh-tcount">— entri</div>
+        <!-- Receiving accuracy detail -->
+        <div style="margin-bottom:0.75rem;display:flex;align-items:center;justify-content:space-between">
+          <div class="form-sec" style="margin:0">Receiving Accuracy — Detail PO</div>
+          <div class="tcount" id="wh-recv-tcount">—</div>
         </div>
-        <div class="table-wrap">
+        <div class="table-wrap" style="margin-bottom:1.75rem">
+          <table>
+            <thead>
+              <tr>
+                <th>PO No</th>
+                <th>Supplier</th>
+                <th>Tgl PO</th>
+                <th style="text-align:right">Qty PO</th>
+                <th style="text-align:right">Qty Terima</th>
+                <th style="text-align:right">Selisih</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="wh-recv-body"><tr><td class="empty-td" colspan="7">Memuat...</td></tr></tbody>
+          </table>
+        </div>
+
+        <!-- Log putaway -->
+        <div style="margin-bottom:0.75rem;display:flex;align-items:center;justify-content:space-between">
+          <div class="form-sec" style="margin:0">Log Bill Putaway</div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <button class="btn-refresh" onclick="loadWHData()">↻ Refresh</button>
+            <div class="tcount" id="wh-tcount">— entri</div>
+          </div>
+        </div>
+        <div class="table-wrap" style="margin-bottom:2rem">
           <table>
             <thead>
               <tr>
@@ -1394,37 +1411,53 @@
                 <th>Tgl Terima</th>
                 <th>Supplier</th>
                 <th>Lokasi</th>
-                <th>Diinput</th>
                 <th style="text-align:right">Items</th>
               </tr>
             </thead>
-            <tbody id="wh-log-body"><tr><td class="empty-td" colspan="6">Klik "↻ Refresh" untuk memuat data.</td></tr></tbody>
+            <tbody id="wh-log-body"><tr><td class="empty-td" colspan="5">Klik "↻ Refresh" untuk memuat data.</td></tr></tbody>
           </table>
         </div>
 
-        <!-- Receiving accuracy detail -->
-        <div style="margin-top:1.5rem">
-          <div class="form-sec" style="margin-bottom:0.75rem">Receiving Accuracy — Detail PO</div>
-          <div class="table-toolbar">
-            <div class="tcount" id="wh-recv-tcount">— PO diperiksa</div>
+        <!-- ── OUTBOUND ── -->
+        <div class="sb-label" style="margin-bottom:0.75rem">🚚 Outbound</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1.25rem;margin-bottom:2rem">
+          <div class="form-card" style="padding:1.25rem;opacity:0.6">
+            <div style="font-size:11px;font-family:'DM Mono',monospace;color:var(--g400);margin-bottom:0.5rem">COMING SOON</div>
+            <div style="font-size:14px;font-weight:600;margin-bottom:0.4rem">Fulfillment Rate</div>
+            <div style="font-size:12px;color:var(--g400)">% sales order yang terkirim tepat waktu. Butuh sync data Delivery Order dari Jubelio.</div>
           </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>PO No</th>
-                  <th>Supplier</th>
-                  <th>Tgl PO</th>
-                  <th style="text-align:right">Qty PO</th>
-                  <th style="text-align:right">Qty Terima</th>
-                  <th style="text-align:right">Selisih</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody id="wh-recv-body"><tr><td class="empty-td" colspan="7">Memuat...</td></tr></tbody>
-            </table>
+          <div class="form-card" style="padding:1.25rem;opacity:0.6">
+            <div style="font-size:11px;font-family:'DM Mono',monospace;color:var(--g400);margin-bottom:0.5rem">COMING SOON</div>
+            <div style="font-size:14px;font-weight:600;margin-bottom:0.4rem">Open Orders</div>
+            <div style="font-size:12px;color:var(--g400)">Jumlah sales order yang belum diproses. Butuh sync data SO dari Jubelio.</div>
+          </div>
+          <div class="form-card" style="padding:1.25rem;opacity:0.6">
+            <div style="font-size:11px;font-family:'DM Mono',monospace;color:var(--g400);margin-bottom:0.5rem">COMING SOON</div>
+            <div style="font-size:14px;font-weight:600;margin-bottom:0.4rem">Pick Accuracy</div>
+            <div style="font-size:12px;color:var(--g400)">% picking tanpa error. Butuh data failed-pick dari Jubelio WMS (endpoint aktif setelah WMS dipakai aktif).</div>
           </div>
         </div>
+
+        <!-- ── INVENTORY ── -->
+        <div class="sb-label" style="margin-bottom:0.75rem">📊 Inventory</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1.25rem;margin-bottom:2rem">
+          <div class="form-card" style="padding:1.25rem;opacity:0.6">
+            <div style="font-size:11px;font-family:'DM Mono',monospace;color:var(--g400);margin-bottom:0.5rem">COMING SOON</div>
+            <div style="font-size:14px;font-weight:600;margin-bottom:0.4rem">Stock Accuracy</div>
+            <div style="font-size:12px;color:var(--g400)">% item yang stok fisik = stok sistem (dari hasil opname). Butuh sync data Inventory Adjustment dari Jubelio.</div>
+          </div>
+          <div class="form-card" style="padding:1.25rem;opacity:0.6">
+            <div style="font-size:11px;font-family:'DM Mono',monospace;color:var(--g400);margin-bottom:0.5rem">COMING SOON</div>
+            <div style="font-size:14px;font-weight:600;margin-bottom:0.4rem">Shrinkage Rate</div>
+            <div style="font-size:12px;color:var(--g400)">Kerugian stok akibat adjustment negatif / loss. Butuh sync data Inventory Adjustment dari Jubelio.</div>
+          </div>
+          <div class="form-card" style="padding:1.25rem;opacity:0.6">
+            <div style="font-size:11px;font-family:'DM Mono',monospace;color:var(--g400);margin-bottom:0.5rem">COMING SOON</div>
+            <div style="font-size:14px;font-weight:600;margin-bottom:0.4rem">Slow Mover / Dead Stock</div>
+            <div style="font-size:12px;color:var(--g400)">Item yang tidak bergerak lebih dari 60 hari. Butuh data mutasi stok dari Jubelio.</div>
+          </div>
+        </div>
+
       </div>
 
     </div>
