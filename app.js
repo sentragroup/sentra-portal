@@ -4988,15 +4988,16 @@ async function syncSMNow(){
 // All data from existing jubelio_purchase_* tables — no separate putaway sync needed.
 // jubelio_purchase_bills.is_putaway = true  ←  the "putaway done" flag
 // bill_items join via bill_id (NOT purchaseorder_id — that column doesn't exist on bill_items)
-let whBills      = [];   // jubelio_purchase_bills
-let whPOItems    = [];   // jubelio_purchase_order_items (ordered qty)
-let whShipments  = [];   // jubelio_sales_orders WHERE wms_status=COMPLETED
-let whReturns    = [];   // jubelio_sales_orders WHERE wms_status=RETURNED (for courier reliability)
-let whAdjHeaders = [];   // jubelio_inventory_adjustments
-let whBillItems= [];   // jubelio_purchase_bill_items  (received qty, key: bill_id)
-let whPORows   = [];   // jubelio_purchase_orders (for PO header display)
-let whOPage = 0;         // outbound log pagination
-let whIPage = 0;         // inventory log pagination
+let whBills        = [];   // jubelio_purchase_bills
+let whPOItems      = [];   // jubelio_purchase_order_items (ordered qty)
+let whShipments    = [];   // jubelio_sales_orders WHERE wms_status=COMPLETED (≤1000 rows, for display)
+let whReturns      = [];   // jubelio_sales_orders WHERE wms_status=RETURNED
+let whAdjHeaders   = [];   // jubelio_inventory_adjustments
+let whBillItems    = [];   // jubelio_purchase_bill_items  (received qty, key: bill_id)
+let whPORows       = [];   // jubelio_purchase_orders (for PO header display)
+let whCourierStats = [];   // wh_courier_stats view — all-time aggregate, no row-limit issue
+let whOPage = 0;           // outbound log pagination
+let whIPage = 0;           // inventory log pagination
 
 async function loadWHData() {
   const tbody  = document.getElementById("wh-log-body");
@@ -5006,7 +5007,7 @@ async function loadWHData() {
 
   const [
     { data: bills   }, { data: poItems }, { data: bItems }, { data: poRows },
-    { data: ships   }, { data: adjs    }, { data: rets    },
+    { data: ships   }, { data: adjs    }, { data: rets    }, { data: cStats  },
   ] = await Promise.all([
     sb.from("jubelio_purchase_bills")
       .select("bill_id,bill_no,purchaseorder_id,supplier_name,transaction_date,location_name,is_putaway")
@@ -5024,16 +5025,19 @@ async function loadWHData() {
     sb.from("jubelio_sales_orders")
       .select("salesorder_id,courier,transaction_date,location_name")
       .eq("wms_status", "RETURNED"),
+    sb.from("wh_courier_stats").select("courier,completed_count,returned_count,total_count"),
   ]);
 
-  whBills      = bills  || [];
-  whPOItems    = poItems || [];
-  whBillItems  = bItems  || [];
-  whPORows     = poRows  || [];
-  whShipments  = ships   || [];
-  whAdjHeaders = adjs    || [];
-  whReturns    = rets    || [];
+  whBills        = bills  || [];
+  whPOItems      = poItems || [];
+  whBillItems    = bItems  || [];
+  whPORows       = poRows  || [];
+  whShipments    = ships   || [];
+  whAdjHeaders   = adjs    || [];
+  whReturns      = rets    || [];
+  whCourierStats = cStats  || [];
 
+  populateWHGudangFilter();
   renderWHDashboard();
 }
 
@@ -5067,6 +5071,20 @@ function whIGoPage(dir) {
   const maxPage = Math.max(0, Math.ceil(parseInt(total) / 10) - 1);
   whIPage = Math.min(maxPage, Math.max(0, whIPage + dir));
   renderWHDashboard();
+}
+
+function populateWHGudangFilter() {
+  const sel = document.getElementById("wh-gudang");
+  if (!sel) return;
+  const cur = sel.value;
+  // Collect distinct location_name values from all loaded datasets
+  const locs = new Set();
+  for (const b of whBills)      if (b.location_name) locs.add(b.location_name);
+  for (const s of whShipments)  if (s.location_name) locs.add(s.location_name);
+  for (const a of whAdjHeaders) if (a.location_name) locs.add(a.location_name);
+  const sorted = [...locs].sort((a, b) => a.localeCompare(b, "id"));
+  sel.innerHTML = `<option value="all">Semua Gudang</option>` +
+    sorted.map(l => `<option value="${l}"${cur === l ? " selected" : ""}>${l}</option>`).join("");
 }
 
 function renderWHDashboard() {
@@ -5282,9 +5300,15 @@ function renderWHOutbound(periodShips, periodRets) {
   }
   const avgAwb = awbCount > 0 ? (awbSum / awbCount).toFixed(1) : "—";
 
-  if (document.getElementById("wh-o-shipped")) document.getElementById("wh-o-shipped").textContent = shipped;
-  if (document.getElementById("wh-o-avgawb"))  document.getElementById("wh-o-avgawb").textContent  = avgAwb;
-  if (document.getElementById("wh-o-rate"))    document.getElementById("wh-o-rate").textContent    = fRate;
+  // Return rate (period-filtered)
+  const retRate = (shipped + periodRets.length) > 0
+    ? ((periodRets.length / (shipped + periodRets.length)) * 100).toFixed(1) + "%"
+    : "—";
+
+  if (document.getElementById("wh-o-shipped"))  document.getElementById("wh-o-shipped").textContent  = shipped;
+  if (document.getElementById("wh-o-avgawb"))   document.getElementById("wh-o-avgawb").textContent   = avgAwb;
+  if (document.getElementById("wh-o-rate"))     document.getElementById("wh-o-rate").textContent     = fRate;
+  if (document.getElementById("wh-o-retrate"))  document.getElementById("wh-o-retrate").textContent  = retRate;
 
   // ── Trend + per-gudang ─────────────────────────────────────
   renderWHBarChart("wh-o-trend", periodShips, "transaction_date");
@@ -5303,44 +5327,29 @@ function renderWHOutbound(periodShips, periodRets) {
   }
   renderWHLocBars("wh-o-courier-vol", courierVol, "order");
 
-  // ── Courier reliability — always all-time (returns lag behind shipments) ──
-  // Using whShipments + whReturns (global all-time arrays) so numerator and
-  // denominator come from the same cohort, not period-filtered slices.
-  const allCompleted = {};
-  for (const s of whShipments) {
-    const c = (s.courier || "").trim() || "(tanpa kurir)";
-    allCompleted[c] = (allCompleted[c] || 0) + 1;
-  }
-  const allReturned = {};
-  for (const r of whReturns) {
-    const c = (r.courier || "").trim() || "(tanpa kurir)";
-    allReturned[c] = (allReturned[c] || 0) + 1;
-  }
-
+  // ── Courier reliability — uses wh_courier_stats aggregate view (all-time, no 1000-row cap) ──
+  // Only shows couriers with ≥50 total orders to ensure statistical validity.
   const relEl = document.getElementById("wh-o-courier-rel");
   if (relEl) {
-    // Show top couriers by all-time volume, skip tanpa kurir if 0 returns
-    const couriers = Object.keys(allCompleted)
-      .filter(c => c !== "(tanpa kurir)" || allReturned[c])
-      .sort((a, b) => allCompleted[b] - allCompleted[a])
-      .slice(0, 8);
+    const MIN_SAMPLE = 50;
+    const reliStats = whCourierStats
+      .filter(r => r.courier !== "(tanpa kurir)" && (r.completed_count + r.returned_count) >= MIN_SAMPLE)
+      .sort((a, b) => b.completed_count - a.completed_count)
+      .slice(0, 8)
+      .map(r => {
+        const total = r.completed_count + r.returned_count;
+        const rate  = total > 0 ? (r.returned_count / total) * 100 : 0;
+        return { c: r.courier, comp: r.completed_count, ret: r.returned_count, total, rate };
+      });
 
-    if (!couriers.length) {
+    if (!reliStats.length) {
       relEl.innerHTML = `<div style="color:var(--g400);font-size:12px">Belum ada data.</div>`;
     } else {
-      // Compute rates then scale bars to max rate in this set
-      const rates = couriers.map(c => {
-        const comp = allCompleted[c] || 0;
-        const ret  = allReturned[c]  || 0;
-        const rate = comp + ret > 0 ? (ret / (comp + ret)) * 100 : 0;
-        return { c, comp, ret, rate };
-      });
-      const maxRate = Math.max(...rates.map(r => r.rate), 0.1);
-
-      relEl.innerHTML = rates.map(({ c, comp, ret, rate }) => {
+      const maxRate = Math.max(...reliStats.map(r => r.rate), 0.1);
+      relEl.innerHTML = reliStats.map(({ c, comp, ret, total, rate }) => {
         const rateStr = rate.toFixed(1);
         const barPct  = Math.max((rate / maxRate) * 100, rate > 0 ? 3 : 0);
-        const color   = rate === 0 ? "var(--g400)" : rate < 2 ? "#2d7a2d" : rate < 5 ? "#e67e00" : "#c0392b";
+        const color   = rate === 0 ? "var(--g400)" : rate < 1 ? "#2d7a2d" : rate < 3 ? "#e67e00" : "#c0392b";
         return `<div style="margin-bottom:10px">
           <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
             <span>${c}</span>

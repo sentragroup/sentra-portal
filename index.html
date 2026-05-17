@@ -1340,9 +1340,6 @@
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             <select class="f-select" id="wh-gudang" onchange="whOPage=0;whIPage=0;renderWHDashboard()" style="font-size:12px;padding:5px 10px;width:auto">
               <option value="all">Semua Gudang</option>
-              <option value="Gudang Bintaro">Bintaro</option>
-              <option value="Gudang Marte">Marte</option>
-              <option value="Gudang Offline">Offline</option>
             </select>
             <select class="f-select" id="wh-period" onchange="whOPage=0;whIPage=0;renderWHDashboard()" style="font-size:12px;padding:5px 10px;width:auto">
               <option value="7">7 hari</option>
@@ -1425,11 +1422,12 @@
         <!-- ── OUTBOUND ── -->
         <div class="sb-label" style="margin-bottom:0.75rem">🚚 Outbound</div>
 
-        <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
+        <div class="stats-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:1.25rem">
           <div class="stat-card warn"><div class="stat-num" id="wh-o-open">—</div><div class="stat-lbl">Siap Kirim (WMS)</div></div>
           <div class="stat-card"><div class="stat-num" id="wh-o-shipped">—</div><div class="stat-lbl">Shipped</div></div>
           <div class="stat-card info"><div class="stat-num" id="wh-o-avgawb" style="font-size:20px">—</div><div class="stat-lbl">Avg Order→AWB (jam)</div></div>
           <div class="stat-card"><div class="stat-num" id="wh-o-rate">—</div><div class="stat-lbl">Fulfillment Rate</div></div>
+          <div class="stat-card danger"><div class="stat-num" id="wh-o-retrate">—</div><div class="stat-lbl">Return Rate</div></div>
         </div>
 
         <!-- Shipped trend + per-gudang -->
