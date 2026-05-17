@@ -120,6 +120,9 @@
         <div class="sb-item" onclick="showPage('activitylog',this)" id="nav-activitylog">
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="12" rx="2"/><line x1="5" y1="6" x2="11" y2="6"/><line x1="5" y1="9" x2="11" y2="9"/><line x1="5" y1="12" x2="8" y2="12"/></svg>Activity Log
         </div>
+        <div class="sb-item" onclick="showPage('warehousekpi',this)" id="nav-warehousekpi">
+          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="9" width="3" height="5" rx=".5"/><rect x="6" y="5" width="3" height="9" rx=".5"/><rect x="11" y="1" width="3" height="13" rx=".5"/><path d="M2.5 6l4-3 4 2 3-3" stroke-width="1.2" stroke-linecap="round"/></svg>Warehouse KPI
+        </div>
       </div>
     </nav>
     <div class="content">
@@ -147,8 +150,13 @@
         </div>
 
         <div class="sb-label" style="margin-bottom:0.6rem">Sales Operation</div>
-        <div class="home-grid">
+        <div class="home-grid" style="margin-bottom:1.5rem">
           <div class="tool-card" onclick="showPage('popupbooth',null)"><span class="tc-icon">🛍️</span><div class="tc-name">Pop Up Booth</div><div class="tc-desc">Track event pop-up booth — manpower, stok, penjualan, dan reinbound.</div></div>
+        </div>
+
+        <div class="sb-label" style="margin-bottom:0.6rem">Warehouse</div>
+        <div class="home-grid">
+          <div class="tool-card" onclick="showPage('warehousekpi',null)"><span class="tc-icon">🏭</span><div class="tc-name">Warehouse KPI</div><div class="tc-desc">Monitor putaway performance, receiving accuracy, dan stock adjustment per gudang.</div></div>
         </div>
       </div>
 
@@ -1323,9 +1331,107 @@
     </div>
 
     </div>
+
+      <!-- WAREHOUSE KPI -->
+      <div class="page" id="page-warehousekpi">
+        <div class="page-header">
+          <div>
+            <div class="page-title">Warehouse KPI</div>
+            <div class="page-sub">Putaway performance, receiving accuracy, dan stock adjustment.</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <button id="wh-sync-btn" class="btn-primary" style="font-size:12px;padding:5px 14px" onclick="whSyncNow()">⟳ Sync Jubelio</button>
+            <span id="wh-sync-status" style="font-size:11px;color:var(--g400)"></span>
+          </div>
+        </div>
+
+        <!-- Period selector -->
+        <div class="filter-panel" style="margin-bottom:1.25rem">
+          <select class="f-select" id="wh-period" onchange="renderWHDashboard()">
+            <option value="7">7 hari terakhir</option>
+            <option value="30" selected>30 hari terakhir</option>
+            <option value="90">3 bulan terakhir</option>
+            <option value="all">Semua waktu</option>
+          </select>
+        </div>
+
+        <!-- KPI cards -->
+        <div class="stats-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:1.5rem" id="wh-kpi-row">
+          <div class="stat-card"><div class="stat-num" id="wh-k-putaway">—</div><div class="stat-lbl">Putaway Selesai</div></div>
+          <div class="stat-card"><div class="stat-num" id="wh-k-leadtime">—</div><div class="stat-lbl">Avg Lead Time (jam)</div></div>
+          <div class="stat-card"><div class="stat-num" id="wh-k-items">—</div><div class="stat-lbl">Items Diputaway</div></div>
+          <div class="stat-card"><div class="stat-num" id="wh-k-recv">—</div><div class="stat-lbl">Receiving Accuracy</div></div>
+          <div class="stat-card"><div class="stat-num" id="wh-k-adj">—</div><div class="stat-lbl">PO Butuh Koreksi</div></div>
+        </div>
+
+        <!-- Two-col layout: trend + staff -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;margin-bottom:1.5rem" id="wh-mid-grid">
+
+          <!-- Monthly putaway trend -->
+          <div class="form-card" style="padding:1.25rem">
+            <div class="form-sec" style="margin-bottom:1rem">Putaway per Bulan</div>
+            <div id="wh-trend-chart" style="min-height:120px;display:flex;align-items:flex-end;gap:4px;padding-bottom:20px;position:relative"></div>
+          </div>
+
+          <!-- Staff performance -->
+          <div class="form-card" style="padding:1.25rem">
+            <div class="form-sec" style="margin-bottom:1rem">Performa Staff</div>
+            <div id="wh-staff-table"></div>
+          </div>
+        </div>
+
+        <!-- Putaway log -->
+        <div class="form-sec" style="margin-bottom:0.75rem">Log Putaway</div>
+        <div class="table-toolbar">
+          <button class="btn-refresh" onclick="loadWHData()">↻ Refresh</button>
+          <div class="tcount" id="wh-tcount">— entri</div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>No</th>
+                <th>Tanggal Selesai</th>
+                <th>Staff</th>
+                <th>Dari</th>
+                <th>Lokasi</th>
+                <th style="text-align:right">Items</th>
+                <th style="text-align:right">Lead Time</th>
+              </tr>
+            </thead>
+            <tbody id="wh-log-body"><tr><td class="empty-td" colspan="7">Klik "↻ Refresh" untuk memuat data.</td></tr></tbody>
+          </table>
+        </div>
+
+        <!-- Receiving accuracy detail -->
+        <div style="margin-top:1.5rem">
+          <div class="form-sec" style="margin-bottom:0.75rem">Receiving Accuracy — Detail PO</div>
+          <div class="table-toolbar">
+            <div class="tcount" id="wh-recv-tcount">— PO diperiksa</div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>PO No</th>
+                  <th>Supplier</th>
+                  <th>Tgl PO</th>
+                  <th style="text-align:right">Qty PO</th>
+                  <th style="text-align:right">Qty Terima</th>
+                  <th style="text-align:right">Selisih</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="wh-recv-body"><tr><td class="empty-td" colspan="7">Memuat...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+    </div>
   </div>
 </div>
 
-<script src="app.js?v=20260514i"></script>
+<script src="app.js?v=20260517a"></script>
 </body>
 </html>
