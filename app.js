@@ -153,7 +153,7 @@ function showPage(name, el) {
   if (name==="jubsales") loadJubSales();
   if (name==="mesign") loadMekariEsign();
   if (name==="po") loadPO();
-  if (name==="stockmovement") loadStockMovement();
+  if (name==="stockmovement" && !smPORows.length) loadStockMovement();
   if (name==="productmap") loadProductMap(0,'');
   if (name==="collections") { loadCollections(); setupAC("col-ip","ac-col-ip",()=>allIPRows.map(r=>r.name).filter(Boolean)); setupAC("col-pic","ac-col-pic",()=>[...new Set(allColRows.map(r=>r.pic).filter(Boolean))]); }
   if (name==="designermaster") { loadDesignerMaster(); const cats=[...new Set([...DSG_CATEGORIES_DEFAULT,...allDsgRows.map(r=>r.category).filter(Boolean)])]; setupAC("dsg-category","ac-dsg-category",()=>cats); }
@@ -2642,10 +2642,17 @@ function togglePOItems(poId){
 }
 
 async function refreshCPLinks(){
-  const [{data:links},{data:litems}]=await Promise.all([
+  const queries=[
     sb.from("collection_po_links").select("*"),
-    sb.from("collection_po_link_items").select("*")
-  ]);
+    sb.from("collection_po_link_items").select("*"),
+  ];
+  if(!allColRows.length) queries.push(sb.from("collections").select("id,collection_name"));
+  const results=await Promise.all(queries);
+  const [{data:links},{data:litems}]=results;
+  // id → collection name: prefer full allColRows, fallback to minimal fetch
+  const colNameMap={};
+  if(allColRows.length) allColRows.forEach(r=>{ colNameMap[r.id]=r.collectionName; });
+  else (results[2]?.data||[]).forEach(r=>{ colNameMap[r.id]=r.collection_name; });
   allCPLinks=links||[];
   allCPLinkItems=litems||[];
   // rebuild cplItemsByLink: link_id → Set<purchaseorder_detail_id>
@@ -2658,7 +2665,8 @@ async function refreshCPLinks(){
   poToCollections={};
   colToPos={};
   allCPLinks.forEach(lnk=>{
-    const col=allColRows.find(r=>r.id===lnk.collection_id);
+    const colName=colNameMap[lnk.collection_id];
+    const col=colName?{collectionName:colName}:allColRows.find(r=>r.id===lnk.collection_id);
     const po=allPORows.find(r=>r.id===lnk.purchaseorder_id);
     if(col){
       if(!poToCollections[lnk.purchaseorder_id]) poToCollections[lnk.purchaseorder_id]=[];
