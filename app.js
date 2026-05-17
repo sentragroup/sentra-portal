@@ -6230,6 +6230,88 @@ function renderSATable() {
   }).join("");
 }
 
+// ── SYNC ALL JUBELIO ──
+const SYNC_ALL_JOBS = [
+  { slug: "sync-jubelio-gudang-offline",          label: "Sales Orders"       },
+  { slug: "sync-jubelio-purchase-orders",         label: "Purchase Orders"    },
+  { slug: "sync-jubelio-purchase-bills",          label: "Purchase Bills"     },
+  { slug: "sync-jubelio-purchase-receives",       label: "Purchase Receives"  },
+  { slug: "sync-jubelio-inventory",               label: "Inventory Stock"    },
+  { slug: "sync-jubelio-inventory-adjustments",   label: "Adjustments"        },
+  { slug: "sync-jubelio-contacts",                label: "Contacts"           },
+  { slug: "sync-jubelio-warehouse",               label: "Warehouse / Putaway"},
+];
+
+function closeSyncModal() {
+  const modal = document.getElementById("sync-all-modal");
+  if (modal) modal.style.display = "none";
+  const btn = document.getElementById("sync-all-btn");
+  if (btn) btn.disabled = false;
+}
+
+async function syncAllJubelio() {
+  const modal   = document.getElementById("sync-all-modal");
+  const list    = document.getElementById("sync-all-list");
+  const summary = document.getElementById("sync-all-summary");
+  const doneBtn = document.getElementById("sync-all-done-btn");
+  const closeBtn= document.getElementById("sync-all-close");
+  const trigBtn = document.getElementById("sync-all-btn");
+  if (!modal || !list) return;
+
+  // Disable trigger button while running
+  if (trigBtn) trigBtn.disabled = true;
+
+  // Build initial rows
+  list.innerHTML = SYNC_ALL_JOBS.map(j => `
+    <div id="sync-row-${j.slug}" style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--off)">
+      <span style="font-size:13px">${j.label}</span>
+      <span id="sync-status-${j.slug}" style="font-family:'DM Mono',monospace;font-size:11px;color:var(--g400)">⟳ menghubungi...</span>
+    </div>`).join("");
+  summary.textContent = "Sedang sync...";
+  doneBtn.disabled = true;
+  doneBtn.style.opacity = "0.4";
+  doneBtn.style.cursor = "not-allowed";
+  if (closeBtn) { closeBtn.disabled = true; closeBtn.style.opacity = "0.3"; }
+
+  // Show modal
+  modal.style.display = "flex";
+
+  const startAll = Date.now();
+  let doneCount  = 0;
+  let errCount   = 0;
+
+  const setStatus = (slug, html) => {
+    const el = document.getElementById(`sync-status-${slug}`);
+    if (el) el.innerHTML = html;
+  };
+
+  // Run all in parallel
+  await Promise.allSettled(SYNC_ALL_JOBS.map(async (j) => {
+    const t0 = Date.now();
+    try {
+      await callEdgeFunction(j.slug);
+      const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+      setStatus(j.slug, `<span style="color:#2d7a2d">✓ ${elapsed}s</span>`);
+      doneCount++;
+    } catch (e) {
+      const msg = (e.message || "error").slice(0, 40);
+      setStatus(j.slug, `<span style="color:#c0392b" title="${msg}">✗ ${msg}</span>`);
+      errCount++;
+    }
+  }));
+
+  const totalSec = ((Date.now() - startAll) / 1000).toFixed(1);
+  summary.textContent = errCount > 0
+    ? `${doneCount} selesai · ${errCount} gagal · ${totalSec}s`
+    : `Semua ${doneCount} sync selesai dalam ${totalSec}s`;
+  summary.style.color = errCount > 0 ? "#c0392b" : "#2d7a2d";
+
+  doneBtn.disabled = false;
+  doneBtn.style.opacity = "1";
+  doneBtn.style.cursor = "pointer";
+  if (closeBtn) { closeBtn.disabled = false; closeBtn.style.opacity = "1"; }
+}
+
 // ── DUPLICATE CHECK ──
 async function checkDuplicate(name, excludeSheet) {
   // Check IP Master and Brand Master for duplicate name
