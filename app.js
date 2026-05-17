@@ -202,11 +202,21 @@ function switchRRTab(name, el) {
   if (name==="list") loadRecipients();
 }
 
+// Position AC dropdown using fixed coords so it escapes overflow:hidden/auto parents
+function positionACList(inp, lst) {
+  const r = inp.getBoundingClientRect();
+  lst.style.position = 'fixed';
+  lst.style.top  = (r.bottom + 4) + 'px';
+  lst.style.left = r.left + 'px';
+  lst.style.width = Math.max(r.width, 220) + 'px';
+  lst.style.right = 'auto';
+}
+
 function setupAC(inpId, lstId, getOpts, getRichOpts) {
   const inp = document.getElementById(inpId), lst = document.getElementById(lstId);
   if (!inp || !lst) return;
-  inp.addEventListener("input",  () => renderAC(lst, inp, getOpts(), getRichOpts?getRichOpts():null));
-  inp.addEventListener("focus",  () => { if (getOpts().length) renderAC(lst, inp, getOpts(), getRichOpts?getRichOpts():null); });
+  inp.addEventListener("input",  () => { positionACList(inp,lst); renderAC(lst, inp, getOpts(), getRichOpts?getRichOpts():null); });
+  inp.addEventListener("focus",  () => { if (getOpts().length) { positionACList(inp,lst); renderAC(lst, inp, getOpts(), getRichOpts?getRichOpts():null); } });
   document.addEventListener("click", e => { if (!inp.contains(e.target)&&!lst.contains(e.target)) lst.style.display="none"; });
 }
 
@@ -1285,6 +1295,7 @@ function setupACPKS(inpId, lstId) {
   const inp = document.getElementById(inpId), lst = document.getElementById(lstId);
   if (!inp || !lst) return;
   const render = () => {
+    positionACList(inp, lst);
     const q = inp.value.toLowerCase();
     const m = acAgrOptions.filter(o=>o.label.toLowerCase().includes(q)||o.id.toLowerCase().includes(q));
     if (!m.length) { lst.style.display="none"; return; }
@@ -1512,6 +1523,7 @@ function setupACMulti(inpId, lstId, getOpts) {
   const inp=document.getElementById(inpId), lst=document.getElementById(lstId);
   if(!inp||!lst) return;
   const render=()=>{
+    positionACList(inp, lst);
     const parts=inp.value.split(",");
     const q=parts[parts.length-1].trim().toLowerCase();
     const selected=parts.slice(0,-1).map(s=>s.trim()).filter(Boolean);
@@ -3731,7 +3743,7 @@ function renderColDetail(col, items) {
                     <option value="Paid"${dw.paymentStatus==="Paid"?" selected":""}>Paid</option>
                   </select>
                   <div style="position:relative;display:inline-block">
-                    <input type="text" id="cd-dw-agr-${dw.id}" value="${(dw.agreementId||"").replace(/"/g,"&quot;")}" placeholder="PKS / Kontrak" autocomplete="off" style="font-size:10px;font-family:var(--mono);padding:2px 6px;border:1px solid var(--g200);border-radius:4px;width:120px" onblur="saveDwAgreementFromCD('${dw.id}',this.value)">
+                    <input type="text" id="cd-dw-agr-${dw.id}" value="${(dw.agreementId||"").replace(/"/g,"&quot;")}" placeholder="PKS / Kontrak" autocomplete="off" style="font-size:11px;font-family:var(--mono);padding:3px 8px;border:1px solid var(--g200);border-radius:4px;width:180px" onblur="saveDwAgreementFromCD('${dw.id}',this.value)">
                     <div class="ac-list" id="ac-cd-dw-agr-${dw.id}"></div>
                   </div>
                 </div>`;
