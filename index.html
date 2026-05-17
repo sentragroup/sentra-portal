@@ -1339,8 +1339,14 @@
             <div class="page-title">Warehouse KPI</div>
             <div class="page-sub">Inbound · Outbound · Inventory</div>
           </div>
-          <div style="display:flex;align-items:center;gap:8px">
-            <select class="f-select" id="wh-period" onchange="renderWHDashboard()" style="font-size:12px;padding:5px 10px">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <select class="f-select" id="wh-gudang" onchange="whOPage=0;whIPage=0;renderWHDashboard()" style="font-size:12px;padding:5px 10px;width:auto">
+              <option value="all">Semua Gudang</option>
+              <option value="Gudang Bintaro">Bintaro</option>
+              <option value="Gudang Marte">Marte</option>
+              <option value="Gudang Offline">Offline</option>
+            </select>
+            <select class="f-select" id="wh-period" onchange="whOPage=0;whIPage=0;renderWHDashboard()" style="font-size:12px;padding:5px 10px;width:auto">
               <option value="7">7 hari</option>
               <option value="30" selected>30 hari</option>
               <option value="90">3 bulan</option>
@@ -1422,9 +1428,9 @@
         <div class="sb-label" style="margin-bottom:0.75rem">🚚 Outbound</div>
 
         <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
-          <div class="stat-card warn"><div class="stat-num" id="wh-o-open">—</div><div class="stat-lbl">Open Orders</div></div>
+          <div class="stat-card warn"><div class="stat-num" id="wh-o-open">—</div><div class="stat-lbl">Siap Kirim (WMS)</div></div>
           <div class="stat-card"><div class="stat-num" id="wh-o-shipped">—</div><div class="stat-lbl">Shipped</div></div>
-          <div class="stat-card"><div class="stat-num" id="wh-o-items">—</div><div class="stat-lbl">Items Shipped</div></div>
+          <div class="stat-card info"><div class="stat-num" id="wh-o-avgawb" style="font-size:20px">—</div><div class="stat-lbl">Avg Order→AWB (jam)</div></div>
           <div class="stat-card"><div class="stat-num" id="wh-o-rate">—</div><div class="stat-lbl">Fulfillment Rate</div></div>
         </div>
 
@@ -1440,10 +1446,26 @@
           </div>
         </div>
 
+        <!-- Kurir analysis -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;margin-bottom:1.25rem">
+          <div class="form-card" style="padding:1.25rem">
+            <div class="form-sec" style="margin-bottom:1rem">Volume per Kurir <span class="wh-period-lbl" style="font-weight:400;color:var(--g400);font-size:11px"></span></div>
+            <div id="wh-o-courier-vol"></div>
+          </div>
+          <div class="form-card" style="padding:1.25rem">
+            <div class="form-sec" style="margin-bottom:1rem">Reliabilitas Kurir <span style="font-weight:400;color:var(--g400);font-size:11px">(return rate)</span></div>
+            <div id="wh-o-courier-rel"></div>
+          </div>
+        </div>
+
         <!-- Shipped log -->
         <div style="margin-bottom:0.75rem;display:flex;align-items:center;justify-content:space-between">
           <div class="form-sec" style="margin:0">Log Shipped Orders</div>
-          <div class="tcount" id="wh-o-tcount">—</div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <button onclick="whOGoPage(-1)" style="padding:2px 8px;font-size:11px;border:1px solid var(--g200);border-radius:4px;background:var(--white);cursor:pointer">‹</button>
+            <span class="tcount" id="wh-o-tcount">—</span>
+            <button onclick="whOGoPage(1)" style="padding:2px 8px;font-size:11px;border:1px solid var(--g200);border-radius:4px;background:var(--white);cursor:pointer">›</button>
+          </div>
         </div>
         <div class="table-wrap" style="margin-bottom:2rem">
           <table>
@@ -1485,7 +1507,11 @@
         <!-- Adjustment log -->
         <div style="margin-bottom:0.75rem;display:flex;align-items:center;justify-content:space-between">
           <div class="form-sec" style="margin:0">Log Inventory Adjustment</div>
-          <div class="tcount" id="wh-i-tcount">—</div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <button onclick="whIGoPage(-1)" style="padding:2px 8px;font-size:11px;border:1px solid var(--g200);border-radius:4px;background:var(--white);cursor:pointer">‹</button>
+            <span class="tcount" id="wh-i-tcount">—</span>
+            <button onclick="whIGoPage(1)" style="padding:2px 8px;font-size:11px;border:1px solid var(--g200);border-radius:4px;background:var(--white);cursor:pointer">›</button>
+          </div>
         </div>
         <div class="table-wrap" style="margin-bottom:2rem">
           <table>
@@ -1509,6 +1535,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260517d"></script>
+<script src="app.js?v=20260517e"></script>
 </body>
 </html>

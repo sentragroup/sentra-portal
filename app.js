@@ -4991,9 +4991,12 @@ async function syncSMNow(){
 let whBills      = [];   // jubelio_purchase_bills
 let whPOItems    = [];   // jubelio_purchase_order_items (ordered qty)
 let whShipments  = [];   // jubelio_sales_orders WHERE wms_status=COMPLETED
+let whReturns    = [];   // jubelio_sales_orders WHERE wms_status=RETURNED (for courier reliability)
 let whAdjHeaders = [];   // jubelio_inventory_adjustments
 let whBillItems= [];   // jubelio_purchase_bill_items  (received qty, key: bill_id)
 let whPORows   = [];   // jubelio_purchase_orders (for PO header display)
+let whOPage = 0;         // outbound log pagination
+let whIPage = 0;         // inventory log pagination
 
 async function loadWHData() {
   const tbody  = document.getElementById("wh-log-body");
@@ -5003,7 +5006,7 @@ async function loadWHData() {
 
   const [
     { data: bills   }, { data: poItems }, { data: bItems }, { data: poRows },
-    { data: ships   }, { data: adjs    },
+    { data: ships   }, { data: adjs    }, { data: rets    },
   ] = await Promise.all([
     sb.from("jubelio_purchase_bills")
       .select("bill_id,bill_no,purchaseorder_id,supplier_name,transaction_date,location_name,is_putaway")
@@ -5012,12 +5015,15 @@ async function loadWHData() {
     sb.from("jubelio_purchase_bill_items").select("bill_id,qty"),
     sb.from("jubelio_purchase_orders").select("purchaseorder_id,purchaseorder_no,supplier_name,transaction_date,status"),
     sb.from("jubelio_sales_orders")
-      .select("salesorder_id,salesorder_no,transaction_date,location_name,customer_name,courier")
+      .select("salesorder_id,salesorder_no,transaction_date,awb_created_date,location_name,customer_name,courier")
       .eq("wms_status", "COMPLETED")
       .order("transaction_date", { ascending: false }),
     sb.from("jubelio_inventory_adjustments")
       .select("item_adj_id,item_adj_no,transaction_date,location_name,net_qty,item_count,note")
       .order("transaction_date", { ascending: false }),
+    sb.from("jubelio_sales_orders")
+      .select("salesorder_id,courier,transaction_date,location_name")
+      .eq("wms_status", "RETURNED"),
   ]);
 
   whBills      = bills  || [];
@@ -5026,6 +5032,7 @@ async function loadWHData() {
   whPORows     = poRows  || [];
   whShipments  = ships   || [];
   whAdjHeaders = adjs    || [];
+  whReturns    = rets    || [];
 
   renderWHDashboard();
 }
@@ -5044,19 +5051,39 @@ function whPeriodLabel() {
   return "(" + (map[v] || v + " hari terakhir") + ")";
 }
 
+function whGudangFilter() {
+  return document.getElementById("wh-gudang")?.value || "all";
+}
+
+function whOGoPage(dir) {
+  const total = document.getElementById("wh-o-tcount")?.dataset.total || 0;
+  const maxPage = Math.max(0, Math.ceil(parseInt(total) / 10) - 1);
+  whOPage = Math.min(maxPage, Math.max(0, whOPage + dir));
+  renderWHDashboard();
+}
+
+function whIGoPage(dir) {
+  const total = document.getElementById("wh-i-tcount")?.dataset.total || 0;
+  const maxPage = Math.max(0, Math.ceil(parseInt(total) / 10) - 1);
+  whIPage = Math.min(maxPage, Math.max(0, whIPage + dir));
+  renderWHDashboard();
+}
+
 function renderWHDashboard() {
   const cutoff = whPeriodCutoff();
+  const gudang = whGudangFilter();
+  const byGudang = arr => gudang === "all" ? arr : arr.filter(r => r.location_name === gudang);
 
   // Update all period labels in chart headings
   const lbl = whPeriodLabel();
   document.querySelectorAll(".wh-period-lbl").forEach(el => el.textContent = lbl);
 
-  // Bills filtered by period (all bills, not just putaway — for trend/receiving)
-  const periodBills = cutoff
+  // Bills filtered by period + gudang
+  const periodBills = byGudang(cutoff
     ? whBills.filter(b => b.transaction_date && b.transaction_date >= cutoff)
-    : whBills;
+    : whBills);
 
-  // Putaway bills only (within period)
+  // Putaway bills only (within period + gudang)
   const putawayBills = periodBills.filter(b => b.is_putaway === true);
 
   // bill_id → purchaseorder_id map (from ALL bills, not just period)
@@ -5115,15 +5142,18 @@ function renderWHDashboard() {
   renderWHRecvDetail(poQtyMap, billPoQty);
 
   // Outbound
-  const periodShips = cutoff
+  const periodShips = byGudang(cutoff
     ? whShipments.filter(s => s.transaction_date && s.transaction_date >= cutoff)
-    : whShipments;
-  renderWHOutbound(periodShips);
+    : whShipments);
+  const periodRets = byGudang(cutoff
+    ? whReturns.filter(r => r.transaction_date && r.transaction_date >= cutoff)
+    : whReturns);
+  renderWHOutbound(periodShips, periodRets);
 
   // Inventory
-  const periodAdjs = cutoff
+  const periodAdjs = byGudang(cutoff
     ? whAdjHeaders.filter(a => a.transaction_date && a.transaction_date >= cutoff)
-    : whAdjHeaders;
+    : whAdjHeaders);
   renderWHInventory(periodAdjs);
 }
 
@@ -5233,8 +5263,8 @@ function renderWHRecvDetail(poQtyMap, billPoQty) {
   }).join("");
 }
 
-function renderWHOutbound(periodShips) {
-  // KPI cards — data from jubelio_sales_orders WHERE wms_status=COMPLETED
+function renderWHOutbound(periodShips, periodRets) {
+  // ── KPI cards ──────────────────────────────────────────────
   const shipped   = periodShips.length;
   const openEl    = document.getElementById("wh-o-open");
   const openCount = openEl ? (parseInt(openEl.dataset.live || "0") || 0) : 0;
@@ -5242,14 +5272,22 @@ function renderWHOutbound(periodShips) {
     ? ((shipped / (shipped + openCount)) * 100).toFixed(1) + "%"
     : shipped > 0 ? "100%" : "—";
 
+  // Avg order → AWB hours
+  let awbSum = 0, awbCount = 0;
+  for (const s of periodShips) {
+    if (s.awb_created_date && s.transaction_date) {
+      const diff = (new Date(s.awb_created_date) - new Date(s.transaction_date)) / 3600000;
+      if (diff >= 0 && diff < 720) { awbSum += diff; awbCount++; }  // ignore outliers >30 days
+    }
+  }
+  const avgAwb = awbCount > 0 ? (awbSum / awbCount).toFixed(1) : "—";
+
   if (document.getElementById("wh-o-shipped")) document.getElementById("wh-o-shipped").textContent = shipped;
-  if (document.getElementById("wh-o-items"))   document.getElementById("wh-o-items").textContent   = "—";
+  if (document.getElementById("wh-o-avgawb"))  document.getElementById("wh-o-avgawb").textContent  = avgAwb;
   if (document.getElementById("wh-o-rate"))    document.getElementById("wh-o-rate").textContent    = fRate;
 
-  // Trend chart (follow period filter)
+  // ── Trend + per-gudang ─────────────────────────────────────
   renderWHBarChart("wh-o-trend", periodShips, "transaction_date");
-
-  // Per-gudang bars (follow period filter)
   const locMap = {};
   for (const s of periodShips) {
     const loc = s.location_name || "(tanpa lokasi)";
@@ -5257,16 +5295,65 @@ function renderWHOutbound(periodShips) {
   }
   renderWHLocBars("wh-o-loc", locMap, "order");
 
-  // Log table
+  // ── Courier volume ─────────────────────────────────────────
+  const courierVol = {};
+  for (const s of periodShips) {
+    const c = (s.courier || "").trim() || "(tanpa kurir)";
+    courierVol[c] = (courierVol[c] || 0) + 1;
+  }
+  renderWHLocBars("wh-o-courier-vol", courierVol, "order");
+
+  // ── Courier reliability ────────────────────────────────────
+  const courierRet = {};
+  for (const r of (periodRets || [])) {
+    const c = (r.courier || "").trim() || "(tanpa kurir)";
+    courierRet[c] = (courierRet[c] || 0) + 1;
+  }
+  const relEl = document.getElementById("wh-o-courier-rel");
+  if (relEl) {
+    const couriers = Object.keys(courierVol).sort((a, b) => courierVol[b] - courierVol[a]).slice(0, 8);
+    if (!couriers.length) {
+      relEl.innerHTML = `<div style="color:var(--g400);font-size:12px">Belum ada data.</div>`;
+    } else {
+      relEl.innerHTML = couriers.map(c => {
+        const shipped = courierVol[c] || 0;
+        const returned = courierRet[c] || 0;
+        const total = shipped + returned;
+        const retRate = total > 0 ? ((returned / total) * 100).toFixed(1) : "0.0";
+        const pct = Math.max(parseFloat(retRate), 0.5);
+        const color = parseFloat(retRate) === 0 ? "var(--black)" : parseFloat(retRate) < 2 ? "#2d7a2d" : parseFloat(retRate) < 5 ? "#e67e00" : "#c0392b";
+        return `<div style="margin-bottom:10px">
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
+            <span>${c}</span>
+            <span style="font-family:'DM Mono',monospace;color:${color}">${retRate}% retur (${returned}/${total})</span>
+          </div>
+          <div style="height:6px;background:var(--off);border-radius:3px">
+            <div style="height:6px;width:${Math.min(pct * 10, 100)}%;background:${color};border-radius:3px"></div>
+          </div>
+        </div>`;
+      }).join("");
+    }
+  }
+
+  // ── Log table (paginated 10/page) ─────────────────────────
   const tbody  = document.getElementById("wh-o-body");
   const tcount = document.getElementById("wh-o-tcount");
-  if (tcount) tcount.textContent = `${periodShips.length} entri`;
+  const total  = periodShips.length;
+  const page   = whOPage;
+  const start  = page * 10;
+  const end    = Math.min(start + 10, total);
+  const slice  = periodShips.slice(start, end);
+
+  if (tcount) {
+    tcount.textContent = total > 0 ? `${start + 1}–${end} dari ${total}` : "0 entri";
+    tcount.dataset.total = total;
+  }
   if (!tbody) return;
-  if (!periodShips.length) {
+  if (!total) {
     tbody.innerHTML = `<tr><td class="empty-td" colspan="5">Belum ada data dalam periode ini.</td></tr>`;
     return;
   }
-  tbody.innerHTML = periodShips.map(s => {
+  tbody.innerHTML = slice.map(s => {
     const tgl = s.transaction_date ? s.transaction_date.slice(0, 10) : "—";
     return `<tr>
       <td style="font-family:'DM Mono',monospace;font-size:11px">${s.salesorder_no || "—"}</td>
@@ -5301,16 +5388,24 @@ function renderWHInventory(periodAdjs) {
   }
   renderWHLocBars("wh-i-loc", locMap, "adj");
 
-  // Log table
+  // Log table (paginated 10/page)
   const tbody  = document.getElementById("wh-i-body");
   const tcount = document.getElementById("wh-i-tcount");
-  if (tcount) tcount.textContent = `${periodAdjs.length} entri`;
+  const iTot   = periodAdjs.length;
+  const iStart = whIPage * 10;
+  const iEnd   = Math.min(iStart + 10, iTot);
+  const iSlice = periodAdjs.slice(iStart, iEnd);
+
+  if (tcount) {
+    tcount.textContent = iTot > 0 ? `${iStart + 1}–${iEnd} dari ${iTot}` : "0 entri";
+    tcount.dataset.total = iTot;
+  }
   if (!tbody) return;
-  if (!periodAdjs.length) {
-    tbody.innerHTML = `<tr><td class="empty-td" colspan="6">Belum ada data. Klik "⟳ Sync" untuk menarik data dari Jubelio.</td></tr>`;
+  if (!iTot) {
+    tbody.innerHTML = `<tr><td class="empty-td" colspan="6">Belum ada data dalam periode ini.</td></tr>`;
     return;
   }
-  tbody.innerHTML = periodAdjs.map(a => {
+  tbody.innerHTML = iSlice.map(a => {
     const tgl  = a.transaction_date ? a.transaction_date.slice(0, 10) : "—";
     const qty  = parseFloat(a.net_qty || 0);
     const qStr = qty > 0
