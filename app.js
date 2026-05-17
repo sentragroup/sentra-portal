@@ -159,6 +159,7 @@ function showPage(name, el) {
   if (name==="designermaster") { loadDesignerMaster(); const cats=[...new Set([...DSG_CATEGORIES_DEFAULT,...allDsgRows.map(r=>r.category).filter(Boolean)])]; setupAC("dsg-category","ac-dsg-category",()=>cats); }
   if (name==="dsgworkflow") loadDsgWorkflow();
   if (name==="warehousekpi" && !whBills.length) loadWHData();
+  if (name==="stockadjmgmt" && !saAdjustments.length) loadSAData();
   closeMobileSidebar();
 }
 
@@ -5578,6 +5579,318 @@ async function whSyncNow() {
   }
   if (btn) { btn.disabled = false; btn.textContent = "⟳ Sync"; }
   await loadWHData();
+}
+
+// ── STOCK ADJUSTMENT MGMT ──
+const SA_PRESETS = [
+  "Freebies KOL", "Freebies Licensor", "Freebies Internal", "Other Freebies",
+  "Stock Opname", "Defect", "Penjualan Offline",
+];
+const SA_GROUPS = {
+  "Freebies":         ["Freebies KOL","Freebies Licensor","Freebies Internal","Other Freebies"],
+  "Stock Opname":     ["Stock Opname"],
+  "Defect":           ["Defect"],
+  "Penjualan Offline":["Penjualan Offline"],
+};
+const SA_GROUP_COLORS = {
+  "Freebies": "#3C3489", "Stock Opname": "#2d7a2d",
+  "Defect": "#c0392b",   "Penjualan Offline": "#e67e00",
+};
+
+let saAdjustments = [];   // jubelio_inventory_adjustments WHERE 2026
+let saCategories  = {};   // { item_adj_id → { category, categorized_by } }
+let saUserCats    = [];   // user-added category strings (collected from DB)
+let saPage        = 0;
+
+async function loadSAData() {
+  const tbody = document.getElementById("sa-tbody");
+  if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="7">Memuat...</td></tr>`;
+
+  const [{ data: adjs, error: adjErr }, { data: cats }] = await Promise.all([
+    sb.from("jubelio_inventory_adjustments")
+      .select("item_adj_id,item_adj_no,transaction_date,location_name,net_qty,item_count,note")
+      .gte("transaction_date", "2026-01-01")
+      .order("transaction_date", { ascending: false }),
+    sb.from("adjustment_categories")
+      .select("item_adj_id,category,categorized_by,updated_at"),
+  ]);
+
+  if (adjErr) {
+    if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="7">Error: ${adjErr.message}</td></tr>`;
+    return;
+  }
+
+  saAdjustments = adjs || [];
+  saCategories  = {};
+  for (const c of (cats || [])) saCategories[c.item_adj_id] = c;
+
+  // Collect user-added categories (not in presets)
+  const usedCats = [...new Set((cats || []).map(c => c.category))];
+  saUserCats = usedCats.filter(c => !SA_PRESETS.includes(c));
+
+  populateSAGudangFilter();
+  populateSACatFilter();
+  renderSAStats();
+  renderSATable();
+}
+
+function populateSAGudangFilter() {
+  const sel = document.getElementById("sa-f-gudang");
+  if (!sel) return;
+  const cur = sel.value;
+  const locs = [...new Set(saAdjustments.map(a => a.location_name).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"id"));
+  sel.innerHTML = `<option value="all">Semua Gudang</option>` +
+    locs.map(l => `<option value="${l}"${cur===l?" selected":""}>${l}</option>`).join("");
+}
+
+function populateSACatFilter() {
+  const sel = document.getElementById("sa-f-cat");
+  if (!sel) return;
+  const cur = sel.value;
+  // Rebuild: keep base options + preset optgroup + any user-added cats
+  const userOpts = saUserCats.length
+    ? `<optgroup label="Custom">${saUserCats.map(c=>`<option value="${c}"${cur===c?" selected":""}>${c}</option>`).join("")}</optgroup>`
+    : "";
+  sel.innerHTML = `
+    <option value="all">Semua Kategori</option>
+    <option value="__none__"${cur==="__none__"?" selected":""}>— Belum Dikategori</option>
+    <optgroup label="Preset">
+      ${SA_PRESETS.map(c=>`<option value="${c}"${cur===c?" selected":""}>${c}</option>`).join("")}
+    </optgroup>
+    ${userOpts}
+  `;
+}
+
+function renderSAStats() {
+  const total  = saAdjustments.length;
+  const done   = saAdjustments.filter(a => saCategories[a.item_adj_id]).length;
+  const undone = total - done;
+  const pct    = total > 0 ? ((done / total) * 100).toFixed(0) + "%" : "—";
+
+  const el = id => document.getElementById(id);
+  if (el("sa-total"))  el("sa-total").textContent  = total;
+  if (el("sa-done"))   el("sa-done").textContent   = done;
+  if (el("sa-undone")) el("sa-undone").textContent = undone;
+  if (el("sa-pct"))    el("sa-pct").textContent    = pct;
+
+  // ── Grup breakdown ──
+  const grpEl = document.getElementById("sa-grp-chart");
+  if (grpEl) {
+    const counts = {};
+    for (const a of saAdjustments) {
+      const cat = saCategories[a.item_adj_id]?.category || null;
+      let grp = null;
+      if (cat) {
+        grp = Object.keys(SA_GROUPS).find(g => SA_GROUPS[g].includes(cat)) || "Lainnya";
+      }
+      const key = grp || "Belum Dikategori";
+      counts[key] = (counts[key] || 0) + 1;
+    }
+    const order = [...Object.keys(SA_GROUPS), "Lainnya", "Belum Dikategori"];
+    const rows  = order.filter(k => counts[k]).map(k => ({ k, n: counts[k] }));
+    const maxN  = Math.max(...rows.map(r => r.n), 1);
+    grpEl.innerHTML = rows.length
+      ? rows.map(({ k, n }) => {
+          const pctBar = Math.max(Math.round((n / maxN) * 100), 3);
+          const color  = SA_GROUP_COLORS[k] || "var(--g400)";
+          return `<div style="margin-bottom:10px">
+            <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
+              <span>${k}</span>
+              <span style="font-family:'DM Mono',monospace;color:${color}">${n} adj · ${Math.round(n/total*100)}%</span>
+            </div>
+            <div style="height:6px;background:var(--off);border-radius:3px">
+              <div style="height:6px;width:${pctBar}%;background:${color};border-radius:3px"></div>
+            </div>
+          </div>`;
+        }).join("")
+      : `<div style="color:var(--g400);font-size:12px">Belum ada data.</div>`;
+  }
+
+  // ── Freebies sub-breakdown ──
+  const fbEl = document.getElementById("sa-freebie-chart");
+  if (fbEl) {
+    const fbCounts = {};
+    for (const a of saAdjustments) {
+      const cat = saCategories[a.item_adj_id]?.category;
+      if (cat && SA_GROUPS["Freebies"].includes(cat)) {
+        fbCounts[cat] = (fbCounts[cat] || 0) + 1;
+      }
+    }
+    const fbTotal = Object.values(fbCounts).reduce((s, n) => s + n, 0);
+    const fbRows  = SA_GROUPS["Freebies"].filter(c => fbCounts[c]).map(c => ({ c, n: fbCounts[c] }));
+    const fbMax   = Math.max(...fbRows.map(r => r.n), 1);
+    fbEl.innerHTML = fbTotal > 0
+      ? fbRows.map(({ c, n }) => {
+          const pctBar = Math.max(Math.round((n / fbMax) * 100), 3);
+          return `<div style="margin-bottom:10px">
+            <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
+              <span>${c}</span>
+              <span style="font-family:'DM Mono',monospace;color:#3C3489">${n} adj · ${Math.round(n/fbTotal*100)}%</span>
+            </div>
+            <div style="height:6px;background:var(--off);border-radius:3px">
+              <div style="height:6px;width:${pctBar}%;background:#3C3489;border-radius:3px"></div>
+            </div>
+          </div>`;
+        }).join("")
+      : `<div style="color:var(--g400);font-size:12px">Belum ada data freebies.</div>`;
+  }
+}
+
+function saGetFiltered() {
+  const catF    = document.getElementById("sa-f-cat")?.value    || "all";
+  const gudangF = document.getElementById("sa-f-gudang")?.value || "all";
+  const searchF = (document.getElementById("sa-f-search")?.value || "").toLowerCase().trim();
+
+  return saAdjustments.filter(a => {
+    const cat = saCategories[a.item_adj_id]?.category || null;
+    if (catF === "__none__" && cat) return false;
+    if (catF !== "all" && catF !== "__none__" && cat !== catF) return false;
+    if (gudangF !== "all" && a.location_name !== gudangF) return false;
+    if (searchF) {
+      const haystack = `${a.item_adj_no || ""} ${a.note || ""}`.toLowerCase();
+      if (!haystack.includes(searchF)) return false;
+    }
+    return true;
+  });
+}
+
+function saGoPage(dir) {
+  const total   = saGetFiltered().length;
+  const maxPage = Math.max(0, Math.ceil(total / 20) - 1);
+  saPage = Math.min(maxPage, Math.max(0, saPage + dir));
+  renderSATable();
+}
+
+function clearSAFilters() {
+  const el = id => document.getElementById(id);
+  if (el("sa-f-cat"))    el("sa-f-cat").value    = "all";
+  if (el("sa-f-gudang")) el("sa-f-gudang").value = "all";
+  if (el("sa-f-search")) el("sa-f-search").value = "";
+  saPage = 0;
+  renderSATable();
+}
+
+function saCatSelectHTML(adjId, currentCat) {
+  const allCats = [...SA_PRESETS, ...saUserCats.filter(c => !SA_PRESETS.includes(c))];
+  const opts = allCats.map(c =>
+    `<option value="${c}"${c === currentCat ? " selected" : ""}>${c}</option>`
+  ).join("");
+  return `<select onchange="saSelectChange(${adjId},this)"
+    style="font-size:12px;padding:3px 8px;border:1px solid var(--g200);border-radius:4px;width:100%;background:var(--white);max-width:200px">
+    <option value="">— Pilih —</option>
+    ${opts}
+    <option value="__new__">＋ Tambah baru...</option>
+  </select>`;
+}
+
+function saSelectChange(adjId, selectEl) {
+  const val = selectEl.value;
+  if (val === "__new__") {
+    saStartNewCat(adjId, selectEl);
+  } else if (val) {
+    saveSACategory(adjId, val);
+  }
+}
+
+function saStartNewCat(adjId, selectEl) {
+  const prev = saCategories[adjId]?.category || "";
+  const wrap = selectEl.parentElement;
+  wrap.innerHTML = `
+    <div style="display:flex;gap:4px;align-items:center">
+      <input type="text" id="sa-new-${adjId}" placeholder="Nama kategori baru"
+        style="flex:1;font-size:12px;padding:3px 6px;border:1px solid var(--black);border-radius:4px;outline:none"
+        onkeydown="if(event.key==='Enter')saConfirmNewCat(${adjId});if(event.key==='Escape')saCancelNewCat(${adjId},'${prev.replace(/'/g,"\\'")}')">
+      <button onclick="saConfirmNewCat(${adjId})"
+        style="padding:3px 8px;font-size:11px;background:var(--black);color:var(--white);border:none;border-radius:4px;cursor:pointer;white-space:nowrap">✓</button>
+      <button onclick="saCancelNewCat(${adjId},'${prev.replace(/'/g,"\\'")}'")"
+        style="padding:3px 8px;font-size:11px;background:var(--off);border:1px solid var(--g200);border-radius:4px;cursor:pointer">✕</button>
+    </div>`;
+  document.getElementById(`sa-new-${adjId}`)?.focus();
+}
+
+function saConfirmNewCat(adjId) {
+  const input = document.getElementById(`sa-new-${adjId}`);
+  const val   = (input?.value || "").trim();
+  if (!val) return;
+  if (!SA_PRESETS.includes(val) && !saUserCats.includes(val)) {
+    saUserCats.push(val);
+    populateSACatFilter();
+  }
+  saveSACategory(adjId, val);
+}
+
+function saCancelNewCat(adjId, prev) {
+  const cell = document.getElementById(`sa-cat-cell-${adjId}`);
+  if (cell) cell.innerHTML = saCatSelectHTML(adjId, prev);
+}
+
+async function saveSACategory(adjId, category) {
+  const { error } = await sb.from("adjustment_categories").upsert({
+    item_adj_id:     adjId,
+    category,
+    categorized_by:  currentUser,
+    updated_at:      new Date().toISOString(),
+  }, { onConflict: "item_adj_id" });
+
+  if (error) {
+    alert("Gagal menyimpan: " + error.message);
+    // Restore select to previous value
+    const cell = document.getElementById(`sa-cat-cell-${adjId}`);
+    if (cell) cell.innerHTML = saCatSelectHTML(adjId, saCategories[adjId]?.category || "");
+    return;
+  }
+
+  if (!saCategories[adjId]) saCategories[adjId] = { item_adj_id: adjId };
+  saCategories[adjId].category        = category;
+  saCategories[adjId].categorized_by  = currentUser;
+
+  // Update just this cell (no full re-render)
+  const cell = document.getElementById(`sa-cat-cell-${adjId}`);
+  if (cell) cell.innerHTML = saCatSelectHTML(adjId, category);
+
+  // Refresh stats (counts change)
+  renderSAStats();
+}
+
+function renderSATable() {
+  const tbody  = document.getElementById("sa-tbody");
+  const tcount = document.getElementById("sa-tcount");
+  if (!tbody) return;
+
+  const filtered = saGetFiltered();
+  const total    = filtered.length;
+  const start    = saPage * 20;
+  const end      = Math.min(start + 20, total);
+  const slice    = filtered.slice(start, end);
+
+  if (tcount) {
+    tcount.textContent    = total > 0 ? `${start + 1}–${end} dari ${total}` : "0 entri";
+    tcount.dataset.total  = total;
+  }
+
+  if (!total) {
+    tbody.innerHTML = `<tr><td class="empty-td" colspan="7">Tidak ada data untuk filter ini.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = slice.map(a => {
+    const tgl    = a.transaction_date ? a.transaction_date.slice(0, 10) : "—";
+    const qty    = parseFloat(a.net_qty || 0);
+    const qStr   = qty > 0
+      ? `<span style="color:#2d7a2d">+${Math.round(qty)}</span>`
+      : qty < 0 ? `<span style="color:#c0392b">${Math.round(qty)}</span>` : "0";
+    const adjLink = `<a href="https://v2.jubelio.com/inventory/stock_transaction/adjustment_qty/view/${a.item_adj_id}" target="_blank" style="color:inherit;text-decoration:underline dotted">${a.item_adj_no || a.item_adj_id}</a>`;
+    const curCat  = saCategories[a.item_adj_id]?.category || "";
+    return `<tr>
+      <td style="font-family:'DM Mono',monospace;font-size:11px">${adjLink}</td>
+      <td>${tgl}</td>
+      <td style="font-size:11px;color:var(--g600)">${a.location_name || "—"}</td>
+      <td style="text-align:right;font-family:'DM Mono',monospace">${a.item_count ?? "—"}</td>
+      <td style="text-align:right;font-family:'DM Mono',monospace">${qStr}</td>
+      <td style="font-size:11px;color:var(--g600);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(a.note||"").replace(/"/g,"&quot;")}">${a.note || "—"}</td>
+      <td id="sa-cat-cell-${a.item_adj_id}">${saCatSelectHTML(a.item_adj_id, curCat)}</td>
+    </tr>`;
+  }).join("");
 }
 
 // ── DUPLICATE CHECK ──
