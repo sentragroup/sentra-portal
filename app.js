@@ -3394,10 +3394,14 @@ function getPipelineStatuses(colId) {
   const inbound=stageToKey(getStage("inbound"));
   const mktEnabled=getMktEnabled(colId);
   const mktActKeys=MKT_ACTIVITIES.filter(a=>mktEnabled.includes(a.key)).map(a=>a.key);
-  const mkt=(mktActKeys.length?mktActKeys:["photoshoot","kol","offline_activation"]).map(s=>getStage(s));
   let marketing="not-started";
-  if(mkt.every(s=>s==="Done")) marketing="done";
-  else if(mkt.some(s=>s==="In Progress"||s==="Done")) marketing="in-progress";
+  if(!mktActKeys.length){
+    marketing="done";
+  } else {
+    const mkt=mktActKeys.map(s=>getStage(s));
+    if(mkt.every(s=>s==="Done")) marketing="done";
+    else if(mkt.some(s=>s==="In Progress"||s==="Done")) marketing="in-progress";
+  }
   return {design,sampling,production,inbound,marketing};
 }
 
@@ -3600,8 +3604,6 @@ function renderColDetail(col, items) {
   // ── Production: PO cards ──
   const productionContent=renderColPOCards(col.id);
 
-  const inboundS=allColStages.find(r=>r.collectionId===col.id&&r.stage==="inbound")||{status:"Not Started",notes:""};
-  const inboundSelClr=inboundS.status==="Done"?"#edf8ee;color:#1a5c25;border-color:#90d4a0":inboundS.status==="In Progress"?"#e8f0fc;color:#1a4a8a;border-color:#a8c4f0":"#f0efe9;color:#5a5850;border-color:#d4d3cb";
 
   // ── Pipeline bar ──
   const ps=getPipelineStatuses(col.id);
@@ -3708,15 +3710,6 @@ function renderColDetail(col, items) {
           return cdStageBox("🏭","Production & Inbound",cdStageBadge(prodStatus,`col-production-badge-${col.id}`),`
           <div id="col-production-body-${col.id}">
             ${productionContent}
-          </div>
-          <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--g100)">
-            <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:10px">Inbound Status</div>
-            <select onchange="updateColStageStatus('${col.id}','inbound',this.value)" style="font-size:12px;padding:4px 8px;border:1px solid;border-radius:4px;width:200px;margin-bottom:10px;background:${inboundSelClr}">
-              <option${inboundS.status==="Not Started"?" selected":""}>Not Started</option>
-              <option${inboundS.status==="In Progress"?" selected":""}>In Progress</option>
-              <option${inboundS.status==="Done"?" selected":""}>Done</option>
-            </select>
-            <textarea placeholder="Notes..." rows="2" style="font-size:12px;padding:8px;border:1px solid var(--g100);border-radius:4px;width:100%;resize:vertical;box-sizing:border-box" onblur="saveColStageNote('${col.id}','inbound',this.value)">${(inboundS.notes||"").replace(/</g,"&lt;")}</textarea>
           </div>`);
         })()}
         <!-- Marketing -->
@@ -4442,10 +4435,10 @@ function renderMktBodyHTML(colId) {
     return `<span onclick="toggleMktActivity('${colId}','${a.key}')" style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:20px;font-size:11px;font-weight:600;border:1.5px solid ${on?'#1a4a8a':'var(--g200)'};background:${on?'#e8f0fc':'var(--off)'};color:${on?'#1a4a8a':'var(--g400)'};user-select:none">${a.icon} ${a.label}</span>`;
   }).join('');
   const acts=MKT_ACTIVITIES.filter(a=>enabled.includes(a.key));
-  return `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:${acts.length?'14px':'4px'}">${pills}</div>`+
+  return `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:${acts.length?'14px':'10px'}">${pills}</div>`+
     (acts.length
       ?`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">${acts.map(a=>mktSubBoxHTML(colId,a.key)).join('')}</div>`
-      :`<div style="color:var(--g400);font-size:12px">Tidak ada aktivitas yang diaktifkan.</div>`);
+      :`<div style="display:flex;align-items:center;gap:8px;font-size:12px;color:#1a5c25;background:#edf8ee;border:1px solid #90d4a0;border-radius:6px;padding:8px 12px"><strong>✓</strong>Tidak ada aktivitas marketing yang dijalankan.</div>`);
 }
 
 // Toggle marketing activity on/off
@@ -4823,8 +4816,8 @@ function renderDwTable(rows) {
       <td>${agrCell}</td>
       <td><span class="pill ${payPill}" style="font-size:11px">${r.paymentStatus}</span></td>
       <td style="white-space:nowrap">
-        <button class="btn-icon" onclick="openDwEdit('${r.rowIndex}')">Edit</button>
-        <button class="btn-icon" style="color:#c0392b" onclick="deleteDw('${r.rowIndex}')">Del</button>
+        ${r.locked?`<span style="font-size:10px;color:var(--g400);font-style:italic">Kelola di CD</span>`:`<button class="btn-icon" onclick="openDwEdit('${r.rowIndex}')">Edit</button>
+        <button class="btn-icon" style="color:#c0392b" onclick="deleteDw('${r.rowIndex}')">Del</button>`}
       </td>
     </tr>
     <tr id="dw-sku-row-${r.rowIndex}" style="display:none">
@@ -4842,7 +4835,7 @@ function renderDwTable(rows) {
         </table>
       </td>
     </tr>
-    <tr id="dw-edit-row-${r.rowIndex}" style="display:none">
+    ${r.locked?"":`<tr id="dw-edit-row-${r.rowIndex}" style="display:none">
       <td colspan="7" style="padding:0 12px 12px">
         <div class="edit-row-form">
           ${editForm}
@@ -4853,7 +4846,7 @@ function renderDwTable(rows) {
           </div>
         </div>
       </td>
-    </tr>`;
+    </tr>`}`;
   }).join("");
   rows.forEach(r=>{
     if(!r.locked) setupAC("dwe-designer-"+r.rowIndex,"ac-dwe-dsg-"+r.rowIndex,()=>allDsgRows.map(d=>d.name).filter(Boolean));
