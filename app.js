@@ -5224,8 +5224,11 @@ function renderWHLog(putawayBills, billItemQty) {
   tbody.innerHTML = putawayBills.map(b => {
     const tgl   = b.transaction_date ? b.transaction_date.slice(0, 10) : "—";
     const items = billItemQty[b.bill_id] != null ? Math.round(billItemQty[b.bill_id]) : "—";
+    const billLink = b.bill_id
+      ? `<a href="https://v2.jubelio.com/warehouse/item_in/item_receives/view/${b.bill_id}" target="_blank" style="color:inherit;text-decoration:underline dotted">${b.bill_no || b.bill_id}</a>`
+      : (b.bill_no || "—");
     return `<tr>
-      <td style="font-family:'DM Mono',monospace;font-size:11px">${b.bill_no || "—"}</td>
+      <td style="font-family:'DM Mono',monospace;font-size:11px">${billLink}</td>
       <td>${tgl}</td>
       <td>${b.supplier_name || "—"}</td>
       <td>${b.location_name || "—"}</td>
@@ -5240,8 +5243,16 @@ function renderWHRecvDetail(poQtyMap, billPoQty) {
   if (!tbody) return;
 
   if (!whPORows.length) {
-    tbody.innerHTML = `<tr><td class="empty-td" colspan="7">Data PO belum dimuat.</td></tr>`;
+    tbody.innerHTML = `<tr><td class="empty-td" colspan="8">Data PO belum dimuat.</td></tr>`;
     return;
+  }
+
+  // Build PO → gudang map from bills (first bill wins per PO)
+  const poLocMap = {};
+  for (const b of whBills) {
+    if (b.purchaseorder_id && b.location_name && !poLocMap[b.purchaseorder_id]) {
+      poLocMap[b.purchaseorder_id] = b.location_name;
+    }
   }
 
   const detail = whPORows
@@ -5257,7 +5268,7 @@ function renderWHRecvDetail(poQtyMap, billPoQty) {
   if (tcount) tcount.textContent = `${detail.length} PO diperiksa`;
 
   if (!detail.length) {
-    tbody.innerHTML = `<tr><td class="empty-td" colspan="7">Tidak ada data.</td></tr>`;
+    tbody.innerHTML = `<tr><td class="empty-td" colspan="8">Tidak ada data.</td></tr>`;
     return;
   }
 
@@ -5269,9 +5280,14 @@ function renderWHRecvDetail(poQtyMap, billPoQty) {
       ? `<span class="pill p-active">OK</span>`
       : `<span class="pill p-near">Kurang</span>`;
     const tgl = p.transaction_date ? p.transaction_date.slice(0, 10) : "—";
+    const loc = poLocMap[p.purchaseorder_id] || "—";
+    const poLink = p.purchaseorder_id
+      ? `<a href="https://v2.jubelio.com/purchasing/transactions/order/view/${p.purchaseorder_id}" target="_blank" style="color:inherit;text-decoration:underline dotted">${p.purchaseorder_no || p.purchaseorder_id}</a>`
+      : (p.purchaseorder_no || "—");
     return `<tr>
-      <td style="font-family:'DM Mono',monospace;font-size:11px">${p.purchaseorder_no || "—"}</td>
+      <td style="font-family:'DM Mono',monospace;font-size:11px">${poLink}</td>
       <td>${p.supplier_name || "—"}</td>
+      <td style="font-size:11px;color:var(--g600)">${loc}</td>
       <td>${tgl}</td>
       <td style="text-align:right;font-family:'DM Mono',monospace">${Math.round(p.ordered)}</td>
       <td style="text-align:right;font-family:'DM Mono',monospace">${Math.round(p.received)}</td>
@@ -5345,10 +5361,10 @@ function renderWHOutbound(periodShips, periodRets) {
     if (!reliStats.length) {
       relEl.innerHTML = `<div style="color:var(--g400);font-size:12px">Belum ada data.</div>`;
     } else {
-      const maxRate = Math.max(...reliStats.map(r => r.rate), 0.1);
+      // Fixed 10% scale: 10% return rate = full bar. Honest, not relative.
       relEl.innerHTML = reliStats.map(({ c, comp, ret, total, rate }) => {
         const rateStr = rate.toFixed(1);
-        const barPct  = Math.max((rate / maxRate) * 100, rate > 0 ? 3 : 0);
+        const barPct  = Math.max(Math.min(rate * 10, 100), rate > 0 ? 3 : 0);
         const color   = rate === 0 ? "var(--g400)" : rate < 1 ? "#2d7a2d" : rate < 3 ? "#e67e00" : "#c0392b";
         return `<div style="margin-bottom:10px">
           <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
@@ -5441,8 +5457,11 @@ function renderWHInventory(periodAdjs) {
       : qty < 0
         ? `<span style="color:#c0392b">${Math.round(qty)}</span>`
         : "0";
+    const adjLink = a.item_adj_id
+      ? `<a href="https://v2.jubelio.com/inventory/stock_transaction/adjustment_qty/view/${a.item_adj_id}" target="_blank" style="color:inherit;text-decoration:underline dotted">${a.item_adj_no || a.item_adj_id}</a>`
+      : (a.item_adj_no || "—");
     return `<tr>
-      <td style="font-family:'DM Mono',monospace;font-size:11px">${a.item_adj_no || "—"}</td>
+      <td style="font-family:'DM Mono',monospace;font-size:11px">${adjLink}</td>
       <td>${tgl}</td>
       <td>${a.location_name || "—"}</td>
       <td style="text-align:right;font-family:'DM Mono',monospace">${a.item_count ?? "—"}</td>
