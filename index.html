@@ -109,7 +109,7 @@
       <div class="sb-sec">
         <div class="sb-label">Sales</div>
         <div class="sb-item" onclick="showPage('tradorders',this)" id="nav-tradorders">
-          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3h12l-1.5 7H3.5L2 3z"/><circle cx="6" cy="13" r="1"/><circle cx="11" cy="13" r="1"/><path d="M5 6h6M5 9h4"/></svg>Trade Orders
+          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3h12l-1.5 7H3.5L2 3z"/><circle cx="6" cy="13" r="1"/><circle cx="11" cy="13" r="1"/><path d="M5 6h6M5 9h4"/></svg>Wholesale Orders
         </div>
       </div>
       <div class="sb-sec">
@@ -163,7 +163,7 @@
 
         <div class="sb-label" style="margin-bottom:0.6rem">Sales Operation</div>
         <div class="home-grid" style="margin-bottom:1.5rem">
-          <div class="tool-card" onclick="showPage('tradorders',null)"><span class="tc-icon">🤝</span><div class="tc-name">Trade Orders</div><div class="tc-desc">Kelola order konsinyasi dan wholesale ke mitra retail &amp; distributor.</div></div>
+          <div class="tool-card" onclick="showPage('tradorders',null)"><span class="tc-icon">🤝</span><div class="tc-name">Wholesale Orders</div><div class="tc-desc">Monitor dan track order wholesale ke mitra retail &amp; distributor.</div></div>
           <div class="tool-card" onclick="showPage('popupbooth',null)"><span class="tc-icon">🛍️</span><div class="tc-name">Pop Up Booth</div><div class="tc-desc">Track event pop-up booth — manpower, stok, penjualan, dan reinbound.</div></div>
         </div>
 
@@ -1708,25 +1708,21 @@
   </div>
 </div>
 
-<!-- TRADE ORDERS -->
+<!-- WHOLESALE ORDERS -->
     <div class="page" id="page-tradorders">
       <!-- List View -->
       <div id="trd-list-view">
         <div class="page-header">
-          <div><div class="page-title">Trade Orders</div><div class="page-sub">Order konsinyasi &amp; wholesale dari Jubelio.</div></div>
+          <div><div class="page-title">Wholesale Orders</div><div class="page-sub">Order wholesale dari Jubelio — kategori WHLSR.</div></div>
         </div>
-        <div class="stats-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:1.25rem">
+        <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
           <div class="stat-card"><div class="stat-num" id="trd-s-total">—</div><div class="stat-lbl">Total Orders</div></div>
-          <div class="stat-card"><div class="stat-num" id="trd-s-consignment">—</div><div class="stat-lbl">Consignment</div></div>
-          <div class="stat-card"><div class="stat-num" id="trd-s-wholesale">—</div><div class="stat-lbl">Wholesale</div></div>
-          <div class="stat-card warn"><div class="stat-num" id="trd-s-unpaid">—</div><div class="stat-lbl">Belum Lunas</div></div>
+          <div class="stat-card"><div class="stat-num" id="trd-s-unpaid">—</div><div class="stat-lbl warn">Belum Lunas</div></div>
+          <div class="stat-card"><div class="stat-num" id="trd-s-active">—</div><div class="stat-lbl">Aktif</div></div>
           <div class="stat-card"><div class="stat-num" id="trd-s-value">—</div><div class="stat-lbl">Total Nilai</div></div>
         </div>
         <div class="filter-panel">
           <div class="filter-grid">
-            <div class="fg"><label>Tipe</label>
-              <select id="trd-fil-type" onchange="applyTrdFilters()"><option value="">Semua</option><option value="CNSGNE">Consignment</option><option value="WHLSR">Wholesale</option></select>
-            </div>
             <div class="fg"><label>Status Jubelio</label>
               <select id="trd-fil-status" onchange="applyTrdFilters()"><option value="">Semua</option><option>open</option><option>confirmed</option><option>delivered</option><option>done</option><option>cancelled</option></select>
             </div>
@@ -1743,10 +1739,10 @@
         <div class="table-wrap">
           <table>
             <thead><tr>
-              <th>No. Order</th><th>Mitra</th><th>Tipe</th><th>Tanggal</th>
+              <th>No. Order</th><th>Mitra</th><th>Tanggal</th>
               <th>Total</th><th>Status</th><th>Pembayaran</th><th>Progress</th><th></th>
             </tr></thead>
-            <tbody id="trdTableBody"><tr><td class="empty-td" colspan="9">Klik "↻ Refresh" untuk memuat data.</td></tr></tbody>
+            <tbody id="trdTableBody"><tr><td class="empty-td" colspan="8">Klik "↻ Refresh" untuk memuat data.</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -1771,6 +1767,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260518c"></script>
+<script src="app.js?v=20260518d"></script>
 </body>
 </html>
