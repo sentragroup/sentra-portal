@@ -6859,7 +6859,13 @@ async function loadTrdDetail(salesorderId){
     if(ordRes.error)throw ordRes.error;
     const tracking=trkRes.data||{};
     allTrdTracking[salesorderId]=tracking;
-    renderTrdDetail(ordRes.data,itmRes.data||[],tracking,poRes.data||[]);
+    // Fetch PO items if a PO has been linked
+    let poItems=[];
+    if(tracking.linked_po_id){
+      const {data:piData}=await sb.from('jubelio_purchase_order_items').select('item_code,item_name,qty,unit,price,amount').eq('purchaseorder_id',tracking.linked_po_id);
+      poItems=piData||[];
+    }
+    renderTrdDetail(ordRes.data,itmRes.data||[],tracking,poRes.data||[],poItems);
   }catch(e){
     document.getElementById('trd-detail-content').innerHTML=`<div style="padding:24px;color:#c0392b;font-family:var(--mono);font-size:12px">Gagal: ${e.message||e}</div>`;
   }
@@ -6891,7 +6897,7 @@ function _trdPayBlock(prefix,label,amount,proofUrl,paid){
     </div></div>`;
 }
 
-function renderTrdDetail(order,items,tracking,poList){
+function renderTrdDetail(order,items,tracking,poList,poItems){
   const cat=trdContactCategories[order.contact_id]||'';
   const catLabel=cat==='CNSGNE'?'Consignment':cat==='WHLSR'?'Wholesale':cat;
   const catPill=cat==='CNSGNE'?'p-signings':'p-review';
@@ -6916,18 +6922,39 @@ function renderTrdDetail(order,items,tracking,poList){
     </div>
     <!-- Line Items -->
     <div class="form-card" style="margin-bottom:16px">
-      <div class="form-sec">Barang</div>
+      <div class="form-sec">Barang
+        ${poItems&&poItems.length?`<span style="font-size:10px;font-family:var(--mono);color:var(--g400);text-transform:none;letter-spacing:0;font-weight:400">dibandingkan dengan PO yang ditautkan</span>`:(t.linked_po_id?'':'<span style="font-size:10px;font-family:var(--mono);color:#c0392b;text-transform:none;letter-spacing:0;font-weight:400">— tautkan PO di bawah untuk lihat perbandingan</span>')}
+      </div>
       ${items.length?`<div class="table-wrap" style="margin-top:8px"><table>
-        <thead><tr><th>Kode</th><th>Nama Produk</th><th style="text-align:right">Qty</th><th style="text-align:right">Harga</th><th style="text-align:right">Subtotal</th></tr></thead>
-        <tbody>${items.map(i=>`<tr>
-          <td style="font-family:var(--mono);font-size:11px">${i.item_code||'—'}</td>
-          <td>${i.item_name||'—'}${i.variant?`<span style="font-size:10px;color:var(--g400);margin-left:4px">${i.variant}</span>`:''}</td>
-          <td style="text-align:right">${i.qty||0} ${i.unit||''}</td>
-          <td style="text-align:right;white-space:nowrap">${i.price?fmtRp(i.price):'—'}</td>
-          <td style="text-align:right;font-weight:600;white-space:nowrap">${i.amount?fmtRp(i.amount):'—'}</td>
-        </tr>`).join('')}</tbody>
+        <thead><tr>
+          <th>Kode</th><th>Nama Produk</th>
+          <th style="text-align:right">Qty Order</th>
+          ${poItems&&poItems.length?`<th style="text-align:right">Qty PO</th><th style="text-align:center">Status</th>`:''}
+          <th style="text-align:right">Harga</th><th style="text-align:right">Subtotal</th>
+        </tr></thead>
+        <tbody>${items.map(i=>{
+          const pi=poItems?poItems.find(p=>p.item_code===i.item_code):null;
+          const qtyOrd=parseFloat(i.qty)||0;
+          const qtyPO=pi?parseFloat(pi.qty)||0:null;
+          const gap=qtyPO!==null?qtyOrd-qtyPO:null;
+          const gapBadge=gap===null?''
+            :gap===0?`<span style="color:#27ae60;font-weight:600;font-family:var(--mono);font-size:11px">✓ OK</span>`
+            :gap>0?`<span style="color:#c0392b;font-weight:600;font-family:var(--mono);font-size:11px">-${gap} kurang</span>`
+            :`<span style="color:#7a5000;font-weight:600;font-family:var(--mono);font-size:11px">+${Math.abs(gap)} lebih</span>`;
+          const rowBg=gap===null?'':gap===0?'':'background:rgba(192,57,43,0.04)';
+          return `<tr style="${rowBg}">
+            <td style="font-family:var(--mono);font-size:11px">${i.item_code||'—'}</td>
+            <td>${i.item_name||'—'}${i.variant?`<span style="font-size:10px;color:var(--g400);margin-left:4px">${i.variant}</span>`:''}</td>
+            <td style="text-align:right;font-weight:600">${qtyOrd} ${i.unit||''}</td>
+            ${poItems&&poItems.length?`
+            <td style="text-align:right">${qtyPO!==null?qtyPO+' '+(pi.unit||''):'<span style="color:var(--g400);font-size:11px">belum ada</span>'}</td>
+            <td style="text-align:center">${gapBadge}</td>`:''}
+            <td style="text-align:right;white-space:nowrap">${i.price?fmtRp(i.price):'—'}</td>
+            <td style="text-align:right;font-weight:600;white-space:nowrap">${i.amount?fmtRp(i.amount):'—'}</td>
+          </tr>`;
+        }).join('')}</tbody>
         <tfoot><tr style="border-top:2px solid var(--g200)">
-          <td colspan="4" style="text-align:right;font-weight:600;padding:6px 12px;font-family:var(--mono);font-size:11px">TOTAL</td>
+          <td colspan="${poItems&&poItems.length?6:4}" style="text-align:right;font-weight:600;padding:6px 12px;font-family:var(--mono);font-size:11px">TOTAL</td>
           <td style="text-align:right;font-weight:700;padding:6px 12px;white-space:nowrap">${fmtRp(items.reduce((s,i)=>s+(parseFloat(i.amount)||0),0))}</td>
         </tr></tfoot>
       </table></div>`:
@@ -7032,9 +7059,10 @@ async function saveTrdTracking(sid){
     const {error}=await sb.from('trade_order_tracking').upsert(row,{onConflict:'salesorder_id'});
     if(error)throw error;
     allTrdTracking[sid]=row;
-    logActivity('Trade Orders','update',String(sid),'Update tracking order');
-    if(fb)fb.innerHTML='<span class="fb-ok">✓ Tersimpan</span>';
-    setTimeout(()=>{if(fb)fb.innerHTML='';},3000);
+    logActivity('Wholesale Orders','update',String(sid),'Update tracking order');
+    if(fb)fb.innerHTML='<span class="fb-ok">✓ Tersimpan — memuat ulang perbandingan PO...</span>';
+    // Reload detail to refresh PO comparison with new linked_po_id
+    await loadTrdDetail(sid);
   }catch(e){if(fb)fb.innerHTML=`<span class="fb-err">Gagal: ${e.message||e}</span>`;}
 }
 
