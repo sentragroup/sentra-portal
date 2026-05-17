@@ -126,6 +126,9 @@
         <div class="sb-item" onclick="showPage('stockadjmgmt',this)" id="nav-stockadjmgmt">
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="12" rx="1.5"/><line x1="5" y1="6" x2="11" y2="6"/><line x1="5" y1="9" x2="9" y2="9"/><circle cx="12" cy="11" r="2.5"/><path d="M11 11h2M12 10v2"/></svg>Stock Adjustment
         </div>
+        <div class="sb-item" onclick="showPage('returnreason',this)" id="nav-returnreason">
+          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 8l-2-2 2-2"/><path d="M1 6h8a4 4 0 0 1 0 8H7"/><path d="M7 11l2 2-2 2"/></svg>Return Reason
+        </div>
       </div>
     </nav>
     <div class="content">
@@ -1608,6 +1611,83 @@
               </tr>
             </thead>
             <tbody id="sa-tbody"><tr><td class="empty-td" colspan="7">Klik "↻ Refresh" untuk memuat data.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- RETURN REASON -->
+      <div class="page" id="page-returnreason">
+        <div class="page-header">
+          <div>
+            <div class="page-title">Return Reason</div>
+            <div class="page-sub">Mapping alasan retur customer</div>
+          </div>
+          <button class="btn-refresh" onclick="loadRetData()">↻ Refresh</button>
+        </div>
+
+        <!-- KPI cards -->
+        <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
+          <div class="stat-card"><div class="stat-num" id="ret-total">—</div><div class="stat-lbl">Total Retur</div></div>
+          <div class="stat-card"><div class="stat-num" id="ret-done">—</div><div class="stat-lbl">Sudah Dikategori</div></div>
+          <div class="stat-card warn"><div class="stat-num" id="ret-undone">—</div><div class="stat-lbl">Belum Dikategori</div></div>
+          <div class="stat-card info"><div class="stat-num" id="ret-pct" style="font-size:20px">—</div><div class="stat-lbl">Progress</div></div>
+        </div>
+
+        <!-- Breakdown charts -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;margin-bottom:1.25rem">
+          <div class="form-card" style="padding:1.25rem">
+            <div class="form-sec" style="margin-bottom:1rem">Breakdown per Grup</div>
+            <div id="ret-grp-chart"></div>
+          </div>
+          <div class="form-card" style="padding:1.25rem">
+            <div class="form-sec" style="margin-bottom:1rem">Breakdown per Kategori</div>
+            <div id="ret-cat-chart"></div>
+          </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="filter-panel">
+          <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="clearRetFilters()">✕ Reset</button></div>
+          <div class="filter-grid">
+            <select class="f-select" id="ret-f-cat" onchange="renderRetTable()">
+              <option value="all">Semua Kategori</option>
+              <option value="__none__">— Belum Dikategori</option>
+              <optgroup label="Preset">
+                <option>Produk Rusak / Cacat</option>
+                <option>Salah Kirim</option>
+                <option>Tidak Sesuai Deskripsi</option>
+                <option>Pembeli Tidak Jadi</option>
+                <option>Gagal Antar</option>
+                <option>Paket Tidak Diambil</option>
+                <option>Lainnya</option>
+              </optgroup>
+            </select>
+            <select class="f-select" id="ret-f-kurir" onchange="renderRetTable()">
+              <option value="all">Semua Kurir</option>
+            </select>
+            <input type="text" id="ret-f-search" placeholder="Cari SO no / pelanggan..." oninput="renderRetTable()" style="padding:6px 10px;border:1px solid var(--g200);border-radius:6px;font-size:12px;font-family:var(--body);outline:none;width:100%;box-sizing:border-box">
+          </div>
+        </div>
+
+        <!-- Table — no pagination, max 69 rows -->
+        <div style="margin-bottom:0.75rem;display:flex;align-items:center;justify-content:space-between">
+          <div class="form-sec" style="margin:0">Log Retur</div>
+          <span class="tcount" id="ret-tcount">—</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>SO No</th>
+                <th>Tanggal</th>
+                <th>Kurir</th>
+                <th>Gudang</th>
+                <th>Pelanggan</th>
+                <th style="min-width:190px">Kategori Alasan</th>
+                <th style="min-width:160px">Catatan</th>
+              </tr>
+            </thead>
+            <tbody id="ret-tbody"><tr><td class="empty-td" colspan="7">Klik "↻ Refresh" untuk memuat data.</td></tr></tbody>
           </table>
         </div>
       </div>

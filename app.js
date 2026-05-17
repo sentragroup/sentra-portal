@@ -160,6 +160,7 @@ function showPage(name, el) {
   if (name==="dsgworkflow") loadDsgWorkflow();
   if (name==="warehousekpi" && !whBills.length) loadWHData();
   if (name==="stockadjmgmt" && !saAdjustments.length) loadSAData();
+  if (name==="returnreason" && !retOrders.length) loadRetData();
   closeMobileSidebar();
 }
 
@@ -5579,6 +5580,313 @@ async function whSyncNow() {
   }
   if (btn) { btn.disabled = false; btn.textContent = "⟳ Sync"; }
   await loadWHData();
+}
+
+// ── RETURN REASON MGMT ──
+const RET_PRESETS = [
+  "Produk Rusak / Cacat", "Salah Kirim", "Tidak Sesuai Deskripsi",
+  "Pembeli Tidak Jadi", "Gagal Antar", "Paket Tidak Diambil", "Lainnya",
+];
+const RET_GROUPS = {
+  "Kualitas Produk": ["Produk Rusak / Cacat"],
+  "Operasional":     ["Salah Kirim", "Gagal Antar", "Paket Tidak Diambil"],
+  "Pembeli":         ["Tidak Sesuai Deskripsi", "Pembeli Tidak Jadi"],
+  "Lainnya":         ["Lainnya"],
+};
+const RET_GROUP_COLORS = {
+  "Kualitas Produk": "#c0392b", "Operasional": "#e67e00",
+  "Pembeli": "#3C3489",         "Lainnya": "var(--g400)",
+};
+const RET_CAT_COLORS = {
+  "Produk Rusak / Cacat": "#c0392b", "Salah Kirim": "#e67e00",
+  "Tidak Sesuai Deskripsi": "#3C3489", "Pembeli Tidak Jadi": "#6B5CE7",
+  "Gagal Antar": "#e67e00",           "Paket Tidak Diambil": "#e6a817",
+  "Lainnya": "var(--g400)",
+};
+
+let retOrders   = [];   // jubelio_sales_orders WHERE wms_status=RETURNED
+let retReasons  = {};   // { salesorder_id → { reason_category, notes, categorized_by } }
+let retUserCats = [];   // user-added categories
+
+async function loadRetData() {
+  const tbody = document.getElementById("ret-tbody");
+  if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="7">Memuat...</td></tr>`;
+
+  const [{ data: orders, error: ordErr }, { data: reasons }] = await Promise.all([
+    sb.from("jubelio_sales_orders")
+      .select("salesorder_id,salesorder_no,transaction_date,location_name,customer_name,courier")
+      .eq("wms_status", "RETURNED")
+      .order("transaction_date", { ascending: false }),
+    sb.from("return_reason_categories")
+      .select("salesorder_id,reason_category,notes,categorized_by,updated_at"),
+  ]);
+
+  if (ordErr) {
+    if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="7">Error: ${ordErr.message}</td></tr>`;
+    return;
+  }
+
+  retOrders  = orders  || [];
+  retReasons = {};
+  for (const r of (reasons || [])) retReasons[r.salesorder_id] = r;
+
+  const usedCats = [...new Set((reasons || []).map(r => r.reason_category))];
+  retUserCats = usedCats.filter(c => !RET_PRESETS.includes(c));
+
+  populateRetKurirFilter();
+  populateRetCatFilter();
+  renderRetStats();
+  renderRetTable();
+}
+
+function populateRetKurirFilter() {
+  const sel = document.getElementById("ret-f-kurir");
+  if (!sel) return;
+  const cur  = sel.value;
+  const kurirs = [...new Set(retOrders.map(o => (o.courier||"").trim()).filter(Boolean))].sort();
+  sel.innerHTML = `<option value="all">Semua Kurir</option>` +
+    kurirs.map(k => `<option value="${k}"${cur===k?" selected":""}>${k}</option>`).join("");
+}
+
+function populateRetCatFilter() {
+  const sel = document.getElementById("ret-f-cat");
+  if (!sel) return;
+  const cur = sel.value;
+  const userOpts = retUserCats.length
+    ? `<optgroup label="Custom">${retUserCats.map(c=>`<option value="${c}"${cur===c?" selected":""}>${c}</option>`).join("")}</optgroup>`
+    : "";
+  sel.innerHTML = `
+    <option value="all">Semua Kategori</option>
+    <option value="__none__"${cur==="__none__"?" selected":""}>— Belum Dikategori</option>
+    <optgroup label="Preset">
+      ${RET_PRESETS.map(c=>`<option value="${c}"${cur===c?" selected":""}>${c}</option>`).join("")}
+    </optgroup>
+    ${userOpts}`;
+}
+
+function renderRetStats() {
+  const total  = retOrders.length;
+  const done   = retOrders.filter(o => retReasons[o.salesorder_id]).length;
+  const undone = total - done;
+  const pct    = total > 0 ? ((done / total) * 100).toFixed(0) + "%" : "—";
+  const el = id => document.getElementById(id);
+  if (el("ret-total"))  el("ret-total").textContent  = total;
+  if (el("ret-done"))   el("ret-done").textContent   = done;
+  if (el("ret-undone")) el("ret-undone").textContent = undone;
+  if (el("ret-pct"))    el("ret-pct").textContent    = pct;
+
+  // ── Group breakdown ──
+  const grpEl = document.getElementById("ret-grp-chart");
+  if (grpEl) {
+    const counts = {};
+    for (const o of retOrders) {
+      const cat = retReasons[o.salesorder_id]?.reason_category || null;
+      const grp = cat
+        ? (Object.keys(RET_GROUPS).find(g => RET_GROUPS[g].includes(cat)) || "Lainnya")
+        : "Belum Dikategori";
+      counts[grp] = (counts[grp] || 0) + 1;
+    }
+    const order = [...Object.keys(RET_GROUPS), "Belum Dikategori"];
+    const rows  = order.filter(k => counts[k]).map(k => ({ k, n: counts[k] }));
+    const maxN  = Math.max(...rows.map(r => r.n), 1);
+    grpEl.innerHTML = rows.map(({ k, n }) => {
+      const bar   = Math.max(Math.round((n / maxN) * 100), 3);
+      const color = RET_GROUP_COLORS[k] || "var(--g400)";
+      return `<div style="margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
+          <span>${k}</span>
+          <span style="font-family:'DM Mono',monospace;color:${color}">${n} order · ${Math.round(n/total*100)}%</span>
+        </div>
+        <div style="height:6px;background:var(--off);border-radius:3px">
+          <div style="height:6px;width:${bar}%;background:${color};border-radius:3px"></div>
+        </div>
+      </div>`;
+    }).join("");
+  }
+
+  // ── Per-category breakdown ──
+  const catEl = document.getElementById("ret-cat-chart");
+  if (catEl) {
+    const catCounts = {};
+    for (const o of retOrders) {
+      const cat = retReasons[o.salesorder_id]?.reason_category;
+      if (cat) catCounts[cat] = (catCounts[cat] || 0) + 1;
+    }
+    const catDone  = Object.values(catCounts).reduce((s,n)=>s+n,0);
+    const catRows  = Object.entries(catCounts).sort((a,b)=>b[1]-a[1]);
+    const catMax   = Math.max(...catRows.map(r=>r[1]), 1);
+    catEl.innerHTML = catRows.length
+      ? catRows.map(([c, n]) => {
+          const bar   = Math.max(Math.round((n / catMax) * 100), 3);
+          const color = RET_CAT_COLORS[c] || "#3C3489";
+          return `<div style="margin-bottom:10px">
+            <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
+              <span>${c}</span>
+              <span style="font-family:'DM Mono',monospace;color:${color}">${n} · ${Math.round(n/catDone*100)}%</span>
+            </div>
+            <div style="height:6px;background:var(--off);border-radius:3px">
+              <div style="height:6px;width:${bar}%;background:${color};border-radius:3px"></div>
+            </div>
+          </div>`;
+        }).join("")
+      : `<div style="color:var(--g400);font-size:12px">Belum ada data.</div>`;
+  }
+}
+
+function retGetFiltered() {
+  const catF    = document.getElementById("ret-f-cat")?.value    || "all";
+  const kurirF  = document.getElementById("ret-f-kurir")?.value  || "all";
+  const searchF = (document.getElementById("ret-f-search")?.value || "").toLowerCase().trim();
+  return retOrders.filter(o => {
+    const cat = retReasons[o.salesorder_id]?.reason_category || null;
+    if (catF === "__none__" && cat) return false;
+    if (catF !== "all" && catF !== "__none__" && cat !== catF) return false;
+    if (kurirF !== "all" && (o.courier || "").trim() !== kurirF) return false;
+    if (searchF) {
+      const hay = `${o.salesorder_no||""} ${o.customer_name||""}`.toLowerCase();
+      if (!hay.includes(searchF)) return false;
+    }
+    return true;
+  });
+}
+
+function clearRetFilters() {
+  const el = id => document.getElementById(id);
+  if (el("ret-f-cat"))    el("ret-f-cat").value    = "all";
+  if (el("ret-f-kurir"))  el("ret-f-kurir").value  = "all";
+  if (el("ret-f-search")) el("ret-f-search").value = "";
+  renderRetTable();
+}
+
+function retCatSelectHTML(soId, currentCat) {
+  const allCats = [...RET_PRESETS, ...retUserCats.filter(c => !RET_PRESETS.includes(c))];
+  const opts = allCats.map(c =>
+    `<option value="${c}"${c===currentCat?" selected":""}>${c}</option>`
+  ).join("");
+  return `<select onchange="retSelectChange('${soId}',this)"
+    style="font-size:12px;padding:3px 8px;border:1px solid var(--g200);border-radius:4px;width:100%;background:var(--white);max-width:200px">
+    <option value="">— Pilih —</option>
+    ${opts}
+    <option value="__new__">＋ Tambah baru...</option>
+  </select>`;
+}
+
+function retNotesHTML(soId, currentNotes) {
+  const safe = (currentNotes||"").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+  return `<input type="text" value="${safe}" placeholder="Opsional..."
+    onblur="saveRetNotes('${soId}',this.value)"
+    onkeydown="if(event.key==='Enter')this.blur()"
+    style="font-size:12px;padding:3px 8px;border:1px solid var(--g200);border-radius:4px;width:100%;background:var(--white);outline:none;max-width:180px">`;
+}
+
+function retSelectChange(soId, selectEl) {
+  const val = selectEl.value;
+  if (val === "__new__") retStartNewCat(soId, selectEl);
+  else if (val)          saveRetCategory(soId, val);
+}
+
+function retStartNewCat(soId, selectEl) {
+  const prev = retReasons[soId]?.reason_category || "";
+  const wrap = selectEl.parentElement;
+  wrap.innerHTML = `
+    <div style="display:flex;gap:4px;align-items:center">
+      <input type="text" id="ret-new-${soId}" placeholder="Nama kategori baru"
+        style="flex:1;font-size:12px;padding:3px 6px;border:1px solid var(--black);border-radius:4px;outline:none"
+        onkeydown="if(event.key==='Enter')retConfirmNewCat('${soId}');if(event.key==='Escape')retCancelNewCat('${soId}','${prev.replace(/'/g,"\\'")}')">
+      <button onclick="retConfirmNewCat('${soId}')"
+        style="padding:3px 8px;font-size:11px;background:var(--black);color:var(--white);border:none;border-radius:4px;cursor:pointer">✓</button>
+      <button onclick="retCancelNewCat('${soId}','${prev.replace(/'/g,"\\'")}'")"
+        style="padding:3px 8px;font-size:11px;background:var(--off);border:1px solid var(--g200);border-radius:4px;cursor:pointer">✕</button>
+    </div>`;
+  document.getElementById(`ret-new-${soId}`)?.focus();
+}
+
+function retConfirmNewCat(soId) {
+  const val = (document.getElementById(`ret-new-${soId}`)?.value || "").trim();
+  if (!val) return;
+  if (!RET_PRESETS.includes(val) && !retUserCats.includes(val)) {
+    retUserCats.push(val);
+    populateRetCatFilter();
+  }
+  saveRetCategory(soId, val);
+}
+
+function retCancelNewCat(soId, prev) {
+  const cell = document.getElementById(`ret-cat-cell-${soId}`);
+  if (cell) cell.innerHTML = retCatSelectHTML(soId, prev);
+}
+
+async function saveRetCategory(soId, category) {
+  const existing = retReasons[soId] || {};
+  const { error } = await sb.from("return_reason_categories").upsert({
+    salesorder_id:  soId,
+    reason_category: category,
+    notes:           existing.notes || null,
+    categorized_by:  currentUser,
+    updated_at:      new Date().toISOString(),
+  }, { onConflict: "salesorder_id" });
+  if (error) {
+    alert("Gagal menyimpan: " + error.message);
+    const cell = document.getElementById(`ret-cat-cell-${soId}`);
+    if (cell) cell.innerHTML = retCatSelectHTML(soId, existing.reason_category || "");
+    return;
+  }
+  if (!retReasons[soId]) retReasons[soId] = { salesorder_id: soId };
+  retReasons[soId].reason_category = category;
+  retReasons[soId].categorized_by  = currentUser;
+  const cell = document.getElementById(`ret-cat-cell-${soId}`);
+  if (cell) cell.innerHTML = retCatSelectHTML(soId, category);
+  renderRetStats();
+}
+
+async function saveRetNotes(soId, notes) {
+  const existing = retReasons[soId];
+  if (!existing?.reason_category) return;  // must have category first
+  const trimmed = notes.trim();
+  if (trimmed === (existing.notes || "")) return;  // no change
+  const { error } = await sb.from("return_reason_categories").upsert({
+    salesorder_id:   soId,
+    reason_category: existing.reason_category,
+    notes:           trimmed || null,
+    categorized_by:  currentUser,
+    updated_at:      new Date().toISOString(),
+  }, { onConflict: "salesorder_id" });
+  if (!error) {
+    retReasons[soId].notes = trimmed || null;
+  }
+}
+
+function renderRetTable() {
+  const tbody  = document.getElementById("ret-tbody");
+  const tcount = document.getElementById("ret-tcount");
+  if (!tbody) return;
+
+  const filtered = retGetFiltered();
+  if (tcount) tcount.textContent = filtered.length > 0 ? `${filtered.length} entri` : "0 entri";
+
+  if (!filtered.length) {
+    tbody.innerHTML = `<tr><td class="empty-td" colspan="7">Tidak ada data untuk filter ini.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = filtered.map(o => {
+    const tgl     = o.transaction_date ? o.transaction_date.slice(0, 10) : "—";
+    const soLink  = `<a href="https://v2.jubelio.com/sales/transactions/orders/detail/${o.salesorder_id}" target="_blank" style="color:inherit;text-decoration:underline dotted">${o.salesorder_no || o.salesorder_id}</a>`;
+    const curCat  = retReasons[o.salesorder_id]?.reason_category || "";
+    const curNote = retReasons[o.salesorder_id]?.notes || "";
+    const catBadge = curCat
+      ? `<div style="font-size:10px;color:${RET_CAT_COLORS[curCat]||"var(--g600)"};margin-top:2px;font-family:'DM Mono',monospace">${curCat}</div>`
+      : "";
+    return `<tr>
+      <td style="font-family:'DM Mono',monospace;font-size:11px">${soLink}</td>
+      <td>${tgl}</td>
+      <td style="font-size:11px">${(o.courier||"—")}</td>
+      <td style="font-size:11px;color:var(--g600)">${o.location_name||"—"}</td>
+      <td style="font-size:11px">${o.customer_name||"—"}</td>
+      <td id="ret-cat-cell-${o.salesorder_id}">${retCatSelectHTML(o.salesorder_id, curCat)}</td>
+      <td>${retNotesHTML(o.salesorder_id, curNote)}</td>
+    </tr>`;
+  }).join("");
 }
 
 // ── STOCK ADJUSTMENT MGMT ──
