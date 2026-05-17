@@ -107,6 +107,12 @@
         </div>
       </div>
       <div class="sb-sec">
+        <div class="sb-label">Sales</div>
+        <div class="sb-item" onclick="showPage('tradorders',this)" id="nav-tradorders">
+          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3h12l-1.5 7H3.5L2 3z"/><circle cx="6" cy="13" r="1"/><circle cx="11" cy="13" r="1"/><path d="M5 6h6M5 9h4"/></svg>Trade Orders
+        </div>
+      </div>
+      <div class="sb-sec">
         <div class="sb-label">Logs</div>
         <div class="sb-item" onclick="showPage('mesign',this)" id="nav-mesign">
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2h10a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z"/><path d="M5 6h6M5 9h4"/><path d="M10 12l2-2-2-2"/></svg>Mekari Sign
@@ -157,6 +163,7 @@
 
         <div class="sb-label" style="margin-bottom:0.6rem">Sales Operation</div>
         <div class="home-grid" style="margin-bottom:1.5rem">
+          <div class="tool-card" onclick="showPage('tradorders',null)"><span class="tc-icon">🤝</span><div class="tc-name">Trade Orders</div><div class="tc-desc">Kelola order konsinyasi dan wholesale ke mitra retail &amp; distributor.</div></div>
           <div class="tool-card" onclick="showPage('popupbooth',null)"><span class="tc-icon">🛍️</span><div class="tc-name">Pop Up Booth</div><div class="tc-desc">Track event pop-up booth — manpower, stok, penjualan, dan reinbound.</div></div>
         </div>
 
@@ -1701,6 +1708,86 @@
   </div>
 </div>
 
+<!-- TRADE ORDERS -->
+    <div class="page" id="page-tradorders">
+      <div class="page-header">
+        <div><div class="page-title">Trade Orders</div><div class="page-sub">Kelola order konsinyasi dan wholesale ke mitra.</div></div>
+        <div class="tab-bar">
+          <button class="tab-btn active" onclick="switchTrdTab('new',this)">+ New Order</button>
+          <button class="tab-btn" onclick="switchTrdTab('list',this)">All Orders</button>
+        </div>
+      </div>
+      <div class="stats-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:1.25rem">
+        <div class="stat-card"><div class="stat-num" id="trd-s-total">—</div><div class="stat-lbl">Total</div></div>
+        <div class="stat-card"><div class="stat-num" id="trd-s-consignment">—</div><div class="stat-lbl">Consignment Aktif</div></div>
+        <div class="stat-card"><div class="stat-num" id="trd-s-wholesale">—</div><div class="stat-lbl">Wholesale</div></div>
+        <div class="stat-card warn"><div class="stat-num" id="trd-s-unpaid">—</div><div class="stat-lbl">Unpaid</div></div>
+        <div class="stat-card"><div class="stat-num" id="trd-s-value">—</div><div class="stat-lbl">Total Value</div></div>
+      </div>
+      <!-- New Order -->
+      <div id="trdtab-new">
+        <div class="form-card">
+          <div class="form-sec">Detail Order</div>
+          <div class="form-grid">
+            <div class="fg"><label>Tipe <span class="req">*</span></label>
+              <select id="trd-type"><option value="Consignment">Consignment</option><option value="Wholesale">Wholesale</option></select>
+            </div>
+            <div class="fg"><label>Partner / Mitra <span class="req">*</span></label><input type="text" id="trd-partner" placeholder="Nama toko atau distributor"></div>
+            <div class="fg"><label>Contact Person</label><input type="text" id="trd-contact" placeholder="Nama PIC mitra"></div>
+            <div class="fg"><label>Channel</label>
+              <select id="trd-channel"><option value="">—</option><option>Physical Store</option><option>Online Store</option><option>Marketplace</option><option>Pop-up</option><option>Other</option></select>
+            </div>
+            <div class="fg"><label>Tanggal Order</label><input type="date" id="trd-orderdate"></div>
+            <div class="fg"><label>Due Date</label><input type="date" id="trd-duedate"></div>
+            <div class="fg"><label>No. Invoice</label><input type="text" id="trd-invoice" placeholder="INV-..."></div>
+            <div class="fg"><label>Status</label>
+              <select id="trd-status"><option>Active</option><option>Draft</option><option>Confirmed</option><option>Delivered</option><option>Partially Reported</option><option>Settled</option><option>Paid</option><option>Cancelled</option></select>
+            </div>
+            <div class="fg"><label>Payment Status</label>
+              <select id="trd-paystatus"><option>Unpaid</option><option>Partial</option><option>Paid</option></select>
+            </div>
+            <div class="fg full"><label>Notes</label><textarea id="trd-notes" rows="2" style="resize:vertical" placeholder="Catatan tambahan..."></textarea></div>
+          </div>
+          <div class="btn-row">
+            <button class="btn-primary" onclick="submitTradeOrder()">Simpan Order</button>
+            <button class="btn-ghost" onclick="clearTrdForm()">Bersihkan</button>
+          </div>
+          <div class="feedback" id="trd-feedback"></div>
+        </div>
+      </div>
+      <!-- All Orders -->
+      <div id="trdtab-list" style="display:none">
+        <div class="filter-panel">
+          <div class="filter-grid">
+            <div class="fg"><label>Tipe</label>
+              <select id="trd-fil-type" onchange="applyTrdFilters()"><option value="">Semua</option><option>Consignment</option><option>Wholesale</option></select>
+            </div>
+            <div class="fg"><label>Status</label>
+              <select id="trd-fil-status" onchange="applyTrdFilters()"><option value="">Semua</option><option>Active</option><option>Draft</option><option>Confirmed</option><option>Delivered</option><option>Partially Reported</option><option>Settled</option><option>Paid</option><option>Cancelled</option></select>
+            </div>
+            <div class="fg"><label>Payment</label>
+              <select id="trd-fil-pay" onchange="applyTrdFilters()"><option value="">Semua</option><option>Unpaid</option><option>Partial</option><option>Paid</option></select>
+            </div>
+            <div class="fg"><label>Cari Partner</label><input type="text" id="trd-search" placeholder="Nama mitra, invoice..." oninput="applyTrdFilters()"></div>
+          </div>
+        </div>
+        <div class="table-toolbar">
+          <button class="btn-refresh" onclick="loadTradeOrders()">↻ Refresh</button>
+          <div class="tcount" id="trd-tcount">— entri</div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Tipe</th><th>Partner</th><th>Channel</th><th>Tanggal</th>
+              <th style="text-align:center">Items</th><th>Total Value</th>
+              <th>Status</th><th>Payment</th><th>Aksi</th>
+            </tr></thead>
+            <tbody id="trdTableBody"><tr><td class="empty-td" colspan="9">Klik "↻ Refresh" untuk memuat data.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
 <!-- SYNC ALL MODAL -->
 <div id="sync-all-modal" style="display:none;position:fixed;inset:0;background:rgba(12,12,12,0.45);z-index:9990;align-items:center;justify-content:center">
   <div style="background:var(--white);border-radius:12px;width:100%;max-width:420px;box-shadow:0 8px 40px rgba(0,0,0,0.18);overflow:hidden">
@@ -1716,6 +1803,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260517g"></script>
+<script src="app.js?v=20260518a"></script>
 </body>
 </html>
