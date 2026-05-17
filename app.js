@@ -98,10 +98,10 @@ async function doLogin() {
   const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
   btn.disabled = false; btn.textContent = "Masuk →";
   if (error) { err.textContent = "Login gagal: " + (error.message || "Periksa email & password."); return; }
-  enterApp(data.user);
+  enterApp(data.user, true);
 }
 
-function enterApp(user) {
+function enterApp(user, freshLogin) {
   const name = user.user_metadata?.name || user.email.split("@")[0];
   currentUser = name;
   document.getElementById("loginScreen").style.display = "none";
@@ -111,12 +111,15 @@ function enterApp(user) {
   document.getElementById("greetDate").textContent = new Date().toLocaleDateString("id-ID",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
   loadStats();
   preloadAutocomplete();
-  logActivity("Auth","login",null,"Login berhasil");
+  if (freshLogin) logActivity("Auth","login",null,"Login berhasil");
   loadNotifications();
   if (notifPollTimer) clearInterval(notifPollTimer);
   notifPollTimer = setInterval(loadNotifications, 60000);
-  const _pg = location.hash.slice(1).split('/')[0];
-  if (['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','popupbooth','activitylog','jubsales','mesign','po','stockmovement','productmap','collections','designermaster','dsgworkflow','warehousekpi','stockadjmgmt','returnreason'].includes(_pg))
+  // Restore page: prefer URL hash, fall back to sessionStorage
+  let _pg = location.hash.slice(1).split('/')[0];
+  if (!_pg) _pg = sessionStorage.getItem('snt_page') || '';
+  const _pages = ['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','popupbooth','activitylog','jubsales','mesign','po','stockmovement','productmap','collections','designermaster','dsgworkflow','warehousekpi','stockadjmgmt','returnreason'];
+  if (_pages.includes(_pg))
     showPage(_pg, document.getElementById('nav-'+_pg));
 }
 
@@ -145,6 +148,9 @@ function showPage(name, el) {
   const _newHash = name==="home" ? location.pathname
     : (_curHash===name||_curHash.startsWith(name+'/')) ? location.hash : "#"+name;
   history.replaceState(null, "", _newHash);
+  // Save current page to sessionStorage as fallback for refresh restoration
+  if (name !== "home") sessionStorage.setItem('snt_page', name);
+  else sessionStorage.removeItem('snt_page');
   if (name==="agreement") loadStats();
   if (name==="ipmaster") { loadIPMaster(); loadStats(); }
   if (name==="recipients") loadRecipients();
@@ -159,7 +165,20 @@ function showPage(name, el) {
   if (name==="po") loadPO();
   if (name==="stockmovement" && !smPORows.length) loadStockMovement();
   if (name==="productmap") loadProductMap(0,'');
-  if (name==="collections") { loadCollections(); setupAC("col-ip","ac-col-ip",()=>allIPRows.map(r=>r.name).filter(Boolean)); setupAC("col-pic","ac-col-pic",()=>[...new Set(allColRows.map(r=>r.pic).filter(Boolean))]); }
+  if (name==="collections") {
+    // If restoring a collection detail from URL, immediately switch to detail view
+    // to prevent the "new collection" form from flashing before data loads
+    const _ch = location.hash.slice(1);
+    if (_ch.startsWith('collections/')) {
+      const lv=document.getElementById("col-list-view");
+      const dv=document.getElementById("col-detail-view");
+      if(lv) lv.style.display="none";
+      if(dv){ dv.style.display="block"; dv.innerHTML='<div style="padding:2rem 2.5rem;color:var(--g400);font-family:\'DM Mono\',monospace;font-size:13px">Memuat collection...</div>'; }
+    }
+    loadCollections();
+    setupAC("col-ip","ac-col-ip",()=>allIPRows.map(r=>r.name).filter(Boolean));
+    setupAC("col-pic","ac-col-pic",()=>[...new Set(allColRows.map(r=>r.pic).filter(Boolean))]);
+  }
   if (name==="designermaster") { loadDesignerMaster(); const cats=[...new Set([...DSG_CATEGORIES_DEFAULT,...allDsgRows.map(r=>r.category).filter(Boolean)])]; setupAC("dsg-category","ac-dsg-category",()=>cats); }
   if (name==="dsgworkflow") loadDsgWorkflow();
   if (name==="warehousekpi" && !whBills.length) loadWHData();
@@ -3277,11 +3296,13 @@ async function loadCollections() {
     // Auto-create DW projects + stage placeholders for any collection missing them (background)
     ensureDWProjects(allColRows, dwCheck||[]);
     ensureColStages(allColRows, csData||[]);
-    // Restore collection detail from URL slug
+    // Restore collection detail from URL slug (with sessionStorage fallback)
     const hashParts=location.hash.slice(1).split("/");
-    if(hashParts[0]==="collections"&&hashParts[1]){
-      const slug=hashParts[1];
-      const col=allColRows.find(r=>slugifyCol(r.collectionName)===slug);
+    const _slug=(hashParts[0]==="collections"&&hashParts[1])
+      ? hashParts[1]
+      : sessionStorage.getItem('snt_col_slug')||"";
+    if(_slug){
+      const col=allColRows.find(r=>slugifyCol(r.collectionName)===_slug);
       if(col){openCollectionDetail(col.id);return;}
     }
     await refreshCPLinks();
@@ -3534,7 +3555,10 @@ function openCollectionDetail(colId) {
   if(!col) return;
   document.getElementById("col-list-view").style.display="none";
   document.getElementById("col-detail-view").style.display="block";
-  history.replaceState(null,"",`#collections/${slugifyCol(col.collectionName)}`);
+  const _slug=slugifyCol(col.collectionName);
+  history.replaceState(null,"",`#collections/${_slug}`);
+  sessionStorage.setItem('snt_page','collections');
+  sessionStorage.setItem('snt_col_slug',_slug);
   renderColDetail(col, allColItems.filter(i=>i.collectionId===colId));
 }
 
@@ -3542,6 +3566,7 @@ function closeCollectionDetail() {
   document.getElementById("col-detail-view").style.display="none";
   document.getElementById("col-list-view").style.display="block";
   history.replaceState(null,"","#collections");
+  sessionStorage.removeItem('snt_col_slug');
 }
 
 function toggleColEditPanel() {
