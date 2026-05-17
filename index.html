@@ -123,6 +123,9 @@
         <div class="sb-item" onclick="showPage('warehousekpi',this)" id="nav-warehousekpi">
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="9" width="3" height="5" rx=".5"/><rect x="6" y="5" width="3" height="9" rx=".5"/><rect x="11" y="1" width="3" height="13" rx=".5"/><path d="M2.5 6l4-3 4 2 3-3" stroke-width="1.2" stroke-linecap="round"/></svg>Warehouse KPI
         </div>
+        <div class="sb-item" onclick="showPage('stockadjmgmt',this)" id="nav-stockadjmgmt">
+          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="12" rx="1.5"/><line x1="5" y1="6" x2="11" y2="6"/><line x1="5" y1="9" x2="9" y2="9"/><circle cx="12" cy="11" r="2.5"/><path d="M11 11h2M12 10v2"/></svg>Stock Adjustment
+        </div>
       </div>
     </nav>
     <div class="content">
@@ -1526,6 +1529,87 @@
           </table>
         </div>
 
+      </div>
+
+      <!-- STOCK ADJ MGMT -->
+      <div class="page" id="page-stockadjmgmt">
+        <div class="page-header">
+          <div>
+            <div class="page-title">Stock Adjustment</div>
+            <div class="page-sub">Kategorisasi adjustment · 2026</div>
+          </div>
+          <button class="btn-refresh" onclick="loadSAData()">↻ Refresh</button>
+        </div>
+
+        <!-- KPI cards -->
+        <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
+          <div class="stat-card"><div class="stat-num" id="sa-total">—</div><div class="stat-lbl">Total Adj 2026</div></div>
+          <div class="stat-card"><div class="stat-num" id="sa-done">—</div><div class="stat-lbl">Sudah Dikategori</div></div>
+          <div class="stat-card warn"><div class="stat-num" id="sa-undone">—</div><div class="stat-lbl">Belum Dikategori</div></div>
+          <div class="stat-card info"><div class="stat-num" id="sa-pct" style="font-size:20px">—</div><div class="stat-lbl">Progress</div></div>
+        </div>
+
+        <!-- Breakdown charts -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;margin-bottom:1.25rem">
+          <div class="form-card" style="padding:1.25rem">
+            <div class="form-sec" style="margin-bottom:1rem">Breakdown per Grup</div>
+            <div id="sa-grp-chart"></div>
+          </div>
+          <div class="form-card" style="padding:1.25rem">
+            <div class="form-sec" style="margin-bottom:1rem">Detail Freebies</div>
+            <div id="sa-freebie-chart"></div>
+          </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="filter-panel">
+          <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="clearSAFilters()">✕ Reset</button></div>
+          <div class="filter-grid">
+            <select class="f-select" id="sa-f-cat" onchange="saPage=0;renderSATable()">
+              <option value="all">Semua Kategori</option>
+              <option value="__none__">— Belum Dikategori</option>
+              <optgroup label="Preset">
+                <option>Freebies KOL</option>
+                <option>Freebies Licensor</option>
+                <option>Freebies Internal</option>
+                <option>Other Freebies</option>
+                <option>Stock Opname</option>
+                <option>Defect</option>
+                <option>Penjualan Offline</option>
+              </optgroup>
+            </select>
+            <select class="f-select" id="sa-f-gudang" onchange="saPage=0;renderSATable()">
+              <option value="all">Semua Gudang</option>
+            </select>
+            <input type="text" id="sa-f-search" placeholder="Cari adj no / note..." oninput="saPage=0;renderSATable()" style="padding:6px 10px;border:1px solid var(--g200);border-radius:6px;font-size:12px;font-family:var(--body);outline:none;width:100%;box-sizing:border-box">
+          </div>
+        </div>
+
+        <!-- Table -->
+        <div style="margin-bottom:0.75rem;display:flex;align-items:center;justify-content:space-between">
+          <div class="form-sec" style="margin:0">Log Adjustments 2026</div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <button onclick="saGoPage(-1)" style="padding:2px 8px;font-size:11px;border:1px solid var(--g200);border-radius:4px;background:var(--white);cursor:pointer">‹</button>
+            <span class="tcount" id="sa-tcount">—</span>
+            <button onclick="saGoPage(1)" style="padding:2px 8px;font-size:11px;border:1px solid var(--g200);border-radius:4px;background:var(--white);cursor:pointer">›</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Adj No</th>
+                <th>Tanggal</th>
+                <th>Gudang</th>
+                <th style="text-align:right">SKU</th>
+                <th style="text-align:right">Net Qty</th>
+                <th>Note</th>
+                <th style="min-width:190px">Kategori</th>
+              </tr>
+            </thead>
+            <tbody id="sa-tbody"><tr><td class="empty-td" colspan="7">Klik "↻ Refresh" untuk memuat data.</td></tr></tbody>
+          </table>
+        </div>
       </div>
 
     </div>
