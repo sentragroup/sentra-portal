@@ -5037,8 +5037,18 @@ function whPeriodCutoff() {
   return d.toISOString();
 }
 
+function whPeriodLabel() {
+  const v = document.getElementById("wh-period")?.value || "30";
+  const map = { "7": "7 hari terakhir", "30": "30 hari terakhir", "90": "90 hari terakhir", "all": "semua waktu" };
+  return "(" + (map[v] || v + " hari terakhir") + ")";
+}
+
 function renderWHDashboard() {
   const cutoff = whPeriodCutoff();
+
+  // Update all period labels in chart headings
+  const lbl = whPeriodLabel();
+  document.querySelectorAll(".wh-period-lbl").forEach(el => el.textContent = lbl);
 
   // Bills filtered by period (all bills, not just putaway — for trend/receiving)
   const periodBills = cutoff
