@@ -3730,7 +3730,10 @@ function renderColDetail(col, items) {
                     <option value="Not Yet Paid"${dw.paymentStatus==="Not Yet Paid"?" selected":""}>Not Yet Paid</option>
                     <option value="Paid"${dw.paymentStatus==="Paid"?" selected":""}>Paid</option>
                   </select>
-                  ${dw.agreementId?`<span style="font-size:10px;font-family:var(--mono);color:var(--g400)">${dw.agreementId}</span>`:""}
+                  <div style="position:relative;display:inline-block">
+                    <input type="text" id="cd-dw-agr-${dw.id}" value="${(dw.agreementId||"").replace(/"/g,"&quot;")}" placeholder="PKS / Kontrak" autocomplete="off" style="font-size:10px;font-family:var(--mono);padding:2px 6px;border:1px solid var(--g200);border-radius:4px;width:120px" onblur="saveDwAgreementFromCD('${dw.id}',this.value)">
+                    <div class="ac-list" id="ac-cd-dw-agr-${dw.id}"></div>
+                  </div>
                 </div>`;
               }).join("")}
             </div>
@@ -3795,6 +3798,9 @@ function renderColDetail(col, items) {
   items.forEach(i=>{
     setupAC(`cie-cat-${i.id}`,`ac-cie-cat-${i.id}`,()=>skuCats);
     setupAC(`cie-dsg-${i.id}`,`ac-cie-dsg-${i.id}`,()=>allDsgRows.filter(d=>d.status==="Active").map(d=>d.name));
+  });
+  colDwRows.filter(dw=>dw.designer).forEach(dw=>{
+    setupAC(`cd-dw-agr-${dw.id}`,`ac-cd-dw-agr-${dw.id}`,()=>acAgrOptions.map(o=>o.id),()=>acAgrOptions);
   });
   loadColSidebar(col.id);
   setupNoteAC(col.id);
@@ -4279,6 +4285,20 @@ async function updateDwPaymentFromCD(dwId, value) {
                 "background:#f0efe9;color:#5a5850;border-color:#d4d3cb";
       sel.style.cssText=`font-size:11px;padding:2px 8px;border:1px solid;border-radius:99px;${clr}`;
     }
+  } catch(e){alert("Gagal: "+(e.message||e));}
+}
+
+// Save DW agreement from Collection Detail
+async function saveDwAgreementFromCD(dwId, value) {
+  const agreementId=value.trim()||null;
+  try {
+    const {error}=await sb.from("designer_workflow").update({
+      agreement_id:agreementId,
+      last_updated:new Date().toISOString(), last_updated_by:currentUser
+    }).eq("id",dwId);
+    if(error) throw error;
+    const dw=allDwRows.find(r=>r.id===dwId);
+    if(dw) dw.agreementId=agreementId||"";
   } catch(e){alert("Gagal: "+(e.message||e));}
 }
 
