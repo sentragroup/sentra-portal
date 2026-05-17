@@ -5092,10 +5092,11 @@ function renderWHDashboard() {
   document.getElementById("wh-k-items").textContent    = Math.round(totalItems);
   document.getElementById("wh-k-pending").textContent  = notPutaway;
   document.getElementById("wh-k-recv").textContent     = accuracyStr;
-  document.getElementById("wh-k-adj").textContent      = needFix;
 
-  renderWHTrendChart(putawayBills);
-  renderWHStaffTable(putawayBills, billItemQty);
+  // Trend + location always use ALL-TIME putaway bills (ignore period filter)
+  const allTimePutaway = whBills.filter(b => b.is_putaway === true);
+  renderWHTrendChart(allTimePutaway);
+  renderWHLocTable(allTimePutaway, billItemQty);
   renderWHLog(putawayBills, billItemQty);
   renderWHRecvDetail(poQtyMap, billPoQty);
 }
@@ -5134,35 +5135,37 @@ function renderWHTrendChart(putawayBills) {
   `<div style="position:absolute;bottom:18px;left:0;right:0;height:1px;background:var(--g200)"></div>`;
 }
 
-function renderWHStaffTable(putawayBills, billItemQty) {
-  const el = document.getElementById("wh-staff-table");
+function renderWHLocTable(putawayBills, billItemQty) {
+  const el = document.getElementById("wh-loc-table");
   if (!el) return;
   if (!putawayBills.length) {
-    el.innerHTML = `<div style="color:var(--g400);font-size:12px">Belum ada bill putaway dalam periode ini.</div>`;
+    el.innerHTML = `<div style="color:var(--g400);font-size:12px">Belum ada data penerimaan.</div>`;
     return;
   }
 
-  const staffMap = {};
+  const locMap = {};
   for (const b of putawayBills) {
-    const name = b.created_by || "Unknown";
-    if (!staffMap[name]) staffMap[name] = { count: 0, items: 0 };
-    staffMap[name].count++;
-    staffMap[name].items += billItemQty[b.bill_id] || 0;
+    const loc = b.location_name || "(tanpa lokasi)";
+    if (!locMap[loc]) locMap[loc] = { count: 0, items: 0 };
+    locMap[loc].count++;
+    locMap[loc].items += billItemQty[b.bill_id] || 0;
   }
 
-  const sorted = Object.entries(staffMap).sort((a, b) => b[1].count - a[1].count);
-  el.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:12px">
-    <thead><tr>
-      <th style="text-align:left;padding:4px 8px;color:var(--g400);font-weight:500;font-family:'DM Mono',monospace;border-bottom:1px solid var(--g200)">Diinput oleh</th>
-      <th style="text-align:right;padding:4px 8px;color:var(--g400);font-weight:500;font-family:'DM Mono',monospace;border-bottom:1px solid var(--g200)">Bill</th>
-      <th style="text-align:right;padding:4px 8px;color:var(--g400);font-weight:500;font-family:'DM Mono',monospace;border-bottom:1px solid var(--g200)">Items</th>
-    </tr></thead>
-    <tbody>${sorted.map(([name, s]) => `<tr>
-      <td style="padding:5px 8px;border-bottom:1px solid var(--off)">${name}</td>
-      <td style="padding:5px 8px;text-align:right;border-bottom:1px solid var(--off);font-family:'DM Mono',monospace">${s.count}</td>
-      <td style="padding:5px 8px;text-align:right;border-bottom:1px solid var(--off);font-family:'DM Mono',monospace">${Math.round(s.items)}</td>
-    </tr>`).join("")}</tbody>
-  </table>`;
+  const sorted = Object.entries(locMap).sort((a, b) => b[1].items - a[1].items);
+  const maxItems = sorted[0]?.[1].items || 1;
+
+  el.innerHTML = sorted.map(([loc, s]) => {
+    const pct = Math.max(Math.round((s.items / maxItems) * 100), 3);
+    return `<div style="margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
+        <span>${loc}</span>
+        <span style="font-family:'DM Mono',monospace;color:var(--g600)">${Math.round(s.items)} items · ${s.count} bill</span>
+      </div>
+      <div style="height:6px;background:var(--off);border-radius:3px">
+        <div style="height:6px;width:${pct}%;background:var(--black);border-radius:3px"></div>
+      </div>
+    </div>`;
+  }).join("");
 }
 
 function renderWHLog(putawayBills, billItemQty) {
@@ -5172,7 +5175,7 @@ function renderWHLog(putawayBills, billItemQty) {
   if (tcount) tcount.textContent = `${putawayBills.length} entri`;
 
   if (!putawayBills.length) {
-    tbody.innerHTML = `<tr><td class="empty-td" colspan="6">Belum ada bill dengan status putaway dalam periode ini.</td></tr>`;
+    tbody.innerHTML = `<tr><td class="empty-td" colspan="5">Belum ada bill dengan status putaway dalam periode ini.</td></tr>`;
     return;
   }
 
@@ -5184,7 +5187,6 @@ function renderWHLog(putawayBills, billItemQty) {
       <td>${tgl}</td>
       <td>${b.supplier_name || "—"}</td>
       <td>${b.location_name || "—"}</td>
-      <td>${b.created_by || "—"}</td>
       <td style="text-align:right;font-family:'DM Mono',monospace">${items}</td>
     </tr>`;
   }).join("");
