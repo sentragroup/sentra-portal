@@ -5893,16 +5893,25 @@ function renderRetTable() {
 const SA_PRESETS = [
   "Freebies KOL", "Freebies Licensor", "Freebies Internal", "Other Freebies",
   "Stock Opname", "Defect", "Penjualan Offline",
+  "Penyesuaian Stock", "Inbound", "Retur",
 ];
 const SA_GROUPS = {
-  "Freebies":         ["Freebies KOL","Freebies Licensor","Freebies Internal","Other Freebies"],
-  "Stock Opname":     ["Stock Opname"],
-  "Defect":           ["Defect"],
-  "Penjualan Offline":["Penjualan Offline"],
+  "Freebies":          ["Freebies KOL","Freebies Licensor","Freebies Internal","Other Freebies"],
+  "Stock Opname":      ["Stock Opname"],
+  "Defect":            ["Defect"],
+  "Penjualan Offline": ["Penjualan Offline"],
+  "Penyesuaian Stock": ["Penyesuaian Stock"],
+  "Inbound":           ["Inbound"],
+  "Retur":             ["Retur"],
 };
 const SA_GROUP_COLORS = {
-  "Freebies": "#3C3489", "Stock Opname": "#2d7a2d",
-  "Defect": "#c0392b",   "Penjualan Offline": "#e67e00",
+  "Freebies":          "#3C3489",
+  "Stock Opname":      "#2d7a2d",
+  "Defect":            "#c0392b",
+  "Penjualan Offline": "#e67e00",
+  "Penyesuaian Stock": "#0077b6",
+  "Inbound":           "#00897b",
+  "Retur":             "#8e44ad",
 };
 
 let saAdjustments = [];   // jubelio_inventory_adjustments WHERE 2026
@@ -5938,7 +5947,6 @@ async function loadSAData() {
 
   populateSAGudangFilter();
   populateSACatFilter();
-  renderSAStats();
   renderSATable();
 }
 
@@ -5969,7 +5977,9 @@ function populateSACatFilter() {
   `;
 }
 
-function renderSAStats() {
+function renderSAStats(arr) {
+  // arr = filtered subset; fallback to full list if not provided
+  const subset = arr !== undefined ? arr : saAdjustments;
   const total  = saAdjustments.length;
   const done   = saAdjustments.filter(a => saCategories[a.item_adj_id]).length;
   const undone = total - done;
@@ -5981,62 +5991,79 @@ function renderSAStats() {
   if (el("sa-undone")) el("sa-undone").textContent = undone;
   if (el("sa-pct"))    el("sa-pct").textContent    = pct;
 
-  // ── Grup breakdown ──
+  // ── Grup breakdown (from filtered subset) ──
   const grpEl = document.getElementById("sa-grp-chart");
   if (grpEl) {
-    const counts = {};
-    for (const a of saAdjustments) {
+    const counts  = {};
+    const netQtys = {};
+    for (const a of subset) {
       const cat = saCategories[a.item_adj_id]?.category || null;
       let grp = null;
       if (cat) {
         grp = Object.keys(SA_GROUPS).find(g => SA_GROUPS[g].includes(cat)) || "Lainnya";
       }
       const key = grp || "Belum Dikategori";
-      counts[key] = (counts[key] || 0) + 1;
+      counts[key]  = (counts[key]  || 0) + 1;
+      netQtys[key] = (netQtys[key] || 0) + parseFloat(a.net_qty || 0);
     }
+    const subTotal = subset.length;
     const order = [...Object.keys(SA_GROUPS), "Lainnya", "Belum Dikategori"];
-    const rows  = order.filter(k => counts[k]).map(k => ({ k, n: counts[k] }));
+    const rows  = order.filter(k => counts[k]).map(k => ({ k, n: counts[k], q: netQtys[k] || 0 }));
     const maxN  = Math.max(...rows.map(r => r.n), 1);
     grpEl.innerHTML = rows.length
-      ? rows.map(({ k, n }) => {
+      ? rows.map(({ k, n, q }) => {
           const pctBar = Math.max(Math.round((n / maxN) * 100), 3);
           const color  = SA_GROUP_COLORS[k] || "var(--g400)";
+          const qRound = Math.round(q);
+          const qStr   = qRound > 0 ? `+${qRound}` : `${qRound}`;
+          const qColor = qRound > 0 ? "#2d7a2d" : qRound < 0 ? "#c0392b" : "var(--g400)";
           return `<div style="margin-bottom:10px">
             <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
               <span>${k}</span>
-              <span style="font-family:'DM Mono',monospace;color:${color}">${n} adj · ${Math.round(n/total*100)}%</span>
+              <span style="font-family:'DM Mono',monospace;color:${color}">${n} adj</span>
             </div>
-            <div style="height:6px;background:var(--off);border-radius:3px">
+            <div style="height:6px;background:var(--off);border-radius:3px;margin-bottom:3px">
               <div style="height:6px;width:${pctBar}%;background:${color};border-radius:3px"></div>
+            </div>
+            <div style="font-size:11px;color:var(--g600)">
+              ${subTotal > 0 ? Math.round(n/subTotal*100) : 0}% · net qty <span style="color:${qColor};font-family:'DM Mono',monospace">${qStr}</span>
             </div>
           </div>`;
         }).join("")
       : `<div style="color:var(--g400);font-size:12px">Belum ada data.</div>`;
   }
 
-  // ── Freebies sub-breakdown ──
+  // ── Freebies sub-breakdown (from filtered subset) ──
   const fbEl = document.getElementById("sa-freebie-chart");
   if (fbEl) {
-    const fbCounts = {};
-    for (const a of saAdjustments) {
+    const fbCounts  = {};
+    const fbNetQtys = {};
+    for (const a of subset) {
       const cat = saCategories[a.item_adj_id]?.category;
       if (cat && SA_GROUPS["Freebies"].includes(cat)) {
-        fbCounts[cat] = (fbCounts[cat] || 0) + 1;
+        fbCounts[cat]  = (fbCounts[cat]  || 0) + 1;
+        fbNetQtys[cat] = (fbNetQtys[cat] || 0) + parseFloat(a.net_qty || 0);
       }
     }
     const fbTotal = Object.values(fbCounts).reduce((s, n) => s + n, 0);
-    const fbRows  = SA_GROUPS["Freebies"].filter(c => fbCounts[c]).map(c => ({ c, n: fbCounts[c] }));
+    const fbRows  = SA_GROUPS["Freebies"].filter(c => fbCounts[c]).map(c => ({ c, n: fbCounts[c], q: fbNetQtys[c] || 0 }));
     const fbMax   = Math.max(...fbRows.map(r => r.n), 1);
     fbEl.innerHTML = fbTotal > 0
-      ? fbRows.map(({ c, n }) => {
+      ? fbRows.map(({ c, n, q }) => {
           const pctBar = Math.max(Math.round((n / fbMax) * 100), 3);
+          const qRound = Math.round(q);
+          const qStr   = qRound > 0 ? `+${qRound}` : `${qRound}`;
+          const qColor = qRound > 0 ? "#2d7a2d" : qRound < 0 ? "#c0392b" : "var(--g400)";
           return `<div style="margin-bottom:10px">
             <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
               <span>${c}</span>
-              <span style="font-family:'DM Mono',monospace;color:#3C3489">${n} adj · ${Math.round(n/fbTotal*100)}%</span>
+              <span style="font-family:'DM Mono',monospace;color:#3C3489">${n} adj</span>
             </div>
-            <div style="height:6px;background:var(--off);border-radius:3px">
+            <div style="height:6px;background:var(--off);border-radius:3px;margin-bottom:3px">
               <div style="height:6px;width:${pctBar}%;background:#3C3489;border-radius:3px"></div>
+            </div>
+            <div style="font-size:11px;color:var(--g600)">
+              ${fbTotal > 0 ? Math.round(n/fbTotal*100) : 0}% · net qty <span style="color:${qColor};font-family:'DM Mono',monospace">${qStr}</span>
             </div>
           </div>`;
         }).join("")
@@ -6064,7 +6091,7 @@ function saGetFiltered() {
 
 function saGoPage(dir) {
   const total   = saGetFiltered().length;
-  const maxPage = Math.max(0, Math.ceil(total / 20) - 1);
+  const maxPage = Math.max(0, Math.ceil(total / 100) - 1);
   saPage = Math.min(maxPage, Math.max(0, saPage + dir));
   renderSATable();
 }
@@ -6156,8 +6183,8 @@ async function saveSACategory(adjId, category) {
   const cell = document.getElementById(`sa-cat-cell-${adjId}`);
   if (cell) cell.innerHTML = saCatSelectHTML(adjId, category);
 
-  // Refresh stats (counts change)
-  renderSAStats();
+  // Refresh stats (counts change) — pass current filtered set
+  renderSAStats(saGetFiltered());
 }
 
 function renderSATable() {
@@ -6166,10 +6193,12 @@ function renderSATable() {
   if (!tbody) return;
 
   const filtered = saGetFiltered();
-  const total    = filtered.length;
-  const start    = saPage * 20;
-  const end      = Math.min(start + 20, total);
-  const slice    = filtered.slice(start, end);
+  renderSAStats(filtered);
+
+  const total = filtered.length;
+  const start = saPage * 100;
+  const end   = Math.min(start + 100, total);
+  const slice = filtered.slice(start, end);
 
   if (tcount) {
     tcount.textContent    = total > 0 ? `${start + 1}–${end} dari ${total}` : "0 entri";

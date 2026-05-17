@@ -163,6 +163,8 @@
         <div class="sb-label" style="margin-bottom:0.6rem">Warehouse</div>
         <div class="home-grid">
           <div class="tool-card" onclick="showPage('warehousekpi',null)"><span class="tc-icon">🏭</span><div class="tc-name">Warehouse KPI</div><div class="tc-desc">Monitor putaway performance, receiving accuracy, dan stock adjustment per gudang.</div></div>
+          <div class="tool-card" onclick="showPage('stockadjmgmt',null)"><span class="tc-icon">📋</span><div class="tc-name">Stock Adjustment</div><div class="tc-desc">Kategorisasi dan monitoring alasan adjustment stok 2026.</div></div>
+          <div class="tool-card" onclick="showPage('returnreason',null)"><span class="tc-icon">↩️</span><div class="tc-name">Return Reason</div><div class="tc-desc">Mapping alasan retur customer per order.</div></div>
         </div>
       </div>
 
@@ -1579,6 +1581,9 @@
                 <option>Stock Opname</option>
                 <option>Defect</option>
                 <option>Penjualan Offline</option>
+                <option>Penyesuaian Stock</option>
+                <option>Inbound</option>
+                <option>Retur</option>
               </optgroup>
             </select>
             <select class="f-select" id="sa-f-gudang" onchange="saPage=0;renderSATable()">
