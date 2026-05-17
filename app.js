@@ -138,7 +138,7 @@ function showPage(name, el) {
   document.querySelectorAll(".sb-item").forEach(i=>i.classList.remove("active"));
   document.getElementById("page-"+name).classList.add("active");
   if (el) el.classList.add("active");
-  const labels = {home:"Internal Tools",agreement:"Agreement Tracker",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Jubelio Offline Sales",mesign:"Mekari Sign",po:"Purchase Orders",stockmovement:"Stock Movement",productmap:"Product Mapping",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow"};
+  const labels = {home:"Internal Tools",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Jubelio Offline Sales",mesign:"Mekari Sign",po:"Purchase Orders",stockmovement:"Stock Movement",productmap:"Product Mapping",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   history.replaceState(null, "", name==="home" ? location.pathname : "#"+name);
   if (name==="agreement") loadStats();
@@ -1188,7 +1188,7 @@ async function submitSRReport() {
       if(error)throw error;
     }
     srReports[key]={link,notes,by:currentUser};
-    logActivity("Sales Report",isUpdate?"update":"submit",srModalContext.brandId,srModalContext.brandName+" — bulan "+(srModalContext.monthIdx+1));
+    logActivity("Account Report",isUpdate?"update":"submit",srModalContext.brandId,srModalContext.brandName+" — bulan "+(srModalContext.monthIdx+1));
     closeSRModal(); applySRFilters();
   } catch(e) { showSRModalFeedback("Gagal: "+(e.message||e),"err"); }
   btn.disabled=false; btn.textContent="Submit";
@@ -1200,7 +1200,7 @@ async function clearSRReport() {
   try {
     const {error}=await sb.from("sr_reports").delete().eq("brand_id",srModalContext.brandId).eq("month_index",String(srModalContext.monthIdx));
     if(error)throw error;
-    logActivity("Sales Report","delete",srModalContext.brandId,srModalContext.brandName+" — bulan "+(srModalContext.monthIdx+1));
+    logActivity("Account Report","delete",srModalContext.brandId,srModalContext.brandName+" — bulan "+(srModalContext.monthIdx+1));
     delete srReports[srModalContext.brandId+"_"+srModalContext.monthIdx];
     closeSRModal(); applySRFilters();
   } catch(e) { showSRModalFeedback("Gagal: "+(e.message||e),"err"); }
@@ -1233,7 +1233,7 @@ async function saveStartDate() {
     const brand=srBrands.find(b=>b.id===srSDContext.brandId);
     const {error}=await sb.from("sr_startdates").upsert({brand_id:srSDContext.brandId,brand_name:brand?brand.name:"",start_date:date,set_by:currentUser,set_at:new Date().toISOString()},{onConflict:"brand_id"});
     if(error)throw error;
-    logActivity("Sales Report","set_startdate",srSDContext.brandId,(brand?brand.name:srSDContext.brandId)+" → "+date);
+    logActivity("Account Report","set_startdate",srSDContext.brandId,(brand?brand.name:srSDContext.brandId)+" → "+date);
     if(brand)brand.startDate=date;
     closeSDModal(); applySRFilters();
   } catch(e) { document.getElementById("sr-sd-feedback").textContent="Gagal: "+(e.message||e); document.getElementById("sr-sd-feedback").className="feedback err"; }

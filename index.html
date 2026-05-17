@@ -130,13 +130,13 @@
 
         <div class="sb-label" style="margin-bottom:0.6rem;margin-top:0.25rem">Legal &amp; Finance</div>
         <div class="home-grid" style="margin-bottom:1.5rem">
-          <div class="tool-card" onclick="showPage('agreement',null)"><span class="tc-icon">📄</span><div class="tc-name">Agreement Tracker</div><div class="tc-desc">Submit dan pantau semua perjanjian, kontrak, dan kemitraan.</div></div>
+          <div class="tool-card" onclick="showPage('agreement',null)"><span class="tc-icon">📄</span><div class="tc-name">Agreement</div><div class="tc-desc">Submit dan pantau semua perjanjian, kontrak, dan kemitraan.</div></div>
           <div class="tool-soon"><span class="tc-icon" style="opacity:0.3">💰</span><div class="tc-name" style="color:var(--g400)">Royalty Payment</div><div class="tc-desc">Coming soon</div></div>
         </div>
 
         <div class="sb-label" style="margin-bottom:0.6rem">Account Management</div>
         <div class="home-grid" style="margin-bottom:1.5rem">
-          <div class="tool-card" onclick="showPage('salesreport',null)"><span class="tc-icon">📈</span><div class="tc-name">Sales Report</div><div class="tc-desc">Track report submission per brand setiap bulan.</div></div>
+          <div class="tool-card" onclick="showPage('salesreport',null)"><span class="tc-icon">📈</span><div class="tc-name">Account Report</div><div class="tc-desc">Track report submission per brand setiap bulan.</div></div>
           <div class="tool-card" onclick="showPage('leads',null)"><span class="tc-icon">🎯</span><div class="tc-name">Leads Management</div><div class="tc-desc">Track potential brand dan artist collaboration leads.</div></div>
         </div>
 
@@ -155,7 +155,7 @@
       <!-- AGREEMENT -->
       <div class="page" id="page-agreement">
         <div class="page-header">
-          <div><div class="page-title">Agreement Tracker</div><div class="page-sub">Submit dan kelola semua perjanjian dan kontrak.</div></div>
+          <div><div class="page-title">Agreement</div><div class="page-sub">Submit dan kelola semua perjanjian dan kontrak.</div></div>
           <div class="tab-bar">
             <button class="tab-btn active" onclick="switchTab('new',this)">Entri Baru</button>
             <button class="tab-btn" onclick="switchTab('list',this)">Semua Agreement</button>
@@ -661,7 +661,7 @@
         <div class="filter-panel">
           <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="clearLogFilters()">✕ Reset</button></div>
           <div class="filter-grid">
-            <select class="f-select" id="log-fil-module" onchange="applyLogFilters()"><option value="">Semua Modul</option><option>Auth</option><option>Agreement</option><option>IP Master</option><option>Royalty Recipients</option><option>Brand Master</option><option>Sales Report</option><option>Leads Tracker</option><option>Distribution Partner</option><option>Pop Up Booth</option></select>
+            <select class="f-select" id="log-fil-module" onchange="applyLogFilters()"><option value="">Semua Modul</option><option>Auth</option><option>Agreement</option><option>IP Master</option><option>Royalty Recipients</option><option>Brand Master</option><option>Account Report</option><option>Leads Tracker</option><option>Distribution Partner</option><option>Pop Up Booth</option></select>
             <select class="f-select" id="log-fil-action" onchange="applyLogFilters()"><option value="">Semua Aksi</option><option>login</option><option>logout</option><option>create</option><option>edit</option><option>delete</option><option>status_change</option><option>stage_change</option><option>submit</option><option>update</option><option>set_startdate</option></select>
             <input class="search-box" type="text" id="logSearch" placeholder="Cari user atau detail..." oninput="applyLogFilters()" style="width:100%">
           </div>
