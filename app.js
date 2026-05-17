@@ -3275,9 +3275,9 @@ async function ensureDWProjects(cols, existingDW) {
     const designers=[...new Set(
       allColItems.filter(i=>i.collectionId===col.id&&i.designer).map(i=>i.designer)
     )];
-    // If no designers yet, create one placeholder with designer=""
-    const targets=designers.length?designers:[""];
-    for(const designer of targets){
+    // Only create rows for collections that have designers assigned; skip blanks
+    if(!designers.length) continue;
+    for(const designer of designers){
       const key=`${col.id}|${designer}`;
       if(existingKeys.has(key)) continue;
       try{
@@ -3681,16 +3681,20 @@ function renderColDetail(col, items) {
             </tr></thead>
             <tbody>${skuRows}</tbody>
           </table></div>`:`<div style="color:var(--g400);font-size:12px">Belum ada SKU. Tambah di atas.</div>`}
-          ${colDwRows.length?`
+          ${colDwRows.filter(dw=>dw.designer).length?`
           <div style="margin-top:14px;border-top:1px solid var(--g100);padding-top:12px">
             <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:8px">Designer Payment</div>
             <div style="display:flex;flex-wrap:wrap;gap:8px">
-              ${colDwRows.map(dw=>{
-                const pC=dw.paymentStatus==="Paid"?"p-active":dw.paymentStatus==="Not Yet Paid"?"p-near":"p-draft";
+              ${colDwRows.filter(dw=>dw.designer).map(dw=>{
+                const payClr=dw.paymentStatus==="Paid"?"background:#edf8ee;color:#1a5c25;border-color:#90d4a0":dw.paymentStatus==="Not Yet Paid"?"background:#fff3e0;color:#8a4000;border-color:#ffcc80":"background:#f0efe9;color:#5a5850;border-color:#d4d3cb";
                 return `<div style="display:flex;align-items:center;gap:8px;padding:7px 12px;border:1px solid var(--g100);border-radius:6px;background:var(--off)">
-                  <span style="font-size:12px;font-weight:600;color:var(--g600)">${dw.designer||"—"}</span>
-                  <span class="pill ${pC}" style="font-size:10px">${dw.paymentStatus}</span>
-                  ${dw.agreementId?`<a href="#" style="font-size:10px;color:#3C3489;text-decoration:none" title="Agreement: ${dw.agreementId}">PKS ↗</a>`:""}
+                  <span style="font-size:12px;font-weight:600;color:var(--g600)">${dw.designer}</span>
+                  <select onchange="updateDwPaymentFromCD('${dw.id}',this.value)" style="font-size:11px;padding:2px 8px;border:1px solid;border-radius:99px;${payClr}">
+                    <option value="No Fee"${dw.paymentStatus==="No Fee"?" selected":""}>No Fee</option>
+                    <option value="Not Yet Paid"${dw.paymentStatus==="Not Yet Paid"?" selected":""}>Not Yet Paid</option>
+                    <option value="Paid"${dw.paymentStatus==="Paid"?" selected":""}>Paid</option>
+                  </select>
+                  ${dw.agreementId?`<span style="font-size:10px;font-family:var(--mono);color:var(--g400)">${dw.agreementId}</span>`:""}
                 </div>`;
               }).join("")}
             </div>
@@ -4219,6 +4223,26 @@ async function saveDwLinkInline(dwId, colId) {
     if(disp) disp.innerHTML=url
       ?`<a href="${url}" target="_blank" style="font-size:11px;color:#3C3489;text-decoration:none">↗ Lihat</a> <button class="btn-icon" style="font-size:10px" onclick="openDwLinkEdit('${dwId}')">✏</button>`
       :`<button class="btn-icon" style="font-size:10px" onclick="openDwLinkEdit('${dwId}')">+ Tambah link</button>`;
+  } catch(e){alert("Gagal: "+(e.message||e));}
+}
+
+// Update DW payment status from Collection Detail
+async function updateDwPaymentFromCD(dwId, value) {
+  try {
+    const {error}=await sb.from("designer_workflow").update({
+      payment_status:value, last_updated:new Date().toISOString(), last_updated_by:currentUser
+    }).eq("id",dwId);
+    if(error) throw error;
+    const dw=allDwRows.find(r=>r.id===dwId);
+    if(dw) dw.paymentStatus=value;
+    // Update select style to match new value
+    const sel=document.querySelector(`[onchange*="updateDwPaymentFromCD('${dwId}'"]`);
+    if(sel){
+      const clr=value==="Paid"?"background:#edf8ee;color:#1a5c25;border-color:#90d4a0":
+                value==="Not Yet Paid"?"background:#fff3e0;color:#8a4000;border-color:#ffcc80":
+                "background:#f0efe9;color:#5a5850;border-color:#d4d3cb";
+      sel.style.cssText=`font-size:11px;padding:2px 8px;border:1px solid;border-radius:99px;${clr}`;
+    }
   } catch(e){alert("Gagal: "+(e.message||e));}
 }
 
