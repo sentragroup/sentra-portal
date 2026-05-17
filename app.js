@@ -6242,14 +6242,20 @@ const SYNC_ALL_JOBS = [
   { slug: "sync-jubelio-warehouse",               label: "Warehouse / Putaway"},
 ];
 
+let _syncAllCooldownUntil = 0;
+
 function closeSyncModal() {
   const modal = document.getElementById("sync-all-modal");
   if (modal) modal.style.display = "none";
-  const btn = document.getElementById("sync-all-btn");
-  if (btn) btn.disabled = false;
 }
 
 async function syncAllJubelio() {
+  const now = Date.now();
+  if (now < _syncAllCooldownUntil) {
+    const remaining = Math.ceil((_syncAllCooldownUntil - now) / 60000);
+    alert(`Sync baru saja dijalankan. Tunggu ${remaining} menit lagi.`);
+    return;
+  }
   const modal   = document.getElementById("sync-all-modal");
   const list    = document.getElementById("sync-all-list");
   const summary = document.getElementById("sync-all-summary");
@@ -6306,10 +6312,13 @@ async function syncAllJubelio() {
     : `Semua ${doneCount} sync selesai dalam ${totalSec}s`;
   summary.style.color = errCount > 0 ? "#c0392b" : "#2d7a2d";
 
+  _syncAllCooldownUntil = Date.now() + 10 * 60 * 1000; // 10 menit
+
   doneBtn.disabled = false;
   doneBtn.style.opacity = "1";
   doneBtn.style.cursor = "pointer";
   if (closeBtn) { closeBtn.disabled = false; closeBtn.style.opacity = "1"; }
+  if (trigBtn) trigBtn.disabled = false;
 }
 
 // ── DUPLICATE CHECK ──
