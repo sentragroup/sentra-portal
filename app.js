@@ -3178,8 +3178,15 @@ function mapCI(r) {
 
 let allColStages = [];
 let allColNotes = [];
-const COL_STAGE_NAMES = ["inbound","photoshoot","kol","offline_activation"];
-const COL_STAGE_LABELS = {inbound:"Inbound",photoshoot:"Photoshoot",kol:"KOL",offline_activation:"Offline Activation"};
+const COL_STAGE_NAMES = ["inbound","photoshoot","content","ads","kol","offline_activation","marketing_config"];
+const COL_STAGE_LABELS = {inbound:"Inbound",photoshoot:"Photoshoot",content:"Content",ads:"Ads",kol:"KOL",offline_activation:"Offline Activation",marketing_config:"Config"};
+const MKT_ACTIVITIES = [
+  {key:"photoshoot",    label:"Photoshoot", icon:"📸"},
+  {key:"content",       label:"Content",    icon:"📱"},
+  {key:"ads",           label:"Ads",        icon:"📢"},
+  {key:"kol",           label:"KOL",        icon:"🌟"},
+  {key:"offline_activation", label:"Offline", icon:"🛍️"},
+];
 
 function mapCS(r) {
   return {rowIndex:r.id,id:r.id,collectionId:r.collection_id,stage:r.stage,status:r.status||"Not Started",notes:r.notes||""};
@@ -3385,7 +3392,9 @@ function getPipelineStatuses(colId) {
   const getStage=s=>stages.find(r=>r.stage===s)?.status||"Not Started";
   const stageToKey=s=>s==="Done"?"done":s==="In Progress"?"in-progress":"not-started";
   const inbound=stageToKey(getStage("inbound"));
-  const mkt=["photoshoot","kol","offline_activation"].map(s=>getStage(s));
+  const mktEnabled=getMktEnabled(colId);
+  const mktActKeys=MKT_ACTIVITIES.filter(a=>mktEnabled.includes(a.key)).map(a=>a.key);
+  const mkt=(mktActKeys.length?mktActKeys:["photoshoot","kol","offline_activation"]).map(s=>getStage(s));
   let marketing="not-started";
   if(mkt.every(s=>s==="Done")) marketing="done";
   else if(mkt.some(s=>s==="In Progress"||s==="Done")) marketing="in-progress";
@@ -3591,20 +3600,6 @@ function renderColDetail(col, items) {
   // ── Production: PO cards ──
   const productionContent=renderColPOCards(col.id);
 
-  // ── Marketing sub-boxes ──
-  const mktSubBox=(stage)=>{
-    const s=allColStages.find(r=>r.collectionId===col.id&&r.stage===stage)||{stage,status:"Not Started",notes:""};
-    const selClr=s.status==="Done"?"#edf8ee;color:#1a5c25;border-color:#90d4a0":s.status==="In Progress"?"#e8f0fc;color:#1a4a8a;border-color:#a8c4f0":"#f0efe9;color:#5a5850;border-color:#d4d3cb";
-    return `<div style="border:1px solid var(--g100);border-radius:6px;padding:12px">
-      <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:10px">${COL_STAGE_LABELS[stage]}</div>
-      <select onchange="updateColStageStatus('${col.id}','${stage}',this.value)" style="font-size:11px;padding:3px 8px;border:1px solid;border-radius:4px;width:100%;margin-bottom:8px;background:${selClr}">
-        <option${s.status==="Not Started"?" selected":""}>Not Started</option>
-        <option${s.status==="In Progress"?" selected":""}>In Progress</option>
-        <option${s.status==="Done"?" selected":""}>Done</option>
-      </select>
-      <textarea placeholder="Notes..." rows="2" style="font-size:11px;padding:6px 8px;border:1px solid var(--g100);border-radius:4px;width:100%;resize:vertical;box-sizing:border-box" onblur="saveColStageNote('${col.id}','${stage}',this.value)">${(s.notes||"").replace(/</g,"&lt;")}</textarea>
-    </div>`;
-  };
   const inboundS=allColStages.find(r=>r.collectionId===col.id&&r.stage==="inbound")||{status:"Not Started",notes:""};
   const inboundSelClr=inboundS.status==="Done"?"#edf8ee;color:#1a5c25;border-color:#90d4a0":inboundS.status==="In Progress"?"#e8f0fc;color:#1a4a8a;border-color:#a8c4f0":"#f0efe9;color:#5a5850;border-color:#d4d3cb";
 
@@ -3726,9 +3721,7 @@ function renderColDetail(col, items) {
         })()}
         <!-- Marketing -->
         ${cdStageBox("📣","Marketing",cdStageBadge(ps.marketing==="done"?"Done":ps.marketing==="in-progress"?"In Progress":"Not Started",`col-marketing-badge-${col.id}`),`
-          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">
-            ${mktSubBox("photoshoot")}${mktSubBox("kol")}${mktSubBox("offline_activation")}
-          </div>`)}
+          <div id="col-mkt-body-${col.id}">${renderMktBodyHTML(col.id)}</div>`)}
         <!-- Product Performance -->
         ${cdStageBox("📊","Product Performance","",`<div id="col-perf-${col.id}" style="color:var(--g400);font-size:12px">Memuat...</div>`)}
       </div>
@@ -4388,7 +4381,7 @@ async function updateColStageStatus(colId, stage, status) {
     const pipeEl=document.getElementById(`col-pipeline-${colId}`);
     if(pipeEl) pipeEl.innerHTML=renderPipelineBarHTML(colId);
     refreshStageHeaderBadge(colId, stage);
-    if(stage!=="inbound") refreshStageHeaderBadge(colId,"marketing");
+    if(stage!=="inbound"&&stage!=="marketing_config") refreshStageHeaderBadge(colId,"marketing");
   } catch(e){/* silent */}
 }
 
@@ -4400,6 +4393,97 @@ async function saveColStageNote(colId, stage, notes) {
     await sb.from("collection_stages").update({notes,last_updated:new Date().toISOString(),last_updated_by:currentUser}).eq("id",s.id);
     s.notes=notes;
   } catch(e){/* silent */}
+}
+
+// ── Marketing section helpers ──
+
+// Linkify URLs in plain text (for notes display)
+function linkifyNotes(text) {
+  if (!text) return '<em style="color:var(--g400);font-size:10px">Klik untuk tambah notes...</em>';
+  const esc = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return esc.replace(/(https?:\/\/[^\s<]+)/g,
+    '<a href="$1" target="_blank" rel="noopener" style="color:#1a4a8a;word-break:break-all;text-decoration:underline" onclick="event.stopPropagation()">$1</a>');
+}
+
+// Get enabled marketing activities for a collection (default = all)
+function getMktEnabled(colId) {
+  const cfg=allColStages.find(r=>r.collectionId===colId&&r.stage==='marketing_config');
+  if(!cfg||!cfg.notes) return MKT_ACTIVITIES.map(a=>a.key);
+  try {
+    const p=JSON.parse(cfg.notes);
+    return Array.isArray(p.enabled)?p.enabled:MKT_ACTIVITIES.map(a=>a.key);
+  } catch(e){ return MKT_ACTIVITIES.map(a=>a.key); }
+}
+
+// Render a single marketing activity sub-box
+function mktSubBoxHTML(colId, stage) {
+  const s=allColStages.find(r=>r.collectionId===colId&&r.stage===stage)||{stage,status:"Not Started",notes:""};
+  const act=MKT_ACTIVITIES.find(a=>a.key===stage);
+  const selClr=s.status==="Done"?"#edf8ee;color:#1a5c25;border-color:#90d4a0":
+               s.status==="In Progress"?"#e8f0fc;color:#1a4a8a;border-color:#a8c4f0":
+               "#f0efe9;color:#5a5850;border-color:#d4d3cb";
+  return `<div style="border:1px solid var(--g100);border-radius:6px;padding:12px">
+    <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:10px">${act?act.icon+' ':''}${COL_STAGE_LABELS[stage]||stage}</div>
+    <select onchange="updateColStageStatus('${colId}','${stage}',this.value)" style="font-size:11px;padding:3px 8px;border:1px solid;border-radius:4px;width:100%;margin-bottom:8px;background:${selClr}">
+      <option${s.status==="Not Started"?" selected":""}>Not Started</option>
+      <option${s.status==="In Progress"?" selected":""}>In Progress</option>
+      <option${s.status==="Done"?" selected":""}>Done</option>
+    </select>
+    <div id="col-notes-disp-${colId}-${stage}" style="font-size:11px;line-height:1.5;padding:6px 8px;border:1px solid var(--g100);border-radius:4px;min-height:38px;cursor:text;white-space:pre-wrap;word-break:break-word" onclick="colNotesToggleEdit('${colId}','${stage}')">${linkifyNotes(s.notes)}</div>
+    <textarea id="col-notes-ta-${colId}-${stage}" placeholder="Notes..." rows="2" style="display:none;font-size:11px;padding:6px 8px;border:1px solid var(--g100);border-radius:4px;width:100%;resize:vertical;box-sizing:border-box" onblur="colNotesSave('${colId}','${stage}',this)">${(s.notes||"").replace(/</g,"&lt;")}</textarea>
+  </div>`;
+}
+
+// Render full marketing section body (pills + activity boxes)
+function renderMktBodyHTML(colId) {
+  const enabled=getMktEnabled(colId);
+  const pills=MKT_ACTIVITIES.map(a=>{
+    const on=enabled.includes(a.key);
+    return `<span onclick="toggleMktActivity('${colId}','${a.key}')" style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:20px;font-size:11px;font-weight:600;border:1.5px solid ${on?'#1a4a8a':'var(--g200)'};background:${on?'#e8f0fc':'var(--off)'};color:${on?'#1a4a8a':'var(--g400)'};user-select:none">${a.icon} ${a.label}</span>`;
+  }).join('');
+  const acts=MKT_ACTIVITIES.filter(a=>enabled.includes(a.key));
+  return `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:${acts.length?'14px':'4px'}">${pills}</div>`+
+    (acts.length
+      ?`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">${acts.map(a=>mktSubBoxHTML(colId,a.key)).join('')}</div>`
+      :`<div style="color:var(--g400);font-size:12px">Tidak ada aktivitas yang diaktifkan.</div>`);
+}
+
+// Toggle marketing activity on/off
+async function toggleMktActivity(colId, key) {
+  const enabled=getMktEnabled(colId);
+  const newEnabled=enabled.includes(key)?enabled.filter(k=>k!==key):[...enabled,key];
+  const notes=JSON.stringify({enabled:newEnabled});
+  const cfg=allColStages.find(r=>r.collectionId===colId&&r.stage==='marketing_config');
+  if(cfg){
+    try {
+      await sb.from('collection_stages').update({notes,last_updated:new Date().toISOString(),last_updated_by:currentUser}).eq('id',cfg.id);
+      cfg.notes=notes;
+    } catch(e){/* silent */}
+  }
+  const el=document.getElementById(`col-mkt-body-${colId}`);
+  if(el) el.innerHTML=renderMktBodyHTML(colId);
+  refreshStageHeaderBadge(colId,'marketing');
+  const pipeEl=document.getElementById(`col-pipeline-${colId}`);
+  if(pipeEl) pipeEl.innerHTML=renderPipelineBarHTML(colId);
+}
+
+// Switch notes display div → textarea
+function colNotesToggleEdit(colId, stage) {
+  const disp=document.getElementById(`col-notes-disp-${colId}-${stage}`);
+  const ta=document.getElementById(`col-notes-ta-${colId}-${stage}`);
+  if(!disp||!ta) return;
+  disp.style.display='none';
+  ta.style.display='';
+  ta.focus();
+}
+
+// Save notes, switch back to display div
+async function colNotesSave(colId, stage, el) {
+  const notes=el.value;
+  await saveColStageNote(colId,stage,notes);
+  const disp=document.getElementById(`col-notes-disp-${colId}-${stage}`);
+  if(disp){ disp.innerHTML=linkifyNotes(notes); disp.style.display=''; }
+  el.style.display='none';
 }
 
 async function saveSKUEdit(itemId, colId) {
