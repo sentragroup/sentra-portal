@@ -6752,10 +6752,13 @@ async function loadTradeOrders(){
   if(tbody)tbody.innerHTML=`<tr><td class="empty-td" colspan="9">Memuat...</td></tr>`;
   try{
     // 1. Get CNSGNE/WHLSR contact_ids
-    const {data:contacts,error:cErr}=await sb.from('jubelio_contacts').select('contact_id,contact_name,category_display').in('category_display',['CNSGNE','WHLSR']);
+    const {data:contacts,error:cErr}=await sb.from('jubelio_contacts').select('contact_id,contact_name,category_display').or('category_display.ilike.CNSGNE%,category_display.ilike.WHLSR%');
     if(cErr)throw cErr;
     trdContactCategories={};
-    const contactIds=(contacts||[]).map(c=>{trdContactCategories[c.contact_id]=c.category_display;return c.contact_id;});
+    const contactIds=(contacts||[]).map(c=>{
+      trdContactCategories[c.contact_id]=(c.category_display||'').startsWith('CNSGNE')?'CNSGNE':'WHLSR';
+      return c.contact_id;
+    });
     if(!contactIds.length){allTrdOrders=[];renderTrdStats([]);applyTrdFilters();return;}
     // 2. Get orders for those contacts
     const {data:orders,error:oErr}=await sb.from('jubelio_sales_orders')
