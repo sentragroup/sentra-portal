@@ -3775,6 +3775,8 @@ function renderColDetail(col, items) {
   loadColProductPerf(col.id, col.collectionName);
 }
 
+const SIZE_ORDER = ['XS','S','M','L','XL','XXL','XXXL','XXXXL','4XL','5XL','FREE SIZE','FREE'];
+
 async function loadColProductPerf(colId, colName) {
   const el = document.getElementById(`col-perf-${colId}`);
   if (!el) return;
@@ -3791,22 +3793,29 @@ async function loadColProductPerf(colId, colName) {
 
   const itemIds = [...new Set(mappings.map(m => m.jubelio_item_id).filter(Boolean))];
 
-  // 2. Fetch sales items, stock, adjustments in parallel
-  const [salesItemsRes, stockRes, adjItemsRes] = await Promise.all([
+  // 2. Parallel fetch: sales items, stock, adjustments, item codes (for size extraction)
+  const [salesItemsRes, stockRes, adjItemsRes, itemCodesRes] = await Promise.all([
     sb.from("jubelio_sales_order_items").select("item_id, qty, salesorder_id").in("item_id", itemIds).limit(5000),
     sb.from("jubelio_inventory_stocks").select("item_id, on_hand").in("item_id", itemIds),
     sb.from("jubelio_inventory_adjustment_items").select("item_id, qty").in("item_id", itemIds).limit(5000),
+    sb.from("jubelio_items").select("item_id, item_code").in("item_id", itemIds),
   ]);
 
   const salesItems = salesItemsRes.data || [];
   const stocks     = stockRes.data || [];
   const adjItems   = adjItemsRes.data || [];
 
-  // 3. Get completed orders + dates for those salesorder_ids
-  let completedMap = new Map(); // salesorder_id → transaction_date
+  // Size map: item_id → size label (last segment of item_code after final "-")
+  const sizeMap = {};
+  for (const ji of (itemCodesRes.data || [])) {
+    const parts = (ji.item_code || "").split("-");
+    sizeMap[ji.item_id] = parts[parts.length - 1] || "?";
+  }
+
+  // 3. Get completed orders + dates
+  let completedMap = new Map();
   if (salesItems.length) {
     const soIds = [...new Set(salesItems.map(s => s.salesorder_id))];
-    // Chunk into 200 to avoid URL length limits
     const chunks = [];
     for (let i = 0; i < soIds.length; i += 200) chunks.push(soIds.slice(i, i + 200));
     const results = await Promise.all(chunks.map(chunk =>
@@ -3820,93 +3829,117 @@ async function loadColProductPerf(colId, colName) {
     }
   }
 
-  // 4. Compute aggregates
-  let totalSold = 0, firstSaleDate = null;
+  // 4. Per-variant aggregates
+  const varData = {}; // item_id → { stock, sold, adj }
+  for (const id of itemIds) varData[id] = { stock: 0, sold: 0, adj: 0 };
+  for (const s of stocks) {
+    if (varData[s.item_id] !== undefined) varData[s.item_id].stock += parseFloat(s.on_hand || 0);
+  }
+  for (const si of salesItems) {
+    if (!completedMap.has(si.salesorder_id) || varData[si.item_id] === undefined) continue;
+    varData[si.item_id].sold += parseFloat(si.qty || 0);
+  }
+  for (const a of adjItems) {
+    if (varData[a.item_id] !== undefined) varData[a.item_id].adj += parseFloat(a.qty || 0);
+  }
+
+  // 5. Group by product name, aggregate
+  const productGroups = {};
+  for (const m of mappings) {
+    if (!m.jubelio_item_id) continue;
+    if (!productGroups[m.item_name]) productGroups[m.item_name] = { name: m.item_name, variants: [] };
+    const vd = varData[m.jubelio_item_id] || { stock: 0, sold: 0, adj: 0 };
+    productGroups[m.item_name].variants.push({ id: m.jubelio_item_id, size: sizeMap[m.jubelio_item_id] || "?", ...vd });
+  }
+  const products = Object.values(productGroups).map(p => ({
+    ...p,
+    totalStock: p.variants.reduce((s, v) => s + v.stock, 0),
+    totalSold:  p.variants.reduce((s, v) => s + v.sold,  0),
+    totalAdj:   p.variants.reduce((s, v) => s + v.adj,   0),
+  })).sort((a, b) => b.totalSold - a.totalSold);
+
+  // 6. Grand totals + summary metrics
+  const grandStock = products.reduce((s, p) => s + p.totalStock, 0);
+  const grandSold  = products.reduce((s, p) => s + p.totalSold,  0);
+  const grandAdj   = products.reduce((s, p) => s + p.totalAdj,   0);
+
+  let firstSaleDate = null;
   for (const si of salesItems) {
     if (!completedMap.has(si.salesorder_id)) continue;
-    totalSold += parseFloat(si.qty || 0);
     const d = completedMap.get(si.salesorder_id);
     if (d && (!firstSaleDate || d < firstSaleDate)) firstSaleDate = d;
   }
 
-  const totalStock = stocks.reduce((s, r) => s + parseFloat(r.on_hand || 0), 0);
-  const netAdj     = adjItems.reduce((s, r) => s + parseFloat(r.qty || 0), 0);
-
-  const str = (totalSold + totalStock) > 0
-    ? ((totalSold / (totalSold + totalStock)) * 100).toFixed(1) + "%"
+  const str = (grandSold + grandStock) > 0
+    ? ((grandSold / (grandSold + grandStock)) * 100).toFixed(1) + "%"
     : "—";
   const strNum = parseFloat(str) || 0;
-  const strClrMain = str !== "—" ? (strNum >= 70 ? "#2d7a2d" : strNum >= 30 ? "#e67e00" : "#c0392b") : "var(--black)";
-
+  const strClr = str !== "—" ? (strNum >= 70 ? "#2d7a2d" : strNum >= 30 ? "#e67e00" : "#c0392b") : "var(--black)";
+  const adjStr = grandAdj > 0 ? `+${Math.round(grandAdj)}` : `${Math.round(grandAdj)}`;
+  const adjClr = grandAdj > 0 ? "#2d7a2d" : grandAdj < 0 ? "#c0392b" : "var(--g400)";
   let avgPerDay = "—";
-  if (firstSaleDate && totalSold > 0) {
+  if (firstSaleDate && grandSold > 0) {
     const days = Math.max(1, Math.ceil((Date.now() - new Date(firstSaleDate)) / 86400000));
-    avgPerDay = (totalSold / days).toFixed(1) + "/hari";
+    avgPerDay = (grandSold / days).toFixed(1) + "/hari";
   }
   const fds = firstSaleDate ? firstSaleDate.slice(0, 10) : "—";
 
-  // 5. Per-item breakdown
-  const perItem = {};
-  for (const m of mappings) {
-    if (!m.jubelio_item_id) continue;
-    perItem[m.jubelio_item_id] = { name: m.item_name, sold: 0, stock: 0, adj: 0 };
-  }
-  for (const si of salesItems) {
-    if (!completedMap.has(si.salesorder_id) || !perItem[si.item_id]) continue;
-    perItem[si.item_id].sold += parseFloat(si.qty || 0);
-  }
-  for (const s of stocks) {
-    if (perItem[s.item_id]) perItem[s.item_id].stock += parseFloat(s.on_hand || 0);
-  }
-  for (const a of adjItems) {
-    if (perItem[a.item_id]) perItem[a.item_id].adj += parseFloat(a.qty || 0);
-  }
-  const rows = Object.values(perItem).sort((a, b) => b.sold - a.sold);
-
-  // 6. Render
+  // 7. Render
   const metricCard = (lbl, val, clr) => `
     <div style="border:1px solid var(--g100);border-radius:6px;padding:10px 12px">
       <div style="font-family:var(--mono);font-size:9px;text-transform:uppercase;color:var(--g400);margin-bottom:4px">${lbl}</div>
       <div style="font-weight:700;font-size:15px;color:${clr}">${val}</div>
     </div>`;
 
-  const adjStr  = netAdj > 0 ? `+${Math.round(netAdj)}` : `${Math.round(netAdj)}`;
-  const adjClr  = netAdj > 0 ? "#2d7a2d" : netAdj < 0 ? "#c0392b" : "var(--g400)";
-
   el.innerHTML = `
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:16px">
-      ${metricCard("Sell-through", str, strClrMain)}
-      ${metricCard("Total Terjual", Math.round(totalSold) + " pcs", "var(--black)")}
-      ${metricCard("First Sale", fds, "var(--black)")}
-      ${metricCard("Avg / Hari", avgPerDay, "var(--black)")}
-      ${metricCard("Stock Skrg", Math.round(totalStock) + " pcs", totalStock === 0 ? "#c0392b" : "var(--black)")}
-      ${metricCard("Net Adj", adjStr, adjClr)}
+      ${metricCard("Stock Skrg",    Math.round(grandStock) + " pcs", grandStock === 0 && grandSold > 0 ? "#c0392b" : "var(--black)")}
+      ${metricCard("Net Adj",       adjStr, adjClr)}
+      ${metricCard("Total Terjual", Math.round(grandSold) + " pcs", "var(--black)")}
+      ${metricCard("Sell-through",  str, strClr)}
+      ${metricCard("First Sale",    fds, "var(--black)")}
+      ${metricCard("Avg / Hari",    avgPerDay, "var(--black)")}
     </div>
-    ${rows.length ? `<div class="table-wrap" style="max-height:320px;overflow-y:auto">
+    ${products.length ? `<div class="table-wrap" style="max-height:340px;overflow-y:auto">
       <table style="width:100%">
         <thead><tr style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">
           <th style="padding:6px 10px;text-align:left">Produk</th>
-          <th style="padding:6px 10px;text-align:right">Terjual</th>
-          <th style="padding:6px 10px;text-align:right">STR</th>
           <th style="padding:6px 10px;text-align:right">Stock</th>
           <th style="padding:6px 10px;text-align:right">Net Adj</th>
+          <th style="padding:6px 10px;text-align:right">Terjual</th>
+          <th style="padding:6px 10px;text-align:right">STR</th>
         </tr></thead>
-        <tbody>${rows.map(r => {
-          const iStr  = (r.sold + r.stock) > 0 ? ((r.sold / (r.sold + r.stock)) * 100).toFixed(0) + "%" : "—";
+        <tbody>${products.map(p => {
+          const iStr  = (p.totalSold + p.totalStock) > 0 ? ((p.totalSold / (p.totalSold + p.totalStock)) * 100).toFixed(0) + "%" : "—";
           const iSClr = iStr !== "—" ? (parseFloat(iStr) >= 70 ? "#2d7a2d" : parseFloat(iStr) >= 30 ? "#e67e00" : "#c0392b") : "var(--g400)";
-          const iAStr = r.adj > 0 ? `+${Math.round(r.adj)}` : `${Math.round(r.adj)}`;
-          const iAClr = r.adj > 0 ? "#2d7a2d" : r.adj < 0 ? "#c0392b" : "var(--g400)";
+          const iAStr = p.totalAdj > 0 ? `+${Math.round(p.totalAdj)}` : `${Math.round(p.totalAdj)}`;
+          const iAClr = p.totalAdj > 0 ? "#2d7a2d" : p.totalAdj < 0 ? "#c0392b" : "var(--g400)";
+          const sizePills = p.variants
+            .sort((a, b) => {
+              const ai = SIZE_ORDER.indexOf(a.size.toUpperCase());
+              const bi = SIZE_ORDER.indexOf(b.size.toUpperCase());
+              return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+            })
+            .map(v => {
+              const broken = v.stock === 0;
+              const bg    = broken ? "#fdecea" : "#edf8ee";
+              const color = broken ? "#c0392b" : "#2d7a2d";
+              return `<span title="Stock: ${Math.round(v.stock)} · Terjual: ${Math.round(v.sold)}" style="display:inline-block;padding:1px 5px;border-radius:3px;font-size:9px;font-family:var(--mono);color:${color};background:${bg};margin:1px 1px 0 0">${v.size}</span>`;
+            }).join("");
           return `<tr style="border-top:1px solid var(--g100)">
-            <td style="padding:7px 10px;font-size:12px">${r.name}</td>
-            <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px">${Math.round(r.sold)}</td>
-            <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px;color:${iSClr}">${iStr}</td>
-            <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px${r.stock === 0 && r.sold > 0 ? ";color:#c0392b" : ""}">${Math.round(r.stock)}</td>
+            <td style="padding:7px 10px;font-size:12px">
+              <div style="margin-bottom:3px">${p.name}</div>
+              <div>${sizePills}</div>
+            </td>
+            <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px${p.totalStock === 0 && p.totalSold > 0 ? ";color:#c0392b" : ""}">${Math.round(p.totalStock)}</td>
             <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px;color:${iAClr}">${iAStr}</td>
+            <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px">${Math.round(p.totalSold)}</td>
+            <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px;color:${iSClr}">${iStr}</td>
           </tr>`;
         }).join("")}</tbody>
       </table>
     </div>` : ""}
-    <div style="margin-top:10px;font-size:10px;color:var(--g400);font-family:var(--mono)">${mappings.length} produk ter-mapping</div>
+    <div style="margin-top:10px;font-size:10px;color:var(--g400);font-family:var(--mono)">${products.length} produk · ${itemIds.length} variants ter-mapping</div>
   `;
 }
 
