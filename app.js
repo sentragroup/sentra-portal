@@ -3296,13 +3296,10 @@ async function loadCollections() {
     // Auto-create DW projects + stage placeholders for any collection missing them (background)
     ensureDWProjects(allColRows, dwCheck||[]);
     ensureColStages(allColRows, csData||[]);
-    // Restore collection detail from URL slug (with sessionStorage fallback)
+    // Restore collection detail from URL slug
     const hashParts=location.hash.slice(1).split("/");
-    const _slug=(hashParts[0]==="collections"&&hashParts[1])
-      ? hashParts[1]
-      : sessionStorage.getItem('snt_col_slug')||"";
-    if(_slug){
-      const col=allColRows.find(r=>slugifyCol(r.collectionName)===_slug);
+    if(hashParts[0]==="collections"&&hashParts[1]){
+      const col=allColRows.find(r=>slugifyCol(r.collectionName)===hashParts[1]);
       if(col){openCollectionDetail(col.id);return;}
     }
     await refreshCPLinks();
@@ -3558,7 +3555,6 @@ function openCollectionDetail(colId) {
   const _slug=slugifyCol(col.collectionName);
   history.replaceState(null,"",`#collections/${_slug}`);
   sessionStorage.setItem('snt_page','collections');
-  sessionStorage.setItem('snt_col_slug',_slug);
   renderColDetail(col, allColItems.filter(i=>i.collectionId===colId));
 }
 
@@ -3566,7 +3562,6 @@ function closeCollectionDetail() {
   document.getElementById("col-detail-view").style.display="none";
   document.getElementById("col-list-view").style.display="block";
   history.replaceState(null,"","#collections");
-  sessionStorage.removeItem('snt_col_slug');
 }
 
 function toggleColEditPanel() {
