@@ -3177,7 +3177,8 @@ function mapCol(r) {
     collectionName:r.collection_name||"", ipRelated:r.ip_related||"",
     releaseDate:r.release_date||"", priority:r.priority||"",
     moodboardUrl:r.moodboard_url||"", status:r.status||"Draft",
-    pic:r.pic||"", notes:r.notes||"", dateAdded:r.date_added||"", addedBy:r.added_by||""
+    pic:r.pic||"", notes:r.notes||"", dateAdded:r.date_added||"", addedBy:r.added_by||"",
+    samplingDriveUrl:r.sampling_drive_url||""
   };
 }
 
@@ -3188,7 +3189,6 @@ function mapCI(r) {
     deadline:r.deadline||"", designPreviewUrl:r.design_preview_url||"",
     approvalStatus:r.approval_status||"Pending", notes:r.notes||"",
     samplingStatus:r.sampling_status||"Not Started", samplingNotes:r.sampling_notes||"",
-    samplingDriveUrl:r.sampling_drive_url||"",
     productionStatus:r.production_status||"Not Started", productionNotes:r.production_notes||""
   };
 }
@@ -3645,20 +3645,11 @@ function renderColDetail(col, items) {
       <thead><tr style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">
         <th style="padding:6px 10px;text-align:left">SKU</th>
         <th style="padding:6px 10px;text-align:left">Status</th>
-        <th style="padding:6px 10px;text-align:left">Drive</th>
         <th style="padding:6px 10px;text-align:left">Notes</th>
       </tr></thead>
       <tbody>${items.map(i=>`<tr style="border-top:1px solid var(--g100)">
         <td style="padding:8px 10px"><strong style="font-size:13px">${i.skuName}</strong>${i.category?` <span class="pill p-signings" style="font-size:9px">${i.category}</span>`:""}</td>
         <td style="padding:8px 10px">${cdSkuStatusSelect(i.id,col.id,"sampling",i.samplingStatus)}</td>
-        <td style="padding:8px 10px;white-space:nowrap">
-          <div id="sl-disp-${i.id}">${i.samplingDriveUrl
-            ?`<a href="${i.samplingDriveUrl}" target="_blank" style="font-size:11px;color:#3C3489;text-decoration:none">↗ Lihat</a> <button class="btn-icon" style="font-size:10px" onclick="openSamplingLink('${i.id}')">✏</button>`
-            :`<button class="btn-icon" style="font-size:10px" onclick="openSamplingLink('${i.id}')">+ Link</button>`}</div>
-          <div id="sl-edit-${i.id}" style="display:none">
-            <input type="url" id="sl-inp-${i.id}" value="${(i.samplingDriveUrl||"").replace(/"/g,"&quot;")}" placeholder="https://drive.google.com/..." style="font-size:11px;padding:3px 6px;border:1px solid var(--g200);border-radius:4px;width:180px" onblur="saveSamplingLink('${i.id}','${col.id}',this.value)">
-          </div>
-        </td>
         <td style="padding:8px 10px"><input type="text" value="${(i.samplingNotes||"").replace(/"/g,"&quot;")}" placeholder="Notes..." style="font-size:11px;padding:3px 8px;border:1px solid var(--g100);border-radius:4px;width:100%;min-width:140px" onblur="saveSkuStageNote('${i.id}','${col.id}','sampling',this.value)"></td>
       </tr>`).join("")}</tbody>
     </table>`:`<div style="color:var(--g400);font-size:12px">Belum ada SKU.</div>`;
@@ -3766,7 +3757,21 @@ function renderColDetail(col, items) {
           </div>`:""}
           `)}
         <!-- Sampling -->
-        ${cdStageBox("🧵","Sampling",cdStageBadge(items.length?items.every(i=>i.samplingStatus==="Done")?"Done":items.some(i=>i.samplingStatus!=="Not Started")?"In Progress":"Not Started":"Not Started",`col-sampling-badge-${col.id}`),samplingContent)}
+        ${cdStageBox("🧵","Sampling",`
+          ${cdStageBadge(items.length?items.every(i=>i.samplingStatus==="Done")?"Done":items.some(i=>i.samplingStatus!=="Not Started")?"In Progress":"Not Started":"Not Started",`col-sampling-badge-${col.id}`)}
+          <div id="sl-disp-${col.id}" style="display:inline-flex;align-items:center;gap:4px;margin-left:4px">
+            ${col.samplingDriveUrl
+              ?`<a href="${col.samplingDriveUrl}" target="_blank" style="font-size:11px;color:#3C3489;text-decoration:none;font-family:'DM Mono',monospace">↗ Drive</a>
+                <button class="btn-icon" style="font-size:10px" onclick="openSamplingLink('${col.id}')">✏</button>`
+              :`<button class="btn-icon" style="font-size:10px" onclick="openSamplingLink('${col.id}')">+ Drive</button>`}
+          </div>
+          <div id="sl-edit-${col.id}" style="display:none;align-items:center;gap:4px;margin-left:4px">
+            <input type="url" id="sl-inp-${col.id}" value="${(col.samplingDriveUrl||"").replace(/"/g,"&quot;")}"
+              placeholder="https://drive.google.com/..."
+              style="font-size:11px;padding:2px 6px;border:1px solid var(--g200);border-radius:4px;width:200px"
+              onblur="saveSamplingLink('${col.id}',this.value)"
+              onkeydown="if(event.key==='Enter')this.blur();if(event.key==='Escape'){document.getElementById('sl-edit-${col.id}').style.display='none';document.getElementById('sl-disp-${col.id}').style.display='inline-flex';}">
+          </div>`,samplingContent)}
         <!-- Production -->
         ${(()=>{
           const poLinks=colToPos[col.id]||[];
@@ -4353,28 +4358,28 @@ function renderPipelineBarHTML(colId) {
     </div>`).join("");
 }
 
-// Sampling drive link toggle + save
-function openSamplingLink(itemId) {
-  const disp=document.getElementById(`sl-disp-${itemId}`);
-  const edit=document.getElementById(`sl-edit-${itemId}`);
+// Sampling drive link (collection-level) toggle + save
+function openSamplingLink(colId) {
+  const disp=document.getElementById(`sl-disp-${colId}`);
+  const edit=document.getElementById(`sl-edit-${colId}`);
   if(disp) disp.style.display='none';
-  if(edit){ edit.style.display=''; document.getElementById(`sl-inp-${itemId}`)?.focus(); }
+  if(edit){ edit.style.display='inline-flex'; document.getElementById(`sl-inp-${colId}`)?.select(); }
 }
-async function saveSamplingLink(itemId, colId, url) {
+async function saveSamplingLink(colId, url) {
   const val=url.trim()||null;
   try {
-    await sb.from("collection_items").update({
+    await sb.from("collections").update({
       sampling_drive_url:val, last_updated:new Date().toISOString(), last_updated_by:currentUser
-    }).eq("id",itemId);
-    const item=allColItems.find(i=>i.id===itemId);
-    if(item) item.samplingDriveUrl=val||"";
-    const disp=document.getElementById(`sl-disp-${itemId}`);
-    const edit=document.getElementById(`sl-edit-${itemId}`);
+    }).eq("id",colId);
+    const col=allColRows.find(r=>r.id===colId);
+    if(col) col.samplingDriveUrl=val||"";
+    const disp=document.getElementById(`sl-disp-${colId}`);
+    const edit=document.getElementById(`sl-edit-${colId}`);
     if(disp){
       disp.innerHTML=val
-        ?`<a href="${val}" target="_blank" style="font-size:11px;color:#3C3489;text-decoration:none">↗ Lihat</a> <button class="btn-icon" style="font-size:10px" onclick="openSamplingLink('${itemId}')">✏</button>`
-        :`<button class="btn-icon" style="font-size:10px" onclick="openSamplingLink('${itemId}')">+ Link</button>`;
-      disp.style.display='';
+        ?`<a href="${val}" target="_blank" style="font-size:11px;color:#3C3489;text-decoration:none">↗ Drive</a> <button class="btn-icon" style="font-size:10px" onclick="openSamplingLink('${colId}')">✏</button>`
+        :`<button class="btn-icon" style="font-size:10px" onclick="openSamplingLink('${colId}')">+ Drive</button>`;
+      disp.style.display='inline-flex';
     }
     if(edit) edit.style.display='none';
   } catch(e){/* silent */}
