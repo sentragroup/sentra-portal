@@ -173,7 +173,7 @@ function showPage(name, el) {
       const lv=document.getElementById("col-list-view");
       const dv=document.getElementById("col-detail-view");
       if(lv) lv.style.display="none";
-      if(dv){ dv.style.display="block"; dv.innerHTML='<div style="padding:2rem 2.5rem;color:var(--g400);font-family:\'DM Mono\',monospace;font-size:13px">Memuat collection...</div>'; }
+      if(dv) dv.style.display="block";
     }
     loadCollections();
     setupAC("col-ip","ac-col-ip",()=>allIPRows.map(r=>r.name).filter(Boolean));
