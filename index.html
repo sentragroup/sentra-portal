@@ -1357,11 +1357,11 @@
 
         <!-- KPI cards -->
         <div class="stats-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:1.5rem" id="wh-kpi-row">
-          <div class="stat-card"><div class="stat-num" id="wh-k-putaway">—</div><div class="stat-lbl">Putaway Selesai</div></div>
-          <div class="stat-card"><div class="stat-num" id="wh-k-leadtime">—</div><div class="stat-lbl">Avg Lead Time (jam)</div></div>
-          <div class="stat-card"><div class="stat-num" id="wh-k-items">—</div><div class="stat-lbl">Items Diputaway</div></div>
+          <div class="stat-card"><div class="stat-num" id="wh-k-putaway">—</div><div class="stat-lbl">Bill Putaway</div></div>
+          <div class="stat-card"><div class="stat-num" id="wh-k-items">—</div><div class="stat-lbl">Items Diterima</div></div>
+          <div class="stat-card warn"><div class="stat-num" id="wh-k-pending">—</div><div class="stat-lbl">Belum Putaway</div></div>
           <div class="stat-card"><div class="stat-num" id="wh-k-recv">—</div><div class="stat-lbl">Receiving Accuracy</div></div>
-          <div class="stat-card"><div class="stat-num" id="wh-k-adj">—</div><div class="stat-lbl">PO Butuh Koreksi</div></div>
+          <div class="stat-card danger"><div class="stat-num" id="wh-k-adj">—</div><div class="stat-lbl">PO Qty Kurang</div></div>
         </div>
 
         <!-- Two-col layout: trend + staff -->
@@ -1381,7 +1381,7 @@
         </div>
 
         <!-- Putaway log -->
-        <div class="form-sec" style="margin-bottom:0.75rem">Log Putaway</div>
+        <div class="form-sec" style="margin-bottom:0.75rem">Log Penerimaan (Putaway)</div>
         <div class="table-toolbar">
           <button class="btn-refresh" onclick="loadWHData()">↻ Refresh</button>
           <div class="tcount" id="wh-tcount">— entri</div>
@@ -1390,16 +1390,15 @@
           <table>
             <thead>
               <tr>
-                <th>No</th>
-                <th>Tanggal Selesai</th>
-                <th>Staff</th>
-                <th>Dari</th>
+                <th>Bill No</th>
+                <th>Tgl Terima</th>
+                <th>Supplier</th>
                 <th>Lokasi</th>
+                <th>Diinput</th>
                 <th style="text-align:right">Items</th>
-                <th style="text-align:right">Lead Time</th>
               </tr>
             </thead>
-            <tbody id="wh-log-body"><tr><td class="empty-td" colspan="7">Klik "↻ Refresh" untuk memuat data.</td></tr></tbody>
+            <tbody id="wh-log-body"><tr><td class="empty-td" colspan="6">Klik "↻ Refresh" untuk memuat data.</td></tr></tbody>
           </table>
         </div>
 

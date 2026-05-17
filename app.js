@@ -4985,36 +4985,42 @@ async function syncSMNow(){
 }
 
 // ── WAREHOUSE KPI ──
-let whPutawayRows = [];     // from jubelio_putaway
-let whPORows      = [];     // from jubelio_purchase_orders  (for receiving accuracy)
-let whPOItems     = [];     // from jubelio_purchase_order_items
-let whBillItems   = [];     // from jubelio_purchase_bill_items
-let _whSyncCooldown = 0;
+// All data from existing jubelio_purchase_* tables — no separate putaway sync needed.
+// jubelio_purchase_bills.is_putaway = true  ←  the "putaway done" flag
+// bill_items join via bill_id (NOT purchaseorder_id — that column doesn't exist on bill_items)
+let whBills    = [];   // jubelio_purchase_bills
+let whPOItems  = [];   // jubelio_purchase_order_items (ordered qty)
+let whBillItems= [];   // jubelio_purchase_bill_items  (received qty, key: bill_id)
+let whPORows   = [];   // jubelio_purchase_orders (for PO header display)
 
 async function loadWHData() {
-  const tbody   = document.getElementById("wh-log-body");
-  const recvTb  = document.getElementById("wh-recv-body");
-  if (tbody)  tbody.innerHTML  = `<tr><td class="empty-td" colspan="7">Memuat...</td></tr>`;
+  const tbody  = document.getElementById("wh-log-body");
+  const recvTb = document.getElementById("wh-recv-body");
+  if (tbody)  tbody.innerHTML  = `<tr><td class="empty-td" colspan="6">Memuat...</td></tr>`;
   if (recvTb) recvTb.innerHTML = `<tr><td class="empty-td" colspan="7">Memuat...</td></tr>`;
 
   const [
-    { data: putaway, error: e1 },
-    { data: poRows,  error: e2 },
-    { data: poItems, error: e3 },
-    { data: bItems,  error: e4 },
+    { data: bills,   error: e1 },
+    { data: poItems, error: e2 },
+    { data: bItems,  error: e3 },
+    { data: poRows,  error: e4 },
   ] = await Promise.all([
-    sb.from("jubelio_putaway").select("*").order("complete_date", { ascending: false }),
-    sb.from("jubelio_purchase_orders").select("purchaseorder_id,purchaseorder_no,supplier_name,transaction_date,grand_total,status").order("transaction_date",{ascending:false}),
-    sb.from("jubelio_purchase_order_items").select("purchaseorder_id,item_id,qty"),
-    sb.from("jubelio_purchase_bill_items").select("purchaseorder_id,item_id,qty"),
+    sb.from("jubelio_purchase_bills")
+      .select("bill_id,bill_no,purchaseorder_id,purchaseorder_no,supplier_name,transaction_date,location_name,is_putaway,created_by")
+      .order("transaction_date", { ascending: false }),
+    sb.from("jubelio_purchase_order_items").select("purchaseorder_id,qty"),
+    sb.from("jubelio_purchase_bill_items").select("bill_id,qty"),
+    sb.from("jubelio_purchase_orders").select("purchaseorder_id,purchaseorder_no,supplier_name,transaction_date,status"),
   ]);
 
-  if (e1) { console.error(e1); if (tbody) tbody.innerHTML=`<tr><td class="empty-td" colspan="7">Gagal: ${e1.message}</td></tr>`; return; }
+  if (e1) { console.error(e1); if (tbody) tbody.innerHTML=`<tr><td class="empty-td" colspan="6">Gagal: ${e1.message}</td></tr>`; return; }
+  if (e2) console.warn("PO items error:", e2.message);
+  if (e3) console.warn("Bill items error:", e3.message);
 
-  whPutawayRows = putaway || [];
-  whPORows      = poRows  || [];
-  whPOItems     = poItems || [];
-  whBillItems   = bItems  || [];
+  whBills     = bills    || [];
+  whPOItems   = poItems  || [];
+  whBillItems = bItems   || [];
+  whPORows    = poRows   || [];
 
   renderWHDashboard();
 }
@@ -5029,173 +5035,162 @@ function whPeriodCutoff() {
 
 function renderWHDashboard() {
   const cutoff = whPeriodCutoff();
-  const rows = cutoff
-    ? whPutawayRows.filter(r => r.complete_date && r.complete_date >= cutoff)
-    : whPutawayRows;
 
-  // ── KPI cards ──────────────────────────────────────────────
-  const totalPutaway = rows.length;
-  const totalItems   = rows.reduce((s, r) => s + (r.item_receive || 0), 0);
+  // Bills filtered by period (all bills, not just putaway — for trend/receiving)
+  const periodBills = cutoff
+    ? whBills.filter(b => b.transaction_date && b.transaction_date >= cutoff)
+    : whBills;
 
-  // Lead time in hours (lead_time_min is in minutes, computed column)
-  const ltRows = rows.filter(r => r.lead_time_min != null && r.lead_time_min > 0);
-  const avgLeadHrs = ltRows.length
-    ? (ltRows.reduce((s, r) => s + parseFloat(r.lead_time_min), 0) / ltRows.length / 60).toFixed(1)
-    : "—";
+  // Putaway bills only (within period)
+  const putawayBills = periodBills.filter(b => b.is_putaway === true);
 
-  // Receiving accuracy: POs where bill qty >= po qty (no shortage)
-  const { accuracy, total: recvTotal, needFix } = calcReceivingAccuracy();
-  const accuracyStr = recvTotal > 0 ? accuracy.toFixed(1) + "%" : "—";
+  // bill_id → purchaseorder_id map (from ALL bills, not just period)
+  const billPoMap = {};
+  for (const b of whBills) billPoMap[b.bill_id] = b.purchaseorder_id;
 
-  document.getElementById("wh-k-putaway").textContent  = totalPutaway;
-  document.getElementById("wh-k-leadtime").textContent = avgLeadHrs;
-  document.getElementById("wh-k-items").textContent    = totalItems;
-  document.getElementById("wh-k-recv").textContent     = accuracyStr;
-  document.getElementById("wh-k-adj").textContent      = needFix;
+  // bill_items qty summed per bill_id
+  const billItemQty = {};
+  for (const it of whBillItems) {
+    billItemQty[it.bill_id] = (billItemQty[it.bill_id] || 0) + parseFloat(it.qty || 0);
+  }
 
-  // ── Trend chart (bar by month) ─────────────────────────────
-  renderWHTrendChart(rows);
+  // bill_items qty summed per purchaseorder_id (via billPoMap)
+  const billPoQty = {};
+  for (const [billId, qty] of Object.entries(billItemQty)) {
+    const poId = billPoMap[billId];
+    if (poId != null) billPoQty[poId] = (billPoQty[poId] || 0) + qty;
+  }
 
-  // ── Staff table ────────────────────────────────────────────
-  renderWHStaffTable(rows);
-
-  // ── Putaway log ────────────────────────────────────────────
-  renderWHLog(rows);
-
-  // ── Receiving accuracy detail ─────────────────────────────
-  renderWHRecvDetail();
-}
-
-function calcReceivingAccuracy() {
-  if (!whPORows.length || !whPOItems.length) return { accuracy: 0, total: 0, needFix: 0 };
-
-  // Group PO items qty per PO
+  // po_items qty per purchaseorder_id
   const poQtyMap = {};
   for (const it of whPOItems) {
-    poQtyMap[it.purchaseorder_id] = (poQtyMap[it.purchaseorder_id] || 0) + (it.qty || 0);
-  }
-  // Group bill items qty per PO
-  const billQtyMap = {};
-  for (const it of whBillItems) {
-    billQtyMap[it.purchaseorder_id] = (billQtyMap[it.purchaseorder_id] || 0) + (it.qty || 0);
+    poQtyMap[it.purchaseorder_id] = (poQtyMap[it.purchaseorder_id] || 0) + parseFloat(it.qty || 0);
   }
 
-  // Only consider POs that have items
+  // KPI 1 — putaway count
+  const totalPutaway = putawayBills.length;
+
+  // KPI 2 — items received in putaway bills
+  const totalItems = putawayBills.reduce((s, b) => s + (billItemQty[b.bill_id] || 0), 0);
+
+  // KPI 3 — bills not yet putaway (within period)
+  const notPutaway = periodBills.filter(b => b.is_putaway !== true).length;
+
+  // KPI 4 & 5 — receiving accuracy across ALL POs with items
   const poIds = Object.keys(poQtyMap);
   let accurate = 0, needFix = 0;
   for (const id of poIds) {
-    const ordered  = poQtyMap[id]  || 0;
-    const received = billQtyMap[id] || 0;
+    const ordered  = poQtyMap[id]   || 0;
+    const received = billPoQty[id]  || 0;
     if (received >= ordered) accurate++;
     else needFix++;
   }
-  const total = poIds.length;
-  return { accuracy: total > 0 ? (accurate / total) * 100 : 0, total, needFix };
+  const recvTotal = poIds.length;
+  const accuracyStr = recvTotal > 0 ? ((accurate / recvTotal) * 100).toFixed(1) + "%" : "—";
+
+  document.getElementById("wh-k-putaway").textContent  = totalPutaway;
+  document.getElementById("wh-k-items").textContent    = Math.round(totalItems);
+  document.getElementById("wh-k-pending").textContent  = notPutaway;
+  document.getElementById("wh-k-recv").textContent     = accuracyStr;
+  document.getElementById("wh-k-adj").textContent      = needFix;
+
+  renderWHTrendChart(putawayBills);
+  renderWHStaffTable(putawayBills, billItemQty);
+  renderWHLog(putawayBills, billItemQty);
+  renderWHRecvDetail(poQtyMap, billPoQty);
 }
 
-function renderWHTrendChart(rows) {
+function renderWHTrendChart(putawayBills) {
   const el = document.getElementById("wh-trend-chart");
   if (!el) return;
 
-  // Aggregate by YYYY-MM
   const monthMap = {};
-  for (const r of rows) {
-    if (!r.complete_date) continue;
-    const key = r.complete_date.slice(0, 7); // "YYYY-MM"
+  for (const b of putawayBills) {
+    if (!b.transaction_date) continue;
+    const key = b.transaction_date.slice(0, 7);
     monthMap[key] = (monthMap[key] || 0) + 1;
   }
   const keys = Object.keys(monthMap).sort();
 
   if (!keys.length) {
-    el.innerHTML = `<div style="color:var(--g400);font-size:12px;padding:1rem">Belum ada data putaway.</div>`;
+    el.innerHTML = `<div style="color:var(--g400);font-size:12px;padding:1rem">Belum ada bill yang sudah putaway.</div>`;
     return;
   }
 
   const maxVal = Math.max(...keys.map(k => monthMap[k]), 1);
-  const chartH = 100; // px
-  const barW   = Math.min(44, Math.floor((el.offsetWidth || 400) / keys.length) - 4);
+  const chartH = 100;
+  const barW   = Math.min(44, Math.floor((el.offsetWidth || 360) / keys.length) - 4);
 
   el.innerHTML = keys.map(k => {
     const v   = monthMap[k];
-    const pct = (v / maxVal) * chartH;
-    const lbl = k.slice(5) + "/" + k.slice(2, 4); // "MM/YY"
+    const pct = Math.max((v / maxVal) * chartH, 4);
+    const lbl = k.slice(5) + "/" + k.slice(2, 4);
     return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:${barW}px">
       <div style="font-size:10px;color:var(--g600);font-family:'DM Mono',monospace">${v}</div>
-      <div style="width:${barW - 6}px;height:${pct}px;background:var(--black);border-radius:3px 3px 0 0;min-height:4px"></div>
+      <div style="width:${barW - 6}px;height:${pct}px;background:var(--black);border-radius:3px 3px 0 0"></div>
       <div style="font-size:9px;color:var(--g400);font-family:'DM Mono',monospace;white-space:nowrap">${lbl}</div>
     </div>`;
   }).join("") +
   `<div style="position:absolute;bottom:18px;left:0;right:0;height:1px;background:var(--g200)"></div>`;
 }
 
-function renderWHStaffTable(rows) {
+function renderWHStaffTable(putawayBills, billItemQty) {
   const el = document.getElementById("wh-staff-table");
   if (!el) return;
-  if (!rows.length) { el.innerHTML = `<div style="color:var(--g400);font-size:12px">Belum ada data.</div>`; return; }
+  if (!putawayBills.length) {
+    el.innerHTML = `<div style="color:var(--g400);font-size:12px">Belum ada bill putaway dalam periode ini.</div>`;
+    return;
+  }
 
   const staffMap = {};
-  for (const r of rows) {
-    const name = r.doing_name || "Unknown";
-    if (!staffMap[name]) staffMap[name] = { count: 0, items: 0, totalMin: 0, ltCount: 0 };
+  for (const b of putawayBills) {
+    const name = b.created_by || "Unknown";
+    if (!staffMap[name]) staffMap[name] = { count: 0, items: 0 };
     staffMap[name].count++;
-    staffMap[name].items += r.item_receive || 0;
-    if (r.lead_time_min != null && r.lead_time_min > 0) {
-      staffMap[name].totalMin += parseFloat(r.lead_time_min);
-      staffMap[name].ltCount++;
-    }
+    staffMap[name].items += billItemQty[b.bill_id] || 0;
   }
 
   const sorted = Object.entries(staffMap).sort((a, b) => b[1].count - a[1].count);
   el.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:12px">
     <thead><tr>
-      <th style="text-align:left;padding:4px 8px;color:var(--g400);font-weight:500;font-family:'DM Mono',monospace;border-bottom:1px solid var(--g200)">Staff</th>
-      <th style="text-align:right;padding:4px 8px;color:var(--g400);font-weight:500;font-family:'DM Mono',monospace;border-bottom:1px solid var(--g200)">Putaway</th>
+      <th style="text-align:left;padding:4px 8px;color:var(--g400);font-weight:500;font-family:'DM Mono',monospace;border-bottom:1px solid var(--g200)">Diinput oleh</th>
+      <th style="text-align:right;padding:4px 8px;color:var(--g400);font-weight:500;font-family:'DM Mono',monospace;border-bottom:1px solid var(--g200)">Bill</th>
       <th style="text-align:right;padding:4px 8px;color:var(--g400);font-weight:500;font-family:'DM Mono',monospace;border-bottom:1px solid var(--g200)">Items</th>
-      <th style="text-align:right;padding:4px 8px;color:var(--g400);font-weight:500;font-family:'DM Mono',monospace;border-bottom:1px solid var(--g200)">Avg LT</th>
     </tr></thead>
-    <tbody>${sorted.map(([name, s]) => {
-      const avgHrs = s.ltCount ? (s.totalMin / s.ltCount / 60).toFixed(1) + "j" : "—";
-      return `<tr>
-        <td style="padding:5px 8px;border-bottom:1px solid var(--off)">${name}</td>
-        <td style="padding:5px 8px;text-align:right;border-bottom:1px solid var(--off);font-family:'DM Mono',monospace">${s.count}</td>
-        <td style="padding:5px 8px;text-align:right;border-bottom:1px solid var(--off);font-family:'DM Mono',monospace">${s.items}</td>
-        <td style="padding:5px 8px;text-align:right;border-bottom:1px solid var(--off);font-family:'DM Mono',monospace">${avgHrs}</td>
-      </tr>`;
-    }).join("")}</tbody>
+    <tbody>${sorted.map(([name, s]) => `<tr>
+      <td style="padding:5px 8px;border-bottom:1px solid var(--off)">${name}</td>
+      <td style="padding:5px 8px;text-align:right;border-bottom:1px solid var(--off);font-family:'DM Mono',monospace">${s.count}</td>
+      <td style="padding:5px 8px;text-align:right;border-bottom:1px solid var(--off);font-family:'DM Mono',monospace">${Math.round(s.items)}</td>
+    </tr>`).join("")}</tbody>
   </table>`;
 }
 
-function renderWHLog(rows) {
-  const tbody = document.getElementById("wh-log-body");
+function renderWHLog(putawayBills, billItemQty) {
+  const tbody  = document.getElementById("wh-log-body");
   const tcount = document.getElementById("wh-tcount");
   if (!tbody) return;
-  if (tcount) tcount.textContent = `${rows.length} entri`;
+  if (tcount) tcount.textContent = `${putawayBills.length} entri`;
 
-  if (!rows.length) {
-    tbody.innerHTML = `<tr><td class="empty-td" colspan="7">Belum ada data. Klik "⟳ Sync Jubelio" untuk menarik data terbaru.</td></tr>`;
+  if (!putawayBills.length) {
+    tbody.innerHTML = `<tr><td class="empty-td" colspan="6">Belum ada bill dengan status putaway dalam periode ini.</td></tr>`;
     return;
   }
 
-  tbody.innerHTML = rows.map(r => {
-    const complete = r.complete_date ? r.complete_date.slice(0, 10) : "—";
-    const ltStr    = r.lead_time_min != null
-      ? (parseFloat(r.lead_time_min) >= 60
-          ? (parseFloat(r.lead_time_min) / 60).toFixed(1) + " jam"
-          : Math.round(parseFloat(r.lead_time_min)) + " mnt")
-      : "—";
+  tbody.innerHTML = putawayBills.map(b => {
+    const tgl   = b.transaction_date ? b.transaction_date.slice(0, 10) : "—";
+    const items = billItemQty[b.bill_id] != null ? Math.round(billItemQty[b.bill_id]) : "—";
     return `<tr>
-      <td><span class="pill p-active" style="font-size:10px">${r.putaway_no || "—"}</span></td>
-      <td>${complete}</td>
-      <td>${r.doing_name || "—"}</td>
-      <td style="font-family:'DM Mono',monospace;font-size:11px">${r.from_no || "—"}</td>
-      <td>${r.location_name || "—"}</td>
-      <td style="text-align:right;font-family:'DM Mono',monospace">${r.item_receive ?? "—"}</td>
-      <td style="text-align:right;font-family:'DM Mono',monospace">${ltStr}</td>
+      <td style="font-family:'DM Mono',monospace;font-size:11px">${b.bill_no || "—"}</td>
+      <td>${tgl}</td>
+      <td>${b.supplier_name || "—"}</td>
+      <td>${b.location_name || "—"}</td>
+      <td>${b.created_by || "—"}</td>
+      <td style="text-align:right;font-family:'DM Mono',monospace">${items}</td>
     </tr>`;
   }).join("");
 }
 
-function renderWHRecvDetail() {
+function renderWHRecvDetail(poQtyMap, billPoQty) {
   const tbody  = document.getElementById("wh-recv-body");
   const tcount = document.getElementById("wh-recv-tcount");
   if (!tbody) return;
@@ -5205,26 +5200,15 @@ function renderWHRecvDetail() {
     return;
   }
 
-  // Build maps
-  const poQtyMap = {};
-  for (const it of whPOItems) {
-    poQtyMap[it.purchaseorder_id] = (poQtyMap[it.purchaseorder_id] || 0) + (it.qty || 0);
-  }
-  const billQtyMap = {};
-  for (const it of whBillItems) {
-    billQtyMap[it.purchaseorder_id] = (billQtyMap[it.purchaseorder_id] || 0) + (it.qty || 0);
-  }
-
-  // Join with PO header
   const detail = whPORows
     .filter(p => poQtyMap[p.purchaseorder_id] != null)
     .map(p => {
-      const ordered  = poQtyMap[p.purchaseorder_id]  || 0;
-      const received = billQtyMap[p.purchaseorder_id] || 0;
+      const ordered  = poQtyMap[p.purchaseorder_id] || 0;
+      const received = billPoQty[p.purchaseorder_id] || 0;
       const diff     = received - ordered;
       return { ...p, ordered, received, diff };
     })
-    .sort((a, b) => a.diff - b.diff); // worst (most negative) first
+    .sort((a, b) => a.diff - b.diff);
 
   if (tcount) tcount.textContent = `${detail.length} PO diperiksa`;
 
@@ -5235,8 +5219,8 @@ function renderWHRecvDetail() {
 
   tbody.innerHTML = detail.map(p => {
     const diffStr = p.diff >= 0
-      ? `<span style="color:#2d7a2d">+${p.diff}</span>`
-      : `<span style="color:#c0392b">${p.diff}</span>`;
+      ? `<span style="color:#2d7a2d">+${Math.round(p.diff)}</span>`
+      : `<span style="color:#c0392b">${Math.round(p.diff)}</span>`;
     const status = p.diff >= 0
       ? `<span class="pill p-active">OK</span>`
       : `<span class="pill p-near">Kurang</span>`;
@@ -5245,8 +5229,8 @@ function renderWHRecvDetail() {
       <td style="font-family:'DM Mono',monospace;font-size:11px">${p.purchaseorder_no || "—"}</td>
       <td>${p.supplier_name || "—"}</td>
       <td>${tgl}</td>
-      <td style="text-align:right;font-family:'DM Mono',monospace">${p.ordered}</td>
-      <td style="text-align:right;font-family:'DM Mono',monospace">${p.received}</td>
+      <td style="text-align:right;font-family:'DM Mono',monospace">${Math.round(p.ordered)}</td>
+      <td style="text-align:right;font-family:'DM Mono',monospace">${Math.round(p.received)}</td>
       <td style="text-align:right;font-family:'DM Mono',monospace">${diffStr}</td>
       <td>${status}</td>
     </tr>`;
@@ -5254,21 +5238,17 @@ function renderWHRecvDetail() {
 }
 
 async function whSyncNow() {
+  // Warehouse data comes from PO sync — redirect to PO sync
   const btn = document.getElementById("wh-sync-btn");
   const se  = document.getElementById("wh-sync-status");
-  if (Date.now() < _whSyncCooldown) {
-    if (se) se.textContent = "Tunggu 60 detik...";
-    return;
-  }
-  if (btn) { btn.disabled = true; btn.textContent = "Syncing..."; }
+  if (btn) { btn.disabled = true; btn.textContent = "Syncing PO..."; }
   if (se) se.textContent = "";
   try {
-    const res = await callEdgeFunction("sync-jubelio-warehouse");
-    if (se) se.textContent = `✓ ${res.putawayUpserted || 0} putaway, ${res.locationUpserted || 0} lokasi`;
+    const res = await callEdgeFunction("sync-jubelio-purchase-orders");
+    if (se) se.textContent = `✓ ${res.headersUpserted || 0} PO, ${res.itemsUpserted || 0} items`;
   } catch (err) {
     if (se) se.textContent = `✗ ${err.message}`;
   }
-  _whSyncCooldown = Date.now() + 60000;
   if (btn) { btn.disabled = false; btn.textContent = "⟳ Sync Jubelio"; }
   await loadWHData();
 }
