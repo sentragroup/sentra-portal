@@ -158,7 +158,7 @@ function showPage(name, el) {
   if (name==="collections") { loadCollections(); setupAC("col-ip","ac-col-ip",()=>allIPRows.map(r=>r.name).filter(Boolean)); setupAC("col-pic","ac-col-pic",()=>[...new Set(allColRows.map(r=>r.pic).filter(Boolean))]); }
   if (name==="designermaster") { loadDesignerMaster(); const cats=[...new Set([...DSG_CATEGORIES_DEFAULT,...allDsgRows.map(r=>r.category).filter(Boolean)])]; setupAC("dsg-category","ac-dsg-category",()=>cats); }
   if (name==="dsgworkflow") loadDsgWorkflow();
-  if (name==="warehousekpi" && !whPutawayRows.length) loadWHData();
+  if (name==="warehousekpi" && !whBills.length) loadWHData();
   closeMobileSidebar();
 }
 
@@ -5097,10 +5097,9 @@ function renderWHDashboard() {
   document.getElementById("wh-k-pending").textContent  = notPutaway;
   document.getElementById("wh-k-recv").textContent     = accuracyStr;
 
-  // Inbound trend + location — always ALL-TIME
-  const allTimePutaway = whBills.filter(b => b.is_putaway === true);
-  renderWHTrendChart(allTimePutaway);
-  renderWHLocTable(allTimePutaway, billItemQty);
+  // Inbound trend + location — follow period filter
+  renderWHTrendChart(putawayBills);
+  renderWHLocTable(putawayBills, billItemQty);
   renderWHLog(putawayBills, billItemQty);
   renderWHRecvDetail(poQtyMap, billPoQty);
 
@@ -5239,12 +5238,12 @@ function renderWHOutbound(periodShips) {
   if (document.getElementById("wh-o-items"))   document.getElementById("wh-o-items").textContent   = items;
   if (document.getElementById("wh-o-rate"))    document.getElementById("wh-o-rate").textContent    = fRate;
 
-  // Trend chart (all-time)
-  renderWHBarChart("wh-o-trend", whShipments, "transaction_date");
+  // Trend chart (follow period filter)
+  renderWHBarChart("wh-o-trend", periodShips, "transaction_date");
 
-  // Per-gudang bars (all-time)
+  // Per-gudang bars (follow period filter)
   const locMap = {};
-  for (const s of whShipments) {
+  for (const s of periodShips) {
     const loc = s.location_name || "(tanpa lokasi)";
     locMap[loc] = (locMap[loc] || 0) + 1;
   }
@@ -5284,12 +5283,12 @@ function renderWHInventory(periodAdjs) {
   if (document.getElementById("wh-i-items"))  document.getElementById("wh-i-items").textContent  = skus;
   if (document.getElementById("wh-i-net"))    document.getElementById("wh-i-net").textContent    = netStr;
 
-  // Trend (all-time)
-  renderWHBarChart("wh-i-trend", whAdjHeaders, "transaction_date");
+  // Trend (follow period filter)
+  renderWHBarChart("wh-i-trend", periodAdjs, "transaction_date");
 
-  // Per-gudang (all-time)
+  // Per-gudang (follow period filter)
   const locMap = {};
-  for (const a of whAdjHeaders) {
+  for (const a of periodAdjs) {
     const loc = a.location_name || "(tanpa lokasi)";
     locMap[loc] = (locMap[loc] || 0) + 1;
   }
