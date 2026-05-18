@@ -33,6 +33,20 @@ function updateSortTh(theadId, col, dir) {
     if(th.dataset.col===col){const s=document.createElement('span');s.className='sa';s.textContent=dir==='asc'?' ↑':' ↓';th.appendChild(s);}
   });
 }
+// Fetch every row from a table, paging past PostgREST's 1000-row response cap.
+// extraQ (optional) receives the query builder to add filters/order, e.g. q=>q.eq("x",1).
+async function _fetchAllPages(table, select="*", extraQ){
+  const PAGE=1000; let all=[], from=0;
+  while(true){
+    let q=sb.from(table).select(select).range(from,from+PAGE-1);
+    if(extraQ) q=extraQ(q);
+    const {data,error}=await q; if(error) throw error;
+    all=all.concat(data||[]);
+    if(!data||data.length<PAGE) break;
+    from+=PAGE;
+  }
+  return all;
+}
 // Sort state per module
 let agrSort={col:null,dir:'asc'}, ipSort={col:null,dir:'asc'}, rrSort={col:null,dir:'asc'};
 let bmSort={col:null,dir:'asc'}, ldSort={col:null,dir:'asc'}, dpSort={col:null,dir:'asc'}, logSort={col:'ts',dir:'desc'};
@@ -1839,10 +1853,10 @@ async function loadPopupBooth() {
       const {data} = await sb.from("ip_master").select("*");
       if (data) allIPRows = data.map(mapIP);
     }
-    const [{data,error},{data:jubData},{data:mekData}] = await Promise.all([
+    const [{data,error},jubData,mekData] = await Promise.all([
       sb.from("popup_booths").select("*").order("event_date",{ascending:false}),
-      sb.from("jubelio_sales_orders").select("salesorder_id,grand_total,note"),
-      sb.from("mekari_esign_completions").select("message_id,subject,email_date").order("email_date",{ascending:false})
+      _fetchAllPages("jubelio_sales_orders","salesorder_id,grand_total,note"),
+      _fetchAllPages("mekari_esign_completions","message_id,subject,email_date",q=>q.order("email_date",{ascending:false}))
     ]);
     if (error) throw error;
     allPBRows = (data||[]).map(mapPB);
@@ -2397,11 +2411,10 @@ async function loadMekariEsign() {
   const tbody = document.getElementById("mekariTableBody");
   tbody.innerHTML = `<tr><td class="empty-td" colspan="4">Memuat...</td></tr>`;
   try {
-    const [{data:mekData,error:mekErr},{data:pbData}] = await Promise.all([
-      sb.from("mekari_esign_completions").select("*").order("email_date",{ascending:false}),
+    const [mekData,{data:pbData}] = await Promise.all([
+      _fetchAllPages("mekari_esign_completions","*",q=>q.order("email_date",{ascending:false})),
       sb.from("popup_booths").select("surat_jalan_url,event_name")
     ]);
-    if (mekErr) throw mekErr;
     allMekariRows = (mekData||[]).map(mapMekari);
     // Build map: message_id → event_name
     window._mekariMappedToMap = {};
@@ -2527,12 +2540,12 @@ async function loadPO(){
       to:     document.getElementById("po-fil-to")?.value||""
     };
     // POs with server-side filter+pagination; items/bills/receives load full (supplementary)
-    const [poData,{data:itemData},{data:billData},{data:billItemData},{data:rcvData}]=await Promise.all([
+    const [poData,itemData,billData,billItemData,rcvData]=await Promise.all([
       fetchPOPages(filters),
-      sb.from("jubelio_purchase_order_items").select("*").order("purchaseorder_detail_id",{ascending:true}),
-      sb.from("jubelio_purchase_bills").select("*"),
-      sb.from("jubelio_purchase_bill_items").select("*"),
-      sb.from("jubelio_purchase_receives").select("*")
+      _fetchAllPages("jubelio_purchase_order_items","*",q=>q.order("purchaseorder_detail_id",{ascending:true})),
+      _fetchAllPages("jubelio_purchase_bills"),
+      _fetchAllPages("jubelio_purchase_bill_items"),
+      _fetchAllPages("jubelio_purchase_receives")
     ]);
     allPORows=poData.map(mapPO);
     allPOItems=(itemData||[]).map(mapPOItem);
@@ -3278,19 +3291,19 @@ async function loadCollections() {
     const dwCheck=dwData; // used by ensureDWProjects below
     // Ensure PO data available for the link dropdown + production cards
     const poFetches=[];
-    if(!allPORows.length) poFetches.push(sb.from("jubelio_purchase_orders").select("*").order("transaction_date",{ascending:false}));
-    if(!allPOItems.length) poFetches.push(sb.from("jubelio_purchase_order_items").select("*"));
-    if(!allPOBills.length) poFetches.push(sb.from("jubelio_purchase_bills").select("*"));
-    if(!allPOBillItems.length) poFetches.push(sb.from("jubelio_purchase_bill_items").select("*"));
-    if(!allPOReceives.length) poFetches.push(sb.from("jubelio_purchase_receives").select("*"));
+    if(!allPORows.length) poFetches.push(_fetchAllPages("jubelio_purchase_orders","*",q=>q.order("transaction_date",{ascending:false})));
+    if(!allPOItems.length) poFetches.push(_fetchAllPages("jubelio_purchase_order_items"));
+    if(!allPOBills.length) poFetches.push(_fetchAllPages("jubelio_purchase_bills"));
+    if(!allPOBillItems.length) poFetches.push(_fetchAllPages("jubelio_purchase_bill_items"));
+    if(!allPOReceives.length) poFetches.push(_fetchAllPages("jubelio_purchase_receives"));
     if(poFetches.length){
       const poResults=await Promise.all(poFetches);
       let pi=0;
-      if(!allPORows.length&&poFetches[pi]) { allPORows=(poResults[pi]?.data||[]).map(mapPO); pi++; }
-      if(!allPOItems.length&&poFetches[pi]) { allPOItems=(poResults[pi]?.data||[]).map(mapPOItem); pi++; }
-      if(!allPOBills.length&&poFetches[pi]) { allPOBills=poResults[pi]?.data||[]; pi++; }
-      if(!allPOBillItems.length&&poFetches[pi]) { allPOBillItems=poResults[pi]?.data||[]; pi++; }
-      if(!allPOReceives.length&&poFetches[pi]) { allPOReceives=poResults[pi]?.data||[]; }
+      if(!allPORows.length&&poFetches[pi]) { allPORows=(poResults[pi]||[]).map(mapPO); pi++; }
+      if(!allPOItems.length&&poFetches[pi]) { allPOItems=(poResults[pi]||[]).map(mapPOItem); pi++; }
+      if(!allPOBills.length&&poFetches[pi]) { allPOBills=poResults[pi]||[]; pi++; }
+      if(!allPOBillItems.length&&poFetches[pi]) { allPOBillItems=poResults[pi]||[]; pi++; }
+      if(!allPOReceives.length&&poFetches[pi]) { allPOReceives=poResults[pi]||[]; }
     }
     setupAC("col-ip","ac-col-ip",()=>allIPRows.map(r=>r.name).filter(Boolean));
     setupAC("col-pic","ac-col-pic",()=>[...new Set(allColRows.map(r=>r.pic).filter(Boolean))]);
@@ -3878,20 +3891,16 @@ async function loadColProductPerf(colId, colName) {
   const itemIds = [...new Set(mappings.map(m => m.jubelio_item_id).filter(Boolean))];
 
   // 2. Parallel fetch: sales items, stock, adjustments, item codes (for size extraction)
-  const [salesItemsRes, stockRes, adjItemsRes, itemCodesRes] = await Promise.all([
-    sb.from("jubelio_sales_order_items").select("item_id, qty, salesorder_id").in("item_id", itemIds).limit(5000),
-    sb.from("jubelio_inventory_stocks").select("item_id, on_hand").in("item_id", itemIds),
-    sb.from("jubelio_inventory_adjustment_items").select("item_id, qty").in("item_id", itemIds).limit(5000),
-    sb.from("jubelio_items").select("item_id, item_code").in("item_id", itemIds),
-  ]);
-
-  const salesItems = salesItemsRes.data || [];
-  const stocks     = stockRes.data || [];
-  const adjItems   = adjItemsRes.data || [];
+  const [salesItems, stocks, adjItems, itemCodes] = await Promise.all([
+    _fetchAllPages("jubelio_sales_order_items","item_id, qty, salesorder_id",q=>q.in("item_id",itemIds)),
+    _fetchAllPages("jubelio_inventory_stocks","item_id, on_hand",q=>q.in("item_id",itemIds)),
+    _fetchAllPages("jubelio_inventory_adjustment_items","item_id, qty",q=>q.in("item_id",itemIds)),
+    _fetchAllPages("jubelio_items","item_id, item_code",q=>q.in("item_id",itemIds)),
+  ]).catch(() => [[], [], [], []]);
 
   // Size map: item_id → size label (last segment of item_code after final "-")
   const sizeMap = {};
-  for (const ji of (itemCodesRes.data || [])) {
+  for (const ji of (itemCodes || [])) {
     const parts = (ji.item_code || "").split("-");
     sizeMap[ji.item_id] = parts[parts.length - 1] || "?";
   }
@@ -5139,19 +5148,6 @@ let smSort={col:null,dir:'asc'};
 let _smFiltered=[];
 function sortSmBy(c){smSort.dir=smSort.col===c?(smSort.dir==='asc'?'desc':'asc'):'asc';smSort.col=c;renderSmTable(_smFiltered);}
 
-async function _fetchAllPages(table, select, extraQ){
-  const PAGE=1000; let all=[], from=0;
-  while(true){
-    let q=sb.from(table).select(select).range(from,from+PAGE-1);
-    if(extraQ) q=extraQ(q);
-    const {data,error}=await q; if(error) throw error;
-    all=all.concat(data||[]);
-    if(!data||data.length<PAGE) break;
-    from+=PAGE;
-  }
-  return all;
-}
-
 async function loadStockMovement(){
   const tbody=document.getElementById("smTableBody");
   if(tbody) tbody.innerHTML=`<tr><td class="empty-td" colspan="9">Memuat...</td></tr>`;
@@ -5218,15 +5214,15 @@ async function loadStockMovement(){
       const salesChunks=[], adjChunks=[];
       for(let i=0;i<itemIds.length;i+=BATCH){
         const ids=itemIds.slice(i,i+BATCH);
-        salesChunks.push(sb.from("jubelio_sales_order_items").select("item_id,qty").in("item_id",ids));
-        adjChunks.push(sb.from("jubelio_inventory_adjustment_items").select("item_id,item_adj_id").in("item_id",ids));
+        salesChunks.push(_fetchAllPages("jubelio_sales_order_items","item_id,qty",q=>q.in("item_id",ids)));
+        adjChunks.push(_fetchAllPages("jubelio_inventory_adjustment_items","item_id,item_adj_id",q=>q.in("item_id",ids)));
       }
       const results=await Promise.all([...salesChunks,...adjChunks]);
       const half=salesChunks.length;
-      results.slice(0,half).forEach(({data})=>(data||[]).forEach(r=>{
+      results.slice(0,half).forEach(data=>(data||[]).forEach(r=>{
         if(r.item_id!=null) smSalesMap[r.item_id]=(smSalesMap[r.item_id]||0)+(Number(r.qty)||0);
       }));
-      results.slice(half).forEach(({data})=>(data||[]).forEach(r=>{
+      results.slice(half).forEach(data=>(data||[]).forEach(r=>{
         if(r.item_id!=null){
           if(!smAdjMap[r.item_id]) smAdjMap[r.item_id]=new Set();
           smAdjMap[r.item_id].add(r.item_adj_id);
@@ -5412,7 +5408,7 @@ async function syncSMNow(){
 // bill_items join via bill_id (NOT purchaseorder_id — that column doesn't exist on bill_items)
 let whBills        = [];   // jubelio_purchase_bills
 let whPOItems      = [];   // jubelio_purchase_order_items (ordered qty)
-let whShipments    = [];   // jubelio_sales_orders WHERE wms_status=COMPLETED (≤1000 rows, for display)
+let whShipments    = [];   // jubelio_sales_orders WHERE wms_status=COMPLETED (all pages)
 let whReturns      = [];   // jubelio_sales_orders WHERE wms_status=RETURNED
 let whAdjHeaders   = [];   // jubelio_inventory_adjustments
 let whBillItems    = [];   // jubelio_purchase_bill_items  (received qty, key: bill_id)
@@ -5427,37 +5423,31 @@ async function loadWHData() {
   if (tbody)  tbody.innerHTML  = `<tr><td class="empty-td" colspan="5">Memuat...</td></tr>`;
   if (recvTb) recvTb.innerHTML = `<tr><td class="empty-td" colspan="7">Memuat...</td></tr>`;
 
-  const [
-    { data: bills   }, { data: poItems }, { data: bItems }, { data: poRows },
-    { data: ships   }, { data: adjs    }, { data: rets    }, { data: cStats  },
-  ] = await Promise.all([
-    sb.from("jubelio_purchase_bills")
-      .select("bill_id,bill_no,purchaseorder_id,supplier_name,transaction_date,location_name,is_putaway")
-      .order("transaction_date", { ascending: false }),
-    sb.from("jubelio_purchase_order_items").select("purchaseorder_id,qty"),
-    sb.from("jubelio_purchase_bill_items").select("bill_id,qty"),
-    sb.from("jubelio_purchase_orders").select("purchaseorder_id,purchaseorder_no,supplier_name,transaction_date,status"),
-    sb.from("jubelio_sales_orders")
-      .select("salesorder_id,salesorder_no,transaction_date,awb_created_date,location_name,customer_name,courier")
-      .eq("wms_status", "COMPLETED")
-      .order("transaction_date", { ascending: false }),
-    sb.from("jubelio_inventory_adjustments")
-      .select("item_adj_id,item_adj_no,transaction_date,location_name,net_qty,item_count,note")
-      .order("transaction_date", { ascending: false }),
-    sb.from("jubelio_sales_orders")
-      .select("salesorder_id,courier,transaction_date,location_name")
-      .eq("wms_status", "RETURNED"),
-    sb.from("wh_courier_stats").select("courier,completed_count,returned_count,total_count"),
-  ]);
+  let bills, poItems, bItems, poRows, ships, adjs, rets, cStatsRes;
+  try {
+    [ bills, poItems, bItems, poRows, ships, adjs, rets, cStatsRes ] = await Promise.all([
+      _fetchAllPages("jubelio_purchase_bills","bill_id,bill_no,purchaseorder_id,supplier_name,transaction_date,location_name,is_putaway",q=>q.order("transaction_date",{ascending:false})),
+      _fetchAllPages("jubelio_purchase_order_items","purchaseorder_id,qty"),
+      _fetchAllPages("jubelio_purchase_bill_items","bill_id,qty"),
+      _fetchAllPages("jubelio_purchase_orders","purchaseorder_id,purchaseorder_no,supplier_name,transaction_date,status"),
+      _fetchAllPages("jubelio_sales_orders","salesorder_id,salesorder_no,transaction_date,awb_created_date,location_name,customer_name,courier",q=>q.eq("wms_status","COMPLETED").order("transaction_date",{ascending:false})),
+      _fetchAllPages("jubelio_inventory_adjustments","item_adj_id,item_adj_no,transaction_date,location_name,net_qty,item_count,note",q=>q.order("transaction_date",{ascending:false})),
+      _fetchAllPages("jubelio_sales_orders","salesorder_id,courier,transaction_date,location_name",q=>q.eq("wms_status","RETURNED")),
+      sb.from("wh_courier_stats").select("courier,completed_count,returned_count,total_count"),
+    ]);
+  } catch (e) {
+    if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="5">Gagal memuat: ${e.message||e}</td></tr>`;
+    return;
+  }
 
-  whBills        = bills  || [];
+  whBills        = bills   || [];
   whPOItems      = poItems || [];
   whBillItems    = bItems  || [];
   whPORows       = poRows  || [];
   whShipments    = ships   || [];
   whAdjHeaders   = adjs    || [];
   whReturns      = rets    || [];
-  whCourierStats = cStats  || [];
+  whCourierStats = cStatsRes?.data || [];
 
   populateWHGudangFilter();
   renderWHDashboard();
@@ -6032,17 +6022,14 @@ async function loadRetData() {
   const tbody = document.getElementById("ret-tbody");
   if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="7">Memuat...</td></tr>`;
 
-  const [{ data: orders, error: ordErr }, { data: reasons }] = await Promise.all([
-    sb.from("jubelio_sales_orders")
-      .select("salesorder_id,salesorder_no,transaction_date,location_name,customer_name,courier")
-      .eq("wms_status", "RETURNED")
-      .order("transaction_date", { ascending: false }),
-    sb.from("return_reason_categories")
-      .select("salesorder_id,reason_category,notes,categorized_by,updated_at"),
-  ]);
-
-  if (ordErr) {
-    if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="7">Error: ${ordErr.message}</td></tr>`;
+  let orders, reasons;
+  try {
+    [orders, reasons] = await Promise.all([
+      _fetchAllPages("jubelio_sales_orders","salesorder_id,salesorder_no,transaction_date,location_name,customer_name,courier",q=>q.eq("wms_status","RETURNED").order("transaction_date",{ascending:false})),
+      _fetchAllPages("return_reason_categories","salesorder_id,reason_category,notes,categorized_by,updated_at"),
+    ]);
+  } catch (e) {
+    if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="7">Error: ${e.message||e}</td></tr>`;
     return;
   }
 
@@ -6343,17 +6330,14 @@ async function loadSAData() {
   const tbody = document.getElementById("sa-tbody");
   if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="7">Memuat...</td></tr>`;
 
-  const [{ data: adjs, error: adjErr }, { data: cats }] = await Promise.all([
-    sb.from("jubelio_inventory_adjustments")
-      .select("item_adj_id,item_adj_no,transaction_date,location_name,net_qty,item_count,note")
-      .gte("transaction_date", "2026-01-01")
-      .order("transaction_date", { ascending: false }),
-    sb.from("adjustment_categories")
-      .select("item_adj_id,category,categorized_by,updated_at"),
-  ]);
-
-  if (adjErr) {
-    if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="7">Error: ${adjErr.message}</td></tr>`;
+  let adjs, cats;
+  try {
+    [adjs, cats] = await Promise.all([
+      _fetchAllPages("jubelio_inventory_adjustments","item_adj_id,item_adj_no,transaction_date,location_name,net_qty,item_count,note",q=>q.gte("transaction_date","2026-01-01").order("transaction_date",{ascending:false})),
+      _fetchAllPages("adjustment_categories","item_adj_id,category,categorized_by,updated_at"),
+    ]);
+  } catch (e) {
+    if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="7">Error: ${e.message||e}</td></tr>`;
     return;
   }
 
@@ -6761,15 +6745,13 @@ async function loadTradeOrders(){
     });
     if(!contactIds.length){allTrdOrders=[];renderTrdStats([]);applyTrdFilters();return;}
     // 2. Get orders for those contacts
-    const {data:orders,error:oErr}=await sb.from('jubelio_sales_orders')
-      .select('salesorder_id,salesorder_no,invoice_no,transaction_date,customer_name,contact_id,channel_status,internal_status,is_paid,is_canceled,grand_total,buyer_shipping_cost')
-      .in('contact_id',contactIds).order('transaction_date',{ascending:false});
-    if(oErr)throw oErr;
-    // 3. Get tracking
+    const orders=await _fetchAllPages('jubelio_sales_orders','salesorder_id,salesorder_no,invoice_no,transaction_date,customer_name,contact_id,channel_status,internal_status,is_paid,is_canceled,grand_total,buyer_shipping_cost',q=>q.in('contact_id',contactIds).order('transaction_date',{ascending:false}));
+    // 3. Get tracking — chunk salesorder_ids to keep the .in() URL within limits
     const orderIds=(orders||[]).map(o=>o.salesorder_id);
     let trackingMap={};
-    if(orderIds.length){
-      const {data:tracking}=await sb.from('trade_order_tracking').select('*').in('salesorder_id',orderIds);
+    for(let i=0;i<orderIds.length;i+=500){
+      const chunk=orderIds.slice(i,i+500);
+      const {data:tracking}=await sb.from('trade_order_tracking').select('*').in('salesorder_id',chunk);
       (tracking||[]).forEach(t=>{trackingMap[t.salesorder_id]=t;});
     }
     allTrdOrders=(orders||[]).map(o=>({...o,categoryDisplay:trdContactCategories[o.contact_id]||''}));
