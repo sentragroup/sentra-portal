@@ -156,6 +156,7 @@
 
         <div class="sb-label" style="margin-bottom:0.6rem">Warehouse</div>
         <div class="home-grid">
+          <div class="tool-card" onclick="showPage('invcheck',null)"><span class="tc-icon">📦</span><div class="tc-name">Inventory Check</div><div class="tc-desc">Cek stok per parent item di setiap kategori gudang — Inbound, Online, Offline, Event, Consignment.</div></div>
           <div class="tool-card" onclick="showPage('warehousekpi',null)"><span class="tc-icon">🏭</span><div class="tc-name">Warehouse KPI</div><div class="tc-desc">Monitor putaway performance, receiving accuracy, dan stock adjustment per gudang.</div></div>
           <div class="tool-card" onclick="showPage('stockadjmgmt',null)"><span class="tc-icon">📋</span><div class="tc-name">Stock Adjustment</div><div class="tc-desc">Kategorisasi dan monitoring alasan adjustment stok 2026.</div></div>
           <div class="tool-card" onclick="showPage('returnreason',null)"><span class="tc-icon">↩️</span><div class="tc-name">Return Reason</div><div class="tc-desc">Mapping alasan retur customer per order.</div></div>
@@ -1730,6 +1731,51 @@
       </div>
     </div>
 
+<!-- INVENTORY CHECK -->
+    <div class="page" id="page-invcheck">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Inventory Check</div>
+          <div class="page-sub">Stok per parent item di setiap gudang — dari Jubelio.</div>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+          <button class="btn-refresh" onclick="loadInvCheck()">↻ Sync Inventory</button>
+          <div id="inv-sync-note" style="font-family:var(--mono);font-size:10px;color:var(--g400)">—</div>
+        </div>
+      </div>
+      <div id="inv-cat-cards" style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:1.5rem"></div>
+      <div class="filter-panel" style="margin-bottom:1.25rem">
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap">
+            <div>
+              <div class="filter-panel-label" style="margin-bottom:6px">Kategori Gudang</div>
+              <div id="inv-f-cats" style="display:flex;flex-wrap:wrap;gap:5px"></div>
+            </div>
+            <div style="width:1px;background:var(--g200);align-self:stretch;margin:0 4px"></div>
+            <div style="flex:1;min-width:200px">
+              <div class="filter-panel-label" style="margin-bottom:6px">Nama Gudang</div>
+              <div id="inv-f-whs" style="display:flex;flex-wrap:wrap;gap:5px"></div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;border-top:1px solid var(--g100);padding-top:10px">
+            <div class="filter-panel-label">Cari:</div>
+            <input type="text" id="inv-f-search" placeholder="Nama parent item..." oninput="invSearchDebounce()" style="padding:6px 10px;border:1px solid var(--g200);border-radius:6px;font-family:var(--body);font-size:12px;outline:none;width:260px;background:var(--white);color:var(--black)">
+            <button class="btn-clear-filter" onclick="clearInvFilters()">Reset Filter</button>
+            <div class="tcount" id="inv-tcount" style="margin-left:auto">—</div>
+          </div>
+        </div>
+      </div>
+      <div id="inv-table-container"></div>
+      <div id="inv-pagination" style="display:flex;align-items:center;justify-content:center;gap:6px;margin-top:1rem;flex-wrap:wrap"></div>
+      <div style="display:flex;align-items:center;gap:16px;margin-top:12px;padding:10px 14px;background:var(--off);border-radius:8px;flex-wrap:wrap">
+        <span style="font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--g400)">Keterangan:</span>
+        <span style="display:flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10px"><span style="width:8px;height:8px;border-radius:50%;background:var(--black);display:inline-block"></span>Normal (&gt;10)</span>
+        <span style="display:flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10px;color:#b35900"><span style="width:8px;height:8px;border-radius:50%;background:#f5a623;display:inline-block"></span>Rendah (1–10)</span>
+        <span style="display:flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10px;color:#c0392b"><span style="width:8px;height:8px;border-radius:50%;background:#e74c3c;display:inline-block"></span>Habis (0)</span>
+        <span style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--g400)">Klik ▾ N SKU untuk detail per SKU</span>
+      </div>
+    </div>
+
   </div>
   </div>
 </div>
@@ -1749,6 +1795,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260518i"></script>
+<script src="app.js?v=20260521a"></script>
 </body>
 </html>
