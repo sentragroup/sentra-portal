@@ -1808,15 +1808,15 @@
 
 <!-- PROJECT BOARD -->
 <div class="page" id="page-project">
-  <div class="page-header" style="flex-wrap:wrap;gap:10px">
+  <div class="page-header" style="align-items:center">
     <div><div class="page-title">Project Board</div><div class="page-sub">Kanban tracker semua project tim</div></div>
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      <input type="text" id="proj-search" placeholder="Cari project..." oninput="projSearchDebounce()" style="padding:7px 11px;border:1px solid var(--g200);border-radius:8px;font-size:13px;width:200px;outline:none">
-      <select id="proj-cat-filter" onchange="projCatFilterChange()" style="padding:7px 11px;border:1px solid var(--g200);border-radius:8px;font-size:13px;background:var(--white);cursor:pointer">
+    <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
+      <input type="text" id="proj-search" placeholder="Cari project..." oninput="projSearchDebounce()" style="padding:7px 11px;border:1px solid var(--g200);border-radius:8px;font-size:13px;width:180px;outline:none">
+      <select id="proj-cat-filter" onchange="projCatFilterChange()" style="padding:7px 11px;border:1px solid var(--g200);border-radius:8px;font-size:13px;background:var(--white);cursor:pointer;width:160px">
         <option value="">Semua Kategori</option>
       </select>
-      <button onclick="openProjectDetail(null)" style="padding:7px 16px;background:var(--black);color:var(--white);border:none;border-radius:8px;font-size:13px;cursor:pointer;font-family:var(--body)">+ Tambah</button>
-      <button onclick="openProjCatManager()" style="padding:7px 12px;background:none;border:1px solid var(--g200);border-radius:8px;font-size:13px;cursor:pointer;color:var(--g600)" title="Kelola kategori">⚙ Kategori</button>
+      <button onclick="openProjectDetail(null)" style="padding:7px 16px;background:var(--black);color:var(--white);border:none;border-radius:8px;font-size:13px;cursor:pointer;font-family:var(--body);white-space:nowrap">+ Tambah</button>
+      <button onclick="openProjCatManager()" style="padding:7px 12px;background:none;border:1px solid var(--g200);border-radius:8px;font-size:13px;cursor:pointer;color:var(--g600);white-space:nowrap" title="Kelola kategori">⚙ Kategori</button>
     </div>
   </div>
   <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
