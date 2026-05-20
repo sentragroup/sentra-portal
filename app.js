@@ -132,7 +132,7 @@ function enterApp(user, freshLogin) {
   // Restore page: prefer URL hash, fall back to sessionStorage
   let _pg = location.hash.slice(1).split('/')[0];
   if (!_pg) _pg = sessionStorage.getItem('snt_page') || '';
-  const _pages = ['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','popupbooth','activitylog','jubsales','mesign','po','stockmovement','productmap','collections','designermaster','dsgworkflow','warehousekpi','stockadjmgmt','returnreason','tradorders'];
+  const _pages = ['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','popupbooth','activitylog','jubsales','mesign','po','stockmovement','productmap','collections','designermaster','dsgworkflow','warehousekpi','stockadjmgmt','returnreason','tradorders','invcheck'];
   if (_pages.includes(_pg))
     showPage(_pg, document.getElementById('nav-'+_pg));
 }
@@ -155,7 +155,7 @@ function showPage(name, el) {
   document.querySelectorAll(".sb-item").forEach(i=>i.classList.remove("active"));
   document.getElementById("page-"+name).classList.add("active");
   if (el) el.classList.add("active");
-  const labels = {home:"Internal Tools",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",stockmovement:"Stock Movement",productmap:"Product Mapping",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders"};
+  const labels = {home:"Internal Tools",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",stockmovement:"Stock Movement",productmap:"Product Mapping",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -199,6 +199,7 @@ function showPage(name, el) {
   if (name==="stockadjmgmt" && !saAdjustments.length) loadSAData();
   if (name==="returnreason" && !retOrders.length) loadRetData();
   if (name==="tradorders") loadTradeOrders();
+  if (name==="invcheck") loadInvCheck();
   closeMobileSidebar();
 }
 
@@ -7046,6 +7047,345 @@ async function saveTrdTracking(sid){
     // Reload detail to refresh PO comparison with new linked_po_id
     await loadTrdDetail(sid);
   }catch(e){if(fb)fb.innerHTML=`<span class="fb-err">Gagal: ${e.message||e}</span>`;}
+}
+
+// ── INVENTORY CHECK ──
+let invLocations = [];   // [{location_id, location_name, category}]
+let invStockFlat = [];   // all rows from jubelio_inventory_by_location
+let invGroups    = [];   // built by rebuildInvGroups() — sorted parent items
+let invStockMap  = {};   // key: `${location_id}_${item_id}` -> row (fast lookup)
+let invFilterCats = new Set(['Inbound','Online','Offline','Event','Consignment']);
+let invFilterWhs  = new Set();
+let invFilterSearch = '';
+let invPage = 1;
+const INV_PAGE_SIZE = 20;
+let _invSearchTimer = null;
+
+const INV_CAT_ORDER = ['Inbound','Online','Offline','Event','Consignment'];
+const INV_CAT_CFG = {
+  Inbound:     {bg:'#e8f0fc',border:'#a8c4f0',text:'#1a4a8a',colBg:'#f0f5fd',icon:'↓'},
+  Online:      {bg:'#edf8ee',border:'#90d4a0',text:'#1a5c25',colBg:'#f0f9f1',icon:'🌐'},
+  Offline:     {bg:'#f5ecfc',border:'#d4a0e8',text:'#5c1a6e',colBg:'#f8f0fc',icon:'🏪'},
+  Event:       {bg:'#fff3e0',border:'#ffcc80',text:'#7a4000',colBg:'#fffaf0',icon:'🎪'},
+  Consignment: {bg:'#e0f4f4',border:'#80d4d4',text:'#1a5050',colBg:'#f0fafa',icon:'⇄'}
+};
+const INV_CAT_SVG = {
+  Inbound:     `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" width="18" height="18"><rect x="2" y="8" width="12" height="6" rx="1"/><path d="M8 2v8"/><path d="M5 7l3 3 3-3"/></svg>`,
+  Online:      `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" width="18" height="18"><circle cx="8" cy="8" r="6"/><path d="M8 2c-2 2-3 4-3 6s1 4 3 6"/><path d="M8 2c2 2 3 4 3 6s-1 4-3 6"/><line x1="2" y1="8" x2="14" y2="8"/></svg>`,
+  Offline:     `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" width="18" height="18"><path d="M2 6l6-4 6 4v8H2V6z"/><rect x="5" y="9" width="3" height="5"/><rect x="8" y="9" width="3" height="3"/></svg>`,
+  Event:       `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" width="18" height="18"><rect x="2" y="3" width="12" height="11" rx="1"/><path d="M5 2v2M11 2v2M2 7h12"/></svg>`,
+  Consignment: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" width="18" height="18"><path d="M4 8h8"/><path d="M10 5l3 3-3 3"/><path d="M6 5L3 8l3 3"/></svg>`
+};
+
+function invEsc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+async function loadInvCheck(){
+  const container=document.getElementById('inv-table-container');
+  const catsEl=document.getElementById('inv-cat-cards');
+  if(container) container.innerHTML=`<div style="padding:2.5rem;text-align:center;font-family:var(--mono);font-size:12px;color:var(--g400)">Memuat...</div>`;
+  if(catsEl) catsEl.innerHTML='';
+  try{
+    const [{data:cats,error:cErr},{data:stock,error:sErr}]=await Promise.all([
+      sb.from('warehouse_categories').select('location_id,location_name,category,is_active').eq('is_active',true).order('category').order('location_name'),
+      sb.from('jubelio_inventory_by_location').select('location_id,item_id,item_code,item_name,item_group_id,item_group_name,brand_name,qty_on_hand,qty_available,synced_at')
+    ]);
+    if(cErr) throw cErr;
+    if(sErr) throw sErr;
+    invLocations=(cats||[]);
+    invStockFlat=(stock||[]);
+    // Build fast lookup map
+    invStockMap={};
+    for(const s of invStockFlat) invStockMap[`${s.location_id}_${s.item_id}`]=s;
+    // Init warehouse filter with all active locations
+    invFilterWhs=new Set(invLocations.map(l=>l.location_id));
+    // Sync note
+    const syncNote=document.getElementById('inv-sync-note');
+    if(syncNote){
+      const latest=invStockFlat.reduce((m,r)=>((r.synced_at||'')>(m||''))?r.synced_at:m,'');
+      syncNote.textContent=latest?'Terakhir sync: '+new Date(latest).toLocaleString('id-ID',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}):'Belum pernah sync';
+    }
+    rebuildInvGroups();
+    renderInvFilterChips();
+    renderInvCatCards();
+    invPage=1;
+    applyInvFilters();
+  }catch(e){
+    if(container) container.innerHTML=`<div style="padding:2rem;color:#c0392b;font-family:var(--mono);font-size:12px">Gagal: ${invEsc(e.message||String(e))}</div>`;
+  }
+}
+
+function rebuildInvGroups(){
+  const groupMap={};
+  for(const row of invStockFlat){
+    const gid=row.item_group_id??row.item_id;
+    if(!groupMap[gid]){
+      const pName=row.item_group_name||invDeriveParentName(row.item_name);
+      groupMap[gid]={item_group_id:gid,parent_name:pName,brand_name:row.brand_name||'',skus:[],byLocation:{}};
+    }
+    const g=groupMap[gid];
+    // avoid duplicate skus (shouldn't happen with UNIQUE constraint)
+    if(!g.skus.find(s=>s.item_id===row.item_id && s.location_id===row.location_id)) g.skus.push(row);
+    const locId=row.location_id;
+    g.byLocation[locId]=(g.byLocation[locId]||0)+parseFloat(row.qty_on_hand||0);
+  }
+  invGroups=Object.values(groupMap).sort((a,b)=>a.parent_name.localeCompare(b.parent_name,'id'));
+}
+
+function invDeriveParentName(name){
+  if(!name) return '—';
+  const parts=name.split(' - ');
+  return parts.length>1?parts.slice(0,-1).join(' - '):name;
+}
+
+function renderInvFilterChips(){
+  const catsEl=document.getElementById('inv-f-cats');
+  const whsEl=document.getElementById('inv-f-whs');
+  if(!catsEl||!whsEl) return;
+  const chipBase='display:inline-flex;align-items:center;padding:4px 10px;border-radius:99px;font-size:11px;font-family:var(--mono);cursor:pointer;border:1px solid;white-space:nowrap;transition:all .12s;';
+  catsEl.innerHTML=INV_CAT_ORDER.map(cat=>{
+    const cfg=INV_CAT_CFG[cat];
+    const active=invFilterCats.has(cat);
+    const st=active?`background:${cfg.text};color:#fff;border-color:${cfg.text}`:`background:var(--white);color:var(--g600);border-color:var(--g200)`;
+    return `<span style="${chipBase}${st}" onclick="toggleInvCatFilter('${cat}',this)">${cfg.icon} ${cat}</span>`;
+  }).join('');
+  if(!invLocations.length){
+    whsEl.innerHTML=`<span style="font-family:var(--mono);font-size:10px;color:var(--g400)">Belum ada gudang — tambahkan ke tabel warehouse_categories.</span>`;
+    return;
+  }
+  whsEl.innerHTML=invLocations.map(loc=>{
+    const cfg=INV_CAT_CFG[loc.category]||{text:'var(--black)'};
+    const active=invFilterWhs.has(loc.location_id);
+    const st=active?`background:${cfg.text};color:#fff;border-color:${cfg.text}`:`background:var(--white);color:var(--g600);border-color:var(--g200)`;
+    return `<span style="${chipBase}${st}" onclick="toggleInvWhFilter(${loc.location_id},this)">${invEsc(loc.location_name)}</span>`;
+  }).join('');
+}
+
+function toggleInvCatFilter(cat,el){
+  if(invFilterCats.has(cat)){if(invFilterCats.size<=1) return; invFilterCats.delete(cat);}
+  else invFilterCats.add(cat);
+  // Sync warehouse filter to match active categories
+  invFilterWhs=new Set(invLocations.filter(l=>invFilterCats.has(l.category)).map(l=>l.location_id));
+  renderInvFilterChips();
+  invPage=1; applyInvFilters();
+}
+
+function toggleInvWhFilter(locId,el){
+  const active=invFilterWhs.has(locId);
+  if(active){if(invFilterWhs.size<=1) return; invFilterWhs.delete(locId);}
+  else invFilterWhs.add(locId);
+  const loc=invLocations.find(l=>l.location_id===locId);
+  const cfg=INV_CAT_CFG[loc?.category]||{text:'var(--black)'};
+  const now=invFilterWhs.has(locId);
+  el.style.background=now?cfg.text:'var(--white)';
+  el.style.color=now?'#fff':'var(--g600)';
+  el.style.borderColor=now?cfg.text:'var(--g200)';
+  invPage=1; applyInvFilters();
+}
+
+function invSearchDebounce(){
+  clearTimeout(_invSearchTimer);
+  _invSearchTimer=setTimeout(()=>{
+    invFilterSearch=(document.getElementById('inv-f-search')?.value||'').toLowerCase().trim();
+    invPage=1; applyInvFilters();
+  },300);
+}
+
+function clearInvFilters(){
+  invFilterCats=new Set(INV_CAT_ORDER);
+  invFilterWhs=new Set(invLocations.map(l=>l.location_id));
+  invFilterSearch='';
+  const s=document.getElementById('inv-f-search'); if(s) s.value='';
+  renderInvFilterChips();
+  invPage=1; applyInvFilters();
+}
+
+function applyInvFilters(){
+  const activeCols=invLocations.filter(l=>invFilterCats.has(l.category)&&invFilterWhs.has(l.location_id));
+  let filtered=invGroups;
+  if(invFilterSearch) filtered=filtered.filter(g=>g.parent_name.toLowerCase().includes(invFilterSearch)||g.brand_name.toLowerCase().includes(invFilterSearch));
+  const totalSkus=filtered.reduce((s,g)=>s+new Set(g.skus.map(sk=>sk.item_code)).size,0);
+  const tcEl=document.getElementById('inv-tcount');
+  if(tcEl) tcEl.textContent=`${filtered.length} parent item · ${totalSkus} SKU`;
+  renderInvTable(filtered,activeCols,invPage);
+  renderInvPagination(filtered.length,invPage,activeCols);
+}
+
+function renderInvTable(groups,columns,page){
+  const container=document.getElementById('inv-table-container');
+  if(!container) return;
+  if(!invLocations.length){
+    container.innerHTML=`<div style="padding:3rem;text-align:center;font-family:var(--mono);font-size:12px;color:var(--g400)">Belum ada gudang dikonfigurasi.<br>Tambahkan data ke tabel <b>warehouse_categories</b> di Supabase.</div>`;
+    return;
+  }
+  if(!invStockFlat.length){
+    container.innerHTML=`<div style="padding:3rem;text-align:center;font-family:var(--mono);font-size:12px;color:var(--g400)">Belum ada data stok.<br>Lakukan sync inventory dari Jubelio terlebih dahulu.</div>`;
+    return;
+  }
+  if(!groups.length){
+    container.innerHTML=`<div style="padding:3rem;text-align:center;font-family:var(--mono);font-size:12px;color:var(--g400)">Tidak ada data yang cocok dengan filter.</div>`;
+    return;
+  }
+  if(!columns.length){
+    container.innerHTML=`<div style="padding:3rem;text-align:center;font-family:var(--mono);font-size:12px;color:var(--g400)">Pilih minimal satu gudang.</div>`;
+    return;
+  }
+  const start=(page-1)*INV_PAGE_SIZE;
+  const pageGroups=groups.slice(start,start+INV_PAGE_SIZE);
+  // ── category header row ──
+  const stickyTh=`position:sticky;left:0;background:var(--off);z-index:3;`;
+  let catCells=`<th style="${stickyTh}min-width:220px;border-bottom:1px solid var(--g100);padding:6px 12px"></th>`;
+  for(const cat of INV_CAT_ORDER){
+    const catCols=columns.filter(c=>c.category===cat);
+    if(!catCols.length) continue;
+    const cfg=INV_CAT_CFG[cat];
+    catCells+=`<th colspan="${catCols.length}" style="background:${cfg.bg};color:${cfg.text};padding:6px 8px;font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;font-weight:500;text-align:center;border-bottom:1px solid ${cfg.border}">${cfg.icon} ${cat}</th>`;
+  }
+  // ── warehouse name header row ──
+  let whCells=`<th style="${stickyTh}text-align:left;padding:8px 12px;font-family:var(--mono);font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--g400);border-bottom:1px solid var(--g100)">Parent Item</th>`;
+  for(const col of columns){
+    const cfg=INV_CAT_CFG[col.category];
+    whCells+=`<th style="background:${cfg.colBg};min-width:88px;text-align:center;padding:7px 6px;font-family:var(--mono);font-size:9px;letter-spacing:.05em;text-transform:uppercase;color:var(--g400);font-weight:400;border-bottom:1px solid var(--g100);white-space:nowrap" title="${invEsc(col.location_name)}">${invEsc(col.location_name)}</th>`;
+  }
+  // ── body rows ──
+  const numSty=`font-family:'Syne',sans-serif;font-size:18px;font-weight:700;letter-spacing:-.02em;line-height:1;`;
+  const subSty=`font-family:var(--mono);font-size:9px;color:var(--g400);margin-top:2px;`;
+  const tdBase=`padding:10px 6px;border-bottom:1px solid var(--g100);vertical-align:middle;`;
+  const stickyTd=`position:sticky;left:0;z-index:1;`;
+
+  const rowsHTML=pageGroups.map(group=>{
+    const gid=group.item_group_id;
+    const rowId=`inv-g-${gid}`;
+    // Count unique SKUs across all locations
+    const uniqueSkuCodes=[...new Set(group.skus.map(s=>s.item_code))];
+    // Parent item cells
+    let pCells=`<td style="${stickyTd}background:var(--white);padding:10px 12px;border-bottom:1px solid var(--g100);vertical-align:middle">
+      <div style="font-weight:600;font-size:13px;color:var(--black);margin-bottom:2px">${invEsc(group.parent_name)}
+        <button onclick="toggleInvSKUs('${rowId}',this)" style="background:none;border:none;cursor:pointer;color:var(--g400);font-size:10px;padding:1px 5px;border-radius:3px;font-family:var(--mono);margin-left:4px;line-height:1.4">▾ ${uniqueSkuCodes.length} SKU</button>
+      </div>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--g400)">${invEsc(group.brand_name)}</div>
+    </td>`;
+    for(const col of columns){
+      const cfg=INV_CAT_CFG[col.category];
+      const qty=group.byLocation[col.location_id];
+      const n=qty!==undefined?parseFloat(qty):null;
+      if(n===null){
+        pCells+=`<td style="${tdBase}background:${cfg.colBg};text-align:center"><span style="font-family:var(--mono);font-size:11px;color:var(--g200)">—</span></td>`;
+      }else if(n===0){
+        pCells+=`<td style="${tdBase}background:${cfg.colBg};text-align:center;opacity:.45"><div style="${numSty}color:#c0392b">0</div><div style="${subSty}">on hand</div></td>`;
+      }else if(n<=10){
+        pCells+=`<td style="${tdBase}background:rgba(255,200,100,.18);text-align:center"><div style="${numSty}color:#b35900">${Math.round(n)}</div><div style="${subSty}">on hand</div></td>`;
+      }else{
+        pCells+=`<td style="${tdBase}background:${cfg.colBg};text-align:center"><div style="${numSty}color:var(--black)">${Math.round(n).toLocaleString('id-ID')}</div><div style="${subSty}">on hand</div></td>`;
+      }
+    }
+    // SKU rows — one row per unique SKU code
+    const skuRows=uniqueSkuCodes.map((code,si)=>{
+      const skuRow=group.skus.find(s=>s.item_code===code)||{item_name:'',item_id:null};
+      let sCells=`<td style="${stickyTd}background:#fafaf8;padding:6px 12px 6px 28px;border-bottom:1px solid var(--g100);vertical-align:middle">
+        <div style="font-family:var(--mono);font-size:10px;color:var(--g400)">${invEsc(code)}</div>
+        <div style="font-size:11px;color:var(--g600)">${invEsc(skuRow.item_name)}</div>
+      </td>`;
+      for(const col of columns){
+        const cfg=INV_CAT_CFG[col.category];
+        // Find stock for this SKU in this location
+        const locSku=group.skus.find(s=>s.item_code===code&&s.location_id===col.location_id);
+        const sq=locSku?parseFloat(locSku.qty_on_hand||0):null;
+        const sqSty=`font-family:var(--mono);font-size:12px;font-weight:500;`;
+        if(sq===null){
+          sCells+=`<td style="background:#fafaf8;text-align:center;padding:6px;border-bottom:1px solid var(--g100)"><span style="font-size:10px;color:var(--g200);font-family:var(--mono)">—</span></td>`;
+        }else if(sq===0){
+          sCells+=`<td style="background:#fafaf8;text-align:center;padding:6px;border-bottom:1px solid var(--g100)"><span style="${sqSty}color:#c0392b;opacity:.5">0</span></td>`;
+        }else if(sq<=10){
+          sCells+=`<td style="background:#fafaf8;text-align:center;padding:6px;border-bottom:1px solid var(--g100)"><span style="${sqSty}color:#b35900">${Math.round(sq)}</span></td>`;
+        }else{
+          sCells+=`<td style="background:#fafaf8;text-align:center;padding:6px;border-bottom:1px solid var(--g100)"><span style="${sqSty}color:var(--black)">${Math.round(sq).toLocaleString('id-ID')}</span></td>`;
+        }
+      }
+      return `<tr class="${rowId}-sku" style="display:none">${sCells}</tr>`;
+    }).join('');
+    return `<tr>${pCells}</tr>${skuRows}`;
+  }).join('');
+
+  container.innerHTML=`<div style="overflow-x:auto;border:1px solid var(--g100);border-radius:10px">
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead>
+        <tr style="background:var(--off)">${catCells}</tr>
+        <tr style="background:var(--off)">${whCells}</tr>
+      </thead>
+      <tbody>${rowsHTML}</tbody>
+    </table>
+  </div>`;
+}
+
+function toggleInvSKUs(rowId,btn){
+  const rows=document.querySelectorAll(`.${rowId}-sku`);
+  const vis=rows.length>0&&rows[0].style.display!=='none';
+  rows.forEach(r=>r.style.display=vis?'none':'');
+  btn.textContent=vis?btn.textContent.replace('▴','▾'):btn.textContent.replace('▾','▴');
+}
+
+function renderInvCatCards(){
+  const el=document.getElementById('inv-cat-cards');
+  if(!el) return;
+  if(!invLocations.length){el.style.display='none';return;}
+  el.style.display='grid';
+  el.innerHTML=INV_CAT_ORDER.map(cat=>{
+    const cfg=INV_CAT_CFG[cat];
+    const catLocIds=invLocations.filter(l=>l.category===cat).map(l=>l.location_id);
+    const catStock=invStockFlat.filter(s=>catLocIds.includes(s.location_id));
+    const totalItems=catStock.reduce((s,r)=>s+parseFloat(r.qty_on_hand||0),0);
+    const uniqueSKUs=new Set(catStock.map(r=>r.item_code)).size;
+    const whNames=invLocations.filter(l=>l.category===cat).map(l=>l.location_name).join(' · ')||'—';
+    const op=catLocIds.length?'1':'0.4';
+    return `<div style="background:${cfg.bg};border:1px solid ${cfg.border};border-radius:10px;padding:1rem 1.1rem;display:flex;flex-direction:column;gap:8px;opacity:${op}">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="width:36px;height:36px;border-radius:8px;background:rgba(0,0,0,.07);display:flex;align-items:center;justify-content:center;color:${cfg.text}">${INV_CAT_SVG[cat]}</div>
+        <div style="font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:${cfg.text};font-weight:500">${cat}</div>
+      </div>
+      <div style="display:flex;gap:16px">
+        <div><div style="font-family:'Syne',sans-serif;font-size:20px;font-weight:700;letter-spacing:-.02em;line-height:1;color:${cfg.text}">${Math.round(totalItems).toLocaleString('id-ID')}</div><div style="font-family:var(--mono);font-size:9px;color:var(--g400);letter-spacing:.06em;text-transform:uppercase;margin-top:2px">Items</div></div>
+        <div><div style="font-family:'Syne',sans-serif;font-size:20px;font-weight:700;letter-spacing:-.02em;line-height:1;color:${cfg.text}">${uniqueSKUs}</div><div style="font-family:var(--mono);font-size:9px;color:var(--g400);letter-spacing:.06em;text-transform:uppercase;margin-top:2px">SKUs</div></div>
+      </div>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--g600);line-height:1.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${invEsc(whNames)}">${invEsc(whNames)}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderInvPagination(total,page,columns){
+  const el=document.getElementById('inv-pagination');
+  if(!el) return;
+  const totalPages=Math.ceil(total/INV_PAGE_SIZE);
+  if(totalPages<=1){el.innerHTML='';return;}
+  const start=(page-1)*INV_PAGE_SIZE+1;
+  const end=Math.min(page*INV_PAGE_SIZE,total);
+  const btnSt=`padding:5px 10px;border:1px solid var(--g200);border-radius:5px;font-family:var(--mono);font-size:11px;cursor:pointer;background:var(--white);color:var(--g600);`;
+  const actSt=`padding:5px 10px;border:1px solid var(--black);border-radius:5px;font-family:var(--mono);font-size:11px;cursor:pointer;background:var(--black);color:var(--white);`;
+  const w=2;
+  const pages=[];
+  for(let p=1;p<=totalPages;p++){
+    if(p===1||p===totalPages||(p>=page-w&&p<=page+w)) pages.push(p);
+    else if(pages[pages.length-1]!=='...') pages.push('...');
+  }
+  let h=`<span style="font-family:var(--mono);font-size:11px;color:var(--g400);margin-right:6px">${start}–${end} / ${total}</span>`;
+  h+=`<button style="${btnSt}" onclick="invGoPage(${page-1})" ${page===1?'disabled':''}>‹</button>`;
+  for(const p of pages){
+    if(p==='...') h+=`<span style="padding:5px 4px;font-family:var(--mono);font-size:11px;color:var(--g400)">…</span>`;
+    else h+=`<button style="${p===page?actSt:btnSt}" onclick="invGoPage(${p})">${p}</button>`;
+  }
+  h+=`<button style="${btnSt}" onclick="invGoPage(${page+1})" ${page===totalPages?'disabled':''}>›</button>`;
+  el.innerHTML=h;
+}
+
+function invGoPage(p){
+  const activeCols=invLocations.filter(l=>invFilterCats.has(l.category)&&invFilterWhs.has(l.location_id));
+  let filtered=invGroups;
+  if(invFilterSearch) filtered=filtered.filter(g=>g.parent_name.toLowerCase().includes(invFilterSearch)||g.brand_name.toLowerCase().includes(invFilterSearch));
+  const totalPages=Math.ceil(filtered.length/INV_PAGE_SIZE);
+  if(p<1||p>totalPages) return;
+  invPage=p;
+  renderInvTable(filtered,activeCols,p);
+  renderInvPagination(filtered.length,p,activeCols);
+  document.getElementById('page-invcheck')?.scrollIntoView({behavior:'smooth',block:'start'});
 }
 
 // ── DUPLICATE CHECK ──
