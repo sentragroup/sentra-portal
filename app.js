@@ -7082,16 +7082,22 @@ function invEsc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;
 async function loadInvCheck(){
   const container=document.getElementById('inv-table-container');
   const catsEl=document.getElementById('inv-cat-cards');
-  if(container) container.innerHTML=`<div style="padding:2.5rem;text-align:center;font-family:var(--mono);font-size:12px;color:var(--g400)">Memuat...</div>`;
+  if(container) container.innerHTML=`<div style="padding:2.5rem;text-align:center;font-family:var(--mono);font-size:12px;color:var(--g400)">Memuat data stok...</div>`;
   if(catsEl) catsEl.innerHTML='';
   try{
-    const [{data:cats,error:cErr},{data:stock,error:sErr}]=await Promise.all([
-      sb.from('warehouse_categories').select('location_id,location_name,category,is_active').eq('is_active',true).order('category').order('location_name'),
-      sb.from('jubelio_inventory_by_location').select('location_id,item_id,item_code,item_name,item_group_id,item_group_name,brand_name,qty_on_hand,qty_available,synced_at')
-    ]);
+    // 1. Fetch active warehouse categories (small, no paging needed)
+    const {data:cats,error:cErr}=await sb.from('warehouse_categories')
+      .select('location_id,location_name,category,is_active')
+      .eq('is_active',true).order('category').order('location_name');
     if(cErr) throw cErr;
-    if(sErr) throw sErr;
     invLocations=(cats||[]);
+    const locIds=invLocations.map(l=>l.location_id);
+    // 2. Fetch all stock rows for mapped locations only — use _fetchAllPages to bypass 1000-row cap
+    const stock=locIds.length
+      ? await _fetchAllPages('jubelio_inventory_by_location',
+          'location_id,item_id,item_code,item_name,item_group_id,item_group_name,brand_name,qty_on_hand,qty_available,synced_at',
+          q=>q.in('location_id',locIds))
+      : [];
     invStockFlat=(stock||[]);
     // Build fast lookup map
     invStockMap={};
@@ -7102,7 +7108,7 @@ async function loadInvCheck(){
     const syncNote=document.getElementById('inv-sync-note');
     if(syncNote){
       const latest=invStockFlat.reduce((m,r)=>((r.synced_at||'')>(m||''))?r.synced_at:m,'');
-      syncNote.textContent=latest?'Terakhir sync: '+new Date(latest).toLocaleString('id-ID',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}):'Belum pernah sync';
+      syncNote.textContent=latest?'Terakhir sync: '+new Date(latest).toLocaleString('id-ID',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}):'—';
     }
     rebuildInvGroups();
     renderInvFilterChips();
@@ -7110,7 +7116,8 @@ async function loadInvCheck(){
     invPage=1;
     applyInvFilters();
   }catch(e){
-    if(container) container.innerHTML=`<div style="padding:2rem;color:#c0392b;font-family:var(--mono);font-size:12px">Gagal: ${invEsc(e.message||String(e))}</div>`;
+    console.error('[loadInvCheck]',e);
+    if(container) container.innerHTML=`<div style="padding:2rem;color:#c0392b;font-family:var(--mono);font-size:12px">Gagal memuat: ${invEsc(e.message||String(e))}</div>`;
   }
 }
 
