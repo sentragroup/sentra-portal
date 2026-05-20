@@ -155,7 +155,7 @@ function showPage(name, el) {
   document.querySelectorAll(".sb-item").forEach(i=>i.classList.remove("active"));
   document.getElementById("page-"+name).classList.add("active");
   if (el) el.classList.add("active");
-  const labels = {home:"Internal Tools",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",stockmovement:"Stock Movement",productmap:"Product Mapping",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check"};
+  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",stockmovement:"Stock Movement",productmap:"Product Mapping",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -200,6 +200,7 @@ function showPage(name, el) {
   if (name==="returnreason" && !retOrders.length) loadRetData();
   if (name==="tradorders") loadTradeOrders();
   if (name==="invcheck") loadInvCheck();
+  if (name==="project") loadProjects();
   closeMobileSidebar();
 }
 
@@ -7419,6 +7420,541 @@ function invGoPage(p){
   renderInvTable(filtered,activeCols,p);
   renderInvPagination(filtered.length,p,activeCols);
   document.getElementById('page-invcheck')?.scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+// ── PROJECT BOARD ──
+let projAll = [];
+let projCats = [];
+let projComments = {};
+let projActivity = {};
+let projDragId = null;
+let projDragSourceStatus = null;
+let projDetailId = null;
+let _projSearchTimer = null;
+let projFilterCat = '';
+let projFilterSearch = '';
+let _projDirty = false;
+
+const PROJ_STATUSES = [
+  { key:'backlog',     label:'Backlog',     color:'#64748b', bg:'#f1f5f9', icon:'○' },
+  { key:'todo',        label:'To Do',       color:'#3b82f6', bg:'#eff6ff', icon:'◑' },
+  { key:'in_progress', label:'In Progress', color:'#f59e0b', bg:'#fffbeb', icon:'◕' },
+  { key:'done',        label:'Done',        color:'#10b981', bg:'#f0fdf4', icon:'●' },
+];
+const PROJ_PRIORITIES = [
+  { key:'high',   label:'High',   color:'#ef4444' },
+  { key:'medium', label:'Medium', color:'#f59e0b' },
+  { key:'low',    label:'Low',    color:'#94a3b8' },
+];
+const PROJ_REVENUE = ['SD&Y','Lagaa','Marte'];
+
+function projEsc(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function mapProj(r){
+  return { id:r.id, title:r.title||'—', description:r.description||'', status:r.status||'backlog',
+    priority:r.priority||'medium', assignee:r.assignee||'', dueDate:r.due_date||'',
+    revenueStream:r.revenue_stream||'', categoryId:r.category_id||'', position:r.position||0,
+    createdBy:r.created_by||'', createdAt:r.created_at||'', updatedAt:r.updated_at||'' };
+}
+
+async function loadProjects(){
+  const board = document.getElementById('proj-board');
+  if(board) board.innerHTML = `<div style="padding:40px;text-align:center;color:var(--g400);font-size:14px">Memuat data...</div>`;
+  try{
+    const [{ data:cats, error:cErr }, { data:projs, error:pErr }] = await Promise.all([
+      sb.from('project_categories').select('*').order('name'),
+      sb.from('projects').select('*').order('position').order('created_at',{ascending:false})
+    ]);
+    if(cErr) throw cErr;
+    if(pErr) throw pErr;
+    projCats = cats || [];
+    projAll = (projs||[]).map(mapProj);
+    renderProjCatFilter();
+    renderProjStats();
+    renderKanban();
+  } catch(e){
+    console.error('[loadProjects]',e);
+    if(board) board.innerHTML = `<div style="padding:40px;text-align:center;color:#c0392b;font-size:14px">Gagal memuat: ${projEsc(e.message||String(e))}</div>`;
+  }
+}
+
+function projGetFiltered(){
+  let f = projAll;
+  if(projFilterCat) f = f.filter(p => p.categoryId === projFilterCat);
+  if(projFilterSearch){ const q = projFilterSearch.toLowerCase(); f = f.filter(p => p.title.toLowerCase().includes(q)||(p.description||'').toLowerCase().includes(q)||(p.assignee||'').toLowerCase().includes(q)); }
+  return f;
+}
+
+function renderProjStats(){
+  const filtered = projGetFiltered();
+  const counts = { backlog:0, todo:0, in_progress:0, done:0 };
+  for(const p of filtered) if(counts[p.status]!==undefined) counts[p.status]++;
+  const map = { backlog:'proj-s-backlog', todo:'proj-s-todo', in_progress:'proj-s-in-progress', done:'proj-s-done' };
+  for(const [k,id] of Object.entries(map)){ const el=document.getElementById(id); if(el) el.textContent=counts[k]; }
+}
+
+function renderProjCatFilter(){
+  const sel = document.getElementById('proj-cat-filter');
+  if(!sel) return;
+  const cur = sel.value;
+  sel.innerHTML = `<option value="">Semua Kategori</option>` +
+    projCats.map(c=>`<option value="${c.id}" ${cur===c.id?'selected':''}>${projEsc(c.name)}</option>`).join('');
+}
+
+function projCatFilterChange(){
+  projFilterCat = document.getElementById('proj-cat-filter')?.value || '';
+  renderProjStats();
+  renderKanban();
+}
+
+function projSearchDebounce(){
+  clearTimeout(_projSearchTimer);
+  _projSearchTimer = setTimeout(()=>{
+    projFilterSearch = (document.getElementById('proj-search')?.value||'').toLowerCase().trim();
+    renderProjStats();
+    renderKanban();
+  }, 200);
+}
+
+function renderKanban(){
+  const board = document.getElementById('proj-board');
+  if(!board) return;
+  const filtered = projGetFiltered();
+  board.innerHTML = PROJ_STATUSES.map(st=>{
+    const cards = filtered.filter(p=>p.status===st.key).sort((a,b)=>a.position-b.position);
+    return `<div class="kanban-col" data-status="${st.key}"
+      ondragover="projDragOver(event)" ondrop="projDrop(event,'${st.key}')" ondragleave="projDragLeave(event)">
+      <div class="kanban-col-header" style="border-top:3px solid ${st.color}">
+        <div style="display:flex;align-items:center;gap:7px">
+          <span style="font-size:14px;color:${st.color}">${st.icon}</span>
+          <span style="font-size:13px;font-weight:600;color:var(--black)">${st.label}</span>
+          <span style="font-size:10px;font-family:var(--mono);color:var(--g400);background:var(--g100);padding:1px 7px;border-radius:99px">${cards.length}</span>
+        </div>
+        <button class="kanban-add-btn" onclick="openProjectDetail(null,'${st.key}')" title="Tambah project di kolom ini">+</button>
+      </div>
+      <div class="kanban-cards" id="kcards-${st.key}">
+        ${cards.length ? cards.map(p=>renderProjCard(p)).join('') :
+          `<div class="kanban-empty" ondragover="projDragOver(event)" ondrop="projDrop(event,'${st.key}')">
+            <span style="font-size:11px;color:var(--g400);font-family:var(--mono)">drop here</span>
+          </div>`}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderProjCard(p){
+  const cat = projCats.find(c=>c.id===p.categoryId);
+  const pri = PROJ_PRIORITIES.find(x=>x.key===p.priority);
+  const dueStr = p.dueDate ? new Date(p.dueDate).toLocaleDateString('id-ID',{day:'numeric',month:'short'}) : '';
+  const isOverdue = p.dueDate && p.status!=='done' && new Date(p.dueDate+' 23:59') < new Date();
+  const dueCl = isOverdue ? 'color:#ef4444;font-weight:600' : 'color:var(--g400)';
+  return `<div class="kanban-card" id="pcard-${p.id}" draggable="true"
+    ondragstart="projDragStart(event,'${p.id}')" ondragend="projDragEnd(event)"
+    onclick="openProjectDetail('${p.id}')">
+    <div class="kcard-title">${projEsc(p.title)}</div>
+    ${p.description?`<div class="kcard-desc">${projEsc(p.description.substring(0,70))}${p.description.length>70?'…':''}</div>`:''}
+    <div class="kcard-meta">
+      ${cat?`<span class="kcard-tag" style="background:${cat.color}18;color:${cat.color};border-color:${cat.color}40">${projEsc(cat.name)}</span>`:''}
+      ${p.revenueStream?`<span class="kcard-tag" style="background:var(--g100);color:var(--g600);border-color:var(--g200)">${projEsc(p.revenueStream)}</span>`:''}
+    </div>
+    <div class="kcard-footer">
+      <div style="display:flex;align-items:center;gap:6px">
+        ${pri?`<span style="font-size:10px;font-family:var(--mono);color:${pri.color};font-weight:600">${pri.label.toUpperCase()}</span>`:''}
+        ${p.assignee?`<span style="font-size:11px;color:var(--g400)">· ${projEsc(p.assignee)}</span>`:''}
+      </div>
+      ${dueStr?`<span style="font-size:10px;font-family:var(--mono);${dueCl}">📅 ${dueStr}</span>`:''}
+    </div>
+  </div>`;
+}
+
+// ── DRAG & DROP ──
+function projDragStart(e, id){
+  projDragId = id;
+  const p = projAll.find(x=>x.id===id);
+  projDragSourceStatus = p ? p.status : null;
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', id);
+  setTimeout(()=>{ const el=document.getElementById('pcard-'+id); if(el) el.classList.add('dragging'); }, 0);
+}
+function projDragEnd(){
+  document.querySelectorAll('.kanban-card.dragging').forEach(el=>el.classList.remove('dragging'));
+  document.querySelectorAll('.kanban-col.drag-over').forEach(el=>el.classList.remove('drag-over'));
+  projDragId = null;
+}
+function projDragOver(e){
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  const col = e.currentTarget.closest?.('.kanban-col');
+  if(col) col.classList.add('drag-over');
+}
+function projDragLeave(e){
+  const col = e.currentTarget.closest?.('.kanban-col');
+  if(col && !col.contains(e.relatedTarget)) col.classList.remove('drag-over');
+}
+async function projDrop(e, newStatus){
+  e.preventDefault();
+  const col = document.querySelector(`.kanban-col[data-status="${newStatus}"]`);
+  if(col) col.classList.remove('drag-over');
+  if(!projDragId) return;
+  const p = projAll.find(x=>x.id===projDragId);
+  if(!p || p.status===newStatus){ projDragId=null; return; }
+  const oldStatus = p.status;
+  p.status = newStatus;
+  renderKanban();
+  renderProjStats();
+  try{
+    await sb.from('projects').update({ status:newStatus, updated_at:new Date().toISOString() }).eq('id',projDragId);
+    await sb.from('project_activity').insert({ project_id:projDragId, actor:currentUser, action:'moved', field_name:'status', old_value:oldStatus, new_value:newStatus });
+  } catch(err){
+    console.error('[projDrop]',err);
+    p.status = oldStatus;
+    renderKanban();
+    renderProjStats();
+  }
+  projDragId = null;
+}
+
+// ── PROJECT DETAIL PANEL ──
+async function openProjectDetail(id, defaultStatus='backlog'){
+  projDetailId = id;
+  _projDirty = false;
+  const overlay = document.getElementById('proj-overlay');
+  const panel = document.getElementById('proj-panel');
+  if(!overlay||!panel) return;
+  overlay.style.display = 'block';
+  panel.style.display = 'flex';
+  panel.innerHTML = `<div style="padding:40px;text-align:center;color:var(--g400);flex:1">Memuat...</div>`;
+  if(id){
+    try{
+      const [{ data:cmts },{ data:acts }] = await Promise.all([
+        sb.from('project_comments').select('*').eq('project_id',id).order('created_at'),
+        sb.from('project_activity').select('*').eq('project_id',id).order('created_at',{ascending:false}).limit(50)
+      ]);
+      projComments[id] = cmts || [];
+      projActivity[id] = acts || [];
+    } catch(e){ console.error(e); }
+  }
+  renderProjDetail(id, defaultStatus);
+}
+
+function closeProjectDetail(){
+  const overlay = document.getElementById('proj-overlay');
+  const panel   = document.getElementById('proj-panel');
+  if(overlay) overlay.style.display = 'none';
+  if(panel)   panel.style.display   = 'none';
+  projDetailId = null;
+  _projDirty = false;
+}
+
+function renderProjDetail(id, defaultStatus='backlog'){
+  const panel = document.getElementById('proj-panel');
+  if(!panel) return;
+  const p = id ? projAll.find(x=>x.id===id) : null;
+  const isNew = !p;
+  const comments  = id ? (projComments[id]  || []) : [];
+  const activities= id ? (projActivity[id] || []) : [];
+
+  panel.innerHTML = `
+  <div style="padding:16px 20px;border-bottom:1px solid var(--g100);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-shrink:0">
+    <span style="font-size:11px;font-family:var(--mono);color:var(--g400)">${isNew?'Project Baru':projEsc(id)}</span>
+    <div style="display:flex;gap:8px">
+      ${!isNew?`<button onclick="deleteProjConfirm('${id}')" style="padding:5px 12px;background:none;border:1px solid #fca5a5;color:#ef4444;border-radius:6px;font-size:12px;cursor:pointer">Hapus</button>`:''}
+      <button onclick="closeProjectDetail()" style="padding:5px 14px;background:var(--black);color:var(--white);border:none;border-radius:6px;font-size:12px;cursor:pointer">✕</button>
+    </div>
+  </div>
+  <div style="flex:1;display:flex;overflow:hidden">
+    <div style="flex:1;padding:22px 24px;overflow-y:auto;display:flex;flex-direction:column;gap:14px">
+      <input id="pd-title" type="text" value="${projEsc(p?.title||'')}" placeholder="Judul project…" oninput="projMarkDirty()"
+        style="font-size:18px;font-weight:600;border:none;border-bottom:2px solid var(--g100);background:none;outline:none;color:var(--black);font-family:var(--head);padding:0 0 6px 0;width:100%;transition:border-color .15s"
+        onfocus="this.style.borderColor='var(--black)'" onblur="this.style.borderColor='var(--g100)'">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+        <div>
+          <div class="fg-label">Status</div>
+          <select id="pd-status" onchange="projMarkDirty()" style="width:100%;padding:7px 10px;border:1px solid var(--g200);border-radius:8px;font-size:13px;background:var(--white)">
+            ${PROJ_STATUSES.map(s=>`<option value="${s.key}" ${(p?.status||defaultStatus)===s.key?'selected':''}>${s.icon} ${s.label}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <div class="fg-label">Priority</div>
+          <select id="pd-priority" onchange="projMarkDirty()" style="width:100%;padding:7px 10px;border:1px solid var(--g200);border-radius:8px;font-size:13px;background:var(--white)">
+            ${PROJ_PRIORITIES.map(x=>`<option value="${x.key}" ${(p?.priority||'medium')===x.key?'selected':''}>${x.label}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <div class="fg-label">Revenue Stream</div>
+          <select id="pd-revenue" onchange="projMarkDirty()" style="width:100%;padding:7px 10px;border:1px solid var(--g200);border-radius:8px;font-size:13px;background:var(--white)">
+            <option value="">—</option>
+            ${PROJ_REVENUE.map(r=>`<option value="${r}" ${p?.revenueStream===r?'selected':''}>${r}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+        <div>
+          <div class="fg-label">PIC / Assignee</div>
+          <input id="pd-assignee" type="text" value="${projEsc(p?.assignee||'')}" placeholder="Nama PIC…" oninput="projMarkDirty()"
+            style="width:100%;padding:7px 10px;border:1px solid var(--g200);border-radius:8px;font-size:13px">
+        </div>
+        <div>
+          <div class="fg-label">Due Date</div>
+          <input id="pd-duedate" type="date" value="${p?.dueDate||''}" onchange="projMarkDirty()"
+            style="width:100%;padding:7px 10px;border:1px solid var(--g200);border-radius:8px;font-size:13px">
+        </div>
+        <div>
+          <div class="fg-label">Kategori</div>
+          <select id="pd-cat" onchange="projMarkDirty();projHandleCatNew()" style="width:100%;padding:7px 10px;border:1px solid var(--g200);border-radius:8px;font-size:13px;background:var(--white)">
+            <option value="">— Pilih</option>
+            ${projCats.map(c=>`<option value="${c.id}" ${p?.categoryId===c.id?'selected':''}>${projEsc(c.name)}</option>`).join('')}
+            <option value="__new__">+ Kategori baru…</option>
+          </select>
+        </div>
+      </div>
+      <div>
+        <div class="fg-label">Deskripsi</div>
+        <textarea id="pd-desc" rows="4" placeholder="Deskripsi, tujuan, catatan penting…" oninput="projMarkDirty()"
+          style="width:100%;padding:8px 10px;border:1px solid var(--g200);border-radius:8px;font-size:13px;resize:vertical;font-family:var(--body);line-height:1.5">${projEsc(p?.description||'')}</textarea>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <button id="pd-save-btn" onclick="saveProjDetail('${id||''}')" disabled
+          style="padding:8px 22px;background:var(--black);color:var(--white);border:none;border-radius:8px;font-size:13px;cursor:not-allowed;opacity:0.35;transition:opacity .15s">
+          ${isNew?'Buat Project':'Simpan'}
+        </button>
+        <span id="pd-feedback" style="font-size:12px;color:var(--g400)"></span>
+      </div>
+      ${!isNew?`<div style="padding-top:12px;border-top:1px solid var(--g100)"><span style="font-size:11px;font-family:var(--mono);color:var(--g400)">
+        Dibuat ${p.createdBy?'oleh '+projEsc(p.createdBy)+' · ':''} ${p.createdAt?new Date(p.createdAt).toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'}):'—'}
+      </span></div>`:''}
+    </div>
+    ${!isNew?`<div style="width:260px;flex-shrink:0;border-left:1px solid var(--g100);display:flex;flex-direction:column">
+      <div style="flex:1;overflow-y:auto;padding:16px;border-bottom:1px solid var(--g100);display:flex;flex-direction:column;gap:8px">
+        <div style="font-size:12px;font-weight:600;color:var(--black);margin-bottom:2px">💬 Chat</div>
+        <div id="pd-comments" style="display:flex;flex-direction:column;gap:8px;flex:1">
+          ${comments.length?comments.map(c=>renderProjCmt(c)).join(''):`<div style="font-size:11px;color:var(--g400)">Belum ada komentar</div>`}
+        </div>
+        <div style="display:flex;gap:5px;margin-top:4px;flex-shrink:0">
+          <input id="pd-cmt-in" type="text" placeholder="Tulis pesan…"
+            style="flex:1;padding:6px 9px;border:1px solid var(--g200);border-radius:6px;font-size:12px;outline:none"
+            onkeydown="if(event.key==='Enter')submitProjComment('${id}')">
+          <button onclick="submitProjComment('${id}')" style="padding:6px 10px;background:var(--black);color:var(--white);border:none;border-radius:6px;font-size:13px;cursor:pointer">→</button>
+        </div>
+      </div>
+      <div style="padding:14px 16px;overflow-y:auto;max-height:220px">
+        <div style="font-size:12px;font-weight:600;color:var(--black);margin-bottom:8px">📋 Activity</div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          ${activities.length?activities.map(a=>renderProjAct(a)).join(''):`<div style="font-size:11px;color:var(--g400)">—</div>`}
+        </div>
+      </div>
+    </div>`:''}
+  </div>`;
+}
+
+function renderProjCmt(c){
+  const dt = new Date(c.created_at).toLocaleString('id-ID',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
+  return `<div style="background:var(--off);border-radius:8px;padding:8px 10px">
+    <div style="display:flex;justify-content:space-between;margin-bottom:3px">
+      <span style="font-size:11px;font-weight:600;color:var(--black)">${projEsc(c.author||'—')}</span>
+      <span style="font-size:10px;color:var(--g400);font-family:var(--mono)">${dt}</span>
+    </div>
+    <div style="font-size:12px;color:var(--g600);white-space:pre-wrap;line-height:1.5">${projEsc(c.content)}</div>
+  </div>`;
+}
+
+function renderProjAct(a){
+  const dt = new Date(a.created_at).toLocaleString('id-ID',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
+  const desc = a.action==='created'?'membuat project ini'
+    : a.action==='moved'?`memindahkan ke <strong>${projEsc(a.new_value)}</strong>`
+    : a.action==='updated'?`mengubah ${projEsc(a.field_name||'field')}`
+    : projEsc(a.action);
+  return `<div style="font-size:11px;color:var(--g400);line-height:1.45">
+    <span style="color:var(--black);font-weight:500">${projEsc(a.actor||'—')}</span> ${desc}
+    <div style="font-family:var(--mono);font-size:10px;margin-top:1px">${dt}</div>
+  </div>`;
+}
+
+function projMarkDirty(){
+  _projDirty = true;
+  const btn = document.getElementById('pd-save-btn');
+  if(btn){ btn.disabled=false; btn.style.opacity='1'; btn.style.cursor='pointer'; }
+}
+
+async function projHandleCatNew(){
+  const sel = document.getElementById('pd-cat');
+  if(!sel || sel.value !== '__new__') return;
+  const name = prompt('Nama kategori baru:');
+  if(!name || !name.trim()){ sel.value=''; return; }
+  try{
+    const { data, error } = await sb.from('project_categories').insert({ name:name.trim(), created_by:currentUser }).select().single();
+    if(error) throw error;
+    projCats.push(data);
+    renderProjCatFilter();
+    sel.innerHTML += `<option value="${data.id}">${projEsc(data.name)}</option>`;
+    sel.value = data.id;
+    projMarkDirty();
+  } catch(e){ alert('Gagal membuat kategori: '+e.message); sel.value=''; }
+}
+
+async function saveProjDetail(existingId){
+  const title   = document.getElementById('pd-title')?.value?.trim();
+  if(!title){ showProjFeedback('Judul tidak boleh kosong','error'); return; }
+  const status  = document.getElementById('pd-status')?.value  || 'backlog';
+  const priority= document.getElementById('pd-priority')?.value|| 'medium';
+  const revenue = document.getElementById('pd-revenue')?.value || '';
+  const assignee= document.getElementById('pd-assignee')?.value?.trim()||'';
+  const dueDate = document.getElementById('pd-duedate')?.value || null;
+  const catId   = document.getElementById('pd-cat')?.value     || null;
+  const desc    = document.getElementById('pd-desc')?.value?.trim()||'';
+  const btn = document.getElementById('pd-save-btn');
+  if(btn){ btn.disabled=true; btn.textContent='Menyimpan…'; btn.style.opacity='0.5'; }
+  try{
+    if(!existingId){
+      const id = genId('PRJ');
+      const pos = projAll.filter(p=>p.status===status).length;
+      const { error } = await sb.from('projects').insert({
+        id, title, description:desc||null, status, priority,
+        assignee:assignee||null, due_date:dueDate||null,
+        revenue_stream:revenue||null, category_id:catId||null,
+        position:pos, created_by:currentUser
+      });
+      if(error) throw error;
+      await sb.from('project_activity').insert({ project_id:id, actor:currentUser, action:'created' });
+      projAll.push({ id, title, description:desc, status, priority, assignee, dueDate:dueDate||'',
+        revenueStream:revenue, categoryId:catId||'', position:pos, createdBy:currentUser,
+        createdAt:new Date().toISOString(), updatedAt:new Date().toISOString() });
+      renderKanban();
+      renderProjStats();
+      openProjectDetail(id);
+    } else {
+      const old = projAll.find(x=>x.id===existingId);
+      const { error } = await sb.from('projects').update({
+        title, description:desc||null, status, priority,
+        assignee:assignee||null, due_date:dueDate||null,
+        revenue_stream:revenue||null, category_id:catId||null,
+        updated_at:new Date().toISOString()
+      }).eq('id',existingId);
+      if(error) throw error;
+      const changes = [];
+      if(old?.title!==title) changes.push({f:'title',o:old?.title,n:title});
+      if(old?.status!==status) changes.push({f:'status',o:old?.status,n:status});
+      if(old?.priority!==priority) changes.push({f:'priority',o:old?.priority,n:priority});
+      for(const ch of changes) await sb.from('project_activity').insert({ project_id:existingId, actor:currentUser, action:'updated', field_name:ch.f, old_value:ch.o, new_value:ch.n });
+      Object.assign(old, { title, description:desc, status, priority, assignee, dueDate:dueDate||'',
+        revenueStream:revenue, categoryId:catId||'', updatedAt:new Date().toISOString() });
+      renderKanban();
+      renderProjStats();
+      showProjFeedback('Tersimpan ✓');
+      _projDirty = false;
+      if(btn){ btn.disabled=true; btn.textContent='Simpan'; btn.style.opacity='0.35'; btn.style.cursor='not-allowed'; }
+    }
+  } catch(e){
+    console.error('[saveProjDetail]',e);
+    showProjFeedback('Gagal: '+e.message,'error');
+    if(btn){ btn.disabled=false; btn.textContent='Simpan'; btn.style.opacity='1'; btn.style.cursor='pointer'; }
+  }
+}
+
+function showProjFeedback(msg, type='success'){
+  const el = document.getElementById('pd-feedback');
+  if(!el) return;
+  el.style.color = type==='error'?'#ef4444':'#10b981';
+  el.textContent = msg;
+  setTimeout(()=>{ if(el.textContent===msg) el.textContent=''; },3000);
+}
+
+async function submitProjComment(projectId){
+  const input = document.getElementById('pd-cmt-in');
+  const content = input?.value?.trim();
+  if(!content||!projectId) return;
+  input.value = '';
+  try{
+    const { data, error } = await sb.from('project_comments').insert({
+      project_id:projectId, author:currentUser, content
+    }).select().single();
+    if(error) throw error;
+    if(!projComments[projectId]) projComments[projectId]=[];
+    projComments[projectId].push(data);
+    const cEl = document.getElementById('pd-comments');
+    if(cEl){
+      const empty = cEl.querySelector('[style*="Belum ada komentar"]');
+      if(empty) cEl.innerHTML='';
+      cEl.innerHTML += renderProjCmt(data);
+      cEl.scrollTop = cEl.scrollHeight;
+    }
+  } catch(e){ console.error('[submitProjComment]',e); }
+}
+
+async function deleteProjConfirm(id){
+  if(!confirm('Hapus project ini? Semua komentar dan aktivitas juga akan terhapus.')) return;
+  try{
+    const { error } = await sb.from('projects').delete().eq('id',id);
+    if(error) throw error;
+    projAll = projAll.filter(p=>p.id!==id);
+    closeProjectDetail();
+    renderKanban();
+    renderProjStats();
+  } catch(e){ alert('Gagal hapus: '+e.message); }
+}
+
+function openProjCatManager(){
+  const modal = `<div style="position:fixed;inset:0;z-index:600;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center" onclick="if(event.target===this)this.remove()">
+    <div style="background:var(--white);border-radius:14px;padding:24px;width:360px;max-height:80vh;overflow-y:auto">
+      <div style="font-family:var(--head);font-size:16px;font-weight:700;margin-bottom:16px">Kelola Kategori</div>
+      <div id="cat-mgr-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px">
+        ${projCats.map(c=>`
+          <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--g100);border-radius:8px">
+            <input type="color" value="${c.color}" onchange="updateProjCatColor('${c.id}',this.value)"
+              style="width:24px;height:24px;border:none;cursor:pointer;border-radius:4px;padding:0">
+            <span style="flex:1;font-size:13px">${projEsc(c.name)}</span>
+            <button onclick="deleteProjCat('${c.id}',this)" style="background:none;border:none;color:var(--g400);cursor:pointer;font-size:14px;padding:0 4px">✕</button>
+          </div>`).join('')}
+      </div>
+      <div style="display:flex;gap:7px">
+        <input id="new-cat-name" type="text" placeholder="Nama kategori baru…" style="flex:1;padding:7px 10px;border:1px solid var(--g200);border-radius:8px;font-size:13px" onkeydown="if(event.key==='Enter')addProjCatFromManager()">
+        <button onclick="addProjCatFromManager()" style="padding:7px 14px;background:var(--black);color:var(--white);border:none;border-radius:8px;font-size:13px;cursor:pointer">Tambah</button>
+      </div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend', modal);
+}
+
+async function addProjCatFromManager(){
+  const input = document.getElementById('new-cat-name');
+  const name = input?.value?.trim();
+  if(!name) return;
+  try{
+    const { data, error } = await sb.from('project_categories').insert({ name, created_by:currentUser }).select().single();
+    if(error) throw error;
+    projCats.push(data);
+    renderProjCatFilter();
+    input.value='';
+    const list = document.getElementById('cat-mgr-list');
+    if(list) list.insertAdjacentHTML('beforeend',`
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--g100);border-radius:8px">
+        <input type="color" value="${data.color}" onchange="updateProjCatColor('${data.id}',this.value)" style="width:24px;height:24px;border:none;cursor:pointer;border-radius:4px;padding:0">
+        <span style="flex:1;font-size:13px">${projEsc(data.name)}</span>
+        <button onclick="deleteProjCat('${data.id}',this)" style="background:none;border:none;color:var(--g400);cursor:pointer;font-size:14px;padding:0 4px">✕</button>
+      </div>`);
+  } catch(e){ alert('Gagal: '+e.message); }
+}
+
+async function updateProjCatColor(id, color){
+  try{
+    await sb.from('project_categories').update({ color }).eq('id',id);
+    const c = projCats.find(x=>x.id===id);
+    if(c) c.color = color;
+    renderKanban();
+  } catch(e){ console.error(e); }
+}
+
+async function deleteProjCat(id, btn){
+  if(!confirm('Hapus kategori ini? Project yang menggunakan kategori ini akan kehilangan kategorinya.')) return;
+  try{
+    const { error } = await sb.from('project_categories').delete().eq('id',id);
+    if(error) throw error;
+    projCats = projCats.filter(c=>c.id!==id);
+    projAll.forEach(p=>{ if(p.categoryId===id) p.categoryId=''; });
+    renderProjCatFilter();
+    renderKanban();
+    btn?.closest('div')?.remove();
+  } catch(e){ alert('Gagal hapus: '+e.message); }
 }
 
 // ── DUPLICATE CHECK ──
