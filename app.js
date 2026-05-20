@@ -7165,11 +7165,12 @@ function renderInvFilterChips(){
     const st=active?`background:${cfg.text};color:#fff;border-color:${cfg.text}`:`background:var(--white);color:var(--g600);border-color:var(--g200)`;
     return `<span style="${chipBase}${st}" onclick="toggleInvCatFilter('${cat}',this)">${cfg.icon} ${cat}</span>`;
   }).join('');
-  // Warehouse chips
-  if(!invLocations.length){
-    whsEl.innerHTML=`<span style="font-family:var(--mono);font-size:10px;color:var(--g400)">Belum ada gudang — tambahkan ke tabel warehouse_categories.</span>`;
+  // Warehouse chips — only show warehouses whose category is currently active
+  const visibleLocs=invLocations.filter(l=>invFilterCats.has(l.category));
+  if(!visibleLocs.length){
+    whsEl.innerHTML=`<span style="font-family:var(--mono);font-size:10px;color:var(--g400)">—</span>`;
   } else {
-    whsEl.innerHTML=invLocations.map(loc=>{
+    whsEl.innerHTML=visibleLocs.map(loc=>{
       const cfg=INV_CAT_CFG[loc.category]||{text:'var(--black)'};
       const active=invFilterWhs.has(loc.location_id);
       const st=active?`background:${cfg.text};color:#fff;border-color:${cfg.text}`:`background:var(--white);color:var(--g600);border-color:var(--g200)`;
@@ -7269,7 +7270,7 @@ function renderInvTable(groups,columns,page){
     whCells+=`<th style="background:${cfg.colBg};min-width:88px;text-align:center;padding:7px 6px;font-family:var(--mono);font-size:9px;letter-spacing:.05em;text-transform:uppercase;color:var(--g400);font-weight:400;border-bottom:1px solid var(--g100);white-space:nowrap" title="${invEsc(col.location_name)}">${invEsc(col.location_name)}</th>`;
   }
   // ── body rows ──
-  const numSty=`font-family:'Syne',sans-serif;font-size:18px;font-weight:700;letter-spacing:-.02em;line-height:1;`;
+  const numSty=`font-family:var(--mono);font-size:13px;font-weight:500;line-height:1;`;
   const subSty=`font-family:var(--mono);font-size:9px;color:var(--g400);margin-top:2px;`;
   const tdBase=`padding:10px 6px;border-bottom:1px solid var(--g100);vertical-align:middle;`;
   const stickyTd=`position:sticky;left:0;z-index:1;`;
@@ -7281,7 +7282,7 @@ function renderInvTable(groups,columns,page){
     const uniqueSkuCodes=[...new Set(group.skus.map(s=>s.item_code))];
     // Parent item cells
     let pCells=`<td style="${stickyTd}background:var(--white);padding:10px 12px;border-bottom:1px solid var(--g100);vertical-align:middle">
-      <div style="font-weight:600;font-size:13px;color:var(--black);margin-bottom:2px">${invEsc(group.parent_name)}
+      <div style="font-weight:400;font-size:13px;color:var(--black);margin-bottom:2px">${invEsc(group.parent_name)}
         <button onclick="toggleInvSKUs('${rowId}',this)" style="background:none;border:none;cursor:pointer;color:var(--g400);font-size:10px;padding:1px 5px;border-radius:3px;font-family:var(--mono);margin-left:4px;line-height:1.4">▾ ${uniqueSkuCodes.length} SKU</button>
       </div>
       <div style="font-family:var(--mono);font-size:10px;color:var(--g400)">${invEsc(group.brand_name)}</div>
@@ -7366,7 +7367,8 @@ function renderInvCatCards(filteredGroups){
       g.skus.filter(s=>catLocIds.includes(s.location_id)).forEach(s=>uniqueSKUs.add(s.item_code));
     }
     const whNames=invLocations.filter(l=>l.category===cat).map(l=>l.location_name).join(' · ')||'—';
-    const op=catLocIds.length?'1':'0.4';
+    // Dim card if this category is filtered out
+    const op=!catLocIds.length?'0.3':!invFilterCats.has(cat)?'0.3':'1';
     return `<div style="background:${cfg.bg};border:1px solid ${cfg.border};border-radius:10px;padding:1rem 1.1rem;display:flex;flex-direction:column;gap:8px;opacity:${op}">
       <div style="display:flex;align-items:center;gap:10px">
         <div style="width:36px;height:36px;border-radius:8px;background:rgba(0,0,0,.07);display:flex;align-items:center;justify-content:center;color:${cfg.text}">${INV_CAT_SVG[cat]}</div>
