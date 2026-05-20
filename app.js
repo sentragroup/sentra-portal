@@ -7546,8 +7546,13 @@ function renderProjCard(p){
   const cat = projCats.find(c=>c.id===p.categoryId);
   const pri = PROJ_PRIORITIES.find(x=>x.key===p.priority);
   const dueStr = p.dueDate ? new Date(p.dueDate).toLocaleDateString('id-ID',{day:'numeric',month:'short'}) : '';
-  const isOverdue = p.dueDate && p.status!=='done' && new Date(p.dueDate+' 23:59') < new Date();
-  const dueCl = isOverdue ? 'color:#ef4444;font-weight:600' : 'color:var(--g400)';
+  const now = new Date();
+  const dueTs = p.dueDate ? new Date(p.dueDate+' 23:59') : null;
+  const daysLeft = dueTs ? Math.ceil((dueTs - now) / 86400000) : null;
+  const isOverdue   = daysLeft !== null && daysLeft < 0  && p.status !== 'done';
+  const isNearDue   = daysLeft !== null && daysLeft >= 0 && daysLeft <= 7 && p.status !== 'done';
+  const dueIcon  = isOverdue ? '🔴' : isNearDue ? '⚠️' : '📅';
+  const dueCl    = isOverdue ? 'color:#ef4444;font-weight:600' : isNearDue ? 'color:#d97706;font-weight:600' : 'color:var(--g400)';
   return `<div class="kanban-card" id="pcard-${p.id}" draggable="true"
     ondragstart="projDragStart(event,'${p.id}')" ondragend="projDragEnd(event)"
     onclick="openProjectDetail('${p.id}')">
@@ -7562,7 +7567,7 @@ function renderProjCard(p){
         ${pri?`<span style="font-size:10px;font-family:var(--mono);color:${pri.color};font-weight:600">${pri.label.toUpperCase()}</span>`:''}
         ${p.assignee?`<span style="font-size:11px;color:var(--g400)">· ${projEsc(p.assignee)}</span>`:''}
       </div>
-      ${dueStr?`<span style="font-size:10px;font-family:var(--mono);${dueCl}">📅 ${dueStr}</span>`:''}
+      ${dueStr?`<span style="font-size:10px;font-family:var(--mono);${dueCl}">${dueIcon} ${dueStr}${isNearDue&&daysLeft===0?' (hari ini)':isNearDue&&daysLeft===1?' (besok)':isNearDue?` (${daysLeft}h)`:''}</span>`:''}
     </div>
   </div>`;
 }
