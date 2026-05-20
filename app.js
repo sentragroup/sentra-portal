@@ -7060,6 +7060,11 @@ let invFilterSearch = '';
 let invPage = 1;
 const INV_PAGE_SIZE = 20;
 let _invSearchTimer = null;
+let invFilterBrands     = new Set();  // empty = all brands shown
+let invAllBrands        = [];         // [{lowerKey, label}] sorted
+let invFilterCollections= new Set();  // empty = all collections shown
+let invAllCollections   = [];         // [{id, name}]
+let invCollectionMap    = {};         // collId → Set<sku_name_lower>
 
 const INV_CAT_ORDER = ['Inbound','Online','Offline','Event','Consignment'];
 const INV_CAT_CFG = {
@@ -7110,9 +7115,22 @@ async function loadInvCheck(){
       const latest=invStockFlat.reduce((m,r)=>((r.synced_at||'')>(m||''))?r.synced_at:m,'');
       syncNote.textContent=latest?'Terakhir sync: '+new Date(latest).toLocaleString('id-ID',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}):'—';
     }
+    // 3. Fetch collections + items for the collection filter (parallel, small tables)
+    const [{data:colls},{data:collItems}]=await Promise.all([
+      sb.from('collections').select('id,collection_name').order('collection_name'),
+      sb.from('collection_items').select('collection_id,sku_name')
+    ]);
+    invCollectionMap={};
+    for(const ci of (collItems||[])){
+      if(!invCollectionMap[ci.collection_id]) invCollectionMap[ci.collection_id]=new Set();
+      if(ci.sku_name) invCollectionMap[ci.collection_id].add(ci.sku_name.toLowerCase().trim());
+    }
+    invAllCollections=(colls||[]).filter(c=>invCollectionMap[c.id]?.size>0);
+    // Reset brand/collection filters on each full sync
+    invFilterBrands=new Set(); invFilterCollections=new Set();
     rebuildInvGroups();
     renderInvFilterChips();
-    renderInvCatCards();
+    renderInvCatCards(invGroups);
     invPage=1;
     applyInvFilters();
   }catch(e){
@@ -7126,16 +7144,25 @@ function rebuildInvGroups(){
   for(const row of invStockFlat){
     const gid=row.item_group_id??row.item_id;
     if(!groupMap[gid]){
-      const pName=row.item_group_name||invDeriveParentName(row.item_name);
-      groupMap[gid]={item_group_id:gid,parent_name:pName,brand_name:row.brand_name||'',skus:[],byLocation:{}};
+      // item_name IS the parent name — variants (size, color) live in variation_values
+      const pName=row.item_name||'—';
+      // derive brand: prefer explicit brand_name, fall back to first segment of item_name
+      const rawBrand=row.brand_name||(row.item_name?row.item_name.split(' - ')[0].trim():'');
+      const brandKey=rawBrand.toLowerCase().trim();
+      groupMap[gid]={item_group_id:gid,parent_name:pName,brand_name:rawBrand,brandKey,skus:[],byLocation:{}};
     }
     const g=groupMap[gid];
-    // avoid duplicate skus (shouldn't happen with UNIQUE constraint)
     if(!g.skus.find(s=>s.item_id===row.item_id && s.location_id===row.location_id)) g.skus.push(row);
     const locId=row.location_id;
     g.byLocation[locId]=(g.byLocation[locId]||0)+parseFloat(row.qty_on_hand||0);
   }
   invGroups=Object.values(groupMap).sort((a,b)=>a.parent_name.localeCompare(b.parent_name,'id'));
+  // Build deduplicated, sorted brand list for the filter
+  const brandSet=new Map();
+  for(const g of invGroups){
+    if(g.brandKey&&!brandSet.has(g.brandKey)) brandSet.set(g.brandKey,g.brand_name||g.brandKey);
+  }
+  invAllBrands=[...brandSet.entries()].sort((a,b)=>a[0].localeCompare(b[0],'id')).map(([k,label])=>({lowerKey:k,label}));
 }
 
 function invDeriveParentName(name){
@@ -7147,24 +7174,52 @@ function invDeriveParentName(name){
 function renderInvFilterChips(){
   const catsEl=document.getElementById('inv-f-cats');
   const whsEl=document.getElementById('inv-f-whs');
+  const brandsEl=document.getElementById('inv-f-brands');
+  const colsEl=document.getElementById('inv-f-cols');
   if(!catsEl||!whsEl) return;
-  const chipBase='display:inline-flex;align-items:center;padding:4px 10px;border-radius:99px;font-size:11px;font-family:var(--mono);cursor:pointer;border:1px solid;white-space:nowrap;transition:all .12s;';
+  const chipBase='display:inline-flex;align-items:center;padding:3px 9px;border-radius:99px;font-size:11px;font-family:var(--mono);cursor:pointer;border:1px solid;white-space:nowrap;transition:all .12s;';
+  // Category chips
   catsEl.innerHTML=INV_CAT_ORDER.map(cat=>{
     const cfg=INV_CAT_CFG[cat];
     const active=invFilterCats.has(cat);
     const st=active?`background:${cfg.text};color:#fff;border-color:${cfg.text}`:`background:var(--white);color:var(--g600);border-color:var(--g200)`;
     return `<span style="${chipBase}${st}" onclick="toggleInvCatFilter('${cat}',this)">${cfg.icon} ${cat}</span>`;
   }).join('');
+  // Warehouse chips
   if(!invLocations.length){
     whsEl.innerHTML=`<span style="font-family:var(--mono);font-size:10px;color:var(--g400)">Belum ada gudang — tambahkan ke tabel warehouse_categories.</span>`;
-    return;
+  } else {
+    whsEl.innerHTML=invLocations.map(loc=>{
+      const cfg=INV_CAT_CFG[loc.category]||{text:'var(--black)'};
+      const active=invFilterWhs.has(loc.location_id);
+      const st=active?`background:${cfg.text};color:#fff;border-color:${cfg.text}`:`background:var(--white);color:var(--g600);border-color:var(--g200)`;
+      return `<span style="${chipBase}${st}" onclick="toggleInvWhFilter(${loc.location_id},this)">${invEsc(loc.location_name)}</span>`;
+    }).join('');
   }
-  whsEl.innerHTML=invLocations.map(loc=>{
-    const cfg=INV_CAT_CFG[loc.category]||{text:'var(--black)'};
-    const active=invFilterWhs.has(loc.location_id);
-    const st=active?`background:${cfg.text};color:#fff;border-color:${cfg.text}`:`background:var(--white);color:var(--g600);border-color:var(--g200)`;
-    return `<span style="${chipBase}${st}" onclick="toggleInvWhFilter(${loc.location_id},this)">${invEsc(loc.location_name)}</span>`;
-  }).join('');
+  // Brand chips
+  if(brandsEl){
+    if(!invAllBrands.length){
+      brandsEl.innerHTML=`<span style="font-family:var(--mono);font-size:10px;color:var(--g400)">—</span>`;
+    } else {
+      brandsEl.innerHTML=invAllBrands.map(b=>{
+        const active=invFilterBrands.has(b.lowerKey);
+        const st=active?`background:var(--black);color:#fff;border-color:var(--black)`:`background:var(--white);color:var(--g600);border-color:var(--g200)`;
+        return `<span style="${chipBase}${st}" onclick="toggleInvBrandFilter('${b.lowerKey.replace(/'/g,"\\'")}',this)">${invEsc(b.label)}</span>`;
+      }).join('');
+    }
+  }
+  // Collection chips
+  if(colsEl){
+    if(!invAllCollections.length){
+      colsEl.innerHTML=`<span style="font-family:var(--mono);font-size:10px;color:var(--g400)">—</span>`;
+    } else {
+      colsEl.innerHTML=invAllCollections.map(c=>{
+        const active=invFilterCollections.has(c.id);
+        const st=active?`background:#7c3aed;color:#fff;border-color:#7c3aed`:`background:var(--white);color:var(--g600);border-color:var(--g200)`;
+        return `<span style="${chipBase}${st}" onclick="toggleInvCollectionFilter('${c.id}',this)">${invEsc(c.collection_name)}</span>`;
+      }).join('');
+    }
+  }
 }
 
 function toggleInvCatFilter(cat,el){
@@ -7189,6 +7244,26 @@ function toggleInvWhFilter(locId,el){
   invPage=1; applyInvFilters();
 }
 
+function toggleInvBrandFilter(brandKey,el){
+  if(invFilterBrands.has(brandKey)) invFilterBrands.delete(brandKey);
+  else invFilterBrands.add(brandKey);
+  const active=invFilterBrands.has(brandKey);
+  el.style.background=active?'var(--black)':'var(--white)';
+  el.style.color=active?'#fff':'var(--g600)';
+  el.style.borderColor=active?'var(--black)':'var(--g200)';
+  invPage=1; applyInvFilters();
+}
+
+function toggleInvCollectionFilter(colId,el){
+  if(invFilterCollections.has(colId)) invFilterCollections.delete(colId);
+  else invFilterCollections.add(colId);
+  const active=invFilterCollections.has(colId);
+  el.style.background=active?'#7c3aed':'var(--white)';
+  el.style.color=active?'#fff':'var(--g600)';
+  el.style.borderColor=active?'#7c3aed':'var(--g200)';
+  invPage=1; applyInvFilters();
+}
+
 function invSearchDebounce(){
   clearTimeout(_invSearchTimer);
   _invSearchTimer=setTimeout(()=>{
@@ -7200,6 +7275,8 @@ function invSearchDebounce(){
 function clearInvFilters(){
   invFilterCats=new Set(INV_CAT_ORDER);
   invFilterWhs=new Set(invLocations.map(l=>l.location_id));
+  invFilterBrands=new Set();
+  invFilterCollections=new Set();
   invFilterSearch='';
   const s=document.getElementById('inv-f-search'); if(s) s.value='';
   renderInvFilterChips();
@@ -7209,10 +7286,26 @@ function clearInvFilters(){
 function applyInvFilters(){
   const activeCols=invLocations.filter(l=>invFilterCats.has(l.category)&&invFilterWhs.has(l.location_id));
   let filtered=invGroups;
-  if(invFilterSearch) filtered=filtered.filter(g=>g.parent_name.toLowerCase().includes(invFilterSearch)||g.brand_name.toLowerCase().includes(invFilterSearch));
+  // Brand filter
+  if(invFilterBrands.size>0) filtered=filtered.filter(g=>invFilterBrands.has(g.brandKey));
+  // Collection filter — match group parent_name against sku_names in selected collections
+  if(invFilterCollections.size>0){
+    const allowedSkuNames=new Set();
+    for(const cId of invFilterCollections){
+      for(const sn of (invCollectionMap[cId]||new Set())) allowedSkuNames.add(sn);
+    }
+    filtered=filtered.filter(g=>{
+      const pLow=g.parent_name.toLowerCase();
+      for(const sn of allowedSkuNames){ if(pLow===sn||pLow.includes(sn)||sn.includes(pLow)) return true; }
+      return false;
+    });
+  }
+  // Text search
+  if(invFilterSearch) filtered=filtered.filter(g=>g.parent_name.toLowerCase().includes(invFilterSearch)||(g.brand_name||'').toLowerCase().includes(invFilterSearch));
   const totalSkus=filtered.reduce((s,g)=>s+new Set(g.skus.map(sk=>sk.item_code)).size,0);
   const tcEl=document.getElementById('inv-tcount');
   if(tcEl) tcEl.textContent=`${filtered.length} parent item · ${totalSkus} SKU`;
+  renderInvCatCards(filtered);  // cards reflect current filter state
   renderInvTable(filtered,activeCols,invPage);
   renderInvPagination(filtered.length,invPage,activeCols);
 }
@@ -7287,10 +7380,13 @@ function renderInvTable(groups,columns,page){
     }
     // SKU rows — one row per unique SKU code
     const skuRows=uniqueSkuCodes.map((code,si)=>{
-      const skuRow=group.skus.find(s=>s.item_code===code)||{item_name:'',item_id:null};
+      const skuRow=group.skus.find(s=>s.item_code===code)||{item_id:null,variation_values:null};
+      // Show variant labels (size, color) — item_name duplicates the parent row name
+      const varStr=Array.isArray(skuRow.variation_values)&&skuRow.variation_values.length
+        ?skuRow.variation_values.map(v=>v.value).join(' · '):'—';
       let sCells=`<td style="${stickyTd}background:#fafaf8;padding:6px 12px 6px 28px;border-bottom:1px solid var(--g100);vertical-align:middle">
         <div style="font-family:var(--mono);font-size:10px;color:var(--g400)">${invEsc(code)}</div>
-        <div style="font-size:11px;color:var(--g600)">${invEsc(skuRow.item_name)}</div>
+        <div style="font-family:var(--mono);font-size:11px;color:var(--g600)">${invEsc(varStr)}</div>
       </td>`;
       for(const col of columns){
         const cfg=INV_CAT_CFG[col.category];
@@ -7331,17 +7427,22 @@ function toggleInvSKUs(rowId,btn){
   btn.textContent=vis?btn.textContent.replace('▴','▾'):btn.textContent.replace('▾','▴');
 }
 
-function renderInvCatCards(){
+function renderInvCatCards(filteredGroups){
   const el=document.getElementById('inv-cat-cards');
   if(!el) return;
   if(!invLocations.length){el.style.display='none';return;}
   el.style.display='grid';
+  const groups=filteredGroups||invGroups;
   el.innerHTML=INV_CAT_ORDER.map(cat=>{
     const cfg=INV_CAT_CFG[cat];
     const catLocIds=invLocations.filter(l=>l.category===cat).map(l=>l.location_id);
-    const catStock=invStockFlat.filter(s=>catLocIds.includes(s.location_id));
-    const totalItems=catStock.reduce((s,r)=>s+parseFloat(r.qty_on_hand||0),0);
-    const uniqueSKUs=new Set(catStock.map(r=>r.item_code)).size;
+    // Compute stats from filtered groups only
+    let totalItems=0;
+    const uniqueSKUs=new Set();
+    for(const g of groups){
+      for(const locId of catLocIds) totalItems+=(g.byLocation[locId]||0);
+      g.skus.filter(s=>catLocIds.includes(s.location_id)).forEach(s=>uniqueSKUs.add(s.item_code));
+    }
     const whNames=invLocations.filter(l=>l.category===cat).map(l=>l.location_name).join(' · ')||'—';
     const op=catLocIds.length?'1':'0.4';
     return `<div style="background:${cfg.bg};border:1px solid ${cfg.border};border-radius:10px;padding:1rem 1.1rem;display:flex;flex-direction:column;gap:8px;opacity:${op}">
@@ -7351,7 +7452,7 @@ function renderInvCatCards(){
       </div>
       <div style="display:flex;gap:16px">
         <div><div style="font-family:'Syne',sans-serif;font-size:20px;font-weight:700;letter-spacing:-.02em;line-height:1;color:${cfg.text}">${Math.round(totalItems).toLocaleString('id-ID')}</div><div style="font-family:var(--mono);font-size:9px;color:var(--g400);letter-spacing:.06em;text-transform:uppercase;margin-top:2px">Items</div></div>
-        <div><div style="font-family:'Syne',sans-serif;font-size:20px;font-weight:700;letter-spacing:-.02em;line-height:1;color:${cfg.text}">${uniqueSKUs}</div><div style="font-family:var(--mono);font-size:9px;color:var(--g400);letter-spacing:.06em;text-transform:uppercase;margin-top:2px">SKUs</div></div>
+        <div><div style="font-family:'Syne',sans-serif;font-size:20px;font-weight:700;letter-spacing:-.02em;line-height:1;color:${cfg.text}">${uniqueSKUs.size}</div><div style="font-family:var(--mono);font-size:9px;color:var(--g400);letter-spacing:.06em;text-transform:uppercase;margin-top:2px">SKUs</div></div>
       </div>
       <div style="font-family:var(--mono);font-size:10px;color:var(--g600);line-height:1.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${invEsc(whNames)}">${invEsc(whNames)}</div>
     </div>`;
