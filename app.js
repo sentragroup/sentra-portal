@@ -3877,6 +3877,84 @@ function renderColDetail(col, items) {
 }
 
 const SIZE_ORDER = ['XS','S','M','L','XL','XXL','XXXL','XXXXL','4XL','5XL','FREE SIZE','FREE'];
+const _colPerfCache = {};
+
+function printColPerf(colId) {
+  const d = _colPerfCache[colId];
+  if (!d) return;
+  const { colName, products, grandStock, grandSold, grandAdj, str, strClr, adjStr, adjClr, avgPerDay, fds, itemIds } = d;
+  const metricBox = (lbl, val, clr) => `
+    <div style="border:1px solid #e5e5e5;border-radius:6px;padding:10px 14px;min-width:100px">
+      <div style="font-family:monospace;font-size:9px;text-transform:uppercase;color:#888;margin-bottom:4px">${lbl}</div>
+      <div style="font-weight:700;font-size:15px;color:${clr}">${val}</div>
+    </div>`;
+  const rows = products.map(p => {
+    const iStr  = (p.totalSold + p.totalStock) > 0 ? ((p.totalSold / (p.totalSold + p.totalStock)) * 100).toFixed(0) + "%" : "—";
+    const iSClr = iStr !== "—" ? (parseFloat(iStr) >= 70 ? "#2d7a2d" : parseFloat(iStr) >= 30 ? "#e67e00" : "#c0392b") : "#888";
+    const iAStr = p.totalAdj > 0 ? `+${Math.round(p.totalAdj)}` : `${Math.round(p.totalAdj)}`;
+    const iAClr = p.totalAdj > 0 ? "#2d7a2d" : p.totalAdj < 0 ? "#c0392b" : "#888";
+    const sizePills = p.variants
+      .sort((a, b) => { const ai=SIZE_ORDER.indexOf(a.size.toUpperCase()), bi=SIZE_ORDER.indexOf(b.size.toUpperCase()); return (ai===-1?99:ai)-(bi===-1?99:bi); })
+      .map(v => {
+        const broken = v.stock === 0;
+        return `<span style="display:inline-block;padding:1px 5px;border-radius:3px;font-size:9px;font-family:monospace;color:${broken?"#c0392b":"#2d7a2d"};background:${broken?"#fdecea":"#edf8ee"};margin:1px 1px 0 0">${v.size}</span>`;
+      }).join("");
+    const thumbHTML = p.thumbnail
+      ? `<img src="${p.thumbnail}" style="width:48px;height:48px;object-fit:cover;border-radius:4px;border:1px solid #eee" crossorigin="anonymous">`
+      : `<div style="width:48px;height:48px;border-radius:4px;border:1px solid #eee;background:#f5f5f5;display:flex;align-items:center;justify-content:center;font-size:18px">📦</div>`;
+    return `<tr style="border-top:1px solid #eee">
+      <td style="padding:8px;vertical-align:middle">${thumbHTML}</td>
+      <td style="padding:8px 10px;font-size:12px;vertical-align:middle"><div style="font-weight:500;margin-bottom:3px">${p.name}</div><div>${sizePills}</div></td>
+      <td style="padding:8px 10px;text-align:right;font-family:monospace;font-size:12px;vertical-align:middle;${p.totalStock===0&&p.totalSold>0?"color:#c0392b":""}">${Math.round(p.totalStock)}</td>
+      <td style="padding:8px 10px;text-align:right;font-family:monospace;font-size:12px;vertical-align:middle;color:${iAClr}">${iAStr}</td>
+      <td style="padding:8px 10px;text-align:right;font-family:monospace;font-size:12px;vertical-align:middle">${Math.round(p.totalSold)}</td>
+      <td style="padding:8px 10px;text-align:right;font-family:monospace;font-size:12px;vertical-align:middle;color:${iSClr}">${iStr}</td>
+    </tr>`;
+  }).join("");
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+  <title>Product Performance — ${colName}</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box;}
+    body{font-family:'DM Sans',Arial,sans-serif;color:#0c0c0c;padding:32px 40px;font-size:13px;}
+    h1{font-size:20px;font-weight:700;margin-bottom:4px}
+    .sub{font-size:11px;color:#888;font-family:monospace;margin-bottom:20px}
+    .metrics{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px}
+    table{width:100%;border-collapse:collapse}
+    thead tr{background:#f7f7f5}
+    th{font-family:monospace;font-size:9px;text-transform:uppercase;color:#888;padding:8px 10px;text-align:left;border-bottom:2px solid #eee}
+    th:not(:nth-child(1)):not(:nth-child(2)){text-align:right}
+    .footer{margin-top:12px;font-size:10px;color:#aaa;font-family:monospace}
+    @media print{body{padding:16px 20px}@page{margin:12mm}}
+  </style></head><body>
+  <h1>📊 Product Performance</h1>
+  <div class="sub">${colName} · Dicetak ${new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'})}</div>
+  <div class="metrics">
+    ${metricBox("Stock Skrg", Math.round(grandStock)+" pcs", grandStock===0&&grandSold>0?"#c0392b":"#0c0c0c")}
+    ${metricBox("Net Adj", adjStr, adjClr)}
+    ${metricBox("Total Terjual", Math.round(grandSold)+" pcs", "#0c0c0c")}
+    ${metricBox("Sell-through", str, strClr)}
+    ${metricBox("First Sale", fds, "#0c0c0c")}
+    ${metricBox("Avg / Hari", avgPerDay, "#0c0c0c")}
+  </div>
+  <table>
+    <thead><tr>
+      <th style="width:56px"></th>
+      <th>Produk</th>
+      <th style="text-align:right">Stock</th>
+      <th style="text-align:right">Net Adj</th>
+      <th style="text-align:right">Terjual</th>
+      <th style="text-align:right">STR</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <div class="footer">${products.length} produk · ${itemIds.length} variants · Sentra Internal Tools</div>
+  <script>window.onload=()=>{window.print();}<\/script>
+  </body></html>`;
+
+  const w = window.open('', '_blank');
+  if (w) { w.document.write(html); w.document.close(); }
+}
 
 async function loadColProductPerf(colId, colName) {
   const el = document.getElementById(`col-perf-${colId}`);
@@ -3899,14 +3977,16 @@ async function loadColProductPerf(colId, colName) {
     _fetchAllPages("jubelio_sales_order_items","item_id, qty, salesorder_id",q=>q.in("item_id",itemIds)),
     _fetchAllPages("jubelio_inventory_stocks","item_id, on_hand",q=>q.in("item_id",itemIds)),
     _fetchAllPages("jubelio_inventory_adjustment_items","item_id, qty",q=>q.in("item_id",itemIds)),
-    _fetchAllPages("jubelio_items","item_id, item_code",q=>q.in("item_id",itemIds)),
+    _fetchAllPages("jubelio_items","item_id, item_code, thumbnail",q=>q.in("item_id",itemIds)),
   ]).catch(() => [[], [], [], []]);
 
   // Size map: item_id → size label (last segment of item_code after final "-")
   const sizeMap = {};
+  const thumbMap = {};
   for (const ji of (itemCodes || [])) {
     const parts = (ji.item_code || "").split("-");
     sizeMap[ji.item_id] = parts[parts.length - 1] || "?";
+    if (ji.thumbnail) thumbMap[ji.item_id] = ji.thumbnail;
   }
 
   // 3. Get completed orders + dates
@@ -3953,6 +4033,7 @@ async function loadColProductPerf(colId, colName) {
     totalStock: p.variants.reduce((s, v) => s + v.stock, 0),
     totalSold:  p.variants.reduce((s, v) => s + v.sold,  0),
     totalAdj:   p.variants.reduce((s, v) => s + v.adj,   0),
+    thumbnail:  p.variants.map(v => thumbMap[v.id]).find(Boolean) || null,
   })).sort((a, b) => b.totalSold - a.totalSold);
 
   // 6. Grand totals + summary metrics
@@ -3988,6 +4069,9 @@ async function loadColProductPerf(colId, colName) {
       <div style="font-weight:700;font-size:15px;color:${clr}">${val}</div>
     </div>`;
 
+  // Store for PDF export
+  _colPerfCache[colId] = { colName, products, grandStock, grandSold, grandAdj, str, strClr, adjStr, adjClr, avgPerDay, fds, itemIds };
+
   el.innerHTML = `
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:16px">
       ${metricCard("Stock Skrg",    Math.round(grandStock) + " pcs", grandStock === 0 && grandSold > 0 ? "#c0392b" : "var(--black)")}
@@ -3997,9 +4081,10 @@ async function loadColProductPerf(colId, colName) {
       ${metricCard("First Sale",    fds, "var(--black)")}
       ${metricCard("Avg / Hari",    avgPerDay, "var(--black)")}
     </div>
-    ${products.length ? `<div class="table-wrap" style="max-height:340px;overflow-y:auto">
+    ${products.length ? `<div class="table-wrap" style="max-height:400px;overflow-y:auto">
       <table style="width:100%">
         <thead><tr style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">
+          <th style="padding:6px 8px;width:52px"></th>
           <th style="padding:6px 10px;text-align:left">Produk</th>
           <th style="padding:6px 10px;text-align:right">Stock</th>
           <th style="padding:6px 10px;text-align:right">Net Adj</th>
@@ -4023,20 +4108,27 @@ async function loadColProductPerf(colId, colName) {
               const color = broken ? "#c0392b" : "#2d7a2d";
               return `<span title="Stock: ${Math.round(v.stock)} · Terjual: ${Math.round(v.sold)}" style="display:inline-block;padding:1px 5px;border-radius:3px;font-size:9px;font-family:var(--mono);color:${color};background:${bg};margin:1px 1px 0 0">${v.size}</span>`;
             }).join("");
+          const thumbHTML = p.thumbnail
+            ? `<img src="${p.thumbnail}" style="width:44px;height:44px;object-fit:cover;border-radius:5px;border:1px solid var(--g100);display:block" onerror="this.style.display='none'">`
+            : `<div style="width:44px;height:44px;border-radius:5px;border:1px solid var(--g100);background:var(--off);display:flex;align-items:center;justify-content:center;font-size:16px">📦</div>`;
           return `<tr style="border-top:1px solid var(--g100)">
-            <td style="padding:7px 10px;font-size:12px">
-              <div style="margin-bottom:3px">${p.name}</div>
+            <td style="padding:6px 8px;vertical-align:middle">${thumbHTML}</td>
+            <td style="padding:7px 10px;font-size:12px;vertical-align:middle">
+              <div style="margin-bottom:3px;font-weight:500">${p.name}</div>
               <div>${sizePills}</div>
             </td>
-            <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px${p.totalStock === 0 && p.totalSold > 0 ? ";color:#c0392b" : ""}">${Math.round(p.totalStock)}</td>
-            <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px;color:${iAClr}">${iAStr}</td>
-            <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px">${Math.round(p.totalSold)}</td>
-            <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px;color:${iSClr}">${iStr}</td>
+            <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px;vertical-align:middle${p.totalStock === 0 && p.totalSold > 0 ? ";color:#c0392b" : ""}">${Math.round(p.totalStock)}</td>
+            <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px;vertical-align:middle;color:${iAClr}">${iAStr}</td>
+            <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px;vertical-align:middle">${Math.round(p.totalSold)}</td>
+            <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px;vertical-align:middle;color:${iSClr}">${iStr}</td>
           </tr>`;
         }).join("")}</tbody>
       </table>
     </div>` : ""}
-    <div style="margin-top:10px;font-size:10px;color:var(--g400);font-family:var(--mono)">${products.length} produk · ${itemIds.length} variants ter-mapping</div>
+    <div style="margin-top:12px;display:flex;align-items:center;justify-content:space-between">
+      <div style="font-size:10px;color:var(--g400);font-family:var(--mono)">${products.length} produk · ${itemIds.length} variants ter-mapping</div>
+      <button onclick="printColPerf('${colId}')" style="padding:5px 12px;border:1px solid var(--g200);border-radius:6px;background:none;font-size:11px;font-family:var(--mono);cursor:pointer;color:var(--g600);display:flex;align-items:center;gap:5px" title="Download PDF">⬇ PDF</button>
+    </div>
   `;
 }
 
