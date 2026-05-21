@@ -3882,7 +3882,7 @@ const _colPerfCache = {};
 async function printColPerf(colId) {
   const d = _colPerfCache[colId];
   if (!d) return;
-  const { colName, products, grandStock, grandSold, grandAdj, grandRevenue, str, strClr, adjStr, adjClr, avgPerDay, fds, itemIds } = d;
+  const { colName, products, grandStock, grandSold, grandAdj, grandRevenue, grandRoyalty, royaltyRate, royaltyLabel, str, strClr, adjStr, adjClr, avgPerDay, fds, itemIds } = d;
 
   // Convert thumbnails to base64 so they render correctly in the print window (avoids CORS block)
   const thumbUrls = [...new Set(products.map(p => p.thumbnail).filter(Boolean))];
@@ -3929,6 +3929,7 @@ async function printColPerf(colId) {
       <td style="padding:8px 10px;text-align:right;font-family:monospace;font-size:12px;vertical-align:middle">${Math.round(p.totalSold)}</td>
       <td style="padding:8px 10px;text-align:right;font-family:monospace;font-size:12px;vertical-align:middle;color:${iSClr}">${iStr}</td>
       <td style="padding:8px 10px;text-align:right;font-family:monospace;font-size:11px;vertical-align:middle;color:#2d7a2d">${fmtRp(p.totalRevenue)}</td>
+      ${royaltyLabel ? `<td style="padding:8px 10px;text-align:right;font-family:monospace;font-size:11px;vertical-align:middle;color:#7c3aed">${fmtRp(p.totalRoyalty)}</td>` : ""}
     </tr>`;
   }).join("");
 
@@ -3954,6 +3955,7 @@ async function printColPerf(colId) {
     ${metricBox("Net Adj", adjStr, adjClr)}
     ${metricBox("Total Terjual", Math.round(grandSold)+" pcs", "#0c0c0c")}
     ${metricBox("Total Sales", fmtRp(grandRevenue), "#2d7a2d")}
+    ${royaltyLabel ? metricBox(royaltyLabel, fmtRp(grandRoyalty), "#7c3aed") : ""}
     ${metricBox("Sell-through", str, strClr)}
     ${metricBox("First Sale", fds, "#0c0c0c")}
     ${metricBox("Avg / Hari", avgPerDay, "#0c0c0c")}
@@ -3968,6 +3970,7 @@ async function printColPerf(colId) {
       <th style="text-align:right">Terjual</th>
       <th style="text-align:right">STR</th>
       <th style="text-align:right">Total Sales</th>
+      ${royaltyLabel ? `<th style="text-align:right">${royaltyLabel}</th>` : ""}
     </tr></thead>
     <tbody>${rows}</tbody>
   </table>
@@ -3982,6 +3985,14 @@ async function printColPerf(colId) {
 async function loadColProductPerf(colId, colName) {
   const el = document.getElementById(`col-perf-${colId}`);
   if (!el) return;
+
+  // 0. Fetch royalty rate for this collection
+  let royaltyRate = 0;
+  const { data: colMeta } = await sb.from("collections").select("ip_related").eq("id", colId).single();
+  if (colMeta?.ip_related) {
+    const { data: ipMeta } = await sb.from("ip_master").select("percentage").eq("name", colMeta.ip_related).single();
+    royaltyRate = parseFloat(ipMeta?.percentage || 0);
+  }
 
   // 1. Get products mapped to this collection
   const { data: mappings, error: mErr } = await sb.from("product_mappings")
@@ -4031,7 +4042,7 @@ async function loadColProductPerf(colId, colName) {
 
   // 4. Per-variant aggregates
   const varData = {}; // item_id → { stock, sold, adj, revenue, pfreq }
-  for (const id of itemIds) varData[id] = { stock: 0, sold: 0, adj: 0, revenue: 0, pfreq: {} };
+  for (const id of itemIds) varData[id] = { stock: 0, sold: 0, adj: 0, revenue: 0, royaltyBase: 0, pfreq: {} };
   for (const s of stocks) {
     if (varData[s.item_id] !== undefined) varData[s.item_id].stock += parseFloat(s.on_hand || 0);
   }
@@ -4042,7 +4053,8 @@ async function loadColProductPerf(colId, colName) {
     const amount = parseFloat(si.amount || 0);
     varData[si.item_id].sold += qty;
     if (price > 0) {
-      varData[si.item_id].revenue += amount || (qty * price);
+      varData[si.item_id].revenue     += amount || (qty * price);
+      varData[si.item_id].royaltyBase += qty * price;
       varData[si.item_id].pfreq[price] = (varData[si.item_id].pfreq[price] || 0) + 1;
     }
   }
@@ -4064,7 +4076,8 @@ async function loadColProductPerf(colId, colName) {
     totalSold:  p.variants.reduce((s, v) => s + v.sold,  0),
     totalAdj:   p.variants.reduce((s, v) => s + v.adj,   0),
     thumbnail:     p.variants.map(v => thumbMap[v.id]).find(Boolean) || null,
-    totalRevenue:  p.variants.reduce((s, v) => s + (v.revenue || 0), 0),
+    totalRevenue:   p.variants.reduce((s, v) => s + (v.revenue      || 0), 0),
+    totalRoyalty:   p.variants.reduce((s, v) => s + (v.royaltyBase || 0), 0) * royaltyRate / 100,
     price: (() => {
       const allFreq = {};
       p.variants.forEach(v => { Object.entries(v.pfreq||{}).forEach(([pr,cnt]) => { allFreq[pr]=(allFreq[pr]||0)+cnt; }); });
@@ -4078,7 +4091,9 @@ async function loadColProductPerf(colId, colName) {
   const grandSold    = products.reduce((s, p) => s + p.totalSold,    0);
   const grandAdj     = products.reduce((s, p) => s + p.totalAdj,     0);
   const grandRevenue = products.reduce((s, p) => s + p.totalRevenue, 0);
+  const grandRoyalty = products.reduce((s, p) => s + p.totalRoyalty, 0);
   const fmtRp = n => n ? "Rp " + Math.round(n).toLocaleString("id-ID") : "—";
+  const royaltyLabel = royaltyRate ? `Royalty (${royaltyRate}%)` : null;
 
   let firstSaleDate = null;
   for (const si of salesItems) {
@@ -4109,7 +4124,7 @@ async function loadColProductPerf(colId, colName) {
     </div>`;
 
   // Store for PDF export
-  _colPerfCache[colId] = { colName, products, grandStock, grandSold, grandAdj, grandRevenue, str, strClr, adjStr, adjClr, avgPerDay, fds, itemIds };
+  _colPerfCache[colId] = { colName, products, grandStock, grandSold, grandAdj, grandRevenue, grandRoyalty, royaltyRate, royaltyLabel, str, strClr, adjStr, adjClr, avgPerDay, fds, itemIds };
 
   el.innerHTML = `
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:16px">
@@ -4117,6 +4132,7 @@ async function loadColProductPerf(colId, colName) {
       ${metricCard("Net Adj",       adjStr, adjClr)}
       ${metricCard("Total Terjual", Math.round(grandSold) + " pcs", "var(--black)")}
       ${metricCard("Total Sales",   fmtRp(grandRevenue), "#2d7a2d")}
+      ${royaltyLabel ? metricCard(royaltyLabel, fmtRp(grandRoyalty), "#7c3aed") : ""}
       ${metricCard("Sell-through",  str, strClr)}
       ${metricCard("First Sale",    fds, "var(--black)")}
       ${metricCard("Avg / Hari",    avgPerDay, "var(--black)")}
@@ -4132,6 +4148,7 @@ async function loadColProductPerf(colId, colName) {
           <th style="padding:6px 10px;text-align:right">Terjual</th>
           <th style="padding:6px 10px;text-align:right">STR</th>
           <th style="padding:6px 10px;text-align:right">Total Sales</th>
+          ${royaltyLabel ? `<th style="padding:6px 10px;text-align:right">${royaltyLabel}</th>` : ""}
         </tr></thead>
         <tbody>${products.map(p => {
           const iStr  = (p.totalSold + p.totalStock) > 0 ? ((p.totalSold / (p.totalSold + p.totalStock)) * 100).toFixed(0) + "%" : "—";
@@ -4165,6 +4182,7 @@ async function loadColProductPerf(colId, colName) {
             <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px;vertical-align:middle">${Math.round(p.totalSold)}</td>
             <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px;vertical-align:middle;color:${iSClr}">${iStr}</td>
             <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px;vertical-align:middle;color:#2d7a2d">${fmtRp(p.totalRevenue)}</td>
+            ${royaltyLabel ? `<td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px;vertical-align:middle;color:#7c3aed">${fmtRp(p.totalRoyalty)}</td>` : ""}
           </tr>`;
         }).join("")}</tbody>
       </table>
