@@ -90,6 +90,9 @@
         <div class="sb-item" onclick="showPage('project',this)" id="nav-project">
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="3" width="4" height="9" rx="1"/><rect x="6" y="3" width="4" height="6" rx="1"/><rect x="11" y="3" width="4" height="11" rx="1"/></svg>Project Board
         </div>
+        <div class="sb-item" onclick="showPage('calendar',this)" id="nav-calendar">
+          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="2" width="14" height="13" rx="1.5"/><path d="M1 6h14M5 1v3M11 1v3"/></svg>Calendar
+        </div>
       </div>
       <div class="sb-sec">
         <div class="sb-label">Database</div>
@@ -134,6 +137,7 @@
         <div class="sb-label" style="margin-bottom:0.6rem;margin-top:0.25rem">General</div>
         <div class="home-grid" style="margin-bottom:1.5rem">
           <div class="tool-card" onclick="showPage('project',null)"><span class="tc-icon">📌</span><div class="tc-name">Project Board</div><div class="tc-desc">Kanban tracker untuk semua project tim — dari backlog hingga selesai.</div></div>
+          <div class="tool-card" onclick="showPage('calendar',null)"><span class="tc-icon">📅</span><div class="tc-name">Calendar</div><div class="tc-desc">Semua deadline & event penting dari Project Board, Collection, dan Leads dalam satu tampilan.</div></div>
         </div>
 
         <div class="sb-label" style="margin-bottom:0.6rem">Legal &amp; Finance</div>
@@ -573,6 +577,7 @@
               </div>
               <div class="fg full"><label>Notes</label><input type="text" id="ld-notes" placeholder="Catatan, next action, dll"></div>
               <div class="fg"><label>Priority</label><select id="ld-priority"><option value="">—</option><option>Low</option><option>Medium</option><option>High</option></select></div>
+              <div class="fg"><label>Follow-up Date</label><input type="date" id="ld-followup"></div>
             </div>
             <div class="btn-row">
               <button class="btn-primary" id="ldSubmitBtn" onclick="submitLead()">Simpan Lead</button>
@@ -1805,6 +1810,27 @@
           <div id="proj-urgent-bar" style="display:flex;flex-wrap:wrap;gap:6px;flex:1"></div>
         </div>
         <div id="proj-board" class="kanban-board"></div>
+      </div>
+
+      <!-- CALENDAR -->
+      <div class="page" id="page-calendar">
+        <div class="page-header">
+          <div><div class="page-title">Calendar</div><div class="page-sub">Semua deadline &amp; event penting dari seluruh modul</div></div>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:1.25rem;">
+          <div style="display:flex;gap:8px;flex-wrap:wrap" id="cal-filters">
+            <span class="cal-filter-chip active" data-src="project" onclick="calToggleFilter('project',this)">📌 Project Board</span>
+            <span class="cal-filter-chip active" data-src="collection" onclick="calToggleFilter('collection',this)">🎨 Collection Release</span>
+            <span class="cal-filter-chip active" data-src="colitem" onclick="calToggleFilter('colitem',this)">🧵 Collection Items</span>
+            <span class="cal-filter-chip active" data-src="leads" onclick="calToggleFilter('leads',this)">🎯 Leads Follow-up</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <button class="cal-nav-btn" onclick="calChangeMonth(-1)">&#8249;</button>
+            <span id="cal-month-title" style="font-size:17px;font-weight:700;font-family:var(--head);color:var(--black);min-width:160px;text-align:center">—</span>
+            <button class="cal-nav-btn" onclick="calChangeMonth(1)">&#8250;</button>
+          </div>
+        </div>
+        <div class="cal-grid" id="cal-grid"></div>
       </div>
 
   </div>

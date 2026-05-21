@@ -61,7 +61,7 @@ function mapAgr(r) { return {rowIndex:r.id,id:r.id,title:r.title||"",partner:r.p
 function mapIP(r) { return {rowIndex:r.id,id:r.id,name:r.name||"",category:r.category||"",liveStatus:r.live_status||"Active",revenue:r.revenue_stream||"",agreements:r.related_agreement||"",royaltyType:r.royalty_type||"",pct:r.percentage||"",fixed:r.fixed_amount||"",termin:r.termin||"",pph:r.pph_tax_rate||"",notes:r.notes||"",pic:r.pic||"",ipStatus:"",addedBy:r.added_by||""}; }
 function mapRR(r) { return {rowIndex:r.id,id:r.id,name:r.nama||"",tipe:r.tipe||"",ip:r.related_ip||"",royaltyType:r.royalty_type||"",pct:r.percentage||"",fixed:r.fixed_amount||"",termin:r.termin||"",pks:r.pks||"",notes:r.notes||"",pic:r.pic||"",addedBy:r.added_by||""}; }
 function mapBM(r) { return {rowIndex:r.id,id:r.id,name:r.name||"",category:r.category||"",liveStatus:r.live_status||"Active",revenue:r.revenue_stream||"",agreements:r.related_agreement||"",apparel:r.apparel_rate!=null?r.apparel_rate:"",accessories:r.accessories_rate!=null?r.accessories_rate:"",collectible:r.collectible_rate!=null?r.collectible_rate:"",preloved:r.preloved_rate!=null?r.preloved_rate:"",wellness:r.wellness_rate!=null?r.wellness_rate:"",others:r.others_rate!=null?r.others_rate:"",notes:r.notes||"",pic:r.pic||"",addedBy:r.added_by||""}; }
-function mapLD(r) { return {rowIndex:r.id,id:r.id,name:r.lead_name||"",category:r.category||"",stage:r.stage||"",pic:r.pic||"",revenue:r.revenue_stream||"",contact:r.contact||"",notes:r.notes||"",priority:r.priority||"",date:r.date_added?new Date(r.date_added).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"",by:r.added_by||"",lastUpdate:r.last_updated?new Date(r.last_updated).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"",lastBy:r.last_updated_by||"",addedBy:r.added_by||""}; }
+function mapLD(r) { return {rowIndex:r.id,id:r.id,name:r.lead_name||"",category:r.category||"",stage:r.stage||"",pic:r.pic||"",revenue:r.revenue_stream||"",contact:r.contact||"",notes:r.notes||"",priority:r.priority||"",followUpDate:r.follow_up_date||"",date:r.date_added?new Date(r.date_added).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"",by:r.added_by||"",lastUpdate:r.last_updated?new Date(r.last_updated).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"",lastBy:r.last_updated_by||"",addedBy:r.added_by||""}; }
 function mapDP(r) { return {rowIndex:r.id,id:r.id,name:r.partner_name||"",type:r.type||"",channel:r.channel||"",region:r.region||"",pic:r.pic||"",contactPerson:r.contact_person||"",contactInfo:r.contact_info||"",agreements:r.related_agreement||"",liveStatus:r.live_status||"Active",notes:r.notes||"",addedBy:r.added_by||""}; }
 function mapPB(r) { return {rowIndex:r.id,id:r.id,eventDate:r.event_date||"",eventName:r.event_name||"",location:r.location||"",ipRelated:r.ip_related||"",manpower:r.manpower||"",suratJalanUrl:r.surat_jalan_url||"",deliveryStatus:r.delivery_status||"",eventStatus:r.event_status||"",reinboundStatus:r.reinbound_status||"",reinboundQty:r.reinbound_qty!=null?r.reinbound_qty:"",srDeadline:r.sr_deadline||"",actualSales:r.actual_sales!=null?r.actual_sales:"",paymentMethod:r.payment_method||"",idPesananJubelio:r.id_pesanan_jubelio||"",notes:r.notes||"",dateAdded:r.date_added||"",addedBy:r.added_by||"",lastUpdated:r.last_updated||"",lastUpdatedBy:r.last_updated_by||""}; }
 
@@ -201,6 +201,7 @@ function showPage(name, el) {
   if (name==="tradorders") loadTradeOrders();
   if (name==="invcheck") loadInvCheck();
   if (name==="project") loadProjects();
+  if (name==="calendar") loadCalendar();
   closeMobileSidebar();
 }
 
@@ -1388,7 +1389,7 @@ async function submitLead() {
   const btn=document.getElementById("ldSubmitBtn"); btn.disabled=true; btn.textContent="Menyimpan...";
   try {
     const id=genId("LD");
-    const {error}=await sb.from("leads").insert({id,lead_name:name,category,stage,pic:document.getElementById("ld-pic").value.trim(),contact:document.getElementById("ld-contact").value.trim(),revenue_stream:revenues.join(", "),notes:document.getElementById("ld-notes").value.trim(),priority:document.getElementById("ld-priority").value,added_by:currentUser,last_updated:new Date().toISOString(),last_updated_by:currentUser});
+    const {error}=await sb.from("leads").insert({id,lead_name:name,category,stage,pic:document.getElementById("ld-pic").value.trim(),contact:document.getElementById("ld-contact").value.trim(),revenue_stream:revenues.join(", "),notes:document.getElementById("ld-notes").value.trim(),priority:document.getElementById("ld-priority").value,follow_up_date:document.getElementById("ld-followup").value||null,added_by:currentUser,last_updated:new Date().toISOString(),last_updated_by:currentUser});
     if(error)throw error;
     showLdFeedback("✓ Lead tersimpan — ID: "+id,"ok");
     logActivity("Leads Tracker","create",id,name+" ("+category+") — "+stage);
@@ -1400,7 +1401,7 @@ async function submitLead() {
 }
 
 function clearLeadForm() {
-  ["ld-name","ld-category","ld-pic","ld-contact","ld-notes"].forEach(id=>document.getElementById(id).value="");
+  ["ld-name","ld-category","ld-pic","ld-contact","ld-notes","ld-followup"].forEach(id=>document.getElementById(id).value="");
   document.getElementById("ld-stage").value=""; document.getElementById("ld-priority").value="";
   document.querySelectorAll("#ld-revenue-checks input").forEach(c=>c.checked=false);
 }
@@ -1498,6 +1499,7 @@ function renderLeadsTable(rows) {
           <div class="fg"><label>Revenue Stream</label><input type="text" id="ld-e-revenue-${r.rowIndex}" value="${r.revenue||""}" placeholder="SD&Y, Lagaa, Distribution"></div>
           <div class="fg"><label>Notes</label><input type="text" id="ld-e-notes-${r.rowIndex}" value="${r.notes||""}"></div>
           <div class="fg"><label>Priority</label><select id="ld-e-priority-${r.rowIndex}"><option value="" ${!r.priority?"selected":""}>—</option><option ${r.priority==="Low"?"selected":""}>Low</option><option ${r.priority==="Medium"?"selected":""}>Medium</option><option ${r.priority==="High"?"selected":""}>High</option></select></div>
+          <div class="fg"><label>Follow-up Date</label><input type="date" id="ld-e-followup-${r.rowIndex}" value="${r.followUpDate||""}"></div>
         </div>
         <div class="edit-row-btns">
           <button class="btn-save" onclick="saveLeadEdit('${r.rowIndex}')">Simpan</button>
@@ -1536,7 +1538,7 @@ async function updateLeadStage(sel,rowIndex) {
 
 async function saveLeadEdit(rowIndex) {
   try {
-    const {error}=await sb.from("leads").update({lead_name:document.getElementById("ld-e-name-"+rowIndex).value.trim(),category:document.getElementById("ld-e-cat-"+rowIndex).value.trim(),stage:document.getElementById("ld-e-stage-"+rowIndex).value,pic:document.getElementById("ld-e-pic-"+rowIndex).value.trim(),contact:document.getElementById("ld-e-contact-"+rowIndex).value.trim(),revenue_stream:document.getElementById("ld-e-revenue-"+rowIndex).value.trim(),notes:document.getElementById("ld-e-notes-"+rowIndex).value.trim(),priority:document.getElementById("ld-e-priority-"+rowIndex).value,last_updated:new Date().toISOString(),last_updated_by:currentUser}).eq("id",rowIndex);
+    const {error}=await sb.from("leads").update({lead_name:document.getElementById("ld-e-name-"+rowIndex).value.trim(),category:document.getElementById("ld-e-cat-"+rowIndex).value.trim(),stage:document.getElementById("ld-e-stage-"+rowIndex).value,pic:document.getElementById("ld-e-pic-"+rowIndex).value.trim(),contact:document.getElementById("ld-e-contact-"+rowIndex).value.trim(),revenue_stream:document.getElementById("ld-e-revenue-"+rowIndex).value.trim(),notes:document.getElementById("ld-e-notes-"+rowIndex).value.trim(),priority:document.getElementById("ld-e-priority-"+rowIndex).value,follow_up_date:document.getElementById("ld-e-followup-"+rowIndex).value||null,last_updated:new Date().toISOString(),last_updated_by:currentUser}).eq("id",rowIndex);
     if(error){alert("Gagal simpan: "+error.message);return;}
     logActivity("Leads Tracker","edit",rowIndex,"Data diperbarui");
     const _ld=allLeadsRows.find(r=>r.rowIndex===rowIndex);
@@ -8055,6 +8057,94 @@ function projCmtKeydown(e, pid){
     if(e.key==='ArrowDown'){ e.preventDefault(); drop.querySelector('div')?.focus(); return; }
   }
   if(e.key==='Enter' && (!drop || drop.style.display==='none')) submitProjComment(pid);
+}
+
+// ── CALENDAR ──
+let calYear = new Date().getFullYear();
+let calMonth = new Date().getMonth();
+let calEvents = [];
+let calActiveFilters = new Set(['project','collection','colitem','leads']);
+const CAL_MONTH_NAMES = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+const CAL_DAY_NAMES = ['Min','Sen','Sel','Rab','Kam','Jum','Sab'];
+
+async function loadCalendar() {
+  try {
+    const [projRes, colRes, colItemRes, leadsRes] = await Promise.all([
+      sb.from('projects').select('id,title,due_date,status').not('due_date','is',null).neq('status','done'),
+      sb.from('collections').select('id,collection_name,release_date').not('release_date','is',null),
+      sb.from('collection_items').select('id,sku_name,deadline,collection_id').not('deadline','is',null),
+      sb.from('leads').select('id,lead_name,follow_up_date,stage').not('follow_up_date','is',null)
+    ]);
+    calEvents = [];
+    (projRes.data||[]).forEach(r=>calEvents.push({src:'project',date:r.due_date,label:r.title,id:r.id}));
+    (colRes.data||[]).forEach(r=>calEvents.push({src:'collection',date:r.release_date,label:r.collection_name,id:r.id}));
+    (colItemRes.data||[]).forEach(r=>calEvents.push({src:'colitem',date:r.deadline,label:r.sku_name,id:r.collection_id}));
+    (leadsRes.data||[]).forEach(r=>calEvents.push({src:'leads',date:r.follow_up_date,label:r.lead_name,id:r.id}));
+    renderCalendar();
+  } catch(e){ console.error('Calendar load error:',e); }
+}
+
+function calToggleFilter(src, el) {
+  if (calActiveFilters.has(src)) { calActiveFilters.delete(src); el.classList.remove('active'); }
+  else { calActiveFilters.add(src); el.classList.add('active'); }
+  renderCalendar();
+}
+
+function calChangeMonth(dir) {
+  calMonth += dir;
+  if (calMonth < 0) { calMonth = 11; calYear--; }
+  if (calMonth > 11) { calMonth = 0; calYear++; }
+  loadCalendar();
+}
+
+function renderCalendar() {
+  const titleEl = document.getElementById('cal-month-title');
+  const gridEl = document.getElementById('cal-grid');
+  if (!titleEl || !gridEl) return;
+  titleEl.textContent = CAL_MONTH_NAMES[calMonth] + ' ' + calYear;
+
+  const today = new Date(); today.setHours(0,0,0,0);
+  const firstDow = new Date(calYear, calMonth, 1).getDay();
+  const daysInMonth = new Date(calYear, calMonth+1, 0).getDate();
+  const daysInPrev = new Date(calYear, calMonth, 0).getDate();
+
+  const filtered = calEvents.filter(e => calActiveFilters.has(e.src));
+  const byDate = {};
+  filtered.forEach(e => { if (!byDate[e.date]) byDate[e.date] = []; byDate[e.date].push(e); });
+
+  const srcLabel = {project:'📌',collection:'🎨',colitem:'🧵',leads:'🎯'};
+  let html = CAL_DAY_NAMES.map(d=>`<div class="cal-dow">${d}</div>`).join('');
+
+  // prev month fillers
+  for (let i=0; i<firstDow; i++) {
+    const d = daysInPrev - firstDow + 1 + i;
+    html += `<div class="cal-day other-month"><div class="cal-day-num">${d}</div></div>`;
+  }
+
+  // current month
+  for (let d=1; d<=daysInMonth; d++) {
+    const mm = String(calMonth+1).padStart(2,'0');
+    const dd = String(d).padStart(2,'0');
+    const dateStr = `${calYear}-${mm}-${dd}`;
+    const dayDate = new Date(calYear, calMonth, d);
+    const isToday = dayDate.getTime() === today.getTime();
+    const dayEvts = byDate[dateStr] || [];
+    const evHtml = dayEvts.slice(0,3).map(e=>`<div class="cal-event src-${e.src}" onclick="event.stopPropagation();calEventClick('${e.src}','${e.id}')" title="${e.label}">${srcLabel[e.src]} ${e.label}</div>`).join('');
+    const overflow = dayEvts.length > 3 ? `<div class="cal-overflow">+${dayEvts.length-3} lagi</div>` : '';
+    html += `<div class="cal-day${isToday?' today':''}"><div class="cal-day-num">${d}</div>${evHtml}${overflow}</div>`;
+  }
+
+  // next month fillers
+  const total = firstDow + daysInMonth;
+  const rem = total % 7 === 0 ? 0 : 7 - (total % 7);
+  for (let i=1; i<=rem; i++) html += `<div class="cal-day other-month"><div class="cal-day-num">${i}</div></div>`;
+
+  gridEl.innerHTML = html;
+}
+
+function calEventClick(src, id) {
+  const pageMap = {project:'project',collection:'collections',colitem:'collections',leads:'leads'};
+  showPage(pageMap[src], null);
 }
 
 // ── DUPLICATE CHECK ──
