@@ -7454,7 +7454,25 @@ function mapProj(r){
   return { id:r.id, title:r.title||'—', description:r.description||'', status:r.status||'backlog',
     priority:r.priority||'medium', assignee:r.assignee||'', dueDate:r.due_date||'',
     revenueStream:r.revenue_stream||'', categoryId:r.category_id||'', position:r.position||0,
-    createdBy:r.created_by||'', createdAt:r.created_at||'', updatedAt:r.updated_at||'' };
+    link:r.link||'', createdBy:r.created_by||'', createdAt:r.created_at||'', updatedAt:r.updated_at||'' };
+}
+// Day diff using local midnight — fixes timezone "besok" bug
+function projDayDiff(dateStr){
+  if(!dateStr) return null;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const due = new Date(dateStr+'T00:00:00'); // local midnight, not UTC
+  return Math.round((due - today) / 86400000);
+}
+// Linkify URLs + highlight @mentions for chat messages
+function projLinkify(text){
+  if(!text) return '';
+  return text.split(/(https?:\/\/[^\s<>"]+)/g).map(part=>{
+    if(/^https?:\/\//.test(part)){
+      const esc=part.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      return `<a href="${esc}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" style="color:#3b82f6;text-decoration:underline;word-break:break-all">${esc}</a>`;
+    }
+    return projEsc(part).replace(/@(\w+)/g,'<span style="color:#6366f1;font-weight:600">@$1</span>');
+  }).join('');
 }
 
 async function loadProjects(){
@@ -7491,10 +7509,9 @@ function renderProjStats(){
 function renderProjUrgent(){
   const el = document.getElementById('proj-urgent-bar');
   if(!el) return;
-  const now = new Date();
   const urgent = projGetFiltered()
     .filter(p => p.dueDate && p.status !== 'done')
-    .map(p => { const dueTs = new Date(p.dueDate+' 23:59'); return { ...p, daysLeft: Math.ceil((dueTs - now) / 86400000) }; })
+    .map(p => ({ ...p, daysLeft: projDayDiff(p.dueDate) }))
     .filter(p => p.daysLeft <= 7)
     .sort((a,b) => a.daysLeft - b.daysLeft)
     .slice(0, 10);
@@ -7570,14 +7587,13 @@ function renderKanban(){
 function renderProjCard(p){
   const cat = projCats.find(c=>c.id===p.categoryId);
   const pri = PROJ_PRIORITIES.find(x=>x.key===p.priority);
-  const dueStr = p.dueDate ? new Date(p.dueDate).toLocaleDateString('id-ID',{day:'numeric',month:'short'}) : '';
-  const now = new Date();
-  const dueTs = p.dueDate ? new Date(p.dueDate+' 23:59') : null;
-  const daysLeft = dueTs ? Math.ceil((dueTs - now) / 86400000) : null;
-  const isOverdue   = daysLeft !== null && daysLeft < 0  && p.status !== 'done';
-  const isNearDue   = daysLeft !== null && daysLeft >= 0 && daysLeft <= 7 && p.status !== 'done';
-  const dueIcon  = isOverdue ? '🔴' : isNearDue ? '⚠️' : '📅';
-  const dueCl    = isOverdue ? 'color:#ef4444;font-weight:600' : isNearDue ? 'color:#d97706;font-weight:600' : 'color:var(--g400)';
+  const dueStr  = p.dueDate ? new Date(p.dueDate+'T00:00:00').toLocaleDateString('id-ID',{day:'numeric',month:'short'}) : '';
+  const daysLeft = projDayDiff(p.dueDate);
+  const isOverdue = daysLeft !== null && daysLeft < 0  && p.status !== 'done';
+  const isNearDue = daysLeft !== null && daysLeft >= 0 && daysLeft <= 7 && p.status !== 'done';
+  const dueIcon   = isOverdue ? '🔴' : isNearDue ? '⚠️' : '📅';
+  const dueCl     = isOverdue ? 'color:#ef4444;font-weight:600' : isNearDue ? 'color:#d97706;font-weight:600' : 'color:var(--g400)';
+  const dueLabel  = isNearDue&&daysLeft===0?' · hari ini':isNearDue&&daysLeft===1?' · besok':isNearDue?` · ${daysLeft}h`:'';
   return `<div class="kanban-card" id="pcard-${p.id}" draggable="true"
     ondragstart="projDragStart(event,'${p.id}')" ondragend="projDragEnd(event)"
     onclick="openProjectDetail('${p.id}')">
@@ -7586,13 +7602,14 @@ function renderProjCard(p){
     <div class="kcard-meta">
       ${cat?`<span class="kcard-tag" style="background:${cat.color}18;color:${cat.color};border-color:${cat.color}40">${projEsc(cat.name)}</span>`:''}
       ${p.revenueStream?`<span class="kcard-tag" style="background:var(--g100);color:var(--g600);border-color:var(--g200)">${projEsc(p.revenueStream)}</span>`:''}
+      ${p.link?`<a href="${projEsc(p.link)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" class="kcard-tag" style="background:#eff6ff;color:#3b82f6;border-color:#bfdbfe;text-decoration:none">🔗 Link</a>`:''}
     </div>
     <div class="kcard-footer">
       <div style="display:flex;align-items:center;gap:6px">
         ${pri?`<span style="font-size:10px;font-family:var(--mono);color:${pri.color};font-weight:600">${pri.label.toUpperCase()}</span>`:''}
         ${p.assignee?`<span style="font-size:11px;color:var(--g400)">· ${projEsc(p.assignee)}</span>`:''}
       </div>
-      ${dueStr?`<span style="font-size:10px;font-family:var(--mono);${dueCl}">${dueIcon} ${dueStr}${isNearDue&&daysLeft===0?' (hari ini)':isNearDue&&daysLeft===1?' (besok)':isNearDue?` (${daysLeft}h)`:''}</span>`:''}
+      ${dueStr?`<span style="font-size:10px;font-family:var(--mono);${dueCl}">${dueIcon} ${dueStr}${dueLabel}</span>`:''}
     </div>
   </div>`;
 }
@@ -7721,8 +7738,11 @@ function renderProjDetail(id, defaultStatus='backlog'){
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
         <div>
           <div class="fg-label">PIC / Assignee</div>
-          <input id="pd-assignee" type="text" value="${projEsc(p?.assignee||'')}" placeholder="Nama PIC…" oninput="projMarkDirty()"
+          <input id="pd-assignee" type="text" list="pd-assignee-opts" value="${projEsc(p?.assignee||'')}" placeholder="Nama PIC…" oninput="projMarkDirty()"
             style="width:100%;padding:7px 10px;border:1px solid var(--g200);border-radius:8px;font-size:13px">
+          <datalist id="pd-assignee-opts">
+            ${[...new Set(projAll.map(x=>x.assignee).filter(Boolean))].map(n=>`<option value="${projEsc(n)}">`).join('')}
+          </datalist>
         </div>
         <div>
           <div class="fg-label">Due Date</div>
@@ -7740,8 +7760,16 @@ function renderProjDetail(id, defaultStatus='backlog'){
       </div>
       <div>
         <div class="fg-label">Deskripsi</div>
-        <textarea id="pd-desc" rows="4" placeholder="Deskripsi, tujuan, catatan penting…" oninput="projMarkDirty()"
+        <textarea id="pd-desc" rows="3" placeholder="Deskripsi, tujuan, catatan penting…" oninput="projMarkDirty()"
           style="width:100%;padding:8px 10px;border:1px solid var(--g200);border-radius:8px;font-size:13px;resize:vertical;font-family:var(--body);line-height:1.5">${projEsc(p?.description||'')}</textarea>
+      </div>
+      <div>
+        <div class="fg-label">Link</div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <input id="pd-link" type="url" value="${projEsc(p?.link||'')}" placeholder="https://…" oninput="projMarkDirty()"
+            style="flex:1;padding:7px 10px;border:1px solid var(--g200);border-radius:8px;font-size:13px;outline:none">
+          ${p?.link?`<a href="${projEsc(p.link)}" target="_blank" rel="noopener noreferrer" style="padding:7px 10px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;font-size:12px;color:#3b82f6;text-decoration:none;white-space:nowrap">Buka →</a>`:''}
+        </div>
       </div>
       <div style="display:flex;align-items:center;gap:10px">
         <button id="pd-save-btn" onclick="saveProjDetail('${id||''}')" disabled
@@ -7760,11 +7788,15 @@ function renderProjDetail(id, defaultStatus='backlog'){
         <div id="pd-comments" style="display:flex;flex-direction:column;gap:8px;flex:1">
           ${comments.length?comments.map(c=>renderProjCmt(c)).join(''):`<div style="font-size:11px;color:var(--g400)">Belum ada komentar</div>`}
         </div>
-        <div style="display:flex;gap:5px;margin-top:4px;flex-shrink:0">
-          <input id="pd-cmt-in" type="text" placeholder="Tulis pesan…"
-            style="flex:1;padding:6px 9px;border:1px solid var(--g200);border-radius:6px;font-size:12px;outline:none"
-            onkeydown="if(event.key==='Enter')submitProjComment('${id}')">
-          <button onclick="submitProjComment('${id}')" style="padding:6px 10px;background:var(--black);color:var(--white);border:none;border-radius:6px;font-size:13px;cursor:pointer">→</button>
+        <div style="position:relative;flex-shrink:0;margin-top:4px">
+          <div id="pd-mention-drop" style="display:none;position:absolute;bottom:36px;left:0;right:40px;background:var(--white);border:1px solid var(--g200);border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.1);z-index:10;overflow:hidden;max-height:140px;overflow-y:auto"></div>
+          <div style="display:flex;gap:5px">
+            <input id="pd-cmt-in" type="text" placeholder="Tulis pesan… @ untuk mention"
+              style="flex:1;padding:6px 9px;border:1px solid var(--g200);border-radius:6px;font-size:12px;outline:none"
+              oninput="projHandleMentionInput('${id}')"
+              onkeydown="projCmtKeydown(event,'${id}')">
+            <button onclick="submitProjComment('${id}')" style="padding:6px 10px;background:var(--black);color:var(--white);border:none;border-radius:6px;font-size:13px;cursor:pointer">→</button>
+          </div>
         </div>
       </div>
       <div style="padding:14px 16px;overflow-y:auto;max-height:220px">
@@ -7784,7 +7816,7 @@ function renderProjCmt(c){
       <span style="font-size:11px;font-weight:600;color:var(--black)">${projEsc(c.author||'—')}</span>
       <span style="font-size:10px;color:var(--g400);font-family:var(--mono)">${dt}</span>
     </div>
-    <div style="font-size:12px;color:var(--g600);white-space:pre-wrap;line-height:1.5">${projEsc(c.content)}</div>
+    <div style="font-size:12px;color:var(--g600);white-space:pre-wrap;line-height:1.5">${projLinkify(c.content)}</div>
   </div>`;
 }
 
@@ -7832,6 +7864,7 @@ async function saveProjDetail(existingId){
   const dueDate = document.getElementById('pd-duedate')?.value || null;
   const catId   = document.getElementById('pd-cat')?.value     || null;
   const desc    = document.getElementById('pd-desc')?.value?.trim()||'';
+  const link    = document.getElementById('pd-link')?.value?.trim()||'';
   const btn = document.getElementById('pd-save-btn');
   if(btn){ btn.disabled=true; btn.textContent='Menyimpan…'; btn.style.opacity='0.5'; }
   try{
@@ -7842,12 +7875,12 @@ async function saveProjDetail(existingId){
         id, title, description:desc||null, status, priority,
         assignee:assignee||null, due_date:dueDate||null,
         revenue_stream:revenue||null, category_id:catId||null,
-        position:pos, created_by:currentUser
+        link:link||null, position:pos, created_by:currentUser
       });
       if(error) throw error;
       await sb.from('project_activity').insert({ project_id:id, actor:currentUser, action:'created' });
       projAll.push({ id, title, description:desc, status, priority, assignee, dueDate:dueDate||'',
-        revenueStream:revenue, categoryId:catId||'', position:pos, createdBy:currentUser,
+        revenueStream:revenue, categoryId:catId||'', link:link||'', position:pos, createdBy:currentUser,
         createdAt:new Date().toISOString(), updatedAt:new Date().toISOString() });
       renderKanban();
       renderProjStats();
@@ -7858,7 +7891,7 @@ async function saveProjDetail(existingId){
         title, description:desc||null, status, priority,
         assignee:assignee||null, due_date:dueDate||null,
         revenue_stream:revenue||null, category_id:catId||null,
-        updated_at:new Date().toISOString()
+        link:link||null, updated_at:new Date().toISOString()
       }).eq('id',existingId);
       if(error) throw error;
       const changes = [];
@@ -7867,7 +7900,7 @@ async function saveProjDetail(existingId){
       if(old?.priority!==priority) changes.push({f:'priority',o:old?.priority,n:priority});
       for(const ch of changes) await sb.from('project_activity').insert({ project_id:existingId, actor:currentUser, action:'updated', field_name:ch.f, old_value:ch.o, new_value:ch.n });
       Object.assign(old, { title, description:desc, status, priority, assignee, dueDate:dueDate||'',
-        revenueStream:revenue, categoryId:catId||'', updatedAt:new Date().toISOString() });
+        revenueStream:revenue, categoryId:catId||'', link:link||'', updatedAt:new Date().toISOString() });
       renderKanban();
       renderProjStats();
       showProjFeedback('Tersimpan ✓');
@@ -7985,6 +8018,43 @@ async function deleteProjCat(id, btn){
     renderKanban();
     btn?.closest('div')?.remove();
   } catch(e){ alert('Gagal hapus: '+e.message); }
+}
+
+function projHandleMentionInput(pid){
+  const input = document.getElementById('pd-cmt-in');
+  const drop  = document.getElementById('pd-mention-drop');
+  if(!input||!drop) return;
+  const before = input.value.slice(0, input.selectionStart);
+  const match  = before.match(/@(\w*)$/);
+  if(!match){ drop.style.display='none'; return; }
+  const q = match[1].toLowerCase();
+  const pics = [...new Set(projAll.map(p=>p.assignee).filter(Boolean))];
+  const hits = pics.filter(n=>n.toLowerCase().includes(q)).slice(0,6);
+  if(!hits.length){ drop.style.display='none'; return; }
+  drop.innerHTML = hits.map(n=>`<div onclick="projInsertMention('${projEsc(n)}')"
+    style="padding:7px 12px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--g100)"
+    onmouseover="this.style.background='var(--off)'" onmouseout="this.style.background=''">${projEsc(n)}</div>`).join('');
+  drop.style.display='block';
+}
+function projInsertMention(name){
+  const input = document.getElementById('pd-cmt-in');
+  const drop  = document.getElementById('pd-mention-drop');
+  if(!input) return;
+  const pos  = input.selectionStart;
+  const before = input.value.slice(0,pos).replace(/@\w*$/, '@'+name+' ');
+  input.value = before + input.value.slice(pos);
+  input.focus();
+  input.setSelectionRange(before.length, before.length);
+  if(drop) drop.style.display='none';
+}
+function projCmtKeydown(e, pid){
+  const drop = document.getElementById('pd-mention-drop');
+  if(drop && drop.style.display!=='none'){
+    if(e.key==='Escape'){ drop.style.display='none'; return; }
+    if(e.key==='Enter'){ e.preventDefault(); drop.querySelector('div')?.click(); return; }
+    if(e.key==='ArrowDown'){ e.preventDefault(); drop.querySelector('div')?.focus(); return; }
+  }
+  if(e.key==='Enter' && (!drop || drop.style.display==='none')) submitProjComment(pid);
 }
 
 // ── DUPLICATE CHECK ──
