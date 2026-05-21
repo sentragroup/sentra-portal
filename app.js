@@ -3882,7 +3882,7 @@ const _colPerfCache = {};
 async function printColPerf(colId) {
   const d = _colPerfCache[colId];
   if (!d) return;
-  const { colName, products, grandStock, grandSold, grandAdj, grandRevenue, grandRoyalty, royaltyRate, royaltyLabel, str, strClr, adjStr, adjClr, avgPerDay, fds, itemIds } = d;
+  const { colName, products, grandStock, grandSold, grandAdj, grandRevenue, grandDiscount, grandSubtotal, hasDiscount, str, strClr, adjStr, adjClr, avgPerDay, fds, itemIds } = d;
 
   // Convert thumbnails to base64 so they render correctly in the print window (avoids CORS block)
   const thumbUrls = [...new Set(products.map(p => p.thumbnail).filter(Boolean))];
@@ -3929,7 +3929,7 @@ async function printColPerf(colId) {
       <td style="padding:8px 10px;text-align:right;font-family:monospace;font-size:12px;vertical-align:middle">${Math.round(p.totalSold)}</td>
       <td style="padding:8px 10px;text-align:right;font-family:monospace;font-size:12px;vertical-align:middle;color:${iSClr}">${iStr}</td>
       <td style="padding:8px 10px;text-align:right;font-family:monospace;font-size:11px;vertical-align:middle;color:#2d7a2d">${fmtRp(p.totalRevenue)}</td>
-      ${royaltyLabel ? `<td style="padding:8px 10px;text-align:right;font-family:monospace;font-size:11px;vertical-align:middle;color:#7c3aed">${fmtRp(p.totalRoyalty)}</td>` : ""}
+      ${hasDiscount ? `<td style="padding:8px 10px;text-align:right;font-family:monospace;font-size:11px;vertical-align:middle;color:#c0392b">${p.totalDiscount > 0 ? "-"+fmtRp(p.totalDiscount) : "—"}</td><td style="padding:8px 10px;text-align:right;font-family:monospace;font-size:11px;vertical-align:middle;color:#2d7a2d;border-left:2px solid #eee">${fmtRp(p.totalRevenue - p.totalDiscount)}</td>` : ""}
     </tr>`;
   }).join("");
 
@@ -3955,7 +3955,8 @@ async function printColPerf(colId) {
     ${metricBox("Net Adj", adjStr, adjClr)}
     ${metricBox("Total Terjual", Math.round(grandSold)+" pcs", "#0c0c0c")}
     ${metricBox("Total Sales", fmtRp(grandRevenue), "#2d7a2d")}
-    ${royaltyLabel ? metricBox(royaltyLabel, fmtRp(grandRoyalty), "#7c3aed") : ""}
+    ${hasDiscount ? metricBox("Diskon",   fmtRp(grandDiscount), "#c0392b") : ""}
+    ${hasDiscount ? metricBox("Subtotal", fmtRp(grandSubtotal), "#2d7a2d") : ""}
     ${metricBox("Sell-through", str, strClr)}
     ${metricBox("First Sale", fds, "#0c0c0c")}
     ${metricBox("Avg / Hari", avgPerDay, "#0c0c0c")}
@@ -3970,7 +3971,7 @@ async function printColPerf(colId) {
       <th style="text-align:right">Terjual</th>
       <th style="text-align:right">STR</th>
       <th style="text-align:right">Total Sales</th>
-      ${royaltyLabel ? `<th style="text-align:right">${royaltyLabel}</th>` : ""}
+      ${hasDiscount ? `<th style="text-align:right">Diskon</th><th style="text-align:right;border-left:2px solid #eee">Subtotal</th>` : ""}
     </tr></thead>
     <tbody>${rows}</tbody>
   </table>
@@ -3986,14 +3987,6 @@ async function loadColProductPerf(colId, colName) {
   const el = document.getElementById(`col-perf-${colId}`);
   if (!el) return;
 
-  // 0. Fetch royalty rate for this collection
-  let royaltyRate = 0;
-  const { data: colMeta } = await sb.from("collections").select("ip_related").eq("id", colId).single();
-  if (colMeta?.ip_related) {
-    const { data: ipMeta } = await sb.from("ip_master").select("percentage").eq("name", colMeta.ip_related).single();
-    royaltyRate = parseFloat(ipMeta?.percentage || 0);
-  }
-
   // 1. Get products mapped to this collection
   const { data: mappings, error: mErr } = await sb.from("product_mappings")
     .select("jubelio_item_id, item_name")
@@ -4008,7 +4001,7 @@ async function loadColProductPerf(colId, colName) {
 
   // 2. Parallel fetch: sales items, stock, adjustments, item codes (for size extraction)
   const [salesItems, stocks, adjItems, itemCodes] = await Promise.all([
-    _fetchAllPages("jubelio_sales_order_items","item_id, qty, salesorder_id, price, amount",q=>q.in("item_id",itemIds)),
+    _fetchAllPages("jubelio_sales_order_items","item_id, qty, salesorder_id, price, disc_amount",q=>q.in("item_id",itemIds)),
     _fetchAllPages("jubelio_inventory_stocks","item_id, on_hand",q=>q.in("item_id",itemIds)),
     _fetchAllPages("jubelio_inventory_adjustment_items","item_id, qty",q=>q.in("item_id",itemIds)),
     _fetchAllPages("jubelio_items","item_id, item_code, thumbnail",q=>q.in("item_id",itemIds)),
@@ -4042,19 +4035,19 @@ async function loadColProductPerf(colId, colName) {
 
   // 4. Per-variant aggregates
   const varData = {}; // item_id → { stock, sold, adj, revenue, pfreq }
-  for (const id of itemIds) varData[id] = { stock: 0, sold: 0, adj: 0, revenue: 0, royaltyBase: 0, pfreq: {} };
+  for (const id of itemIds) varData[id] = { stock: 0, sold: 0, adj: 0, revenue: 0, discAmount: 0, pfreq: {} };
   for (const s of stocks) {
     if (varData[s.item_id] !== undefined) varData[s.item_id].stock += parseFloat(s.on_hand || 0);
   }
   for (const si of salesItems) {
     if (!completedMap.has(si.salesorder_id) || varData[si.item_id] === undefined) continue;
-    const qty    = parseFloat(si.qty    || 0);
-    const price  = parseFloat(si.price  || 0);
-    const amount = parseFloat(si.amount || 0);
+    const qty   = parseFloat(si.qty        || 0);
+    const price = parseFloat(si.price      || 0);
+    const disc  = parseFloat(si.disc_amount|| 0);
     varData[si.item_id].sold += qty;
     if (price > 0) {
-      varData[si.item_id].revenue     += amount || (qty * price);
-      varData[si.item_id].royaltyBase += qty * price;
+      varData[si.item_id].revenue    += qty * price;
+      varData[si.item_id].discAmount += disc;
       varData[si.item_id].pfreq[price] = (varData[si.item_id].pfreq[price] || 0) + 1;
     }
   }
@@ -4076,8 +4069,8 @@ async function loadColProductPerf(colId, colName) {
     totalSold:  p.variants.reduce((s, v) => s + v.sold,  0),
     totalAdj:   p.variants.reduce((s, v) => s + v.adj,   0),
     thumbnail:     p.variants.map(v => thumbMap[v.id]).find(Boolean) || null,
-    totalRevenue:   p.variants.reduce((s, v) => s + (v.revenue      || 0), 0),
-    totalRoyalty:   p.variants.reduce((s, v) => s + (v.royaltyBase || 0), 0) * royaltyRate / 100,
+    totalRevenue:  p.variants.reduce((s, v) => s + (v.revenue    || 0), 0),
+    totalDiscount: p.variants.reduce((s, v) => s + (v.discAmount || 0), 0),
     price: (() => {
       const allFreq = {};
       p.variants.forEach(v => { Object.entries(v.pfreq||{}).forEach(([pr,cnt]) => { allFreq[pr]=(allFreq[pr]||0)+cnt; }); });
@@ -4090,10 +4083,11 @@ async function loadColProductPerf(colId, colName) {
   const grandStock   = products.reduce((s, p) => s + p.totalStock,   0);
   const grandSold    = products.reduce((s, p) => s + p.totalSold,    0);
   const grandAdj     = products.reduce((s, p) => s + p.totalAdj,     0);
-  const grandRevenue = products.reduce((s, p) => s + p.totalRevenue, 0);
-  const grandRoyalty = products.reduce((s, p) => s + p.totalRoyalty, 0);
+  const grandRevenue  = products.reduce((s, p) => s + p.totalRevenue,  0);
+  const grandDiscount = products.reduce((s, p) => s + p.totalDiscount, 0);
+  const grandSubtotal = grandRevenue - grandDiscount;
+  const hasDiscount   = grandDiscount > 0;
   const fmtRp = n => n ? "Rp " + Math.round(n).toLocaleString("id-ID") : "—";
-  const royaltyLabel = royaltyRate ? `Royalty (${royaltyRate}%)` : null;
 
   let firstSaleDate = null;
   for (const si of salesItems) {
@@ -4124,15 +4118,16 @@ async function loadColProductPerf(colId, colName) {
     </div>`;
 
   // Store for PDF export
-  _colPerfCache[colId] = { colName, products, grandStock, grandSold, grandAdj, grandRevenue, grandRoyalty, royaltyRate, royaltyLabel, str, strClr, adjStr, adjClr, avgPerDay, fds, itemIds };
+  _colPerfCache[colId] = { colName, products, grandStock, grandSold, grandAdj, grandRevenue, grandDiscount, grandSubtotal, hasDiscount, str, strClr, adjStr, adjClr, avgPerDay, fds, itemIds };
 
   el.innerHTML = `
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:16px">
       ${metricCard("Stock Skrg",    Math.round(grandStock) + " pcs", grandStock === 0 && grandSold > 0 ? "#c0392b" : "var(--black)")}
       ${metricCard("Net Adj",       adjStr, adjClr)}
       ${metricCard("Total Terjual", Math.round(grandSold) + " pcs", "var(--black)")}
-      ${metricCard("Total Sales",   fmtRp(grandRevenue), "#2d7a2d")}
-      ${royaltyLabel ? metricCard(royaltyLabel, fmtRp(grandRoyalty), "#7c3aed") : ""}
+      ${metricCard("Total Sales",   fmtRp(grandRevenue),  "#2d7a2d")}
+      ${hasDiscount ? metricCard("Diskon",        fmtRp(grandDiscount), "#c0392b") : ""}
+      ${hasDiscount ? metricCard("Subtotal",      fmtRp(grandSubtotal), "#2d7a2d") : ""}
       ${metricCard("Sell-through",  str, strClr)}
       ${metricCard("First Sale",    fds, "var(--black)")}
       ${metricCard("Avg / Hari",    avgPerDay, "var(--black)")}
@@ -4148,7 +4143,7 @@ async function loadColProductPerf(colId, colName) {
           <th style="padding:6px 10px;text-align:right">Terjual</th>
           <th style="padding:6px 10px;text-align:right">STR</th>
           <th style="padding:6px 10px;text-align:right">Total Sales</th>
-          ${royaltyLabel ? `<th style="padding:6px 10px;text-align:right">${royaltyLabel}</th>` : ""}
+          ${hasDiscount ? `<th style="padding:6px 10px;text-align:right">Diskon</th><th style="padding:6px 10px;text-align:right;border-left:2px solid var(--g100)">Subtotal</th>` : ""}
         </tr></thead>
         <tbody>${products.map(p => {
           const iStr  = (p.totalSold + p.totalStock) > 0 ? ((p.totalSold / (p.totalSold + p.totalStock)) * 100).toFixed(0) + "%" : "—";
@@ -4182,7 +4177,7 @@ async function loadColProductPerf(colId, colName) {
             <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px;vertical-align:middle">${Math.round(p.totalSold)}</td>
             <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px;vertical-align:middle;color:${iSClr}">${iStr}</td>
             <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px;vertical-align:middle;color:#2d7a2d">${fmtRp(p.totalRevenue)}</td>
-            ${royaltyLabel ? `<td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px;vertical-align:middle;color:#7c3aed">${fmtRp(p.totalRoyalty)}</td>` : ""}
+            ${hasDiscount ? `<td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px;vertical-align:middle;color:#c0392b">${p.totalDiscount > 0 ? "-"+fmtRp(p.totalDiscount) : "—"}</td><td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px;vertical-align:middle;color:#2d7a2d;border-left:2px solid var(--g100)">${fmtRp(p.totalRevenue - p.totalDiscount)}</td>` : ""}
           </tr>`;
         }).join("")}</tbody>
       </table>
