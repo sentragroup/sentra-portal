@@ -7486,11 +7486,36 @@ function projGetFiltered(){
 }
 
 function renderProjStats(){
-  const filtered = projGetFiltered();
-  const counts = { backlog:0, todo:0, in_progress:0, done:0 };
-  for(const p of filtered) if(counts[p.status]!==undefined) counts[p.status]++;
-  const map = { backlog:'proj-s-backlog', todo:'proj-s-todo', in_progress:'proj-s-in-progress', done:'proj-s-done' };
-  for(const [k,id] of Object.entries(map)){ const el=document.getElementById(id); if(el) el.textContent=counts[k]; }
+  renderProjUrgent();
+}
+function renderProjUrgent(){
+  const el = document.getElementById('proj-urgent-bar');
+  if(!el) return;
+  const now = new Date();
+  const urgent = projGetFiltered()
+    .filter(p => p.dueDate && p.status !== 'done')
+    .map(p => { const dueTs = new Date(p.dueDate+' 23:59'); return { ...p, daysLeft: Math.ceil((dueTs - now) / 86400000) }; })
+    .filter(p => p.daysLeft <= 7)
+    .sort((a,b) => a.daysLeft - b.daysLeft)
+    .slice(0, 10);
+  if(!urgent.length){
+    el.innerHTML = `<span style="font-size:12px;color:#10b981;font-family:var(--mono)">✓ Tidak ada task yang mendekati deadline</span>`;
+    return;
+  }
+  el.innerHTML = urgent.map(p => {
+    const st  = PROJ_STATUSES.find(s => s.key === p.status);
+    const dl  = p.daysLeft;
+    const lbl = dl < 0 ? `overdue ${Math.abs(dl)}h` : dl === 0 ? 'hari ini' : dl === 1 ? 'besok' : `${dl} hari lagi`;
+    const clr = dl < 0 ? '#ef4444' : '#d97706';
+    const ico = dl < 0 ? '🔴' : '⚠️';
+    return `<span onclick="openProjectDetail('${p.id}')" title="${projEsc(p.title)}"
+      style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:4px 10px;background:var(--white);border:1px solid var(--g100);border-radius:6px;font-size:12px;max-width:260px;transition:border-color .12s"
+      onmouseover="this.style.borderColor='var(--black)'" onmouseout="this.style.borderColor='var(--g100)'">
+      <span style="color:${st?.color||'var(--g400)'}">${st?.icon||'○'}</span>
+      <span style="color:var(--black);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:140px">${projEsc(p.title)}</span>
+      <span style="font-family:var(--mono);font-size:10px;color:${clr};font-weight:600;flex-shrink:0">${ico} ${lbl}</span>
+    </span>`;
+  }).join('');
 }
 
 function renderProjCatFilter(){
