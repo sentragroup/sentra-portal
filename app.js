@@ -3901,9 +3901,9 @@ async function printColPerf(colId) {
 
   const fmtRp = n => n ? "Rp " + Math.round(n).toLocaleString("id-ID") : "—";
   const metricBox = (lbl, val, clr) => `
-    <div style="border:1px solid #e5e5e5;border-radius:6px;padding:10px 14px;min-width:100px">
+    <div style="border:1px solid #e5e5e5;border-radius:6px;padding:10px 14px;min-width:90px">
       <div style="font-family:monospace;font-size:9px;text-transform:uppercase;color:#888;margin-bottom:4px">${lbl}</div>
-      <div style="font-weight:700;font-size:15px;color:${clr}">${val}</div>
+      <div style="font-weight:700;font-size:12px;color:${clr}">${val}</div>
     </div>`;
   const rows = products.map(p => {
     const iStr  = (p.totalSold + p.totalStock) > 0 ? ((p.totalSold / (p.totalSold + p.totalStock)) * 100).toFixed(0) + "%" : "—";
@@ -4071,12 +4071,9 @@ async function loadColProductPerf(colId, colName) {
     thumbnail:     p.variants.map(v => thumbMap[v.id]).find(Boolean) || null,
     totalRevenue:  p.variants.reduce((s, v) => s + (v.revenue    || 0), 0),
     totalDiscount: p.variants.reduce((s, v) => s + (v.discAmount || 0), 0),
-    price: (() => {
-      const allFreq = {};
-      p.variants.forEach(v => { Object.entries(v.pfreq||{}).forEach(([pr,cnt]) => { allFreq[pr]=(allFreq[pr]||0)+cnt; }); });
-      const entries = Object.entries(allFreq).sort((a,b) => b[1]-a[1]);
-      return entries.length ? parseFloat(entries[0][0]) : null;
-    })(),
+    price: p.variants.reduce((s,v)=>s+(v.sold||0),0) > 0
+      ? p.variants.reduce((s,v)=>s+(v.revenue||0),0) / p.variants.reduce((s,v)=>s+(v.sold||0),0)
+      : null,
   })).sort((a, b) => b.totalSold - a.totalSold);
 
   // 6. Grand totals + summary metrics
@@ -4112,9 +4109,9 @@ async function loadColProductPerf(colId, colName) {
 
   // 7. Render
   const metricCard = (lbl, val, clr) => `
-    <div style="border:1px solid var(--g100);border-radius:6px;padding:10px 12px">
-      <div style="font-family:var(--mono);font-size:9px;text-transform:uppercase;color:var(--g400);margin-bottom:4px">${lbl}</div>
-      <div style="font-weight:700;font-size:15px;color:${clr}">${val}</div>
+    <div style="border:1px solid var(--g100);border-radius:6px;padding:10px 12px;min-width:0">
+      <div style="font-family:var(--mono);font-size:9px;text-transform:uppercase;color:var(--g400);margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${lbl}</div>
+      <div style="font-weight:700;font-size:12px;color:${clr};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${val}</div>
     </div>`;
 
   // Store for PDF export
