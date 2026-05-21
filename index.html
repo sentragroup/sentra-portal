@@ -1800,11 +1800,9 @@
             <button onclick="openProjCatManager()" style="padding:7px 12px;background:none;border:1px solid var(--g200);border-radius:8px;font-size:13px;cursor:pointer;color:var(--g600);white-space:nowrap" title="Kelola kategori">⚙ Kategori</button>
           </div>
         </div>
-        <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
-          <div class="stat-card"><div class="stat-num" id="proj-s-backlog">—</div><div class="stat-lbl">Backlog</div></div>
-          <div class="stat-card"><div class="stat-num" id="proj-s-todo">—</div><div class="stat-lbl">To Do</div></div>
-          <div class="stat-card"><div class="stat-num" id="proj-s-in-progress">—</div><div class="stat-lbl">In Progress</div></div>
-          <div class="stat-card"><div class="stat-num" id="proj-s-done">—</div><div class="stat-lbl">Done</div></div>
+        <div style="background:var(--off);border-radius:10px;padding:11px 15px;margin-bottom:1.25rem;display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-height:42px">
+          <span style="font-size:11px;font-family:var(--mono);color:var(--g400);white-space:nowrap;flex-shrink:0">⚠️ Perlu perhatian</span>
+          <div id="proj-urgent-bar" style="display:flex;flex-wrap:wrap;gap:6px;flex:1"></div>
         </div>
         <div id="proj-board" class="kanban-board"></div>
       </div>
@@ -1833,6 +1831,6 @@
 <div id="proj-overlay" class="proj-panel-overlay" style="display:none" onclick="if(event.target===this)closeProjectDetail()"></div>
 <div id="proj-panel" class="proj-panel" style="display:none"></div>
 
-<script src="app.js?v=20260521g"></script>
+<script src="app.js?v=20260521h"></script>
 </body>
 </html>
