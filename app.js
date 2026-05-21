@@ -3997,7 +3997,7 @@ async function loadColProductPerf(colId, colName) {
 
   // 2. Parallel fetch: sales items, stock, adjustments, item codes (for size extraction)
   const [salesItems, stocks, adjItems, itemCodes] = await Promise.all([
-    _fetchAllPages("jubelio_sales_order_items","item_id, qty, salesorder_id, price",q=>q.in("item_id",itemIds)),
+    _fetchAllPages("jubelio_sales_order_items","item_id, qty, salesorder_id, price, amount",q=>q.in("item_id",itemIds)),
     _fetchAllPages("jubelio_inventory_stocks","item_id, on_hand",q=>q.in("item_id",itemIds)),
     _fetchAllPages("jubelio_inventory_adjustment_items","item_id, qty",q=>q.in("item_id",itemIds)),
     _fetchAllPages("jubelio_items","item_id, item_code, thumbnail",q=>q.in("item_id",itemIds)),
@@ -4037,11 +4037,12 @@ async function loadColProductPerf(colId, colName) {
   }
   for (const si of salesItems) {
     if (!completedMap.has(si.salesorder_id) || varData[si.item_id] === undefined) continue;
-    const qty   = parseFloat(si.qty   || 0);
-    const price = parseFloat(si.price || 0);
+    const qty    = parseFloat(si.qty    || 0);
+    const price  = parseFloat(si.price  || 0);
+    const amount = parseFloat(si.amount || 0);
     varData[si.item_id].sold += qty;
     if (price > 0) {
-      varData[si.item_id].revenue += qty * price;
+      varData[si.item_id].revenue += amount || (qty * price);
       varData[si.item_id].pfreq[price] = (varData[si.item_id].pfreq[price] || 0) + 1;
     }
   }
