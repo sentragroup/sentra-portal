@@ -3879,10 +3879,27 @@ function renderColDetail(col, items) {
 const SIZE_ORDER = ['XS','S','M','L','XL','XXL','XXXL','XXXXL','4XL','5XL','FREE SIZE','FREE'];
 const _colPerfCache = {};
 
-function printColPerf(colId) {
+async function printColPerf(colId) {
   const d = _colPerfCache[colId];
   if (!d) return;
-  const { colName, products, grandStock, grandSold, grandAdj, str, strClr, adjStr, adjClr, avgPerDay, fds, itemIds } = d;
+  const { colName, products, grandStock, grandSold, grandAdj, grandRevenue, str, strClr, adjStr, adjClr, avgPerDay, fds, itemIds } = d;
+
+  // Convert thumbnails to base64 so they render correctly in the print window (avoids CORS block)
+  const thumbUrls = [...new Set(products.map(p => p.thumbnail).filter(Boolean))];
+  const b64Map = {};
+  await Promise.all(thumbUrls.map(async url => {
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      b64Map[url] = await new Promise(resolve => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.readAsDataURL(blob);
+      });
+    } catch(e) {}
+  }));
+
+  const fmtRp = n => n ? "Rp " + Math.round(n).toLocaleString("id-ID") : "—";
   const metricBox = (lbl, val, clr) => `
     <div style="border:1px solid #e5e5e5;border-radius:6px;padding:10px 14px;min-width:100px">
       <div style="font-family:monospace;font-size:9px;text-transform:uppercase;color:#888;margin-bottom:4px">${lbl}</div>
@@ -3899,16 +3916,19 @@ function printColPerf(colId) {
         const broken = v.stock === 0;
         return `<span style="display:inline-block;padding:1px 5px;border-radius:3px;font-size:9px;font-family:monospace;color:${broken?"#c0392b":"#2d7a2d"};background:${broken?"#fdecea":"#edf8ee"};margin:1px 1px 0 0">${v.size}</span>`;
       }).join("");
-    const thumbHTML = p.thumbnail
-      ? `<img src="${p.thumbnail}" style="width:48px;height:48px;object-fit:cover;border-radius:4px;border:1px solid #eee" crossorigin="anonymous">`
+    const imgSrc = p.thumbnail ? (b64Map[p.thumbnail] || p.thumbnail) : null;
+    const thumbHTML = imgSrc
+      ? `<img src="${imgSrc}" style="width:48px;height:48px;object-fit:cover;border-radius:4px;border:1px solid #eee">`
       : `<div style="width:48px;height:48px;border-radius:4px;border:1px solid #eee;background:#f5f5f5;display:flex;align-items:center;justify-content:center;font-size:18px">📦</div>`;
     return `<tr style="border-top:1px solid #eee">
       <td style="padding:8px;vertical-align:middle">${thumbHTML}</td>
       <td style="padding:8px 10px;font-size:12px;vertical-align:middle"><div style="font-weight:500;margin-bottom:3px">${p.name}</div><div>${sizePills}</div></td>
+      <td style="padding:8px 10px;text-align:right;font-family:monospace;font-size:11px;vertical-align:middle;color:#888">${p.price ? fmtRp(p.price) : "—"}</td>
       <td style="padding:8px 10px;text-align:right;font-family:monospace;font-size:12px;vertical-align:middle;${p.totalStock===0&&p.totalSold>0?"color:#c0392b":""}">${Math.round(p.totalStock)}</td>
       <td style="padding:8px 10px;text-align:right;font-family:monospace;font-size:12px;vertical-align:middle;color:${iAClr}">${iAStr}</td>
       <td style="padding:8px 10px;text-align:right;font-family:monospace;font-size:12px;vertical-align:middle">${Math.round(p.totalSold)}</td>
       <td style="padding:8px 10px;text-align:right;font-family:monospace;font-size:12px;vertical-align:middle;color:${iSClr}">${iStr}</td>
+      <td style="padding:8px 10px;text-align:right;font-family:monospace;font-size:11px;vertical-align:middle;color:#2d7a2d">${fmtRp(p.totalRevenue)}</td>
     </tr>`;
   }).join("");
 
@@ -3933,6 +3953,7 @@ function printColPerf(colId) {
     ${metricBox("Stock Skrg", Math.round(grandStock)+" pcs", grandStock===0&&grandSold>0?"#c0392b":"#0c0c0c")}
     ${metricBox("Net Adj", adjStr, adjClr)}
     ${metricBox("Total Terjual", Math.round(grandSold)+" pcs", "#0c0c0c")}
+    ${metricBox("Total Sales", fmtRp(grandRevenue), "#2d7a2d")}
     ${metricBox("Sell-through", str, strClr)}
     ${metricBox("First Sale", fds, "#0c0c0c")}
     ${metricBox("Avg / Hari", avgPerDay, "#0c0c0c")}
@@ -3941,10 +3962,12 @@ function printColPerf(colId) {
     <thead><tr>
       <th style="width:56px"></th>
       <th>Produk</th>
+      <th style="text-align:right">Harga Jual</th>
       <th style="text-align:right">Stock</th>
       <th style="text-align:right">Net Adj</th>
       <th style="text-align:right">Terjual</th>
       <th style="text-align:right">STR</th>
+      <th style="text-align:right">Total Sales</th>
     </tr></thead>
     <tbody>${rows}</tbody>
   </table>
@@ -3974,7 +3997,7 @@ async function loadColProductPerf(colId, colName) {
 
   // 2. Parallel fetch: sales items, stock, adjustments, item codes (for size extraction)
   const [salesItems, stocks, adjItems, itemCodes] = await Promise.all([
-    _fetchAllPages("jubelio_sales_order_items","item_id, qty, salesorder_id",q=>q.in("item_id",itemIds)),
+    _fetchAllPages("jubelio_sales_order_items","item_id, qty, salesorder_id, price",q=>q.in("item_id",itemIds)),
     _fetchAllPages("jubelio_inventory_stocks","item_id, on_hand",q=>q.in("item_id",itemIds)),
     _fetchAllPages("jubelio_inventory_adjustment_items","item_id, qty",q=>q.in("item_id",itemIds)),
     _fetchAllPages("jubelio_items","item_id, item_code, thumbnail",q=>q.in("item_id",itemIds)),
@@ -4007,14 +4030,20 @@ async function loadColProductPerf(colId, colName) {
   }
 
   // 4. Per-variant aggregates
-  const varData = {}; // item_id → { stock, sold, adj }
-  for (const id of itemIds) varData[id] = { stock: 0, sold: 0, adj: 0 };
+  const varData = {}; // item_id → { stock, sold, adj, revenue, pfreq }
+  for (const id of itemIds) varData[id] = { stock: 0, sold: 0, adj: 0, revenue: 0, pfreq: {} };
   for (const s of stocks) {
     if (varData[s.item_id] !== undefined) varData[s.item_id].stock += parseFloat(s.on_hand || 0);
   }
   for (const si of salesItems) {
     if (!completedMap.has(si.salesorder_id) || varData[si.item_id] === undefined) continue;
-    varData[si.item_id].sold += parseFloat(si.qty || 0);
+    const qty   = parseFloat(si.qty   || 0);
+    const price = parseFloat(si.price || 0);
+    varData[si.item_id].sold += qty;
+    if (price > 0) {
+      varData[si.item_id].revenue += qty * price;
+      varData[si.item_id].pfreq[price] = (varData[si.item_id].pfreq[price] || 0) + 1;
+    }
   }
   for (const a of adjItems) {
     if (varData[a.item_id] !== undefined) varData[a.item_id].adj += parseFloat(a.qty || 0);
@@ -4033,13 +4062,22 @@ async function loadColProductPerf(colId, colName) {
     totalStock: p.variants.reduce((s, v) => s + v.stock, 0),
     totalSold:  p.variants.reduce((s, v) => s + v.sold,  0),
     totalAdj:   p.variants.reduce((s, v) => s + v.adj,   0),
-    thumbnail:  p.variants.map(v => thumbMap[v.id]).find(Boolean) || null,
+    thumbnail:     p.variants.map(v => thumbMap[v.id]).find(Boolean) || null,
+    totalRevenue:  p.variants.reduce((s, v) => s + (v.revenue || 0), 0),
+    price: (() => {
+      const allFreq = {};
+      p.variants.forEach(v => { Object.entries(v.pfreq||{}).forEach(([pr,cnt]) => { allFreq[pr]=(allFreq[pr]||0)+cnt; }); });
+      const entries = Object.entries(allFreq).sort((a,b) => b[1]-a[1]);
+      return entries.length ? parseFloat(entries[0][0]) : null;
+    })(),
   })).sort((a, b) => b.totalSold - a.totalSold);
 
   // 6. Grand totals + summary metrics
-  const grandStock = products.reduce((s, p) => s + p.totalStock, 0);
-  const grandSold  = products.reduce((s, p) => s + p.totalSold,  0);
-  const grandAdj   = products.reduce((s, p) => s + p.totalAdj,   0);
+  const grandStock   = products.reduce((s, p) => s + p.totalStock,   0);
+  const grandSold    = products.reduce((s, p) => s + p.totalSold,    0);
+  const grandAdj     = products.reduce((s, p) => s + p.totalAdj,     0);
+  const grandRevenue = products.reduce((s, p) => s + p.totalRevenue, 0);
+  const fmtRp = n => n ? "Rp " + Math.round(n).toLocaleString("id-ID") : "—";
 
   let firstSaleDate = null;
   for (const si of salesItems) {
@@ -4070,13 +4108,14 @@ async function loadColProductPerf(colId, colName) {
     </div>`;
 
   // Store for PDF export
-  _colPerfCache[colId] = { colName, products, grandStock, grandSold, grandAdj, str, strClr, adjStr, adjClr, avgPerDay, fds, itemIds };
+  _colPerfCache[colId] = { colName, products, grandStock, grandSold, grandAdj, grandRevenue, str, strClr, adjStr, adjClr, avgPerDay, fds, itemIds };
 
   el.innerHTML = `
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:16px">
       ${metricCard("Stock Skrg",    Math.round(grandStock) + " pcs", grandStock === 0 && grandSold > 0 ? "#c0392b" : "var(--black)")}
       ${metricCard("Net Adj",       adjStr, adjClr)}
       ${metricCard("Total Terjual", Math.round(grandSold) + " pcs", "var(--black)")}
+      ${metricCard("Total Sales",   fmtRp(grandRevenue), "#2d7a2d")}
       ${metricCard("Sell-through",  str, strClr)}
       ${metricCard("First Sale",    fds, "var(--black)")}
       ${metricCard("Avg / Hari",    avgPerDay, "var(--black)")}
@@ -4086,10 +4125,12 @@ async function loadColProductPerf(colId, colName) {
         <thead><tr style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">
           <th style="padding:6px 8px;width:52px"></th>
           <th style="padding:6px 10px;text-align:left">Produk</th>
+          <th style="padding:6px 10px;text-align:right">Harga Jual</th>
           <th style="padding:6px 10px;text-align:right">Stock</th>
           <th style="padding:6px 10px;text-align:right">Net Adj</th>
           <th style="padding:6px 10px;text-align:right">Terjual</th>
           <th style="padding:6px 10px;text-align:right">STR</th>
+          <th style="padding:6px 10px;text-align:right">Total Sales</th>
         </tr></thead>
         <tbody>${products.map(p => {
           const iStr  = (p.totalSold + p.totalStock) > 0 ? ((p.totalSold / (p.totalSold + p.totalStock)) * 100).toFixed(0) + "%" : "—";
@@ -4117,10 +4158,12 @@ async function loadColProductPerf(colId, colName) {
               <div style="margin-bottom:3px;font-weight:500">${p.name}</div>
               <div>${sizePills}</div>
             </td>
+            <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px;vertical-align:middle;color:var(--g600)">${p.price ? fmtRp(p.price) : "—"}</td>
             <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px;vertical-align:middle${p.totalStock === 0 && p.totalSold > 0 ? ";color:#c0392b" : ""}">${Math.round(p.totalStock)}</td>
             <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px;vertical-align:middle;color:${iAClr}">${iAStr}</td>
             <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px;vertical-align:middle">${Math.round(p.totalSold)}</td>
             <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px;vertical-align:middle;color:${iSClr}">${iStr}</td>
+            <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px;vertical-align:middle;color:#2d7a2d">${fmtRp(p.totalRevenue)}</td>
           </tr>`;
         }).join("")}</tbody>
       </table>
