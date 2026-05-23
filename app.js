@@ -3215,7 +3215,7 @@ function mapCol(r) {
     releaseDate:r.release_date||"", priority:r.priority||"",
     moodboardUrl:r.moodboard_url||"", status:r.status||"Draft",
     pic:r.pic||"", notes:r.notes||"", dateAdded:r.date_added||"", addedBy:r.added_by||"",
-    samplingDriveUrl:r.sampling_drive_url||""
+    samplingDriveUrl:r.sampling_drive_url||"", revenueStream:r.revenue_stream||""
   };
 }
 
@@ -3724,6 +3724,7 @@ function renderColDetail(col, items) {
           <div class="fg"><label>Release Date</label><input type="date" id="col-dp-releasedate" value="${col.releaseDate||""}"></div>
           <div class="fg"><label>Priority</label><select id="col-dp-priority"><option value="">—</option><option${col.priority==="High"?" selected":""}>High</option><option${col.priority==="Medium"?" selected":""}>Medium</option><option${col.priority==="Low"?" selected":""}>Low</option></select></div>
           <div class="fg"><label>Status</label><select id="col-dp-status"><option${col.status==="Draft"?" selected":""}>Draft</option><option${col.status==="In Progress"?" selected":""}>In Progress</option><option${col.status==="Done"?" selected":""}>Done</option></select></div>
+          <div class="fg"><label>Revenue Stream</label><select id="col-dp-revstream"><option value="">—</option><option value="SD&Y"${col.revenueStream==="SD&Y"?" selected":""}>SD&amp;Y</option><option value="Lagaa"${col.revenueStream==="Lagaa"?" selected":""}>Lagaa</option><option value="marté"${col.revenueStream==="marté"?" selected":""}>marté</option></select></div>
           <div class="fg" style="position:relative"><label>PIC</label><input type="text" id="col-dp-pic" value="${(col.pic||"").replace(/"/g,"&quot;")}" autocomplete="off"><div class="ac-list" id="ac-col-dp-pic"></div></div>
           <div class="fg full"><label>Moodboard URL</label><input type="url" id="col-dp-moodboard" value="${(col.moodboardUrl||"").replace(/"/g,"&quot;")}" placeholder="https://drive.google.com/..."></div>
           <div class="fg full"><label>Notes</label><textarea id="col-dp-notes" rows="2" style="resize:vertical">${(col.notes||"").replace(/</g,"&lt;")}</textarea></div>
@@ -3873,7 +3874,7 @@ function renderColDetail(col, items) {
   });
   loadColSidebar(col.id);
   setupNoteAC(col.id);
-  loadColProductPerf(col.id, col.collectionName);
+  loadColProductPerf(col.id, col.collectionName, col.revenueStream||"");
 }
 
 const SIZE_ORDER = ['XS','S','M','L','XL','XXL','XXXL','XXXXL','4XL','5XL','FREE SIZE','FREE'];
@@ -3882,23 +3883,47 @@ const _colPerfCache = {};
 async function printColPerf(colId) {
   const d = _colPerfCache[colId];
   if (!d) return;
-  const { colName, products, grandStock, grandSold, grandAdj, grandRevenue, grandDiscount, grandSubtotal, hasDiscount, str, strClr, adjStr, adjClr, avgPerDay, fds, itemIds } = d;
+  const { colName, revenueStream, products, grandStock, grandSold, grandAdj, grandRevenue, grandDiscount, grandSubtotal, hasDiscount, str, strClr, adjStr, adjClr, avgPerDay, fds, itemIds } = d;
 
-  // Convert thumbnails to base64 so they render correctly in the print window (avoids CORS block)
+  // Helper: fetch any URL → base64 data URI
+  const toB64 = async url => {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const blob = await res.blob();
+      return await new Promise(resolve => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(blob);
+      });
+    } catch(e) { return null; }
+  };
+
+  // Convert thumbnails to base64 (avoids CORS in print window)
   const thumbUrls = [...new Set(products.map(p => p.thumbnail).filter(Boolean))];
   const b64Map = {};
   await Promise.all(thumbUrls.map(async url => {
-    try {
-      const res = await fetch(url);
-      const blob = await res.blob();
-      b64Map[url] = await new Promise(resolve => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.readAsDataURL(blob);
-      });
-    } catch(e) {}
+    const b64 = await toB64(url);
+    if (b64) b64Map[url] = b64;
   }));
 
+  // Capture chart as image (canvas → data URL)
+  let chartImgSrc = null;
+  const chartCanvas = document.getElementById(`col-perf-chart-${colId}`);
+  if (chartCanvas) {
+    try { chartImgSrc = chartCanvas.toDataURL('image/png'); } catch(e) {}
+  }
+
+  // Load logo based on revenue stream
+  const base = window.location.href.replace(/[^/]*(\?.*)?$/, '');
+  const logoFileMap = { 'SD&Y': 'assets/logo-sdy.png', 'Lagaa': 'assets/logo-lagaa.png', 'marté': 'assets/logo-marte.png' };
+  let logob64 = null;
+  if (revenueStream && logoFileMap[revenueStream]) {
+    logob64 = await toB64(base + logoFileMap[revenueStream]);
+  }
+
+  const nowStr = new Date().toLocaleDateString('id-ID', {day:'2-digit', month:'long', year:'numeric'});
   const fmtRp = n => n ? "Rp " + Math.round(n).toLocaleString("id-ID") : "—";
   const metricBox = (lbl, val, clr) => `
     <div style="border:1px solid #e5e5e5;border-radius:6px;padding:10px 14px;min-width:90px">
@@ -3916,7 +3941,7 @@ async function printColPerf(colId) {
         const broken = v.stock === 0;
         return `<span style="display:inline-block;padding:1px 5px;border-radius:3px;font-size:9px;font-family:monospace;color:${broken?"#c0392b":"#2d7a2d"};background:${broken?"#fdecea":"#edf8ee"};margin:1px 1px 0 0">${v.size}</span>`;
       }).join("");
-    const imgSrc = p.thumbnail ? (b64Map[p.thumbnail] || p.thumbnail) : null;
+    const imgSrc = p.thumbnail ? (b64Map[p.thumbnail] || null) : null;
     const thumbHTML = imgSrc
       ? `<img src="${imgSrc}" style="width:48px;height:48px;object-fit:cover;border-radius:4px;border:1px solid #eee">`
       : `<div style="width:48px;height:48px;border-radius:4px;border:1px solid #eee;background:#f5f5f5;display:flex;align-items:center;justify-content:center;font-size:18px">📦</div>`;
@@ -3933,49 +3958,92 @@ async function printColPerf(colId) {
     </tr>`;
   }).join("");
 
+  const logoHTML = logob64
+    ? `<img src="${logob64}" style="height:36px;object-fit:contain;display:block">`
+    : `<div style="font-size:18px;font-weight:800;letter-spacing:-0.5px">${revenueStream || 'Sentra'}</div>`;
+
+  const chartHTML = chartImgSrc
+    ? `<div style="margin:20px 0;border:1px solid #eee;border-radius:8px;padding:14px">
+        <div style="font-family:monospace;font-size:9px;text-transform:uppercase;color:#888;margin-bottom:10px">Trend Penjualan</div>
+        <img src="${chartImgSrc}" style="width:100%;height:auto;display:block">
+       </div>`
+    : "";
+
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
   <title>Product Performance — ${colName}</title>
   <style>
     *{margin:0;padding:0;box-sizing:border-box;}
-    body{font-family:'DM Sans',Arial,sans-serif;color:#0c0c0c;padding:32px 40px;font-size:13px;}
-    h1{font-size:20px;font-weight:700;margin-bottom:4px}
-    .sub{font-size:11px;color:#888;font-family:monospace;margin-bottom:20px}
-    .metrics{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px}
+    body{font-family:Arial,sans-serif;color:#0c0c0c;font-size:13px;}
+    .page-wrap{padding:28px 36px 64px;}
+    .page-header{display:flex;align-items:flex-end;justify-content:space-between;padding-bottom:14px;border-bottom:2px solid #0c0c0c;margin-bottom:20px}
+    .page-header-left{display:flex;flex-direction:column;gap:4px}
+    .doc-title{font-size:17px;font-weight:700;letter-spacing:-0.3px}
+    .doc-sub{font-size:10px;color:#666;font-family:monospace}
+    .metrics{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px}
     table{width:100%;border-collapse:collapse}
     thead tr{background:#f7f7f5}
     th{font-family:monospace;font-size:9px;text-transform:uppercase;color:#888;padding:8px 10px;text-align:left;border-bottom:2px solid #eee}
     th:not(:nth-child(1)):not(:nth-child(2)){text-align:right}
-    .footer{margin-top:12px;font-size:10px;color:#aaa;font-family:monospace}
-    @media print{body{padding:16px 20px}@page{margin:12mm}}
+    /* Confidential badge — fixed top-right every printed page */
+    .confidential-badge{position:fixed;top:20px;right:28px;border:1.5px solid #c0392b;color:#c0392b;font-family:monospace;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;padding:4px 10px;border-radius:3px;pointer-events:none}
+    /* Footer fixed bottom every printed page */
+    .print-footer{position:fixed;bottom:0;left:0;right:0;border-top:1px solid #eee;padding:7px 36px;display:flex;justify-content:space-between;font-size:9px;font-family:monospace;color:#aaa;background:#fff}
+    @media print{
+      body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      @page{margin:0;size:A4}
+      .page-wrap{padding:20px 28px 56px}
+    }
   </style></head><body>
-  <h1>📊 Product Performance</h1>
-  <div class="sub">${colName} · Dicetak ${new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'})}</div>
-  <div class="metrics">
-    ${metricBox("Stock Skrg", Math.round(grandStock)+" pcs", grandStock===0&&grandSold>0?"#c0392b":"#0c0c0c")}
-    ${metricBox("Net Adj", adjStr, adjClr)}
-    ${metricBox("Total Terjual", Math.round(grandSold)+" pcs", "#0c0c0c")}
-    ${metricBox("Total Sales", fmtRp(grandRevenue), "#2d7a2d")}
-    ${hasDiscount ? metricBox("Diskon",   fmtRp(grandDiscount), "#c0392b") : ""}
-    ${hasDiscount ? metricBox("Subtotal", fmtRp(grandSubtotal), "#2d7a2d") : ""}
-    ${metricBox("Sell-through", str, strClr)}
-    ${metricBox("First Sale", fds, "#0c0c0c")}
-    ${metricBox("Avg / Hari", avgPerDay, "#0c0c0c")}
+  <!-- Confidential badge (repeats on every page) -->
+  <div class="confidential-badge">Confidential</div>
+  <!-- Footer (repeats on every page) -->
+  <div class="print-footer">
+    <span>Sentra Internal Tools · Product Performance Report</span>
+    <span>Downloaded ${nowStr} by ${currentUser || '—'}</span>
   </div>
-  <table>
-    <thead><tr>
-      <th style="width:56px"></th>
-      <th>Produk</th>
-      <th style="text-align:right">Harga Jual</th>
-      <th style="text-align:right">Stock</th>
-      <th style="text-align:right">Net Adj</th>
-      <th style="text-align:right">Terjual</th>
-      <th style="text-align:right">STR</th>
-      <th style="text-align:right">Total Sales</th>
-      ${hasDiscount ? `<th style="text-align:right">Diskon</th><th style="text-align:right;border-left:2px solid #eee">Subtotal</th>` : ""}
-    </tr></thead>
-    <tbody>${rows}</tbody>
-  </table>
-  <div class="footer">${products.length} produk · ${itemIds.length} variants · Sentra Internal Tools</div>
+  <div class="page-wrap">
+    <!-- Page header with logo -->
+    <div class="page-header">
+      <div class="page-header-left">
+        ${logoHTML}
+        <div class="doc-sub" style="margin-top:6px">Product Performance Report</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:13px;font-weight:600">${colName}</div>
+        <div style="font-size:10px;font-family:monospace;color:#888;margin-top:2px">${nowStr}</div>
+      </div>
+    </div>
+    <!-- Metric boxes -->
+    <div class="metrics">
+      ${metricBox("Stock Skrg", Math.round(grandStock)+" pcs", grandStock===0&&grandSold>0?"#c0392b":"#0c0c0c")}
+      ${metricBox("Net Adj", adjStr, adjClr)}
+      ${metricBox("Total Terjual", Math.round(grandSold)+" pcs", "#0c0c0c")}
+      ${metricBox("Total Sales", fmtRp(grandRevenue), "#2d7a2d")}
+      ${hasDiscount ? metricBox("Diskon", fmtRp(grandDiscount), "#c0392b") : ""}
+      ${hasDiscount ? metricBox("Subtotal", fmtRp(grandSubtotal), "#2d7a2d") : ""}
+      ${metricBox("Sell-through", str, strClr)}
+      ${metricBox("First Sale", fds, "#0c0c0c")}
+      ${metricBox("Avg / Hari", avgPerDay, "#0c0c0c")}
+    </div>
+    <!-- Trend chart -->
+    ${chartHTML}
+    <!-- Product table -->
+    <table>
+      <thead><tr>
+        <th style="width:56px"></th>
+        <th>Produk</th>
+        <th style="text-align:right">Harga Jual</th>
+        <th style="text-align:right">Stock</th>
+        <th style="text-align:right">Net Adj</th>
+        <th style="text-align:right">Terjual</th>
+        <th style="text-align:right">STR</th>
+        <th style="text-align:right">Total Sales</th>
+        ${hasDiscount ? `<th style="text-align:right">Diskon</th><th style="text-align:right;border-left:2px solid #eee">Subtotal</th>` : ""}
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div style="margin-top:10px;font-size:10px;color:#aaa;font-family:monospace">${products.length} produk · ${itemIds.length} variants</div>
+  </div>
   <script>window.onload=()=>{window.print();}<\/script>
   </body></html>`;
 
@@ -3983,7 +4051,7 @@ async function printColPerf(colId) {
   if (w) { w.document.write(html); w.document.close(); }
 }
 
-async function loadColProductPerf(colId, colName) {
+async function loadColProductPerf(colId, colName, revenueStream) {
   const el = document.getElementById(`col-perf-${colId}`);
   if (!el) return;
 
@@ -4126,7 +4194,7 @@ async function loadColProductPerf(colId, colName) {
     </div>`;
 
   // Store for PDF export
-  _colPerfCache[colId] = { colName, products, grandStock, grandSold, grandAdj, grandRevenue, grandDiscount, grandSubtotal, hasDiscount, str, strClr, adjStr, adjClr, avgPerDay, fds, itemIds, timeSeries };
+  _colPerfCache[colId] = { colName, revenueStream: revenueStream||"", products, grandStock, grandSold, grandAdj, grandRevenue, grandDiscount, grandSubtotal, hasDiscount, str, strClr, adjStr, adjClr, avgPerDay, fds, itemIds, timeSeries };
 
   el.innerHTML = `
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:16px">
@@ -4890,6 +4958,7 @@ async function saveColDetailEdit(colId) {
       release_date:document.getElementById("col-dp-releasedate")?.value||null,
       priority:document.getElementById("col-dp-priority")?.value||null,
       status:document.getElementById("col-dp-status")?.value||"Draft",
+      revenue_stream:document.getElementById("col-dp-revstream")?.value||null,
       pic:document.getElementById("col-dp-pic")?.value.trim()||null,
       moodboard_url:document.getElementById("col-dp-moodboard")?.value.trim()||null,
       notes:document.getElementById("col-dp-notes")?.value.trim()||null,
@@ -4949,6 +5018,7 @@ async function submitCollection() {
       release_date:document.getElementById("col-releasedate").value||null,
       priority:document.getElementById("col-priority").value||null,
       status:document.getElementById("col-status").value||"Draft",
+      revenue_stream:document.getElementById("col-revstream")?.value||null,
       pic:document.getElementById("col-pic")?.value.trim()||null,
       moodboard_url:document.getElementById("col-moodboard").value.trim()||null,
       notes:document.getElementById("col-notes").value.trim()||null,
