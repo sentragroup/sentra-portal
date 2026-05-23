@@ -8209,23 +8209,25 @@ function projCmtKeydown(e, pid){
 let calYear = new Date().getFullYear();
 let calMonth = new Date().getMonth();
 let calEvents = [];
-let calActiveFilters = new Set(['project','collection','colitem','leads']);
+let calActiveFilters = new Set(['project','collection','colitem','leads','popup']);
 const CAL_MONTH_NAMES = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
 const CAL_DAY_NAMES = ['Min','Sen','Sel','Rab','Kam','Jum','Sab'];
 
 async function loadCalendar() {
   try {
-    const [projRes, colRes, colItemRes, leadsRes] = await Promise.all([
+    const [projRes, colRes, colItemRes, leadsRes, popupRes] = await Promise.all([
       sb.from('projects').select('id,title,due_date,status').not('due_date','is',null).neq('status','done'),
       sb.from('collections').select('id,collection_name,release_date').not('release_date','is',null),
       sb.from('collection_items').select('id,sku_name,deadline,collection_id').not('deadline','is',null),
-      sb.from('leads').select('id,lead_name,follow_up_date,stage').not('follow_up_date','is',null)
+      sb.from('leads').select('id,lead_name,follow_up_date,stage').not('follow_up_date','is',null),
+      sb.from('popup_booths').select('id,event_name,event_date,location').not('event_date','is',null)
     ]);
     calEvents = [];
     (projRes.data||[]).forEach(r=>calEvents.push({src:'project',date:r.due_date,label:r.title,id:r.id}));
     (colRes.data||[]).forEach(r=>calEvents.push({src:'collection',date:r.release_date,label:r.collection_name,id:r.id}));
     (colItemRes.data||[]).forEach(r=>calEvents.push({src:'colitem',date:r.deadline,label:r.sku_name,id:r.collection_id}));
     (leadsRes.data||[]).forEach(r=>calEvents.push({src:'leads',date:r.follow_up_date,label:r.lead_name,id:r.id}));
+    (popupRes.data||[]).forEach(r=>calEvents.push({src:'popup',date:r.event_date,label:r.event_name+(r.location?` · ${r.location}`:''),id:r.id}));
     renderCalendar();
   } catch(e){ console.error('Calendar load error:',e); }
 }
@@ -8289,8 +8291,15 @@ function renderCalendar() {
 }
 
 function calEventClick(src, id) {
-  const pageMap = {project:'project',collection:'collections',colitem:'collections',leads:'leads'};
-  showPage(pageMap[src], null);
+  const pageMap = {project:'project',collection:'collections',colitem:'collections',leads:'leads',popup:'popup-booth'};
+  if (pageMap[src]) showPage(pageMap[src], null);
+}
+
+const CAL_ICS_URL = 'https://qyxdjdwgvwtrpnvfndnu.supabase.co/functions/v1/calendar-ics?token=sntr-cal-f8k2';
+
+function calShowIcsUrl() {
+  const msg = `Subscribe URL untuk Google Calendar:\n\n${CAL_ICS_URL}\n\nCara:\n1. Buka Google Calendar\n2. Klik "+" di "Other calendars" → "From URL"\n3. Paste URL di atas → Add Calendar\n\nCalendar akan auto-sync tiap ~12 jam. Kalau ada perubahan tanggal, akan ikut update.`;
+  alert(msg);
 }
 
 // ── DUPLICATE CHECK ──

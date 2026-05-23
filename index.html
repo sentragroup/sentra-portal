@@ -1823,8 +1823,10 @@
             <span class="cal-filter-chip active" data-src="collection" onclick="calToggleFilter('collection',this)">🎨 Collection Release</span>
             <span class="cal-filter-chip active" data-src="colitem" onclick="calToggleFilter('colitem',this)">🧵 Collection Items</span>
             <span class="cal-filter-chip active" data-src="leads" onclick="calToggleFilter('leads',this)">🎯 Leads Follow-up</span>
+            <span class="cal-filter-chip active" data-src="popup" onclick="calToggleFilter('popup',this)">🎪 Pop-up Booth</span>
           </div>
           <div style="display:flex;align-items:center;gap:8px">
+            <button onclick="calShowIcsUrl()" style="padding:5px 12px;border:1px solid var(--g200);border-radius:6px;background:none;font-size:11px;font-family:var(--mono);cursor:pointer;color:var(--g600);display:flex;align-items:center;gap:5px" title="Subscribe Google Calendar">📅 Google Cal</button>
             <button class="cal-nav-btn" onclick="calChangeMonth(-1)">&#8249;</button>
             <span id="cal-month-title" style="font-size:17px;font-weight:700;font-family:var(--head);color:var(--black);min-width:160px;text-align:center">—</span>
             <button class="cal-nav-btn" onclick="calChangeMonth(1)">&#8250;</button>
