@@ -3917,7 +3917,7 @@ async function printColPerf(colId) {
 
   // Load logo based on revenue stream
   const base = window.location.href.replace(/[^/]*(\?.*)?$/, '');
-  const logoFileMap = { 'SD&Y': 'assets/logo-sdy.png', 'Lagaa': 'assets/logo-lagaa.png', 'marté': 'assets/logo-marte.png' };
+  const logoFileMap = { 'SD&Y': 'assets/logo-sdy.png.png', 'Lagaa': 'assets/logo-lagaa.png.png', 'marté': 'assets/logo-marte.png.png' };
   let logob64 = null;
   if (revenueStream && logoFileMap[revenueStream]) {
     logob64 = await toB64(base + logoFileMap[revenueStream]);
