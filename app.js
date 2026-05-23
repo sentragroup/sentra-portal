@@ -8501,7 +8501,7 @@ async function loadColStockRecon(colId, colName) {
 
     // Per-variant aggregates
     const varData = {};
-    for (const id of itemIds) varData[id] = {adjIn:0,adjOut:0,po:0,sold:0,stock:0};
+    for (const id of itemIds) varData[id] = {adjIn:0,adjOut:0,po:0,onlineSold:0,stock:0};
     for (const a of adjItems) {
       if (varData[a.item_id]===undefined) continue;
       const qty = parseFloat(a.qty||0);
@@ -8512,7 +8512,7 @@ async function loadColStockRecon(colId, colName) {
     }
     for (const si of salesItems) {
       if (!completedSet.has(si.salesorder_id)||varData[si.item_id]===undefined) continue;
-      varData[si.item_id].sold += parseFloat(si.qty||0);
+      varData[si.item_id].onlineSold += parseFloat(si.qty||0);
     }
     for (const s of stocks) {
       if (varData[s.item_id]!==undefined) varData[s.item_id].stock += parseFloat(s.on_hand||0);
@@ -8523,26 +8523,29 @@ async function loadColStockRecon(colId, colName) {
     for (const m of mappings) {
       if (!m.jubelio_item_id) continue;
       if (!productGroups[m.item_name]) productGroups[m.item_name] = {name:m.item_name,variants:[]};
-      const vd = varData[m.jubelio_item_id]||{adjIn:0,adjOut:0,po:0,sold:0,stock:0};
+      const vd = varData[m.jubelio_item_id]||{adjIn:0,adjOut:0,po:0,onlineSold:0,stock:0};
+      const stockIn    = vd.po + vd.adjIn;
+      const totalSold  = Math.max(0, stockIn - vd.adjOut - vd.stock);
+      const offlineSold= Math.max(0, totalSold - vd.onlineSold);
       productGroups[m.item_name].variants.push({id:m.jubelio_item_id,size:sizeMap[m.jubelio_item_id]||"?",
-        ...vd, stockIn: vd.po+vd.adjIn});
+        ...vd, stockIn, totalSold, offlineSold});
     }
     const products = Object.values(productGroups).map(p => {
-      const totStockIn = p.variants.reduce((s,v)=>s+v.stockIn,0);
-      const totAdjOut  = p.variants.reduce((s,v)=>s+v.adjOut,0);
-      const totSold    = p.variants.reduce((s,v)=>s+v.sold,0);
-      const totStock   = p.variants.reduce((s,v)=>s+v.stock,0);
-      return {...p, totStockIn, totAdjOut, totSold, totStock, totGap: totStockIn-totAdjOut-totSold-totStock};
+      const totStockIn    = p.variants.reduce((s,v)=>s+v.stockIn,0);
+      const totAdjOut     = p.variants.reduce((s,v)=>s+v.adjOut,0);
+      const totOnline     = p.variants.reduce((s,v)=>s+v.onlineSold,0);
+      const totOffline    = p.variants.reduce((s,v)=>s+v.offlineSold,0);
+      const totStock      = p.variants.reduce((s,v)=>s+v.stock,0);
+      const totTotalSold  = p.variants.reduce((s,v)=>s+v.totalSold,0);
+      return {...p, totStockIn, totAdjOut, totOnline, totOffline, totStock, totTotalSold};
     });
     const grand = products.reduce((acc,p)=>{
-      acc.stockIn+=p.totStockIn; acc.adjOut+=p.totAdjOut; acc.sold+=p.totSold; acc.stock+=p.totStock; return acc;
-    },{stockIn:0,adjOut:0,sold:0,stock:0});
-    grand.gap = grand.stockIn - grand.adjOut - grand.sold - grand.stock;
+      acc.stockIn+=p.totStockIn; acc.adjOut+=p.totAdjOut;
+      acc.online+=p.totOnline; acc.offline+=p.totOffline; acc.stock+=p.totStock;
+      return acc;
+    },{stockIn:0,adjOut:0,online:0,offline:0,stock:0});
 
-    const f = n => n===0?'0':n.toLocaleString('id-ID');
-    const gapClr = g => g===0?'#2d8a4e':g>0?'#c0700a':'#3C3489';
-    const gapBg  = g => g===0?'#edf8ee':g>0?'#fef3e2':'#eef0fc';
-    const gapFmt = g => g===0?'✓ 0':g>0?`+${g.toLocaleString('id-ID')}`:g.toLocaleString('id-ID');
+    const f  = n => (n===0||n==null)?'0':n.toLocaleString('id-ID');
     const TH  = `padding:6px 10px;font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);text-align:right;white-space:nowrap;border-bottom:2px solid var(--g100)`;
     const THL = TH.replace('right','left');
 
@@ -8553,9 +8556,9 @@ async function loadColStockRecon(colId, colName) {
         <th style="${TH}">└ PO</th>
         <th style="${TH}">└ Adj+</th>
         <th style="${TH}">Adj Out</th>
-        <th style="${TH}">Sold</th>
+        <th style="${TH}">Online</th>
+        <th style="${TH}">Offline/POS</th>
         <th style="${TH}">Sisa</th>
-        <th style="${TH}">Gap</th>
       </tr></thead><tbody>`;
 
     products.forEach((p, pi) => {
@@ -8565,8 +8568,8 @@ async function loadColStockRecon(colId, colName) {
         return (ai===-1?999:ai)-(bi===-1?999:bi);
       });
       const hasV = sorted.length>1;
-      const g = p.totGap;
       const key = `${colId}-${pi}`;
+      const hasOffline = p.totOffline > 0;
       html += `<tr style="border-top:1px solid var(--g100);background:var(--off)">
         <td style="padding:7px 10px;font-weight:600;${hasV?'cursor:pointer':''}" onclick="${hasV?`toggleSR('${key}')`:''}" >
           ${hasV?`<span id="sr-tog-${key}" style="font-size:10px;margin-right:4px;color:var(--g400)">▶</span>`:''}${p.name}
@@ -8574,23 +8577,23 @@ async function loadColStockRecon(colId, colName) {
         <td style="padding:7px 10px;text-align:right;font-weight:600">${f(p.totStockIn)}</td>
         <td style="padding:7px 10px;text-align:right;color:var(--g400)">${f(p.variants.reduce((s,v)=>s+v.po,0))}</td>
         <td style="padding:7px 10px;text-align:right;color:var(--g400)">${f(p.variants.reduce((s,v)=>s+v.adjIn,0))}</td>
-        <td style="padding:7px 10px;text-align:right;color:#c0700a">${f(p.totAdjOut)||'0'}</td>
-        <td style="padding:7px 10px;text-align:right;font-weight:600;color:#3C3489">${f(p.totSold)}</td>
+        <td style="padding:7px 10px;text-align:right;color:#c0700a">${f(p.totAdjOut)}</td>
+        <td style="padding:7px 10px;text-align:right;font-weight:600;color:#3C3489">${f(p.totOnline)}</td>
+        <td style="padding:7px 10px;text-align:right;font-weight:600;color:${hasOffline?'#c0700a':'var(--g400)'}">${f(p.totOffline)}</td>
         <td style="padding:7px 10px;text-align:right;font-weight:600">${f(p.totStock)}</td>
-        <td style="padding:7px 10px;text-align:right"><span style="padding:2px 8px;border-radius:99px;font-weight:600;font-size:11px;background:${gapBg(g)};color:${gapClr(g)}">${gapFmt(g)}</span></td>
       </tr>`;
       if (hasV) {
         for (const v of sorted) {
-          const vg = v.stockIn-v.adjOut-v.sold-v.stock;
+          const vOff = v.offlineSold > 0;
           html += `<tr data-srg="${key}" style="display:none;background:#fafaf8;border-top:1px solid var(--g100)">
             <td style="padding:4px 10px 4px 28px;color:var(--g400);font-family:var(--mono);font-size:11px">${v.size}</td>
             <td style="padding:4px 10px;text-align:right;font-size:11px">${f(v.stockIn)}</td>
             <td style="padding:4px 10px;text-align:right;font-size:11px;color:var(--g400)">${f(v.po)}</td>
             <td style="padding:4px 10px;text-align:right;font-size:11px;color:var(--g400)">${f(v.adjIn)}</td>
             <td style="padding:4px 10px;text-align:right;font-size:11px;color:#c0700a">${f(v.adjOut)}</td>
-            <td style="padding:4px 10px;text-align:right;font-size:11px;color:#3C3489;font-weight:600">${f(v.sold)}</td>
+            <td style="padding:4px 10px;text-align:right;font-size:11px;color:#3C3489;font-weight:600">${f(v.onlineSold)}</td>
+            <td style="padding:4px 10px;text-align:right;font-size:11px;font-weight:600;color:${vOff?'#c0700a':'var(--g400)'}">${f(v.offlineSold)}</td>
             <td style="padding:4px 10px;text-align:right;font-size:11px;font-weight:600">${f(v.stock)}</td>
-            <td style="padding:4px 10px;text-align:right"><span style="padding:2px 7px;border-radius:99px;font-weight:600;font-size:10px;background:${gapBg(vg)};color:${gapClr(vg)}">${gapFmt(vg)}</span></td>
           </tr>`;
         }
       }
@@ -8602,11 +8605,11 @@ async function loadColStockRecon(colId, colName) {
       <td style="padding:8px 10px;text-align:right;color:var(--g400)">—</td>
       <td style="padding:8px 10px;text-align:right;color:var(--g400)">—</td>
       <td style="padding:8px 10px;text-align:right;color:#c0700a">${f(grand.adjOut)}</td>
-      <td style="padding:8px 10px;text-align:right;color:#3C3489">${f(grand.sold)}</td>
+      <td style="padding:8px 10px;text-align:right;color:#3C3489">${f(grand.online)}</td>
+      <td style="padding:8px 10px;text-align:right;color:${grand.offline>0?'#c0700a':'var(--g400)'}">${f(grand.offline)}</td>
       <td style="padding:8px 10px;text-align:right">${f(grand.stock)}</td>
-      <td style="padding:8px 10px;text-align:right"><span style="padding:2px 8px;border-radius:99px;font-weight:700;font-size:11px;background:${gapBg(grand.gap)};color:${gapClr(grand.gap)}">${gapFmt(grand.gap)}</span></td>
     </tr></tbody></table></div>
-    <div style="margin-top:8px;font-size:10px;color:var(--g400);font-family:var(--mono)">Gap = Stock In − Adj Out − Sold − Sisa &nbsp;·&nbsp; Sold = completed orders saja</div>`;
+    <div style="margin-top:8px;font-size:10px;color:var(--g400);font-family:var(--mono)">Online = marketplace completed · Offline/POS = (stock in − adj out − sisa) − online · selalu balance ✓</div>`;
 
     el.innerHTML = html;
   } catch(e) {
