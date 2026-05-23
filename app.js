@@ -8567,7 +8567,7 @@ async function loadColStockRecon(colId, colName) {
         <th style="${TH}">Adj Out</th>
         <th style="${TH}">Terjual</th>
         <th style="${TH.replace('var(--g400)','#d97706')}">In Progress</th>
-        <th style="${TH}">Sisa</th>
+        <th style="${TH}">Stock</th>
         <th style="${TH}">Selisih</th>
       </tr></thead><tbody>`;
 
@@ -8623,7 +8623,7 @@ async function loadColStockRecon(colId, colName) {
       <td style="padding:8px 10px;text-align:right">${f(grand.stock)}</td>
       <td style="padding:8px 10px;text-align:right;color:${grandGapClr}">${grand.gap > 0 ? '+' : ''}${f(grand.gap)}</td>
     </tr></tbody></table></div>
-    <div style="margin-top:8px;font-size:10px;color:var(--g400);font-family:var(--mono)">Terjual = marketplace + POS (COMPLETED) · In Progress = SHIPPED/FINISH_PACK (sudah kurangi stok, belum selesai) · Selisih = Stock In − Adj Out − Terjual − In Progress − Sisa · merah = ada barang tidak tercatat</div>`;
+    <div style="margin-top:8px;font-size:10px;color:var(--g400);font-family:var(--mono)">Terjual = marketplace + POS (COMPLETED) · In Progress = SHIPPED/FINISH_PACK (sudah kurangi stok, belum selesai) · Stock = on-hand saat ini · Selisih = Stock In − Adj Out − Terjual − In Progress − Stock · merah = ada barang tidak tercatat</div>`;
 
     el.innerHTML = html;
   } catch(e) {
