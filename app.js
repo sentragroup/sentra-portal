@@ -4179,7 +4179,7 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
     const vd = varData[m.jubelio_item_id] || { stock: 0, sold: 0, adjIn: 0, adjOut: 0 };
     productGroups[m.item_name].variants.push({ id: m.jubelio_item_id, size: sizeMap[m.jubelio_item_id] || "?", ...vd });
   }
-  const products = Object.values(productGroups).map(p => ({
+  const products = Object.values(productGroups).sort((a,b)=>a.name.localeCompare(b.name,'id')).map(p => ({
     ...p,
     totalStock:    p.variants.reduce((s, v) => s + v.stock,   0),
     totalSold:     p.variants.reduce((s, v) => s + v.sold,    0),
@@ -8539,7 +8539,7 @@ async function loadColStockRecon(colId, colName) {
       productGroups[m.item_name].variants.push({id:m.jubelio_item_id,size:sizeMap[m.jubelio_item_id]||"?",
         ...vd, stockIn, gap});
     }
-    const products = Object.values(productGroups).map(p => {
+    const products = Object.values(productGroups).sort((a,b)=>a.name.localeCompare(b.name,'id')).map(p => {
       const totStockIn    = p.variants.reduce((s,v)=>s+v.stockIn,0);
       const totAdjOut     = p.variants.reduce((s,v)=>s+v.adjOut,0);
       const totSold       = p.variants.reduce((s,v)=>s+v.sold,0);
