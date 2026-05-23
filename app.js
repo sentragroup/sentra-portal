@@ -3830,6 +3830,7 @@ function renderColDetail(col, items) {
           <div id="col-mkt-body-${col.id}">${renderMktBodyHTML(col.id)}</div>`)}
         <!-- Product Performance -->
         ${cdStageBox("📊","Product Performance","",`<div id="col-perf-${col.id}" style="color:var(--g400);font-size:12px">Memuat...</div>`)}
+        ${cdStageBox("📦","Stock Rekonsiliasi","",`<div id="col-stock-${col.id}" style="color:var(--g400);font-size:12px">Memuat...</div>`)}
       </div>
       <!-- Right sidebar: Notes + Activity -->
       <div style="width:280px;flex-shrink:0;position:sticky;top:20px;max-height:calc(100vh - 80px);overflow-y:auto;display:flex;flex-direction:column;gap:12px">
@@ -3875,6 +3876,7 @@ function renderColDetail(col, items) {
   loadColSidebar(col.id);
   setupNoteAC(col.id);
   loadColProductPerf(col.id, col.collectionName, col.revenueStream||"", col.ipRelated||"");
+  loadColStockRecon(col.id, col.collectionName);
 }
 
 const SIZE_ORDER = ['XS','S','M','L','XL','XXL','XXXL','XXXXL','4XL','5XL','FREE SIZE','FREE'];
@@ -8454,6 +8456,174 @@ function calShowIcsUrl() {
     </div>`;
   modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
   document.body.appendChild(modal);
+}
+
+// ── COLLECTION STOCK RECON ──
+async function loadColStockRecon(colId, colName) {
+  const el = document.getElementById(`col-stock-${colId}`);
+  if (!el) return;
+  el.innerHTML = `<div style="color:var(--g400);font-size:12px">Memuat...</div>`;
+  try {
+    const { data: mappings, error: mErr } = await sb
+      .from("product_mappings").select("jubelio_item_id, item_name").ilike("collection", colName);
+    if (mErr || !mappings?.length) {
+      el.innerHTML = `<div style="color:var(--g400);font-size:12px;padding:4px 0">Belum ada produk yang di-mapping ke koleksi ini.</div>`;
+      return;
+    }
+    const itemIds = [...new Set(mappings.map(m => m.jubelio_item_id).filter(Boolean))];
+
+    const [adjItems, poItems, salesItems, stocks, jubelioItems] = await Promise.all([
+      _fetchAllPages("jubelio_inventory_adjustment_items","item_id,qty",q=>q.in("item_id",itemIds)),
+      _fetchAllPages("jubelio_purchase_order_items","item_id,qty",q=>q.in("item_id",itemIds)),
+      _fetchAllPages("jubelio_sales_order_items","item_id,qty,salesorder_id",q=>q.in("item_id",itemIds)),
+      _fetchAllPages("jubelio_inventory_stocks","item_id,on_hand",q=>q.in("item_id",itemIds)),
+      _fetchAllPages("jubelio_items","item_id,item_code",q=>q.in("item_id",itemIds)),
+    ]);
+
+    // Completed order IDs
+    let completedSet = new Set();
+    if (salesItems.length) {
+      const soIds = [...new Set(salesItems.map(s => s.salesorder_id))];
+      const chunks = [];
+      for (let i = 0; i < soIds.length; i += 200) chunks.push(soIds.slice(i, i + 200));
+      const results = await Promise.all(chunks.map(chunk =>
+        sb.from("jubelio_sales_orders").select("salesorder_id").in("salesorder_id",chunk).eq("wms_status","COMPLETED")
+      ));
+      for (const r of results) for (const o of (r.data||[])) completedSet.add(o.salesorder_id);
+    }
+
+    // Size map
+    const sizeMap = {};
+    for (const ji of (jubelioItems||[])) {
+      const parts = (ji.item_code||"").split("-");
+      sizeMap[ji.item_id] = parts[parts.length-1] || "?";
+    }
+
+    // Per-variant aggregates
+    const varData = {};
+    for (const id of itemIds) varData[id] = {adjIn:0,adjOut:0,po:0,sold:0,stock:0};
+    for (const a of adjItems) {
+      if (varData[a.item_id]===undefined) continue;
+      const qty = parseFloat(a.qty||0);
+      if (qty>0) varData[a.item_id].adjIn += qty; else varData[a.item_id].adjOut += Math.abs(qty);
+    }
+    for (const p of poItems) {
+      if (varData[p.item_id]!==undefined) varData[p.item_id].po += parseFloat(p.qty||0);
+    }
+    for (const si of salesItems) {
+      if (!completedSet.has(si.salesorder_id)||varData[si.item_id]===undefined) continue;
+      varData[si.item_id].sold += parseFloat(si.qty||0);
+    }
+    for (const s of stocks) {
+      if (varData[s.item_id]!==undefined) varData[s.item_id].stock += parseFloat(s.on_hand||0);
+    }
+
+    // Group by product name
+    const productGroups = {};
+    for (const m of mappings) {
+      if (!m.jubelio_item_id) continue;
+      if (!productGroups[m.item_name]) productGroups[m.item_name] = {name:m.item_name,variants:[]};
+      const vd = varData[m.jubelio_item_id]||{adjIn:0,adjOut:0,po:0,sold:0,stock:0};
+      productGroups[m.item_name].variants.push({id:m.jubelio_item_id,size:sizeMap[m.jubelio_item_id]||"?",
+        ...vd, stockIn: vd.po+vd.adjIn});
+    }
+    const products = Object.values(productGroups).map(p => {
+      const totStockIn = p.variants.reduce((s,v)=>s+v.stockIn,0);
+      const totAdjOut  = p.variants.reduce((s,v)=>s+v.adjOut,0);
+      const totSold    = p.variants.reduce((s,v)=>s+v.sold,0);
+      const totStock   = p.variants.reduce((s,v)=>s+v.stock,0);
+      return {...p, totStockIn, totAdjOut, totSold, totStock, totGap: totStockIn-totAdjOut-totSold-totStock};
+    });
+    const grand = products.reduce((acc,p)=>{
+      acc.stockIn+=p.totStockIn; acc.adjOut+=p.totAdjOut; acc.sold+=p.totSold; acc.stock+=p.totStock; return acc;
+    },{stockIn:0,adjOut:0,sold:0,stock:0});
+    grand.gap = grand.stockIn - grand.adjOut - grand.sold - grand.stock;
+
+    const f = n => n===0?'0':n.toLocaleString('id-ID');
+    const gapClr = g => g===0?'#2d8a4e':g>0?'#c0700a':'#3C3489';
+    const gapBg  = g => g===0?'#edf8ee':g>0?'#fef3e2':'#eef0fc';
+    const gapFmt = g => g===0?'✓ 0':g>0?`+${g.toLocaleString('id-ID')}`:g.toLocaleString('id-ID');
+    const TH  = `padding:6px 10px;font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);text-align:right;white-space:nowrap;border-bottom:2px solid var(--g100)`;
+    const THL = TH.replace('right','left');
+
+    let html = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr>
+        <th style="${THL}">Produk / Ukuran</th>
+        <th style="${TH}">Stock In</th>
+        <th style="${TH}">└ PO</th>
+        <th style="${TH}">└ Adj+</th>
+        <th style="${TH}">Adj Out</th>
+        <th style="${TH}">Sold</th>
+        <th style="${TH}">Sisa</th>
+        <th style="${TH}">Gap</th>
+      </tr></thead><tbody>`;
+
+    products.forEach((p, pi) => {
+      const sorted = [...p.variants].sort((a,b)=>{
+        const o=SIZE_ORDER; const ai=o.indexOf(a.size),bi=o.indexOf(b.size);
+        if(ai===-1&&bi===-1) return a.size.localeCompare(b.size);
+        return (ai===-1?999:ai)-(bi===-1?999:bi);
+      });
+      const hasV = sorted.length>1;
+      const g = p.totGap;
+      const key = `${colId}-${pi}`;
+      html += `<tr style="border-top:1px solid var(--g100);background:var(--off)">
+        <td style="padding:7px 10px;font-weight:600;${hasV?'cursor:pointer':''}" onclick="${hasV?`toggleSR('${key}')`:''}" >
+          ${hasV?`<span id="sr-tog-${key}" style="font-size:10px;margin-right:4px;color:var(--g400)">▶</span>`:''}${p.name}
+        </td>
+        <td style="padding:7px 10px;text-align:right;font-weight:600">${f(p.totStockIn)}</td>
+        <td style="padding:7px 10px;text-align:right;color:var(--g400)">${f(p.variants.reduce((s,v)=>s+v.po,0))}</td>
+        <td style="padding:7px 10px;text-align:right;color:var(--g400)">${f(p.variants.reduce((s,v)=>s+v.adjIn,0))}</td>
+        <td style="padding:7px 10px;text-align:right;color:#c0700a">${f(p.totAdjOut)||'0'}</td>
+        <td style="padding:7px 10px;text-align:right;font-weight:600;color:#3C3489">${f(p.totSold)}</td>
+        <td style="padding:7px 10px;text-align:right;font-weight:600">${f(p.totStock)}</td>
+        <td style="padding:7px 10px;text-align:right"><span style="padding:2px 8px;border-radius:99px;font-weight:600;font-size:11px;background:${gapBg(g)};color:${gapClr(g)}">${gapFmt(g)}</span></td>
+      </tr>`;
+      if (hasV) {
+        html += `<tr id="sr-detail-${key}" style="display:none"><td colspan="8" style="padding:0 0 0 20px;background:#fafaf8">
+          <table style="width:100%;border-collapse:collapse;font-size:11px">`;
+        for (const v of sorted) {
+          const vg = v.stockIn-v.adjOut-v.sold-v.stock;
+          html += `<tr style="border-top:1px solid var(--g100)">
+            <td style="padding:4px 10px;color:var(--g400);font-family:var(--mono);width:120px">${v.size}</td>
+            <td style="padding:4px 10px;text-align:right;width:80px">${f(v.stockIn)}</td>
+            <td style="padding:4px 10px;text-align:right;width:70px;color:var(--g400)">${f(v.po)}</td>
+            <td style="padding:4px 10px;text-align:right;width:70px;color:var(--g400)">${f(v.adjIn)}</td>
+            <td style="padding:4px 10px;text-align:right;width:70px;color:#c0700a">${f(v.adjOut)}</td>
+            <td style="padding:4px 10px;text-align:right;width:80px;color:#3C3489;font-weight:600">${f(v.sold)}</td>
+            <td style="padding:4px 10px;text-align:right;width:80px;font-weight:600">${f(v.stock)}</td>
+            <td style="padding:4px 10px;text-align:right;width:100px"><span style="padding:2px 7px;border-radius:99px;font-weight:600;font-size:10px;background:${gapBg(vg)};color:${gapClr(vg)}">${gapFmt(vg)}</span></td>
+          </tr>`;
+        }
+        html += `</table></td></tr>`;
+      }
+    });
+
+    html += `<tr style="border-top:2px solid var(--g100);background:var(--off);font-weight:700">
+      <td style="padding:8px 10px;font-family:var(--mono);font-size:11px;text-transform:uppercase">Total</td>
+      <td style="padding:8px 10px;text-align:right">${f(grand.stockIn)}</td>
+      <td style="padding:8px 10px;text-align:right;color:var(--g400)">—</td>
+      <td style="padding:8px 10px;text-align:right;color:var(--g400)">—</td>
+      <td style="padding:8px 10px;text-align:right;color:#c0700a">${f(grand.adjOut)}</td>
+      <td style="padding:8px 10px;text-align:right;color:#3C3489">${f(grand.sold)}</td>
+      <td style="padding:8px 10px;text-align:right">${f(grand.stock)}</td>
+      <td style="padding:8px 10px;text-align:right"><span style="padding:2px 8px;border-radius:99px;font-weight:700;font-size:11px;background:${gapBg(grand.gap)};color:${gapClr(grand.gap)}">${gapFmt(grand.gap)}</span></td>
+    </tr></tbody></table></div>
+    <div style="margin-top:8px;font-size:10px;color:var(--g400);font-family:var(--mono)">Gap = Stock In − Adj Out − Sold − Sisa &nbsp;·&nbsp; Sold = completed orders saja</div>`;
+
+    el.innerHTML = html;
+  } catch(e) {
+    el.innerHTML = `<div style="color:#c0392b;font-size:12px">Gagal memuat: ${e.message||e}</div>`;
+  }
+}
+
+function toggleSR(key) {
+  const row = document.getElementById(`sr-detail-${key}`);
+  const tog = document.getElementById(`sr-tog-${key}`);
+  if (!row) return;
+  const open = row.style.display==='table-row';
+  row.style.display = open ? 'none' : 'table-row';
+  if (tog) tog.textContent = open ? '▶' : '▼';
 }
 
 // ── COLLECTION PERF CHART ──
