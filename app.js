@@ -3972,80 +3972,111 @@ async function printColPerf(colId) {
 
   const docTitle = ipRelated ? `${ipRelated} · ${colName}` : colName;
 
+  /*
+   * Layout uses an outer <table> with thead/tfoot/tbody so that:
+   *   - thead (page header: logo, confid, title) repeats on EVERY page
+   *   - tfoot (footer: company, download info) repeats on EVERY page  [Chrome: repeats ✓]
+   *   - tbody (content: metrics, chart, inner product table) flows normally
+   * Inner product table has its own <thead> for column-header repeat.
+   */
+  const colCount = 8 + (hasDiscount ? 2 : 0);
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
   <title>Collection Performance — ${colName}</title>
   <style>
     *{margin:0;padding:0;box-sizing:border-box;}
     body{font-family:Helvetica,Arial,sans-serif;color:#0c0c0c;font-size:13px;background:#fff;}
-    .wrap{padding:22px 28px 52px 28px;}
-    /*
-      Confidential: position:fixed top-right on every page.
-      To prevent overlap with table: .wrap has extra padding-right in print (110px)
-      so the table content never enters the right 100px of the page where confid sits.
-    */
-    .confid{position:fixed;top:8px;right:10px;border:1.5px solid #c0392b;color:#c0392b;font-family:'Courier New',monospace;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;padding:3px 9px;border-radius:3px;background:#fff;z-index:100;pointer-events:none}
-    /* Footer: fixed bottom, repeats every page */
-    .pfoot{position:fixed;bottom:0;left:0;right:0;border-top:1px solid #e8e8e8;padding:5px 28px;font-size:9px;font-family:'Courier New',monospace;color:#aaa;background:#fff;text-align:right}
-    .ph{display:flex;align-items:flex-start;justify-content:space-between;padding-bottom:14px;border-bottom:2px solid #0c0c0c;margin-bottom:20px;gap:16px}
+
+    /* ── Outer layout table ── */
+    .lt{width:100%;border-collapse:collapse;table-layout:fixed}
+    .lt thead{display:table-header-group}
+    .lt tfoot{display:table-footer-group}
+
+    /* Page header cell (repeats every page) */
+    .ph-cell{padding:16px 24px 14px;border-bottom:2px solid #0c0c0c}
+    .ph{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
     .ph-right{text-align:right;flex-shrink:0}
+    .confid{display:inline-block;border:1.5px solid #c0392b;color:#c0392b;font-family:'Courier New',monospace;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;padding:3px 9px;border-radius:3px;margin-bottom:5px}
+
+    /* Content cell */
+    .body-cell{padding:18px 24px 24px;vertical-align:top}
+
+    /* Page footer cell (repeats every page) */
+    .ft-cell{padding:6px 24px;border-top:1px solid #e5e5e5}
+    .ft{display:flex;justify-content:space-between;font-size:9px;font-family:'Courier New',monospace;color:#aaa}
+
+    /* Metrics */
     .metrics{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px}
     .mbox{border:1px solid #e5e5e5;border-radius:6px;padding:9px 12px;min-width:84px}
     .mbox .lbl{font-family:'Courier New',monospace;font-size:9px;text-transform:uppercase;color:#888;margin-bottom:3px}
     .mbox .val{font-weight:700;font-size:12px}
-    table{width:100%;border-collapse:collapse}
-    thead{display:table-header-group}
-    thead tr{background:#f7f7f5}
-    th{font-family:'Courier New',monospace;font-size:9px;text-transform:uppercase;color:#888;padding:7px 9px;text-align:left;border-bottom:2px solid #eee;white-space:nowrap}
-    th:not(:nth-child(1)):not(:nth-child(2)){text-align:right}
+
+    /* Inner product table */
+    .ptable{width:100%;border-collapse:collapse}
+    .ptable thead{display:table-header-group}
+    .ptable thead tr{background:#f7f7f5}
+    .ptable th{font-family:'Courier New',monospace;font-size:9px;text-transform:uppercase;color:#888;padding:7px 9px;text-align:left;border-bottom:2px solid #eee;white-space:nowrap}
+    .ptable th:not(:nth-child(1)):not(:nth-child(2)){text-align:right}
+
     @media print{
       body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
-      @page{margin:0;size:A4}
-      /* Extra right padding keeps all content left of where .confid sits (right:10px ~90px wide) */
-      .wrap{padding:22px 110px 52px 28px}
+      @page{size:A4;margin:0}
     }
   </style></head><body>
-  <div class="confid">Confidential</div>
-  <div class="pfoot">Downloaded ${nowStr}, ${nowTime} · ${currentUser || '—'}</div>
-  <div class="wrap">
-    <!-- Page header -->
-    <div class="ph">
-      <div>${logoHTML}</div>
-      <div class="ph-right">
-        <div style="font-size:13px;font-weight:700;margin-bottom:3px">${docTitle}</div>
-        <div style="font-size:10px;font-family:'Courier New',monospace;color:#666">Collection Performance Report · ${nowStr}</div>
+  <table class="lt">
+    <!-- ── PAGE HEADER (repeats every page) ── -->
+    <thead><tr><td class="ph-cell">
+      <div class="ph">
+        <div>${logoHTML}</div>
+        <div class="ph-right">
+          <div class="confid">Confidential</div>
+          <div style="font-size:13px;font-weight:700;margin-bottom:2px">${docTitle}</div>
+          <div style="font-size:10px;font-family:'Courier New',monospace;color:#666">Collection Performance Report · ${nowStr}</div>
+        </div>
       </div>
-    </div>
-    <!-- Metrics -->
-    <div class="metrics">
-      ${metricBox("Stock Skrg", Math.round(grandStock)+" pcs", grandStock===0&&grandSold>0?"#c0392b":"#0c0c0c")}
-      ${metricBox("Net Adj", adjStr, adjClr)}
-      ${metricBox("Total Terjual", Math.round(grandSold)+" pcs", "#0c0c0c")}
-      ${metricBox("Total Sales", fmtRp(grandRevenue), "#2d7a2d")}
-      ${hasDiscount ? metricBox("Diskon", fmtRp(grandDiscount), "#c0392b") : ""}
-      ${hasDiscount ? metricBox("Subtotal", fmtRp(grandSubtotal), "#2d7a2d") : ""}
-      ${metricBox("Sell-through", str, strClr)}
-      ${metricBox("First Sale", fds, "#0c0c0c")}
-      ${metricBox("Avg / Hari", avgPerDay, "#0c0c0c")}
-    </div>
-    <!-- Trend chart -->
-    ${chartHTML}
-    <!-- Product table -->
-    <table>
-      <thead><tr>
-        <th style="width:52px"></th>
-        <th>Produk</th>
-        <th style="text-align:right">Harga Jual</th>
-        <th style="text-align:right">Stock</th>
-        <th style="text-align:right">Net Adj</th>
-        <th style="text-align:right">Terjual</th>
-        <th style="text-align:right">STR</th>
-        <th style="text-align:right">Total Sales</th>
-        ${hasDiscount ? `<th style="text-align:right">Diskon</th><th style="text-align:right;border-left:2px solid #eee">Subtotal</th>` : ""}
-      </tr></thead>
-      <tbody>${rows}</tbody>
-    </table>
-    <div style="margin-top:8px;font-size:10px;color:#aaa;font-family:'Courier New',monospace">${products.length} produk · ${itemIds.length} variants</div>
-  </div>
+    </td></tr></thead>
+
+    <!-- ── PAGE FOOTER (repeats every page) ── -->
+    <tfoot><tr><td class="ft-cell">
+      <div class="ft">
+        <span>PT. Sandang Dunia Yuwana</span>
+        <span>Downloaded ${nowStr}, ${nowTime} · ${currentUser || '—'}</span>
+      </div>
+    </td></tr></tfoot>
+
+    <!-- ── CONTENT ── -->
+    <tbody><tr><td class="body-cell">
+      <!-- Metrics -->
+      <div class="metrics">
+        ${metricBox("Stock Skrg", Math.round(grandStock)+" pcs", grandStock===0&&grandSold>0?"#c0392b":"#0c0c0c")}
+        ${metricBox("Net Adj", adjStr, adjClr)}
+        ${metricBox("Total Terjual", Math.round(grandSold)+" pcs", "#0c0c0c")}
+        ${metricBox("Total Sales", fmtRp(grandRevenue), "#2d7a2d")}
+        ${hasDiscount ? metricBox("Diskon", fmtRp(grandDiscount), "#c0392b") : ""}
+        ${hasDiscount ? metricBox("Subtotal", fmtRp(grandSubtotal), "#2d7a2d") : ""}
+        ${metricBox("Sell-through", str, strClr)}
+        ${metricBox("First Sale", fds, "#0c0c0c")}
+        ${metricBox("Avg / Hari", avgPerDay, "#0c0c0c")}
+      </div>
+      <!-- Trend chart -->
+      ${chartHTML}
+      <!-- Product table -->
+      <table class="ptable">
+        <thead><tr>
+          <th style="width:52px"></th>
+          <th>Produk</th>
+          <th style="text-align:right">Harga Jual</th>
+          <th style="text-align:right">Stock</th>
+          <th style="text-align:right">Net Adj</th>
+          <th style="text-align:right">Terjual</th>
+          <th style="text-align:right">STR</th>
+          <th style="text-align:right">Total Sales</th>
+          ${hasDiscount ? `<th style="text-align:right">Diskon</th><th style="text-align:right;border-left:2px solid #eee">Subtotal</th>` : ""}
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div style="margin-top:8px;font-size:10px;color:#aaa;font-family:'Courier New',monospace">${products.length} produk · ${itemIds.length} variants</div>
+    </td></tr></tbody>
+  </table>
   <script>window.onload=()=>{window.print();}<\/script>
   </body></html>`;
 
