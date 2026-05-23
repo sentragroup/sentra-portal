@@ -3874,7 +3874,7 @@ function renderColDetail(col, items) {
   });
   loadColSidebar(col.id);
   setupNoteAC(col.id);
-  loadColProductPerf(col.id, col.collectionName, col.revenueStream||"");
+  loadColProductPerf(col.id, col.collectionName, col.revenueStream||"", col.ipRelated||"");
 }
 
 const SIZE_ORDER = ['XS','S','M','L','XL','XXL','XXXL','XXXXL','4XL','5XL','FREE SIZE','FREE'];
@@ -3883,7 +3883,7 @@ const _colPerfCache = {};
 async function printColPerf(colId) {
   const d = _colPerfCache[colId];
   if (!d) return;
-  const { colName, revenueStream, products, grandStock, grandSold, grandAdj, grandRevenue, grandDiscount, grandSubtotal, hasDiscount, str, strClr, adjStr, adjClr, avgPerDay, fds, itemIds } = d;
+  const { colName, ipRelated, revenueStream, products, grandStock, grandSold, grandAdj, grandRevenue, grandDiscount, grandSubtotal, hasDiscount, str, strClr, adjStr, adjClr, avgPerDay, fds, itemIds } = d;
 
   // Helper: fetch any URL → base64 data URI
   const toB64 = async url => {
@@ -3925,11 +3925,7 @@ async function printColPerf(colId) {
 
   const nowStr = new Date().toLocaleDateString('id-ID', {day:'2-digit', month:'long', year:'numeric'});
   const fmtRp = n => n ? "Rp " + Math.round(n).toLocaleString("id-ID") : "—";
-  const metricBox = (lbl, val, clr) => `
-    <div style="border:1px solid #e5e5e5;border-radius:6px;padding:10px 14px;min-width:90px">
-      <div style="font-family:monospace;font-size:9px;text-transform:uppercase;color:#888;margin-bottom:4px">${lbl}</div>
-      <div style="font-weight:700;font-size:12px;color:${clr}">${val}</div>
-    </div>`;
+  const metricBox = (lbl, val, clr) => `<div class="mbox"><div class="lbl">${lbl}</div><div class="val" style="color:${clr}">${val}</div></div>`;
   const rows = products.map(p => {
     const iStr  = (p.totalSold + p.totalStock) > 0 ? ((p.totalSold / (p.totalSold + p.totalStock)) * 100).toFixed(0) + "%" : "—";
     const iSClr = iStr !== "—" ? (parseFloat(iStr) >= 70 ? "#2d7a2d" : parseFloat(iStr) >= 30 ? "#e67e00" : "#c0392b") : "#888";
@@ -3941,7 +3937,7 @@ async function printColPerf(colId) {
         const broken = v.stock === 0;
         return `<span style="display:inline-block;padding:1px 5px;border-radius:3px;font-size:9px;font-family:monospace;color:${broken?"#c0392b":"#2d7a2d"};background:${broken?"#fdecea":"#edf8ee"};margin:1px 1px 0 0">${v.size}</span>`;
       }).join("");
-    const imgSrc = p.thumbnail ? (b64Map[p.thumbnail] || null) : null;
+    const imgSrc = p.thumbnail ? (b64Map[p.thumbnail] || p.thumbnail) : null;
     const thumbHTML = imgSrc
       ? `<img src="${imgSrc}" style="width:48px;height:48px;object-fit:cover;border-radius:4px;border:1px solid #eee">`
       : `<div style="width:48px;height:48px;border-radius:4px;border:1px solid #eee;background:#f5f5f5;display:flex;align-items:center;justify-content:center;font-size:18px">📦</div>`;
@@ -3959,61 +3955,54 @@ async function printColPerf(colId) {
   }).join("");
 
   const logoHTML = logob64
-    ? `<img src="${logob64}" style="height:36px;object-fit:contain;display:block">`
-    : `<div style="font-size:18px;font-weight:800;letter-spacing:-0.5px">${revenueStream || 'Sentra'}</div>`;
+    ? `<img src="${logob64}" style="height:32px;object-fit:contain;display:block">`
+    : revenueStream
+      ? `<div style="font-size:20px;font-weight:800;letter-spacing:-0.5px;line-height:1">${revenueStream}</div>`
+      : ``;
 
   const chartHTML = chartImgSrc
-    ? `<div style="margin:20px 0;border:1px solid #eee;border-radius:8px;padding:14px">
-        <div style="font-family:monospace;font-size:9px;text-transform:uppercase;color:#888;margin-bottom:10px">Trend Penjualan</div>
+    ? `<div style="margin-bottom:20px;border:1px solid #eee;border-radius:8px;padding:14px">
+        <div style="font-family:monospace;font-size:9px;text-transform:uppercase;color:#888;margin-bottom:10px;letter-spacing:.06em">Trend Penjualan</div>
         <img src="${chartImgSrc}" style="width:100%;height:auto;display:block">
        </div>`
     : "";
 
+  const docTitle = ipRelated ? `${ipRelated} · ${colName}` : colName;
+
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
-  <title>Product Performance — ${colName}</title>
+  <title>Collection Performance — ${colName}</title>
   <style>
     *{margin:0;padding:0;box-sizing:border-box;}
-    body{font-family:Arial,sans-serif;color:#0c0c0c;font-size:13px;}
-    .page-wrap{padding:28px 36px 64px;}
-    .page-header{display:flex;align-items:flex-end;justify-content:space-between;padding-bottom:14px;border-bottom:2px solid #0c0c0c;margin-bottom:20px}
-    .page-header-left{display:flex;flex-direction:column;gap:4px}
-    .doc-title{font-size:17px;font-weight:700;letter-spacing:-0.3px}
-    .doc-sub{font-size:10px;color:#666;font-family:monospace}
+    body{font-family:Arial,sans-serif;color:#0c0c0c;font-size:13px;background:#fff;}
+    .wrap{padding:28px 36px 32px;}
+    .ph{display:flex;align-items:flex-start;justify-content:space-between;padding-bottom:14px;border-bottom:2px solid #0c0c0c;margin-bottom:20px;gap:16px}
+    .ph-right{text-align:right;flex-shrink:0}
+    .confid{display:inline-block;border:1.5px solid #c0392b;color:#c0392b;font-family:monospace;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;padding:3px 8px;border-radius:3px;margin-bottom:6px}
     .metrics{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px}
+    .mbox{border:1px solid #e5e5e5;border-radius:6px;padding:9px 12px;min-width:84px}
+    .mbox .lbl{font-family:monospace;font-size:9px;text-transform:uppercase;color:#888;margin-bottom:3px}
+    .mbox .val{font-weight:700;font-size:12px}
     table{width:100%;border-collapse:collapse}
     thead tr{background:#f7f7f5}
-    th{font-family:monospace;font-size:9px;text-transform:uppercase;color:#888;padding:8px 10px;text-align:left;border-bottom:2px solid #eee}
+    th{font-family:monospace;font-size:9px;text-transform:uppercase;color:#888;padding:7px 9px;text-align:left;border-bottom:2px solid #eee;white-space:nowrap}
     th:not(:nth-child(1)):not(:nth-child(2)){text-align:right}
-    /* Confidential badge — fixed top-right every printed page */
-    .confidential-badge{position:fixed;top:20px;right:28px;border:1.5px solid #c0392b;color:#c0392b;font-family:monospace;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;padding:4px 10px;border-radius:3px;pointer-events:none}
-    /* Footer fixed bottom every printed page */
-    .print-footer{position:fixed;bottom:0;left:0;right:0;border-top:1px solid #eee;padding:7px 36px;display:flex;justify-content:space-between;font-size:9px;font-family:monospace;color:#aaa;background:#fff}
+    .pf{margin-top:20px;padding-top:10px;border-top:1px solid #eee;display:flex;justify-content:space-between;font-size:9px;font-family:monospace;color:#aaa}
     @media print{
       body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
-      @page{margin:0;size:A4}
-      .page-wrap{padding:20px 28px 56px}
+      @page{margin:14mm;size:A4}
     }
   </style></head><body>
-  <!-- Confidential badge (repeats on every page) -->
-  <div class="confidential-badge">Confidential</div>
-  <!-- Footer (repeats on every page) -->
-  <div class="print-footer">
-    <span>Sentra Internal Tools · Product Performance Report</span>
-    <span>Downloaded ${nowStr} by ${currentUser || '—'}</span>
-  </div>
-  <div class="page-wrap">
-    <!-- Page header with logo -->
-    <div class="page-header">
-      <div class="page-header-left">
-        ${logoHTML}
-        <div class="doc-sub" style="margin-top:6px">Product Performance Report</div>
-      </div>
-      <div style="text-align:right">
-        <div style="font-size:13px;font-weight:600">${colName}</div>
-        <div style="font-size:10px;font-family:monospace;color:#888;margin-top:2px">${nowStr}</div>
+  <div class="wrap">
+    <!-- Page header -->
+    <div class="ph">
+      <div>${logoHTML}</div>
+      <div class="ph-right">
+        <div class="confid">Confidential</div>
+        <div style="font-size:13px;font-weight:700;margin-bottom:2px">${docTitle}</div>
+        <div style="font-size:10px;font-family:monospace;color:#666">Collection Performance Report · ${nowStr}</div>
       </div>
     </div>
-    <!-- Metric boxes -->
+    <!-- Metrics -->
     <div class="metrics">
       ${metricBox("Stock Skrg", Math.round(grandStock)+" pcs", grandStock===0&&grandSold>0?"#c0392b":"#0c0c0c")}
       ${metricBox("Net Adj", adjStr, adjClr)}
@@ -4030,7 +4019,7 @@ async function printColPerf(colId) {
     <!-- Product table -->
     <table>
       <thead><tr>
-        <th style="width:56px"></th>
+        <th style="width:52px"></th>
         <th>Produk</th>
         <th style="text-align:right">Harga Jual</th>
         <th style="text-align:right">Stock</th>
@@ -4042,7 +4031,12 @@ async function printColPerf(colId) {
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>
-    <div style="margin-top:10px;font-size:10px;color:#aaa;font-family:monospace">${products.length} produk · ${itemIds.length} variants</div>
+    <div style="margin-top:8px;font-size:10px;color:#aaa;font-family:monospace">${products.length} produk · ${itemIds.length} variants</div>
+    <!-- Footer -->
+    <div class="pf">
+      <span>Sentra Internal Tools · Collection Performance Report</span>
+      <span>Downloaded ${nowStr} by ${currentUser || '—'}</span>
+    </div>
   </div>
   <script>window.onload=()=>{window.print();}<\/script>
   </body></html>`;
@@ -4051,7 +4045,7 @@ async function printColPerf(colId) {
   if (w) { w.document.write(html); w.document.close(); }
 }
 
-async function loadColProductPerf(colId, colName, revenueStream) {
+async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
   const el = document.getElementById(`col-perf-${colId}`);
   if (!el) return;
 
@@ -4194,7 +4188,7 @@ async function loadColProductPerf(colId, colName, revenueStream) {
     </div>`;
 
   // Store for PDF export
-  _colPerfCache[colId] = { colName, revenueStream: revenueStream||"", products, grandStock, grandSold, grandAdj, grandRevenue, grandDiscount, grandSubtotal, hasDiscount, str, strClr, adjStr, adjClr, avgPerDay, fds, itemIds, timeSeries };
+  _colPerfCache[colId] = { colName, ipRelated: ipRelated||"", revenueStream: revenueStream||"", products, grandStock, grandSold, grandAdj, grandRevenue, grandDiscount, grandSubtotal, hasDiscount, str, strClr, adjStr, adjClr, avgPerDay, fds, itemIds, timeSeries };
 
   el.innerHTML = `
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:16px">
@@ -8474,7 +8468,10 @@ function renderColPerfChart(colId, view) {
   };
   if (_colPerfCharts[colId]) { _colPerfCharts[colId].destroy(); delete _colPerfCharts[colId]; }
   if (!labels.length) return;
+  const plugins = typeof ChartDataLabels !== 'undefined' ? [ChartDataLabels] : [];
+  const fmtVal = v => v >= 1000000 ? (v / 1000000).toFixed(1) + 'jt' : (v / 1000).toFixed(0) + 'k';
   _colPerfCharts[colId] = new Chart(canvas, {
+    plugins,
     data: {
       labels: labels.map(fmtLabel),
       datasets: [
@@ -8485,7 +8482,15 @@ function renderColPerfChart(colId, view) {
           yAxisID: 'yRevenue',
           backgroundColor: 'rgba(45,122,45,0.65)',
           borderRadius: 4,
-          order: 2
+          order: 2,
+          datalabels: {
+            anchor: 'end',
+            align: 'end',
+            offset: 2,
+            color: '#2d7a2d',
+            font: { size: 8, family: 'DM Mono', weight: '600' },
+            formatter: v => v > 0 ? fmtVal(v) : ''
+          }
         },
         {
           type: 'line',
@@ -8498,13 +8503,15 @@ function renderColPerfChart(colId, view) {
           pointRadius: 3,
           pointBackgroundColor: '#3b82f6',
           fill: false,
-          order: 1
+          order: 1,
+          datalabels: { display: false }
         }
       ]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      layout: { padding: { top: 20 } },
       interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: { display: false },
@@ -8514,7 +8521,8 @@ function renderColPerfChart(colId, view) {
               ? ` Sales: Rp ${Math.round(ctx.raw).toLocaleString('id-ID')}`
               : ` Qty: ${Math.round(ctx.raw)} pcs`
           }
-        }
+        },
+        datalabels: { display: false } // default off; per-dataset overrides above
       },
       scales: {
         x: {
