@@ -4033,6 +4033,17 @@ async function loadColProductPerf(colId, colName) {
     }
   }
 
+  // 3b. Build daily time-series for chart
+  const timeSeries = {}; // YYYY-MM-DD → { qty, revenue }
+  for (const si of salesItems) {
+    if (!completedMap.has(si.salesorder_id)) continue;
+    const date = (completedMap.get(si.salesorder_id) || "").slice(0, 10);
+    if (!date) continue;
+    if (!timeSeries[date]) timeSeries[date] = { qty: 0, revenue: 0 };
+    timeSeries[date].qty     += parseFloat(si.qty   || 0);
+    timeSeries[date].revenue += parseFloat(si.qty   || 0) * parseFloat(si.price || 0);
+  }
+
   // 4. Per-variant aggregates
   const varData = {}; // item_id → { stock, sold, adj, revenue, pfreq }
   for (const id of itemIds) varData[id] = { stock: 0, sold: 0, adj: 0, revenue: 0, discAmount: 0, pfreq: {} };
@@ -4115,7 +4126,7 @@ async function loadColProductPerf(colId, colName) {
     </div>`;
 
   // Store for PDF export
-  _colPerfCache[colId] = { colName, products, grandStock, grandSold, grandAdj, grandRevenue, grandDiscount, grandSubtotal, hasDiscount, str, strClr, adjStr, adjClr, avgPerDay, fds, itemIds };
+  _colPerfCache[colId] = { colName, products, grandStock, grandSold, grandAdj, grandRevenue, grandDiscount, grandSubtotal, hasDiscount, str, strClr, adjStr, adjClr, avgPerDay, fds, itemIds, timeSeries };
 
   el.innerHTML = `
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:16px">
@@ -4128,6 +4139,21 @@ async function loadColProductPerf(colId, colName) {
       ${metricCard("Sell-through",  str, strClr)}
       ${metricCard("First Sale",    fds, "var(--black)")}
       ${metricCard("Avg / Hari",    avgPerDay, "var(--black)")}
+    </div>
+    <div style="margin-bottom:16px;border:1px solid var(--g100);border-radius:10px;padding:14px 14px 10px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div style="display:flex;align-items:center;gap:12px">
+          <span style="font-size:10px;font-family:var(--mono);color:var(--g400);text-transform:uppercase;letter-spacing:.06em">Trend Penjualan</span>
+          <span style="display:flex;align-items:center;gap:4px;font-size:10px;font-family:var(--mono);color:var(--g600)"><span style="display:inline-block;width:10px;height:10px;background:rgba(45,122,45,0.7);border-radius:2px"></span>Sales</span>
+          <span style="display:flex;align-items:center;gap:4px;font-size:10px;font-family:var(--mono);color:var(--g600)"><span style="display:inline-block;width:10px;height:2px;background:#3b82f6;border-radius:1px"></span>Qty</span>
+        </div>
+        <div style="display:flex;gap:3px" id="col-chart-btns-${colId}">
+          <button onclick="setColPerfView('${colId}','day',this)"   style="padding:3px 9px;border:1px solid var(--g200);border-radius:5px;font-size:10px;font-family:var(--mono);cursor:pointer;background:none;color:var(--g600)">Hari</button>
+          <button onclick="setColPerfView('${colId}','week',this)"  style="padding:3px 9px;border:1px solid var(--g200);border-radius:5px;font-size:10px;font-family:var(--mono);cursor:pointer;background:none;color:var(--g600)">Minggu</button>
+          <button onclick="setColPerfView('${colId}','month',this)" style="padding:3px 9px;border:1px solid var(--black);border-radius:5px;font-size:10px;font-family:var(--mono);cursor:pointer;background:var(--black);color:var(--white)">Bulan</button>
+        </div>
+      </div>
+      <div style="position:relative;height:170px"><canvas id="col-perf-chart-${colId}"></canvas></div>
     </div>
     ${products.length ? `<div class="table-wrap" style="max-height:400px;overflow-y:auto">
       <table style="width:100%">
@@ -4184,6 +4210,7 @@ async function loadColProductPerf(colId, colName) {
       <button onclick="printColPerf('${colId}')" style="padding:5px 12px;border:1px solid var(--g200);border-radius:6px;background:none;font-size:11px;font-family:var(--mono);cursor:pointer;color:var(--g600);display:flex;align-items:center;gap:5px" title="Download PDF">⬇ PDF</button>
     </div>
   `;
+  setTimeout(() => renderColPerfChart(colId, 'month'), 0);
 }
 
 function renderColPOCards(colId) {
@@ -8322,6 +8349,127 @@ function calShowIcsUrl() {
     </div>`;
   modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
   document.body.appendChild(modal);
+}
+
+// ── COLLECTION PERF CHART ──
+const _colPerfCharts = {};
+
+function getWeekStart(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  return d.toISOString().slice(0, 10);
+}
+
+function setColPerfView(colId, view, el) {
+  const container = document.getElementById(`col-chart-btns-${colId}`);
+  if (container) container.querySelectorAll('button').forEach(b => {
+    b.style.background = 'none';
+    b.style.color = 'var(--g600)';
+    b.style.borderColor = 'var(--g200)';
+  });
+  if (el) {
+    el.style.background = 'var(--black)';
+    el.style.color = 'var(--white)';
+    el.style.borderColor = 'var(--black)';
+  }
+  renderColPerfChart(colId, view);
+}
+
+function renderColPerfChart(colId, view) {
+  const d = _colPerfCache[colId];
+  if (!d || !d.timeSeries) return;
+  const canvas = document.getElementById(`col-perf-chart-${colId}`);
+  if (!canvas || typeof Chart === 'undefined') return;
+  const ID_MONTHS = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
+  const grouped = {};
+  for (const [date, vals] of Object.entries(d.timeSeries)) {
+    let key;
+    if (view === 'day') key = date;
+    else if (view === 'week') key = getWeekStart(date);
+    else key = date.slice(0, 7);
+    if (!grouped[key]) grouped[key] = { qty: 0, revenue: 0 };
+    grouped[key].qty += vals.qty;
+    grouped[key].revenue += vals.revenue;
+  }
+  const labels = Object.keys(grouped).sort();
+  const fmtLabel = key => {
+    if (view === 'month') {
+      const [y, m] = key.split('-');
+      return `${ID_MONTHS[parseInt(m) - 1]} '${y.slice(2)}`;
+    }
+    const [, m, dd] = key.split('-');
+    return `${parseInt(dd)} ${ID_MONTHS[parseInt(m) - 1]}`;
+  };
+  if (_colPerfCharts[colId]) { _colPerfCharts[colId].destroy(); delete _colPerfCharts[colId]; }
+  if (!labels.length) return;
+  _colPerfCharts[colId] = new Chart(canvas, {
+    data: {
+      labels: labels.map(fmtLabel),
+      datasets: [
+        {
+          type: 'bar',
+          label: 'Total Sales',
+          data: labels.map(k => grouped[k].revenue),
+          yAxisID: 'yRevenue',
+          backgroundColor: 'rgba(45,122,45,0.65)',
+          borderRadius: 4,
+          order: 2
+        },
+        {
+          type: 'line',
+          label: 'Qty Terjual',
+          data: labels.map(k => grouped[k].qty),
+          yAxisID: 'yQty',
+          borderColor: '#3b82f6',
+          backgroundColor: 'rgba(59,130,246,0.08)',
+          tension: 0.35,
+          pointRadius: 3,
+          pointBackgroundColor: '#3b82f6',
+          fill: false,
+          order: 1
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => ctx.datasetIndex === 0
+              ? ` Sales: Rp ${Math.round(ctx.raw).toLocaleString('id-ID')}`
+              : ` Qty: ${Math.round(ctx.raw)} pcs`
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: { font: { size: 10, family: 'DM Mono' } }
+        },
+        yRevenue: {
+          position: 'left',
+          grid: { color: 'rgba(0,0,0,0.05)' },
+          ticks: {
+            font: { size: 9, family: 'DM Mono' },
+            callback: v => 'Rp ' + (v >= 1000000 ? (v / 1000000).toFixed(1) + 'jt' : (v / 1000).toFixed(0) + 'k')
+          }
+        },
+        yQty: {
+          position: 'right',
+          grid: { drawOnChartArea: false },
+          ticks: {
+            font: { size: 9, family: 'DM Mono' },
+            callback: v => v + ' pcs'
+          }
+        }
+      }
+    }
+  });
 }
 
 // ── DUPLICATE CHECK ──
