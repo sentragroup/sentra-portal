@@ -8580,22 +8580,19 @@ async function loadColStockRecon(colId, colName) {
         <td style="padding:7px 10px;text-align:right"><span style="padding:2px 8px;border-radius:99px;font-weight:600;font-size:11px;background:${gapBg(g)};color:${gapClr(g)}">${gapFmt(g)}</span></td>
       </tr>`;
       if (hasV) {
-        html += `<tr id="sr-detail-${key}" style="display:none"><td colspan="8" style="padding:0 0 0 20px;background:#fafaf8">
-          <table style="width:100%;border-collapse:collapse;font-size:11px">`;
         for (const v of sorted) {
           const vg = v.stockIn-v.adjOut-v.sold-v.stock;
-          html += `<tr style="border-top:1px solid var(--g100)">
-            <td style="padding:4px 10px;color:var(--g400);font-family:var(--mono);width:120px">${v.size}</td>
-            <td style="padding:4px 10px;text-align:right;width:80px">${f(v.stockIn)}</td>
-            <td style="padding:4px 10px;text-align:right;width:70px;color:var(--g400)">${f(v.po)}</td>
-            <td style="padding:4px 10px;text-align:right;width:70px;color:var(--g400)">${f(v.adjIn)}</td>
-            <td style="padding:4px 10px;text-align:right;width:70px;color:#c0700a">${f(v.adjOut)}</td>
-            <td style="padding:4px 10px;text-align:right;width:80px;color:#3C3489;font-weight:600">${f(v.sold)}</td>
-            <td style="padding:4px 10px;text-align:right;width:80px;font-weight:600">${f(v.stock)}</td>
-            <td style="padding:4px 10px;text-align:right;width:100px"><span style="padding:2px 7px;border-radius:99px;font-weight:600;font-size:10px;background:${gapBg(vg)};color:${gapClr(vg)}">${gapFmt(vg)}</span></td>
+          html += `<tr data-srg="${key}" style="display:none;background:#fafaf8;border-top:1px solid var(--g100)">
+            <td style="padding:4px 10px 4px 28px;color:var(--g400);font-family:var(--mono);font-size:11px">${v.size}</td>
+            <td style="padding:4px 10px;text-align:right;font-size:11px">${f(v.stockIn)}</td>
+            <td style="padding:4px 10px;text-align:right;font-size:11px;color:var(--g400)">${f(v.po)}</td>
+            <td style="padding:4px 10px;text-align:right;font-size:11px;color:var(--g400)">${f(v.adjIn)}</td>
+            <td style="padding:4px 10px;text-align:right;font-size:11px;color:#c0700a">${f(v.adjOut)}</td>
+            <td style="padding:4px 10px;text-align:right;font-size:11px;color:#3C3489;font-weight:600">${f(v.sold)}</td>
+            <td style="padding:4px 10px;text-align:right;font-size:11px;font-weight:600">${f(v.stock)}</td>
+            <td style="padding:4px 10px;text-align:right"><span style="padding:2px 7px;border-radius:99px;font-weight:600;font-size:10px;background:${gapBg(vg)};color:${gapClr(vg)}">${gapFmt(vg)}</span></td>
           </tr>`;
         }
-        html += `</table></td></tr>`;
       }
     });
 
@@ -8618,11 +8615,11 @@ async function loadColStockRecon(colId, colName) {
 }
 
 function toggleSR(key) {
-  const row = document.getElementById(`sr-detail-${key}`);
   const tog = document.getElementById(`sr-tog-${key}`);
-  if (!row) return;
-  const open = row.style.display==='table-row';
-  row.style.display = open ? 'none' : 'table-row';
+  const rows = document.querySelectorAll(`[data-srg="${key}"]`);
+  if (!rows.length) return;
+  const open = rows[0].style.display === 'table-row';
+  rows.forEach(r => r.style.display = open ? 'none' : 'table-row');
   if (tog) tog.textContent = open ? '▶' : '▼';
 }
 
