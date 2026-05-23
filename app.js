@@ -8482,16 +8482,23 @@ async function loadColStockRecon(colId, colName) {
       _fetchAllPages("jubelio_items","item_id,item_code",q=>q.in("item_id",itemIds)),
     ]);
 
-    // Completed order IDs
+    // Completed + In-Progress order IDs
     let completedSet = new Set();
+    let inProgressSet = new Set();
     if (salesItems.length) {
       const soIds = [...new Set(salesItems.map(s => s.salesorder_id))];
       const chunks = [];
       for (let i = 0; i < soIds.length; i += 200) chunks.push(soIds.slice(i, i + 200));
-      const results = await Promise.all(chunks.map(chunk =>
-        sb.from("jubelio_sales_orders").select("salesorder_id").in("salesorder_id",chunk).eq("wms_status","COMPLETED")
-      ));
-      for (const r of results) for (const o of (r.data||[])) completedSet.add(o.salesorder_id);
+      const [completedResults, inProgressResults] = await Promise.all([
+        Promise.all(chunks.map(chunk =>
+          sb.from("jubelio_sales_orders").select("salesorder_id").in("salesorder_id",chunk).eq("wms_status","COMPLETED")
+        )),
+        Promise.all(chunks.map(chunk =>
+          sb.from("jubelio_sales_orders").select("salesorder_id").in("salesorder_id",chunk).in("wms_status",["SHIPPED","FINISH_PACK"])
+        )),
+      ]);
+      for (const r of completedResults) for (const o of (r.data||[])) completedSet.add(o.salesorder_id);
+      for (const r of inProgressResults) for (const o of (r.data||[])) inProgressSet.add(o.salesorder_id);
     }
 
     // Size map
@@ -8503,7 +8510,7 @@ async function loadColStockRecon(colId, colName) {
 
     // Per-variant aggregates
     const varData = {};
-    for (const id of itemIds) varData[id] = {adjIn:0,adjOut:0,po:0,sold:0,stock:0};
+    for (const id of itemIds) varData[id] = {adjIn:0,adjOut:0,po:0,sold:0,inProgress:0,stock:0};
     for (const a of adjItems) {
       if (varData[a.item_id]===undefined) continue;
       const qty = parseFloat(a.qty||0);
@@ -8513,8 +8520,9 @@ async function loadColStockRecon(colId, colName) {
       if (varData[p.item_id]!==undefined) varData[p.item_id].po += parseFloat(p.qty||0);
     }
     for (const si of salesItems) {
-      if (!completedSet.has(si.salesorder_id)||varData[si.item_id]===undefined) continue;
-      varData[si.item_id].sold += parseFloat(si.qty||0);
+      if (varData[si.item_id]===undefined) continue;
+      if (completedSet.has(si.salesorder_id)) varData[si.item_id].sold += parseFloat(si.qty||0);
+      else if (inProgressSet.has(si.salesorder_id)) varData[si.item_id].inProgress += parseFloat(si.qty||0);
     }
     for (const s of stocks) {
       if (varData[s.item_id]!==undefined) varData[s.item_id].stock += parseFloat(s.on_hand||0);
@@ -8527,23 +8535,24 @@ async function loadColStockRecon(colId, colName) {
       if (!productGroups[m.item_name]) productGroups[m.item_name] = {name:m.item_name,variants:[]};
       const vd = varData[m.jubelio_item_id]||{adjIn:0,adjOut:0,po:0,sold:0,stock:0};
       const stockIn = vd.po + vd.adjIn;
-      const gap     = stockIn - vd.adjOut - vd.sold - vd.stock;
+      const gap     = stockIn - vd.adjOut - vd.sold - vd.inProgress - vd.stock;
       productGroups[m.item_name].variants.push({id:m.jubelio_item_id,size:sizeMap[m.jubelio_item_id]||"?",
         ...vd, stockIn, gap});
     }
     const products = Object.values(productGroups).map(p => {
-      const totStockIn = p.variants.reduce((s,v)=>s+v.stockIn,0);
-      const totAdjOut  = p.variants.reduce((s,v)=>s+v.adjOut,0);
-      const totSold    = p.variants.reduce((s,v)=>s+v.sold,0);
-      const totStock   = p.variants.reduce((s,v)=>s+v.stock,0);
-      const totGap     = p.variants.reduce((s,v)=>s+v.gap,0);
-      return {...p, totStockIn, totAdjOut, totSold, totStock, totGap};
+      const totStockIn    = p.variants.reduce((s,v)=>s+v.stockIn,0);
+      const totAdjOut     = p.variants.reduce((s,v)=>s+v.adjOut,0);
+      const totSold       = p.variants.reduce((s,v)=>s+v.sold,0);
+      const totInProgress = p.variants.reduce((s,v)=>s+v.inProgress,0);
+      const totStock      = p.variants.reduce((s,v)=>s+v.stock,0);
+      const totGap        = p.variants.reduce((s,v)=>s+v.gap,0);
+      return {...p, totStockIn, totAdjOut, totSold, totInProgress, totStock, totGap};
     });
     const grand = products.reduce((acc,p)=>{
       acc.stockIn+=p.totStockIn; acc.adjOut+=p.totAdjOut;
-      acc.sold+=p.totSold; acc.stock+=p.totStock; acc.gap+=p.totGap;
+      acc.sold+=p.totSold; acc.inProgress+=p.totInProgress; acc.stock+=p.totStock; acc.gap+=p.totGap;
       return acc;
-    },{stockIn:0,adjOut:0,sold:0,stock:0,gap:0});
+    },{stockIn:0,adjOut:0,sold:0,inProgress:0,stock:0,gap:0});
 
     const f  = n => (n===0||n==null)?'0':n.toLocaleString('id-ID');
     const TH  = `padding:6px 10px;font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);text-align:right;white-space:nowrap;border-bottom:2px solid var(--g100)`;
@@ -8557,6 +8566,7 @@ async function loadColStockRecon(colId, colName) {
         <th style="${TH}">└ Adj+</th>
         <th style="${TH}">Adj Out</th>
         <th style="${TH}">Terjual</th>
+        <th style="${TH.replace('var(--g400)','#d97706')}">In Progress</th>
         <th style="${TH}">Sisa</th>
         <th style="${TH}">Selisih</th>
       </tr></thead><tbody>`;
@@ -8579,6 +8589,7 @@ async function loadColStockRecon(colId, colName) {
         <td style="padding:7px 10px;text-align:right;color:var(--g400)">${f(p.variants.reduce((s,v)=>s+v.adjIn,0))}</td>
         <td style="padding:7px 10px;text-align:right;color:#c0700a">${f(p.totAdjOut)}</td>
         <td style="padding:7px 10px;text-align:right;font-weight:600">${f(p.totSold)}</td>
+        <td style="padding:7px 10px;text-align:right;font-weight:600;color:${p.totInProgress>0?'#d97706':'var(--g400)'}">${p.totInProgress>0?f(p.totInProgress):'—'}</td>
         <td style="padding:7px 10px;text-align:right;font-weight:600">${f(p.totStock)}</td>
         <td style="padding:7px 10px;text-align:right;font-weight:600;color:${gapClr}">${p.totGap > 0 ? '+' : ''}${f(p.totGap)}</td>
       </tr>`;
@@ -8592,6 +8603,7 @@ async function loadColStockRecon(colId, colName) {
             <td style="padding:4px 10px;text-align:right;font-size:11px;color:var(--g400)">${f(v.adjIn)}</td>
             <td style="padding:4px 10px;text-align:right;font-size:11px;color:#c0700a">${f(v.adjOut)}</td>
             <td style="padding:4px 10px;text-align:right;font-size:11px;font-weight:600">${f(v.sold)}</td>
+            <td style="padding:4px 10px;text-align:right;font-size:11px;font-weight:600;color:${v.inProgress>0?'#d97706':'var(--g400)'}">${v.inProgress>0?f(v.inProgress):'—'}</td>
             <td style="padding:4px 10px;text-align:right;font-size:11px;font-weight:600">${f(v.stock)}</td>
             <td style="padding:4px 10px;text-align:right;font-size:11px;font-weight:600;color:${vGapClr}">${v.gap > 0 ? '+' : ''}${f(v.gap)}</td>
           </tr>`;
@@ -8607,10 +8619,11 @@ async function loadColStockRecon(colId, colName) {
       <td style="padding:8px 10px;text-align:right;color:var(--g400)">—</td>
       <td style="padding:8px 10px;text-align:right;color:#c0700a">${f(grand.adjOut)}</td>
       <td style="padding:8px 10px;text-align:right">${f(grand.sold)}</td>
+      <td style="padding:8px 10px;text-align:right;color:${grand.inProgress>0?'#d97706':'var(--g400)'}">${grand.inProgress>0?f(grand.inProgress):'—'}</td>
       <td style="padding:8px 10px;text-align:right">${f(grand.stock)}</td>
       <td style="padding:8px 10px;text-align:right;color:${grandGapClr}">${grand.gap > 0 ? '+' : ''}${f(grand.gap)}</td>
     </tr></tbody></table></div>
-    <div style="margin-top:8px;font-size:10px;color:var(--g400);font-family:var(--mono)">Terjual = marketplace + POS (transaksi aktual) · Selisih = Stock In − Adj Out − Terjual − Sisa · merah = ada barang tidak tercatat</div>`;
+    <div style="margin-top:8px;font-size:10px;color:var(--g400);font-family:var(--mono)">Terjual = marketplace + POS (COMPLETED) · In Progress = SHIPPED/FINISH_PACK (sudah kurangi stok, belum selesai) · Selisih = Stock In − Adj Out − Terjual − In Progress − Sisa · merah = ada barang tidak tercatat</div>`;
 
     el.innerHTML = html;
   } catch(e) {
