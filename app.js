@@ -3917,7 +3917,7 @@ async function printColPerf(colId) {
 
   // Load logo based on revenue stream
   const base = window.location.href.replace(/[^/]*(\?.*)?$/, '');
-  const logoFileMap = { 'SD&Y': 'assets/logo-sdy.png.png', 'Lagaa': 'assets/logo-lagaa.png.png', 'marté': 'assets/logo-marte.png.png' };
+  const logoFileMap = { 'SD&Y': 'assets/logo-sdy.png', 'Lagaa': 'assets/logo-lagaa.png', 'marté': 'assets/logo-marte.png' };
   let logob64 = null;
   if (revenueStream && logoFileMap[revenueStream]) {
     logob64 = await toB64(base + logoFileMap[revenueStream]);
@@ -4178,7 +4178,9 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
     const days = Math.max(1, Math.ceil((Date.now() - new Date(firstSaleDate)) / 86400000));
     avgPerDay = (grandSold / days).toFixed(1) + "/hari";
   }
-  const fds = firstSaleDate ? firstSaleDate.slice(0, 10) : "—";
+  const fds = firstSaleDate
+    ? new Date(firstSaleDate.slice(0, 10) + 'T00:00:00').toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })
+    : "—";
 
   // 7. Render
   const metricCard = (lbl, val, clr) => `
@@ -8484,6 +8486,7 @@ function renderColPerfChart(colId, view) {
           borderRadius: 4,
           order: 2,
           datalabels: {
+            display: true,
             anchor: 'end',
             align: 'end',
             offset: 2,
