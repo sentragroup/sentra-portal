@@ -8482,23 +8482,20 @@ async function loadColStockRecon(colId, colName) {
       _fetchAllPages("jubelio_items","item_id,item_code",q=>q.in("item_id",itemIds)),
     ]);
 
-    // Completed + In-Progress order IDs
-    let completedSet = new Set();
-    let inProgressSet = new Set();
+    // Categorise order IDs by wms_status
+    let completedSet = new Set(), inProgressSet = new Set(), returnedSet = new Set();
     if (salesItems.length) {
       const soIds = [...new Set(salesItems.map(s => s.salesorder_id))];
       const chunks = [];
       for (let i = 0; i < soIds.length; i += 200) chunks.push(soIds.slice(i, i + 200));
-      const [completedResults, inProgressResults] = await Promise.all([
-        Promise.all(chunks.map(chunk =>
-          sb.from("jubelio_sales_orders").select("salesorder_id").in("salesorder_id",chunk).eq("wms_status","COMPLETED")
-        )),
-        Promise.all(chunks.map(chunk =>
-          sb.from("jubelio_sales_orders").select("salesorder_id").in("salesorder_id",chunk).in("wms_status",["SHIPPED","FINISH_PACK"])
-        )),
+      const [cRes, ipRes, rRes] = await Promise.all([
+        Promise.all(chunks.map(c => sb.from("jubelio_sales_orders").select("salesorder_id").in("salesorder_id",c).eq("wms_status","COMPLETED"))),
+        Promise.all(chunks.map(c => sb.from("jubelio_sales_orders").select("salesorder_id").in("salesorder_id",c).in("wms_status",["SHIPPED","FINISH_PACK"]))),
+        Promise.all(chunks.map(c => sb.from("jubelio_sales_orders").select("salesorder_id").in("salesorder_id",c).eq("wms_status","RETURNED"))),
       ]);
-      for (const r of completedResults) for (const o of (r.data||[])) completedSet.add(o.salesorder_id);
-      for (const r of inProgressResults) for (const o of (r.data||[])) inProgressSet.add(o.salesorder_id);
+      for (const r of cRes)  for (const o of (r.data||[])) completedSet.add(o.salesorder_id);
+      for (const r of ipRes) for (const o of (r.data||[])) inProgressSet.add(o.salesorder_id);
+      for (const r of rRes)  for (const o of (r.data||[])) returnedSet.add(o.salesorder_id);
     }
 
     // Size map
@@ -8510,7 +8507,7 @@ async function loadColStockRecon(colId, colName) {
 
     // Per-variant aggregates
     const varData = {};
-    for (const id of itemIds) varData[id] = {adjIn:0,adjOut:0,po:0,sold:0,inProgress:0,stock:0};
+    for (const id of itemIds) varData[id] = {adjIn:0,adjOut:0,po:0,sold:0,inProgress:0,returned:0,stock:0};
     for (const a of adjItems) {
       if (varData[a.item_id]===undefined) continue;
       const qty = parseFloat(a.qty||0);
@@ -8521,8 +8518,10 @@ async function loadColStockRecon(colId, colName) {
     }
     for (const si of salesItems) {
       if (varData[si.item_id]===undefined) continue;
-      if (completedSet.has(si.salesorder_id)) varData[si.item_id].sold += parseFloat(si.qty||0);
-      else if (inProgressSet.has(si.salesorder_id)) varData[si.item_id].inProgress += parseFloat(si.qty||0);
+      const qty = parseFloat(si.qty||0);
+      if (completedSet.has(si.salesorder_id))   varData[si.item_id].sold       += qty;
+      else if (inProgressSet.has(si.salesorder_id)) varData[si.item_id].inProgress += qty;
+      else if (returnedSet.has(si.salesorder_id))   varData[si.item_id].returned   += qty;
     }
     for (const s of stocks) {
       if (varData[s.item_id]!==undefined) varData[s.item_id].stock += parseFloat(s.on_hand||0);
@@ -8533,30 +8532,33 @@ async function loadColStockRecon(colId, colName) {
     for (const m of mappings) {
       if (!m.jubelio_item_id) continue;
       if (!productGroups[m.item_name]) productGroups[m.item_name] = {name:m.item_name,variants:[]};
-      const vd = varData[m.jubelio_item_id]||{adjIn:0,adjOut:0,po:0,sold:0,stock:0};
+      const vd = varData[m.jubelio_item_id]||{adjIn:0,adjOut:0,po:0,sold:0,inProgress:0,returned:0,stock:0};
       const stockIn = vd.po + vd.adjIn;
-      const gap     = stockIn - vd.adjOut - vd.sold - vd.inProgress - vd.stock;
-      productGroups[m.item_name].variants.push({id:m.jubelio_item_id,size:sizeMap[m.jubelio_item_id]||"?",
-        ...vd, stockIn, gap});
+      const sisa    = stockIn - vd.adjOut - vd.sold - vd.inProgress - vd.returned - vd.stock;
+      productGroups[m.item_name].variants.push({id:m.jubelio_item_id, size:sizeMap[m.jubelio_item_id]||"?",
+        ...vd, stockIn, sisa});
     }
     const products = Object.values(productGroups).sort((a,b)=>a.name.localeCompare(b.name,'id')).map(p => {
       const totStockIn    = p.variants.reduce((s,v)=>s+v.stockIn,0);
       const totAdjOut     = p.variants.reduce((s,v)=>s+v.adjOut,0);
       const totSold       = p.variants.reduce((s,v)=>s+v.sold,0);
       const totInProgress = p.variants.reduce((s,v)=>s+v.inProgress,0);
+      const totReturned   = p.variants.reduce((s,v)=>s+v.returned,0);
       const totStock      = p.variants.reduce((s,v)=>s+v.stock,0);
-      const totGap        = p.variants.reduce((s,v)=>s+v.gap,0);
-      return {...p, totStockIn, totAdjOut, totSold, totInProgress, totStock, totGap};
+      const totSisa       = p.variants.reduce((s,v)=>s+v.sisa,0);
+      return {...p, totStockIn, totAdjOut, totSold, totInProgress, totReturned, totStock, totSisa};
     });
     const grand = products.reduce((acc,p)=>{
-      acc.stockIn+=p.totStockIn; acc.adjOut+=p.totAdjOut;
-      acc.sold+=p.totSold; acc.inProgress+=p.totInProgress; acc.stock+=p.totStock; acc.gap+=p.totGap;
+      acc.stockIn+=p.totStockIn; acc.adjOut+=p.totAdjOut; acc.sold+=p.totSold;
+      acc.inProgress+=p.totInProgress; acc.returned+=p.totReturned;
+      acc.stock+=p.totStock; acc.sisa+=p.totSisa;
       return acc;
-    },{stockIn:0,adjOut:0,sold:0,inProgress:0,stock:0,gap:0});
+    },{stockIn:0,adjOut:0,sold:0,inProgress:0,returned:0,stock:0,sisa:0});
 
-    const f  = n => (n===0||n==null)?'0':n.toLocaleString('id-ID');
+    const f   = n => (n===0||n==null)?'0':n.toLocaleString('id-ID');
     const TH  = `padding:6px 10px;font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);text-align:right;white-space:nowrap;border-bottom:2px solid var(--g100)`;
     const THL = TH.replace('right','left');
+    const THc = clr => TH.replace('var(--g400)',clr);
 
     let html = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
       <thead><tr>
@@ -8564,13 +8566,15 @@ async function loadColStockRecon(colId, colName) {
         <th style="${TH}">Stock In</th>
         <th style="${TH}">└ PO</th>
         <th style="${TH}">└ Adj+</th>
-        <th style="${TH}">Adj Out</th>
+        <th style="${THc('#c0700a')}">Stock Out</th>
         <th style="${TH}">Terjual</th>
-        <th style="${TH.replace('var(--g400)','#d97706')}">In Progress</th>
+        <th style="${THc('#d97706')}">In Progress</th>
+        <th style="${THc('#7c3aed')}">Return</th>
         <th style="${TH}">Stock</th>
-        <th style="${TH}">Selisih</th>
+        <th style="${TH}">Sisa</th>
       </tr></thead><tbody>`;
 
+    const NA = `<span style="color:var(--g200)">—</span>`;
     products.forEach((p, pi) => {
       const sorted = [...p.variants].sort((a,b)=>{
         const o=SIZE_ORDER; const ai=o.indexOf(a.size),bi=o.indexOf(b.size);
@@ -8579,7 +8583,7 @@ async function loadColStockRecon(colId, colName) {
       });
       const hasV = sorted.length>1;
       const key = `${colId}-${pi}`;
-      const gapClr = p.totGap > 0 ? '#c0392b' : p.totGap < 0 ? '#3C3489' : 'var(--g400)';
+      const sisaClr = p.totSisa > 0 ? '#c0392b' : p.totSisa < 0 ? '#3C3489' : 'var(--g400)';
       html += `<tr style="border-top:1px solid var(--g100);background:var(--off)">
         <td style="padding:7px 10px;font-weight:600;${hasV?'cursor:pointer':''}" onclick="${hasV?`toggleSR('${key}')`:''}" >
           ${hasV?`<span id="sr-tog-${key}" style="font-size:10px;margin-right:4px;color:var(--g400)">▶</span>`:''}${p.name}
@@ -8587,43 +8591,46 @@ async function loadColStockRecon(colId, colName) {
         <td style="padding:7px 10px;text-align:right;font-weight:600">${f(p.totStockIn)}</td>
         <td style="padding:7px 10px;text-align:right;color:var(--g400)">${f(p.variants.reduce((s,v)=>s+v.po,0))}</td>
         <td style="padding:7px 10px;text-align:right;color:var(--g400)">${f(p.variants.reduce((s,v)=>s+v.adjIn,0))}</td>
-        <td style="padding:7px 10px;text-align:right;color:#c0700a">${f(p.totAdjOut)}</td>
+        <td style="padding:7px 10px;text-align:right;color:#c0700a">${p.totAdjOut?f(p.totAdjOut):NA}</td>
         <td style="padding:7px 10px;text-align:right;font-weight:600">${f(p.totSold)}</td>
-        <td style="padding:7px 10px;text-align:right;font-weight:600;color:${p.totInProgress>0?'#d97706':'var(--g400)'}">${p.totInProgress>0?f(p.totInProgress):'—'}</td>
+        <td style="padding:7px 10px;text-align:right;color:#d97706">${p.totInProgress?f(p.totInProgress):NA}</td>
+        <td style="padding:7px 10px;text-align:right;color:#7c3aed">${p.totReturned?f(p.totReturned):NA}</td>
         <td style="padding:7px 10px;text-align:right;font-weight:600">${f(p.totStock)}</td>
-        <td style="padding:7px 10px;text-align:right;font-weight:600;color:${gapClr}">${p.totGap > 0 ? '+' : ''}${f(p.totGap)}</td>
+        <td style="padding:7px 10px;text-align:right;font-weight:600;color:${sisaClr}">${p.totSisa > 0 ? '+' : ''}${f(p.totSisa)}</td>
       </tr>`;
       if (hasV) {
         for (const v of sorted) {
-          const vGapClr = v.gap > 0 ? '#c0392b' : v.gap < 0 ? '#3C3489' : 'var(--g400)';
+          const vSisaClr = v.sisa > 0 ? '#c0392b' : v.sisa < 0 ? '#3C3489' : 'var(--g400)';
           html += `<tr data-srg="${key}" style="display:none;background:#fafaf8;border-top:1px solid var(--g100)">
             <td style="padding:4px 10px 4px 28px;color:var(--g400);font-family:var(--mono);font-size:11px">${v.size}</td>
             <td style="padding:4px 10px;text-align:right;font-size:11px">${f(v.stockIn)}</td>
             <td style="padding:4px 10px;text-align:right;font-size:11px;color:var(--g400)">${f(v.po)}</td>
             <td style="padding:4px 10px;text-align:right;font-size:11px;color:var(--g400)">${f(v.adjIn)}</td>
-            <td style="padding:4px 10px;text-align:right;font-size:11px;color:#c0700a">${f(v.adjOut)}</td>
+            <td style="padding:4px 10px;text-align:right;font-size:11px;color:#c0700a">${v.adjOut?f(v.adjOut):NA}</td>
             <td style="padding:4px 10px;text-align:right;font-size:11px;font-weight:600">${f(v.sold)}</td>
-            <td style="padding:4px 10px;text-align:right;font-size:11px;font-weight:600;color:${v.inProgress>0?'#d97706':'var(--g400)'}">${v.inProgress>0?f(v.inProgress):'—'}</td>
+            <td style="padding:4px 10px;text-align:right;font-size:11px;color:#d97706">${v.inProgress?f(v.inProgress):NA}</td>
+            <td style="padding:4px 10px;text-align:right;font-size:11px;color:#7c3aed">${v.returned?f(v.returned):NA}</td>
             <td style="padding:4px 10px;text-align:right;font-size:11px;font-weight:600">${f(v.stock)}</td>
-            <td style="padding:4px 10px;text-align:right;font-size:11px;font-weight:600;color:${vGapClr}">${v.gap > 0 ? '+' : ''}${f(v.gap)}</td>
+            <td style="padding:4px 10px;text-align:right;font-size:11px;font-weight:600;color:${vSisaClr}">${v.sisa > 0 ? '+' : ''}${f(v.sisa)}</td>
           </tr>`;
         }
       }
     });
 
-    const grandGapClr = grand.gap > 0 ? '#c0392b' : grand.gap < 0 ? '#3C3489' : 'var(--g400)';
+    const grandSisaClr = grand.sisa > 0 ? '#c0392b' : grand.sisa < 0 ? '#3C3489' : 'var(--g400)';
     html += `<tr style="border-top:2px solid var(--g100);background:var(--off);font-weight:700">
       <td style="padding:8px 10px;font-family:var(--mono);font-size:11px;text-transform:uppercase">Total</td>
       <td style="padding:8px 10px;text-align:right">${f(grand.stockIn)}</td>
       <td style="padding:8px 10px;text-align:right;color:var(--g400)">—</td>
       <td style="padding:8px 10px;text-align:right;color:var(--g400)">—</td>
-      <td style="padding:8px 10px;text-align:right;color:#c0700a">${f(grand.adjOut)}</td>
+      <td style="padding:8px 10px;text-align:right;color:#c0700a">${grand.adjOut?f(grand.adjOut):NA}</td>
       <td style="padding:8px 10px;text-align:right">${f(grand.sold)}</td>
-      <td style="padding:8px 10px;text-align:right;color:${grand.inProgress>0?'#d97706':'var(--g400)'}">${grand.inProgress>0?f(grand.inProgress):'—'}</td>
+      <td style="padding:8px 10px;text-align:right;color:#d97706">${grand.inProgress?f(grand.inProgress):NA}</td>
+      <td style="padding:8px 10px;text-align:right;color:#7c3aed">${grand.returned?f(grand.returned):NA}</td>
       <td style="padding:8px 10px;text-align:right">${f(grand.stock)}</td>
-      <td style="padding:8px 10px;text-align:right;color:${grandGapClr}">${grand.gap > 0 ? '+' : ''}${f(grand.gap)}</td>
+      <td style="padding:8px 10px;text-align:right;color:${grandSisaClr}">${grand.sisa > 0 ? '+' : ''}${f(grand.sisa)}</td>
     </tr></tbody></table></div>
-    <div style="margin-top:8px;font-size:10px;color:var(--g400);font-family:var(--mono)">Terjual = marketplace + POS (COMPLETED) · In Progress = SHIPPED/FINISH_PACK (sudah kurangi stok, belum selesai) · Stock = on-hand saat ini · Selisih = Stock In − Adj Out − Terjual − In Progress − Stock · merah = ada barang tidak tercatat</div>`;
+    <div style="margin-top:8px;font-size:10px;color:var(--g400);font-family:var(--mono)">Stock In = PO + Adj+ · Stock Out = Adj− · Terjual = COMPLETED · In Progress = SHIPPED/FINISH_PACK · Return = RETURNED · Sisa = Stock In − Stock Out − Terjual − In Progress − Return − Stock · merah = ada barang tidak tercatat</div>`;
 
     el.innerHTML = html;
   } catch(e) {
