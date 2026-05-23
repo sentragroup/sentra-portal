@@ -3998,10 +3998,10 @@ async function printColPerf(colId) {
     .confid{display:inline-block;border:1.5px solid #c0392b;color:#c0392b;font-family:'Courier New',monospace;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;padding:3px 9px;border-radius:3px;margin-bottom:5px}
 
     /* Content cell */
-    .body-cell{padding:18px 24px 24px;vertical-align:top}
+    .body-cell{padding:18px 24px 36px;vertical-align:top}
 
     /* Page footer cell (repeats every page) */
-    .ft-cell{padding:6px 24px;border-top:1px solid #e5e5e5}
+    .ft-cell{padding:10px 24px;border-top:1px solid #e5e5e5}
     .ft{display:flex;justify-content:space-between;font-size:9px;font-family:'Courier New',monospace;color:#aaa}
 
     /* Metrics */
