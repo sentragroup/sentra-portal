@@ -8490,7 +8490,7 @@ async function loadColStockRecon(colId, colName) {
       for (let i = 0; i < soIds.length; i += 200) chunks.push(soIds.slice(i, i + 200));
       const [cRes, ipRes, rRes] = await Promise.all([
         Promise.all(chunks.map(c => sb.from("jubelio_sales_orders").select("salesorder_id").in("salesorder_id",c).eq("wms_status","COMPLETED"))),
-        Promise.all(chunks.map(c => sb.from("jubelio_sales_orders").select("salesorder_id").in("salesorder_id",c).in("wms_status",["SHIPPED","FINISH_PACK"]))),
+        Promise.all(chunks.map(c => sb.from("jubelio_sales_orders").select("salesorder_id").in("salesorder_id",c).in("wms_status",["SHIPPED","FINISH_PACK","FINISH_PICK","PAID","PENDING"]))),
         Promise.all(chunks.map(c => sb.from("jubelio_sales_orders").select("salesorder_id").in("salesorder_id",c).eq("wms_status","RETURNED"))),
       ]);
       for (const r of cRes)  for (const o of (r.data||[])) completedSet.add(o.salesorder_id);
@@ -8630,7 +8630,7 @@ async function loadColStockRecon(colId, colName) {
       <td style="padding:8px 10px;text-align:right">${f(grand.stock)}</td>
       <td style="padding:8px 10px;text-align:right;color:${grandSisaClr}">${grand.sisa > 0 ? '+' : ''}${f(grand.sisa)}</td>
     </tr></tbody></table></div>
-    <div style="margin-top:8px;font-size:10px;color:var(--g400);font-family:var(--mono)">Stock In = PO + Adj+ · Stock Out = Adj− · Terjual = COMPLETED · In Progress = SHIPPED/FINISH_PACK · Return = RETURNED · Sisa = Stock In − Stock Out − Terjual − In Progress − Return − Stock · merah = ada barang tidak tercatat</div>`;
+    <div style="margin-top:8px;font-size:10px;color:var(--g400);font-family:var(--mono)">Stock In = PO + Adj+ · Stock Out = Adj− · Terjual = COMPLETED · In Progress = SHIPPED/FINISH_PACK/FINISH_PICK/PAID/PENDING · Return = RETURNED · Sisa = Stock In − Stock Out − Terjual − In Progress − Return − Stock · merah = ada barang tidak tercatat</div>`;
 
     el.innerHTML = html;
   } catch(e) {
