@@ -8260,7 +8260,7 @@ function renderCalendar() {
   const byDate = {};
   filtered.forEach(e => { if (!byDate[e.date]) byDate[e.date] = []; byDate[e.date].push(e); });
 
-  const srcLabel = {project:'📌',collection:'🎨',colitem:'🧵',leads:'🎯'};
+  const srcLabel = {project:'📌',collection:'🎨',colitem:'🧵',leads:'🎯',popup:'🎪'};
   let html = CAL_DAY_NAMES.map(d=>`<div class="cal-dow">${d}</div>`).join('');
 
   // prev month fillers
@@ -8298,8 +8298,30 @@ function calEventClick(src, id) {
 const CAL_ICS_URL = 'https://qyxdjdwgvwtrpnvfndnu.supabase.co/functions/v1/calendar-ics?token=sntr-cal-f8k2';
 
 function calShowIcsUrl() {
-  const msg = `Subscribe URL untuk Google Calendar:\n\n${CAL_ICS_URL}\n\nCara:\n1. Buka Google Calendar\n2. Klik "+" di "Other calendars" → "From URL"\n3. Paste URL di atas → Add Calendar\n\nCalendar akan auto-sync tiap ~12 jam. Kalau ada perubahan tanggal, akan ikut update.`;
-  alert(msg);
+  const existing = document.getElementById('cal-ics-modal');
+  if (existing) { existing.remove(); return; }
+  const modal = document.createElement('div');
+  modal.id = 'cal-ics-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+  modal.innerHTML = `
+    <div style="background:var(--white);border-radius:14px;padding:24px;max-width:480px;width:100%;box-shadow:0 8px 32px rgba(0,0,0,.18)">
+      <div style="font-family:var(--head);font-size:16px;font-weight:700;margin-bottom:6px">📅 Subscribe Google Calendar</div>
+      <div style="font-size:12px;color:var(--g600);margin-bottom:14px;font-family:var(--mono)">Cara: Google Calendar → Other Calendars (+) → From URL → paste → Add Calendar</div>
+      <div style="display:flex;gap:8px;margin-bottom:14px">
+        <input id="cal-ics-input" value="${CAL_ICS_URL}" readonly
+          style="flex:1;padding:8px 10px;border:1px solid var(--g200);border-radius:8px;font-size:11px;font-family:var(--mono);background:var(--off);color:var(--black)">
+        <button onclick="
+          navigator.clipboard.writeText('${CAL_ICS_URL}');
+          this.textContent='✓ Copied';
+          setTimeout(()=>this.textContent='Copy',1500)
+        " style="padding:8px 14px;background:var(--black);color:var(--white);border:none;border-radius:8px;font-size:12px;font-family:var(--mono);cursor:pointer;white-space:nowrap">Copy</button>
+      </div>
+      <div style="font-size:11px;color:var(--g400);font-family:var(--mono);margin-bottom:16px">Auto-sync tiap ~12 jam. Perubahan tanggal di portal akan ikut update.</div>
+      <button onclick="document.getElementById('cal-ics-modal').remove()"
+        style="width:100%;padding:8px;border:1px solid var(--g200);border-radius:8px;background:none;font-size:13px;cursor:pointer;color:var(--g600)">Tutup</button>
+    </div>`;
+  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+  document.body.appendChild(modal);
 }
 
 // ── DUPLICATE CHECK ──
