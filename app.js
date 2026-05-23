@@ -3977,11 +3977,15 @@ async function printColPerf(colId) {
   <style>
     *{margin:0;padding:0;box-sizing:border-box;}
     body{font-family:Helvetica,Arial,sans-serif;color:#0c0c0c;font-size:13px;background:#fff;}
-    .wrap{padding:28px 36px 48px;}
-    /* Confidential: fixed top-right, repeats every page. Content gets padding-top in print to avoid overlap */
-    .confid{position:fixed;top:18px;right:28px;border:1.5px solid #c0392b;color:#c0392b;font-family:'Courier New',monospace;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;padding:3px 9px;border-radius:3px;pointer-events:none}
-    /* Fixed footer: repeats every page */
-    .pfixed{position:fixed;bottom:0;left:0;right:0;border-top:1px solid #e8e8e8;padding:6px 28px;font-size:9px;font-family:'Courier New',monospace;color:#aaa;background:#fff;text-align:right}
+    .wrap{padding:22px 28px 52px 28px;}
+    /*
+      Confidential: position:fixed top-right on every page.
+      To prevent overlap with table: .wrap has extra padding-right in print (110px)
+      so the table content never enters the right 100px of the page where confid sits.
+    */
+    .confid{position:fixed;top:8px;right:10px;border:1.5px solid #c0392b;color:#c0392b;font-family:'Courier New',monospace;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;padding:3px 9px;border-radius:3px;background:#fff;z-index:100;pointer-events:none}
+    /* Footer: fixed bottom, repeats every page */
+    .pfoot{position:fixed;bottom:0;left:0;right:0;border-top:1px solid #e8e8e8;padding:5px 28px;font-size:9px;font-family:'Courier New',monospace;color:#aaa;background:#fff;text-align:right}
     .ph{display:flex;align-items:flex-start;justify-content:space-between;padding-bottom:14px;border-bottom:2px solid #0c0c0c;margin-bottom:20px;gap:16px}
     .ph-right{text-align:right;flex-shrink:0}
     .metrics{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px}
@@ -3996,11 +4000,12 @@ async function printColPerf(colId) {
     @media print{
       body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
       @page{margin:0;size:A4}
-      .wrap{padding:22px 28px 44px}
+      /* Extra right padding keeps all content left of where .confid sits (right:10px ~90px wide) */
+      .wrap{padding:22px 110px 52px 28px}
     }
   </style></head><body>
   <div class="confid">Confidential</div>
-  <div class="pfixed">Downloaded ${nowStr}, ${nowTime} · ${currentUser || '—'}</div>
+  <div class="pfoot">Downloaded ${nowStr}, ${nowTime} · ${currentUser || '—'}</div>
   <div class="wrap">
     <!-- Page header -->
     <div class="ph">
