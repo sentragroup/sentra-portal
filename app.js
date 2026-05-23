@@ -3934,8 +3934,6 @@ async function printColPerf(colId) {
   const rows = products.map(p => {
     const iStr  = (p.totalSold + p.totalStock) > 0 ? ((p.totalSold / (p.totalSold + p.totalStock)) * 100).toFixed(0) + "%" : "—";
     const iSClr = iStr !== "—" ? (parseFloat(iStr) >= 70 ? "#2d7a2d" : parseFloat(iStr) >= 30 ? "#e67e00" : "#c0392b") : "#888";
-    const iAStr = p.totalAdjNet > 0 ? `+${Math.round(p.totalAdjNet)}` : `${Math.round(p.totalAdjNet)}`;
-    const iAClr = p.totalAdjNet > 0 ? "#2d7a2d" : p.totalAdjNet < 0 ? "#c0392b" : "#888";
     const sizePills = p.variants
       .sort((a, b) => { const ai=SIZE_ORDER.indexOf(a.size.toUpperCase()), bi=SIZE_ORDER.indexOf(b.size.toUpperCase()); return (ai===-1?99:ai)-(bi===-1?99:bi); })
       .map(v => {
@@ -3951,7 +3949,6 @@ async function printColPerf(colId) {
       <td style="padding:8px 10px;font-size:12px;vertical-align:middle"><div style="font-weight:500;margin-bottom:3px">${p.name}</div><div>${sizePills}</div></td>
       <td style="padding:8px 10px;text-align:right;font-family:monospace;font-size:11px;vertical-align:middle;color:#888">${p.price ? fmtRp(p.price) : "—"}</td>
       <td style="padding:8px 10px;text-align:right;font-family:monospace;font-size:12px;vertical-align:middle;${p.totalStock===0&&p.totalSold>0?"color:#c0392b":""}">${Math.round(p.totalStock)}</td>
-      <td style="padding:8px 10px;text-align:right;font-family:monospace;font-size:12px;vertical-align:middle;color:${iAClr}">${iAStr}</td>
       <td style="padding:8px 10px;text-align:right;font-family:monospace;font-size:12px;vertical-align:middle">${Math.round(p.totalSold)}</td>
       <td style="padding:8px 10px;text-align:right;font-family:monospace;font-size:12px;vertical-align:middle;color:${iSClr}">${iStr}</td>
       <td style="padding:8px 10px;text-align:right;font-family:monospace;font-size:11px;vertical-align:middle;color:#2d7a2d">${fmtRp(p.totalRevenue)}</td>
@@ -3994,7 +3991,7 @@ async function printColPerf(colId) {
     .lt tfoot{display:table-footer-group}
 
     /* Page header cell (repeats every page) */
-    .ph-cell{padding:16px 24px 14px;border-bottom:2px solid #0c0c0c}
+    .ph-cell{padding:16px 24px 14px}
     .ph{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
     .ph-right{text-align:right;flex-shrink:0}
     .confid{display:inline-block;border:1.5px solid #c0392b;color:#c0392b;font-family:'Courier New',monospace;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;padding:3px 9px;border-radius:3px;margin-bottom:5px}
@@ -4007,7 +4004,7 @@ async function printColPerf(colId) {
     .ft{display:flex;justify-content:space-between;font-size:9px;font-family:'Courier New',monospace;color:#aaa}
 
     /* Metrics */
-    .metrics{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px}
+    .metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:20px}
     .mbox{border:1px solid #e5e5e5;border-radius:6px;padding:9px 12px;min-width:84px}
     .mbox .lbl{font-family:'Courier New',monospace;font-size:9px;text-transform:uppercase;color:#888;margin-bottom:3px}
     .mbox .val{font-weight:700;font-size:12px}
@@ -4048,9 +4045,8 @@ async function printColPerf(colId) {
     <!-- ── CONTENT ── -->
     <tbody><tr><td class="body-cell">
       <!-- Metrics -->
-      <div class="metrics">
+      <div class="metrics" style="grid-template-columns:repeat(${hasDiscount?4:3},1fr)">
         ${metricBox("Stock Skrg", Math.round(grandStock)+" pcs", grandStock===0&&grandSold>0?"#c0392b":"#0c0c0c")}
-        ${metricBox("Net Adj", adjStr, adjClr)}
         ${metricBox("Total Terjual", Math.round(grandSold)+" pcs", "#0c0c0c")}
         ${metricBox("Total Sales", fmtRp(grandRevenue), "#2d7a2d")}
         ${hasDiscount ? metricBox("Diskon", fmtRp(grandDiscount), "#c0392b") : ""}
@@ -4068,7 +4064,6 @@ async function printColPerf(colId) {
           <th>Produk</th>
           <th style="text-align:right">Harga Jual</th>
           <th style="text-align:right">Stock</th>
-          <th style="text-align:right">Net Adj</th>
           <th style="text-align:right">Terjual</th>
           <th style="text-align:right">STR</th>
           <th style="text-align:right">Total Sales</th>
@@ -4238,7 +4233,6 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
   el.innerHTML = `
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:16px">
       ${metricCard("Stock Skrg",    Math.round(grandStock) + " pcs", grandStock === 0 && grandSold > 0 ? "#c0392b" : "var(--black)")}
-      ${metricCard("Net Adj",       adjStr, adjClr)}
       ${metricCard("Total Terjual", Math.round(grandSold) + " pcs", "var(--black)")}
       ${metricCard("Total Sales",   fmtRp(grandRevenue),  "#2d7a2d")}
       ${hasDiscount ? metricCard("Diskon",        fmtRp(grandDiscount), "#c0392b") : ""}
@@ -4269,7 +4263,6 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
           <th style="padding:6px 10px;text-align:left">Produk</th>
           <th style="padding:6px 10px;text-align:right">Harga Jual</th>
           <th style="padding:6px 10px;text-align:right">Stock</th>
-          <th style="padding:6px 10px;text-align:right">Net Adj</th>
           <th style="padding:6px 10px;text-align:right">Terjual</th>
           <th style="padding:6px 10px;text-align:right">STR</th>
           <th style="padding:6px 10px;text-align:right">Total Sales</th>
@@ -4278,8 +4271,6 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
         <tbody>${products.map(p => {
           const iStr  = (p.totalSold + p.totalStock) > 0 ? ((p.totalSold / (p.totalSold + p.totalStock)) * 100).toFixed(0) + "%" : "—";
           const iSClr = iStr !== "—" ? (parseFloat(iStr) >= 70 ? "#2d7a2d" : parseFloat(iStr) >= 30 ? "#e67e00" : "#c0392b") : "var(--g400)";
-          const iAStr = p.totalAdjNet > 0 ? `+${Math.round(p.totalAdjNet)}` : `${Math.round(p.totalAdjNet)}`;
-          const iAClr = p.totalAdjNet > 0 ? "#2d7a2d" : p.totalAdjNet < 0 ? "#c0392b" : "var(--g400)";
           const sizePills = p.variants
             .sort((a, b) => {
               const ai = SIZE_ORDER.indexOf(a.size.toUpperCase());
@@ -4303,7 +4294,6 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
             </td>
             <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px;vertical-align:middle;color:var(--g600)">${p.price ? fmtRp(p.price) : "—"}</td>
             <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px;vertical-align:middle${p.totalStock === 0 && p.totalSold > 0 ? ";color:#c0392b" : ""}">${Math.round(p.totalStock)}</td>
-            <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px;vertical-align:middle;color:${iAClr}">${iAStr}</td>
             <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px;vertical-align:middle">${Math.round(p.totalSold)}</td>
             <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px;vertical-align:middle;color:${iSClr}">${iStr}</td>
             <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px;vertical-align:middle;color:#2d7a2d">${fmtRp(p.totalRevenue)}</td>
