@@ -3891,7 +3891,7 @@ const LOGO_B64 = {
 async function printColPerf(colId) {
   const d = _colPerfCache[colId];
   if (!d) return;
-  const { colName, ipRelated, revenueStream, products, grandStock, grandSold, grandAdj, grandRevenue, grandDiscount, grandSubtotal, hasDiscount, str, strClr, adjStr, adjClr, avgPerDay, fds, itemIds } = d;
+  const { colName, ipRelated, revenueStream, products, grandStock, grandSold, grandAdjNet, grandRevenue, grandDiscount, grandSubtotal, hasDiscount, str, strClr, adjStr, adjClr, avgPerDay, fds, itemIds } = d;
 
   // Helper: fetch any URL → base64 data URI
   const toB64 = async url => {
@@ -3934,8 +3934,8 @@ async function printColPerf(colId) {
   const rows = products.map(p => {
     const iStr  = (p.totalSold + p.totalStock) > 0 ? ((p.totalSold / (p.totalSold + p.totalStock)) * 100).toFixed(0) + "%" : "—";
     const iSClr = iStr !== "—" ? (parseFloat(iStr) >= 70 ? "#2d7a2d" : parseFloat(iStr) >= 30 ? "#e67e00" : "#c0392b") : "#888";
-    const iAStr = p.totalAdj > 0 ? `+${Math.round(p.totalAdj)}` : `${Math.round(p.totalAdj)}`;
-    const iAClr = p.totalAdj > 0 ? "#2d7a2d" : p.totalAdj < 0 ? "#c0392b" : "#888";
+    const iAStr = p.totalAdjNet > 0 ? `+${Math.round(p.totalAdjNet)}` : `${Math.round(p.totalAdjNet)}`;
+    const iAClr = p.totalAdjNet > 0 ? "#2d7a2d" : p.totalAdjNet < 0 ? "#c0392b" : "#888";
     const sizePills = p.variants
       .sort((a, b) => { const ai=SIZE_ORDER.indexOf(a.size.toUpperCase()), bi=SIZE_ORDER.indexOf(b.size.toUpperCase()); return (ai===-1?99:ai)-(bi===-1?99:bi); })
       .map(v => {
@@ -4102,13 +4102,14 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
 
   const itemIds = [...new Set(mappings.map(m => m.jubelio_item_id).filter(Boolean))];
 
-  // 2. Parallel fetch: sales items, stock, adjustments, item codes (for size extraction)
-  const [salesItems, stocks, adjItems, itemCodes] = await Promise.all([
+  // 2. Parallel fetch: sales items, stock, adjustments, PO, item codes (for size extraction)
+  const [salesItems, stocks, adjItems, poItems, itemCodes] = await Promise.all([
     _fetchAllPages("jubelio_sales_order_items","item_id, qty, salesorder_id, price, disc_amount",q=>q.in("item_id",itemIds)),
     _fetchAllPages("jubelio_inventory_stocks","item_id, on_hand",q=>q.in("item_id",itemIds)),
     _fetchAllPages("jubelio_inventory_adjustment_items","item_id, qty",q=>q.in("item_id",itemIds)),
+    _fetchAllPages("jubelio_purchase_order_items","item_id, qty",q=>q.in("item_id",itemIds)),
     _fetchAllPages("jubelio_items","item_id, item_code, thumbnail",q=>q.in("item_id",itemIds)),
-  ]).catch(() => [[], [], [], []]);
+  ]).catch(() => [[], [], [], [], []]);
 
   // Size map: item_id → size label (last segment of item_code after final "-")
   const sizeMap = {};
@@ -4148,8 +4149,8 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
   }
 
   // 4. Per-variant aggregates
-  const varData = {}; // item_id → { stock, sold, adj, revenue, pfreq }
-  for (const id of itemIds) varData[id] = { stock: 0, sold: 0, adj: 0, revenue: 0, discAmount: 0, pfreq: {} };
+  const varData = {}; // item_id → { stock, onlineSold, adjIn, adjOut, po, revenue, pfreq }
+  for (const id of itemIds) varData[id] = { stock: 0, onlineSold: 0, adjIn: 0, adjOut: 0, po: 0, revenue: 0, discAmount: 0, pfreq: {} };
   for (const s of stocks) {
     if (varData[s.item_id] !== undefined) varData[s.item_id].stock += parseFloat(s.on_hand || 0);
   }
@@ -4158,7 +4159,7 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
     const qty   = parseFloat(si.qty        || 0);
     const price = parseFloat(si.price      || 0);
     const disc  = parseFloat(si.disc_amount|| 0);
-    varData[si.item_id].sold += qty;
+    varData[si.item_id].onlineSold += qty;
     if (price > 0) {
       varData[si.item_id].revenue    += qty * price;
       varData[si.item_id].discAmount += disc;
@@ -4166,7 +4167,12 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
     }
   }
   for (const a of adjItems) {
-    if (varData[a.item_id] !== undefined) varData[a.item_id].adj += parseFloat(a.qty || 0);
+    if (varData[a.item_id] === undefined) continue;
+    const qty = parseFloat(a.qty || 0);
+    if (qty > 0) varData[a.item_id].adjIn += qty; else varData[a.item_id].adjOut += Math.abs(qty);
+  }
+  for (const p of (poItems||[])) {
+    if (varData[p.item_id] !== undefined) varData[p.item_id].po += parseFloat(p.qty || 0);
   }
 
   // 5. Group by product name, aggregate
@@ -4174,26 +4180,33 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
   for (const m of mappings) {
     if (!m.jubelio_item_id) continue;
     if (!productGroups[m.item_name]) productGroups[m.item_name] = { name: m.item_name, variants: [] };
-    const vd = varData[m.jubelio_item_id] || { stock: 0, sold: 0, adj: 0 };
-    productGroups[m.item_name].variants.push({ id: m.jubelio_item_id, size: sizeMap[m.jubelio_item_id] || "?", ...vd });
+    const vd = varData[m.jubelio_item_id] || { stock: 0, onlineSold: 0, adjIn: 0, adjOut: 0, po: 0 };
+    const stockIn   = vd.adjIn + vd.po;
+    const totalSold = Math.max(0, stockIn - vd.adjOut - vd.stock);
+    const offlineSold = Math.max(0, totalSold - vd.onlineSold);
+    productGroups[m.item_name].variants.push({ id: m.jubelio_item_id, size: sizeMap[m.jubelio_item_id] || "?", ...vd, stockIn, totalSold, offlineSold });
   }
   const products = Object.values(productGroups).map(p => ({
     ...p,
-    totalStock: p.variants.reduce((s, v) => s + v.stock, 0),
-    totalSold:  p.variants.reduce((s, v) => s + v.sold,  0),
-    totalAdj:   p.variants.reduce((s, v) => s + v.adj,   0),
+    totalStock:    p.variants.reduce((s, v) => s + v.stock,       0),
+    totalSold:     p.variants.reduce((s, v) => s + v.totalSold,   0),
+    totalOnline:   p.variants.reduce((s, v) => s + v.onlineSold,  0),
+    totalOffline:  p.variants.reduce((s, v) => s + v.offlineSold, 0),
+    totalAdjNet:   p.variants.reduce((s, v) => s + v.adjIn - v.adjOut, 0),
     thumbnail:     p.variants.map(v => thumbMap[v.id]).find(Boolean) || null,
     totalRevenue:  p.variants.reduce((s, v) => s + (v.revenue    || 0), 0),
     totalDiscount: p.variants.reduce((s, v) => s + (v.discAmount || 0), 0),
-    price: p.variants.reduce((s,v)=>s+(v.sold||0),0) > 0
-      ? p.variants.reduce((s,v)=>s+(v.revenue||0),0) / p.variants.reduce((s,v)=>s+(v.sold||0),0)
+    price: p.variants.reduce((s,v)=>s+(v.onlineSold||0),0) > 0
+      ? p.variants.reduce((s,v)=>s+(v.revenue||0),0) / p.variants.reduce((s,v)=>s+(v.onlineSold||0),0)
       : null,
   })).sort((a, b) => b.totalSold - a.totalSold);
 
   // 6. Grand totals + summary metrics
-  const grandStock   = products.reduce((s, p) => s + p.totalStock,   0);
-  const grandSold    = products.reduce((s, p) => s + p.totalSold,    0);
-  const grandAdj     = products.reduce((s, p) => s + p.totalAdj,     0);
+  const grandStock    = products.reduce((s, p) => s + p.totalStock,   0);
+  const grandSold     = products.reduce((s, p) => s + p.totalSold,    0);
+  const grandOnline   = products.reduce((s, p) => s + p.totalOnline,  0);
+  const grandOffline  = products.reduce((s, p) => s + p.totalOffline, 0);
+  const grandAdjNet   = products.reduce((s, p) => s + p.totalAdjNet,  0);
   const grandRevenue  = products.reduce((s, p) => s + p.totalRevenue,  0);
   const grandDiscount = products.reduce((s, p) => s + p.totalDiscount, 0);
   const grandSubtotal = grandRevenue - grandDiscount;
@@ -4212,8 +4225,8 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
     : "—";
   const strNum = parseFloat(str) || 0;
   const strClr = str !== "—" ? (strNum >= 70 ? "#2d7a2d" : strNum >= 30 ? "#e67e00" : "#c0392b") : "var(--black)";
-  const adjStr = grandAdj > 0 ? `+${Math.round(grandAdj)}` : `${Math.round(grandAdj)}`;
-  const adjClr = grandAdj > 0 ? "#2d7a2d" : grandAdj < 0 ? "#c0392b" : "var(--g400)";
+  const adjStr = grandAdjNet > 0 ? `+${Math.round(grandAdjNet)}` : `${Math.round(grandAdjNet)}`;
+  const adjClr = grandAdjNet > 0 ? "#2d7a2d" : grandAdjNet < 0 ? "#c0392b" : "var(--g400)";
   let avgPerDay = "—";
   if (firstSaleDate && grandSold > 0) {
     const days = Math.max(1, Math.ceil((Date.now() - new Date(firstSaleDate)) / 86400000));
@@ -4231,7 +4244,7 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
     </div>`;
 
   // Store for PDF export
-  _colPerfCache[colId] = { colName, ipRelated: ipRelated||"", revenueStream: revenueStream||"", products, grandStock, grandSold, grandAdj, grandRevenue, grandDiscount, grandSubtotal, hasDiscount, str, strClr, adjStr, adjClr, avgPerDay, fds, itemIds, timeSeries };
+  _colPerfCache[colId] = { colName, ipRelated: ipRelated||"", revenueStream: revenueStream||"", products, grandStock, grandSold, grandOnline, grandOffline, grandAdjNet, grandRevenue, grandDiscount, grandSubtotal, hasDiscount, str, strClr, adjStr, adjClr, avgPerDay, fds, itemIds, timeSeries };
 
   el.innerHTML = `
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:16px">
@@ -4276,8 +4289,8 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
         <tbody>${products.map(p => {
           const iStr  = (p.totalSold + p.totalStock) > 0 ? ((p.totalSold / (p.totalSold + p.totalStock)) * 100).toFixed(0) + "%" : "—";
           const iSClr = iStr !== "—" ? (parseFloat(iStr) >= 70 ? "#2d7a2d" : parseFloat(iStr) >= 30 ? "#e67e00" : "#c0392b") : "var(--g400)";
-          const iAStr = p.totalAdj > 0 ? `+${Math.round(p.totalAdj)}` : `${Math.round(p.totalAdj)}`;
-          const iAClr = p.totalAdj > 0 ? "#2d7a2d" : p.totalAdj < 0 ? "#c0392b" : "var(--g400)";
+          const iAStr = p.totalAdjNet > 0 ? `+${Math.round(p.totalAdjNet)}` : `${Math.round(p.totalAdjNet)}`;
+          const iAClr = p.totalAdjNet > 0 ? "#2d7a2d" : p.totalAdjNet < 0 ? "#c0392b" : "var(--g400)";
           const sizePills = p.variants
             .sort((a, b) => {
               const ai = SIZE_ORDER.indexOf(a.size.toUpperCase());
@@ -4288,7 +4301,8 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
               const broken = v.stock === 0;
               const bg    = broken ? "#fdecea" : "#edf8ee";
               const color = broken ? "#c0392b" : "#2d7a2d";
-              return `<span title="Stock: ${Math.round(v.stock)} · Terjual: ${Math.round(v.sold)}" style="display:inline-block;padding:1px 5px;border-radius:3px;font-size:9px;font-family:var(--mono);color:${color};background:${bg};margin:1px 1px 0 0">${v.size}</span>`;
+              const offTip = v.offlineSold > 0 ? ` · Offline/POS: ${Math.round(v.offlineSold)}` : "";
+              return `<span title="Stock: ${Math.round(v.stock)} · Terjual: ${Math.round(v.totalSold)} (Online: ${Math.round(v.onlineSold)}${offTip})" style="display:inline-block;padding:1px 5px;border-radius:3px;font-size:9px;font-family:var(--mono);color:${color};background:${bg};margin:1px 1px 0 0">${v.size}</span>`;
             }).join("");
           const thumbHTML = p.thumbnail
             ? `<img src="${p.thumbnail}" style="width:44px;height:44px;object-fit:cover;border-radius:5px;border:1px solid var(--g100);display:block" onerror="this.style.display='none'">`
