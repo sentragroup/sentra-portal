@@ -9659,17 +9659,21 @@ async function loadRestock() {
             .lte('transaction_date', toDate+'T23:59:59'));
     const orderIds = orders.map(o => o.salesorder_id);
 
-    // 3-5. Parallel: sold items, stock, item info
-    const [soldItems, stockRows, itemInfoRows] = await Promise.all([
-      orderIds.length
+    // 3-5. Parallel: sold items (filter by item only — orderIdSet applied client-side),
+    //      stock, item info
+    const orderIdSet = new Set(orderIds);
+    const [soldItemsRaw, stockRows, itemInfoRows] = await Promise.all([
+      allItemIds.length
         ? _fetchAllPages('jubelio_sales_order_items','salesorder_id,item_id,qty',
-            q => q.in('item_id', allItemIds).in('salesorder_id', orderIds))
+            q => q.in('item_id', allItemIds))
         : Promise.resolve([]),
       _fetchAllPages('jubelio_inventory_stocks','item_id,on_hand',
         q => q.in('item_id', allItemIds)),
       _fetchAllPages('jubelio_items','item_id,item_code,item_name,thumbnail',
         q => q.in('item_id', allItemIds)),
     ]);
+    // Client-side: only count qty from orders in the selected period
+    const soldItems = soldItemsRaw.filter(it => orderIdSet.has(it.salesorder_id));
 
     // Build lookups
     const qtyMap   = {};
