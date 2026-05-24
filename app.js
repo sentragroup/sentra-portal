@@ -9676,12 +9676,56 @@ async function loadInsights() {
       q => q.gte('transaction_date','2026-01-01').lte('transaction_date','2026-12-31T23:59:59')
             .in('wms_status',VALID).not('shipping_province','is',null).neq('shipping_province','')
     );
-    const _gProvMap={}, _gCityMap={};
+    // Province name normalization: map all variants → canonical uppercase name
+    const _PROV_NORM = {
+      'JAKARTA':'DKI JAKARTA','JAKARTA RAYA':'DKI JAKARTA',
+      'DAERAH KHUSUS IBUKOTA JAKARTA':'DKI JAKARTA',
+      'D.I. YOGYAKARTA':'DI YOGYAKARTA','D.I. YOGYAKARTA':'DI YOGYAKARTA',
+      'YOGYAKARTA':'DI YOGYAKARTA',
+      'NANGGROE ACEH DARUSSALAM':'ACEH','NANGGROE ACEH DARUSSALAM (NAD)':'ACEH','ACEH':'ACEH',
+      'NUSA TENGGARA BARAT (NTB)':'NUSA TENGGARA BARAT',
+      'NUSA TENGGARA TIMUR (NTT)':'NUSA TENGGARA TIMUR',
+      'BANGKA BELITUNG':'KEPULAUAN BANGKA BELITUNG',
+      'KEPULAUAN BANGKA BELITUNG':'KEPULAUAN BANGKA BELITUNG',
+      'NORTH SUMATRA':'SUMATERA UTARA','SOUTH SUMATRA':'SUMATERA SELATAN',
+      'WEST SUMATRA':'SUMATERA BARAT',
+    };
+    const _ID_PROVS = new Set([
+      'ACEH','SUMATERA UTARA','SUMATERA BARAT','RIAU','KEPULAUAN RIAU',
+      'JAMBI','BENGKULU','SUMATERA SELATAN','KEPULAUAN BANGKA BELITUNG','LAMPUNG',
+      'DKI JAKARTA','JAWA BARAT','BANTEN','JAWA TENGAH','DI YOGYAKARTA',
+      'JAWA TIMUR','BALI','NUSA TENGGARA BARAT','NUSA TENGGARA TIMUR',
+      'KALIMANTAN BARAT','KALIMANTAN TENGAH','KALIMANTAN SELATAN','KALIMANTAN TIMUR','KALIMANTAN UTARA',
+      'SULAWESI UTARA','GORONTALO','SULAWESI TENGAH','SULAWESI BARAT','SULAWESI SELATAN','SULAWESI TENGGARA',
+      'MALUKU UTARA','MALUKU','PAPUA BARAT','PAPUA','PAPUA TENGAH','PAPUA PEGUNUNGAN','PAPUA SELATAN','PAPUA BARAT DAYA',
+    ]);
+    // Known international regions → country label
+    const _INTL_MAP = {
+      'KUALA LUMPUR':'Malaysia','JOHOR':'Malaysia','SELANGOR':'Malaysia','KEDAH':'Malaysia',
+      'PERAK':'Malaysia','PAHANG':'Malaysia','SABAH':'Malaysia','SARAWAK':'Malaysia',
+      'PENANG':'Malaysia','NEGERI SEMBILAN':'Malaysia','PUTRAJAYA':'Malaysia',
+      'QUEENSLAND':'Australia','NEW SOUTH WALES':'Australia','VICTORIA':'Australia',
+      'SINGAPORE':'Singapore','SINGAPURA':'Singapore',
+    };
+    const _gProvMap={}, _gCityMap={}, _gIntlMap={};
+    let geoTotal=0;
     for (const r of geoRaw) {
-      const prov=(r.shipping_province||'').trim().toUpperCase();
+      let prov=(r.shipping_province||'').trim().toUpperCase();
       const city=(r.shipping_city||'').trim().toUpperCase();
       if (!prov) continue;
+      geoTotal++;
       const net=(parseFloat(r.sub_total||0))-(parseFloat(r.total_disc||0));
+      // Normalize province name
+      prov = _PROV_NORM[prov] || prov;
+      // Check international
+      if (_INTL_MAP[prov] || _INTL_MAP[city]) {
+        const country = _INTL_MAP[prov] || _INTL_MAP[city] || 'Lainnya';
+        if (!_gIntlMap[country]) _gIntlMap[country]={orders:0,revenue:0};
+        _gIntlMap[country].orders++; _gIntlMap[country].revenue+=net;
+        continue;
+      }
+      // Skip garbage (not a valid Indonesian province)
+      if (!_ID_PROVS.has(prov)) continue;
       if (!_gProvMap[prov]) _gProvMap[prov]={orders:0,revenue:0};
       _gProvMap[prov].orders++; _gProvMap[prov].revenue+=net;
       if (city) {
@@ -9692,11 +9736,11 @@ async function loadInsights() {
     }
     const geoProvinces=Object.entries(_gProvMap).map(([prov,d])=>({prov,...d})).sort((a,b)=>b.orders-a.orders);
     const geoCities=Object.values(_gCityMap).sort((a,b)=>b.orders-a.orders);
-    const geoTotal=geoRaw.length;
+    const geoIntl=Object.entries(_gIntlMap).map(([country,d])=>({country,...d})).sort((a,b)=>b.orders-a.orders);
 
     _insData={ID_MONTHS,cm,dayOfYear,daysLeft,monthlyTotals,projectedMonthly,ipMonthly,
       ytdNet,yearEndProj,projDailyNet,stockHorizon,ips:Object.keys(ipMonthly).sort(),
-      geoProvinces,geoCities,geoTotal};
+      geoProvinces,geoCities,geoTotal,geoIntl};
 
     emEl.style.display='none';
     document.getElementById('instab-'+_insTab).style.display='block';
@@ -10001,8 +10045,13 @@ async function _renderInsGeo() {
   _se('ins-g-provinces', d.geoProvinces.length);
   _se('ins-g-top-prov',  d.geoProvinces[0] ? titl(d.geoProvinces[0].prov) : '—');
   _se('ins-g-top-city',  d.geoCities[0]    ? titl(d.geoCities[0].city)    : '—');
-  const covPct = d.geoTotal ? Math.round(d.geoProvinces.reduce((s,p)=>s+p.orders,0)/d.geoTotal*100) : 0;
-  _se('ins-g-coverage', `${covPct}% order punya data kota/provinsi`);
+  const idOrders = d.geoProvinces.reduce((s,p)=>s+p.orders,0);
+  const covPct = d.geoTotal ? Math.round(idOrders/d.geoTotal*100) : 0;
+  const intlTotal = (d.geoIntl||[]).reduce((s,c)=>s+c.orders,0);
+  const intlLabel = intlTotal>0
+    ? ` · ${intlTotal} luar negeri (${(d.geoIntl||[]).map(c=>c.country).join(', ')})`
+    : '';
+  _se('ins-g-coverage', `${covPct}% order punya data geo${intlLabel}`);
 
   // Province ranking table
   const provTbody = document.getElementById('ins-g-prov-tbody');
@@ -10022,6 +10071,25 @@ async function _renderInsGeo() {
       <td style="text-align:right;font-weight:600;font-family:var(--mono);font-size:11px">${c.orders.toLocaleString('id-ID')}</td>
       <td style="text-align:right;font-family:var(--mono);font-size:11px;color:var(--g400)">${fmtRp(c.revenue)}</td>
     </tr>`).join('');
+
+  // International orders section
+  const intlWrap = document.getElementById('ins-g-intl-wrap');
+  if (intlWrap && d.geoIntl && d.geoIntl.length) {
+    intlWrap.innerHTML = `
+      <div style="font-family:var(--mono);font-size:11px;text-transform:uppercase;color:var(--g400);margin-bottom:8px;letter-spacing:.05em">🌏 International Orders</div>
+      <div class="table-wrap" style="margin:0"><table style="width:100%;table-layout:fixed">
+        <colgroup><col style="width:auto"><col style="width:70px"><col style="width:120px"></colgroup>
+        <thead><tr><th>Negara</th><th style="text-align:right">Orders</th><th style="text-align:right">Revenue</th></tr></thead>
+        <tbody>${d.geoIntl.map(c=>`
+          <tr>
+            <td style="font-size:12px">${c.country}</td>
+            <td style="text-align:right;font-weight:600;font-family:var(--mono);font-size:11px">${c.orders}</td>
+            <td style="text-align:right;font-family:var(--mono);font-size:11px;color:var(--g400)">${fmtRp(c.revenue)}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table></div>`;
+    intlWrap.style.display = 'block';
+  } else if (intlWrap) { intlWrap.style.display = 'none'; }
 
   // Map
   const mapEl = document.getElementById('ins-geo-map');
