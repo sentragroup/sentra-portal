@@ -9371,10 +9371,10 @@ function renderSPChannelTable(data, totalNet) {
 }
 
 function _spToggleVariants(idx) {
-  const row = document.getElementById('sp-var-' + idx);
-  if (!row) return;
-  const isHidden = row.style.display === 'none';
-  row.style.display = isHidden ? '' : 'none';
+  const varRows = document.querySelectorAll('.sp-var-' + idx);
+  if (!varRows.length) return;
+  const isHidden = varRows[0].style.display === 'none';
+  varRows.forEach(r => r.style.display = isHidden ? '' : 'none');
   const btn = document.getElementById('sp-expand-' + idx);
   if (btn) btn.textContent = isHidden ? '▲' : '▼';
 }
@@ -9422,15 +9422,15 @@ function renderSPProductTable(data, page) {
       <td ${TDR} style="padding:6px 10px;vertical-align:middle;text-align:right;font-family:var(--mono);font-size:11px;color:#2d7a2d;font-weight:600">${fmtRp(d.net)}</td>
       <td ${TDR} style="padding:6px 10px;vertical-align:middle;text-align:right;font-family:var(--mono);font-size:11px;color:var(--g400)">${pct}</td>
     </tr>`);
-    // Variant sub-rows (collapsed by default)
+    // Variant sub-rows — injected directly (NOT nested table) so colgroup widths apply
     if (hasVariants) {
-      const varRows = d.variants.map(v => {
-        // Extract size: last segment after " - "
+      const varRowsHtml = d.variants.map(v => {
         const parts = v.name.split(' - ');
         const sizeLabel = parts.length > 1 ? parts[parts.length - 1] : v.name;
-        return `<tr style="background:var(--g50)">
-          <td style="padding:3px 10px 3px 55px;font-size:11px;color:var(--g500);font-family:var(--mono)">${sizeLabel}</td>
-          <td></td><td></td>
+        return `<tr class="sp-var-row sp-var-${idx}" style="display:none;background:var(--g50)">
+          <td style="padding:3px 10px 3px 55px;font-size:11px;color:var(--g500);font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${sizeLabel}</td>
+          <td></td>
+          <td></td>
           <td style="padding:3px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--g500)">${v.orders.toLocaleString('id-ID')}</td>
           <td style="padding:3px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--g500)">${Math.round(v.qty).toLocaleString('id-ID')}</td>
           <td style="padding:3px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--g400)">${fmtRp(v.revenue)}</td>
@@ -9439,7 +9439,7 @@ function renderSPProductTable(data, page) {
           <td></td>
         </tr>`;
       }).join('');
-      rows.push(`<tr id="sp-var-${idx}" style="display:none"><td colspan="9" style="padding:0"><table style="width:100%;border-collapse:collapse">${varRows}</table></td></tr>`);
+      rows.push(varRowsHtml);
     }
   });
   tbody.innerHTML = rows.join('');
