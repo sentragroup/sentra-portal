@@ -9122,7 +9122,7 @@ async function loadSalesPerf() {
     for (let i = 0; i < soIds.length; i += 500) {
       const chunk = soIds.slice(i, i + 500);
       const rows = await _fetchAllPages('jubelio_sales_order_items',
-        'salesorder_id,item_id,item_name,qty,price,amount,disc_amount',
+        'salesorder_id,item_id,item_name,qty,price,disc_amount',
         q => q.in('salesorder_id', chunk)
       );
       allItems.push(...rows);
@@ -9168,7 +9168,7 @@ async function loadSalesPerf() {
       if (!date) continue;
       if (!timeSeries[date]) timeSeries[date] = { qty: 0, revenue: 0 };
       timeSeries[date].qty     += parseFloat(it.qty    || 0);
-      timeSeries[date].revenue += (parseFloat(it.amount ?? (parseFloat(it.qty||0) * parseFloat(it.price||0))));
+      timeSeries[date].revenue += (parseFloat(it.qty||0) * parseFloat(it.price||0));
     }
 
     // 6. Channel summary
@@ -9179,7 +9179,7 @@ async function loadSalesPerf() {
       if (!channelMap[ch]) channelMap[ch] = { orders: new Set(), qty: 0, revenue: 0, disc: 0 };
       channelMap[ch].orders.add(it.salesorder_id);
       channelMap[ch].qty     += parseFloat(it.qty    || 0);
-      channelMap[ch].revenue += (parseFloat(it.amount ?? (parseFloat(it.qty||0) * parseFloat(it.price||0))));
+      channelMap[ch].revenue += (parseFloat(it.qty||0) * parseFloat(it.price||0));
       channelMap[ch].disc    += parseFloat(it.disc_amount || 0);
     }
     const channelData = Object.entries(channelMap)
@@ -9194,7 +9194,7 @@ async function loadSalesPerf() {
       if (!storeMap[st]) storeMap[st] = { orders: new Set(), qty: 0, revenue: 0 };
       storeMap[st].orders.add(it.salesorder_id);
       storeMap[st].qty     += parseFloat(it.qty    || 0);
-      storeMap[st].revenue += (parseFloat(it.amount ?? (parseFloat(it.qty||0) * parseFloat(it.price||0))));
+      storeMap[st].revenue += (parseFloat(it.qty||0) * parseFloat(it.price||0));
     }
     const storeData = Object.entries(storeMap)
       .map(([st, d]) => ({ store: st, orders: d.orders.size, qty: d.qty, revenue: d.revenue }))
@@ -9215,7 +9215,7 @@ async function loadSalesPerf() {
       const pg = productMap[parentName];
       pg.orders.add(it.salesorder_id);
       pg.qty     += parseFloat(it.qty || 0);
-      const _rev = parseFloat(it.amount != null ? it.amount : (parseFloat(it.qty||0) * parseFloat(it.price||0)));
+      const _rev = parseFloat(it.qty||0) * parseFloat(it.price||0);
       pg.revenue += _rev;
       pg.disc    += parseFloat(it.disc_amount || 0);
       if (it.item_id) pg.itemIds.add(it.item_id);
@@ -9248,10 +9248,12 @@ async function loadSalesPerf() {
 
     const productData = Object.values(productMap).map(p => ({...p, orders: p.orders.size, net: p.revenue - p.disc})).sort((a, b) => b.net - a.net);
 
-    // 9. Totals (use amount = actual line total from DB; fallback to qty*price)
-    const _itRev = it => parseFloat(it.amount != null ? it.amount : (parseFloat(it.qty||0) * parseFloat(it.price||0)));
+    // 9. Totals
+    // Revenue = qty × price (gross/full price), Discount = disc_amount, Net = Revenue − Discount
+    // Note: Jubelio's `amount` field = price − disc_amount (already net), so we must NOT use it
+    // as revenue or we'd double-subtract the discount.
     const totalQty     = items.reduce((s, it) => s + parseFloat(it.qty || 0), 0);
-    const totalRevenue = items.reduce((s, it) => s + _itRev(it), 0);
+    const totalRevenue = items.reduce((s, it) => s + parseFloat(it.qty||0) * parseFloat(it.price||0), 0);
     const totalDisc    = items.reduce((s, it) => s + parseFloat(it.disc_amount || 0), 0);
     const totalNet     = totalRevenue - totalDisc;
     const dayCount     = Math.max(1, Object.keys(timeSeries).length);
