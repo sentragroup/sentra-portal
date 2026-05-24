@@ -9590,9 +9590,9 @@ async function loadInsights() {
     const orderMap = new Map(orders.map(o=>[o.salesorder_id,o]));
     const ID_MONTHS = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
 
-    // Monthly totals + brand breakdown
+    // Monthly totals + IP breakdown
     const monthlyTotals = Array.from({length:12},()=>({revenue:0,disc:0,net:0,qty:0}));
-    const brandMonthly  = {}; // brand → [{revenue,disc,net,qty}×12]
+    const ipMonthly     = {}; // ip → [{revenue,disc,net,qty}×12]
     for (const o of orders) {
       const mi = parseInt((o.transaction_date||'').slice(5,7))-1;
       if (mi<0||mi>11) continue;
@@ -9604,10 +9604,10 @@ async function loadInsights() {
       const mi=parseInt((o.transaction_date||'').slice(5,7))-1; if(mi<0||mi>11) continue;
       const qty=parseFloat(it.qty||0), rev=qty*parseFloat(it.price||0), disc=parseFloat(it.disc_amount||0);
       monthlyTotals[mi].qty+=qty;
-      const brand=(mById[it.item_id]||{}).brand||'(Lainnya)';
-      if (!brandMonthly[brand]) brandMonthly[brand]=Array.from({length:12},()=>({revenue:0,disc:0,net:0,qty:0}));
-      brandMonthly[brand][mi].revenue+=rev; brandMonthly[brand][mi].disc+=disc;
-      brandMonthly[brand][mi].net+=rev-disc; brandMonthly[brand][mi].qty+=qty;
+      const ip=(mById[it.item_id]||{}).ip||'(Lainnya)';
+      if (!ipMonthly[ip]) ipMonthly[ip]=Array.from({length:12},()=>({revenue:0,disc:0,net:0,qty:0}));
+      ipMonthly[ip][mi].revenue+=rev; ipMonthly[ip][mi].disc+=disc;
+      ipMonthly[ip][mi].net+=rev-disc; ipMonthly[ip][mi].qty+=qty;
     }
 
     // Timing
@@ -9649,25 +9649,25 @@ async function loadInsights() {
     const itemQty2026={};
     for (const it of items) if(it.item_id) itemQty2026[it.item_id]=(itemQty2026[it.item_id]||0)+parseFloat(it.qty||0);
 
-    const stockByBrand={};
+    const stockByIP={};
     for (const [itemId,totalQty] of Object.entries(itemQty2026)) {
       const m=mById[itemId]||{};
-      const brand=m.brand||'(Lainnya)', name=m.item_name||itemId;
+      const ip=m.ip||'(Lainnya)', name=m.item_name||itemId;
       const stock=stockMap[itemId]||0, avgDaily=totalQty/Math.max(1,dayOfYear);
       const daysOfStock=avgDaily>0?stock/avgDaily:(stock>0?9999:null);
       const isDead=stock>0&&avgDaily<0.1;
-      if (!stockByBrand[brand]) stockByBrand[brand]={brand,totalStock:0,totalAvgDaily:0,products:[]};
-      stockByBrand[brand].totalStock+=stock; stockByBrand[brand].totalAvgDaily+=avgDaily;
-      stockByBrand[brand].products.push({name,itemId,stock,avgDaily,daysOfStock,isDead});
+      if (!stockByIP[ip]) stockByIP[ip]={ip,totalStock:0,totalAvgDaily:0,products:[]};
+      stockByIP[ip].totalStock+=stock; stockByIP[ip].totalAvgDaily+=avgDaily;
+      stockByIP[ip].products.push({name,itemId,stock,avgDaily,daysOfStock,isDead});
     }
-    const stockHorizon=Object.values(stockByBrand).map(b=>({
+    const stockHorizon=Object.values(stockByIP).map(b=>({
       ...b,
       daysOfStock:b.totalAvgDaily>0?b.totalStock/b.totalAvgDaily:(b.totalStock>0?9999:null),
       products:b.products.sort((a,z)=>(a.daysOfStock||9999)-(z.daysOfStock||9999)),
     })).sort((a,b)=>(a.daysOfStock||9999)-(b.daysOfStock||9999));
 
-    _insData={ID_MONTHS,cm,dayOfYear,daysLeft,monthlyTotals,projectedMonthly,brandMonthly,
-      ytdNet,yearEndProj,projDailyNet,stockHorizon,brands:Object.keys(brandMonthly).sort()};
+    _insData={ID_MONTHS,cm,dayOfYear,daysLeft,monthlyTotals,projectedMonthly,ipMonthly,
+      ytdNet,yearEndProj,projDailyNet,stockHorizon,ips:Object.keys(ipMonthly).sort()};
 
     emEl.style.display='none';
     document.getElementById('instab-'+_insTab).style.display='block';
@@ -9772,8 +9772,8 @@ function _renderInsMomentum() {
   const fmtRp=n=>n>=1e9?'Rp '+(n/1e9).toFixed(1)+'M':n>=1e6?'Rp '+(n/1e6).toFixed(1)+'jt':'Rp '+Math.round(n).toLocaleString('id-ID');
   const _se=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
 
-  const brandStats=d.brands.map(brand=>{
-    const mo=d.brandMonthly[brand];
+  const ipStats=d.ips.map(ip=>{
+    const mo=d.ipMonthly[ip];
     const ytd=mo.slice(0,d.cm+1).reduce((s,m)=>s+m.net,0);
     const lastNet=d.cm>=1?mo[d.cm-1].net:0;
     const prevNet=d.cm>=2?mo[d.cm-2].net:0;
@@ -9781,15 +9781,15 @@ function _renderInsMomentum() {
     let trend='→';
     if (d.cm>=3){const a=mo[d.cm-3].net,b=mo[d.cm-2].net,c=mo[d.cm-1].net;
       if(c>b&&b>a)trend='↑'; else if(c<b&&b<a)trend='↓'; else if(c>a)trend='↗'; else if(c<a)trend='↘';}
-    return {brand,mo,ytd,mom,trend};
+    return {ip,mo,ytd,mom,trend};
   }).sort((a,b)=>b.ytd-a.ytd);
 
-  const top=brandStats[0];
-  const fastest=[...brandStats].filter(b=>b.mom!==null).sort((a,b)=>(b.mom||0)-(a.mom||0))[0];
-  const declining=brandStats.filter(b=>b.trend==='↓'||b.trend==='↘');
-  _se('ins-m-top',top?`${top.brand} · ${fmtRp(top.ytd)}`:'—');
-  _se('ins-m-fastest',fastest?`${fastest.brand} +${fastest.mom?.toFixed(1)}%`:'—');
-  _se('ins-m-decline',declining.length?declining.map(b=>b.brand).join(', '):'Semua aman ✓');
+  const top=ipStats[0];
+  const fastest=[...ipStats].filter(b=>b.mom!==null).sort((a,b)=>(b.mom||0)-(a.mom||0))[0];
+  const declining=ipStats.filter(b=>b.trend==='↓'||b.trend==='↘');
+  _se('ins-m-top',top?`${top.ip} · ${fmtRp(top.ytd)}`:'—');
+  _se('ins-m-fastest',fastest?`${fastest.ip} +${fastest.mom?.toFixed(1)}%`:'—');
+  _se('ins-m-decline',declining.length?declining.map(b=>b.ip).join(', '):'Semua aman ✓');
 
   const visMo=Array.from({length:d.cm+1},(_,i)=>i);
   const wrap=document.getElementById('ins-m-wrap'); if(!wrap) return;
@@ -9797,20 +9797,20 @@ function _renderInsMomentum() {
   let html=`<div class="table-wrap" style="margin:0;overflow-x:auto">
   <table style="width:100%;border-collapse:collapse;font-size:12px">
     <thead><tr style="background:#f7f8fa;border-bottom:2px solid var(--g200)">
-      <th style="padding:8px 10px;text-align:left;font-weight:600;white-space:nowrap">Brand</th>
+      <th style="padding:8px 10px;text-align:left;font-weight:600;white-space:nowrap">IP</th>
       ${visMo.map(mi=>`<th style="padding:8px 10px;text-align:right;font-weight:600;min-width:70px">${d.ID_MONTHS[mi]}</th>`).join('')}
       <th style="padding:8px 10px;text-align:right;font-weight:600;white-space:nowrap">MoM</th>
       <th style="padding:8px 10px;text-align:right;font-weight:600;white-space:nowrap">YTD Net</th>
       <th style="padding:8px 10px;text-align:center;font-weight:600">Trend</th>
     </tr></thead><tbody>`;
 
-  for (const bs of brandStats) {
+  for (const bs of ipStats) {
     const maxNet=Math.max(...bs.mo.map(m=>m.net),1);
     const momStr=bs.mom!==null?(bs.mom>=0?'+':'')+bs.mom.toFixed(1)+'%':'—';
     const momClr=bs.mom===null?'#aaa':bs.mom>0?'#2d7a2d':'#c0392b';
     const tClr=bs.trend==='↑'||bs.trend==='↗'?'#2d7a2d':bs.trend==='↓'||bs.trend==='↘'?'#c0392b':'#888';
     html+=`<tr style="border-bottom:1px solid var(--g100)">
-      <td style="padding:7px 10px;font-weight:500">${bs.brand}</td>
+      <td style="padding:7px 10px;font-weight:500">${bs.ip}</td>
       ${visMo.map(mi=>{
         const net=bs.mo[mi].net;
         const bg=net>0?`rgba(60,52,137,${((net/maxNet)*0.25).toFixed(2)})`:'transparent';
@@ -9848,7 +9848,7 @@ function _renderInsStock() {
   const wrap=document.getElementById('ins-stock-wrap'); if(!wrap) return;
   let html=`<div class="table-wrap" style="margin:0"><table style="width:100%;border-collapse:collapse;font-size:12px">
     <thead><tr style="background:#f7f8fa;border-bottom:2px solid var(--g200)">
-      <th style="padding:8px 10px;text-align:left;font-weight:600">Brand</th>
+      <th style="padding:8px 10px;text-align:left;font-weight:600">IP</th>
       <th style="padding:8px 10px;text-align:right;font-weight:600;white-space:nowrap">Total Stock</th>
       <th style="padding:8px 10px;text-align:right;font-weight:600;white-space:nowrap">Avg Daily Sales</th>
       <th style="padding:8px 10px;text-align:right;font-weight:600;white-space:nowrap">Runway</th>
@@ -9859,7 +9859,7 @@ function _renderInsStock() {
   d.stockHorizon.forEach((b,bi)=>{
     const st=statusStyle(b.daysOfStock);
     html+=`<tr style="border-bottom:1px solid var(--g100);cursor:pointer" onclick="_insToggleStock(${bi})">
-      <td style="padding:8px 10px;font-weight:600">${b.brand}</td>
+      <td style="padding:8px 10px;font-weight:600">${b.ip}</td>
       <td style="padding:8px 10px;text-align:right;font-family:var(--mono);font-size:11px">${Math.round(b.totalStock).toLocaleString('id-ID')}</td>
       <td style="padding:8px 10px;text-align:right;font-family:var(--mono);font-size:11px">${b.totalAvgDaily.toFixed(1)}/hari</td>
       <td style="padding:8px 10px;text-align:right;font-family:var(--mono);font-size:13px;font-weight:700;color:${st.clr}">${fmtD(b.daysOfStock)}</td>
