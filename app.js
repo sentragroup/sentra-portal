@@ -9611,6 +9611,7 @@ let _rstLoading       = false;
 let _rstData          = null;     // { products, dayCount }
 let _rstExpanded      = {};       // parentName → bool
 let _rstSelectedItems = new Set();// item_ids ticked for PO
+let _rstMode          = 'restock'; // 'restock' | 'catalog'
 
 function _rstParseSize(itemCode) {
   if (!itemCode) return '—';
@@ -9763,23 +9764,27 @@ async function loadRestock() {
 }
 
 function renderRestockTable(products) {
-  const tbody   = document.getElementById('rst-tbody');
-  const showAll = document.getElementById('rst-show-all')?.checked;
+  const tbody      = document.getElementById('rst-tbody');
+  const showAll    = document.getElementById('rst-show-all')?.checked;
+  const isCatalog  = _rstMode === 'catalog';
   if (!tbody) return;
 
-  const ipFil  = document.getElementById('rst-ip')?.value  || '';
-  const colFil = document.getElementById('rst-collection')?.value || '';
-  const brandFil2 = document.getElementById('rst-brand')?.value || '';
+  const ipFil     = document.getElementById('rst-ip')?.value         || '';
+  const colFil    = document.getElementById('rst-collection')?.value  || '';
+  const brandFil2 = document.getElementById('rst-brand')?.value       || '';
+  const searchTerm= (document.getElementById('rst-search')?.value     || '').toLowerCase().trim();
 
   const rows = [];
   let totalVisible = 0;
 
   for (const p of products) {
     const hasRestock = p.restockCount > 0;
-    if (!showAll && !hasRestock) continue;
-    if (brandFil2 && p.brand !== brandFil2) continue;
-    if (ipFil   && p.ip !== ipFil)          continue;
-    if (colFil  && p.collection !== colFil) continue;
+    // Mode filter: in 'restock' mode hide products with no restock need (unless showAll)
+    if (!isCatalog && !showAll && !hasRestock) continue;
+    if (brandFil2  && p.brand !== brandFil2)              continue;
+    if (ipFil      && p.ip !== ipFil)                     continue;
+    if (colFil     && p.collection !== colFil)            continue;
+    if (searchTerm && !p.name.toLowerCase().includes(searchTerm)) continue;
 
     const pKey     = btoa(unescape(encodeURIComponent(p.name))).replace(/[^a-zA-Z0-9]/g,'');
     const expanded = !!_rstExpanded[p.name];
@@ -9815,9 +9820,11 @@ function renderRestockTable(products) {
 
     totalVisible++;
 
-    if (!expanded) continue;
+    if (!expanded && !isCatalog) continue;
 
     for (const v of p.variants) {
+      // In restock mode (non-showAll): skip safe-stock variants; in catalog mode: show all
+      if (!isCatalog && !showAll && !v.needsRestock) continue;
       const chk = _rstSelectedItems.has(v.itemId);
       const dClr= v.daysOfStock===null ? '#aaa' : v.daysOfStock<7 ? '#c0392b' : v.daysOfStock<14 ? '#e65100' : v.daysOfStock<30 ? '#b8860b' : '#2d7a2d';
       const dStr= v.daysOfStock!==null ? Math.floor(v.daysOfStock)+'d' : '—';
@@ -9896,6 +9903,15 @@ function rstToggleAll(checked) {
 function _rstUpdateSelected() {
   const e = document.getElementById('rst-s-selected');
   if (e) e.textContent = _rstSelectedItems.size;
+}
+
+function _rstSetMode(mode) {
+  _rstMode = mode;
+  const rb = document.getElementById('rst-mode-restock');
+  const cb = document.getElementById('rst-mode-catalog');
+  if (rb) { rb.style.background = mode==='restock'?'#3C3489':'white'; rb.style.color = mode==='restock'?'white':'var(--g400)'; }
+  if (cb) { cb.style.background = mode==='catalog'?'#3C3489':'white'; cb.style.color = mode==='catalog'?'white':'var(--g400)'; }
+  if (_rstData) renderRestockTable(_rstData.products);
 }
 
 function generateRestockPO() {
