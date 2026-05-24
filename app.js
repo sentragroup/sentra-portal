@@ -9919,7 +9919,7 @@ function generateRestockPO() {
       // Header row + first item
       lines.push([
         '[auto]', '', esc(today), 'WIB', esc(supplierName),
-        '', '', 'FALSE', 'Gudang Penerimaan Barang',
+        '', '0', 'FALSE', 'Gudang Penerimaan Barang',
         esc(note), esc(it.sku), it.price, it.qty, 0, 'No Tax'
       ].join(','));
     } else {
