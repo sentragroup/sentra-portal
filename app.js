@@ -9405,22 +9405,23 @@ function renderSPProductTable(data, page) {
     const expandBtn = hasVariants
       ? `<button id="sp-expand-${idx}" onclick="_spToggleVariants(${idx})" style="margin-left:5px;background:none;border:1px solid var(--g200);border-radius:3px;padding:1px 5px;font-size:9px;cursor:pointer;color:var(--g500);flex-shrink:0;line-height:1.2">▼</button>`
       : '';
+    const P = 'padding:6px 10px;vertical-align:middle';
     rows.push(`<tr style="border-bottom:1px solid var(--g50)">
-      <td ${TD}>
+      <td style="${P}">
         <div style="display:flex;align-items:center;gap:7px">
           ${thumb}
           <span style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0" title="${d.name}">${idx+1}. ${d.name}</span>
           ${expandBtn}
         </div>
       </td>
-      <td ${TD} style="padding:6px 10px;vertical-align:middle;font-size:11px;color:var(--g600);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${d.brand || '—'}</td>
-      <td ${TD} style="padding:6px 10px;vertical-align:middle;font-size:11px;color:var(--g600);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${d.ip || '—'}</td>
-      <td ${TDR}>${d.orders.toLocaleString('id-ID')}</td>
-      <td ${TDR}>${Math.round(d.qty).toLocaleString('id-ID')}</td>
-      <td ${TDR} style="padding:6px 10px;vertical-align:middle;text-align:right;font-family:var(--mono);font-size:11px;color:var(--g600)">${fmtRp(d.revenue)}</td>
-      <td ${TDR} style="padding:6px 10px;vertical-align:middle;text-align:right;font-family:var(--mono);font-size:11px;color:#c0392b">${d.disc > 0 ? fmtRp(d.disc) : '—'}</td>
-      <td ${TDR} style="padding:6px 10px;vertical-align:middle;text-align:right;font-family:var(--mono);font-size:11px;color:#2d7a2d;font-weight:600">${fmtRp(d.net)}</td>
-      <td ${TDR} style="padding:6px 10px;vertical-align:middle;text-align:right;font-family:var(--mono);font-size:11px;color:var(--g400)">${pct}</td>
+      <td style="${P};font-size:11px;color:var(--g600);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${d.brand || '—'}</td>
+      <td style="${P};font-size:11px;color:var(--g600);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${d.ip || '—'}</td>
+      <td style="${P};text-align:right;font-family:var(--mono);font-size:11px">${d.orders.toLocaleString('id-ID')}</td>
+      <td style="${P};text-align:right;font-family:var(--mono);font-size:11px">${Math.round(d.qty).toLocaleString('id-ID')}</td>
+      <td style="${P};text-align:right;font-family:var(--mono);font-size:11px;color:var(--g600)">${fmtRp(d.revenue)}</td>
+      <td style="${P};text-align:right;font-family:var(--mono);font-size:11px;color:#c0392b">${d.disc > 0 ? fmtRp(d.disc) : '—'}</td>
+      <td style="${P};text-align:right;font-family:var(--mono);font-size:11px;color:#2d7a2d;font-weight:600">${fmtRp(d.net)}</td>
+      <td style="${P};text-align:right;font-family:var(--mono);font-size:11px;color:var(--g400)">${pct}</td>
     </tr>`);
     // Variant sub-rows — injected directly (NOT nested table) so colgroup widths apply
     if (hasVariants) {
