@@ -157,7 +157,7 @@ function showPage(name, el) {
   document.querySelectorAll(".sb-item").forEach(i=>i.classList.remove("active"));
   document.getElementById("page-"+name).classList.add("active");
   if (el) el.classList.add("active");
-  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Need Restock",stockmovement:"Stock Movement",productmap:"Product Mapping",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance"};
+  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Need Restock",stockmovement:"Stock Movement",productmap:"Product Mapping",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -1590,6 +1590,8 @@ let allDPRows = [], acDPTypes = ["Consignment","Bulk Purchase"], acDPChannels = 
 
 let spData = null;
 let spChartView = 'month';
+let _insData = null;
+let _insTab  = 'revenue';
 let _spChart = null;
 let _spAllMappings = null;
 const SP_PROD_PAGE_SIZE = 20;
@@ -9553,6 +9555,352 @@ function _spProdGoPage(page) {
   const totalPages = Math.ceil(spData.productData.length / SP_PROD_PAGE_SIZE);
   if (page < 0 || page >= totalPages) return;
   renderSPProductTable(spData.productData, page);
+}
+
+// ── INSIGHTS ──
+async function loadInsights() {
+  const btn = document.getElementById('ins-run-btn');
+  btn.disabled = true; btn.textContent = 'Memuat...';
+  const emEl = document.getElementById('ins-empty');
+  emEl.style.display = 'block'; emEl.textContent = 'Mengambil data order 2026...';
+  ['revenue','momentum','stock'].forEach(t => { const e=document.getElementById('instab-'+t); if(e) e.style.display='none'; });
+
+  try {
+    const VALID = ['COMPLETED','FINISH_PACK','FINISH_PICK','CLOSED','PAID','PENDING'];
+    const orders = await _fetchAllPages('jubelio_sales_orders',
+      'salesorder_id,transaction_date,sub_total,total_disc',
+      q => q.gte('transaction_date','2026-01-01').lte('transaction_date','2026-12-31T23:59:59').in('wms_status',VALID)
+    );
+    if (!orders.length) { emEl.textContent='Tidak ada data order di 2026.'; btn.disabled=false; btn.textContent='↻ Load Insights'; return; }
+
+    emEl.textContent = `Mengambil items untuk ${orders.length.toLocaleString('id-ID')} order...`;
+    const soIds = orders.map(o=>o.salesorder_id);
+    const _rawItems = [];
+    for (let i=0;i<soIds.length;i+=500) {
+      const rows = await _fetchAllPages('jubelio_sales_order_items','salesorder_id,item_id,qty,price,disc_amount',q=>q.in('salesorder_id',soIds.slice(i,i+500)));
+      _rawItems.push(...rows);
+    }
+    const _seen=new Set();
+    const items = _rawItems.filter(it=>{ const k=`${it.salesorder_id}:${it.item_id}`; if(_seen.has(k))return false; _seen.add(k); return true; });
+
+    if (!_spAllMappings) _spAllMappings = await _fetchAllPages('product_mappings','jubelio_item_id,item_name,brand,ip,collection');
+    const mById={};
+    for (const m of _spAllMappings) if(m.jubelio_item_id) mById[m.jubelio_item_id]=m;
+
+    const orderMap = new Map(orders.map(o=>[o.salesorder_id,o]));
+    const ID_MONTHS = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
+
+    // Monthly totals + brand breakdown
+    const monthlyTotals = Array.from({length:12},()=>({revenue:0,disc:0,net:0,qty:0}));
+    const brandMonthly  = {}; // brand → [{revenue,disc,net,qty}×12]
+    for (const o of orders) {
+      const mi = parseInt((o.transaction_date||'').slice(5,7))-1;
+      if (mi<0||mi>11) continue;
+      const rev=parseFloat(o.sub_total||0), disc=parseFloat(o.total_disc||0);
+      monthlyTotals[mi].revenue+=rev; monthlyTotals[mi].disc+=disc; monthlyTotals[mi].net+=rev-disc;
+    }
+    for (const it of items) {
+      const o=orderMap.get(it.salesorder_id); if(!o) continue;
+      const mi=parseInt((o.transaction_date||'').slice(5,7))-1; if(mi<0||mi>11) continue;
+      const qty=parseFloat(it.qty||0), rev=qty*parseFloat(it.price||0), disc=parseFloat(it.disc_amount||0);
+      monthlyTotals[mi].qty+=qty;
+      const brand=(mById[it.item_id]||{}).brand||'(Lainnya)';
+      if (!brandMonthly[brand]) brandMonthly[brand]=Array.from({length:12},()=>({revenue:0,disc:0,net:0,qty:0}));
+      brandMonthly[brand][mi].revenue+=rev; brandMonthly[brand][mi].disc+=disc;
+      brandMonthly[brand][mi].net+=rev-disc; brandMonthly[brand][mi].qty+=qty;
+    }
+
+    // Timing
+    const now=new Date(), cm=now.getMonth();
+    const dayOfYear=Math.floor((now-new Date(now.getFullYear(),0,0))/86400000);
+    const daysLeft=365-dayOfYear;
+
+    // Projection: avg daily from last 3 complete months
+    const projBase=Math.min(3,cm);
+    let projDailyNet=0;
+    if (projBase>0) {
+      let s=0; for(let mi=cm-projBase;mi<cm;mi++) s+=monthlyTotals[mi].net;
+      projDailyNet=s/(projBase*30.4);
+    } else {
+      const ytd=monthlyTotals.slice(0,cm+1).reduce((s,m)=>s+m.net,0);
+      projDailyNet=dayOfYear>0?ytd/dayOfYear:0;
+    }
+    const daysLeftInMonth=new Date(now.getFullYear(),cm+1,0).getDate()-now.getDate();
+    const projectedMonthly=Array.from({length:12},(_,mi)=>{
+      if (mi<cm) return null;
+      const d=mi===cm?daysLeftInMonth:new Date(2026,mi+1,0).getDate();
+      return projDailyNet*d;
+    });
+    const ytdNet=monthlyTotals.slice(0,cm+1).reduce((s,m)=>s+m.net,0);
+    const yearEndProj=ytdNet+projDailyNet*daysLeft;
+
+    // Stock data
+    emEl.textContent='Mengambil data stok...';
+    const allIds=[...new Set(items.map(it=>it.item_id).filter(Boolean))];
+    const stockMap={}, thumbMap={};
+    if (allIds.length) {
+      const [jiR,stR]=await Promise.all([
+        _fetchAllPages('jubelio_items','item_id,thumbnail',q=>q.in('item_id',allIds).not('thumbnail','is',null)),
+        _fetchAllPages('jubelio_inventory_stocks','item_id,on_hand',q=>q.in('item_id',allIds)),
+      ]);
+      for (const r of jiR) if(r.thumbnail) thumbMap[r.item_id]=r.thumbnail;
+      for (const r of stR) stockMap[r.item_id]=(stockMap[r.item_id]||0)+parseFloat(r.on_hand||0);
+    }
+    const itemQty2026={};
+    for (const it of items) if(it.item_id) itemQty2026[it.item_id]=(itemQty2026[it.item_id]||0)+parseFloat(it.qty||0);
+
+    const stockByBrand={};
+    for (const [itemId,totalQty] of Object.entries(itemQty2026)) {
+      const m=mById[itemId]||{};
+      const brand=m.brand||'(Lainnya)', name=m.item_name||itemId;
+      const stock=stockMap[itemId]||0, avgDaily=totalQty/Math.max(1,dayOfYear);
+      const daysOfStock=avgDaily>0?stock/avgDaily:(stock>0?9999:null);
+      const isDead=stock>0&&avgDaily<0.1;
+      if (!stockByBrand[brand]) stockByBrand[brand]={brand,totalStock:0,totalAvgDaily:0,products:[]};
+      stockByBrand[brand].totalStock+=stock; stockByBrand[brand].totalAvgDaily+=avgDaily;
+      stockByBrand[brand].products.push({name,itemId,stock,avgDaily,daysOfStock,isDead});
+    }
+    const stockHorizon=Object.values(stockByBrand).map(b=>({
+      ...b,
+      daysOfStock:b.totalAvgDaily>0?b.totalStock/b.totalAvgDaily:(b.totalStock>0?9999:null),
+      products:b.products.sort((a,z)=>(a.daysOfStock||9999)-(z.daysOfStock||9999)),
+    })).sort((a,b)=>(a.daysOfStock||9999)-(b.daysOfStock||9999));
+
+    _insData={ID_MONTHS,cm,dayOfYear,daysLeft,monthlyTotals,projectedMonthly,brandMonthly,
+      ytdNet,yearEndProj,projDailyNet,stockHorizon,brands:Object.keys(brandMonthly).sort()};
+
+    emEl.style.display='none';
+    document.getElementById('instab-'+_insTab).style.display='block';
+    _renderInsTab(_insTab);
+  } catch(e) { emEl.textContent='Gagal: '+(e.message||e); console.error('loadInsights:',e); }
+  btn.disabled=false; btn.textContent='↻ Load Insights';
+}
+
+function switchInsTab(tab, btn) {
+  _insTab=tab;
+  ['revenue','momentum','stock'].forEach(t=>{
+    const tb=document.getElementById('ins-tab-'+t); if(tb) tb.classList.toggle('active',t===tab);
+    const pg=document.getElementById('instab-'+t); if(pg) pg.style.display=(t===tab&&_insData)?'block':'none';
+  });
+  if (_insData) _renderInsTab(tab);
+}
+
+function _renderInsTab(tab) {
+  if (tab==='revenue')  _renderInsRevenue();
+  if (tab==='momentum') _renderInsMomentum();
+  if (tab==='stock')    _renderInsStock();
+}
+
+function _renderInsRevenue() {
+  const d=_insData;
+  const fmtRp=n=>n>=1e9?'Rp '+(n/1e9).toFixed(1)+'M':n>=1e6?'Rp '+(n/1e6).toFixed(1)+'jt':'Rp '+Math.round(n).toLocaleString('id-ID');
+  const _se=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
+
+  const completedNets=d.monthlyTotals.slice(0,d.cm).map(m=>m.net).filter(n=>n>0);
+  const bestVal=completedNets.length?Math.max(...completedNets):0;
+  const bestIdx=d.monthlyTotals.findIndex(m=>m.net===bestVal&&bestVal>0);
+  const avgMonthly=completedNets.length?completedNets.reduce((s,n)=>s+n,0)/completedNets.length:0;
+
+  _se('ins-r-ytd',fmtRp(d.ytdNet));
+  _se('ins-r-projected',fmtRp(d.yearEndProj));
+  _se('ins-r-best',(bestIdx>=0?d.ID_MONTHS[bestIdx]+' · ':'')+fmtRp(bestVal));
+  _se('ins-r-avg',fmtRp(avgMonthly));
+
+  // Chart
+  const canvas=document.getElementById('ins-chart');
+  if (canvas&&typeof Chart!=='undefined') {
+    if (canvas._chart) { canvas._chart.destroy(); canvas._chart=null; }
+    const actualData=d.monthlyTotals.map((m,i)=>i<=d.cm?m.net:null);
+    const projData=d.monthlyTotals.map((m,i)=>{
+      if (i<d.cm) return null;
+      if (i===d.cm) return m.net+(d.projectedMonthly[i]||0);
+      return d.projectedMonthly[i]||0;
+    });
+    canvas._chart=new Chart(canvas,{
+      type:'bar',
+      data:{labels:d.ID_MONTHS,datasets:[
+        {label:'Aktual',data:actualData,backgroundColor:'#3C3489',borderRadius:4,barPercentage:0.65},
+        {label:'Proyeksi',data:projData,backgroundColor:'rgba(60,52,137,0.18)',borderColor:'rgba(60,52,137,0.5)',borderWidth:1,borderRadius:4,barPercentage:0.65},
+      ]},
+      options:{responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>' '+fmtRp(ctx.raw||0)}}},
+        scales:{
+          x:{stacked:false,grid:{display:false},ticks:{font:{family:'DM Mono',size:10},color:'#888'}},
+          y:{grid:{color:'#f0efe9'},ticks:{font:{family:'DM Mono',size:10},color:'#888',callback:v=>fmtRp(v)}},
+        }
+      }
+    });
+  }
+
+  // Table
+  const tbody=document.getElementById('ins-r-tbody'); if(!tbody) return;
+  const rows=[];
+  for (let mi=0;mi<12;mi++) {
+    const m=d.monthlyTotals[mi];
+    const isProj=mi>d.cm, isPartial=mi===d.cm;
+    const prevNet=mi>0?d.monthlyTotals[mi-1].net:0;
+    const momPct=(prevNet>0&&m.net>0)?((m.net-prevNet)/prevNet*100):null;
+    const momStr=(!isProj&&momPct!==null)?(momPct>=0?'+':'')+momPct.toFixed(1)+'%':'—';
+    const momClr=momPct===null?'#aaa':momPct>0?'#2d7a2d':'#c0392b';
+    const dispNet=isProj?(d.projectedMonthly[mi]||0):m.net;
+    const lbl=d.ID_MONTHS[mi]+(isProj?' 🔮':isPartial?' ·':'');
+    rows.push(`<tr style="border-bottom:1px solid var(--g100);${isProj?'background:rgba(60,52,137,0.03);color:var(--g400);font-style:italic':isPartial?'background:#fffdf5':''}">
+      <td style="padding:6px 10px;font-size:12px;font-weight:${isProj?400:500}">${lbl}</td>
+      <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:11px">${isProj?'—':fmtRp(m.revenue)}</td>
+      <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:#c0392b">${isProj?'—':fmtRp(m.disc)}</td>
+      <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:11px;font-weight:${isProj?400:600};color:${isProj?'#aaa':'var(--text)'}">${fmtRp(dispNet)}</td>
+      <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:11px">${isProj?'—':Math.round(m.qty)}</td>
+      <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:${momClr}">${momStr}</td>
+    </tr>`);
+  }
+  const ytdRev=d.monthlyTotals.slice(0,d.cm+1).reduce((s,m)=>s+m.revenue,0);
+  const ytdDisc=d.monthlyTotals.slice(0,d.cm+1).reduce((s,m)=>s+m.disc,0);
+  const ytdQty=Math.round(d.monthlyTotals.slice(0,d.cm+1).reduce((s,m)=>s+m.qty,0));
+  rows.push(`<tr style="background:#f7f8fa;font-weight:700;border-top:2px solid var(--g200)">
+    <td style="padding:7px 10px;font-size:12px">YTD Aktual</td>
+    <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px">${fmtRp(ytdRev)}</td>
+    <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:#c0392b">${fmtRp(ytdDisc)}</td>
+    <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:#2d7a2d">${fmtRp(d.ytdNet)}</td>
+    <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px">${ytdQty}</td>
+    <td></td>
+  </tr>`);
+  tbody.innerHTML=rows.join('');
+}
+
+function _renderInsMomentum() {
+  const d=_insData;
+  const fmtRp=n=>n>=1e9?'Rp '+(n/1e9).toFixed(1)+'M':n>=1e6?'Rp '+(n/1e6).toFixed(1)+'jt':'Rp '+Math.round(n).toLocaleString('id-ID');
+  const _se=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
+
+  const brandStats=d.brands.map(brand=>{
+    const mo=d.brandMonthly[brand];
+    const ytd=mo.slice(0,d.cm+1).reduce((s,m)=>s+m.net,0);
+    const lastNet=d.cm>=1?mo[d.cm-1].net:0;
+    const prevNet=d.cm>=2?mo[d.cm-2].net:0;
+    const mom=prevNet>0?((lastNet-prevNet)/prevNet*100):null;
+    let trend='→';
+    if (d.cm>=3){const a=mo[d.cm-3].net,b=mo[d.cm-2].net,c=mo[d.cm-1].net;
+      if(c>b&&b>a)trend='↑'; else if(c<b&&b<a)trend='↓'; else if(c>a)trend='↗'; else if(c<a)trend='↘';}
+    return {brand,mo,ytd,mom,trend};
+  }).sort((a,b)=>b.ytd-a.ytd);
+
+  const top=brandStats[0];
+  const fastest=[...brandStats].filter(b=>b.mom!==null).sort((a,b)=>(b.mom||0)-(a.mom||0))[0];
+  const declining=brandStats.filter(b=>b.trend==='↓'||b.trend==='↘');
+  _se('ins-m-top',top?`${top.brand} · ${fmtRp(top.ytd)}`:'—');
+  _se('ins-m-fastest',fastest?`${fastest.brand} +${fastest.mom?.toFixed(1)}%`:'—');
+  _se('ins-m-decline',declining.length?declining.map(b=>b.brand).join(', '):'Semua aman ✓');
+
+  const visMo=Array.from({length:d.cm+1},(_,i)=>i);
+  const wrap=document.getElementById('ins-m-wrap'); if(!wrap) return;
+
+  let html=`<div class="table-wrap" style="margin:0;overflow-x:auto">
+  <table style="width:100%;border-collapse:collapse;font-size:12px">
+    <thead><tr style="background:#f7f8fa;border-bottom:2px solid var(--g200)">
+      <th style="padding:8px 10px;text-align:left;font-weight:600;white-space:nowrap">Brand</th>
+      ${visMo.map(mi=>`<th style="padding:8px 10px;text-align:right;font-weight:600;min-width:70px">${d.ID_MONTHS[mi]}</th>`).join('')}
+      <th style="padding:8px 10px;text-align:right;font-weight:600;white-space:nowrap">MoM</th>
+      <th style="padding:8px 10px;text-align:right;font-weight:600;white-space:nowrap">YTD Net</th>
+      <th style="padding:8px 10px;text-align:center;font-weight:600">Trend</th>
+    </tr></thead><tbody>`;
+
+  for (const bs of brandStats) {
+    const maxNet=Math.max(...bs.mo.map(m=>m.net),1);
+    const momStr=bs.mom!==null?(bs.mom>=0?'+':'')+bs.mom.toFixed(1)+'%':'—';
+    const momClr=bs.mom===null?'#aaa':bs.mom>0?'#2d7a2d':'#c0392b';
+    const tClr=bs.trend==='↑'||bs.trend==='↗'?'#2d7a2d':bs.trend==='↓'||bs.trend==='↘'?'#c0392b':'#888';
+    html+=`<tr style="border-bottom:1px solid var(--g100)">
+      <td style="padding:7px 10px;font-weight:500">${bs.brand}</td>
+      ${visMo.map(mi=>{
+        const net=bs.mo[mi].net;
+        const bg=net>0?`rgba(60,52,137,${((net/maxNet)*0.25).toFixed(2)})`:'transparent';
+        return `<td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px;background:${bg}">${net>0?fmtRp(net):'—'}</td>`;
+      }).join('')}
+      <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px;font-weight:600;color:${momClr}">${momStr}</td>
+      <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px;font-weight:700;color:#2d7a2d">${fmtRp(bs.ytd)}</td>
+      <td style="padding:7px 10px;text-align:center;font-size:15px;color:${tClr}">${bs.trend}</td>
+    </tr>`;
+  }
+  html+='</tbody></table></div>';
+  wrap.innerHTML=html;
+}
+
+function _renderInsStock() {
+  const d=_insData;
+  const fmtD=n=>n===null?'—':n>=9999?'∞':Math.round(n)+'d';
+  const _se=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
+  const statusStyle=days=>{
+    if (days===null)   return {clr:'#aaa',bg:'#f5f5f5',lbl:'No Data'};
+    if (days>=9999)    return {clr:'#2d7a2d',bg:'#e8f5e9',lbl:'∞'};
+    if (days<30)       return {clr:'#c0392b',bg:'#fdf0f0',lbl:fmtD(days)};
+    if (days<60)       return {clr:'#e65100',bg:'#fff3e0',lbl:fmtD(days)};
+    if (days<90)       return {clr:'#b8860b',bg:'#fffde7',lbl:fmtD(days)};
+    return {clr:'#2d7a2d',bg:'#e8f5e9',lbl:fmtD(days)};
+  };
+
+  const critical=d.stockHorizon.filter(b=>b.daysOfStock!==null&&b.daysOfStock<30);
+  const watch=d.stockHorizon.filter(b=>b.daysOfStock!==null&&b.daysOfStock>=30&&b.daysOfStock<60);
+  const deadCount=d.stockHorizon.reduce((s,b)=>s+b.products.filter(p=>p.isDead).length,0);
+  _se('ins-s-critical',critical.length);
+  _se('ins-s-watch',watch.length);
+  _se('ins-s-dead',deadCount+' SKU');
+
+  const wrap=document.getElementById('ins-stock-wrap'); if(!wrap) return;
+  let html=`<div class="table-wrap" style="margin:0"><table style="width:100%;border-collapse:collapse;font-size:12px">
+    <thead><tr style="background:#f7f8fa;border-bottom:2px solid var(--g200)">
+      <th style="padding:8px 10px;text-align:left;font-weight:600">Brand</th>
+      <th style="padding:8px 10px;text-align:right;font-weight:600;white-space:nowrap">Total Stock</th>
+      <th style="padding:8px 10px;text-align:right;font-weight:600;white-space:nowrap">Avg Daily Sales</th>
+      <th style="padding:8px 10px;text-align:right;font-weight:600;white-space:nowrap">Runway</th>
+      <th style="padding:8px 10px;text-align:center;font-weight:600">Status</th>
+      <th style="padding:8px 10px;width:30px"></th>
+    </tr></thead><tbody>`;
+
+  d.stockHorizon.forEach((b,bi)=>{
+    const st=statusStyle(b.daysOfStock);
+    html+=`<tr style="border-bottom:1px solid var(--g100);cursor:pointer" onclick="_insToggleStock(${bi})">
+      <td style="padding:8px 10px;font-weight:600">${b.brand}</td>
+      <td style="padding:8px 10px;text-align:right;font-family:var(--mono);font-size:11px">${Math.round(b.totalStock).toLocaleString('id-ID')}</td>
+      <td style="padding:8px 10px;text-align:right;font-family:var(--mono);font-size:11px">${b.totalAvgDaily.toFixed(1)}/hari</td>
+      <td style="padding:8px 10px;text-align:right;font-family:var(--mono);font-size:13px;font-weight:700;color:${st.clr}">${fmtD(b.daysOfStock)}</td>
+      <td style="padding:8px 10px;text-align:center"><span style="font-size:10px;background:${st.bg};color:${st.clr};border-radius:4px;padding:2px 9px;font-family:var(--mono)">${st.lbl}</span></td>
+      <td style="padding:8px 10px;text-align:center;font-size:10px;color:var(--g400)" id="ins-she-${bi}">▶</td>
+    </tr>
+    <tr id="ins-shp-${bi}" style="display:none;background:#fafafa">
+      <td colspan="6" style="padding:0 10px 10px 30px">
+        <table style="width:100%;border-collapse:collapse;font-size:11px">
+          <thead><tr style="color:var(--g400)">
+            <th style="padding:4px 8px;text-align:left;font-weight:400">Produk</th>
+            <th style="padding:4px 8px;text-align:right;font-weight:400">Stock</th>
+            <th style="padding:4px 8px;text-align:right;font-weight:400">Avg Daily</th>
+            <th style="padding:4px 8px;text-align:right;font-weight:400">Runway</th>
+          </tr></thead><tbody>
+          ${b.products.map(p=>{
+            const ps=statusStyle(p.daysOfStock);
+            const deadTag=p.isDead?` <span style="font-size:9px;background:#fff3e0;color:#e65100;border-radius:3px;padding:1px 4px">dead stock</span>`:'';
+            return `<tr style="border-top:1px solid var(--g100)">
+              <td style="padding:4px 8px">${p.name}${deadTag}</td>
+              <td style="padding:4px 8px;text-align:right;font-family:var(--mono)">${Math.round(p.stock).toLocaleString('id-ID')}</td>
+              <td style="padding:4px 8px;text-align:right;font-family:var(--mono)">${p.avgDaily.toFixed(2)}</td>
+              <td style="padding:4px 8px;text-align:right;font-family:var(--mono);color:${ps.clr};font-weight:600">${fmtD(p.daysOfStock)}</td>
+            </tr>`;
+          }).join('')}
+          </tbody>
+        </table>
+      </td>
+    </tr>`;
+  });
+  html+='</tbody></table></div>';
+  wrap.innerHTML=html;
+}
+
+function _insToggleStock(bi) {
+  const row=document.getElementById(`ins-shp-${bi}`);
+  const exp=document.getElementById(`ins-she-${bi}`);
+  if (!row) return;
+  const open=row.style.display!=='none';
+  row.style.display=open?'none':'table-row';
+  if (exp) exp.textContent=open?'▶':'▼';
 }
 
 // ── DUPLICATE CHECK ──
