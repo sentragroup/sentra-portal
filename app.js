@@ -205,6 +205,7 @@ function showPage(name, el) {
   if (name==="project") loadProjects();
   if (name==="calendar") loadCalendar();
   if (name==="salesperf") {
+    _initSPMultiSelects();
     clearSPFilters();
     ['sp-s-orders','sp-s-qty','sp-s-revenue','sp-s-products','sp-s-avgday'].forEach(id => { const el=document.getElementById(id); if(el) el.textContent='—'; });
     const emptyEl=document.getElementById('sp-empty'); if(emptyEl){ emptyEl.style.display='block'; emptyEl.textContent='Atur filter dan klik "↻ Analisis" untuk memuat data.'; }
@@ -8873,41 +8874,130 @@ function renderColPerfChart(colId, view) {
 
 // ── SALES PERFORMANCE ──
 
-function clearSPFilters() {
-  ['sp-fil-from','sp-fil-to','sp-fil-product'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
-  ['sp-fil-status','sp-fil-channel','sp-fil-store','sp-fil-brand','sp-fil-ip','sp-fil-collection'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+// SP Multi-Select component
+const _spMS = {};
+let _spMSInitialized = false;
+
+function _initSPMultiSelects() {
+  if (_spMSInitialized) return;
+  _spMSInitialized = true;
+  const defs = [
+    { id:'sp-ms-status',     ph:'Semua Status',   staticOpts:['COMPLETED','CANCELED','FINISH_PACK','FINISH_PICK','PAID','PENDING','RETURNED','CLOSED'] },
+    { id:'sp-ms-channel',    ph:'Semua Channel',  staticOpts:null },
+    { id:'sp-ms-store',      ph:'Semua Store',    staticOpts:null },
+    { id:'sp-ms-brand',      ph:'Semua Brand',    staticOpts:null },
+    { id:'sp-ms-ip',         ph:'Semua IP',       staticOpts:null },
+    { id:'sp-ms-collection', ph:'Semua Koleksi',  staticOpts:null },
+  ];
+  for (const d of defs) {
+    const wrap = document.getElementById(d.id);
+    if (!wrap) continue;
+    wrap.innerHTML = `<button class="sp-ms-toggle" id="${d.id}-toggle" onclick="_spMSOpen(event,'${d.id}')">${d.ph}</button>`;
+    const panel = document.createElement('div');
+    panel.id = d.id + '-panel';
+    panel.className = 'sp-ms-panel';
+    panel.style.display = 'none';
+    panel.innerHTML = `<div class="sp-ms-search-wrap"><input type="text" class="sp-ms-search" placeholder="Type to search" oninput="_spMSSearch('${d.id}',this.value)"></div><div class="sp-ms-list" id="${d.id}-list"></div>`;
+    document.body.appendChild(panel);
+    panel.addEventListener('click', e => e.stopPropagation());
+    const ms = {
+      id: d.id, ph: d.ph,
+      options: [], allValues: [], selected: new Set(),
+      getValues() { return (this.selected.size===0||this.selected.size===this.allValues.length) ? [] : [...this.selected]; },
+      isAll() { return this.selected.size===0||this.selected.size===this.allValues.length||this.options.length===0; },
+      setOptions(opts) { // opts: [{value,label,count}]
+        const prevSelected = this.selected.size>0 && !this.isAll() ? new Set(this.selected) : null;
+        this.options=opts; this.allValues=opts.map(o=>o.value);
+        this.selected = prevSelected ? new Set(this.allValues.filter(v=>prevSelected.has(v))) : new Set(this.allValues);
+        if (this.selected.size===0) this.selected=new Set(this.allValues);
+        this._render(); this._updateToggle();
+      },
+      reset() { this.selected=new Set(this.allValues); this._render(); this._updateToggle(); },
+      clear() { this.options=[]; this.allValues=[]; this.selected=new Set(); this._render(); this._updateToggle(); },
+      toggle(val,checked) { if(checked) this.selected.add(val); else this.selected.delete(val); this._updateToggle(); },
+      only(val) { this.selected=new Set([val]); this._render(); this._updateToggle(); },
+      _render(search='') {
+        const list=document.getElementById(this.id+'-list'); if(!list)return;
+        const q=search.toLowerCase();
+        const shown=this.options.filter(o=>!q||o.label.toLowerCase().includes(q));
+        list.innerHTML=shown.map(o=>`<div class="sp-ms-item"><label class="sp-ms-lbl"><input type="checkbox" ${this.selected.has(o.value)?'checked':''} onchange="_spMSToggle('${this.id}','${o.value}',this.checked)"><span title="${o.label}">${o.label}</span></label>${o.count!=null?`<span class="sp-ms-count">${o.count.toLocaleString('id-ID')}</span>`:''}<button class="sp-ms-only" onclick="event.stopPropagation();_spMSOnly('${this.id}','${o.value}')">ONLY</button></div>`).join('');
+      },
+      _updateToggle() {
+        const btn=document.getElementById(this.id+'-toggle'); if(!btn)return;
+        if(this.isAll()){ btn.textContent=this.ph; btn.classList.remove('sp-ms-active'); }
+        else { btn.textContent=`${this.ph} (${this.selected.size})`; btn.classList.add('sp-ms-active'); }
+      }
+    };
+    _spMS[d.id] = ms;
+    if (d.staticOpts) ms.setOptions(d.staticOpts.map(v=>({value:v,label:v,count:null})));
+  }
+  document.addEventListener('click', ()=>{ document.querySelectorAll('.sp-ms-panel').forEach(p=>p.style.display='none'); });
 }
 
-function populateSPFilterDropdowns(orders) {
-  // Channel dropdown
-  const channels = [...new Set(orders.map(o => o.channel_name).filter(Boolean))].sort();
-  const chSel = document.getElementById('sp-fil-channel');
-  if (chSel && chSel.options.length <= 1) {
-    channels.forEach(c => { const o=document.createElement('option'); o.value=o.textContent=c; chSel.appendChild(o); });
+function _spMSOpen(e, id) {
+  e.stopPropagation();
+  const ms=_spMS[id]; if(!ms)return;
+  const panel=document.getElementById(id+'-panel'); if(!panel)return;
+  const isOpen=panel.style.display!=='none';
+  document.querySelectorAll('.sp-ms-panel').forEach(p=>p.style.display='none');
+  if(isOpen)return;
+  const toggle=document.getElementById(id+'-toggle');
+  const rect=toggle.getBoundingClientRect();
+  panel.style.top=(rect.bottom+4)+'px';
+  panel.style.left=rect.left+'px';
+  panel.style.width=Math.max(220,rect.width)+'px';
+  panel.style.display='flex';
+  const search=panel.querySelector('.sp-ms-search');
+  if(search){ search.value=''; ms._render(''); setTimeout(()=>search.focus(),30); }
+}
+
+function _spMSSearch(id,val) { const ms=_spMS[id]; if(ms) ms._render(val); }
+function _spMSToggle(id,val,checked) { const ms=_spMS[id]; if(ms){ ms.toggle(val,checked); } }
+function _spMSOnly(id,val) { const ms=_spMS[id]; if(ms) ms.only(val); }
+
+function clearSPFilters() {
+  ['sp-fil-from','sp-fil-to','sp-fil-product'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  ['sp-ms-status','sp-ms-channel','sp-ms-store','sp-ms-brand','sp-ms-ip','sp-ms-collection'].forEach(id => { if(_spMS[id]) _spMS[id].reset(); });
+}
+
+function populateSPFilterDropdowns(orders, channelData, storeData, productData) {
+  // Channel
+  const chMS = _spMS['sp-ms-channel'];
+  if (chMS) {
+    const chCount = {}; channelData.forEach(d=>chCount[d.channel]=d.orders);
+    const chs = [...new Set(orders.map(o=>o.channel_name).filter(Boolean))].sort();
+    chMS.setOptions(chs.map(c=>({value:c,label:c,count:chCount[c]??null})));
   }
-  // Store dropdown
-  const stores = [...new Set(orders.map(o => o.store_name).filter(Boolean))].sort();
-  const stSel = document.getElementById('sp-fil-store');
-  if (stSel && stSel.options.length <= 1) {
-    stores.forEach(s => { const o=document.createElement('option'); o.value=o.textContent=s; stSel.appendChild(o); });
+  // Store
+  const stMS = _spMS['sp-ms-store'];
+  if (stMS) {
+    const stCount = {}; storeData.forEach(d=>stCount[d.store]=d.orders);
+    const sts = [...new Set(orders.map(o=>o.store_name).filter(Boolean))].sort();
+    stMS.setOptions(sts.map(s=>({value:s,label:s,count:stCount[s]??null})));
   }
-  // Brand dropdown
-  const bSel = document.getElementById('sp-fil-brand');
-  if (bSel && bSel.options.length <= 1 && _spAllMappings) {
-    const brands = [...new Set(_spAllMappings.map(m => m.brand).filter(Boolean))].sort();
-    brands.forEach(b => { const o=document.createElement('option'); o.value=o.textContent=b; bSel.appendChild(o); });
-  }
-  // IP dropdown
-  const iSel = document.getElementById('sp-fil-ip');
-  if (iSel && iSel.options.length <= 1 && _spAllMappings) {
-    const ips = [...new Set(_spAllMappings.map(m => m.ip).filter(Boolean))].sort();
-    ips.forEach(ip => { const o=document.createElement('option'); o.value=o.textContent=ip; iSel.appendChild(o); });
-  }
-  // Collection dropdown
-  const cSel = document.getElementById('sp-fil-collection');
-  if (cSel && cSel.options.length <= 1 && _spAllMappings) {
-    const cols = [...new Set(_spAllMappings.map(m => m.collection).filter(Boolean))].sort();
-    cols.forEach(c => { const o=document.createElement('option'); o.value=o.textContent=c; cSel.appendChild(o); });
+  // Brand / IP / Collection from _spAllMappings
+  const brandMS = _spMS['sp-ms-brand'];
+  const ipMS    = _spMS['sp-ms-ip'];
+  const colMS   = _spMS['sp-ms-collection'];
+  if (_spAllMappings) {
+    const brandCount={}, ipCount={}, colCount={};
+    productData.forEach(p=>{
+      if(p.brand) brandCount[p.brand]=(brandCount[p.brand]||0)+Math.round(p.qty);
+      if(p.ip)    ipCount[p.ip]=(ipCount[p.ip]||0)+Math.round(p.qty);
+      if(p.collection) colCount[p.collection]=(colCount[p.collection]||0)+Math.round(p.qty);
+    });
+    if (brandMS && brandMS.options.length<=1) {
+      const brands=[...new Set(_spAllMappings.map(m=>m.brand).filter(Boolean))].sort();
+      brandMS.setOptions(brands.map(b=>({value:b,label:b,count:brandCount[b]??null})));
+    }
+    if (ipMS && ipMS.options.length<=1) {
+      const ips=[...new Set(_spAllMappings.map(m=>m.ip).filter(Boolean))].sort();
+      ipMS.setOptions(ips.map(i=>({value:i,label:i,count:ipCount[i]??null})));
+    }
+    if (colMS && colMS.options.length<=1) {
+      const cols=[...new Set(_spAllMappings.map(m=>m.collection).filter(Boolean))].sort();
+      colMS.setOptions(cols.map(c=>({value:c,label:c,count:colCount[c]??null})));
+    }
   }
 }
 
@@ -8930,25 +9020,25 @@ async function loadSalesPerf() {
   document.getElementById('sp-tables-wrap').style.display = 'none';
 
   try {
-    const from    = document.getElementById('sp-fil-from').value;
-    const to      = document.getElementById('sp-fil-to').value;
-    const status  = document.getElementById('sp-fil-status').value;
-    const channel = document.getElementById('sp-fil-channel').value;
-    const store   = document.getElementById('sp-fil-store').value;
-    const brandF  = document.getElementById('sp-fil-brand').value;
-    const ipF     = document.getElementById('sp-fil-ip').value;
-    const colF    = document.getElementById('sp-fil-collection').value;
-    const prodF   = (document.getElementById('sp-fil-product').value || '').trim().toLowerCase();
+    const from      = document.getElementById('sp-fil-from').value;
+    const to        = document.getElementById('sp-fil-to').value;
+    const statusVals  = _spMS['sp-ms-status']  ? _spMS['sp-ms-status'].getValues()  : [];
+    const channelVals = _spMS['sp-ms-channel'] ? _spMS['sp-ms-channel'].getValues() : [];
+    const storeVals   = _spMS['sp-ms-store']   ? _spMS['sp-ms-store'].getValues()   : [];
+    const brandVals   = _spMS['sp-ms-brand']   ? _spMS['sp-ms-brand'].getValues()   : [];
+    const ipVals      = _spMS['sp-ms-ip']      ? _spMS['sp-ms-ip'].getValues()      : [];
+    const colVals     = _spMS['sp-ms-collection'] ? _spMS['sp-ms-collection'].getValues() : [];
+    const prodF       = (document.getElementById('sp-fil-product').value || '').trim().toLowerCase();
 
     // 1. Fetch orders (server-side filter)
     const orders = await _fetchAllPages('jubelio_sales_orders',
       'salesorder_id,transaction_date,wms_status,channel_name,store_name',
       q => {
-        if (from)    q = q.gte('transaction_date', from);
-        if (to)      q = q.lte('transaction_date', to + 'T23:59:59');
-        if (status)  q = q.eq('wms_status', status);
-        if (channel) q = q.eq('channel_name', channel);
-        if (store)   q = q.eq('store_name', store);
+        if (from)              q = q.gte('transaction_date', from);
+        if (to)                q = q.lte('transaction_date', to + 'T23:59:59');
+        if (statusVals.length)  q = q.in('wms_status', statusVals);
+        if (channelVals.length) q = q.in('channel_name', channelVals);
+        if (storeVals.length)   q = q.in('store_name', storeVals);
         return q;
       }
     );
@@ -8987,13 +9077,13 @@ async function loadSalesPerf() {
 
     // 4. Client-side filter
     let items = allItems;
-    if (brandF || ipF || colF || prodF) {
+    if (brandVals.length || ipVals.length || colVals.length || prodF) {
       items = allItems.filter(it => {
         const m = mappingByName[it.item_name] || {};
-        if (brandF && m.brand !== brandF) return false;
-        if (ipF    && m.ip    !== ipF)    return false;
-        if (colF   && m.collection !== colF) return false;
-        if (prodF  && !(it.item_name || '').toLowerCase().includes(prodF)) return false;
+        if (brandVals.length && !brandVals.includes(m.brand)) return false;
+        if (ipVals.length    && !ipVals.includes(m.ip))       return false;
+        if (colVals.length   && !colVals.includes(m.collection)) return false;
+        if (prodF && !(it.item_name || '').toLowerCase().includes(prodF)) return false;
         return true;
       });
     }
@@ -9061,7 +9151,7 @@ async function loadSalesPerf() {
 
     spData = { timeSeries, channelData, storeData, productData, totalQty, totalRevenue, dayCount, avgDay };
 
-    populateSPFilterDropdowns(orders);
+    populateSPFilterDropdowns(orders, channelData, storeData, productData);
     updateSPStats({ orders: filteredOrders.length, qty: totalQty, revenue: totalRevenue, products: productData.length, avgDay });
     emptyEl.style.display = 'none';
     document.getElementById('sp-chart-wrap').style.display = 'block';
