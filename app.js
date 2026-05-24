@@ -157,7 +157,7 @@ function showPage(name, el) {
   document.querySelectorAll(".sb-item").forEach(i=>i.classList.remove("active"));
   document.getElementById("page-"+name).classList.add("active");
   if (el) el.classList.add("active");
-  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",stockmovement:"Stock Movement",productmap:"Product Mapping",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance"};
+  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Need Restock",stockmovement:"Stock Movement",productmap:"Product Mapping",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -202,6 +202,15 @@ function showPage(name, el) {
   if (name==="returnreason" && !retOrders.length) loadRetData();
   if (name==="tradorders") loadTradeOrders();
   if (name==="invcheck") loadInvCheck();
+  if (name==="restock") {
+    // Default dates: last 30 days
+    const _now=new Date(), _to=_now.toISOString().slice(0,10);
+    const _fr=new Date(_now-30*864e5).toISOString().slice(0,10);
+    const _fe=document.getElementById('rst-from'), _te=document.getElementById('rst-to');
+    if(_fe && !_fe.value) _fe.value=_fr;
+    if(_te && !_te.value) _te.value=_to;
+    loadRestock();
+  }
   if (name==="project") loadProjects();
   if (name==="calendar") loadCalendar();
   if (name==="salesperf") {
@@ -9590,6 +9599,324 @@ async function doResetPassword() {
   document.getElementById("resetBox").style.display = "none";
   document.getElementById("loginBox").style.display = "block";
   document.getElementById("loginErr").textContent = "Password berhasil diubah. Silakan login.";
+}
+
+// ─── NEED RESTOCK MODULE ──────────────────────────────────────────────────────
+
+const RESTOCK_BRANDS    = ['SD&Y', 'Lagaa', 'Marte'];
+const RESTOCK_LEAD_DAYS = 30;   // flag variant if days_of_stock < this
+const RESTOCK_TARGET    = 60;   // suggested order covers this many days
+
+let _rstLoading       = false;
+let _rstData          = null;     // { products, dayCount }
+let _rstExpanded      = {};       // parentName → bool
+let _rstSelectedItems = new Set();// item_ids ticked for PO
+
+function _rstParseSize(itemCode) {
+  if (!itemCode) return '—';
+  const parts = itemCode.split('---');
+  const last  = parts[parts.length - 1];
+  const segs  = last.split('-');
+  const raw   = segs[segs.length - 1];
+  const SIZES = ['XS','S','M','L','XL','XXL','XXXL','4XL','5XL'];
+  if (SIZES.includes(raw)) return raw;
+  return raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
+}
+
+async function loadRestock() {
+  if (_rstLoading) return;
+  _rstLoading = true;
+  const tbody = document.getElementById('rst-tbody');
+  if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="9">⟳ Memuat data...</td></tr>`;
+  ['rst-s-skus','rst-s-products','rst-s-suggested'].forEach(id => { const e=document.getElementById(id); if(e) e.textContent='—'; });
+
+  try {
+    const fromDate = document.getElementById('rst-from')?.value;
+    const toDate   = document.getElementById('rst-to')?.value;
+    if (!fromDate || !toDate) {
+      if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="9">Pilih periode terlebih dahulu.</td></tr>`;
+      return;
+    }
+    const dayCount  = Math.max(1, Math.round((new Date(toDate)-new Date(fromDate))/864e5)+1);
+    const brandFil  = document.getElementById('rst-brand')?.value || '';
+    const brands    = brandFil ? [brandFil] : RESTOCK_BRANDS;
+
+    // 1. Product mappings for target brands
+    const mappings = await _fetchAllPages('product_mappings','jubelio_item_id,item_name,brand,ip',
+      q => q.in('brand', brands).not('jubelio_item_id','is',null));
+    if (!mappings.length) {
+      if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="9">Tidak ada produk untuk brand yang dipilih.</td></tr>`;
+      return;
+    }
+    const allItemIds  = [...new Set(mappings.map(m => m.jubelio_item_id))];
+    const mappingById = {};
+    for (const m of mappings) mappingById[m.jubelio_item_id] = m;
+
+    // 2. COMPLETED orders in date range (IDs only)
+    const orders = await _fetchAllPages('jubelio_sales_orders','salesorder_id',
+      q => q.eq('wms_status','COMPLETED')
+            .gte('transaction_date', fromDate+'T00:00:00')
+            .lte('transaction_date', toDate+'T23:59:59'));
+    const orderIds = orders.map(o => o.salesorder_id);
+
+    // 3-5. Parallel: sold items, stock, item info
+    const [soldItems, stockRows, itemInfoRows] = await Promise.all([
+      orderIds.length
+        ? _fetchAllPages('jubelio_sales_order_items','salesorder_id,item_id,qty',
+            q => q.in('item_id', allItemIds).in('salesorder_id', orderIds))
+        : Promise.resolve([]),
+      _fetchAllPages('jubelio_inventory_stocks','item_id,on_hand',
+        q => q.in('item_id', allItemIds)),
+      _fetchAllPages('jubelio_items','item_id,item_code,item_name,thumbnail',
+        q => q.in('item_id', allItemIds)),
+    ]);
+
+    // Build lookups
+    const qtyMap   = {};
+    for (const it of soldItems) qtyMap[it.item_id] = (qtyMap[it.item_id]||0) + parseFloat(it.qty||0);
+    const stockMap = {};
+    for (const r of stockRows) stockMap[r.item_id] = (stockMap[r.item_id]||0) + parseFloat(r.on_hand||0);
+    const infoMap  = {};
+    for (const r of itemInfoRows) infoMap[r.item_id] = r;
+
+    // Group by parent name
+    const productMap = {};
+    for (const m of mappings) {
+      const { item_name: parentName, brand, ip, jubelio_item_id: itemId } = m;
+      if (!productMap[parentName]) productMap[parentName] = { name:parentName, brand, ip, thumbnail:null, variants:[] };
+      const info        = infoMap[itemId]  || {};
+      const stock       = stockMap[itemId] || 0;
+      const qtySold     = qtyMap[itemId]   || 0;
+      const avgDaily    = qtySold / dayCount;
+      const daysOfStock = avgDaily > 0 ? stock / avgDaily : null;
+      const suggestedQty= avgDaily > 0 ? Math.max(0, Math.ceil(RESTOCK_TARGET * avgDaily) - stock) : 0;
+      const needsRestock= daysOfStock !== null && daysOfStock < RESTOCK_LEAD_DAYS;
+      if (!productMap[parentName].thumbnail && info.thumbnail) productMap[parentName].thumbnail = info.thumbnail;
+      productMap[parentName].variants.push({
+        itemId, itemCode: info.item_code||'', itemNameFull: info.item_name||parentName,
+        size: _rstParseSize(info.item_code),
+        stock, qtySold, avgDaily, daysOfStock, suggestedQty, needsRestock,
+      });
+    }
+
+    // Sort variants by size order
+    const _SO = ['XS','S','M','L','XL','XXL','XXXL','4XL','5XL'];
+    for (const p of Object.values(productMap)) {
+      p.variants.sort((a,b) => { const ai=_SO.indexOf(a.size), bi=_SO.indexOf(b.size); if(ai>=0&&bi>=0)return ai-bi; if(ai>=0)return -1; if(bi>=0)return 1; return a.size.localeCompare(b.size); });
+      p.restockCount = p.variants.filter(v => v.needsRestock).length;
+      p.minDays      = p.variants.filter(v => v.daysOfStock!==null).reduce((m,v) => Math.min(m,v.daysOfStock), Infinity);
+      if (p.minDays===Infinity) p.minDays=null;
+    }
+
+    // Sort products: urgent first, then by minDays, then name
+    const products = Object.values(productMap).sort((a,b) => {
+      if (a.restockCount>0 && b.restockCount===0) return -1;
+      if (a.restockCount===0 && b.restockCount>0) return  1;
+      if (a.minDays!==null && b.minDays!==null) return a.minDays-b.minDays;
+      return a.name.localeCompare(b.name);
+    });
+
+    _rstData = { products, dayCount };
+
+    // Auto-expand products with restock needs, pre-check urgent variants
+    for (const p of products) {
+      if (_rstExpanded[p.name]===undefined) _rstExpanded[p.name] = p.restockCount>0;
+    }
+    if (_rstSelectedItems.size===0) {
+      for (const p of products)
+        for (const v of p.variants)
+          if (v.needsRestock && v.suggestedQty>0) _rstSelectedItems.add(v.itemId);
+    }
+
+    renderRestockTable(products);
+
+    // Stats
+    const rstSkus  = products.reduce((s,p) => s+p.restockCount, 0);
+    const rstProds = products.filter(p => p.variants.some(v => v.qtySold>0)).length;
+    const rstSugg  = products.reduce((s,p) => s+p.variants.filter(v=>v.needsRestock).reduce((ss,v)=>ss+v.suggestedQty,0), 0);
+    const _se = (id,v) => { const e=document.getElementById(id); if(e)e.textContent=v; };
+    _se('rst-s-skus',     rstSkus.toLocaleString('id-ID'));
+    _se('rst-s-products', rstProds.toLocaleString('id-ID'));
+    _se('rst-s-suggested',rstSugg.toLocaleString('id-ID')+' unit');
+    _rstUpdateSelected();
+
+  } catch(e) {
+    console.error('loadRestock:',e);
+    if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="9" style="color:#c0392b">Error: ${e.message}</td></tr>`;
+  } finally {
+    _rstLoading = false;
+  }
+}
+
+function renderRestockTable(products) {
+  const tbody   = document.getElementById('rst-tbody');
+  const showAll = document.getElementById('rst-show-all')?.checked;
+  if (!tbody) return;
+
+  const rows = [];
+  let totalVisible = 0;
+
+  for (const p of products) {
+    const hasRestock = p.restockCount > 0;
+    if (!showAll && !hasRestock) continue;
+
+    const pKey     = btoa(unescape(encodeURIComponent(p.name))).replace(/[^a-zA-Z0-9]/g,'');
+    const expanded = !!_rstExpanded[p.name];
+
+    // Urgency badge
+    let urgBadge = '';
+    if (p.minDays!==null && p.minDays<RESTOCK_LEAD_DAYS) {
+      const clr = p.minDays<7 ? '#c0392b' : p.minDays<14 ? '#e65100' : '#b8860b';
+      const bg  = p.minDays<7 ? '#fdf0f0' : p.minDays<14 ? '#fff3e0' : '#fffde7';
+      const bdr = p.minDays<7 ? '#e8b8b8' : p.minDays<14 ? '#ffb74d' : '#ffe082';
+      urgBadge  = `<span style="font-size:9px;background:${bg};color:${clr};border:1px solid ${bdr};border-radius:3px;padding:1px 5px;font-family:var(--mono);white-space:nowrap">⚠ ${Math.floor(p.minDays)}d</span>`;
+    }
+
+    const thumb = p.thumbnail
+      ? `<img src="${p.thumbnail}" style="width:28px;height:28px;object-fit:cover;border-radius:3px;border:1px solid var(--g100);flex-shrink:0">`
+      : `<div style="width:28px;height:28px;background:var(--g50);border-radius:3px;border:1px solid var(--g100);flex-shrink:0"></div>`;
+
+    const allUrgChk = _rstAllVariantsChecked(p);
+    rows.push(`<tr class="rst-product-row" style="background:#f7f8fa;border-top:2px solid var(--g200);cursor:pointer" onclick="_rstToggleExpand('${pKey}','${p.name.replace(/'/g,"\\'")}')">`+
+      `<td style="padding:7px 8px;text-align:center"><span style="font-size:10px;color:var(--g400)">${expanded?'▼':'▶'}</span></td>`+
+      `<td style="padding:7px 4px;text-align:center"><input type="checkbox" class="rst-prod-chk" data-pkey="${pKey}" ${allUrgChk?'checked':''} onclick="event.stopPropagation();_rstToggleProduct('${pKey}','${p.name.replace(/'/g,"\\'").replace(/"/g,'&quot;')}',this.checked)" style="cursor:pointer"></td>`+
+      `<td style="padding:7px 8px" colspan="5"><div style="display:flex;align-items:center;gap:8px">${thumb}<div>`+
+      `<div style="font-size:13px;font-weight:600;color:var(--text)">${p.name}</div>`+
+      `<div style="display:flex;gap:6px;align-items:center;margin-top:2px">`+
+      `<span style="font-size:10px;color:var(--g400)">${p.brand}</span>`+
+      (p.ip ? `<span style="font-size:10px;color:var(--g300)">·</span><span style="font-size:10px;color:var(--g400)">${p.ip}</span>` : '')+
+      (urgBadge ? ' '+urgBadge : '')+
+      (hasRestock ? `<span style="font-size:10px;color:var(--g400)">${p.restockCount} SKU perlu restock</span>` : `<span style="font-size:10px;color:#2d7a2d">✓ stok aman</span>`)+
+      `</div></div></div></td>`+
+      `<td style="padding:7px 8px;text-align:right;font-size:10px;color:var(--g300)">Order Qty</td>`+
+      `<td style="padding:7px 8px;text-align:right;font-size:10px;color:var(--g300)">Harga Beli</td>`+
+      `</tr>`);
+
+    totalVisible++;
+
+    if (!expanded) continue;
+
+    for (const v of p.variants) {
+      const chk = _rstSelectedItems.has(v.itemId);
+      const dClr= v.daysOfStock===null ? '#aaa' : v.daysOfStock<7 ? '#c0392b' : v.daysOfStock<14 ? '#e65100' : v.daysOfStock<30 ? '#b8860b' : '#2d7a2d';
+      const dStr= v.daysOfStock!==null ? Math.floor(v.daysOfStock)+'d' : '—';
+      const aStr= v.avgDaily>0 ? v.avgDaily.toFixed(1) : '—';
+      const P   = 'padding:5px 8px;vertical-align:middle';
+      const safeItemName = (v.itemNameFull||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+      rows.push(`<tr class="rst-variant-row" style="border-bottom:1px solid var(--g50);${chk?'background:#f0f7ff':''}">`+
+        `<td style="${P}"></td>`+
+        `<td style="${P};text-align:center"><input type="checkbox" class="rst-var-chk" data-item-id="${v.itemId}" data-item-code="${v.itemCode}" data-item-name="${safeItemName}" data-pkey="${pKey}" ${chk?'checked':''} onchange="_rstToggleVariant(${v.itemId},this.checked,'${pKey}')" style="cursor:pointer"></td>`+
+        `<td style="${P};font-size:12px;color:var(--text);font-weight:${v.needsRestock?600:400}">${v.size}</td>`+
+        `<td style="${P};text-align:right;font-size:12px;font-family:var(--mono)">${v.stock}</td>`+
+        `<td style="${P};text-align:right;font-size:12px;font-family:var(--mono);color:var(--g400)">${v.qtySold>0?v.qtySold:'—'}</td>`+
+        `<td style="${P};text-align:right;font-size:12px;font-family:var(--mono);color:var(--g400)">${aStr}</td>`+
+        `<td style="${P};text-align:right;font-size:12px;font-family:var(--mono);color:${dClr};font-weight:${v.needsRestock?700:400}">${dStr}</td>`+
+        `<td style="${P};text-align:right"><input type="number" class="rst-qty-input" min="0" step="1" value="${chk&&v.suggestedQty>0?v.suggestedQty:''}" placeholder="0" style="width:70px;text-align:right;font-size:12px;font-family:var(--mono);padding:3px 6px;border:1px solid var(--g200);border-radius:4px;background:white"></td>`+
+        `<td style="${P};text-align:right"><input type="number" class="rst-price-input" min="0" step="1000" placeholder="0" style="width:90px;text-align:right;font-size:12px;font-family:var(--mono);padding:3px 6px;border:1px solid var(--g200);border-radius:4px;background:white"></td>`+
+        `</tr>`);
+    }
+  }
+
+  tbody.innerHTML = rows.join('') || `<tr><td class="empty-td" colspan="9">Tidak ada produk yang perlu restock dalam periode ini.</td></tr>`;
+  const tc = document.getElementById('rst-tcount');
+  if (tc) tc.textContent = `${totalVisible} produk`;
+}
+
+function _rstToggleExpand(pKey, pName) {
+  _rstExpanded[pName] = !_rstExpanded[pName];
+  if (_rstData) renderRestockTable(_rstData.products);
+}
+
+function _rstAllVariantsChecked(product) {
+  const urgent = product.variants.filter(v => v.needsRestock);
+  return urgent.length>0 && urgent.every(v => _rstSelectedItems.has(v.itemId));
+}
+
+function _rstToggleProduct(pKey, pName, checked) {
+  if (!_rstData) return;
+  const p = _rstData.products.find(pp => pp.name===pName);
+  if (!p) return;
+  for (const v of p.variants) {
+    if (checked) { if (v.needsRestock) _rstSelectedItems.add(v.itemId); }
+    else          _rstSelectedItems.delete(v.itemId);
+  }
+  renderRestockTable(_rstData.products);
+  _rstUpdateSelected();
+}
+
+function _rstToggleVariant(itemId, checked, pKey) {
+  if (checked) _rstSelectedItems.add(itemId);
+  else         _rstSelectedItems.delete(itemId);
+  // sync product-level checkbox
+  if (_rstData) {
+    const p = _rstData.products.find(pp =>
+      btoa(unescape(encodeURIComponent(pp.name))).replace(/[^a-zA-Z0-9]/g,'') === pKey);
+    if (p) {
+      const prodChk = document.querySelector(`.rst-prod-chk[data-pkey="${pKey}"]`);
+      if (prodChk) prodChk.checked = _rstAllVariantsChecked(p);
+    }
+  }
+  const row = document.querySelector(`.rst-var-chk[data-item-id="${itemId}"]`)?.closest('tr');
+  if (row) row.style.background = checked ? '#f0f7ff' : '';
+  _rstUpdateSelected();
+}
+
+function rstToggleAll(checked) {
+  _rstSelectedItems.clear();
+  if (checked && _rstData) {
+    for (const p of _rstData.products)
+      for (const v of p.variants)
+        if (v.needsRestock) _rstSelectedItems.add(v.itemId);
+  }
+  if (_rstData) renderRestockTable(_rstData.products);
+  _rstUpdateSelected();
+}
+
+function _rstUpdateSelected() {
+  const e = document.getElementById('rst-s-selected');
+  if (e) e.textContent = _rstSelectedItems.size;
+}
+
+async function generateRestockPO() {
+  const supplierId = document.getElementById('rst-supplier')?.value;
+  if (!supplierId) { alert('Pilih supplier terlebih dahulu.'); return; }
+
+  const items = [];
+  document.querySelectorAll('.rst-var-chk:checked').forEach(chk => {
+    const row   = chk.closest('tr');
+    const qty   = parseFloat(row?.querySelector('.rst-qty-input')?.value)   || 0;
+    const price = parseFloat(row?.querySelector('.rst-price-input')?.value) || 0;
+    if (qty <= 0) return;
+    items.push({ item_id: Number(chk.dataset.itemId), item_code: chk.dataset.itemCode, item_name: chk.dataset.itemName, qty, price });
+  });
+
+  if (!items.length) { alert('Tidak ada item dipilih atau semua qty = 0.'); return; }
+
+  const note     = document.getElementById('rst-note')?.value || '';
+  const statusEl = document.getElementById('rst-gen-status');
+  const btn      = document.getElementById('rst-gen-btn');
+  if (btn)      { btn.disabled=true; btn.textContent='⟳ Mengirim ke Jubelio...'; }
+  if (statusEl) statusEl.innerHTML='';
+
+  try {
+    const result = await callEdgeFunction('create-jubelio-purchase-order', {
+      contact_id: Number(supplierId), items, note, location_id: 3,
+    });
+    const poId   = result.purchaseorder_id;
+    const poNo   = result.purchaseorder_no || poId || '—';
+    const link   = poId
+      ? `<a href="https://v2.jubelio.com/purchasing/transactions/order/view/${poId}" target="_blank" style="color:#3C3489;font-weight:600">${poNo}</a>`
+      : `<strong>${poNo}</strong>`;
+    const totalQty = items.reduce((s,i) => s+i.qty, 0);
+    if (statusEl) statusEl.innerHTML = `✅ PO berhasil dibuat: ${link} · ${items.length} SKU · ${totalQty} unit total`;
+    _rstSelectedItems.clear();
+    _rstUpdateSelected();
+    if (_rstData) renderRestockTable(_rstData.products);
+  } catch(e) {
+    if (statusEl) statusEl.innerHTML = `<span style="color:#c0392b">❌ Gagal: ${e.message}</span>`;
+  } finally {
+    if (btn) { btn.disabled=false; btn.textContent='🛒 Generate PO ke Jubelio'; }
+  }
 }
 
 // Keep session in sync (handles token refresh, tab-switching, etc.)
