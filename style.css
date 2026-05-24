@@ -260,4 +260,6 @@ th.sortable:hover{color:var(--black);background:var(--off);}
 .sp-thumb-zoom { position:relative;display:inline-flex;flex-shrink:0; }
 .sp-thumb-zoom .sp-thumb-big { display:none;position:absolute;left:36px;top:50%;transform:translateY(-50%);z-index:1000;width:160px;height:160px;object-fit:cover;border-radius:8px;border:1px solid var(--g200);box-shadow:0 6px 24px rgba(0,0,0,.18);pointer-events:none; }
 .sp-thumb-zoom:hover .sp-thumb-big { display:block; }
+/* Leaflet geo tooltip */
+.ins-geo-tip{font-family:var(--sans);font-size:12px;line-height:1.5;border-radius:6px;border:1px solid var(--g100);box-shadow:0 4px 12px rgba(0,0,0,.12);}
 @media(max-width:768px){#loginScreen{grid-template-columns:1fr;}.login-left{display:none;}.menu-btn{display:flex;}.sidebar{display:none;position:fixed;top:52px;left:0;height:calc(100vh - 52px);z-index:300;background:var(--white);box-shadow:4px 0 24px rgba(0,0,0,0.12);}.sidebar.open{display:block;}.stats-row{grid-template-columns:repeat(2,1fr)!important;}.form-grid,.filter-grid,.edit-row-grid{grid-template-columns:1fr;}.page{padding:1.25rem;}}
