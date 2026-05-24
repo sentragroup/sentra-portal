@@ -157,7 +157,7 @@ function showPage(name, el) {
   document.querySelectorAll(".sb-item").forEach(i=>i.classList.remove("active"));
   document.getElementById("page-"+name).classList.add("active");
   if (el) el.classList.add("active");
-  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",stockmovement:"Stock Movement",productmap:"Product Mapping",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check"};
+  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",stockmovement:"Stock Movement",productmap:"Product Mapping",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -204,6 +204,14 @@ function showPage(name, el) {
   if (name==="invcheck") loadInvCheck();
   if (name==="project") loadProjects();
   if (name==="calendar") loadCalendar();
+  if (name==="salesperf") {
+    clearSPFilters();
+    ['sp-s-orders','sp-s-qty','sp-s-revenue','sp-s-products','sp-s-avgday'].forEach(id => { const el=document.getElementById(id); if(el) el.textContent='—'; });
+    const emptyEl=document.getElementById('sp-empty'); if(emptyEl){ emptyEl.style.display='block'; emptyEl.textContent='Atur filter dan klik "↻ Analisis" untuk memuat data.'; }
+    const cw=document.getElementById('sp-chart-wrap'); if(cw) cw.style.display='none';
+    const tw=document.getElementById('sp-tables-wrap'); if(tw) tw.style.display='none';
+    const btn=document.getElementById('sp-run-btn'); if(btn){ btn.disabled=false; btn.textContent='↻ Analisis'; }
+  }
   closeMobileSidebar();
 }
 
