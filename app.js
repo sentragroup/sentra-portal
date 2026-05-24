@@ -2896,13 +2896,17 @@ async function loadProductMap(page=0, search=''){
       if(pmFilters.mappingCount==='mapped') q=isMapped(q);
       return q;
     };
+    // When filter/search active: fetch all matching rows (no range limit) so
+    // client-side dedup by item_name returns every matching product.
+    // When no filter (unmapped view): paginate with PM_PAGE_SIZE to avoid huge loads.
+    const rowsQuery = applyFilter(sb.from("product_mappings").select("*",{count:"exact"}))
+      .order(pmSort.col,{ascending:pmSort.dir==='asc'});
     const [
       {data:rows,count:filteredCount,error:rowsErr},
       {count:totalCount},
       {count:unmappedCount}
     ]=await Promise.all([
-      applyFilter(sb.from("product_mappings").select("*",{count:"exact"}))
-        .order(pmSort.col,{ascending:pmSort.dir==='asc'}).range(from,to),
+      hasFilter ? rowsQuery.limit(2000) : rowsQuery.range(from,to),
       sb.from("product_mappings").select("*",{count:"exact",head:true}),
       isUnmapped(sb.from("product_mappings").select("*",{count:"exact",head:true}))
     ]);
@@ -2924,7 +2928,7 @@ async function loadProductMap(page=0, search=''){
       ? `${uniqueCount} produk${activeFilters.length?` · ${activeFilters.join(" · ")}`:""}`
       : `${unmappedCount||0} belum mapped`;
     renderPMTable(uniqueNames,pmByName);
-    renderPMPagination(page,uniqueCount);
+    renderPMPagination(page, hasFilter ? uniqueCount : (filteredCount||0));
     renderPMSortHeaders();
   } catch(e){
     if(tbody) tbody.innerHTML=`<tr><td class="empty-td" colspan="7">Gagal: ${e.message||e}</td></tr>`;
