@@ -2033,6 +2033,7 @@
       <button class="tab-btn" id="ins-tab-stock" onclick="switchInsTab('stock',this)">Stock Horizon</button>
       <button class="tab-btn" id="ins-tab-geo" onclick="switchInsTab('geo',this)">Geo Map</button>
       <button class="tab-btn" id="ins-tab-bcg" onclick="switchInsTab('bcg',this)">BCG Matrix</button>
+      <button class="tab-btn" id="ins-tab-cat" onclick="switchInsTab('cat',this)">Product Category</button>
     </div>
     <div id="ins-empty" style="text-align:center;padding:3rem;color:var(--g400);font-family:var(--mono);font-size:12px">Klik "↻ Load Insights" untuk memuat data 2026.</div>
 
@@ -2155,6 +2156,20 @@
       <div id="ins-bcg-table"></div>
     </div>
 
+    <!-- Product Category -->
+    <div id="instab-cat" style="display:none">
+      <div class="stats-row" style="grid-template-columns:repeat(3,1fr);margin-bottom:1.25rem">
+        <div class="stat-card"><div class="stat-num" id="ins-cat-total-rev">—</div><div class="stat-lbl">Total Net Revenue</div></div>
+        <div class="stat-card info"><div class="stat-num" id="ins-cat-types">—</div><div class="stat-lbl">Jenis Produk</div></div>
+        <div class="stat-card success"><div class="stat-num" id="ins-cat-top">—</div><div class="stat-lbl">Kategori Teratas</div></div>
+      </div>
+      <div style="background:var(--white);border:1px solid var(--g100);border-radius:8px;padding:16px;margin-bottom:1.25rem">
+        <div style="font-family:var(--mono);font-size:11px;text-transform:uppercase;color:var(--g400);letter-spacing:.05em;margin-bottom:12px">Net Revenue per Kategori Produk — Top 15</div>
+        <div style="position:relative"><canvas id="ins-cat-chart"></canvas></div>
+      </div>
+      <div id="ins-cat-table"></div>
+    </div>
+
   </div>
   </div>
 </div>
@@ -2179,6 +2194,6 @@
 <div id="proj-overlay" class="proj-panel-overlay" style="display:none" onclick="if(event.target===this)closeProjectDetail()"></div>
 <div id="proj-panel" class="proj-panel" style="display:none"></div>
 
-<script src="app.js?v=20260524k"></script>
+<script src="app.js?v=20260524l"></script>
 </body>
 </html>
