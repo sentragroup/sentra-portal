@@ -9127,6 +9127,15 @@ async function loadSalesPerf() {
       );
       allItems.push(...rows);
     }
+    // Deduplicate items: sync can produce duplicate rows for same (salesorder_id, item_id).
+    // Keep the first occurrence of each pair to avoid double-counting revenue.
+    const _seen = new Set();
+    const allItemsDeduped = allItems.filter(it => {
+      const key = `${it.salesorder_id}:${it.item_id}`;
+      if (_seen.has(key)) return false;
+      _seen.add(key);
+      return true;
+    });
 
     // 3. Load product_mappings (cached, all pages)
     if (!_spAllMappings) {
@@ -9144,9 +9153,9 @@ async function loadSalesPerf() {
     if (_cMS && _cMS.options.length===0) _cMS.setOptions([...new Set(_spAllMappings.map(m=>m.collection).filter(Boolean))].sort().map(c=>({value:c,label:c,count:null})));
 
     // 4. Client-side filter
-    let items = allItems;
+    let items = allItemsDeduped;
     if (brandVals.length || ipVals.length || colVals.length || prodF) {
-      items = allItems.filter(it => {
+      items = allItemsDeduped.filter(it => {
         const m = mappingById[it.item_id] || {};
         if (brandVals.length && !brandVals.includes(m.brand)) return false;
         if (ipVals.length    && !ipVals.includes(m.ip))       return false;
