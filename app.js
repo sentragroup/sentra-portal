@@ -134,7 +134,7 @@ function enterApp(user, freshLogin) {
   // Restore page: prefer URL hash, fall back to sessionStorage
   let _pg = location.hash.slice(1).split('/')[0];
   if (!_pg) _pg = sessionStorage.getItem('snt_page') || '';
-  const _pages = ['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','popupbooth','activitylog','jubsales','mesign','po','stockmovement','productmap','collections','designermaster','dsgworkflow','warehousekpi','stockadjmgmt','returnreason','tradorders','invcheck'];
+  const _pages = ['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','popupbooth','activitylog','jubsales','mesign','po','stockmovement','productmap','collections','designermaster','dsgworkflow','warehousekpi','stockadjmgmt','returnreason','tradorders','invcheck','salesperf'];
   if (_pages.includes(_pg))
     showPage(_pg, document.getElementById('nav-'+_pg));
 }
@@ -1560,6 +1560,11 @@ setupAC("ld-pic","ac-ld-pic",()=>acPics);
 
 // ── DISTRIBUTION PARTNER ──
 let allDPRows = [], acDPTypes = ["Consignment","Bulk Purchase"], acDPChannels = ["Online Store","Physical Store","Marketplace","Pop-up"];
+
+let spData = null;
+let spChartView = 'month';
+let _spChart = null;
+let _spAllMappings = null;
 
 function switchDPTab(name, el) {
   document.querySelectorAll("#page-distpartner .tab-btn").forEach(b=>b.classList.remove("active"));
@@ -8856,6 +8861,336 @@ function renderColPerfChart(colId, view) {
       }
     }
   });
+}
+
+// ── SALES PERFORMANCE ──
+
+function clearSPFilters() {
+  ['sp-fil-from','sp-fil-to','sp-fil-product'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  ['sp-fil-status','sp-fil-channel','sp-fil-store','sp-fil-brand','sp-fil-ip','sp-fil-collection'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+}
+
+function populateSPFilterDropdowns(orders) {
+  // Channel dropdown
+  const channels = [...new Set(orders.map(o => o.channel_name).filter(Boolean))].sort();
+  const chSel = document.getElementById('sp-fil-channel');
+  if (chSel && chSel.options.length <= 1) {
+    channels.forEach(c => { const o=document.createElement('option'); o.value=o.textContent=c; chSel.appendChild(o); });
+  }
+  // Store dropdown
+  const stores = [...new Set(orders.map(o => o.store_name).filter(Boolean))].sort();
+  const stSel = document.getElementById('sp-fil-store');
+  if (stSel && stSel.options.length <= 1) {
+    stores.forEach(s => { const o=document.createElement('option'); o.value=o.textContent=s; stSel.appendChild(o); });
+  }
+  // Brand dropdown
+  const bSel = document.getElementById('sp-fil-brand');
+  if (bSel && bSel.options.length <= 1 && _spAllMappings) {
+    const brands = [...new Set(_spAllMappings.map(m => m.brand).filter(Boolean))].sort();
+    brands.forEach(b => { const o=document.createElement('option'); o.value=o.textContent=b; bSel.appendChild(o); });
+  }
+  // IP dropdown
+  const iSel = document.getElementById('sp-fil-ip');
+  if (iSel && iSel.options.length <= 1 && _spAllMappings) {
+    const ips = [...new Set(_spAllMappings.map(m => m.ip).filter(Boolean))].sort();
+    ips.forEach(ip => { const o=document.createElement('option'); o.value=o.textContent=ip; iSel.appendChild(o); });
+  }
+  // Collection dropdown
+  const cSel = document.getElementById('sp-fil-collection');
+  if (cSel && cSel.options.length <= 1 && _spAllMappings) {
+    const cols = [...new Set(_spAllMappings.map(m => m.collection).filter(Boolean))].sort();
+    cols.forEach(c => { const o=document.createElement('option'); o.value=o.textContent=c; cSel.appendChild(o); });
+  }
+}
+
+function updateSPStats({ orders, qty, revenue, products, avgDay }) {
+  const fmtRp = n => n >= 1000000 ? 'Rp ' + (n/1000000).toFixed(1) + 'jt' : 'Rp ' + Math.round(n).toLocaleString('id-ID');
+  document.getElementById('sp-s-orders').textContent   = orders.toLocaleString('id-ID');
+  document.getElementById('sp-s-qty').textContent      = Math.round(qty).toLocaleString('id-ID');
+  document.getElementById('sp-s-revenue').textContent  = revenue > 0 ? fmtRp(revenue) : '—';
+  document.getElementById('sp-s-products').textContent = products.toLocaleString('id-ID');
+  document.getElementById('sp-s-avgday').textContent   = avgDay;
+}
+
+async function loadSalesPerf() {
+  const btn = document.getElementById('sp-run-btn');
+  btn.disabled = true; btn.textContent = 'Memuat...';
+  const emptyEl = document.getElementById('sp-empty');
+  emptyEl.style.display = 'block';
+  emptyEl.textContent = 'Mengambil data...';
+  document.getElementById('sp-chart-wrap').style.display = 'none';
+  document.getElementById('sp-tables-wrap').style.display = 'none';
+
+  try {
+    const from    = document.getElementById('sp-fil-from').value;
+    const to      = document.getElementById('sp-fil-to').value;
+    const status  = document.getElementById('sp-fil-status').value;
+    const channel = document.getElementById('sp-fil-channel').value;
+    const store   = document.getElementById('sp-fil-store').value;
+    const brandF  = document.getElementById('sp-fil-brand').value;
+    const ipF     = document.getElementById('sp-fil-ip').value;
+    const colF    = document.getElementById('sp-fil-collection').value;
+    const prodF   = (document.getElementById('sp-fil-product').value || '').trim().toLowerCase();
+
+    // 1. Fetch orders (server-side filter)
+    const orders = await _fetchAllPages('jubelio_sales_orders',
+      'salesorder_id,transaction_date,wms_status,channel_name,store_name',
+      q => {
+        if (from)    q = q.gte('transaction_date', from);
+        if (to)      q = q.lte('transaction_date', to + 'T23:59:59');
+        if (status)  q = q.eq('wms_status', status);
+        if (channel) q = q.eq('channel_name', channel);
+        if (store)   q = q.eq('store_name', store);
+        return q;
+      }
+    );
+
+    if (!orders.length) {
+      emptyEl.textContent = 'Tidak ada order di periode / filter ini.';
+      updateSPStats({ orders: 0, qty: 0, revenue: 0, products: 0, avgDay: '—' });
+      btn.disabled = false; btn.textContent = '↻ Analisis';
+      return;
+    }
+
+    const orderMap = new Map(orders.map(o => [o.salesorder_id, o]));
+    const soIds    = orders.map(o => o.salesorder_id);
+
+    // 2. Fetch items (chunked by 500 IDs)
+    emptyEl.textContent = `Mengambil item untuk ${orders.length.toLocaleString('id-ID')} order...`;
+    const allItems = [];
+    for (let i = 0; i < soIds.length; i += 500) {
+      const chunk = soIds.slice(i, i + 500);
+      const rows = await _fetchAllPages('jubelio_sales_order_items',
+        'salesorder_id,item_name,qty,price,disc_amount',
+        q => q.in('salesorder_id', chunk)
+      );
+      allItems.push(...rows);
+    }
+
+    // 3. Load product_mappings (cached)
+    if (!_spAllMappings) {
+      const { data: pm } = await sb.from('product_mappings').select('item_name,brand,ip,collection');
+      _spAllMappings = pm || [];
+    }
+    const mappingByName = {};
+    for (const m of _spAllMappings) {
+      if (m.item_name && !mappingByName[m.item_name]) mappingByName[m.item_name] = m;
+    }
+
+    // 4. Client-side filter
+    let items = allItems;
+    if (brandF || ipF || colF || prodF) {
+      items = allItems.filter(it => {
+        const m = mappingByName[it.item_name] || {};
+        if (brandF && m.brand !== brandF) return false;
+        if (ipF    && m.ip    !== ipF)    return false;
+        if (colF   && m.collection !== colF) return false;
+        if (prodF  && !(it.item_name || '').toLowerCase().includes(prodF)) return false;
+        return true;
+      });
+    }
+
+    const filteredOrderIds  = new Set(items.map(it => it.salesorder_id));
+    const filteredOrders    = orders.filter(o => filteredOrderIds.has(o.salesorder_id));
+
+    // 5. Time series (daily)
+    const timeSeries = {};
+    for (const it of items) {
+      const o = orderMap.get(it.salesorder_id);
+      if (!o) continue;
+      const date = (o.transaction_date || '').slice(0, 10);
+      if (!date) continue;
+      if (!timeSeries[date]) timeSeries[date] = { qty: 0, revenue: 0 };
+      timeSeries[date].qty     += parseFloat(it.qty    || 0);
+      timeSeries[date].revenue += parseFloat(it.qty    || 0) * parseFloat(it.price || 0);
+    }
+
+    // 6. Channel summary
+    const channelMap = {};
+    for (const it of items) {
+      const o  = orderMap.get(it.salesorder_id); if (!o) continue;
+      const ch = o.channel_name || '(Lainnya)';
+      if (!channelMap[ch]) channelMap[ch] = { orders: new Set(), qty: 0, revenue: 0 };
+      channelMap[ch].orders.add(it.salesorder_id);
+      channelMap[ch].qty     += parseFloat(it.qty    || 0);
+      channelMap[ch].revenue += parseFloat(it.qty    || 0) * parseFloat(it.price || 0);
+    }
+    const channelData = Object.entries(channelMap)
+      .map(([ch, d]) => ({ channel: ch, orders: d.orders.size, qty: d.qty, revenue: d.revenue }))
+      .sort((a, b) => b.revenue - a.revenue);
+
+    // 7. Store summary
+    const storeMap = {};
+    for (const it of items) {
+      const o  = orderMap.get(it.salesorder_id); if (!o) continue;
+      const st = o.store_name || '(Lainnya)';
+      if (!storeMap[st]) storeMap[st] = { orders: new Set(), qty: 0, revenue: 0 };
+      storeMap[st].orders.add(it.salesorder_id);
+      storeMap[st].qty     += parseFloat(it.qty    || 0);
+      storeMap[st].revenue += parseFloat(it.qty    || 0) * parseFloat(it.price || 0);
+    }
+    const storeData = Object.entries(storeMap)
+      .map(([st, d]) => ({ store: st, orders: d.orders.size, qty: d.qty, revenue: d.revenue }))
+      .sort((a, b) => b.revenue - a.revenue);
+
+    // 8. Product summary
+    const productMap = {};
+    for (const it of items) {
+      const name = it.item_name || '?';
+      const m    = mappingByName[name] || {};
+      if (!productMap[name]) productMap[name] = { name, brand: m.brand || '', ip: m.ip || '', collection: m.collection || '', qty: 0, revenue: 0 };
+      productMap[name].qty     += parseFloat(it.qty    || 0);
+      productMap[name].revenue += parseFloat(it.qty    || 0) * parseFloat(it.price || 0);
+    }
+    const productData = Object.values(productMap).sort((a, b) => b.qty - a.qty);
+
+    // 9. Totals
+    const totalQty     = items.reduce((s, it) => s + parseFloat(it.qty || 0), 0);
+    const totalRevenue = items.reduce((s, it) => s + parseFloat(it.qty || 0) * parseFloat(it.price || 0), 0);
+    const dayCount     = Math.max(1, Object.keys(timeSeries).length);
+    const fmtRp        = n => n >= 1000000 ? 'Rp ' + (n/1000000).toFixed(1) + 'jt' : 'Rp ' + Math.round(n).toLocaleString('id-ID');
+    const avgDay       = totalRevenue > 0 ? fmtRp(totalRevenue / dayCount) : '—';
+
+    spData = { timeSeries, channelData, storeData, productData, totalQty, totalRevenue, dayCount, avgDay };
+
+    populateSPFilterDropdowns(orders);
+    updateSPStats({ orders: filteredOrders.length, qty: totalQty, revenue: totalRevenue, products: productData.length, avgDay });
+    emptyEl.style.display = 'none';
+    document.getElementById('sp-chart-wrap').style.display = 'block';
+    document.getElementById('sp-tables-wrap').style.display = 'block';
+    renderSPChart(spChartView);
+    renderSPChannelTable(channelData, totalRevenue);
+    renderSPStoreTable(storeData, totalRevenue);
+    renderSPProductTable(productData);
+
+  } catch (e) {
+    emptyEl.textContent = 'Gagal: ' + (e.message || e);
+    console.error(e);
+  }
+  btn.disabled = false; btn.textContent = '↻ Analisis';
+}
+
+function switchSPView(view, btn) {
+  spChartView = view;
+  document.querySelectorAll('#sp-view-btns button').forEach(b => {
+    b.style.background = 'none'; b.style.color = 'var(--g600)';
+  });
+  btn.style.background = 'var(--black)'; btn.style.color = 'var(--white)';
+  renderSPChart(view);
+}
+
+function renderSPChart(view) {
+  if (!spData || !spData.timeSeries) return;
+  const canvas = document.getElementById('sp-chart');
+  if (!canvas || typeof Chart === 'undefined') return;
+  const ID_MONTHS = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
+  const grouped = {};
+  for (const [date, vals] of Object.entries(spData.timeSeries)) {
+    let key;
+    if      (view === 'day')  key = date;
+    else if (view === 'week') key = getWeekStart(date);
+    else if (view === 'year') key = date.slice(0, 4);
+    else                      key = date.slice(0, 7);
+    if (!grouped[key]) grouped[key] = { qty: 0, revenue: 0 };
+    grouped[key].qty     += vals.qty;
+    grouped[key].revenue += vals.revenue;
+  }
+  const labels = Object.keys(grouped).sort();
+  const fmtLabel = key => {
+    if (view === 'year') return key;
+    if (view === 'month') { const [y,m] = key.split('-'); return `${ID_MONTHS[parseInt(m)-1]} '${y.slice(2)}`; }
+    const [,m,dd] = key.split('-');
+    return `${parseInt(dd)} ${ID_MONTHS[parseInt(m)-1]}`;
+  };
+  if (_spChart) { _spChart.destroy(); _spChart = null; }
+  if (!labels.length) return;
+  const plugins = typeof ChartDataLabels !== 'undefined' ? [ChartDataLabels] : [];
+  const fmtVal  = v => v >= 1000000 ? (v/1000000).toFixed(1)+'jt' : (v/1000).toFixed(0)+'k';
+  _spChart = new Chart(canvas, {
+    plugins,
+    data: {
+      labels: labels.map(fmtLabel),
+      datasets: [
+        {
+          type: 'bar', label: 'Revenue',
+          data: labels.map(k => grouped[k].revenue),
+          yAxisID: 'yRevenue', backgroundColor: 'rgba(45,122,45,0.65)', borderRadius: 4, order: 2,
+          datalabels: { display: true, anchor: 'end', align: 'end', offset: 2, color: '#2d7a2d', font: { size: 8, family: 'DM Mono', weight: '600' }, formatter: v => v > 0 ? fmtVal(v) : '' }
+        },
+        {
+          type: 'line', label: 'Qty',
+          data: labels.map(k => grouped[k].qty),
+          yAxisID: 'yQty', borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.08)',
+          tension: 0.35, pointRadius: 3, pointBackgroundColor: '#3b82f6', fill: false, order: 1,
+          datalabels: { display: false }
+        }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, layout: { padding: { top: 20 } },
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => ctx.datasetIndex === 0 ? ` Revenue: Rp ${Math.round(ctx.raw).toLocaleString('id-ID')}` : ` Qty: ${Math.round(ctx.raw)} pcs` } }
+      },
+      scales: {
+        yRevenue: { type: 'linear', position: 'left', ticks: { font: { size: 9, family: 'DM Mono' }, callback: v => fmtVal(v) }, grid: { color: 'rgba(0,0,0,0.04)' } },
+        yQty:     { type: 'linear', position: 'right', ticks: { font: { size: 9, family: 'DM Mono' } }, grid: { display: false } },
+        x:        { ticks: { font: { size: 9, family: 'DM Mono' }, maxRotation: 45 } }
+      }
+    }
+  });
+}
+
+function renderSPChannelTable(data, totalRevenue) {
+  const tbody = document.getElementById('sp-channel-tbody');
+  if (!tbody) return;
+  const fmtRp = n => 'Rp ' + Math.round(n).toLocaleString('id-ID');
+  if (!data.length) { tbody.innerHTML = `<tr><td class="empty-td" colspan="5">Tidak ada data.</td></tr>`; return; }
+  tbody.innerHTML = data.map(d => {
+    const pct = totalRevenue > 0 ? ((d.revenue / totalRevenue) * 100).toFixed(1) + '%' : '—';
+    return `<tr>
+      <td style="padding:7px 10px;font-size:12px;font-weight:500">${d.channel}</td>
+      <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px">${d.orders.toLocaleString('id-ID')}</td>
+      <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px">${Math.round(d.qty).toLocaleString('id-ID')}</td>
+      <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:#2d7a2d">${fmtRp(d.revenue)}</td>
+      <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--g400)">${pct}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderSPStoreTable(data, totalRevenue) {
+  const tbody = document.getElementById('sp-store-tbody');
+  if (!tbody) return;
+  const fmtRp = n => 'Rp ' + Math.round(n).toLocaleString('id-ID');
+  if (!data.length) { tbody.innerHTML = `<tr><td class="empty-td" colspan="5">Tidak ada data.</td></tr>`; return; }
+  tbody.innerHTML = data.map(d => {
+    const pct = totalRevenue > 0 ? ((d.revenue / totalRevenue) * 100).toFixed(1) + '%' : '—';
+    return `<tr>
+      <td style="padding:7px 10px;font-size:12px;font-weight:500;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${d.store}">${d.store}</td>
+      <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px">${d.orders.toLocaleString('id-ID')}</td>
+      <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px">${Math.round(d.qty).toLocaleString('id-ID')}</td>
+      <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:#2d7a2d">${fmtRp(d.revenue)}</td>
+      <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--g400)">${pct}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderSPProductTable(data) {
+  const tbody = document.getElementById('sp-product-tbody');
+  const countEl = document.getElementById('sp-prod-count');
+  if (!tbody) return;
+  if (countEl) countEl.textContent = data.length + ' produk';
+  const fmtRp = n => 'Rp ' + Math.round(n).toLocaleString('id-ID');
+  if (!data.length) { tbody.innerHTML = `<tr><td class="empty-td" colspan="6">Tidak ada data.</td></tr>`; return; }
+  tbody.innerHTML = data.map(d => `<tr>
+    <td style="padding:7px 10px;font-size:12px;font-weight:500;max-width:200px">${d.name}</td>
+    <td style="padding:7px 10px;font-size:11px;color:var(--g600)">${d.brand || '—'}</td>
+    <td style="padding:7px 10px;font-size:11px;color:var(--g600)">${d.ip || '—'}</td>
+    <td style="padding:7px 10px;font-size:11px;color:var(--g600)">${d.collection || '—'}</td>
+    <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px">${Math.round(d.qty).toLocaleString('id-ID')}</td>
+    <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:#2d7a2d">${fmtRp(d.revenue)}</td>
+  </tr>`).join('');
 }
 
 // ── DUPLICATE CHECK ──

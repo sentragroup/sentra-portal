@@ -95,6 +95,9 @@
         <div class="sb-item" onclick="showPage('calendar',this)" id="nav-calendar">
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="2" width="14" height="13" rx="1.5"/><path d="M1 6h14M5 1v3M11 1v3"/></svg>Calendar
         </div>
+        <div class="sb-item" onclick="showPage('salesperf',this)" id="nav-salesperf">
+          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="1 11 5 6 9 9 15 3"/><line x1="1" y1="15" x2="15" y2="15"/></svg>Sales Performance
+        </div>
       </div>
       <div class="sb-sec">
         <div class="sb-label">Database</div>
@@ -140,6 +143,7 @@
         <div class="home-grid" style="margin-bottom:1.5rem">
           <div class="tool-card" onclick="showPage('project',null)"><span class="tc-icon">📌</span><div class="tc-name">Project Board</div><div class="tc-desc">Kanban tracker untuk semua project tim — dari backlog hingga selesai.</div></div>
           <div class="tool-card" onclick="showPage('calendar',null)"><span class="tc-icon">📅</span><div class="tc-name">Calendar</div><div class="tc-desc">Semua deadline & event penting dari Project Board, Collection, dan Leads dalam satu tampilan.</div></div>
+          <div class="tool-card" onclick="showPage('salesperf',null)"><span class="tc-icon">📊</span><div class="tc-name">Sales Performance</div><div class="tc-desc">Analisis penjualan berdasarkan brand, IP, koleksi, channel, dan periode.</div></div>
         </div>
 
         <div class="sb-label" style="margin-bottom:0.6rem">Legal &amp; Finance</div>
@@ -1860,6 +1864,64 @@
   </div>
 </div>
 
+
+      <!-- SALES PERFORMANCE -->
+      <div class="page" id="page-salesperf">
+        <div class="page-header">
+          <div><div class="page-title">Sales Performance</div><div class="page-sub">Analisis penjualan berdasarkan brand, IP, koleksi, produk, channel, dan periode.</div></div>
+          <button class="btn-primary" onclick="loadSalesPerf()" id="sp-run-btn" style="white-space:nowrap;flex-shrink:0">↻ Analisis</button>
+        </div>
+        <div class="filter-panel" style="margin-bottom:1.25rem">
+          <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="clearSPFilters()">✕ Reset</button></div>
+          <div class="filter-grid">
+            <input class="f-select" type="date" id="sp-fil-from">
+            <input class="f-select" type="date" id="sp-fil-to">
+            <select class="f-select" id="sp-fil-status"><option value="">Semua Status</option><option value="COMPLETED">COMPLETED</option><option value="CANCELED">CANCELED</option><option value="FINISH_PACK">FINISH_PACK</option><option value="FINISH_PICK">FINISH_PICK</option><option value="PAID">PAID</option><option value="PENDING">PENDING</option><option value="RETURNED">RETURNED</option></select>
+            <select class="f-select" id="sp-fil-channel"><option value="">Semua Channel</option></select>
+            <select class="f-select" id="sp-fil-store"><option value="">Semua Store</option></select>
+            <select class="f-select" id="sp-fil-brand"><option value="">Semua Brand</option></select>
+            <select class="f-select" id="sp-fil-ip"><option value="">Semua IP</option></select>
+            <select class="f-select" id="sp-fil-collection"><option value="">Semua Koleksi</option></select>
+            <input class="search-box" type="text" id="sp-fil-product" placeholder="Cari nama produk..." style="width:100%">
+          </div>
+        </div>
+        <div class="stats-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:1.25rem">
+          <div class="stat-card"><div class="stat-num" id="sp-s-orders">—</div><div class="stat-lbl">Total Order</div></div>
+          <div class="stat-card"><div class="stat-num" id="sp-s-qty">—</div><div class="stat-lbl">Qty Terjual</div></div>
+          <div class="stat-card"><div class="stat-num" id="sp-s-revenue">—</div><div class="stat-lbl">Revenue</div></div>
+          <div class="stat-card"><div class="stat-num" id="sp-s-products">—</div><div class="stat-lbl">Produk Unik</div></div>
+          <div class="stat-card"><div class="stat-num" id="sp-s-avgday">—</div><div class="stat-lbl">Revenue/Hari</div></div>
+        </div>
+        <div id="sp-empty" style="text-align:center;padding:3rem;color:var(--g400);font-family:var(--mono);font-size:12px">Atur filter dan klik "↻ Analisis" untuk memuat data.</div>
+        <div id="sp-chart-wrap" style="display:none;background:var(--white);border:1px solid var(--g100);border-radius:8px;padding:16px;margin-bottom:1.25rem">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+            <div style="font-family:var(--mono);font-size:11px;text-transform:uppercase;color:var(--g400);letter-spacing:.05em">Trend Penjualan</div>
+            <div style="display:flex;gap:4px" id="sp-view-btns">
+              <button onclick="switchSPView('day',this)" style="padding:3px 10px;font-size:11px;font-family:var(--mono);border:1px solid var(--g200);border-radius:4px;background:none;cursor:pointer;color:var(--g600)">Hari</button>
+              <button onclick="switchSPView('week',this)" style="padding:3px 10px;font-size:11px;font-family:var(--mono);border:1px solid var(--g200);border-radius:4px;background:none;cursor:pointer;color:var(--g600)">Minggu</button>
+              <button onclick="switchSPView('month',this)" style="padding:3px 10px;font-size:11px;font-family:var(--mono);border:1px solid var(--g200);border-radius:4px;background:var(--black);color:var(--white);cursor:pointer">Bulan</button>
+              <button onclick="switchSPView('year',this)" style="padding:3px 10px;font-size:11px;font-family:var(--mono);border:1px solid var(--g200);border-radius:4px;background:none;cursor:pointer;color:var(--g600)">Tahun</button>
+            </div>
+          </div>
+          <div style="height:280px;position:relative"><canvas id="sp-chart"></canvas></div>
+        </div>
+        <div id="sp-tables-wrap" style="display:none">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.25rem">
+            <div>
+              <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);letter-spacing:.05em;margin-bottom:8px">Sales Channel Summary</div>
+              <div class="table-wrap" style="margin:0"><table style="width:100%"><thead><tr><th>Channel</th><th style="text-align:right">Orders</th><th style="text-align:right">Qty</th><th style="text-align:right">Revenue</th><th style="text-align:right">%</th></tr></thead><tbody id="sp-channel-tbody"><tr><td class="empty-td" colspan="5">—</td></tr></tbody></table></div>
+            </div>
+            <div>
+              <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);letter-spacing:.05em;margin-bottom:8px">Store Summary</div>
+              <div class="table-wrap" style="margin:0"><table style="width:100%"><thead><tr><th>Store</th><th style="text-align:right">Orders</th><th style="text-align:right">Qty</th><th style="text-align:right">Revenue</th><th style="text-align:right">%</th></tr></thead><tbody id="sp-store-tbody"><tr><td class="empty-td" colspan="5">—</td></tr></tbody></table></div>
+            </div>
+          </div>
+          <div>
+            <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);letter-spacing:.05em;margin-bottom:8px;display:flex;justify-content:space-between"><span>Product Summary</span><span id="sp-prod-count"></span></div>
+            <div class="table-wrap" style="margin:0"><table style="width:100%"><thead><tr><th>Produk</th><th>Brand</th><th>IP</th><th>Koleksi</th><th style="text-align:right">Qty</th><th style="text-align:right">Revenue</th></tr></thead><tbody id="sp-product-tbody"><tr><td class="empty-td" colspan="6">—</td></tr></tbody></table></div>
+          </div>
+        </div>
+      </div>
 
 <!-- Project Detail Panel -->
 <div id="proj-overlay" class="proj-panel-overlay" style="display:none" onclick="if(event.target===this)closeProjectDetail()"></div>
