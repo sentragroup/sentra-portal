@@ -81,12 +81,22 @@ Read app.js  offset: <start_line>  limit: <lines_to_read>
 | Duplicate check | `// ── DUPLICATE CHECK ──` | ~1720 | 14 |
 
 ### Adding a new module — what to touch
-1. **Sidebar nav** — grep `<!-- APP -->` in `index.html`, add `sb-item` inside the correct `sb-sec`
+1. **Sidebar nav** — grep `<!-- APP -->` in `index.html`, add `sb-item` inside the correct `sb-sec`. **Place new items at the TOP of their section** (before existing items in that section), not appended at the bottom.
 2. **Home card** — grep `<!-- HOME -->` in `index.html`, add `tool-card` div in the correct section grid
 3. **Page HTML** — insert new `<!-- PAGE_NAME -->` block in `index.html` **immediately before `<!-- SYNC ALL MODAL -->`** (NOT before `</body>` — the sync modal and project panel must stay last)
 4. **JS** — insert new `// ── MODULE ──` block in `app.js` before `// ── DUPLICATE CHECK ──`
 5. **`showPage` labels** — add `pagename:"Display Name"` to the `labels` object in `showPage()` (top of app.js, ~line 160)
 6. **Supabase** — create table via MCP, enable RLS, add `authenticated_only` policy
+
+### Sidebar section order
+```
+Menu        → Home
+General     → Insights, Sales Performance, Project Board, Calendar
+Warehouse   → (warehouse modules)
+Database    → IP Master, Collaborator Royalty, Brand Master, Distribution Partner, Designer Master, Product Mapping
+Settings    → (settings modules)
+```
+New modules go at the **top** of their target section. Never append to the bottom.
 
 ---
 
