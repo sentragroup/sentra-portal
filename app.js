@@ -9642,7 +9642,7 @@ async function loadRestock() {
     const brands    = brandFil ? [brandFil] : RESTOCK_BRANDS;
 
     // 1. Product mappings for target brands
-    const mappings = await _fetchAllPages('product_mappings','jubelio_item_id,item_name,brand,ip',
+    const mappings = await _fetchAllPages('product_mappings','jubelio_item_id,item_name,brand,ip,collection',
       q => q.in('brand', brands).not('jubelio_item_id','is',null));
     if (!mappings.length) {
       if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="9">Tidak ada produk untuk brand yang dipilih.</td></tr>`;
@@ -9686,8 +9686,8 @@ async function loadRestock() {
     // Group by parent name
     const productMap = {};
     for (const m of mappings) {
-      const { item_name: parentName, brand, ip, jubelio_item_id: itemId } = m;
-      if (!productMap[parentName]) productMap[parentName] = { name:parentName, brand, ip, thumbnail:null, variants:[] };
+      const { item_name: parentName, brand, ip, collection, jubelio_item_id: itemId } = m;
+      if (!productMap[parentName]) productMap[parentName] = { name:parentName, brand, ip, collection:collection||'', thumbnail:null, variants:[] };
       const info        = infoMap[itemId]  || {};
       const stock       = stockMap[itemId] || 0;
       const qtySold     = qtyMap[itemId]   || 0;
@@ -9721,6 +9721,16 @@ async function loadRestock() {
     });
 
     _rstData = { products, dayCount };
+
+    // Populate IP and collection dropdowns
+    const _populateDrop = (id, vals) => {
+      const el = document.getElementById(id); if (!el) return;
+      const cur = el.value;
+      el.innerHTML = `<option value="">${id==='rst-ip'?'Semua IP':'Semua Collection'}</option>`
+        + vals.map(v => `<option value="${v}"${v===cur?' selected':''}>${v}</option>`).join('');
+    };
+    _populateDrop('rst-ip',         [...new Set(products.map(p=>p.ip).filter(Boolean))].sort());
+    _populateDrop('rst-collection',  [...new Set(products.map(p=>p.collection).filter(Boolean))].sort());
 
     // Auto-expand products with restock needs, pre-check urgent variants
     for (const p of products) {
@@ -9757,12 +9767,19 @@ function renderRestockTable(products) {
   const showAll = document.getElementById('rst-show-all')?.checked;
   if (!tbody) return;
 
+  const ipFil  = document.getElementById('rst-ip')?.value  || '';
+  const colFil = document.getElementById('rst-collection')?.value || '';
+  const brandFil2 = document.getElementById('rst-brand')?.value || '';
+
   const rows = [];
   let totalVisible = 0;
 
   for (const p of products) {
     const hasRestock = p.restockCount > 0;
     if (!showAll && !hasRestock) continue;
+    if (brandFil2 && p.brand !== brandFil2) continue;
+    if (ipFil   && p.ip !== ipFil)          continue;
+    if (colFil  && p.collection !== colFil) continue;
 
     const pKey     = btoa(unescape(encodeURIComponent(p.name))).replace(/[^a-zA-Z0-9]/g,'');
     const expanded = !!_rstExpanded[p.name];
@@ -9883,6 +9900,113 @@ function _rstUpdateSelected() {
 
 function generateRestockPO() {
   const supplierEl = document.getElementById('rst-supplier');
+  if (!supplierEl?.value) { alert('Pilih supplier terlebih dahulu.'); return; }
+  _rstShowSummary();
+}
+
+function _rstShowSummary() {
+  const supplierEl   = document.getElementById('rst-supplier');
+  const supplierName = supplierEl?.options[supplierEl.selectedIndex]?.text || 'MGMT';
+
+  const productSummary = {};
+  let hasZeroPrice = false;
+
+  document.querySelectorAll('.rst-var-chk:checked').forEach(chk => {
+    const row   = chk.closest('tr');
+    const qty   = parseFloat(row?.querySelector('.rst-qty-input')?.value)   || 0;
+    const price = parseFloat(row?.querySelector('.rst-price-input')?.value) || 0;
+    if (qty <= 0) return;
+    if (price === 0) hasZeroPrice = true;
+
+    const pKey = chk.dataset.pkey;
+    let parentName = '', brand = '', ip = '', collection = '';
+    if (_rstData) {
+      const p = _rstData.products.find(pp =>
+        btoa(unescape(encodeURIComponent(pp.name))).replace(/[^a-zA-Z0-9]/g,'') === pKey);
+      if (p) { parentName = p.name; brand = p.brand; ip = p.ip||''; collection = p.collection||''; }
+    }
+    if (!parentName) parentName = chk.dataset.itemCode || '—';
+
+    if (!productSummary[parentName])
+      productSummary[parentName] = { name:parentName, brand, ip, collection, skus:[], totalQty:0, totalNilai:0 };
+    productSummary[parentName].skus.push(chk.dataset.itemCode||'');
+    productSummary[parentName].totalQty   += qty;
+    productSummary[parentName].totalNilai += qty * price;
+  });
+
+  if (!Object.keys(productSummary).length) {
+    alert('Tidak ada item dipilih atau semua qty = 0.');
+    return;
+  }
+
+  const prods      = Object.values(productSummary);
+  const grandSKUs  = prods.reduce((s,p) => s + p.skus.length, 0);
+  const grandQty   = prods.reduce((s,p) => s + p.totalQty,    0);
+  const grandNilai = prods.reduce((s,p) => s + p.totalNilai,  0);
+  const fmtRp = v => 'Rp ' + Math.round(v).toLocaleString('id-ID');
+
+  let html = `<div style="font-size:12px;color:var(--g400);margin-bottom:12px">
+    Supplier: <strong style="color:var(--text)">${supplierName}</strong>
+    &nbsp;·&nbsp; ${prods.length} produk
+    &nbsp;·&nbsp; ${grandSKUs} SKU
+    &nbsp;·&nbsp; ${grandQty} unit
+    ${grandNilai > 0 ? '&nbsp;·&nbsp; <strong style="color:var(--text)">'+fmtRp(grandNilai)+'</strong>' : ''}
+  </div>`;
+
+  if (hasZeroPrice) {
+    html += `<div style="background:#fff8e1;border:1px solid #ffe082;border-radius:6px;padding:9px 12px;margin-bottom:12px;font-size:12px;color:#7a5c00">
+      ⚠ Beberapa item memiliki harga beli Rp 0 — pastikan harga sudah diisi sebelum import ke Jubelio.
+    </div>`;
+  }
+
+  html += `<div style="overflow-x:auto">
+  <table style="width:100%;border-collapse:collapse;font-size:12px">
+    <thead><tr style="background:#f7f8fa;border-bottom:2px solid var(--g200)">
+      <th style="padding:8px 10px;text-align:left;font-weight:600;white-space:nowrap">Produk</th>
+      <th style="padding:8px 10px;text-align:left;font-weight:600;white-space:nowrap">IP</th>
+      <th style="padding:8px 10px;text-align:left;font-weight:600;white-space:nowrap">Collection</th>
+      <th style="padding:8px 10px;text-align:right;font-weight:600">SKU</th>
+      <th style="padding:8px 10px;text-align:right;font-weight:600">Qty</th>
+      <th style="padding:8px 10px;text-align:right;font-weight:600;white-space:nowrap">Est. Nilai</th>
+    </tr></thead>
+    <tbody>`;
+
+  for (const p of prods) {
+    html += `<tr style="border-bottom:1px solid var(--g100)">
+      <td style="padding:7px 10px;font-weight:500">${p.name}
+        <span style="font-size:10px;color:var(--g400);margin-left:5px">${p.brand}</span></td>
+      <td style="padding:7px 10px;color:var(--g400)">${p.ip||'—'}</td>
+      <td style="padding:7px 10px;color:var(--g400)">${p.collection||'—'}</td>
+      <td style="padding:7px 10px;text-align:right;font-family:var(--mono)">${p.skus.length}</td>
+      <td style="padding:7px 10px;text-align:right;font-family:var(--mono)">${p.totalQty}</td>
+      <td style="padding:7px 10px;text-align:right;font-family:var(--mono)">${p.totalNilai>0?fmtRp(p.totalNilai):'—'}</td>
+    </tr>`;
+  }
+
+  html += `<tr style="background:#f7f8fa;font-weight:700;border-top:2px solid var(--g200)">
+    <td style="padding:8px 10px" colspan="3">Total</td>
+    <td style="padding:8px 10px;text-align:right;font-family:var(--mono)">${grandSKUs}</td>
+    <td style="padding:8px 10px;text-align:right;font-family:var(--mono)">${grandQty}</td>
+    <td style="padding:8px 10px;text-align:right;font-family:var(--mono)">${grandNilai>0?fmtRp(grandNilai):'—'}</td>
+  </tr>`;
+
+  html += `</tbody></table></div>`;
+
+  const content = document.getElementById('rst-summary-content');
+  if (content) content.innerHTML = html;
+  const modal = document.getElementById('rst-summary-modal');
+  if (modal) modal.style.display = 'flex';
+}
+
+function _rstCloseSummary() {
+  const modal = document.getElementById('rst-summary-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+function _rstDoDownloadCSV() {
+  _rstCloseSummary();
+
+  const supplierEl   = document.getElementById('rst-supplier');
   const supplierName = supplierEl?.options[supplierEl.selectedIndex]?.text || 'MGMT';
 
   const items = [];
@@ -9894,41 +10018,31 @@ function generateRestockPO() {
     items.push({ sku: chk.dataset.itemCode || '', qty, price });
   });
 
-  if (!items.length) { alert('Tidak ada item dipilih atau semua qty = 0.'); return; }
+  if (!items.length) return;
 
   const note    = document.getElementById('rst-note')?.value || '';
   const today   = new Date().toISOString().slice(0, 10);
   const statusEl = document.getElementById('rst-gen-status');
 
-  // CSV escape: wrap in quotes if value contains comma, quote, or newline
   const esc = v => {
     const s = String(v ?? '');
     return (s.includes(',') || s.includes('"') || s.includes('\n'))
-      ? '"' + s.replace(/"/g, '""') + '"'
-      : s;
+      ? '"' + s.replace(/"/g, '""') + '"' : s;
   };
 
   const COLS = ['No. Pesanan','No. Ref Pemasok','Tanggal','Zona Waktu','Nama Pemasok',
                 'Email Pemasok','No Telp. Pemasok','Harga Termasuk Pajak','Lokasi',
                 'Keterangan','SKU','Harga','Qty','Nilai Diskon','Pajak'];
-
   const lines = [COLS.join(',')];
 
   items.forEach((it, i) => {
     if (i === 0) {
-      // Header row + first item
-      lines.push([
-        '[auto]', '', esc(today), 'WIB', esc(supplierName),
+      lines.push(['[auto]', '', esc(today), 'WIB', esc(supplierName),
         '', '0', 'FALSE', 'Gudang Penerimaan Barang',
-        esc(note), esc(it.sku), it.price, it.qty, 0, 'No Tax'
-      ].join(','));
+        esc(note), esc(it.sku), it.price, it.qty, 0, 'No Tax'].join(','));
     } else {
-      // Continuation rows: header columns empty, only item columns filled
-      lines.push([
-        '', '', '', '', '',
-        '', '', '', '',
-        '', esc(it.sku), it.price, it.qty, 0, 'No Tax'
-      ].join(','));
+      lines.push(['', '', '', '', '', '', '', '', '', '',
+        esc(it.sku), it.price, it.qty, 0, 'No Tax'].join(','));
     }
   });
 
@@ -9942,7 +10056,7 @@ function generateRestockPO() {
 
   const totalQty = items.reduce((s,i) => s+i.qty, 0);
   if (statusEl) statusEl.innerHTML =
-    `✅ <strong>${filename}</strong> berhasil diunduh · ${items.length} SKU · ${totalQty} unit total`+
+    `✅ <strong>${filename}</strong> berhasil diunduh · ${items.length} SKU · ${totalQty} unit`+
     ` · <span style="color:var(--g400);font-size:12px">Import via Jubelio → Pembelian → Import</span>`;
 }
 
