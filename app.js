@@ -8963,7 +8963,7 @@ function _initSPMultiSelects() {
 async function _preloadSPFiltersAndRun() {
   // Load product_mappings (cached) → populate brand/IP/collection dropdowns
   if (!_spAllMappings) {
-    _spAllMappings = await _fetchAllPages('product_mappings', 'item_name,brand,ip,collection');
+    _spAllMappings = await _fetchAllPages('product_mappings', 'jubelio_item_id,item_name,brand,ip,collection');
   }
   const brandMS=_spMS['sp-ms-brand'], ipMS=_spMS['sp-ms-ip'], colMS=_spMS['sp-ms-collection'];
   if (_spAllMappings) {
@@ -9105,7 +9105,7 @@ async function loadSalesPerf() {
     for (let i = 0; i < soIds.length; i += 500) {
       const chunk = soIds.slice(i, i + 500);
       const rows = await _fetchAllPages('jubelio_sales_order_items',
-        'salesorder_id,item_name,qty,price,disc_amount',
+        'salesorder_id,item_id,item_name,qty,price,disc_amount',
         q => q.in('salesorder_id', chunk)
       );
       allItems.push(...rows);
@@ -9113,11 +9113,12 @@ async function loadSalesPerf() {
 
     // 3. Load product_mappings (cached, all pages)
     if (!_spAllMappings) {
-      _spAllMappings = await _fetchAllPages('product_mappings', 'item_name,brand,ip,collection');
+      _spAllMappings = await _fetchAllPages('product_mappings', 'jubelio_item_id,item_name,brand,ip,collection');
     }
-    const mappingByName = {};
+    // Index by jubelio_item_id (SKU-level) for accurate brand/IP lookup
+    const mappingById = {};
     for (const m of _spAllMappings) {
-      if (m.item_name && !mappingByName[m.item_name]) mappingByName[m.item_name] = m;
+      if (m.jubelio_item_id) mappingById[m.jubelio_item_id] = m;
     }
     // Ensure brand/IP/col dropdowns are populated (in case preload missed them)
     const _bMS=_spMS['sp-ms-brand'], _iMS=_spMS['sp-ms-ip'], _cMS=_spMS['sp-ms-collection'];
@@ -9129,7 +9130,7 @@ async function loadSalesPerf() {
     let items = allItems;
     if (brandVals.length || ipVals.length || colVals.length || prodF) {
       items = allItems.filter(it => {
-        const m = mappingByName[it.item_name] || {};
+        const m = mappingById[it.item_id] || {};
         if (brandVals.length && !brandVals.includes(m.brand)) return false;
         if (ipVals.length    && !ipVals.includes(m.ip))       return false;
         if (colVals.length   && !colVals.includes(m.collection)) return false;
@@ -9186,7 +9187,7 @@ async function loadSalesPerf() {
     const productMap = {};
     for (const it of items) {
       const name = it.item_name || '?';
-      const m    = mappingByName[name] || {};
+      const m    = mappingById[it.item_id] || {};
       if (!productMap[name]) productMap[name] = { name, brand: m.brand || '', ip: m.ip || '', collection: m.collection || '', qty: 0, revenue: 0, disc: 0 };
       productMap[name].qty     += parseFloat(it.qty    || 0);
       productMap[name].revenue += parseFloat(it.qty    || 0) * parseFloat(it.price || 0);
