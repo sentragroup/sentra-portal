@@ -1581,6 +1581,8 @@ let spData = null;
 let spChartView = 'month';
 let _spChart = null;
 let _spAllMappings = null;
+const SP_PROD_PAGE_SIZE = 20;
+let _spProdPage = 0;
 
 function switchDPTab(name, el) {
   document.querySelectorAll("#page-distpartner .tab-btn").forEach(b=>b.classList.remove("active"));
@@ -8889,7 +8891,7 @@ function _initSPMultiSelects() {
   if (_spMSInitialized) return;
   _spMSInitialized = true;
   const defs = [
-    { id:'sp-ms-status',     ph:'Semua Status',   staticOpts:['COMPLETED','CANCELED','FINISH_PACK','FINISH_PICK','PAID','PENDING','RETURNED','CLOSED'] },
+    { id:'sp-ms-status',     ph:'Semua Status',   staticOpts:['Selesai','Diproses','Dibatalkan / Retur'] },
     { id:'sp-ms-channel',    ph:'Semua Channel',  staticOpts:null },
     { id:'sp-ms-store',      ph:'Semua Store',    staticOpts:null },
     { id:'sp-ms-brand',      ph:'Semua Brand',    staticOpts:null },
@@ -9057,7 +9059,8 @@ async function loadSalesPerf() {
   try {
     const from      = document.getElementById('sp-fil-from').value;
     const to        = document.getElementById('sp-fil-to').value;
-    const statusVals  = _spMS['sp-ms-status']  ? _spMS['sp-ms-status'].getValues()  : [];
+    const _SP_STATUS_MAP = {'Selesai':['COMPLETED','FINISH_PACK','FINISH_PICK','CLOSED'],'Diproses':['PAID','PENDING'],'Dibatalkan / Retur':['CANCELED','RETURNED']};
+    const statusVals = (_spMS['sp-ms-status'] ? _spMS['sp-ms-status'].getValues() : []).flatMap(s => _SP_STATUS_MAP[s] || [s]);
     const channelVals = _spMS['sp-ms-channel'] ? _spMS['sp-ms-channel'].getValues() : [];
     const storeVals   = _spMS['sp-ms-store']   ? _spMS['sp-ms-store'].getValues()   : [];
     const brandVals   = _spMS['sp-ms-brand']   ? _spMS['sp-ms-brand'].getValues()   : [];
@@ -9109,6 +9112,11 @@ async function loadSalesPerf() {
     for (const m of _spAllMappings) {
       if (m.item_name && !mappingByName[m.item_name]) mappingByName[m.item_name] = m;
     }
+    // Ensure brand/IP/col dropdowns are populated (in case preload missed them)
+    const _bMS=_spMS['sp-ms-brand'], _iMS=_spMS['sp-ms-ip'], _cMS=_spMS['sp-ms-collection'];
+    if (_bMS && _bMS.options.length===0) _bMS.setOptions([...new Set(_spAllMappings.map(m=>m.brand).filter(Boolean))].sort().map(b=>({value:b,label:b,count:null})));
+    if (_iMS && _iMS.options.length===0) _iMS.setOptions([...new Set(_spAllMappings.map(m=>m.ip).filter(Boolean))].sort().map(i=>({value:i,label:i,count:null})));
+    if (_cMS && _cMS.options.length===0) _cMS.setOptions([...new Set(_spAllMappings.map(m=>m.collection).filter(Boolean))].sort().map(c=>({value:c,label:c,count:null})));
 
     // 4. Client-side filter
     let items = allItems;
@@ -9143,14 +9151,15 @@ async function loadSalesPerf() {
     for (const it of items) {
       const o  = orderMap.get(it.salesorder_id); if (!o) continue;
       const ch = o.channel_name || '(Lainnya)';
-      if (!channelMap[ch]) channelMap[ch] = { orders: new Set(), qty: 0, revenue: 0 };
+      if (!channelMap[ch]) channelMap[ch] = { orders: new Set(), qty: 0, revenue: 0, disc: 0 };
       channelMap[ch].orders.add(it.salesorder_id);
       channelMap[ch].qty     += parseFloat(it.qty    || 0);
       channelMap[ch].revenue += parseFloat(it.qty    || 0) * parseFloat(it.price || 0);
+      channelMap[ch].disc    += parseFloat(it.disc_amount || 0);
     }
     const channelData = Object.entries(channelMap)
-      .map(([ch, d]) => ({ channel: ch, orders: d.orders.size, qty: d.qty, revenue: d.revenue }))
-      .sort((a, b) => b.revenue - a.revenue);
+      .map(([ch, d]) => ({ channel: ch, orders: d.orders.size, qty: d.qty, revenue: d.revenue, disc: d.disc, net: d.revenue - d.disc }))
+      .sort((a, b) => b.net - a.net);
 
     // 7. Store summary
     const storeMap = {};
@@ -9171,30 +9180,33 @@ async function loadSalesPerf() {
     for (const it of items) {
       const name = it.item_name || '?';
       const m    = mappingByName[name] || {};
-      if (!productMap[name]) productMap[name] = { name, brand: m.brand || '', ip: m.ip || '', collection: m.collection || '', qty: 0, revenue: 0 };
+      if (!productMap[name]) productMap[name] = { name, brand: m.brand || '', ip: m.ip || '', collection: m.collection || '', qty: 0, revenue: 0, disc: 0 };
       productMap[name].qty     += parseFloat(it.qty    || 0);
       productMap[name].revenue += parseFloat(it.qty    || 0) * parseFloat(it.price || 0);
+      productMap[name].disc    += parseFloat(it.disc_amount || 0);
     }
-    const productData = Object.values(productMap).sort((a, b) => b.qty - a.qty);
+    const productData = Object.values(productMap).map(p => ({...p, net: p.revenue - p.disc})).sort((a, b) => b.qty - a.qty);
 
     // 9. Totals
     const totalQty     = items.reduce((s, it) => s + parseFloat(it.qty || 0), 0);
     const totalRevenue = items.reduce((s, it) => s + parseFloat(it.qty || 0) * parseFloat(it.price || 0), 0);
+    const totalDisc    = items.reduce((s, it) => s + parseFloat(it.disc_amount || 0), 0);
+    const totalNet     = totalRevenue - totalDisc;
     const dayCount     = Math.max(1, Object.keys(timeSeries).length);
     const fmtRp        = n => n >= 1000000 ? 'Rp ' + (n/1000000).toFixed(1) + 'jt' : 'Rp ' + Math.round(n).toLocaleString('id-ID');
-    const avgDay       = totalRevenue > 0 ? fmtRp(totalRevenue / dayCount) : '—';
+    const avgDay       = totalNet > 0 ? fmtRp(totalNet / dayCount) : '—';
 
-    spData = { timeSeries, channelData, storeData, productData, totalQty, totalRevenue, dayCount, avgDay };
+    spData = { timeSeries, channelData, storeData, productData, totalQty, totalRevenue, totalDisc, totalNet, dayCount, avgDay };
 
     populateSPFilterDropdowns(orders, channelData, storeData, productData);
-    updateSPStats({ orders: filteredOrders.length, qty: totalQty, revenue: totalRevenue, products: productData.length, avgDay });
+    updateSPStats({ orders: filteredOrders.length, qty: totalQty, revenue: totalNet, products: productData.length, avgDay });
     emptyEl.style.display = 'none';
     document.getElementById('sp-chart-wrap').style.display = 'block';
     document.getElementById('sp-tables-wrap').style.display = 'block';
     renderSPChart(spChartView);
-    renderSPChannelTable(channelData, totalRevenue);
-    renderSPStoreTable(storeData, totalRevenue);
-    renderSPProductTable(productData);
+    _spProdPage = 0;
+    renderSPChannelTable(channelData, totalNet);
+    renderSPProductTable(productData, 0);
 
   } catch (e) {
     emptyEl.textContent = 'Gagal: ' + (e.message || e);
@@ -9275,55 +9287,74 @@ function renderSPChart(view) {
   });
 }
 
-function renderSPChannelTable(data, totalRevenue) {
+function renderSPChannelTable(data, totalNet) {
   const tbody = document.getElementById('sp-channel-tbody');
   if (!tbody) return;
   const fmtRp = n => 'Rp ' + Math.round(n).toLocaleString('id-ID');
-  if (!data.length) { tbody.innerHTML = `<tr><td class="empty-td" colspan="5">Tidak ada data.</td></tr>`; return; }
+  if (!data.length) { tbody.innerHTML = `<tr><td class="empty-td" colspan="7">Tidak ada data.</td></tr>`; return; }
   tbody.innerHTML = data.map(d => {
-    const pct = totalRevenue > 0 ? ((d.revenue / totalRevenue) * 100).toFixed(1) + '%' : '—';
+    const pct = totalNet > 0 ? ((d.net / totalNet) * 100).toFixed(1) + '%' : '—';
     return `<tr>
       <td style="padding:7px 10px;font-size:12px;font-weight:500">${d.channel}</td>
       <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px">${d.orders.toLocaleString('id-ID')}</td>
       <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px">${Math.round(d.qty).toLocaleString('id-ID')}</td>
-      <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:#2d7a2d">${fmtRp(d.revenue)}</td>
+      <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--g600)">${fmtRp(d.revenue)}</td>
+      <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:#c0392b">${d.disc > 0 ? fmtRp(d.disc) : '—'}</td>
+      <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:#2d7a2d;font-weight:600">${fmtRp(d.net)}</td>
       <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--g400)">${pct}</td>
     </tr>`;
   }).join('');
 }
 
-function renderSPStoreTable(data, totalRevenue) {
-  const tbody = document.getElementById('sp-store-tbody');
-  if (!tbody) return;
-  const fmtRp = n => 'Rp ' + Math.round(n).toLocaleString('id-ID');
-  if (!data.length) { tbody.innerHTML = `<tr><td class="empty-td" colspan="5">Tidak ada data.</td></tr>`; return; }
-  tbody.innerHTML = data.map(d => {
-    const pct = totalRevenue > 0 ? ((d.revenue / totalRevenue) * 100).toFixed(1) + '%' : '—';
-    return `<tr>
-      <td style="padding:7px 10px;font-size:12px;font-weight:500;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${d.store}">${d.store}</td>
-      <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px">${d.orders.toLocaleString('id-ID')}</td>
-      <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px">${Math.round(d.qty).toLocaleString('id-ID')}</td>
-      <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:#2d7a2d">${fmtRp(d.revenue)}</td>
-      <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--g400)">${pct}</td>
-    </tr>`;
-  }).join('');
-}
-
-function renderSPProductTable(data) {
+function renderSPProductTable(data, page) {
   const tbody = document.getElementById('sp-product-tbody');
   const countEl = document.getElementById('sp-prod-count');
+  const pagDiv  = document.getElementById('sp-prod-pagination');
   if (!tbody) return;
+  _spProdPage = page || 0;
   if (countEl) countEl.textContent = data.length + ' produk';
   const fmtRp = n => 'Rp ' + Math.round(n).toLocaleString('id-ID');
-  if (!data.length) { tbody.innerHTML = `<tr><td class="empty-td" colspan="6">Tidak ada data.</td></tr>`; return; }
-  tbody.innerHTML = data.map(d => `<tr>
-    <td style="padding:7px 10px;font-size:12px;font-weight:500;max-width:200px">${d.name}</td>
+  if (!data.length) { tbody.innerHTML = `<tr><td class="empty-td" colspan="8">Tidak ada produk.</td></tr>`; if(pagDiv) pagDiv.innerHTML=''; return; }
+  const totalPages = Math.ceil(data.length / SP_PROD_PAGE_SIZE);
+  const start = _spProdPage * SP_PROD_PAGE_SIZE;
+  const pageData = data.slice(start, start + SP_PROD_PAGE_SIZE);
+  tbody.innerHTML = pageData.map((d,i) => `<tr>
+    <td style="padding:7px 10px;font-size:12px;font-weight:500;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${d.name}">${start+i+1}. ${d.name}</td>
     <td style="padding:7px 10px;font-size:11px;color:var(--g600)">${d.brand || '—'}</td>
     <td style="padding:7px 10px;font-size:11px;color:var(--g600)">${d.ip || '—'}</td>
     <td style="padding:7px 10px;font-size:11px;color:var(--g600)">${d.collection || '—'}</td>
     <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px">${Math.round(d.qty).toLocaleString('id-ID')}</td>
-    <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:#2d7a2d">${fmtRp(d.revenue)}</td>
+    <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--g600)">${fmtRp(d.revenue)}</td>
+    <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:#c0392b">${d.disc > 0 ? fmtRp(d.disc) : '—'}</td>
+    <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:#2d7a2d;font-weight:600">${fmtRp(d.net)}</td>
   </tr>`).join('');
+  // Pagination
+  if (pagDiv) {
+    if (totalPages <= 1) { pagDiv.innerHTML = ''; return; }
+    const prevDisabled = _spProdPage===0;
+    const nextDisabled = _spProdPage>=totalPages-1;
+    const pageNums = [];
+    for (let i=0; i<totalPages; i++) {
+      if (i===0 || i===totalPages-1 || Math.abs(i-_spProdPage)<=1) pageNums.push(i);
+      else if (pageNums[pageNums.length-1]!=='…') pageNums.push('…');
+    }
+    pagDiv.innerHTML = `
+      <span style="color:var(--g400)">${start+1}–${Math.min(start+SP_PROD_PAGE_SIZE,data.length)} dari ${data.length}</span>
+      <div style="display:flex;gap:4px;align-items:center">
+        <button onclick="_spProdGoPage(${_spProdPage-1})" ${prevDisabled?'disabled':''} style="padding:3px 8px;border:1px solid var(--g200);border-radius:4px;background:${prevDisabled?'var(--g50)':'white'};cursor:${prevDisabled?'default':'pointer'};font-family:var(--mono);font-size:11px;color:${prevDisabled?'var(--g300)':'var(--g700)'}">‹ Prev</button>
+        ${pageNums.map(n => n==='…' ? `<span style="color:var(--g400);padding:0 2px">…</span>` :
+          `<button onclick="_spProdGoPage(${n})" style="padding:3px 8px;border:1px solid ${n===_spProdPage?'var(--black)':'var(--g200)'};border-radius:4px;background:${n===_spProdPage?'var(--black)':'white'};color:${n===_spProdPage?'white':'var(--g700)'};cursor:pointer;font-family:var(--mono);font-size:11px">${n+1}</button>`
+        ).join('')}
+        <button onclick="_spProdGoPage(${_spProdPage+1})" ${nextDisabled?'disabled':''} style="padding:3px 8px;border:1px solid var(--g200);border-radius:4px;background:${nextDisabled?'var(--g50)':'white'};cursor:${nextDisabled?'default':'pointer'};font-family:var(--mono);font-size:11px;color:${nextDisabled?'var(--g300)':'var(--g700)'}">Next ›</button>
+      </div>`;
+  }
+}
+
+function _spProdGoPage(page) {
+  if (!spData || !spData.productData) return;
+  const totalPages = Math.ceil(spData.productData.length / SP_PROD_PAGE_SIZE);
+  if (page < 0 || page >= totalPages) return;
+  renderSPProductTable(spData.productData, page);
 }
 
 // ── DUPLICATE CHECK ──

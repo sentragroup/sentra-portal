@@ -1906,20 +1906,15 @@
           <div style="height:280px;position:relative"><canvas id="sp-chart"></canvas></div>
         </div>
         <div id="sp-tables-wrap" style="display:none">
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.25rem">
-            <div>
-              <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);letter-spacing:.05em;margin-bottom:8px">Sales Channel Summary</div>
-              <div class="table-wrap" style="margin:0"><table style="width:100%"><thead><tr><th>Channel</th><th style="text-align:right">Orders</th><th style="text-align:right">Qty</th><th style="text-align:right">Revenue</th><th style="text-align:right">%</th></tr></thead><tbody id="sp-channel-tbody"><tr><td class="empty-td" colspan="5">—</td></tr></tbody></table></div>
-            </div>
-            <div>
-              <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);letter-spacing:.05em;margin-bottom:8px">Store Summary</div>
-              <div class="table-wrap" style="margin:0"><table style="width:100%"><thead><tr><th>Store</th><th style="text-align:right">Orders</th><th style="text-align:right">Qty</th><th style="text-align:right">Revenue</th><th style="text-align:right">%</th></tr></thead><tbody id="sp-store-tbody"><tr><td class="empty-td" colspan="5">—</td></tr></tbody></table></div>
-            </div>
+          <div style="margin-bottom:1.25rem">
+            <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);letter-spacing:.05em;margin-bottom:8px">Sales Channel Summary</div>
+            <div class="table-wrap" style="margin:0"><table style="width:100%"><thead><tr><th>Channel</th><th style="text-align:right">Orders</th><th style="text-align:right">Qty</th><th style="text-align:right">Revenue</th><th style="text-align:right">Discount</th><th style="text-align:right">Net Sales</th><th style="text-align:right">%</th></tr></thead><tbody id="sp-channel-tbody"><tr><td class="empty-td" colspan="7">—</td></tr></tbody></table></div>
           </div>
           <div>
             <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);letter-spacing:.05em;margin-bottom:8px;display:flex;justify-content:space-between"><span>Product Summary</span><span id="sp-prod-count"></span></div>
-            <div class="table-wrap" style="margin:0"><table style="width:100%"><thead><tr><th>Produk</th><th>Brand</th><th>IP</th><th>Koleksi</th><th style="text-align:right">Qty</th><th style="text-align:right">Revenue</th></tr></thead><tbody id="sp-product-tbody"><tr><td class="empty-td" colspan="6">—</td></tr></tbody></table></div>
+            <div class="table-wrap" style="margin:0"><table style="width:100%"><thead><tr><th>Produk</th><th>Brand</th><th>IP</th><th>Koleksi</th><th style="text-align:right">Qty</th><th style="text-align:right">Revenue</th><th style="text-align:right">Discount</th><th style="text-align:right">Net Sales</th></tr></thead><tbody id="sp-product-tbody"><tr><td class="empty-td" colspan="8">—</td></tr></tbody></table></div>
           </div>
+          <div id="sp-prod-pagination" style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;font-family:var(--mono);font-size:11px;color:var(--g500)"></div>
         </div>
       </div>
 
