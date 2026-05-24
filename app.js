@@ -9122,7 +9122,7 @@ async function loadSalesPerf() {
     for (let i = 0; i < soIds.length; i += 500) {
       const chunk = soIds.slice(i, i + 500);
       const rows = await _fetchAllPages('jubelio_sales_order_items',
-        'salesorder_id,item_id,item_name,qty,price,disc_amount',
+        'salesorder_id,item_id,item_name,qty,price,amount,disc_amount',
         q => q.in('salesorder_id', chunk)
       );
       allItems.push(...rows);
@@ -9168,7 +9168,7 @@ async function loadSalesPerf() {
       if (!date) continue;
       if (!timeSeries[date]) timeSeries[date] = { qty: 0, revenue: 0 };
       timeSeries[date].qty     += parseFloat(it.qty    || 0);
-      timeSeries[date].revenue += parseFloat(it.qty    || 0) * parseFloat(it.price || 0);
+      timeSeries[date].revenue += (parseFloat(it.amount ?? (parseFloat(it.qty||0) * parseFloat(it.price||0))));
     }
 
     // 6. Channel summary
@@ -9179,7 +9179,7 @@ async function loadSalesPerf() {
       if (!channelMap[ch]) channelMap[ch] = { orders: new Set(), qty: 0, revenue: 0, disc: 0 };
       channelMap[ch].orders.add(it.salesorder_id);
       channelMap[ch].qty     += parseFloat(it.qty    || 0);
-      channelMap[ch].revenue += parseFloat(it.qty    || 0) * parseFloat(it.price || 0);
+      channelMap[ch].revenue += (parseFloat(it.amount ?? (parseFloat(it.qty||0) * parseFloat(it.price||0))));
       channelMap[ch].disc    += parseFloat(it.disc_amount || 0);
     }
     const channelData = Object.entries(channelMap)
@@ -9194,7 +9194,7 @@ async function loadSalesPerf() {
       if (!storeMap[st]) storeMap[st] = { orders: new Set(), qty: 0, revenue: 0 };
       storeMap[st].orders.add(it.salesorder_id);
       storeMap[st].qty     += parseFloat(it.qty    || 0);
-      storeMap[st].revenue += parseFloat(it.qty    || 0) * parseFloat(it.price || 0);
+      storeMap[st].revenue += (parseFloat(it.amount ?? (parseFloat(it.qty||0) * parseFloat(it.price||0))));
     }
     const storeData = Object.entries(storeMap)
       .map(([st, d]) => ({ store: st, orders: d.orders.size, qty: d.qty, revenue: d.revenue }))
@@ -9215,14 +9215,15 @@ async function loadSalesPerf() {
       const pg = productMap[parentName];
       pg.orders.add(it.salesorder_id);
       pg.qty     += parseFloat(it.qty || 0);
-      pg.revenue += parseFloat(it.qty || 0) * parseFloat(it.price || 0);
+      const _rev = parseFloat(it.amount != null ? it.amount : (parseFloat(it.qty||0) * parseFloat(it.price||0)));
+      pg.revenue += _rev;
       pg.disc    += parseFloat(it.disc_amount || 0);
       if (it.item_id) pg.itemIds.add(it.item_id);
       // Variant-level tracking
       if (!pg.variants[variantName]) pg.variants[variantName] = { name: variantName, orders: new Set(), qty: 0, revenue: 0, disc: 0 };
       pg.variants[variantName].orders.add(it.salesorder_id);
       pg.variants[variantName].qty     += parseFloat(it.qty || 0);
-      pg.variants[variantName].revenue += parseFloat(it.qty || 0) * parseFloat(it.price || 0);
+      pg.variants[variantName].revenue += _rev;
       pg.variants[variantName].disc    += parseFloat(it.disc_amount || 0);
     }
 
@@ -9244,9 +9245,10 @@ async function loadSalesPerf() {
 
     const productData = Object.values(productMap).map(p => ({...p, orders: p.orders.size, net: p.revenue - p.disc})).sort((a, b) => b.net - a.net);
 
-    // 9. Totals
+    // 9. Totals (use amount = actual line total from DB; fallback to qty*price)
+    const _itRev = it => parseFloat(it.amount != null ? it.amount : (parseFloat(it.qty||0) * parseFloat(it.price||0)));
     const totalQty     = items.reduce((s, it) => s + parseFloat(it.qty || 0), 0);
-    const totalRevenue = items.reduce((s, it) => s + parseFloat(it.qty || 0) * parseFloat(it.price || 0), 0);
+    const totalRevenue = items.reduce((s, it) => s + _itRev(it), 0);
     const totalDisc    = items.reduce((s, it) => s + parseFloat(it.disc_amount || 0), 0);
     const totalNet     = totalRevenue - totalDisc;
     const dayCount     = Math.max(1, Object.keys(timeSeries).length);
@@ -9390,50 +9392,50 @@ function renderSPProductTable(data, page) {
   const start = _spProdPage * SP_PROD_PAGE_SIZE;
   const pageData = data.slice(start, start + SP_PROD_PAGE_SIZE);
   const grandNet = data.reduce((s,d) => s + d.net, 0);
+  const TD  = 'style="padding:6px 10px;vertical-align:middle"';
+  const TDR = 'style="padding:6px 10px;vertical-align:middle;text-align:right;font-family:var(--mono);font-size:11px"';
   const rows = [];
   pageData.forEach((d, i) => {
     const idx = start + i;
     const pct = grandNet > 0 ? ((d.net / grandNet) * 100).toFixed(1) + '%' : '—';
     const hasVariants = d.variants && d.variants.length > 1;
     const thumb = d.thumbnail
-      ? `<img src="${d.thumbnail}" style="width:36px;height:36px;object-fit:cover;border-radius:4px;margin-right:8px;flex-shrink:0;border:1px solid var(--g100)" onerror="this.style.display='none'">`
-      : `<div style="width:36px;height:36px;border-radius:4px;background:var(--g100);margin-right:8px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--g400)">—</div>`;
+      ? `<img src="${d.thumbnail}" style="width:28px;height:28px;object-fit:cover;border-radius:3px;flex-shrink:0;border:1px solid var(--g100)" onerror="this.style.display='none'">`
+      : `<div style="width:28px;height:28px;border-radius:3px;background:var(--g100);flex-shrink:0"></div>`;
     const expandBtn = hasVariants
-      ? `<button id="sp-expand-${idx}" onclick="_spToggleVariants(${idx})" style="margin-left:6px;background:none;border:1px solid var(--g200);border-radius:3px;padding:1px 5px;font-size:9px;cursor:pointer;color:var(--g500);flex-shrink:0">▼</button>`
+      ? `<button id="sp-expand-${idx}" onclick="_spToggleVariants(${idx})" style="margin-left:5px;background:none;border:1px solid var(--g200);border-radius:3px;padding:1px 5px;font-size:9px;cursor:pointer;color:var(--g500);flex-shrink:0;line-height:1.2">▼</button>`
       : '';
     rows.push(`<tr style="border-bottom:1px solid var(--g50)">
-      <td style="padding:7px 10px">
-        <div style="display:flex;align-items:center">
+      <td ${TD}>
+        <div style="display:flex;align-items:center;gap:7px">
           ${thumb}
-          <div style="min-width:0">
-            <div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px" title="${d.name}">${idx+1}. ${d.name}</div>
-          </div>
+          <span style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0" title="${d.name}">${idx+1}. ${d.name}</span>
           ${expandBtn}
         </div>
       </td>
-      <td style="padding:7px 10px;font-size:11px;color:var(--g600)">${d.brand || '—'}</td>
-      <td style="padding:7px 10px;font-size:11px;color:var(--g600)">${d.ip || '—'}</td>
-      <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px">${d.orders.toLocaleString('id-ID')}</td>
-      <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px">${Math.round(d.qty).toLocaleString('id-ID')}</td>
-      <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--g600)">${fmtRp(d.revenue)}</td>
-      <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:#c0392b">${d.disc > 0 ? fmtRp(d.disc) : '—'}</td>
-      <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:#2d7a2d;font-weight:600">${fmtRp(d.net)}</td>
-      <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--g400)">${pct}</td>
+      <td ${TD} style="padding:6px 10px;vertical-align:middle;font-size:11px;color:var(--g600);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${d.brand || '—'}</td>
+      <td ${TD} style="padding:6px 10px;vertical-align:middle;font-size:11px;color:var(--g600);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${d.ip || '—'}</td>
+      <td ${TDR}>${d.orders.toLocaleString('id-ID')}</td>
+      <td ${TDR}>${Math.round(d.qty).toLocaleString('id-ID')}</td>
+      <td ${TDR} style="padding:6px 10px;vertical-align:middle;text-align:right;font-family:var(--mono);font-size:11px;color:var(--g600)">${fmtRp(d.revenue)}</td>
+      <td ${TDR} style="padding:6px 10px;vertical-align:middle;text-align:right;font-family:var(--mono);font-size:11px;color:#c0392b">${d.disc > 0 ? fmtRp(d.disc) : '—'}</td>
+      <td ${TDR} style="padding:6px 10px;vertical-align:middle;text-align:right;font-family:var(--mono);font-size:11px;color:#2d7a2d;font-weight:600">${fmtRp(d.net)}</td>
+      <td ${TDR} style="padding:6px 10px;vertical-align:middle;text-align:right;font-family:var(--mono);font-size:11px;color:var(--g400)">${pct}</td>
     </tr>`);
     // Variant sub-rows (collapsed by default)
     if (hasVariants) {
       const varRows = d.variants.map(v => {
-        // Extract size from end of variant name (last segment after " - ")
+        // Extract size: last segment after " - "
         const parts = v.name.split(' - ');
         const sizeLabel = parts.length > 1 ? parts[parts.length - 1] : v.name;
         return `<tr style="background:var(--g50)">
-          <td style="padding:4px 10px 4px 62px;font-size:11px;color:var(--g500)">${sizeLabel}</td>
+          <td style="padding:3px 10px 3px 55px;font-size:11px;color:var(--g500);font-family:var(--mono)">${sizeLabel}</td>
           <td></td><td></td>
-          <td style="padding:4px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--g500)">${v.orders.toLocaleString('id-ID')}</td>
-          <td style="padding:4px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--g500)">${Math.round(v.qty).toLocaleString('id-ID')}</td>
-          <td style="padding:4px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--g400)">${fmtRp(v.revenue)}</td>
-          <td style="padding:4px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:#c0392b">${v.disc > 0 ? fmtRp(v.disc) : '—'}</td>
-          <td style="padding:4px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:#2d7a2d">${fmtRp(v.net)}</td>
+          <td style="padding:3px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--g500)">${v.orders.toLocaleString('id-ID')}</td>
+          <td style="padding:3px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--g500)">${Math.round(v.qty).toLocaleString('id-ID')}</td>
+          <td style="padding:3px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--g400)">${fmtRp(v.revenue)}</td>
+          <td style="padding:3px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:#c0392b">${v.disc > 0 ? fmtRp(v.disc) : '—'}</td>
+          <td style="padding:3px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:#2d7a2d">${fmtRp(v.net)}</td>
           <td></td>
         </tr>`;
       }).join('');
