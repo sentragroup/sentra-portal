@@ -1029,10 +1029,19 @@
       </div>
 
       <div class="filter-panel">
-        <div class="filter-panel-top"><span class="filter-panel-label">Periode Penjualan (untuk avg/hari)</span></div>
+        <div class="filter-panel-top">
+          <span class="filter-panel-label">Periode Penjualan (untuk avg/hari)</span>
+          <div style="display:flex;border:1px solid var(--g200);border-radius:6px;overflow:hidden;font-size:12px;flex-shrink:0">
+            <button id="rst-mode-restock" onclick="_rstSetMode('restock')"
+              style="padding:5px 14px;border:none;cursor:pointer;background:#3C3489;color:white;font-weight:600;line-height:1">Perlu Restock</button>
+            <button id="rst-mode-catalog" onclick="_rstSetMode('catalog')"
+              style="padding:5px 14px;border:none;cursor:pointer;background:white;color:var(--g400);line-height:1">Semua Katalog</button>
+          </div>
+        </div>
         <div class="filter-grid">
           <input class="f-select" type="date" id="rst-from" onchange="">
           <input class="f-select" type="date" id="rst-to" onchange="">
+          <input class="f-select" type="text" id="rst-search" placeholder="🔍 Cari nama produk..." oninput="if(_rstData)renderRestockTable(_rstData.products)">
           <select class="f-select" id="rst-brand" onchange="if(_rstData)renderRestockTable(_rstData.products)">
             <option value="">Semua Brand</option>
             <option value="SD&amp;Y">SD&amp;Y</option>
