@@ -9803,10 +9803,23 @@ function renderRestockTable(products) {
       : `<div style="width:28px;height:28px;background:var(--g50);border-radius:3px;border:1px solid var(--g100);flex-shrink:0"></div>`;
 
     const allUrgChk = _rstAllVariantsChecked(p);
+
+    // Compute initial total from selected items' suggested qty
+    const initTotal = p.variants
+      .filter(v => _rstSelectedItems.has(v.itemId) && v.suggestedQty > 0)
+      .reduce((s, v) => s + v.suggestedQty, 0);
+    // Preserve roll size across re-renders (read existing DOM value if any)
+    const existingRoll = parseFloat(document.getElementById(`rst-roll-${pKey}`)?.value) || 90;
+    const rollValid = initTotal > 0
+      ? (initTotal % existingRoll === 0
+          ? `<span style="color:#2d7a2d;font-size:10px;font-family:var(--mono)">✓ ${initTotal/existingRoll} roll</span>`
+          : `<span style="color:#e65100;font-size:10px;font-family:var(--mono)">⚠ next: ${Math.ceil(initTotal/existingRoll)*existingRoll}</span>`)
+      : '';
+
     rows.push(`<tr class="rst-product-row" style="background:#f7f8fa;border-top:2px solid var(--g200);cursor:pointer" onclick="_rstToggleExpand('${pKey}','${p.name.replace(/'/g,"\\'")}')">`+
       `<td style="padding:7px 8px;text-align:center"><span style="font-size:10px;color:var(--g400)">${expanded?'▼':'▶'}</span></td>`+
       `<td style="padding:7px 4px;text-align:center"><input type="checkbox" class="rst-prod-chk" data-pkey="${pKey}" ${allUrgChk?'checked':''} onclick="event.stopPropagation();_rstToggleProduct('${pKey}','${p.name.replace(/'/g,"\\'").replace(/"/g,'&quot;')}',this.checked)" style="cursor:pointer"></td>`+
-      `<td style="padding:7px 8px" colspan="5"><div style="display:flex;align-items:center;gap:8px">${thumb}<div>`+
+      `<td style="padding:7px 8px" colspan="3"><div style="display:flex;align-items:center;gap:8px">${thumb}<div>`+
       `<div style="font-size:13px;font-weight:600;color:var(--text)">${p.name}</div>`+
       `<div style="display:flex;gap:6px;align-items:center;margin-top:2px">`+
       `<span style="font-size:10px;color:var(--g400)">${p.brand}</span>`+
@@ -9814,7 +9827,19 @@ function renderRestockTable(products) {
       (urgBadge ? ' '+urgBadge : '')+
       (hasRestock ? `<span style="font-size:10px;color:var(--g400)">${p.restockCount} SKU perlu restock</span>` : `<span style="font-size:10px;color:#2d7a2d">✓ stok aman</span>`)+
       `</div></div></div></td>`+
-      `<td style="padding:7px 8px;text-align:right;font-size:10px;color:var(--g300)">Order Qty</td>`+
+      `<td style="padding:7px 10px;text-align:right;vertical-align:middle" colspan="2">`+
+        `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px">`+
+          `<div style="font-size:11px;color:var(--g400)">Total: <strong id="rst-ptotal-${pKey}" style="font-family:var(--mono);color:var(--text)">${initTotal||'—'}</strong></div>`+
+          `<div id="rst-pvalid-${pKey}">${rollValid}</div>`+
+        `</div>`+
+      `</td>`+
+      `<td style="padding:7px 8px;text-align:right;vertical-align:middle" onclick="event.stopPropagation()">`+
+        `<div style="font-size:10px;color:var(--g400);margin-bottom:2px;white-space:nowrap">min/roll</div>`+
+        `<input id="rst-roll-${pKey}" class="rst-roll-input" type="number" value="${existingRoll}" min="1" step="1" `+
+          `oninput="event.stopPropagation();_rstUpdateProductTotal('${pKey}')" `+
+          `onclick="event.stopPropagation()" `+
+          `style="width:55px;text-align:center;font-size:12px;font-family:var(--mono);padding:2px 5px;border:1px solid var(--g200);border-radius:4px;background:white">`+
+      `</td>`+
       `<td style="padding:7px 8px;text-align:right;font-size:10px;color:var(--g300)">Harga Beli</td>`+
       `</tr>`);
 
@@ -9839,7 +9864,7 @@ function renderRestockTable(products) {
         `<td style="${P};text-align:right;font-size:12px;font-family:var(--mono);color:var(--g400)">${v.qtySold>0?v.qtySold:'—'}</td>`+
         `<td style="${P};text-align:right;font-size:12px;font-family:var(--mono);color:var(--g400)">${aStr}</td>`+
         `<td style="${P};text-align:right;font-size:12px;font-family:var(--mono);color:${dClr};font-weight:${v.needsRestock?700:400}">${dStr}</td>`+
-        `<td style="${P};text-align:right"><input type="number" class="rst-qty-input" min="0" step="1" value="${chk&&v.suggestedQty>0?v.suggestedQty:''}" placeholder="0" style="width:70px;text-align:right;font-size:12px;font-family:var(--mono);padding:3px 6px;border:1px solid var(--g200);border-radius:4px;background:white"></td>`+
+        `<td style="${P};text-align:right"><input type="number" class="rst-qty-input" min="0" step="1" value="${chk&&v.suggestedQty>0?v.suggestedQty:''}" placeholder="0" oninput="_rstUpdateProductTotal('${pKey}')" style="width:70px;text-align:right;font-size:12px;font-family:var(--mono);padding:3px 6px;border:1px solid var(--g200);border-radius:4px;background:white"></td>`+
         `<td style="${P};text-align:right"><input type="number" class="rst-price-input" min="0" step="1000" placeholder="0" style="width:90px;text-align:right;font-size:12px;font-family:var(--mono);padding:3px 6px;border:1px solid var(--g200);border-radius:4px;background:white"></td>`+
         `</tr>`);
     }
@@ -9886,6 +9911,7 @@ function _rstToggleVariant(itemId, checked, pKey) {
   }
   const row = document.querySelector(`.rst-var-chk[data-item-id="${itemId}"]`)?.closest('tr');
   if (row) row.style.background = checked ? '#f0f7ff' : '';
+  _rstUpdateProductTotal(pKey);
   _rstUpdateSelected();
 }
 
@@ -9903,6 +9929,28 @@ function rstToggleAll(checked) {
 function _rstUpdateSelected() {
   const e = document.getElementById('rst-s-selected');
   if (e) e.textContent = _rstSelectedItems.size;
+}
+
+function _rstUpdateProductTotal(pKey) {
+  let total = 0;
+  document.querySelectorAll(`.rst-var-chk[data-pkey="${pKey}"]:checked`).forEach(chk => {
+    const qty = parseFloat(chk.closest('tr')?.querySelector('.rst-qty-input')?.value) || 0;
+    total += qty;
+  });
+  const roll = parseFloat(document.getElementById(`rst-roll-${pKey}`)?.value) || 90;
+  const totalEl = document.getElementById(`rst-ptotal-${pKey}`);
+  const validEl = document.getElementById(`rst-pvalid-${pKey}`);
+  if (totalEl) totalEl.textContent = total > 0 ? total : '—';
+  if (validEl) {
+    if (total <= 0) {
+      validEl.innerHTML = '';
+    } else if (total % roll === 0) {
+      validEl.innerHTML = `<span style="color:#2d7a2d;font-size:10px;font-family:var(--mono)">✓ ${total/roll} roll</span>`;
+    } else {
+      const next = Math.ceil(total/roll)*roll;
+      validEl.innerHTML = `<span style="color:#e65100;font-size:10px;font-family:var(--mono)">⚠ next: ${next}</span>`;
+    }
+  }
 }
 
 function _rstSetMode(mode) {
@@ -9947,8 +9995,10 @@ function _rstShowSummary() {
     }
     if (!parentName) parentName = chk.dataset.itemCode || '—';
 
-    if (!productSummary[parentName])
-      productSummary[parentName] = { name:parentName, brand, ip, collection, sizeQtys:{}, prices:[], totalQty:0, totalNilai:0 };
+    if (!productSummary[parentName]) {
+      const roll = parseFloat(document.getElementById(`rst-roll-${pKey}`)?.value) || 90;
+      productSummary[parentName] = { name:parentName, brand, ip, collection, pKey, roll, sizeQtys:{}, prices:[], totalQty:0, totalNilai:0 };
+    }
     productSummary[parentName].sizeQtys[size] = qty;
     productSummary[parentName].prices.push(price);
     productSummary[parentName].totalQty   += qty;
@@ -9983,11 +10033,23 @@ function _rstShowSummary() {
     </div>`;
   }
 
+  const rollWarnings = Object.values(productSummary).filter(p => p.totalQty > 0 && p.totalQty % p.roll !== 0);
+  if (rollWarnings.length) {
+    const items = rollWarnings.map(p => {
+      const next = Math.ceil(p.totalQty / p.roll) * p.roll;
+      return `<strong>${p.name}</strong>: ${p.totalQty} pcs (next: ${next}, roll ${p.roll})`;
+    }).join('<br>');
+    html += `<div style="background:#fce8e6;border:1px solid #f28b82;border-radius:6px;padding:9px 12px;margin-bottom:12px;font-size:12px;color:#7a0000">
+      ⚠ Qty berikut bukan kelipatan 1 roll — sesuaikan sebelum download:<br>${items}
+    </div>`;
+  }
+
   html += `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
     <thead><tr style="background:#f7f8fa;border-bottom:2px solid var(--g200)">
       <th style="padding:8px 10px;text-align:left;font-weight:600">Produk</th>
       ${sizes.map(s=>`<th style="padding:8px 10px;text-align:center;font-weight:600;min-width:40px">${s}</th>`).join('')}
       <th style="padding:8px 10px;text-align:right;font-weight:600;white-space:nowrap">Total</th>
+      <th style="padding:8px 10px;text-align:center;font-weight:600;white-space:nowrap">Roll</th>
       <th style="padding:8px 10px;text-align:right;font-weight:600;white-space:nowrap">Harga Beli</th>
       <th style="padding:8px 10px;text-align:right;font-weight:600;white-space:nowrap">Est. Nilai</th>
     </tr></thead><tbody>`;
@@ -10005,6 +10067,11 @@ function _rstShowSummary() {
       </td>
       ${sizes.map(s=>`<td style="padding:7px 10px;text-align:center;font-family:var(--mono);font-size:12px">${p.sizeQtys[s]??'—'}</td>`).join('')}
       <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-weight:600">${p.totalQty}</td>
+      <td style="padding:7px 10px;text-align:center;font-size:11px;white-space:nowrap">${
+        p.totalQty % p.roll === 0
+          ? `<span style="color:#2d7a2d">✓ ${p.totalQty/p.roll}×</span>`
+          : `<span style="color:#e65100">⚠ /${p.roll}</span>`
+      }</td>
       <td style="padding:7px 10px;text-align:right;font-size:11px;color:var(--g400)">${priceStr}</td>
       <td style="padding:7px 10px;text-align:right;font-family:var(--mono)">${p.totalNilai>0?fmtRp(p.totalNilai):'—'}</td>
     </tr>`;
@@ -10014,6 +10081,7 @@ function _rstShowSummary() {
     <td style="padding:8px 10px">Total</td>
     ${sizes.map(()=>`<td></td>`).join('')}
     <td style="padding:8px 10px;text-align:right;font-family:var(--mono)">${grandQty}</td>
+    <td></td>
     <td></td>
     <td style="padding:8px 10px;text-align:right;font-family:var(--mono)">${grandNilai>0?fmtRp(grandNilai):'—'}</td>
   </tr>`;
