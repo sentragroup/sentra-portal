@@ -214,7 +214,7 @@ function showPage(name, el) {
     if(_fromEl) _fromEl.value=`${_y}-${_m}-01`;
     if(_toEl)   _toEl.value=`${_y}-${_m}-${_d}`;
     // Reset stats & chart
-    ['sp-s-revenue','sp-s-disc','sp-s-net','sp-s-avgday','sp-s-orders','sp-s-qty','sp-s-return-rate','sp-s-cancel-rate'].forEach(id => { const el=document.getElementById(id); if(el) el.textContent='—'; });
+    ['sp-s-revenue','sp-s-disc','sp-s-net','sp-s-avgday','sp-s-orders','sp-s-qty','sp-s-stock','sp-s-str','sp-s-return-rate','sp-s-cancel-rate'].forEach(id => { const el=document.getElementById(id); if(el) el.textContent='—'; });
     const _cw=document.getElementById('sp-chart-wrap'); if(_cw) _cw.style.display='none';
     const _tw=document.getElementById('sp-tables-wrap'); if(_tw) _tw.style.display='none';
     const _emEl=document.getElementById('sp-empty'); if(_emEl){ _emEl.style.display='block'; _emEl.textContent='Memuat filter...'; }
@@ -9048,7 +9048,7 @@ function populateSPFilterDropdowns(orders, channelData, storeData, productData) 
   }
 }
 
-function updateSPStats({ orders, qty, revenue, disc, net, avgDay, returnRate, cancelRate }) {
+function updateSPStats({ orders, qty, revenue, disc, net, avgDay, stock, str, returnRate, cancelRate }) {
   const fmtRp = n => n >= 1000000 ? 'Rp ' + (n/1000000).toFixed(1) + 'jt' : 'Rp ' + Math.round(n).toLocaleString('id-ID');
   const _s = (id, v) => { const el=document.getElementById(id); if(el) el.textContent=v; };
   _s('sp-s-revenue',     revenue > 0  ? fmtRp(revenue) : '—');
@@ -9057,6 +9057,8 @@ function updateSPStats({ orders, qty, revenue, disc, net, avgDay, returnRate, ca
   _s('sp-s-avgday',      avgDay);
   _s('sp-s-orders',      typeof orders === 'number' ? orders.toLocaleString('id-ID') : '—');
   _s('sp-s-qty',         Math.round(qty).toLocaleString('id-ID'));
+  _s('sp-s-stock',       typeof stock === 'number' ? Math.round(stock).toLocaleString('id-ID') : '—');
+  _s('sp-s-str',         str || '—');
   _s('sp-s-return-rate', returnRate);
   _s('sp-s-cancel-rate', cancelRate);
 }
@@ -9241,34 +9243,48 @@ async function loadSalesPerf() {
       pg.revenue += _rev;
       pg.disc    += parseFloat(it.disc_amount || 0);
       if (it.item_id) pg.itemIds.add(it.item_id);
-      // Variant-level tracking
-      if (!pg.variants[variantName]) pg.variants[variantName] = { name: variantName, orders: new Set(), qty: 0, revenue: 0, disc: 0 };
+      // Variant-level tracking (store itemId for stock lookup)
+      if (!pg.variants[variantName]) pg.variants[variantName] = { name: variantName, itemId: it.item_id, orders: new Set(), qty: 0, revenue: 0, disc: 0 };
       pg.variants[variantName].orders.add(it.salesorder_id);
       pg.variants[variantName].qty     += parseFloat(it.qty || 0);
       pg.variants[variantName].revenue += _rev;
       pg.variants[variantName].disc    += parseFloat(it.disc_amount || 0);
     }
 
-    // 8b. Fetch thumbnails for one representative item_id per product group
+    // 8b. Fetch thumbnails + stock in parallel
     const allItemIds = [...new Set(Object.values(productMap).flatMap(p => [...p.itemIds]))];
-    const thumbMap = {};
+    const thumbMap = {}, stockMap = {};
     if (allItemIds.length) {
-      const jiRows = await _fetchAllPages('jubelio_items', 'item_id,thumbnail',
-        q => q.in('item_id', allItemIds).not('thumbnail', 'is', null)
-      );
-      for (const r of jiRows) { if (r.thumbnail) thumbMap[r.item_id] = r.thumbnail; }
+      const [jiRows, stockRows] = await Promise.all([
+        _fetchAllPages('jubelio_items', 'item_id,thumbnail',
+          q => q.in('item_id', allItemIds).not('thumbnail', 'is', null)),
+        _fetchAllPages('jubelio_inventory_stocks', 'item_id,on_hand',
+          q => q.in('item_id', allItemIds)),
+      ]);
+      for (const r of jiRows)    { if (r.thumbnail) thumbMap[r.item_id] = r.thumbnail; }
+      for (const r of stockRows) { stockMap[r.item_id] = (stockMap[r.item_id] || 0) + parseFloat(r.on_hand || 0); }
     }
-    // Attach thumbnail to each product group (first item_id that has one)
+    // 8c. Attach thumbnail, stock, STR to each product group
+    const _sizeOrder = ['XS','S','M','L','XL','XXL','XXXL','4XL','5XL'];
+    const _sizeRank  = s => { const i = _sizeOrder.indexOf((s||'').trim().toUpperCase()); return i >= 0 ? i : 99; };
+    const _varSize   = v => { const p = v.name.split(' - '); return p.length > 1 ? p[p.length-1] : v.name; };
     for (const pg of Object.values(productMap)) {
       pg.thumbnail = null;
       for (const iid of pg.itemIds) { if (thumbMap[iid]) { pg.thumbnail = thumbMap[iid]; break; } }
-      const _sizeOrder = ['XS','S','M','L','XL','XXL','XXXL','4XL','5XL'];
-      const _sizeRank = s => { const i = _sizeOrder.indexOf((s||'').trim().toUpperCase()); return i >= 0 ? i : 99; };
-      const _varSize = v => { const p = v.name.split(' - '); return p.length > 1 ? p[p.length-1] : v.name; };
-      pg.variants = Object.values(pg.variants).map(v => ({...v, orders: v.orders.size, net: v.revenue - v.disc})).sort((a, b) => _sizeRank(_varSize(a)) - _sizeRank(_varSize(b)));
+      // Attach stock per variant, then roll up to product
+      pg.stock = 0;
+      pg.variants = Object.values(pg.variants).map(v => {
+        const vStock = stockMap[v.itemId] || 0;
+        pg.stock += vStock;
+        return { ...v, orders: v.orders.size, net: v.revenue - v.disc, stock: vStock,
+          str: (v.qty + vStock) > 0 ? ((v.qty / (v.qty + vStock)) * 100).toFixed(1) + '%' : '—' };
+      }).sort((a, b) => _sizeRank(_varSize(a)) - _sizeRank(_varSize(b)));
     }
 
-    const productData = Object.values(productMap).map(p => ({...p, orders: p.orders.size, net: p.revenue - p.disc})).sort((a, b) => b.net - a.net);
+    const productData = Object.values(productMap).map(p => {
+      const str = (p.qty + p.stock) > 0 ? ((p.qty / (p.qty + p.stock)) * 100).toFixed(1) + '%' : '—';
+      return { ...p, orders: p.orders.size, net: p.revenue - p.disc, str };
+    }).sort((a, b) => b.net - a.net);
 
     // 9. Totals
     // Revenue = sum of order sub_total (matches Jubelio export / reference data)
@@ -9279,6 +9295,9 @@ async function loadSalesPerf() {
     const totalRevenue = filteredOrders.reduce((s, o) => s + parseFloat(o.sub_total  || 0), 0);
     const totalDisc    = filteredOrders.reduce((s, o) => s + parseFloat(o.total_disc || 0), 0);
     const totalNet     = totalRevenue - totalDisc;
+    const totalStock   = productData.reduce((s, p) => s + (p.stock || 0), 0);
+    const totalStr     = (totalQty + totalStock) > 0
+      ? ((totalQty / (totalQty + totalStock)) * 100).toFixed(1) + '%' : '—';
     const dayCount     = Math.max(1, Object.keys(timeSeries).length);
     const fmtRp        = n => n >= 1000000 ? 'Rp ' + (n/1000000).toFixed(1) + 'jt' : 'Rp ' + Math.round(n).toLocaleString('id-ID');
     const avgDay       = totalNet > 0 ? fmtRp(totalNet / dayCount) : '—';
@@ -9288,10 +9307,10 @@ async function loadSalesPerf() {
     const returnRate = _totalAll > 0 ? ((retRes.count||0) / _totalAll * 100).toFixed(1) + '%' : '—';
     const cancelRate = _totalAll > 0 ? ((canRes.count||0) / _totalAll * 100).toFixed(1) + '%' : '—';
 
-    spData = { timeSeries, channelData, storeData, productData, totalQty, totalRevenue, totalDisc, totalNet, dayCount, avgDay };
+    spData = { timeSeries, channelData, storeData, productData, totalQty, totalRevenue, totalDisc, totalNet, totalStock, totalStr, dayCount, avgDay };
 
     populateSPFilterDropdowns(orders, channelData, storeData, productData);
-    updateSPStats({ orders: filteredOrders.length, qty: totalQty, revenue: totalRevenue, disc: totalDisc, net: totalNet, avgDay, returnRate, cancelRate });
+    updateSPStats({ orders: filteredOrders.length, qty: totalQty, revenue: totalRevenue, disc: totalDisc, net: totalNet, avgDay, stock: totalStock, str: totalStr, returnRate, cancelRate });
     emptyEl.style.display = 'none';
     document.getElementById('sp-chart-wrap').style.display = 'block';
     document.getElementById('sp-tables-wrap').style.display = 'block';
@@ -9415,7 +9434,7 @@ function renderSPProductTable(data, page) {
   _spProdPage = page || 0;
   if (countEl) countEl.textContent = data.length + ' produk';
   const fmtRp = n => 'Rp ' + Math.round(n).toLocaleString('id-ID');
-  if (!data.length) { tbody.innerHTML = `<tr><td class="empty-td" colspan="9">Tidak ada produk.</td></tr>`; if(pagDiv) pagDiv.innerHTML=''; return; }
+  if (!data.length) { tbody.innerHTML = `<tr><td class="empty-td" colspan="11">Tidak ada produk.</td></tr>`; if(pagDiv) pagDiv.innerHTML=''; return; }
   const totalPages = Math.ceil(data.length / SP_PROD_PAGE_SIZE);
   const start = _spProdPage * SP_PROD_PAGE_SIZE;
   const pageData = data.slice(start, start + SP_PROD_PAGE_SIZE);
@@ -9446,6 +9465,8 @@ function renderSPProductTable(data, page) {
       <td style="${P};font-size:11px;color:var(--g600);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${d.ip || '—'}</td>
       <td style="${P};text-align:right;font-family:var(--mono);font-size:11px">${d.orders.toLocaleString('id-ID')}</td>
       <td style="${P};text-align:right;font-family:var(--mono);font-size:11px">${Math.round(d.qty).toLocaleString('id-ID')}</td>
+      <td style="${P};text-align:right;font-family:var(--mono);font-size:11px;color:${(d.stock||0)===0?'var(--g300)':'var(--g700)'}">${Math.round(d.stock||0).toLocaleString('id-ID')}</td>
+      <td style="${P};text-align:right;font-family:var(--mono);font-size:11px;font-weight:600;color:${(()=>{const n=parseFloat(d.str)||0;return d.str!=='—'?(n>=70?'#2d7a2d':n>=30?'#e67e00':'#c0392b'):'var(--g400)'})()}">${d.str||'—'}</td>
       <td style="${P};text-align:right;font-family:var(--mono);font-size:11px;color:var(--g600)">${fmtRp(d.revenue)}</td>
       <td style="${P};text-align:right;font-family:var(--mono);font-size:11px;color:#c0392b">${d.disc > 0 ? fmtRp(d.disc) : '—'}</td>
       <td style="${P};text-align:right;font-family:var(--mono);font-size:11px;color:#2d7a2d;font-weight:600">${fmtRp(d.net)}</td>
@@ -9462,6 +9483,8 @@ function renderSPProductTable(data, page) {
           <td></td>
           <td style="padding:3px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--g500)">${v.orders.toLocaleString('id-ID')}</td>
           <td style="padding:3px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--g500)">${Math.round(v.qty).toLocaleString('id-ID')}</td>
+          <td style="padding:3px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:${(v.stock||0)===0?'var(--g300)':'var(--g500)'}">${Math.round(v.stock||0).toLocaleString('id-ID')}</td>
+          <td style="padding:3px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--g400)">${v.str||'—'}</td>
           <td style="padding:3px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--g400)">${fmtRp(v.revenue)}</td>
           <td style="padding:3px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:#c0392b">${v.disc > 0 ? fmtRp(v.disc) : '—'}</td>
           <td style="padding:3px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:#2d7a2d">${fmtRp(v.net)}</td>
