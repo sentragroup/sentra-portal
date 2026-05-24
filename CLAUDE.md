@@ -83,7 +83,7 @@ Read app.js  offset: <start_line>  limit: <lines_to_read>
 ### Adding a new module — what to touch
 1. **Sidebar nav** — grep `<!-- APP -->` in `index.html`, add `sb-item` inside the correct `sb-sec`. **Place new items at the TOP of their section** (before existing items in that section), not appended at the bottom.
 2. **Home card** — grep `<!-- HOME -->` in `index.html`, add `tool-card` div in the correct section grid
-3. **Page HTML** — insert new `<!-- PAGE_NAME -->` block in `index.html` **immediately before `<!-- SYNC ALL MODAL -->`** (NOT before `</body>` — the sync modal and project panel must stay last)
+3. **Page HTML** — insert new `<!-- PAGE_NAME -->` block in `index.html` **inside `<div class="content">`**, just before the three closing `</div></div></div>` tags that close `.content`, the nav wrapper, and `#app`. The `<!-- SYNC ALL MODAL -->` and project panel are intentionally OUTSIDE `.content` (they're fixed overlays) — page divs must NOT go after them.
 4. **JS** — insert new `// ── MODULE ──` block in `app.js` before `// ── DUPLICATE CHECK ──`
 5. **`showPage` labels** — add `pagename:"Display Name"` to the `labels` object in `showPage()` (top of app.js, ~line 160)
 6. **Supabase** — create table via MCP, enable RLS, add `authenticated_only` policy
