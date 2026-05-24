@@ -9400,7 +9400,7 @@ function renderSPProductTable(data, page) {
     const pct = grandNet > 0 ? ((d.net / grandNet) * 100).toFixed(1) + '%' : '—';
     const hasVariants = d.variants && d.variants.length > 1;
     const thumb = d.thumbnail
-      ? `<img src="${d.thumbnail}" style="width:28px;height:28px;object-fit:cover;border-radius:3px;flex-shrink:0;border:1px solid var(--g100)" onerror="this.style.display='none'">`
+      ? `<div class="sp-thumb-zoom"><img src="${d.thumbnail}" style="width:28px;height:28px;object-fit:cover;border-radius:3px;border:1px solid var(--g100)" onerror="this.parentElement.style.display='none'"><img src="${d.thumbnail}" class="sp-thumb-big"></div>`
       : `<div style="width:28px;height:28px;border-radius:3px;background:var(--g100);flex-shrink:0"></div>`;
     const expandBtn = hasVariants
       ? `<button id="sp-expand-${idx}" onclick="_spToggleVariants(${idx})" style="margin-left:5px;background:none;border:1px solid var(--g200);border-radius:3px;padding:1px 5px;font-size:9px;cursor:pointer;color:var(--g500);flex-shrink:0;line-height:1.2">▼</button>`
