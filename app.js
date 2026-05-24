@@ -9251,39 +9251,47 @@ async function loadSalesPerf() {
       pg.variants[variantName].disc    += parseFloat(it.disc_amount || 0);
     }
 
-    // 8b. Fetch thumbnails + stock in parallel
+    // 8b. Fetch thumbnails + stock + need-restock in parallel
     const allItemIds = [...new Set(Object.values(productMap).flatMap(p => [...p.itemIds]))];
     const thumbMap = {}, stockMap = {};
+    const restockSet = new Set();
     if (allItemIds.length) {
-      const [jiRows, stockRows] = await Promise.all([
+      const [jiRows, stockRows, restockRows] = await Promise.all([
         _fetchAllPages('jubelio_items', 'item_id,thumbnail',
           q => q.in('item_id', allItemIds).not('thumbnail', 'is', null)),
         _fetchAllPages('jubelio_inventory_stocks', 'item_id,on_hand',
           q => q.in('item_id', allItemIds)),
+        _fetchAllPages('jubelio_need_restock', 'item_id',
+          q => q.in('item_id', allItemIds)),
       ]);
-      for (const r of jiRows)    { if (r.thumbnail) thumbMap[r.item_id] = r.thumbnail; }
-      for (const r of stockRows) { stockMap[r.item_id] = (stockMap[r.item_id] || 0) + parseFloat(r.on_hand || 0); }
+      for (const r of jiRows)     { if (r.thumbnail) thumbMap[r.item_id] = r.thumbnail; }
+      for (const r of stockRows)  { stockMap[r.item_id] = (stockMap[r.item_id] || 0) + parseFloat(r.on_hand || 0); }
+      for (const r of restockRows){ restockSet.add(r.item_id); }
     }
-    // 8c. Attach thumbnail, stock, STR to each product group
+    // 8c. Attach thumbnail, stock, STR, needsRestock to each product group
     const _sizeOrder = ['XS','S','M','L','XL','XXL','XXXL','4XL','5XL'];
     const _sizeRank  = s => { const i = _sizeOrder.indexOf((s||'').trim().toUpperCase()); return i >= 0 ? i : 99; };
     const _varSize   = v => { const p = v.name.split(' - '); return p.length > 1 ? p[p.length-1] : v.name; };
     for (const pg of Object.values(productMap)) {
       pg.thumbnail = null;
       for (const iid of pg.itemIds) { if (thumbMap[iid]) { pg.thumbnail = thumbMap[iid]; break; } }
-      // Attach stock per variant, then roll up to product
+      // Attach stock + restock flag per variant, then roll up to product
       pg.stock = 0;
+      pg.needsRestock = false;
       pg.variants = Object.values(pg.variants).map(v => {
-        const vStock = stockMap[v.itemId] || 0;
+        const vStock      = stockMap[v.itemId] || 0;
+        const vRestock    = restockSet.has(v.itemId);
         pg.stock += vStock;
+        if (vRestock) pg.needsRestock = true;
         return { ...v, orders: v.orders.size, net: v.revenue - v.disc, stock: vStock,
-          str: (v.qty + vStock) > 0 ? ((v.qty / (v.qty + vStock)) * 100).toFixed(1) + '%' : '—' };
+          str: (v.qty + vStock) > 0 ? ((v.qty / (v.qty + vStock)) * 100).toFixed(1) + '%' : '—',
+          needsRestock: vRestock };
       }).sort((a, b) => _sizeRank(_varSize(a)) - _sizeRank(_varSize(b)));
     }
 
     const productData = Object.values(productMap).map(p => {
       const str = (p.qty + p.stock) > 0 ? ((p.qty / (p.qty + p.stock)) * 100).toFixed(1) + '%' : '—';
-      return { ...p, orders: p.orders.size, net: p.revenue - p.disc, str };
+      return { ...p, orders: p.orders.size, net: p.revenue - p.disc, str, needsRestock: p.needsRestock || false };
     }).sort((a, b) => b.net - a.net);
 
     // 9. Totals
@@ -9452,12 +9460,16 @@ function renderSPProductTable(data, page) {
     const expandBtn = hasVariants
       ? `<button id="sp-expand-${idx}" onclick="_spToggleVariants(${idx})" style="margin-left:5px;background:none;border:1px solid var(--g200);border-radius:3px;padding:1px 5px;font-size:9px;cursor:pointer;color:var(--g500);flex-shrink:0;line-height:1.2">▼</button>`
       : '';
+    const restockBadge = d.needsRestock
+      ? `<span style="font-size:9px;background:#fff3e0;color:#e65100;border:1px solid #ffb74d;border-radius:3px;padding:1px 5px;font-family:var(--mono);flex-shrink:0;white-space:nowrap">⚠ Restock</span>`
+      : '';
     const P = 'padding:6px 10px;vertical-align:middle';
     rows.push(`<tr style="border-bottom:1px solid var(--g50)">
       <td style="${P}">
         <div style="display:flex;align-items:center;gap:7px">
           ${thumb}
           <span style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0" title="${d.name}">${idx+1}. ${d.name}</span>
+          ${restockBadge}
           ${expandBtn}
         </div>
       </td>
@@ -9477,8 +9489,9 @@ function renderSPProductTable(data, page) {
       const varRowsHtml = d.variants.map(v => {
         const parts = v.name.split(' - ');
         const sizeLabel = parts.length > 1 ? parts[parts.length - 1] : v.name;
+        const varRestockMark = v.needsRestock ? ` <span style="color:#e65100;font-size:10px">⚠</span>` : '';
         return `<tr class="sp-var-row sp-var-${idx}" style="display:none;background:var(--g50)">
-          <td style="padding:3px 10px 3px 55px;font-size:11px;color:var(--g500);font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${sizeLabel}</td>
+          <td style="padding:3px 10px 3px 55px;font-size:11px;color:var(--g500);font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${sizeLabel}${varRestockMark}</td>
           <td></td>
           <td></td>
           <td style="padding:3px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--g500)">${v.orders.toLocaleString('id-ID')}</td>
