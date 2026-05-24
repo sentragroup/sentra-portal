@@ -206,12 +206,18 @@ function showPage(name, el) {
   if (name==="calendar") loadCalendar();
   if (name==="salesperf") {
     _initSPMultiSelects();
-    clearSPFilters();
+    // Set default date range: current month
+    const _now=new Date(), _y=_now.getFullYear(), _m=String(_now.getMonth()+1).padStart(2,'0'), _d=String(_now.getDate()).padStart(2,'0');
+    const _fromEl=document.getElementById('sp-fil-from'), _toEl=document.getElementById('sp-fil-to');
+    if(_fromEl) _fromEl.value=`${_y}-${_m}-01`;
+    if(_toEl)   _toEl.value=`${_y}-${_m}-${_d}`;
+    // Reset stats & chart
     ['sp-s-orders','sp-s-qty','sp-s-revenue','sp-s-products','sp-s-avgday'].forEach(id => { const el=document.getElementById(id); if(el) el.textContent='—'; });
-    const emptyEl=document.getElementById('sp-empty'); if(emptyEl){ emptyEl.style.display='block'; emptyEl.textContent='Atur filter dan klik "↻ Analisis" untuk memuat data.'; }
-    const cw=document.getElementById('sp-chart-wrap'); if(cw) cw.style.display='none';
-    const tw=document.getElementById('sp-tables-wrap'); if(tw) tw.style.display='none';
-    const btn=document.getElementById('sp-run-btn'); if(btn){ btn.disabled=false; btn.textContent='↻ Analisis'; }
+    const _cw=document.getElementById('sp-chart-wrap'); if(_cw) _cw.style.display='none';
+    const _tw=document.getElementById('sp-tables-wrap'); if(_tw) _tw.style.display='none';
+    const _emEl=document.getElementById('sp-empty'); if(_emEl){ _emEl.style.display='block'; _emEl.textContent='Memuat filter...'; }
+    // Pre-load filter options then auto-run
+    _preloadSPFiltersAndRun();
   }
   closeMobileSidebar();
 }
@@ -8934,6 +8940,33 @@ function _initSPMultiSelects() {
   document.addEventListener('click', ()=>{ document.querySelectorAll('.sp-ms-panel').forEach(p=>p.style.display='none'); });
 }
 
+async function _preloadSPFiltersAndRun() {
+  // Load product_mappings (cached) → populate brand/IP/collection dropdowns
+  if (!_spAllMappings) {
+    const { data: pm } = await sb.from('product_mappings').select('item_name,brand,ip,collection');
+    _spAllMappings = pm || [];
+  }
+  const brandMS=_spMS['sp-ms-brand'], ipMS=_spMS['sp-ms-ip'], colMS=_spMS['sp-ms-collection'];
+  if (_spAllMappings) {
+    if (brandMS && brandMS.options.length===0) {
+      const brands=[...new Set(_spAllMappings.map(m=>m.brand).filter(Boolean))].sort();
+      brandMS.setOptions(brands.map(b=>({value:b,label:b,count:null})));
+    }
+    if (ipMS && ipMS.options.length===0) {
+      const ips=[...new Set(_spAllMappings.map(m=>m.ip).filter(Boolean))].sort();
+      ipMS.setOptions(ips.map(i=>({value:i,label:i,count:null})));
+    }
+    if (colMS && colMS.options.length===0) {
+      const cols=[...new Set(_spAllMappings.map(m=>m.collection).filter(Boolean))].sort();
+      colMS.setOptions(cols.map(c=>({value:c,label:c,count:null})));
+    }
+  }
+  const emEl=document.getElementById('sp-empty');
+  if(emEl) emEl.textContent='Atur filter dan klik "↻ Analisis" untuk memuat data.';
+  // Auto-run analysis for current month
+  loadSalesPerf();
+}
+
 function _spMSOpen(e, id) {
   e.stopPropagation();
   const ms=_spMS[id]; if(!ms)return;
@@ -8943,9 +8976,19 @@ function _spMSOpen(e, id) {
   if(isOpen)return;
   const toggle=document.getElementById(id+'-toggle');
   const rect=toggle.getBoundingClientRect();
-  panel.style.top=(rect.bottom+4)+'px';
-  panel.style.left=rect.left+'px';
-  panel.style.width=Math.max(220,rect.width)+'px';
+  const panelH=Math.min(300, ms.options.length*32+50);
+  const spaceBelow=window.innerHeight-rect.bottom-8;
+  const spaceAbove=rect.top-8;
+  const w=Math.max(220,rect.width);
+  panel.style.width=w+'px';
+  panel.style.left=Math.min(rect.left, window.innerWidth-w-8)+'px';
+  if(spaceBelow>=panelH || spaceBelow>=spaceAbove){
+    panel.style.top=(rect.bottom+4)+'px';
+    panel.style.bottom='';
+  } else {
+    panel.style.top='';
+    panel.style.bottom=(window.innerHeight-rect.top+4)+'px';
+  }
   panel.style.display='flex';
   const search=panel.querySelector('.sp-ms-search');
   if(search){ search.value=''; ms._render(''); setTimeout(()=>search.focus(),30); }
@@ -8961,21 +9004,21 @@ function clearSPFilters() {
 }
 
 function populateSPFilterDropdowns(orders, channelData, storeData, productData) {
-  // Channel
+  // Channel — always refresh with counts from current result
   const chMS = _spMS['sp-ms-channel'];
   if (chMS) {
     const chCount = {}; channelData.forEach(d=>chCount[d.channel]=d.orders);
     const chs = [...new Set(orders.map(o=>o.channel_name).filter(Boolean))].sort();
     chMS.setOptions(chs.map(c=>({value:c,label:c,count:chCount[c]??null})));
   }
-  // Store
+  // Store — always refresh with counts from current result
   const stMS = _spMS['sp-ms-store'];
   if (stMS) {
     const stCount = {}; storeData.forEach(d=>stCount[d.store]=d.orders);
     const sts = [...new Set(orders.map(o=>o.store_name).filter(Boolean))].sort();
     stMS.setOptions(sts.map(s=>({value:s,label:s,count:stCount[s]??null})));
   }
-  // Brand / IP / Collection from _spAllMappings
+  // Brand / IP / Collection — update counts only (options already loaded by _preloadSPFiltersAndRun)
   const brandMS = _spMS['sp-ms-brand'];
   const ipMS    = _spMS['sp-ms-ip'];
   const colMS   = _spMS['sp-ms-collection'];
@@ -8986,18 +9029,14 @@ function populateSPFilterDropdowns(orders, channelData, storeData, productData) 
       if(p.ip)    ipCount[p.ip]=(ipCount[p.ip]||0)+Math.round(p.qty);
       if(p.collection) colCount[p.collection]=(colCount[p.collection]||0)+Math.round(p.qty);
     });
-    if (brandMS && brandMS.options.length<=1) {
-      const brands=[...new Set(_spAllMappings.map(m=>m.brand).filter(Boolean))].sort();
-      brandMS.setOptions(brands.map(b=>({value:b,label:b,count:brandCount[b]??null})));
-    }
-    if (ipMS && ipMS.options.length<=1) {
-      const ips=[...new Set(_spAllMappings.map(m=>m.ip).filter(Boolean))].sort();
-      ipMS.setOptions(ips.map(i=>({value:i,label:i,count:ipCount[i]??null})));
-    }
-    if (colMS && colMS.options.length<=1) {
-      const cols=[...new Set(_spAllMappings.map(m=>m.collection).filter(Boolean))].sort();
-      colMS.setOptions(cols.map(c=>({value:c,label:c,count:colCount[c]??null})));
-    }
+    const _updateCounts = (ms, countMap) => {
+      if (!ms || ms.options.length===0) return;
+      ms.options = ms.options.map(o=>({...o, count: countMap[o.value]??null}));
+      ms._render();
+    };
+    _updateCounts(brandMS, brandCount);
+    _updateCounts(ipMS, ipCount);
+    _updateCounts(colMS, colCount);
   }
 }
 
