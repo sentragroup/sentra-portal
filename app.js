@@ -66,6 +66,7 @@ function mapDP(r) { return {rowIndex:r.id,id:r.id,name:r.partner_name||"",type:r
 function mapPB(r) { return {rowIndex:r.id,id:r.id,eventDate:r.event_date||"",eventName:r.event_name||"",location:r.location||"",ipRelated:r.ip_related||"",manpower:r.manpower||"",suratJalanUrl:r.surat_jalan_url||"",deliveryStatus:r.delivery_status||"",eventStatus:r.event_status||"",reinboundStatus:r.reinbound_status||"",reinboundQty:r.reinbound_qty!=null?r.reinbound_qty:"",srDeadline:r.sr_deadline||"",actualSales:r.actual_sales!=null?r.actual_sales:"",paymentMethod:r.payment_method||"",idPesananJubelio:r.id_pesanan_jubelio||"",notes:r.notes||"",dateAdded:r.date_added||"",addedBy:r.added_by||"",lastUpdated:r.last_updated||"",lastUpdatedBy:r.last_updated_by||""}; }
 
 let currentUser = "";
+let currentUserEmail = "";
 let allRows = [], acBrands = [], acTypes = [], acPics = [];
 let allIPRows = [], acAgrOptions = [], acIPCategories = ["Musician","Brand","Filmmaker"];
 let acAgrLinks = {}; // agrId -> driveLink
@@ -118,6 +119,7 @@ async function doLogin() {
 function enterApp(user, freshLogin) {
   const name = user.user_metadata?.name || user.email.split("@")[0];
   currentUser = name;
+  currentUserEmail = user.email || "";
   document.getElementById("loginScreen").style.display = "none";
   document.getElementById("app").style.display = "flex";
   document.getElementById("userName").textContent = name;
@@ -2873,8 +2875,8 @@ async function loadProductMap(page=0, search=''){
   const tbody=document.getElementById("pmTableBody");
   if(tbody) tbody.innerHTML=`<tr><td class="empty-td" colspan="7">Memuat...</td></tr>`;
   try {
-    if(!allBMRows.length){const{data}=await sb.from("brand_master").select("id,name").order("name");allBMRows=(data||[]).map(mapBM);}
-    if(!allIPRows.length){const{data}=await sb.from("ip_master").select("id,name").order("name");allIPRows=(data||[]).map(mapIP);}
+    if(!allBMRows.length){const{data}=await sb.from("brand_master").select("id,name,email").order("name");allBMRows=(data||[]).map(mapBM);}
+    if(!allIPRows.length){const{data}=await sb.from("ip_master").select("id,name,email").order("name");allIPRows=(data||[]).map(mapIP);}
     if(!allRRRows.length){const{data}=await sb.from("royalty_recipients").select("id,nama").order("nama");allRRRows=(data||[]).map(mapRR);}
     if(!allColNames.length){
       const{data:colData}=await sb.from("collections").select("collection_name").order("collection_name");
@@ -4102,6 +4104,65 @@ async function printColPerf(colId) {
   if (w) { w.document.write(html); w.document.close(); }
 }
 
+async function draftColPerfEmail(colId) {
+  const d = _colPerfCache[colId];
+  if (!d) return;
+  const { colName, ipRelated, products, grandSold, grandRevenue, grandDiscount, grandSubtotal, str, avgPerDay, fds, hasDiscount } = d;
+
+  // Find recipient email from IP Master or Brand Master
+  // ipRelated may be a single name or comma-separated
+  const ipNames = (ipRelated||"").split(",").map(s=>s.trim()).filter(Boolean);
+  let recipientEmails = [];
+  for (const ipName of ipNames) {
+    const ipRow = allIPRows.find(r => r.name === ipName);
+    const bmRow = allBMRows.find(r => r.name === ipName);
+    const emails = (ipRow?.email || bmRow?.email || "").split(",").map(s=>s.trim()).filter(Boolean);
+    recipientEmails.push(...emails);
+  }
+  // If still empty, try a fresh DB fetch (in case rows were loaded without email field)
+  if (!recipientEmails.length && ipNames.length) {
+    const { data: ipData } = await sb.from("ip_master").select("name,email").in("name", ipNames);
+    const { data: bmData } = await sb.from("brand_master").select("name,email").in("name", ipNames);
+    for (const r of [...(ipData||[]), ...(bmData||[])]) {
+      (r.email||"").split(",").map(s=>s.trim()).filter(Boolean).forEach(e => recipientEmails.push(e));
+    }
+  }
+  recipientEmails = [...new Set(recipientEmails)];
+
+  const fmtRp = n => n ? "Rp " + Math.round(n).toLocaleString("id-ID") : "—";
+  const top3 = products.slice(0, 3);
+  const grandNet = hasDiscount ? grandSubtotal : grandRevenue;
+
+  const subject = `Laporan Performa Koleksi ${colName}`;
+
+  const body = [
+    `Halo${ipRelated ? " " + ipRelated : ""},`,
+    "",
+    `Berikut ringkasan performa koleksi ${colName} per hari ini:`,
+    "",
+    "── OVERVIEW ──",
+    `Total Terjual   : ${Math.round(grandSold)} unit`,
+    `Sell-Through    : ${str}`,
+    `Total Revenue   : ${fmtRp(grandNet)}`,
+    `Rata-rata/Hari  : ${avgPerDay}`,
+    `Pertama Terjual : ${fds}`,
+    "",
+    "── TOP PRODUK ──",
+    ...top3.map((p, i) => `${i+1}. ${p.name} — ${Math.round(p.totalSold)} unit · ${fmtRp(p.totalRevenue)}`),
+    "",
+    "Untuk detail lengkap silakan lihat laporan terlampir.",
+    "",
+    `Salam,`,
+    currentUser,
+    currentUserEmail,
+  ].join("\n");
+
+  const to  = recipientEmails.join(",");
+  const url = `https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(to)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  window.open(url, "_blank");
+}
+
+
 async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
   const el = document.getElementById(`col-perf-${colId}`);
   if (!el) return;
@@ -4325,7 +4386,10 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
     </div>` : ""}
     <div style="margin-top:12px;display:flex;align-items:center;justify-content:space-between">
       <div style="font-size:10px;color:var(--g400);font-family:var(--mono)">${products.length} produk · ${itemIds.length} variants ter-mapping</div>
-      <button onclick="printColPerf('${colId}')" style="padding:5px 12px;border:1px solid var(--g200);border-radius:6px;background:none;font-size:11px;font-family:var(--mono);cursor:pointer;color:var(--g600);display:flex;align-items:center;gap:5px" title="Download PDF">⬇ PDF</button>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button onclick="draftColPerfEmail('${colId}')" style="padding:5px 12px;border:1px solid var(--g200);border-radius:6px;background:none;font-size:11px;font-family:var(--mono);cursor:pointer;color:var(--g600);display:flex;align-items:center;gap:5px" title="Buat draft email ke IP/Brand">✉ Email</button>
+        <button onclick="printColPerf('${colId}')" style="padding:5px 12px;border:1px solid var(--g200);border-radius:6px;background:none;font-size:11px;font-family:var(--mono);cursor:pointer;color:var(--g600);display:flex;align-items:center;gap:5px" title="Download PDF">⬇ PDF</button>
+      </div>
     </div>
   `;
   setTimeout(() => renderColPerfChart(colId, 'month'), 0);
