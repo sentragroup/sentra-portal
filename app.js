@@ -9774,6 +9774,9 @@ function renderRestockTable(products) {
   const brandFil2 = document.getElementById('rst-brand')?.value       || '';
   const searchTerm= (document.getElementById('rst-search')?.value     || '').toLowerCase().trim();
 
+  const RST_ROLL      = 60;
+  const RST_THRESHOLD = Math.round(RST_ROLL * 0.75); // 45
+
   const rows = [];
   let totalVisible = 0;
 
@@ -9804,16 +9807,40 @@ function renderRestockTable(products) {
 
     const allUrgChk = _rstAllVariantsChecked(p);
 
-    // Compute initial total from selected items' suggested qty
+    // Auto-suggest qty per variant using roll rounding logic
+    // rawTotal = sum of all variants' suggestedQty (restock-needed variants)
+    const restockVars = p.variants.filter(v => v.suggestedQty > 0);
+    const rawTotal    = restockVars.reduce((s, v) => s + v.suggestedQty, 0);
+    const adjQtys     = {}; // itemId → adjusted qty
+    if (rawTotal >= RST_THRESHOLD) {
+      const roundedTotal = Math.ceil(rawTotal / RST_ROLL) * RST_ROLL;
+      // Distribute proportionally, fix rounding remainder on largest variant
+      let distSum = 0;
+      restockVars.forEach(v => { adjQtys[v.itemId] = Math.floor(v.suggestedQty / rawTotal * roundedTotal); distSum += adjQtys[v.itemId]; });
+      const rem = roundedTotal - distSum;
+      if (rem > 0) {
+        const largest = restockVars.reduce((a, b) => b.suggestedQty > a.suggestedQty ? b : a);
+        adjQtys[largest.itemId] = (adjQtys[largest.itemId] || 0) + rem;
+      }
+    } else {
+      restockVars.forEach(v => { adjQtys[v.itemId] = v.suggestedQty; });
+    }
+    const suggestedTotal = Object.values(adjQtys).reduce((s, q) => s + q, 0);
+    const rollCount      = suggestedTotal > 0 ? suggestedTotal / RST_ROLL : 0;
+    const isExact        = suggestedTotal > 0 && suggestedTotal % RST_ROLL === 0;
+    const suggBadge      = suggestedTotal > 0
+      ? (isExact
+          ? `<span style="color:#2d7a2d;font-size:10px;font-family:var(--mono);background:#e8f5e9;border:1px solid #a5d6a7;border-radius:3px;padding:1px 5px">✓ ${rollCount} roll</span>`
+          : `<span style="color:#5c6bc0;font-size:10px;font-family:var(--mono);background:#e8eaf6;border:1px solid #9fa8da;border-radius:3px;padding:1px 5px">Saran: ${suggestedTotal}</span>`)
+      : '';
+    // initTotal from checked items' current qty inputs (for live total display)
     const initTotal = p.variants
-      .filter(v => _rstSelectedItems.has(v.itemId) && v.suggestedQty > 0)
-      .reduce((s, v) => s + v.suggestedQty, 0);
-    // Preserve roll size across re-renders (read existing DOM value if any)
-    const existingRoll = parseFloat(document.getElementById(`rst-roll-${pKey}`)?.value) || 90;
+      .filter(v => _rstSelectedItems.has(v.itemId))
+      .reduce((s, v) => s + (adjQtys[v.itemId] || v.suggestedQty || 0), 0);
     const rollValid = initTotal > 0
-      ? (initTotal % existingRoll === 0
-          ? `<span style="color:#2d7a2d;font-size:10px;font-family:var(--mono)">✓ ${initTotal/existingRoll} roll</span>`
-          : `<span style="color:#e65100;font-size:10px;font-family:var(--mono)">⚠ next: ${Math.ceil(initTotal/existingRoll)*existingRoll}</span>`)
+      ? (initTotal % RST_ROLL === 0
+          ? `<span style="color:#2d7a2d;font-size:10px;font-family:var(--mono)">✓ ${initTotal/RST_ROLL} roll</span>`
+          : `<span style="color:#e65100;font-size:10px;font-family:var(--mono)">⚠ next: ${Math.ceil(initTotal/RST_ROLL)*RST_ROLL}</span>`)
       : '';
 
     rows.push(`<tr class="rst-product-row" style="background:#f7f8fa;border-top:2px solid var(--g200);cursor:pointer" onclick="_rstToggleExpand('${pKey}','${p.name.replace(/'/g,"\\'")}')">`+
@@ -9828,17 +9855,11 @@ function renderRestockTable(products) {
       (hasRestock ? `<span style="font-size:10px;color:var(--g400)">${p.restockCount} SKU perlu restock</span>` : `<span style="font-size:10px;color:#2d7a2d">✓ stok aman</span>`)+
       `</div></div></div></td>`+
       `<td style="padding:7px 10px;text-align:right;vertical-align:middle" colspan="2">`+
-        `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px">`+
+        `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">`+
+          `${suggBadge}`+
           `<div style="font-size:11px;color:var(--g400)">Total: <strong id="rst-ptotal-${pKey}" style="font-family:var(--mono);color:var(--text)">${initTotal||'—'}</strong></div>`+
           `<div id="rst-pvalid-${pKey}">${rollValid}</div>`+
         `</div>`+
-      `</td>`+
-      `<td style="padding:7px 8px;text-align:right;vertical-align:middle" onclick="event.stopPropagation()">`+
-        `<div style="font-size:10px;color:var(--g400);margin-bottom:2px;white-space:nowrap">min/roll</div>`+
-        `<input id="rst-roll-${pKey}" class="rst-roll-input" type="number" value="${existingRoll}" min="1" step="1" `+
-          `oninput="event.stopPropagation();_rstUpdateProductTotal('${pKey}')" `+
-          `onclick="event.stopPropagation()" `+
-          `style="width:55px;text-align:center;font-size:12px;font-family:var(--mono);padding:2px 5px;border:1px solid var(--g200);border-radius:4px;background:white">`+
       `</td>`+
       `<td style="padding:7px 8px;text-align:right;font-size:10px;color:var(--g300)">Harga Beli</td>`+
       `</tr>`);
@@ -9864,7 +9885,7 @@ function renderRestockTable(products) {
         `<td style="${P};text-align:right;font-size:12px;font-family:var(--mono);color:var(--g400)">${v.qtySold>0?v.qtySold:'—'}</td>`+
         `<td style="${P};text-align:right;font-size:12px;font-family:var(--mono);color:var(--g400)">${aStr}</td>`+
         `<td style="${P};text-align:right;font-size:12px;font-family:var(--mono);color:${dClr};font-weight:${v.needsRestock?700:400}">${dStr}</td>`+
-        `<td style="${P};text-align:right"><input type="number" class="rst-qty-input" min="0" step="1" value="${chk&&v.suggestedQty>0?v.suggestedQty:''}" placeholder="0" oninput="_rstUpdateProductTotal('${pKey}')" style="width:70px;text-align:right;font-size:12px;font-family:var(--mono);padding:3px 6px;border:1px solid var(--g200);border-radius:4px;background:white"></td>`+
+        `<td style="${P};text-align:right"><input type="number" class="rst-qty-input" min="0" step="1" value="${chk&&(adjQtys[v.itemId]||v.suggestedQty)>0?(adjQtys[v.itemId]||v.suggestedQty):''}" placeholder="0" oninput="_rstUpdateProductTotal('${pKey}')" style="width:70px;text-align:right;font-size:12px;font-family:var(--mono);padding:3px 6px;border:1px solid var(--g200);border-radius:4px;background:white"></td>`+
         `<td style="${P};text-align:right"><input type="number" class="rst-price-input" min="0" step="1000" placeholder="0" style="width:90px;text-align:right;font-size:12px;font-family:var(--mono);padding:3px 6px;border:1px solid var(--g200);border-radius:4px;background:white"></td>`+
         `</tr>`);
     }
@@ -9932,22 +9953,22 @@ function _rstUpdateSelected() {
 }
 
 function _rstUpdateProductTotal(pKey) {
+  const RST_ROLL = 60;
   let total = 0;
   document.querySelectorAll(`.rst-var-chk[data-pkey="${pKey}"]:checked`).forEach(chk => {
     const qty = parseFloat(chk.closest('tr')?.querySelector('.rst-qty-input')?.value) || 0;
     total += qty;
   });
-  const roll = parseFloat(document.getElementById(`rst-roll-${pKey}`)?.value) || 90;
   const totalEl = document.getElementById(`rst-ptotal-${pKey}`);
   const validEl = document.getElementById(`rst-pvalid-${pKey}`);
   if (totalEl) totalEl.textContent = total > 0 ? total : '—';
   if (validEl) {
     if (total <= 0) {
       validEl.innerHTML = '';
-    } else if (total % roll === 0) {
-      validEl.innerHTML = `<span style="color:#2d7a2d;font-size:10px;font-family:var(--mono)">✓ ${total/roll} roll</span>`;
+    } else if (total % RST_ROLL === 0) {
+      validEl.innerHTML = `<span style="color:#2d7a2d;font-size:10px;font-family:var(--mono)">✓ ${total/RST_ROLL} roll</span>`;
     } else {
-      const next = Math.ceil(total/roll)*roll;
+      const next = Math.ceil(total/RST_ROLL)*RST_ROLL;
       validEl.innerHTML = `<span style="color:#e65100;font-size:10px;font-family:var(--mono)">⚠ next: ${next}</span>`;
     }
   }
@@ -9996,8 +10017,7 @@ function _rstShowSummary() {
     if (!parentName) parentName = chk.dataset.itemCode || '—';
 
     if (!productSummary[parentName]) {
-      const roll = parseFloat(document.getElementById(`rst-roll-${pKey}`)?.value) || 90;
-      productSummary[parentName] = { name:parentName, brand, ip, collection, pKey, roll, sizeQtys:{}, prices:[], totalQty:0, totalNilai:0 };
+      productSummary[parentName] = { name:parentName, brand, ip, collection, pKey, roll:60, sizeQtys:{}, prices:[], totalQty:0, totalNilai:0 };
     }
     productSummary[parentName].sizeQtys[size] = qty;
     productSummary[parentName].prices.push(price);
@@ -10040,7 +10060,7 @@ function _rstShowSummary() {
       return `<strong>${p.name}</strong>: ${p.totalQty} pcs (next: ${next}, roll ${p.roll})`;
     }).join('<br>');
     html += `<div style="background:#fce8e6;border:1px solid #f28b82;border-radius:6px;padding:9px 12px;margin-bottom:12px;font-size:12px;color:#7a0000">
-      ⚠ Qty berikut bukan kelipatan 1 roll — sesuaikan sebelum download:<br>${items}
+      ⚠ Qty berikut bukan kelipatan 1 roll (60 pcs) — sesuaikan sebelum download:<br>${items}
     </div>`;
   }
 
