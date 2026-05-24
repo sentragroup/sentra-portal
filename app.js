@@ -58,11 +58,11 @@ function sortLDBy(c){ldSort.dir=ldSort.col===c?(ldSort.dir==='asc'?'desc':'asc')
 function sortDPBy(c){dpSort.dir=dpSort.col===c?(dpSort.dir==='asc'?'desc':'asc'):'asc';dpSort.col=c;applyDPFilters();}
 function sortLogBy(c){logSort.dir=logSort.col===c?(logSort.dir==='asc'?'desc':'asc'):'asc';logSort.col=c;applyLogFilters();}
 function mapAgr(r) { return {rowIndex:r.id,id:r.id,title:r.title||"",partner:r.partner||"",pic:r.pic||"",brand:r.brand||"",revenue:r.revenue||"",type:r.type||"",start:r.start_date||"",end:r.end_date||"",status:r.status||"Draft",link:r.link||"",emailLink:r.email_link||"",notes:r.notes||"",lastUpdate:r.last_updated?new Date(r.last_updated).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"",lastBy:r.last_updated_by||"",addedBy:r.submitted_by||""}; }
-function mapIP(r) { return {rowIndex:r.id,id:r.id,name:r.name||"",category:r.category||"",liveStatus:r.live_status||"Active",revenue:r.revenue_stream||"",agreements:r.related_agreement||"",royaltyType:r.royalty_type||"",pct:r.percentage||"",fixed:r.fixed_amount||"",termin:r.termin||"",pph:r.pph_tax_rate||"",notes:r.notes||"",pic:r.pic||"",ipStatus:"",addedBy:r.added_by||""}; }
+function mapIP(r) { return {rowIndex:r.id,id:r.id,name:r.name||"",category:r.category||"",liveStatus:r.live_status||"Active",revenue:r.revenue_stream||"",agreements:r.related_agreement||"",royaltyType:r.royalty_type||"",pct:r.percentage||"",fixed:r.fixed_amount||"",termin:r.termin||"",pph:r.pph_tax_rate||"",notes:r.notes||"",email:r.email||"",pic:r.pic||"",ipStatus:"",addedBy:r.added_by||""}; }
 function mapRR(r) { return {rowIndex:r.id,id:r.id,name:r.nama||"",tipe:r.tipe||"",ip:r.related_ip||"",royaltyType:r.royalty_type||"",pct:r.percentage||"",fixed:r.fixed_amount||"",termin:r.termin||"",pks:r.pks||"",notes:r.notes||"",pic:r.pic||"",addedBy:r.added_by||""}; }
-function mapBM(r) { return {rowIndex:r.id,id:r.id,name:r.name||"",category:r.category||"",liveStatus:r.live_status||"Active",revenue:r.revenue_stream||"",agreements:r.related_agreement||"",apparel:r.apparel_rate!=null?r.apparel_rate:"",accessories:r.accessories_rate!=null?r.accessories_rate:"",collectible:r.collectible_rate!=null?r.collectible_rate:"",preloved:r.preloved_rate!=null?r.preloved_rate:"",wellness:r.wellness_rate!=null?r.wellness_rate:"",others:r.others_rate!=null?r.others_rate:"",notes:r.notes||"",pic:r.pic||"",addedBy:r.added_by||""}; }
+function mapBM(r) { return {rowIndex:r.id,id:r.id,name:r.name||"",category:r.category||"",liveStatus:r.live_status||"Active",revenue:r.revenue_stream||"",agreements:r.related_agreement||"",apparel:r.apparel_rate!=null?r.apparel_rate:"",accessories:r.accessories_rate!=null?r.accessories_rate:"",collectible:r.collectible_rate!=null?r.collectible_rate:"",preloved:r.preloved_rate!=null?r.preloved_rate:"",wellness:r.wellness_rate!=null?r.wellness_rate:"",others:r.others_rate!=null?r.others_rate:"",notes:r.notes||"",email:r.email||"",pic:r.pic||"",addedBy:r.added_by||""}; }
 function mapLD(r) { return {rowIndex:r.id,id:r.id,name:r.lead_name||"",category:r.category||"",stage:r.stage||"",pic:r.pic||"",revenue:r.revenue_stream||"",contact:r.contact||"",notes:r.notes||"",priority:r.priority||"",followUpDate:r.follow_up_date||"",date:r.date_added?new Date(r.date_added).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"",by:r.added_by||"",lastUpdate:r.last_updated?new Date(r.last_updated).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"",lastBy:r.last_updated_by||"",addedBy:r.added_by||""}; }
-function mapDP(r) { return {rowIndex:r.id,id:r.id,name:r.partner_name||"",type:r.type||"",channel:r.channel||"",region:r.region||"",pic:r.pic||"",contactPerson:r.contact_person||"",contactInfo:r.contact_info||"",agreements:r.related_agreement||"",liveStatus:r.live_status||"Active",notes:r.notes||"",addedBy:r.added_by||""}; }
+function mapDP(r) { return {rowIndex:r.id,id:r.id,name:r.partner_name||"",type:r.type||"",channel:r.channel||"",region:r.region||"",pic:r.pic||"",contactPerson:r.contact_person||"",contactInfo:r.contact_info||"",agreements:r.related_agreement||"",liveStatus:r.live_status||"Active",notes:r.notes||"",email:r.email||"",addedBy:r.added_by||""}; }
 function mapPB(r) { return {rowIndex:r.id,id:r.id,eventDate:r.event_date||"",eventName:r.event_name||"",location:r.location||"",ipRelated:r.ip_related||"",manpower:r.manpower||"",suratJalanUrl:r.surat_jalan_url||"",deliveryStatus:r.delivery_status||"",eventStatus:r.event_status||"",reinboundStatus:r.reinbound_status||"",reinboundQty:r.reinbound_qty!=null?r.reinbound_qty:"",srDeadline:r.sr_deadline||"",actualSales:r.actual_sales!=null?r.actual_sales:"",paymentMethod:r.payment_method||"",idPesananJubelio:r.id_pesanan_jubelio||"",notes:r.notes||"",dateAdded:r.date_added||"",addedBy:r.added_by||"",lastUpdated:r.last_updated||"",lastUpdatedBy:r.last_updated_by||""}; }
 
 let currentUser = "";
@@ -496,7 +496,7 @@ async function submitIP() {
   const btn=document.getElementById("ipSubmitBtn"); btn.disabled=true; btn.textContent="Menyimpan...";
   try {
     const id=genId("IP");
-    const {error}=await sb.from("ip_master").insert({id,name,category,live_status:liveStatus||"Active",pic:document.getElementById("ip-pic").value.trim(),revenue_stream:revenues.join(", "),related_agreement:document.getElementById("ip-agreements").value.trim(),royalty_type:document.getElementById("ip-royalty-type").value,percentage:document.getElementById("ip-pct").value.trim()||null,fixed_amount:document.getElementById("ip-fixed").value.trim()||null,termin:document.getElementById("ip-termin").value,pph_tax_rate:document.getElementById("ip-pph").value.trim()||null,notes:document.getElementById("ip-notes").value.trim(),added_by:currentUser,last_updated:new Date().toISOString(),last_updated_by:currentUser});
+    const {error}=await sb.from("ip_master").insert({id,name,category,live_status:liveStatus||"Active",pic:document.getElementById("ip-pic").value.trim(),revenue_stream:revenues.join(", "),related_agreement:document.getElementById("ip-agreements").value.trim(),royalty_type:document.getElementById("ip-royalty-type").value,percentage:document.getElementById("ip-pct").value.trim()||null,fixed_amount:document.getElementById("ip-fixed").value.trim()||null,termin:document.getElementById("ip-termin").value,pph_tax_rate:document.getElementById("ip-pph").value.trim()||null,notes:document.getElementById("ip-notes").value.trim(),email:document.getElementById("ip-email").value.trim()||null,added_by:currentUser,last_updated:new Date().toISOString(),last_updated_by:currentUser});
     if(error)throw error;
     showIPFeedback("✓ IP tersimpan — ID: "+id,"ok");
     logActivity("IP Master","create",id,name+" ("+category+")");
@@ -509,7 +509,7 @@ async function submitIP() {
 }
 
 function clearIPForm() {
-  ["ip-name","ip-category","ip-pic","ip-agreements","ip-notes","ip-pct","ip-fixed","ip-pph"].forEach(id=>document.getElementById(id).value="");
+  ["ip-name","ip-category","ip-pic","ip-agreements","ip-notes","ip-pct","ip-fixed","ip-pph","ip-email"].forEach(id=>document.getElementById(id).value="");
   document.getElementById("ip-royalty-type").value=""; document.getElementById("ip-termin").value=""; document.getElementById("ip-live-status").value="";
   document.querySelectorAll("#ip-revenue-checks input").forEach(c=>c.checked=false);
 }
@@ -520,7 +520,7 @@ function showIPFeedback(msg,type) {
 }
 
 async function loadIPMaster() {
-  document.getElementById("ipTableBody").innerHTML=`<tr><td class="empty-td" colspan="15">Memuat...</td></tr>`;
+  document.getElementById("ipTableBody").innerHTML=`<tr><td class="empty-td" colspan="16">Memuat...</td></tr>`;
   try {
     if(!allRows.length){const {data:ad}=await sb.from("agreements").select("*");allRows=(ad||[]).map(mapAgr);acAgrOptions=allRows.map(r=>({id:r.id,label:[r.partner,r.type].filter(Boolean).join(" — ")}));acAgrLinks={};allRows.forEach(r=>{if(r.id&&r.link)acAgrLinks[r.id]=r.link;});}
     const {data,error}=await sb.from("ip_master").select("*").order("id");
@@ -578,10 +578,11 @@ function renderIPTable(rows) {
   updateSortTh('ip-thead',ipSort.col,ipSort.dir);
   document.getElementById("ip-tcount").textContent=rows.length+" entri";
   const body=document.getElementById("ipTableBody");
-  if(!rows.length){body.innerHTML=`<tr><td class="empty-td" colspan="15">Belum ada data.</td></tr>`;return;}
+  if(!rows.length){body.innerHTML=`<tr><td class="empty-td" colspan="16">Belum ada data.</td></tr>`;return;}
   body.innerHTML=rows.map(r=>{
     const streams=(r.revenue||"").split(",").map(s=>s.trim()).filter(Boolean);
     const agrs=(r.agreements||"").split(",").map(s=>s.trim()).filter(Boolean);
+    const emails=(r.email||"").split(",").map(s=>s.trim()).filter(Boolean);
     return`<tr>
       <td class="td-id">${r.id||"—"}</td>
       <td style="font-weight:500">${r.name||"—"}</td>
@@ -602,9 +603,10 @@ function renderIPTable(rows) {
       <td style="font-size:11px">${r.termin||"—"}</td>
       <td style="font-family:var(--mono);font-size:11px">${r.pph?r.pph+"%":"—"}</td>
       <td style="color:var(--g600);font-size:11px">${r.notes||"—"}</td>
+      <td style="font-size:11px;font-family:var(--mono)">${emails.map(e=>`<a href="mailto:${e}" style="color:var(--g600);text-decoration:none">${e}</a>`).join("<br>")||"—"}</td>
       <td><button class="btn-icon" onclick="openIPEdit('${r.rowIndex}')">Edit</button> <button class="btn-icon" style="color:#c0392b;" onclick="deleteIP('${r.rowIndex}')">Del</button></td>
     </tr>
-    <tr id="ip-edit-row-${r.rowIndex}" style="display:none"><td colspan="15" style="padding:0 12px 12px;">
+    <tr id="ip-edit-row-${r.rowIndex}" style="display:none"><td colspan="16" style="padding:0 12px 12px;">
       <div class="edit-row-form">
         <div class="edit-row-grid">
           <div class="fg"><label>IP / Brand Name</label><input type="text" id="ip-e-name-${r.rowIndex}" value="${r.name||""}"></div>
@@ -618,6 +620,7 @@ function renderIPTable(rows) {
           <div class="fg"><label>Termin</label><select id="ip-e-termin-${r.rowIndex}"><option value="" ${!r.termin?"selected":""}>—</option><option ${r.termin==="Per Bulan"?"selected":""}>Per Bulan</option><option ${r.termin==="Per Quarter"?"selected":""}>Per Quarter</option><option ${r.termin==="Per Tahun"?"selected":""}>Per Tahun</option><option ${r.termin==="Per Akhir Project"?"selected":""}>Per Akhir Project</option></select></div>
           <div class="fg"><label>PPh Tax Rate (%)</label><input type="number" id="ip-e-pph-${r.rowIndex}" value="${r.pph||""}" step="0.1"></div>
           <div class="fg"><label>Notes</label><input type="text" id="ip-e-notes-${r.rowIndex}" value="${r.notes||""}"></div>
+          <div class="fg"><label>Email</label><input type="text" id="ip-e-email-${r.rowIndex}" value="${r.email||""}" placeholder="email1@x.com, email2@x.com"></div>
           <div class="fg"><label>PIC</label><input type="text" id="ip-e-pic-${r.rowIndex}" value="${r.pic||""}"></div>
         </div>
         <div class="edit-row-btns">
@@ -657,7 +660,7 @@ async function updateLiveStatus(sel, rowIndex) {
 
 async function saveIPEdit(rowIndex) {
   try {
-    const {error}=await sb.from("ip_master").update({name:document.getElementById("ip-e-name-"+rowIndex).value.trim(),category:document.getElementById("ip-e-category-"+rowIndex).value.trim(),live_status:document.getElementById("ip-e-live-"+rowIndex).value,pic:document.getElementById("ip-e-pic-"+rowIndex).value.trim(),revenue_stream:document.getElementById("ip-e-revenue-"+rowIndex).value.trim(),related_agreement:document.getElementById("ip-e-agr-"+rowIndex).value.trim(),royalty_type:document.getElementById("ip-e-roytype-"+rowIndex).value,percentage:document.getElementById("ip-e-pct-"+rowIndex).value.trim()||null,fixed_amount:document.getElementById("ip-e-fixed-"+rowIndex).value.trim()||null,termin:document.getElementById("ip-e-termin-"+rowIndex).value,pph_tax_rate:document.getElementById("ip-e-pph-"+rowIndex).value.trim()||null,notes:document.getElementById("ip-e-notes-"+rowIndex).value.trim(),last_updated:new Date().toISOString(),last_updated_by:currentUser}).eq("id",rowIndex);
+    const {error}=await sb.from("ip_master").update({name:document.getElementById("ip-e-name-"+rowIndex).value.trim(),category:document.getElementById("ip-e-category-"+rowIndex).value.trim(),live_status:document.getElementById("ip-e-live-"+rowIndex).value,pic:document.getElementById("ip-e-pic-"+rowIndex).value.trim(),revenue_stream:document.getElementById("ip-e-revenue-"+rowIndex).value.trim(),related_agreement:document.getElementById("ip-e-agr-"+rowIndex).value.trim(),royalty_type:document.getElementById("ip-e-roytype-"+rowIndex).value,percentage:document.getElementById("ip-e-pct-"+rowIndex).value.trim()||null,fixed_amount:document.getElementById("ip-e-fixed-"+rowIndex).value.trim()||null,termin:document.getElementById("ip-e-termin-"+rowIndex).value,pph_tax_rate:document.getElementById("ip-e-pph-"+rowIndex).value.trim()||null,notes:document.getElementById("ip-e-notes-"+rowIndex).value.trim(),email:document.getElementById("ip-e-email-"+rowIndex).value.trim()||null,last_updated:new Date().toISOString(),last_updated_by:currentUser}).eq("id",rowIndex);
     if(error){alert("Gagal simpan: "+error.message);return;}
     logActivity("IP Master","edit",rowIndex,"Data diperbarui");
     const _ir=allIPRows.find(r=>r.rowIndex===rowIndex);
@@ -842,7 +845,7 @@ async function submitBM() {
   btn.disabled=true; btn.textContent="Menyimpan...";
   try {
     const id=genId("BM");
-    const {error}=await sb.from("brand_master").insert({id,name,category,live_status:liveStatus||"Active",pic:document.getElementById("bm-pic").value.trim(),revenue_stream:revenues.join(", "),related_agreement:document.getElementById("bm-agreements").value.trim(),apparel_rate:parseFloat(document.getElementById("bm-apparel").value)||BM_NORMAL.apparel,accessories_rate:parseFloat(document.getElementById("bm-accessories").value)||BM_NORMAL.accessories,collectible_rate:parseFloat(document.getElementById("bm-collectible").value)||BM_NORMAL.collectible,preloved_rate:parseFloat(document.getElementById("bm-preloved").value)||BM_NORMAL.preloved,wellness_rate:parseFloat(document.getElementById("bm-wellness").value)||BM_NORMAL.wellness,others_rate:parseFloat(document.getElementById("bm-others").value)||BM_NORMAL.others,notes:document.getElementById("bm-notes").value.trim(),added_by:currentUser,last_updated:new Date().toISOString(),last_updated_by:currentUser});
+    const {error}=await sb.from("brand_master").insert({id,name,category,live_status:liveStatus||"Active",pic:document.getElementById("bm-pic").value.trim(),revenue_stream:revenues.join(", "),related_agreement:document.getElementById("bm-agreements").value.trim(),apparel_rate:parseFloat(document.getElementById("bm-apparel").value)||BM_NORMAL.apparel,accessories_rate:parseFloat(document.getElementById("bm-accessories").value)||BM_NORMAL.accessories,collectible_rate:parseFloat(document.getElementById("bm-collectible").value)||BM_NORMAL.collectible,preloved_rate:parseFloat(document.getElementById("bm-preloved").value)||BM_NORMAL.preloved,wellness_rate:parseFloat(document.getElementById("bm-wellness").value)||BM_NORMAL.wellness,others_rate:parseFloat(document.getElementById("bm-others").value)||BM_NORMAL.others,notes:document.getElementById("bm-notes").value.trim(),email:document.getElementById("bm-email").value.trim()||null,added_by:currentUser,last_updated:new Date().toISOString(),last_updated_by:currentUser});
     if(error)throw error;
     showBMFeedback("✓ Brand tersimpan — ID: "+id,"ok");
     logActivity("Brand Master","create",id,name+" ("+category+")");
@@ -854,7 +857,7 @@ async function submitBM() {
 }
 
 function clearBMForm() {
-  ["bm-name","bm-category","bm-pic","bm-agreements","bm-notes","bm-apparel","bm-accessories","bm-collectible","bm-preloved","bm-wellness","bm-others"].forEach(id=>document.getElementById(id).value="");
+  ["bm-name","bm-category","bm-pic","bm-agreements","bm-notes","bm-apparel","bm-accessories","bm-collectible","bm-preloved","bm-wellness","bm-others","bm-email"].forEach(id=>document.getElementById(id).value="");
   document.getElementById("bm-live-status").value="Active";
   document.querySelectorAll("#bm-revenue-checks input").forEach(c=>c.checked=false);
 }
@@ -865,7 +868,7 @@ function showBMFeedback(msg,type) {
 }
 
 async function loadBrandMaster() {
-  document.getElementById("bmTableBody").innerHTML=`<tr><td class="empty-td" colspan="15">Memuat...</td></tr>`;
+  document.getElementById("bmTableBody").innerHTML=`<tr><td class="empty-td" colspan="16">Memuat...</td></tr>`;
   try {
     const {data,error}=await sb.from("brand_master").select("*").order("id");
     if(error)throw error;
@@ -922,10 +925,11 @@ function renderBMTable(rows) {
   updateSortTh('bm-thead',bmSort.col,bmSort.dir);
   document.getElementById("bm-tcount").textContent = rows.length+" entri";
   const body = document.getElementById("bmTableBody");
-  if (!rows.length) { body.innerHTML=`<tr><td class="empty-td" colspan="15">Belum ada data.</td></tr>`; return; }
+  if (!rows.length) { body.innerHTML=`<tr><td class="empty-td" colspan="16">Belum ada data.</td></tr>`; return; }
   body.innerHTML = rows.map(r=>{
     const streams = (r.revenue||"").split(",").map(s=>s.trim()).filter(Boolean);
     const agrs    = (r.agreements||"").split(",").map(s=>s.trim()).filter(Boolean);
+    const emails  = (r.email||"").split(",").map(s=>s.trim()).filter(Boolean);
     const hasNego = isNego(r);
     return `<tr>
       <td class="td-id">${r.id||"—"}</td>
@@ -942,9 +946,10 @@ function renderBMTable(rows) {
       <td>${rateCell(r.wellness,  BM_NORMAL.wellness)}</td>
       <td>${rateCell(r.others,    BM_NORMAL.others)}</td>
       <td style="color:var(--g600);font-size:11px">${r.notes||"—"}</td>
+      <td style="font-size:11px;font-family:var(--mono)">${emails.map(e=>`<a href="mailto:${e}" style="color:var(--g600);text-decoration:none">${e}</a>`).join("<br>")||"—"}</td>
       <td><button class="btn-icon" onclick="openBMEdit('${r.rowIndex}')">Edit</button> <button class="btn-icon" style="color:#c0392b;" onclick="deleteBM('${r.rowIndex}')">Del</button></td>
     </tr>
-    <tr id="bm-edit-row-${r.rowIndex}" style="display:none"><td colspan="15" style="padding:0 12px 12px;">
+    <tr id="bm-edit-row-${r.rowIndex}" style="display:none"><td colspan="16" style="padding:0 12px 12px;">
       <div class="edit-row-form">
         <div class="edit-row-grid">
           <div class="fg"><label>Brand Name</label><input type="text" id="bm-e-name-${r.rowIndex}" value="${r.name||""}"></div>
@@ -959,6 +964,7 @@ function renderBMTable(rows) {
           <div class="fg"><label>Wellness % <span style="color:var(--g400);font-size:9px;text-transform:none;letter-spacing:0;">normal: 20</span></label><input type="number" id="bm-e-wel-${r.rowIndex}" value="${r.wellness||""}" step="0.1" placeholder="20"></div>
           <div class="fg"><label>Others % <span style="color:var(--g400);font-size:9px;text-transform:none;letter-spacing:0;">normal: 30</span></label><input type="number" id="bm-e-oth-${r.rowIndex}" value="${r.others||""}" step="0.1" placeholder="30"></div>
           <div class="fg"><label>Notes</label><input type="text" id="bm-e-notes-${r.rowIndex}" value="${r.notes||""}"></div>
+          <div class="fg"><label>Email</label><input type="text" id="bm-e-email-${r.rowIndex}" value="${r.email||""}" placeholder="email1@x.com, email2@x.com"></div>
           <div class="fg"><label>PIC</label><input type="text" id="bm-e-pic-${r.rowIndex}" value="${r.pic||""}"></div>
         </div>
         <div class="edit-row-btns">
@@ -985,7 +991,7 @@ async function deleteBM(rowIndex) {
 
 async function saveBMEdit(rowIndex) {
   try {
-    const {error}=await sb.from("brand_master").update({name:document.getElementById("bm-e-name-"+rowIndex).value.trim(),category:document.getElementById("bm-e-cat-"+rowIndex).value.trim(),live_status:document.getElementById("bm-e-live-"+rowIndex).value,revenue_stream:document.getElementById("bm-e-rev-"+rowIndex).value.trim(),related_agreement:document.getElementById("bm-e-agr-"+rowIndex).value.trim(),apparel_rate:parseFloat(document.getElementById("bm-e-apparel-"+rowIndex).value)||BM_NORMAL.apparel,accessories_rate:parseFloat(document.getElementById("bm-e-acc-"+rowIndex).value)||BM_NORMAL.accessories,collectible_rate:parseFloat(document.getElementById("bm-e-col-"+rowIndex).value)||BM_NORMAL.collectible,preloved_rate:parseFloat(document.getElementById("bm-e-pre-"+rowIndex).value)||BM_NORMAL.preloved,wellness_rate:parseFloat(document.getElementById("bm-e-wel-"+rowIndex).value)||BM_NORMAL.wellness,others_rate:parseFloat(document.getElementById("bm-e-oth-"+rowIndex).value)||BM_NORMAL.others,notes:document.getElementById("bm-e-notes-"+rowIndex).value.trim(),pic:document.getElementById("bm-e-pic-"+rowIndex).value.trim(),last_updated:new Date().toISOString(),last_updated_by:currentUser}).eq("id",rowIndex);
+    const {error}=await sb.from("brand_master").update({name:document.getElementById("bm-e-name-"+rowIndex).value.trim(),category:document.getElementById("bm-e-cat-"+rowIndex).value.trim(),live_status:document.getElementById("bm-e-live-"+rowIndex).value,revenue_stream:document.getElementById("bm-e-rev-"+rowIndex).value.trim(),related_agreement:document.getElementById("bm-e-agr-"+rowIndex).value.trim(),apparel_rate:parseFloat(document.getElementById("bm-e-apparel-"+rowIndex).value)||BM_NORMAL.apparel,accessories_rate:parseFloat(document.getElementById("bm-e-acc-"+rowIndex).value)||BM_NORMAL.accessories,collectible_rate:parseFloat(document.getElementById("bm-e-col-"+rowIndex).value)||BM_NORMAL.collectible,preloved_rate:parseFloat(document.getElementById("bm-e-pre-"+rowIndex).value)||BM_NORMAL.preloved,wellness_rate:parseFloat(document.getElementById("bm-e-wel-"+rowIndex).value)||BM_NORMAL.wellness,others_rate:parseFloat(document.getElementById("bm-e-oth-"+rowIndex).value)||BM_NORMAL.others,notes:document.getElementById("bm-e-notes-"+rowIndex).value.trim(),email:document.getElementById("bm-e-email-"+rowIndex).value.trim()||null,pic:document.getElementById("bm-e-pic-"+rowIndex).value.trim(),last_updated:new Date().toISOString(),last_updated_by:currentUser}).eq("id",rowIndex);
     if(error){alert("Gagal simpan: "+error.message);return;}
     logActivity("Brand Master","edit",rowIndex,"Data diperbarui");
     const _bm=allBMRows.find(r=>r.rowIndex===rowIndex);
@@ -1611,6 +1617,7 @@ async function submitDP() {
       live_status:     document.getElementById("dp-live-status").value||"Active",
       related_agreement:document.getElementById("dp-agreements").value.trim(),
       notes:           document.getElementById("dp-notes").value.trim(),
+      email:           document.getElementById("dp-email").value.trim()||null,
       added_by:        currentUser,
       date_added:      now,
       last_updated:    now,
@@ -1629,7 +1636,7 @@ async function submitDP() {
 }
 
 function clearDPForm() {
-  ["dp-name","dp-type","dp-channel","dp-region","dp-pic","dp-contact-person","dp-contact-info","dp-agreements","dp-notes"].forEach(id=>document.getElementById(id).value="");
+  ["dp-name","dp-type","dp-channel","dp-region","dp-pic","dp-contact-person","dp-contact-info","dp-agreements","dp-notes","dp-email"].forEach(id=>document.getElementById(id).value="");
   document.getElementById("dp-live-status").value="Active";
 }
 
@@ -1639,7 +1646,7 @@ function showDPFeedback(msg,type) {
 }
 
 async function loadDistPartner() {
-  document.getElementById("dpTableBody").innerHTML=`<tr><td class="empty-td" colspan="11">Memuat...</td></tr>`;
+  document.getElementById("dpTableBody").innerHTML=`<tr><td class="empty-td" colspan="12">Memuat...</td></tr>`;
   try {
     const {data,error}=await sb.from("dist_partners").select("*").order("id");
     if(error) throw error;
@@ -1654,7 +1661,7 @@ async function loadDistPartner() {
     const picSel=document.getElementById("dp-fil-pic");
     if(picSel){while(picSel.options.length>1)picSel.remove(1);pics.forEach(p=>{const o=document.createElement("option");o.value=o.textContent=p;picSel.appendChild(o);});}
     computeDPStats(allDPRows); applyDPFilters();
-  } catch(e){ document.getElementById("dpTableBody").innerHTML=`<tr><td class="empty-td" colspan="11">Gagal: ${e.message}</td></tr>`; }
+  } catch(e){ document.getElementById("dpTableBody").innerHTML=`<tr><td class="empty-td" colspan="12">Gagal: ${e.message}</td></tr>`; }
 }
 
 function computeDPStats(rows) {
@@ -1693,11 +1700,12 @@ function renderDPTable(rows) {
   updateSortTh('dp-thead',dpSort.col,dpSort.dir);
   document.getElementById("dp-tcount").textContent=rows.length+" entri";
   const body=document.getElementById("dpTableBody");
-  if(!rows.length){body.innerHTML=`<tr><td class="empty-td" colspan="12">Belum ada data.</td></tr>`;return;}
+  if(!rows.length){body.innerHTML=`<tr><td class="empty-td" colspan="13">Belum ada data.</td></tr>`;return;}
   body.innerHTML=rows.map(r=>{
     const types=(r.type||"").split(",").map(s=>s.trim()).filter(Boolean);
     const channels=(r.channel||"").split(",").map(s=>s.trim()).filter(Boolean);
     const agrs=(r.agreements||"").split(",").map(s=>s.trim()).filter(Boolean);
+    const emails=(r.email||"").split(",").map(s=>s.trim()).filter(Boolean);
     return`<tr>
       <td class="td-id">${r.id||"—"}</td>
       <td style="font-weight:500">${r.name||"—"}</td>
@@ -1706,6 +1714,7 @@ function renderDPTable(rows) {
       <td style="font-size:12px">${r.region||"—"}</td>
       <td style="font-size:12px">${r.pic||"—"}</td>
       <td style="font-size:11px;color:var(--g600)">${r.contactPerson?`${r.contactPerson}${r.contactInfo?`<br><span style="font-size:10px;font-family:var(--mono)">${r.contactInfo}</span>`:""}` :"—"}</td>
+      <td style="font-size:11px;font-family:var(--mono)">${emails.map(e=>`<a href="mailto:${e}" style="color:var(--g600);text-decoration:none">${e}</a>`).join("<br>")||"—"}</td>
       <td>${agrs.length?agrs.map(a=>{const opt=acAgrOptions.find?acAgrOptions.find(o=>o.id===a):null;const link=acAgrLinks[a];return link?`<a href="${link}" target="_blank" class="pill" style="background:#E6F1FB;color:#0C447C;border:0.5px solid #85B7EB;margin-right:3px;text-decoration:none" title="${opt?opt.label:""}">${a} ↗</a>`:`<span class="pill" style="background:#E6F1FB;color:#0C447C;border:0.5px solid #85B7EB;margin-right:3px" title="${opt?opt.label:""}">${a}</span>`;}).join(""):`<span style="color:var(--g400);font-size:11px">—</span>`}</td>
       <td>
         <select class="pill live-toggle ${r.liveStatus==="Active"?"p-active":"p-inactive"}" onchange="updateDPLiveStatus(this,'${r.rowIndex}')">
@@ -1717,7 +1726,7 @@ function renderDPTable(rows) {
       <td style="font-size:11px;color:var(--g600)">${r.notes||"—"}</td>
       <td><button class="btn-icon" onclick="openDPEdit('${r.rowIndex}')">Edit</button> <button class="btn-icon" style="color:#c0392b;" onclick="deleteDP('${r.rowIndex}')">Del</button></td>
     </tr>
-    <tr id="dp-edit-row-${r.rowIndex}" style="display:none"><td colspan="12" style="padding:0 12px 12px;">
+    <tr id="dp-edit-row-${r.rowIndex}" style="display:none"><td colspan="13" style="padding:0 12px 12px;">
       <div class="edit-row-form">
         <div class="edit-row-grid">
           <div class="fg"><label>Partner Name</label><input type="text" id="dp-e-name-${r.rowIndex}" value="${r.name||""}"></div>
@@ -1730,6 +1739,7 @@ function renderDPTable(rows) {
           <div class="fg"><label>Live Status</label><select id="dp-e-live-${r.rowIndex}"><option ${r.liveStatus==="Active"?"selected":""}>Active</option><option ${r.liveStatus==="Inactive"?"selected":""}>Inactive</option></select></div>
           <div class="fg"><label>Related Agreement</label><input type="text" id="dp-e-agr-${r.rowIndex}" value="${r.agreements||""}"></div>
           <div class="fg"><label>Notes</label><input type="text" id="dp-e-notes-${r.rowIndex}" value="${r.notes||""}"></div>
+          <div class="fg"><label>Email</label><input type="text" id="dp-e-email-${r.rowIndex}" value="${r.email||""}" placeholder="email1@x.com, email2@x.com"></div>
         </div>
         <div class="edit-row-btns">
           <button class="btn-save" onclick="saveDPEdit('${r.rowIndex}')">Simpan</button>
@@ -1779,6 +1789,7 @@ async function saveDPEdit(rowIndex) {
       live_status:      document.getElementById("dp-e-live-"+rowIndex).value,
       related_agreement:document.getElementById("dp-e-agr-"+rowIndex).value.trim(),
       notes:            document.getElementById("dp-e-notes-"+rowIndex).value.trim(),
+      email:            document.getElementById("dp-e-email-"+rowIndex).value.trim()||null,
       last_updated:     new Date().toISOString(),
       last_updated_by:  currentUser
     }).eq("id",rowIndex);
