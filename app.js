@@ -219,6 +219,7 @@ function showPage(name, el) {
     // Pre-load filter options then auto-run
     _preloadSPFiltersAndRun();
   }
+  window.scrollTo(0, 0);
   closeMobileSidebar();
 }
 
@@ -8903,8 +8904,16 @@ function _initSPMultiSelects() {
     panel.id = d.id + '-panel';
     panel.className = 'sp-ms-panel';
     panel.style.display = 'none';
-    panel.innerHTML = `<div class="sp-ms-search-wrap"><input type="text" class="sp-ms-search" placeholder="Type to search" oninput="_spMSSearch('${d.id}',this.value)"></div><div class="sp-ms-list" id="${d.id}-list"></div>`;
-    document.body.appendChild(panel);
+    panel.innerHTML = `
+      <div class="sp-ms-search-wrap">
+        <input type="text" class="sp-ms-search" placeholder="Type to search" oninput="_spMSSearch('${d.id}',this.value)">
+        <div class="sp-ms-actions">
+          <button class="sp-ms-action-btn" onclick="event.stopPropagation();_spMSSelectAll('${d.id}')">Pilih Semua</button>
+          <button class="sp-ms-action-btn" onclick="event.stopPropagation();_spMSDeselectAll('${d.id}')">Hapus Semua</button>
+        </div>
+      </div>
+      <div class="sp-ms-list" id="${d.id}-list"></div>`;
+    wrap.appendChild(panel);
     panel.addEventListener('click', e => e.stopPropagation());
     const ms = {
       id: d.id, ph: d.ph,
@@ -8974,21 +8983,6 @@ function _spMSOpen(e, id) {
   const isOpen=panel.style.display!=='none';
   document.querySelectorAll('.sp-ms-panel').forEach(p=>p.style.display='none');
   if(isOpen)return;
-  const toggle=document.getElementById(id+'-toggle');
-  const rect=toggle.getBoundingClientRect();
-  const panelH=Math.min(300, ms.options.length*32+50);
-  const spaceBelow=window.innerHeight-rect.bottom-8;
-  const spaceAbove=rect.top-8;
-  const w=Math.max(220,rect.width);
-  panel.style.width=w+'px';
-  panel.style.left=Math.min(rect.left, window.innerWidth-w-8)+'px';
-  if(spaceBelow>=panelH || spaceBelow>=spaceAbove){
-    panel.style.top=(rect.bottom+4)+'px';
-    panel.style.bottom='';
-  } else {
-    panel.style.top='';
-    panel.style.bottom=(window.innerHeight-rect.top+4)+'px';
-  }
   panel.style.display='flex';
   const search=panel.querySelector('.sp-ms-search');
   if(search){ search.value=''; ms._render(''); setTimeout(()=>search.focus(),30); }
@@ -8997,6 +8991,8 @@ function _spMSOpen(e, id) {
 function _spMSSearch(id,val) { const ms=_spMS[id]; if(ms) ms._render(val); }
 function _spMSToggle(id,val,checked) { const ms=_spMS[id]; if(ms){ ms.toggle(val,checked); } }
 function _spMSOnly(id,val) { const ms=_spMS[id]; if(ms) ms.only(val); }
+function _spMSSelectAll(id) { const ms=_spMS[id]; if(!ms)return; ms.selected=new Set(ms.allValues); ms._render(); ms._updateToggle(); }
+function _spMSDeselectAll(id) { const ms=_spMS[id]; if(!ms)return; ms.selected=new Set(); ms._render(); ms._updateToggle(); }
 
 function clearSPFilters() {
   ['sp-fil-from','sp-fil-to','sp-fil-product'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
