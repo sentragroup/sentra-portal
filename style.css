@@ -63,14 +63,17 @@ body{font-family:var(--body);background:var(--white);color:var(--black);font-siz
 .stat-card.warn{background:#fff8e6;border:1px solid #f0d080;}
 .stat-card.danger{background:#fdf0f0;border:1px solid #e8b8b8;}
 .stat-card.info{background:#e8f0fc;border:1px solid #a8c4f0;}
+.stat-card.success{background:#f0faf0;border:1px solid #8ecf8e;}
 .stat-num{font-family:var(--head);font-size:24px;font-weight:700;color:var(--black);letter-spacing:-0.03em;line-height:1;margin-bottom:4px;}
 .stat-card.warn .stat-num{color:#7a5000;}
 .stat-card.danger .stat-num{color:#7a1f1f;}
 .stat-card.info .stat-num{color:#1a4a8a;}
+.stat-card.success .stat-num{color:#1e6b1e;}
 .stat-lbl{font-family:var(--mono);font-size:9px;color:var(--g400);letter-spacing:0.08em;text-transform:uppercase;}
 .stat-card.warn .stat-lbl{color:#7a5000;}
 .stat-card.danger .stat-lbl{color:#7a1f1f;}
 .stat-card.info .stat-lbl{color:#1a4a8a;}
+.stat-card.success .stat-lbl{color:#1e6b1e;}
 .stats-section-label{font-family:var(--mono);font-size:9px;letter-spacing:0.12em;text-transform:uppercase;color:var(--g400);margin-bottom:6px;margin-top:4px;}
 .filter-panel{background:var(--off);border-radius:8px;padding:0.875rem 1.25rem;margin-bottom:1.25rem;overflow:visible;}
 .filter-panel-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;}
