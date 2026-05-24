@@ -9240,7 +9240,10 @@ async function loadSalesPerf() {
     for (const pg of Object.values(productMap)) {
       pg.thumbnail = null;
       for (const iid of pg.itemIds) { if (thumbMap[iid]) { pg.thumbnail = thumbMap[iid]; break; } }
-      pg.variants = Object.values(pg.variants).map(v => ({...v, orders: v.orders.size, net: v.revenue - v.disc})).sort((a, b) => b.qty - a.qty);
+      const _sizeOrder = ['XS','S','M','L','XL','XXL','XXXL','4XL','5XL'];
+      const _sizeRank = s => { const i = _sizeOrder.indexOf((s||'').trim().toUpperCase()); return i >= 0 ? i : 99; };
+      const _varSize = v => { const p = v.name.split(' - '); return p.length > 1 ? p[p.length-1] : v.name; };
+      pg.variants = Object.values(pg.variants).map(v => ({...v, orders: v.orders.size, net: v.revenue - v.disc})).sort((a, b) => _sizeRank(_varSize(a)) - _sizeRank(_varSize(b)));
     }
 
     const productData = Object.values(productMap).map(p => ({...p, orders: p.orders.size, net: p.revenue - p.disc})).sort((a, b) => b.net - a.net);
