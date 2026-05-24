@@ -100,12 +100,11 @@
         </div>
       </div>
       <div class="sb-sec">
-        <div class="sb-label">Purchasing</div>
         <div class="sb-item" onclick="showPage('po',this)" id="nav-po">
-          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="4" width="10" height="11" rx="1"/><path d="M4 4V3a2 2 0 0 1 4 0v1"/><line x1="3" y1="8" x2="9" y2="8"/><line x1="3" y1="11" x2="7" y2="11"/></svg>Purchase Orders
+          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="4" width="10" height="11" rx="1"/><path d="M4 4V3a2 2 0 0 1 4 0v1"/><line x1="3" y1="8" x2="9" y2="8"/><line x1="3" y1="11" x2="7" y2="11"/></svg>Track Purchase Order
         </div>
         <div class="sb-item" onclick="showPage('restock',this)" id="nav-restock">
-          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="6" width="14" height="8" rx="1"/><path d="M5 6V4a3 3 0 0 1 6 0v2"/><line x1="8" y1="9" x2="8" y2="12"/><line x1="6.5" y1="10.5" x2="9.5" y2="10.5"/></svg>Need Restock
+          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="6" width="14" height="8" rx="1"/><path d="M5 6V4a3 3 0 0 1 6 0v2"/><line x1="8" y1="9" x2="8" y2="12"/><line x1="6.5" y1="10.5" x2="9.5" y2="10.5"/></svg>Create New & Restock PO
         </div>
       </div>
       <div class="sb-sec">
@@ -179,10 +178,9 @@
           <div class="tool-card" onclick="showPage('popupbooth',null)"><span class="tc-icon">🛍️</span><div class="tc-name">Pop Up Booth</div><div class="tc-desc">Track event pop-up booth — manpower, stok, penjualan, dan reinbound.</div></div>
         </div>
 
-        <div class="sb-label" style="margin-bottom:0.6rem">Purchasing</div>
         <div class="home-grid" style="margin-bottom:1.5rem">
-          <div class="tool-card" onclick="showPage('po',null)"><span class="tc-icon">🛒</span><div class="tc-name">Purchase Orders</div><div class="tc-desc">Track dan kelola purchase order ke vendor — dari draft hingga penerimaan barang.</div></div>
-          <div class="tool-card" onclick="showPage('restock',null)"><span class="tc-icon">📦</span><div class="tc-name">Need Restock</div><div class="tc-desc">Download CSV import PO untuk produk SD&amp;Y, Lagaa, dan Marte yang perlu di-restock.</div></div>
+          <div class="tool-card" onclick="showPage('po',null)"><span class="tc-icon">🛒</span><div class="tc-name">Track Purchase Order</div><div class="tc-desc">Track dan kelola purchase order ke vendor — dari draft hingga penerimaan barang.</div></div>
+          <div class="tool-card" onclick="showPage('restock',null)"><span class="tc-icon">📦</span><div class="tc-name">Create New & Restock PO</div><div class="tc-desc">Download CSV import PO untuk produk SD&amp;Y, Lagaa, dan Marte yang perlu di-restock.</div></div>
         </div>
 
         <div class="sb-label" style="margin-bottom:0.6rem">Warehouse</div>
@@ -971,7 +969,7 @@
     <!-- PURCHASE ORDERS -->
     <div class="page" id="page-po">
       <div class="page-header">
-        <div><div class="page-title">Purchase Orders</div><div class="page-sub">Data PO dari Jubelio — sync otomatis harian, atau manual via tombol Sync.</div></div>
+        <div><div class="page-title">Track Purchase Order</div><div class="page-sub">Data PO dari Jubelio — sync otomatis harian, atau manual via tombol Sync.</div></div>
       </div>
       <div class="stats-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:1.25rem">
         <div class="stat-card"><div class="stat-num" id="po-s-total">—</div><div class="stat-lbl">Total PO</div></div>
@@ -1025,7 +1023,7 @@
     <!-- NEED RESTOCK -->
     <div class="page" id="page-restock">
       <div class="page-header">
-        <div><div class="page-title">Need Restock</div><div class="page-sub">Download CSV import PO untuk produk SD&amp;Y, Lagaa, dan Marte yang perlu di-restock, lalu import via Jubelio → Pembelian → Import.</div></div>
+        <div><div class="page-title">Create New & Restock PO</div><div class="page-sub">Download CSV import PO untuk produk SD&amp;Y, Lagaa, dan Marte yang perlu di-restock, lalu import via Jubelio → Pembelian → Import.</div></div>
       </div>
 
       <div class="filter-panel">
