@@ -9200,17 +9200,48 @@ async function loadSalesPerf() {
       .map(([st, d]) => ({ store: st, orders: d.orders.size, qty: d.qty, revenue: d.revenue }))
       .sort((a, b) => b.revenue - a.revenue);
 
-    // 8. Product summary
+    // 8. Product summary — grouped by parent name (without size variant)
     const productMap = {};
     for (const it of items) {
-      const name = it.item_name || '?';
-      const m    = mappingById[it.item_id] || {};
-      if (!productMap[name]) productMap[name] = { name, brand: m.brand || '', ip: m.ip || '', collection: m.collection || '', orders: new Set(), qty: 0, revenue: 0, disc: 0 };
-      productMap[name].orders.add(it.salesorder_id);
-      productMap[name].qty     += parseFloat(it.qty    || 0);
-      productMap[name].revenue += parseFloat(it.qty    || 0) * parseFloat(it.price || 0);
-      productMap[name].disc    += parseFloat(it.disc_amount || 0);
+      const m          = mappingById[it.item_id] || {};
+      const parentName = m.item_name || it.item_name || '?'; // parent name from mappings (no variant)
+      const variantName = it.item_name || '?';               // full SKU name (with size)
+      if (!productMap[parentName]) productMap[parentName] = {
+        name: parentName, brand: m.brand || '', ip: m.ip || '', collection: m.collection || '',
+        orders: new Set(), qty: 0, revenue: 0, disc: 0,
+        variants: {},           // variantName → {orders,qty,revenue,disc}
+        itemIds: new Set(),     // collect item_ids for thumbnail lookup
+      };
+      const pg = productMap[parentName];
+      pg.orders.add(it.salesorder_id);
+      pg.qty     += parseFloat(it.qty || 0);
+      pg.revenue += parseFloat(it.qty || 0) * parseFloat(it.price || 0);
+      pg.disc    += parseFloat(it.disc_amount || 0);
+      if (it.item_id) pg.itemIds.add(it.item_id);
+      // Variant-level tracking
+      if (!pg.variants[variantName]) pg.variants[variantName] = { name: variantName, orders: new Set(), qty: 0, revenue: 0, disc: 0 };
+      pg.variants[variantName].orders.add(it.salesorder_id);
+      pg.variants[variantName].qty     += parseFloat(it.qty || 0);
+      pg.variants[variantName].revenue += parseFloat(it.qty || 0) * parseFloat(it.price || 0);
+      pg.variants[variantName].disc    += parseFloat(it.disc_amount || 0);
     }
+
+    // 8b. Fetch thumbnails for one representative item_id per product group
+    const allItemIds = [...new Set(Object.values(productMap).flatMap(p => [...p.itemIds]))];
+    const thumbMap = {};
+    if (allItemIds.length) {
+      const jiRows = await _fetchAllPages('jubelio_items', 'item_id,thumbnail',
+        q => q.in('item_id', allItemIds).not('thumbnail', 'is', null)
+      );
+      for (const r of jiRows) { if (r.thumbnail) thumbMap[r.item_id] = r.thumbnail; }
+    }
+    // Attach thumbnail to each product group (first item_id that has one)
+    for (const pg of Object.values(productMap)) {
+      pg.thumbnail = null;
+      for (const iid of pg.itemIds) { if (thumbMap[iid]) { pg.thumbnail = thumbMap[iid]; break; } }
+      pg.variants = Object.values(pg.variants).map(v => ({...v, orders: v.orders.size, net: v.revenue - v.disc})).sort((a, b) => b.qty - a.qty);
+    }
+
     const productData = Object.values(productMap).map(p => ({...p, orders: p.orders.size, net: p.revenue - p.disc})).sort((a, b) => b.net - a.net);
 
     // 9. Totals
@@ -9337,6 +9368,15 @@ function renderSPChannelTable(data, totalNet) {
   }).join('');
 }
 
+function _spToggleVariants(idx) {
+  const row = document.getElementById('sp-var-' + idx);
+  if (!row) return;
+  const isHidden = row.style.display === 'none';
+  row.style.display = isHidden ? '' : 'none';
+  const btn = document.getElementById('sp-expand-' + idx);
+  if (btn) btn.textContent = isHidden ? '▲' : '▼';
+}
+
 function renderSPProductTable(data, page) {
   const tbody = document.getElementById('sp-product-tbody');
   const countEl = document.getElementById('sp-prod-count');
@@ -9350,10 +9390,27 @@ function renderSPProductTable(data, page) {
   const start = _spProdPage * SP_PROD_PAGE_SIZE;
   const pageData = data.slice(start, start + SP_PROD_PAGE_SIZE);
   const grandNet = data.reduce((s,d) => s + d.net, 0);
-  tbody.innerHTML = pageData.map((d,i) => {
+  const rows = [];
+  pageData.forEach((d, i) => {
+    const idx = start + i;
     const pct = grandNet > 0 ? ((d.net / grandNet) * 100).toFixed(1) + '%' : '—';
-    return `<tr>
-      <td style="padding:7px 10px;font-size:12px;font-weight:500;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${d.name}">${start+i+1}. ${d.name}</td>
+    const hasVariants = d.variants && d.variants.length > 1;
+    const thumb = d.thumbnail
+      ? `<img src="${d.thumbnail}" style="width:36px;height:36px;object-fit:cover;border-radius:4px;margin-right:8px;flex-shrink:0;border:1px solid var(--g100)" onerror="this.style.display='none'">`
+      : `<div style="width:36px;height:36px;border-radius:4px;background:var(--g100);margin-right:8px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--g400)">—</div>`;
+    const expandBtn = hasVariants
+      ? `<button id="sp-expand-${idx}" onclick="_spToggleVariants(${idx})" style="margin-left:6px;background:none;border:1px solid var(--g200);border-radius:3px;padding:1px 5px;font-size:9px;cursor:pointer;color:var(--g500);flex-shrink:0">▼</button>`
+      : '';
+    rows.push(`<tr style="border-bottom:1px solid var(--g50)">
+      <td style="padding:7px 10px">
+        <div style="display:flex;align-items:center">
+          ${thumb}
+          <div style="min-width:0">
+            <div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px" title="${d.name}">${idx+1}. ${d.name}</div>
+          </div>
+          ${expandBtn}
+        </div>
+      </td>
       <td style="padding:7px 10px;font-size:11px;color:var(--g600)">${d.brand || '—'}</td>
       <td style="padding:7px 10px;font-size:11px;color:var(--g600)">${d.ip || '—'}</td>
       <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px">${d.orders.toLocaleString('id-ID')}</td>
@@ -9362,8 +9419,28 @@ function renderSPProductTable(data, page) {
       <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:#c0392b">${d.disc > 0 ? fmtRp(d.disc) : '—'}</td>
       <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:#2d7a2d;font-weight:600">${fmtRp(d.net)}</td>
       <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--g400)">${pct}</td>
-    </tr>`;
-  }).join('');
+    </tr>`);
+    // Variant sub-rows (collapsed by default)
+    if (hasVariants) {
+      const varRows = d.variants.map(v => {
+        // Extract size from end of variant name (last segment after " - ")
+        const parts = v.name.split(' - ');
+        const sizeLabel = parts.length > 1 ? parts[parts.length - 1] : v.name;
+        return `<tr style="background:var(--g50)">
+          <td style="padding:4px 10px 4px 62px;font-size:11px;color:var(--g500)">${sizeLabel}</td>
+          <td></td><td></td>
+          <td style="padding:4px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--g500)">${v.orders.toLocaleString('id-ID')}</td>
+          <td style="padding:4px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--g500)">${Math.round(v.qty).toLocaleString('id-ID')}</td>
+          <td style="padding:4px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--g400)">${fmtRp(v.revenue)}</td>
+          <td style="padding:4px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:#c0392b">${v.disc > 0 ? fmtRp(v.disc) : '—'}</td>
+          <td style="padding:4px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:#2d7a2d">${fmtRp(v.net)}</td>
+          <td></td>
+        </tr>`;
+      }).join('');
+      rows.push(`<tr id="sp-var-${idx}" style="display:none"><td colspan="9" style="padding:0"><table style="width:100%;border-collapse:collapse">${varRows}</table></td></tr>`);
+    }
+  });
+  tbody.innerHTML = rows.join('');
   // Pagination
   if (pagDiv) {
     if (totalPages <= 1) { pagDiv.innerHTML = ''; return; }
