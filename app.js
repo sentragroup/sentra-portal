@@ -9774,8 +9774,7 @@ function renderRestockTable(products) {
   const brandFil2 = document.getElementById('rst-brand')?.value       || '';
   const searchTerm= (document.getElementById('rst-search')?.value     || '').toLowerCase().trim();
 
-  const RST_ROLL      = 60;
-  const RST_THRESHOLD = Math.round(RST_ROLL * 0.75); // 45
+  const RST_ROLL = 60;
 
   const rows = [];
   let totalVisible = 0;
@@ -9812,8 +9811,8 @@ function renderRestockTable(products) {
     const restockVars = p.variants.filter(v => v.suggestedQty > 0);
     const rawTotal    = restockVars.reduce((s, v) => s + v.suggestedQty, 0);
     const adjQtys     = {}; // itemId → adjusted qty
-    if (rawTotal >= RST_THRESHOLD) {
-      const roundedTotal = Math.ceil(rawTotal / RST_ROLL) * RST_ROLL;
+    if (rawTotal > 0) {
+      const roundedTotal = Math.max(RST_ROLL, Math.ceil(rawTotal / RST_ROLL) * RST_ROLL);
       // Distribute proportionally, fix rounding remainder on largest variant
       let distSum = 0;
       restockVars.forEach(v => { adjQtys[v.itemId] = Math.floor(v.suggestedQty / rawTotal * roundedTotal); distSum += adjQtys[v.itemId]; });
@@ -9822,8 +9821,6 @@ function renderRestockTable(products) {
         const largest = restockVars.reduce((a, b) => b.suggestedQty > a.suggestedQty ? b : a);
         adjQtys[largest.itemId] = (adjQtys[largest.itemId] || 0) + rem;
       }
-    } else {
-      restockVars.forEach(v => { adjQtys[v.itemId] = v.suggestedQty; });
     }
     const suggestedTotal = Object.values(adjQtys).reduce((s, q) => s + q, 0);
     const rollCount      = suggestedTotal > 0 ? suggestedTotal / RST_ROLL : 0;
