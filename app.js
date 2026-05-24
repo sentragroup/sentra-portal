@@ -9825,29 +9825,11 @@ function renderRestockTable(products) {
       }
     }
     // Below threshold: adjQtys stays empty → product shown as "belum layak reorder"
-    const suggestedTotal = Object.values(adjQtys).reduce((s, q) => s + q, 0);
-    const rollCount      = suggestedTotal > 0 ? suggestedTotal / RST_ROLL : 0;
-    const isExact        = suggestedTotal > 0 && suggestedTotal % RST_ROLL === 0;
-    const belowThreshold = rawTotal > 0 && rawTotal < RST_THRESHOLD;
-    const suggBadge      = belowThreshold
-      ? `<span style="color:#888;font-size:10px;background:#f5f5f5;border:1px solid #ddd;border-radius:3px;padding:1px 5px">belum layak reorder (${rawTotal}/${RST_THRESHOLD})</span>`
-      : suggestedTotal > 0
-        ? `<span style="color:#2d7a2d;font-size:10px;font-family:var(--mono);background:#e8f5e9;border:1px solid #a5d6a7;border-radius:3px;padding:1px 5px">✓ ${rollCount} roll (${suggestedTotal} pcs)</span>`
-        : '';
-    // initTotal from checked items' current qty inputs (for live total display)
-    const initTotal = p.variants
-      .filter(v => _rstSelectedItems.has(v.itemId))
-      .reduce((s, v) => s + (adjQtys[v.itemId] || v.suggestedQty || 0), 0);
-    const rollValid = initTotal > 0
-      ? (initTotal % RST_ROLL === 0
-          ? `<span style="color:#2d7a2d;font-size:10px;font-family:var(--mono)">✓ ${initTotal/RST_ROLL} roll</span>`
-          : `<span style="color:#e65100;font-size:10px;font-family:var(--mono)">⚠ next: ${Math.ceil(initTotal/RST_ROLL)*RST_ROLL}</span>`)
-      : '';
 
     rows.push(`<tr class="rst-product-row" style="background:#f7f8fa;border-top:2px solid var(--g200);cursor:pointer" onclick="_rstToggleExpand('${pKey}','${p.name.replace(/'/g,"\\'")}')">`+
       `<td style="padding:7px 8px;text-align:center"><span style="font-size:10px;color:var(--g400)">${expanded?'▼':'▶'}</span></td>`+
       `<td style="padding:7px 4px;text-align:center"><input type="checkbox" class="rst-prod-chk" data-pkey="${pKey}" ${allUrgChk?'checked':''} onclick="event.stopPropagation();_rstToggleProduct('${pKey}','${p.name.replace(/'/g,"\\'").replace(/"/g,'&quot;')}',this.checked)" style="cursor:pointer"></td>`+
-      `<td style="padding:7px 8px" colspan="3"><div style="display:flex;align-items:center;gap:8px">${thumb}<div>`+
+      `<td style="padding:7px 8px" colspan="6"><div style="display:flex;align-items:center;gap:8px">${thumb}<div>`+
       `<div style="font-size:13px;font-weight:600;color:var(--text)">${p.name}</div>`+
       `<div style="display:flex;gap:6px;align-items:center;margin-top:2px">`+
       `<span style="font-size:10px;color:var(--g400)">${p.brand}</span>`+
@@ -9855,13 +9837,6 @@ function renderRestockTable(products) {
       (urgBadge ? ' '+urgBadge : '')+
       (hasRestock ? `<span style="font-size:10px;color:var(--g400)">${p.restockCount} SKU perlu restock</span>` : `<span style="font-size:10px;color:#2d7a2d">✓ stok aman</span>`)+
       `</div></div></div></td>`+
-      `<td style="padding:7px 10px;text-align:right;vertical-align:middle" colspan="2">`+
-        `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">`+
-          `${suggBadge}`+
-          `<div style="font-size:11px;color:var(--g400)">Total: <strong id="rst-ptotal-${pKey}" style="font-family:var(--mono);color:var(--text)">${initTotal||'—'}</strong></div>`+
-          `<div id="rst-pvalid-${pKey}">${rollValid}</div>`+
-        `</div>`+
-      `</td>`+
       `<td style="padding:7px 8px;text-align:right;font-size:10px;color:var(--g300)">Harga Beli</td>`+
       `</tr>`);
 
@@ -9886,7 +9861,7 @@ function renderRestockTable(products) {
         `<td style="${P};text-align:right;font-size:12px;font-family:var(--mono);color:var(--g400)">${v.qtySold>0?v.qtySold:'—'}</td>`+
         `<td style="${P};text-align:right;font-size:12px;font-family:var(--mono);color:var(--g400)">${aStr}</td>`+
         `<td style="${P};text-align:right;font-size:12px;font-family:var(--mono);color:${dClr};font-weight:${v.needsRestock?700:400}">${dStr}</td>`+
-        `<td style="${P};text-align:right"><input type="number" class="rst-qty-input" min="0" step="1" value="${chk&&(adjQtys[v.itemId]||v.suggestedQty)>0?(adjQtys[v.itemId]||v.suggestedQty):''}" placeholder="0" oninput="_rstUpdateProductTotal('${pKey}')" style="width:70px;text-align:right;font-size:12px;font-family:var(--mono);padding:3px 6px;border:1px solid var(--g200);border-radius:4px;background:white"></td>`+
+        `<td style="${P};text-align:right"><input type="number" class="rst-qty-input" min="0" step="1" value="${chk&&(adjQtys[v.itemId]||v.suggestedQty)>0?(adjQtys[v.itemId]||v.suggestedQty):''}" placeholder="0" style="width:70px;text-align:right;font-size:12px;font-family:var(--mono);padding:3px 6px;border:1px solid var(--g200);border-radius:4px;background:white"></td>`+
         `<td style="${P};text-align:right"><input type="number" class="rst-price-input" min="0" step="1000" placeholder="0" style="width:90px;text-align:right;font-size:12px;font-family:var(--mono);padding:3px 6px;border:1px solid var(--g200);border-radius:4px;background:white"></td>`+
         `</tr>`);
     }
@@ -9933,16 +9908,19 @@ function _rstToggleVariant(itemId, checked, pKey) {
   }
   const row = document.querySelector(`.rst-var-chk[data-item-id="${itemId}"]`)?.closest('tr');
   if (row) row.style.background = checked ? '#f0f7ff' : '';
-  _rstUpdateProductTotal(pKey);
   _rstUpdateSelected();
 }
 
 function rstToggleAll(checked) {
+  const _ROLL = 60, _THR = Math.round(60 * 0.75);
   _rstSelectedItems.clear();
   if (checked && _rstData) {
-    for (const p of _rstData.products)
-      for (const v of p.variants)
-        if (v.needsRestock) _rstSelectedItems.add(v.itemId);
+    for (const p of _rstData.products) {
+      const rawTotal = p.variants.filter(v => v.suggestedQty > 0).reduce((s,v) => s + v.suggestedQty, 0);
+      if (rawTotal >= _THR)
+        for (const v of p.variants)
+          if (v.needsRestock) _rstSelectedItems.add(v.itemId);
+    }
   }
   if (_rstData) renderRestockTable(_rstData.products);
   _rstUpdateSelected();
@@ -10070,7 +10048,6 @@ function _rstShowSummary() {
       <th style="padding:8px 10px;text-align:left;font-weight:600">Produk</th>
       ${sizes.map(s=>`<th style="padding:8px 10px;text-align:center;font-weight:600;min-width:40px">${s}</th>`).join('')}
       <th style="padding:8px 10px;text-align:right;font-weight:600;white-space:nowrap">Total</th>
-      <th style="padding:8px 10px;text-align:center;font-weight:600;white-space:nowrap">Roll</th>
       <th style="padding:8px 10px;text-align:right;font-weight:600;white-space:nowrap">Harga Beli</th>
       <th style="padding:8px 10px;text-align:right;font-weight:600;white-space:nowrap">Est. Nilai</th>
     </tr></thead><tbody>`;
@@ -10088,11 +10065,6 @@ function _rstShowSummary() {
       </td>
       ${sizes.map(s=>`<td style="padding:7px 10px;text-align:center;font-family:var(--mono);font-size:12px">${p.sizeQtys[s]??'—'}</td>`).join('')}
       <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-weight:600">${p.totalQty}</td>
-      <td style="padding:7px 10px;text-align:center;font-size:11px;white-space:nowrap">${
-        p.totalQty % p.roll === 0
-          ? `<span style="color:#2d7a2d">✓ ${p.totalQty/p.roll}×</span>`
-          : `<span style="color:#e65100">⚠ /${p.roll}</span>`
-      }</td>
       <td style="padding:7px 10px;text-align:right;font-size:11px;color:var(--g400)">${priceStr}</td>
       <td style="padding:7px 10px;text-align:right;font-family:var(--mono)">${p.totalNilai>0?fmtRp(p.totalNilai):'—'}</td>
     </tr>`;
@@ -10102,7 +10074,6 @@ function _rstShowSummary() {
     <td style="padding:8px 10px">Total</td>
     ${sizes.map(()=>`<td></td>`).join('')}
     <td style="padding:8px 10px;text-align:right;font-family:var(--mono)">${grandQty}</td>
-    <td></td>
     <td></td>
     <td style="padding:8px 10px;text-align:right;font-family:var(--mono)">${grandNilai>0?fmtRp(grandNilai):'—'}</td>
   </tr>`;
