@@ -9018,6 +9018,7 @@ function _spMSDeselectAll(id) { const ms=_spMS[id]; if(!ms)return; ms.selected=n
 function clearSPFilters() {
   ['sp-fil-from','sp-fil-to','sp-fil-product'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
   ['sp-ms-status','sp-ms-channel','sp-ms-store','sp-ms-brand','sp-ms-ip','sp-ms-collection'].forEach(id => { if(_spMS[id]) _spMS[id].reset(); });
+  const orEl = document.getElementById('sp-only-restock'); if (orEl) orEl.checked = false;
 }
 
 function populateSPFilterDropdowns(orders, channelData, storeData, productData) {
@@ -9452,6 +9453,7 @@ function renderSPProductTable(data, page) {
   const countEl = document.getElementById('sp-prod-count');
   const pagDiv  = document.getElementById('sp-prod-pagination');
   if (!tbody) return;
+  if (document.getElementById('sp-only-restock')?.checked) data = data.filter(d => d.needsRestock);
   _spProdPage = page || 0;
   if (countEl) countEl.textContent = data.length + ' produk';
   const fmtRp = n => 'Rp ' + Math.round(n).toLocaleString('id-ID');
