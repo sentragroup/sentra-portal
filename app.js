@@ -9094,7 +9094,7 @@ async function loadSalesPerf() {
     // 1. Fetch orders (server-side filter) + return/cancel counts in parallel
     const [orders, retRes, canRes, totalRes] = await Promise.all([
       _fetchAllPages('jubelio_sales_orders',
-        'salesorder_id,transaction_date,wms_status,channel_name,store_name',
+        'salesorder_id,transaction_date,wms_status,channel_name,store_name,sub_total,total_disc',
         q => {
           q = _applyDateChanStore(q);
           if (statusVals.length) q = q.in('wms_status', statusVals);
@@ -9168,45 +9168,58 @@ async function loadSalesPerf() {
     const filteredOrderIds  = new Set(items.map(it => it.salesorder_id));
     const filteredOrders    = orders.filter(o => filteredOrderIds.has(o.salesorder_id));
 
-    // 5. Time series (daily)
+    // 5. Time series (daily) — revenue from order sub_total, qty from items
     const timeSeries = {};
+    for (const o of filteredOrders) {
+      const date = (o.transaction_date || '').slice(0, 10);
+      if (!date) continue;
+      if (!timeSeries[date]) timeSeries[date] = { qty: 0, revenue: 0 };
+      timeSeries[date].revenue += parseFloat(o.sub_total || 0);
+    }
     for (const it of items) {
       const o = orderMap.get(it.salesorder_id);
       if (!o) continue;
       const date = (o.transaction_date || '').slice(0, 10);
-      if (!date) continue;
-      if (!timeSeries[date]) timeSeries[date] = { qty: 0, revenue: 0 };
-      timeSeries[date].qty     += parseFloat(it.qty    || 0);
-      timeSeries[date].revenue += (parseFloat(it.qty||0) * parseFloat(it.price||0));
+      if (!date || !timeSeries[date]) continue;
+      timeSeries[date].qty += parseFloat(it.qty || 0);
     }
 
-    // 6. Channel summary
+    // 6. Channel summary — revenue/disc from order-level sub_total/total_disc (matches reference export)
+    //    qty still from items (orders don't carry total qty)
     const channelMap = {};
+    // First pass: order-level revenue & disc
+    for (const o of filteredOrders) {
+      const ch = o.channel_name || '(Lainnya)';
+      if (!channelMap[ch]) channelMap[ch] = { orders: 0, qty: 0, revenue: 0, disc: 0 };
+      channelMap[ch].orders  += 1;
+      channelMap[ch].revenue += parseFloat(o.sub_total  || 0);
+      channelMap[ch].disc    += parseFloat(o.total_disc || 0);
+    }
+    // Second pass: qty from items
     for (const it of items) {
       const o  = orderMap.get(it.salesorder_id); if (!o) continue;
       const ch = o.channel_name || '(Lainnya)';
-      if (!channelMap[ch]) channelMap[ch] = { orders: new Set(), qty: 0, revenue: 0, disc: 0 };
-      channelMap[ch].orders.add(it.salesorder_id);
-      channelMap[ch].qty     += parseFloat(it.qty    || 0);
-      channelMap[ch].revenue += (parseFloat(it.qty||0) * parseFloat(it.price||0));
-      channelMap[ch].disc    += parseFloat(it.disc_amount || 0);
+      if (channelMap[ch]) channelMap[ch].qty += parseFloat(it.qty || 0);
     }
     const channelData = Object.entries(channelMap)
-      .map(([ch, d]) => ({ channel: ch, orders: d.orders.size, qty: d.qty, revenue: d.revenue, disc: d.disc, net: d.revenue - d.disc }))
+      .map(([ch, d]) => ({ channel: ch, orders: d.orders, qty: d.qty, revenue: d.revenue, disc: d.disc, net: d.revenue - d.disc }))
       .sort((a, b) => b.net - a.net);
 
-    // 7. Store summary
+    // 7. Store summary — revenue from order-level sub_total
     const storeMap = {};
+    for (const o of filteredOrders) {
+      const st = o.store_name || '(Lainnya)';
+      if (!storeMap[st]) storeMap[st] = { orders: 0, qty: 0, revenue: 0 };
+      storeMap[st].orders  += 1;
+      storeMap[st].revenue += parseFloat(o.sub_total || 0);
+    }
     for (const it of items) {
       const o  = orderMap.get(it.salesorder_id); if (!o) continue;
       const st = o.store_name || '(Lainnya)';
-      if (!storeMap[st]) storeMap[st] = { orders: new Set(), qty: 0, revenue: 0 };
-      storeMap[st].orders.add(it.salesorder_id);
-      storeMap[st].qty     += parseFloat(it.qty    || 0);
-      storeMap[st].revenue += (parseFloat(it.qty||0) * parseFloat(it.price||0));
+      if (storeMap[st]) storeMap[st].qty += parseFloat(it.qty || 0);
     }
     const storeData = Object.entries(storeMap)
-      .map(([st, d]) => ({ store: st, orders: d.orders.size, qty: d.qty, revenue: d.revenue }))
+      .map(([st, d]) => ({ store: st, orders: d.orders, qty: d.qty, revenue: d.revenue }))
       .sort((a, b) => b.revenue - a.revenue);
 
     // 8. Product summary — grouped by parent name (without size variant)
@@ -9258,12 +9271,13 @@ async function loadSalesPerf() {
     const productData = Object.values(productMap).map(p => ({...p, orders: p.orders.size, net: p.revenue - p.disc})).sort((a, b) => b.net - a.net);
 
     // 9. Totals
-    // Revenue = qty × price (gross/full price), Discount = disc_amount, Net = Revenue − Discount
-    // Note: Jubelio's `amount` field = price − disc_amount (already net), so we must NOT use it
-    // as revenue or we'd double-subtract the discount.
+    // Revenue = sum of order sub_total (matches Jubelio export / reference data)
+    // Discount = sum of order total_disc
+    // Net     = Revenue − Discount
+    // Qty     = sum of item qty (orders don't carry a total qty field)
     const totalQty     = items.reduce((s, it) => s + parseFloat(it.qty || 0), 0);
-    const totalRevenue = items.reduce((s, it) => s + parseFloat(it.qty||0) * parseFloat(it.price||0), 0);
-    const totalDisc    = items.reduce((s, it) => s + parseFloat(it.disc_amount || 0), 0);
+    const totalRevenue = filteredOrders.reduce((s, o) => s + parseFloat(o.sub_total  || 0), 0);
+    const totalDisc    = filteredOrders.reduce((s, o) => s + parseFloat(o.total_disc || 0), 0);
     const totalNet     = totalRevenue - totalDisc;
     const dayCount     = Math.max(1, Object.keys(timeSeries).length);
     const fmtRp        = n => n >= 1000000 ? 'Rp ' + (n/1000000).toFixed(1) + 'jt' : 'Rp ' + Math.round(n).toLocaleString('id-ID');
