@@ -9568,7 +9568,7 @@ async function loadInsights() {
   btn.disabled = true; btn.textContent = 'Memuat...';
   const emEl = document.getElementById('ins-empty');
   emEl.style.display = 'block'; emEl.textContent = 'Mengambil data order 2026...';
-  ['revenue','momentum','stock','geo','bcg'].forEach(t => { const e=document.getElementById('instab-'+t); if(e) e.style.display='none'; });
+  ['revenue','momentum','stock','geo','bcg','cat'].forEach(t => { const e=document.getElementById('instab-'+t); if(e) e.style.display='none'; });
 
   try {
     const VALID = ['COMPLETED','FINISH_PACK','FINISH_PICK','CLOSED','PAID','PENDING'];
@@ -9696,9 +9696,25 @@ async function loadInsights() {
       brandToOrderIds[brand].add(it.salesorder_id);
     }
 
+    // Build category breakdown
+    const _catOrderSets={}, _catRev={}, _catQty={};
+    for (const it of items) {
+      const m = mById[it.item_id] || {};
+      const cat = _extractCategory(m.item_name || '');
+      if (!_catOrderSets[cat]) _catOrderSets[cat]=new Set();
+      _catOrderSets[cat].add(it.salesorder_id);
+      const net = parseFloat(it.price||0)*parseFloat(it.qty||0) - parseFloat(it.disc_amount||0);
+      _catRev[cat] = (_catRev[cat]||0) + net;
+      _catQty[cat] = (_catQty[cat]||0) + parseFloat(it.qty||0);
+    }
+    const catData = Object.keys(_catOrderSets)
+      .map(cat=>({cat, orders:_catOrderSets[cat].size, revenue:_catRev[cat]||0, qty:_catQty[cat]||0}))
+      .sort((a,b)=>b.revenue-a.revenue);
+
     _insData={ID_MONTHS,cm,dayOfYear,daysLeft,monthlyTotals,projectedMonthly,ipMonthly,
       ytdNet,yearEndProj,projDailyNet,stockHorizon,ips:Object.keys(ipMonthly).sort(),
-      geoProvinces,geoCities,geoTotal,geoIntl,geoRaw,ipToOrderIds,brandToOrderIds,brandMonthly};
+      geoProvinces,geoCities,geoTotal,geoIntl,geoRaw,ipToOrderIds,brandToOrderIds,brandMonthly,
+      catData};
 
     emEl.style.display='none';
     document.getElementById('instab-'+_insTab).style.display='block';
@@ -9709,7 +9725,7 @@ async function loadInsights() {
 
 function switchInsTab(tab, btn) {
   _insTab=tab;
-  ['revenue','momentum','stock','geo','bcg'].forEach(t=>{
+  ['revenue','momentum','stock','geo','bcg','cat'].forEach(t=>{
     const tb=document.getElementById('ins-tab-'+t); if(tb) tb.classList.toggle('active',t===tab);
     const pg=document.getElementById('instab-'+t); if(pg) pg.style.display=(t===tab&&_insData)?'block':'none';
   });
@@ -9722,6 +9738,7 @@ function _renderInsTab(tab) {
   if (tab==='stock')    _renderInsStock();
   if (tab==='geo')      _renderInsGeo();
   if (tab==='bcg')      _renderInsBCG();
+  if (tab==='cat')      _renderInsCat();
 }
 
 function _renderInsRevenue() {
@@ -10125,6 +10142,155 @@ function _renderInsBCG() {
           <td style="text-align:right;font-family:var(--mono);font-size:11px;color:var(--g400)">${fmtRp(e.recent)}</td>
         </tr>`).join('')}
       </tbody>
+    </table></div>`;
+}
+
+// ── INSIGHTS CATEGORY ──
+const _CAT_NORM = {
+  'T-SHIRT':'T-Shirt','T-SHIRTS':'T-Shirt','TSHIRT':'T-Shirt','T SHIRT':'T-Shirt',
+  'BOXY T-SHIRT':'Boxy T-Shirt','BOXY TSHIRT':'Boxy T-Shirt',
+  'RINGER T-SHIRT':'Ringer T-Shirt','RAGLAN T-SHIRT':'Raglan T-Shirt',
+  'KIDS T-SHIRT':'Kids T-Shirt','KIDS TSHIRT':'Kids T-Shirt',
+  'LONG SLEEVE T-SHIRT':'Long Sleeve T-Shirt','LS T-SHIRT':'Long Sleeve T-Shirt',
+  'SHORT SLEEVE SHIRT':'Short Sleeve Shirt','LONG SLEEVE SHIRT':'Long Sleeve Shirt',
+  'TOTEBAG':'Tote Bag','TOTE BAG':'Tote Bag',
+  'BABY TEE':'Baby Tee','HOODIE':'Hoodie','CREWNECK':'Crewneck','SWEATER':'Sweater',
+  'SWEATSHIRT':'Sweatshirt','JERSEY':'Jersey','FLEECE':'Fleece',
+  'CAP':'Cap','DAD CAP':'Dad Cap','DIRECTOR CAP':'Director Cap','BUCKET HAT':'Bucket Hat','BEANIE':'Beanie',
+  'CD':'CD','VINYL':'Vinyl','CASSETTE':'Cassette','BOXSET':'Boxset',
+  'POSTER':'Poster','PRINTS':'Prints','PAPER':'Paper','CALENDAR':'Calendar','ZINE':'Zine',
+  'KEYCHAIN':'Keychain','LANYARD':'Lanyard','SCARF':'Scarf','SOCKS':'Socks',
+  'POUCH':'Pouch','BAG CHARM':'Bag Charm','ENAMEL PIN':'Enamel Pin','PIN PATCHES':'Pin Patches',
+  'STICKER PACK':'Sticker Pack','STICKER':'Sticker','PATCH':'Patch',
+  'BUNDLE':'Bundle','BUNDLE SET':'Bundle Set',
+};
+const _CAT_VALID = new Set(Object.values(_CAT_NORM));
+
+function _extractCategory(itemName) {
+  if (!itemName) return '(Lainnya)';
+  const parts = itemName.replace(/^\./,'').split(' - ');
+  if (parts.length < 3) return '(Lainnya)';
+  const raw = parts[2].trim().toUpperCase();
+  if (_CAT_NORM[raw]) return _CAT_NORM[raw];
+  // Title-case fallback for recognised but unlisted types
+  const titled = parts[2].trim().replace(/\b\w/g,c=>c.toUpperCase());
+  return titled || '(Lainnya)';
+}
+
+let _insCatChart = null;
+
+function _renderInsCat() {
+  const d = _insData;
+  if (!d || !d.catData) return;
+
+  const fmtRp = n => n>=1e9 ? 'Rp '+(n/1e9).toFixed(1)+'M' : n>=1e6 ? 'Rp '+(n/1e6).toFixed(1)+'jt' : 'Rp '+Math.round(n).toLocaleString('id-ID');
+  const fmtN  = n => n.toLocaleString('id-ID');
+
+  const cats = d.catData;
+  const totalRev = cats.reduce((s,c)=>s+c.revenue,0);
+  const validCats = cats.filter(c=>c.cat!=='(Lainnya)');
+
+  // Stat cards
+  document.getElementById('ins-cat-total-rev').textContent = fmtRp(totalRev);
+  document.getElementById('ins-cat-types').textContent     = validCats.length;
+  document.getElementById('ins-cat-top').textContent       = validCats[0] ? validCats[0].cat : '—';
+
+  // Horizontal bar chart — top 15 by revenue (excluding Lainnya)
+  const top15 = validCats.slice(0, 15);
+  const COLORS = [
+    '#3C3489','#5B4FCF','#8E83DD','#27AE60','#1ABC9C',
+    '#E67E22','#E74C3C','#3498DB','#9B59B6','#F39C12',
+    '#16A085','#2980B9','#8E44AD','#D35400','#C0392B',
+  ];
+
+  if (_insCatChart) { _insCatChart.destroy(); _insCatChart = null; }
+  const canvas = document.getElementById('ins-cat-chart');
+  if (!canvas) return;
+
+  // Dynamically set canvas height based on bar count
+  const barH = 32, padH = 80;
+  canvas.style.height = (top15.length * barH + padH) + 'px';
+  canvas.height = top15.length * barH + padH;
+
+  _insCatChart = new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels: top15.map(c=>c.cat),
+      datasets: [{
+        data: top15.map(c=>c.revenue),
+        backgroundColor: top15.map((_,i)=>COLORS[i%COLORS.length]+'CC'),
+        borderColor:     top15.map((_,i)=>COLORS[i%COLORS.length]),
+        borderWidth: 1,
+        borderRadius: 4,
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const c = top15[ctx.dataIndex];
+              const pct = totalRev > 0 ? (c.revenue/totalRev*100).toFixed(1) : 0;
+              return ` ${fmtRp(c.revenue)}  (${pct}%)  •  ${fmtN(c.orders)} order  •  ${fmtN(c.qty)} unit`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: {
+            callback: v => v>=1e9?'Rp '+(v/1e9).toFixed(0)+'M':v>=1e6?'Rp '+(v/1e6).toFixed(0)+'jt':'',
+            font: { family: 'monospace', size: 10 },
+            color: '#888',
+          },
+          grid: { color: 'rgba(0,0,0,0.05)' },
+        },
+        y: {
+          ticks: { font: { family: 'monospace', size: 11 }, color: '#333' },
+          grid: { display: false },
+        }
+      }
+    }
+  });
+
+  // Full table
+  const totalOrders = cats.reduce((s,c)=>s+c.orders,0);
+  const totalQty    = cats.reduce((s,c)=>s+c.qty,0);
+  let rows = cats.map((c,i) => {
+    const pct = totalRev>0 ? (c.revenue/totalRev*100).toFixed(1) : '0.0';
+    return `<tr>
+      <td style="font-family:var(--mono);font-size:11px;color:var(--g400)">${i+1}</td>
+      <td style="font-weight:500">${c.cat}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:12px">${fmtRp(c.revenue)}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:12px;color:var(--g400)">${pct}%</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:12px">${fmtN(c.orders)}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:12px">${fmtN(Math.round(c.qty))}</td>
+    </tr>`;
+  }).join('');
+  const tfoot = `<tr style="font-weight:700;border-top:2px solid var(--g200)">
+    <td></td><td>Total</td>
+    <td style="text-align:right;font-family:var(--mono);font-size:12px">${fmtRp(totalRev)}</td>
+    <td style="text-align:right;font-family:var(--mono);font-size:12px">100%</td>
+    <td style="text-align:right;font-family:var(--mono);font-size:12px">${fmtN(totalOrders)}</td>
+    <td style="text-align:right;font-family:var(--mono);font-size:12px">${fmtN(Math.round(totalQty))}</td>
+  </tr>`;
+  document.getElementById('ins-cat-table').innerHTML = `
+    <div class="table-wrap" style="margin:0">
+    <table style="width:100%;table-layout:fixed">
+      <colgroup><col style="width:36px"><col><col style="width:130px"><col style="width:70px"><col style="width:90px"><col style="width:90px"></colgroup>
+      <thead><tr>
+        <th>#</th><th>Kategori Produk</th>
+        <th style="text-align:right">Net Revenue</th>
+        <th style="text-align:right">%</th>
+        <th style="text-align:right">Orders</th>
+        <th style="text-align:right">Units</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot>${tfoot}</tfoot>
     </table></div>`;
 }
 
