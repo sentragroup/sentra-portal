@@ -9774,7 +9774,8 @@ function renderRestockTable(products) {
   const brandFil2 = document.getElementById('rst-brand')?.value       || '';
   const searchTerm= (document.getElementById('rst-search')?.value     || '').toLowerCase().trim();
 
-  const RST_ROLL = 60;
+  const RST_ROLL      = 60;
+  const RST_THRESHOLD = Math.round(RST_ROLL * 0.75); // 45 — min qty to justify a reorder
 
   const rows = [];
   let totalVisible = 0;
@@ -9811,8 +9812,9 @@ function renderRestockTable(products) {
     const restockVars = p.variants.filter(v => v.suggestedQty > 0);
     const rawTotal    = restockVars.reduce((s, v) => s + v.suggestedQty, 0);
     const adjQtys     = {}; // itemId → adjusted qty
-    if (rawTotal > 0) {
-      const roundedTotal = Math.max(RST_ROLL, Math.ceil(rawTotal / RST_ROLL) * RST_ROLL);
+    if (rawTotal >= RST_THRESHOLD) {
+      // At or above threshold: round up to nearest multiple of RST_ROLL
+      const roundedTotal = Math.ceil(rawTotal / RST_ROLL) * RST_ROLL;
       // Distribute proportionally, fix rounding remainder on largest variant
       let distSum = 0;
       restockVars.forEach(v => { adjQtys[v.itemId] = Math.floor(v.suggestedQty / rawTotal * roundedTotal); distSum += adjQtys[v.itemId]; });
@@ -9822,14 +9824,16 @@ function renderRestockTable(products) {
         adjQtys[largest.itemId] = (adjQtys[largest.itemId] || 0) + rem;
       }
     }
+    // Below threshold: adjQtys stays empty → product shown as "belum layak reorder"
     const suggestedTotal = Object.values(adjQtys).reduce((s, q) => s + q, 0);
     const rollCount      = suggestedTotal > 0 ? suggestedTotal / RST_ROLL : 0;
     const isExact        = suggestedTotal > 0 && suggestedTotal % RST_ROLL === 0;
-    const suggBadge      = suggestedTotal > 0
-      ? (isExact
-          ? `<span style="color:#2d7a2d;font-size:10px;font-family:var(--mono);background:#e8f5e9;border:1px solid #a5d6a7;border-radius:3px;padding:1px 5px">✓ ${rollCount} roll</span>`
-          : `<span style="color:#5c6bc0;font-size:10px;font-family:var(--mono);background:#e8eaf6;border:1px solid #9fa8da;border-radius:3px;padding:1px 5px">Saran: ${suggestedTotal}</span>`)
-      : '';
+    const belowThreshold = rawTotal > 0 && rawTotal < RST_THRESHOLD;
+    const suggBadge      = belowThreshold
+      ? `<span style="color:#888;font-size:10px;background:#f5f5f5;border:1px solid #ddd;border-radius:3px;padding:1px 5px">belum layak reorder (${rawTotal}/${RST_THRESHOLD})</span>`
+      : suggestedTotal > 0
+        ? `<span style="color:#2d7a2d;font-size:10px;font-family:var(--mono);background:#e8f5e9;border:1px solid #a5d6a7;border-radius:3px;padding:1px 5px">✓ ${rollCount} roll (${suggestedTotal} pcs)</span>`
+        : '';
     // initTotal from checked items' current qty inputs (for live total display)
     const initTotal = p.variants
       .filter(v => _rstSelectedItems.has(v.itemId))
