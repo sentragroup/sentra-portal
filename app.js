@@ -1595,6 +1595,8 @@ let _insData = null;
 let _insTab  = 'revenue';
 let _insGeoMap = null;
 let _insGeoMetricVal = 'orders';
+let _insBCGChart = null;
+let _insBCGViewMode = 'ip';
 let _spChart = null;
 let _spAllMappings = null;
 const SP_PROD_PAGE_SIZE = 20;
@@ -9566,7 +9568,7 @@ async function loadInsights() {
   btn.disabled = true; btn.textContent = 'Memuat...';
   const emEl = document.getElementById('ins-empty');
   emEl.style.display = 'block'; emEl.textContent = 'Mengambil data order 2026...';
-  ['revenue','momentum','stock','geo'].forEach(t => { const e=document.getElementById('instab-'+t); if(e) e.style.display='none'; });
+  ['revenue','momentum','stock','geo','bcg'].forEach(t => { const e=document.getElementById('instab-'+t); if(e) e.style.display='none'; });
 
   try {
     const VALID = ['COMPLETED','FINISH_PACK','FINISH_PICK','CLOSED','PAID','PENDING'];
@@ -9602,6 +9604,7 @@ async function loadInsights() {
       const rev=parseFloat(o.sub_total||0), disc=parseFloat(o.total_disc||0);
       monthlyTotals[mi].revenue+=rev; monthlyTotals[mi].disc+=disc; monthlyTotals[mi].net+=rev-disc;
     }
+    const brandMonthly = {};
     for (const it of items) {
       const o=orderMap.get(it.salesorder_id); if(!o) continue;
       const mi=parseInt((o.transaction_date||'').slice(5,7))-1; if(mi<0||mi>11) continue;
@@ -9611,6 +9614,10 @@ async function loadInsights() {
       if (!ipMonthly[ip]) ipMonthly[ip]=Array.from({length:12},()=>({revenue:0,disc:0,net:0,qty:0}));
       ipMonthly[ip][mi].revenue+=rev; ipMonthly[ip][mi].disc+=disc;
       ipMonthly[ip][mi].net+=rev-disc; ipMonthly[ip][mi].qty+=qty;
+      const brand=(mById[it.item_id]||{}).brand||'(Lainnya)';
+      if (!brandMonthly[brand]) brandMonthly[brand]=Array.from({length:12},()=>({revenue:0,disc:0,net:0,qty:0}));
+      brandMonthly[brand][mi].revenue+=rev; brandMonthly[brand][mi].disc+=disc;
+      brandMonthly[brand][mi].net+=rev-disc; brandMonthly[brand][mi].qty+=qty;
     }
 
     // Timing
@@ -9740,7 +9747,7 @@ async function loadInsights() {
 
     _insData={ID_MONTHS,cm,dayOfYear,daysLeft,monthlyTotals,projectedMonthly,ipMonthly,
       ytdNet,yearEndProj,projDailyNet,stockHorizon,ips:Object.keys(ipMonthly).sort(),
-      geoProvinces,geoCities,geoTotal,geoIntl};
+      geoProvinces,geoCities,geoTotal,geoIntl,brandMonthly};
 
     emEl.style.display='none';
     document.getElementById('instab-'+_insTab).style.display='block';
@@ -9751,7 +9758,7 @@ async function loadInsights() {
 
 function switchInsTab(tab, btn) {
   _insTab=tab;
-  ['revenue','momentum','stock','geo'].forEach(t=>{
+  ['revenue','momentum','stock','geo','bcg'].forEach(t=>{
     const tb=document.getElementById('ins-tab-'+t); if(tb) tb.classList.toggle('active',t===tab);
     const pg=document.getElementById('instab-'+t); if(pg) pg.style.display=(t===tab&&_insData)?'block':'none';
   });
@@ -9763,6 +9770,7 @@ function _renderInsTab(tab) {
   if (tab==='momentum') _renderInsMomentum();
   if (tab==='stock')    _renderInsStock();
   if (tab==='geo')      _renderInsGeo();
+  if (tab==='bcg')      _renderInsBCG();
 }
 
 function _renderInsRevenue() {
@@ -9975,6 +9983,187 @@ function _insToggleStock(bi) {
   const open=row.style.display!=='none';
   row.style.display=open?'none':'table-row';
   if (exp) exp.textContent=open?'▶':'▼';
+}
+
+// ── INSIGHTS BCG ──
+function _insBCGMode(val) {
+  _insBCGViewMode = val;
+  if (_insData) _renderInsBCG();
+}
+
+function _renderInsBCG() {
+  const d = _insData;
+  if (!d) return;
+
+  const fmtRp = n => n>=1e9?'Rp '+(n/1e9).toFixed(1)+'M':n>=1e6?'Rp '+(n/1e6).toFixed(1)+'jt':'Rp '+Math.round(n).toLocaleString('id-ID');
+  const mode = _insBCGViewMode;
+  const monthly = mode==='ip' ? d.ipMonthly : (d.brandMonthly||{});
+
+  // Growth period: last N complete months vs prior N months
+  const N = Math.min(3, Math.max(1, Math.floor(d.cm/2)));
+  const recentStart = Math.max(0, d.cm - N);
+  const priorStart  = Math.max(0, recentStart - N);
+
+  // Period labels for axis title
+  const rLabel = `${d.ID_MONTHS[recentStart]}–${d.ID_MONTHS[d.cm-1]}`;
+  const pLabel = priorStart < recentStart
+    ? `${d.ID_MONTHS[priorStart]}–${d.ID_MONTHS[recentStart-1]}`
+    : `${d.ID_MONTHS[0]}`;
+
+  // Compute metrics per entity
+  const entities = [];
+  for (const [name, months] of Object.entries(monthly)) {
+    const ytd = months.slice(0, d.cm).reduce((s,m)=>s+m.net, 0);
+    if (ytd <= 0) continue;
+    const recent = months.slice(recentStart, d.cm).reduce((s,m)=>s+m.net, 0);
+    const prior  = months.slice(priorStart, recentStart).reduce((s,m)=>s+m.net, 0);
+    const growth = prior > 0 ? (recent-prior)/prior*100 : (recent>0 ? 100 : 0);
+    entities.push({name, ytd, growth, recent, prior, hasGrowth: prior>0});
+  }
+  if (!entities.length) return;
+
+  // Market share
+  const totalYtd = entities.reduce((s,e)=>s+e.ytd, 0);
+  entities.forEach(e => { e.share = totalYtd>0 ? e.ytd/totalYtd*100 : 0; });
+
+  // Thresholds: median share for X, 0% for Y
+  const sortedShares = [...entities].map(e=>e.share).sort((a,b)=>a-b);
+  const xThresh = sortedShares[Math.floor(sortedShares.length/2)] || 0;
+  const yThresh = 0;
+
+  // Quadrant assignment
+  const QLBL  = {star:'⭐ Star', question:'❓ Question Mark', cow:'🐄 Cash Cow', dog:'🐕 Dog'};
+  const QCOL  = {
+    star:     {fill:'rgba(39,174,96,0.7)',   border:'#27ae60',  bg:'rgba(39,174,96,0.06)'},
+    question: {fill:'rgba(243,156,18,0.7)',  border:'#f39c12',  bg:'rgba(243,156,18,0.06)'},
+    cow:      {fill:'rgba(52,152,219,0.7)',  border:'#2980b9',  bg:'rgba(52,152,219,0.06)'},
+    dog:      {fill:'rgba(231,76,60,0.7)',   border:'#c0392b',  bg:'rgba(231,76,60,0.06)'},
+  };
+  entities.forEach(e => {
+    const hi=e.share>=xThresh, hg=e.growth>=yThresh;
+    e.quadrant = hi&&hg?'star' : !hi&&hg?'question' : hi&&!hg?'cow' : 'dog';
+  });
+
+  // Bubble radius (pixels)
+  const maxYtd = Math.max(...entities.map(e=>e.ytd), 1);
+  entities.forEach(e => { e.r = Math.max(7, Math.round(8 + (e.ytd/maxYtd)*28)); });
+
+  // Custom quadrant background plugin
+  const _bcgQuadPlugin = {
+    id: 'bcgQuad',
+    beforeDraw(chart) {
+      const {ctx, chartArea:ca, scales} = chart;
+      if (!ca) return;
+      const xm = Math.max(ca.left, Math.min(ca.right,  scales.x.getPixelForValue(xThresh)));
+      const ym = Math.max(ca.top,  Math.min(ca.bottom, scales.y.getPixelForValue(yThresh)));
+      const quads = [
+        {x:ca.left, y:ca.top,  w:xm-ca.left, h:ym-ca.top,      bg:QCOL.question.bg, lbl:'❓ Question Mark', lx:ca.left+8, ly:ca.top+14},
+        {x:xm,      y:ca.top,  w:ca.right-xm,h:ym-ca.top,      bg:QCOL.star.bg,     lbl:'⭐ Star',          lx:xm+8,      ly:ca.top+14},
+        {x:ca.left, y:ym,      w:xm-ca.left, h:ca.bottom-ym,   bg:QCOL.dog.bg,      lbl:'🐕 Dog',           lx:ca.left+8, ly:ca.bottom-6},
+        {x:xm,      y:ym,      w:ca.right-xm,h:ca.bottom-ym,   bg:QCOL.cow.bg,      lbl:'🐄 Cash Cow',      lx:xm+8,      ly:ca.bottom-6},
+      ];
+      quads.forEach(q => {
+        ctx.fillStyle = q.bg;
+        ctx.fillRect(q.x, q.y, q.w, q.h);
+        ctx.fillStyle = 'rgba(0,0,0,0.22)';
+        ctx.font = '10px "DM Mono",monospace';
+        ctx.fillText(q.lbl, q.lx, q.ly);
+      });
+      ctx.save();
+      ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([5,5]);
+      ctx.beginPath(); ctx.moveTo(xm, ca.top); ctx.lineTo(xm, ca.bottom); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(ca.left, ym); ctx.lineTo(ca.right, ym); ctx.stroke();
+      ctx.restore();
+    }
+  };
+
+  // Destroy old chart
+  if (_insBCGChart) { _insBCGChart.destroy(); _insBCGChart = null; }
+  const canvas = document.getElementById('ins-bcg-chart');
+  if (!canvas) return;
+
+  _insBCGChart = new Chart(canvas, {
+    type: 'bubble',
+    data: {
+      datasets: entities.map(e => ({
+        label: e.name,
+        data: [{x: e.share, y: e.growth, r: e.r, _e: e}],
+        backgroundColor: QCOL[e.quadrant].fill,
+        borderColor: QCOL[e.quadrant].border,
+        borderWidth: 1.5,
+      }))
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {display: false},
+        datalabels: {display: false},
+        tooltip: {
+          callbacks: {
+            title: ctx => ctx[0]?.dataset?.label || '',
+            label: ctx => {
+              const e = ctx.raw._e;
+              return [
+                `Share: ${e.share.toFixed(1)}%`,
+                `Growth: ${e.growth>=0?'+':''}${e.growth.toFixed(1)}%`,
+                `YTD: ${fmtRp(e.ytd)}`,
+                `Quadrant: ${QLBL[e.quadrant]}`,
+              ];
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          title: {display:true, text:'Market Share (%)', font:{size:11}, color:'#888'},
+          grid: {display:false},
+          min: 0,
+          ticks: {font:{size:10}, callback: v => v+'%'},
+        },
+        y: {
+          title: {display:true, text:`Growth Rate — ${rLabel} vs ${pLabel} (%)`, font:{size:11}, color:'#888'},
+          grid: {display:false},
+          ticks: {font:{size:10}, callback: v => (v>=0?'+':'')+v+'%'},
+        }
+      }
+    },
+    plugins: [_bcgQuadPlugin]
+  });
+
+  // Bubble name labels painted after chart renders
+  canvas.onclick = null; // reset
+  const sortedE = [...entities].sort((a,b)=>b.ytd-a.ytd);
+
+  // Summary table
+  const tableEl = document.getElementById('ins-bcg-table');
+  if (tableEl) tableEl.innerHTML = `
+    <div style="font-family:var(--mono);font-size:11px;text-transform:uppercase;color:var(--g400);margin-bottom:8px;letter-spacing:.05em">
+      Detail — ${mode==='ip'?'per IP':'per Brand'} · threshold share ${xThresh.toFixed(1)}%
+    </div>
+    <div class="table-wrap" style="margin:0"><table style="width:100%;table-layout:fixed">
+      <colgroup><col style="width:auto"><col style="width:130px"><col style="width:75px"><col style="width:80px"><col style="width:110px"><col style="width:110px"></colgroup>
+      <thead><tr>
+        <th>${mode==='ip'?'IP':'Brand'}</th>
+        <th style="text-align:center">Quadrant</th>
+        <th style="text-align:right">Share</th>
+        <th style="text-align:right">Growth</th>
+        <th style="text-align:right">YTD Revenue</th>
+        <th style="text-align:right">Recent Rev</th>
+      </tr></thead>
+      <tbody>${sortedE.map(e=>`
+        <tr>
+          <td style="font-weight:500;font-size:12px">${e.name}</td>
+          <td style="text-align:center;font-size:11px">${QLBL[e.quadrant]}</td>
+          <td style="text-align:right;font-family:var(--mono);font-size:11px">${e.share.toFixed(1)}%</td>
+          <td style="text-align:right;font-family:var(--mono);font-size:11px;font-weight:600;color:${e.growth>=0?'#27ae60':'#c0392b'}">${e.growth>=0?'+':''}${e.growth.toFixed(1)}%</td>
+          <td style="text-align:right;font-family:var(--mono);font-size:11px">${fmtRp(e.ytd)}</td>
+          <td style="text-align:right;font-family:var(--mono);font-size:11px;color:var(--g400)">${fmtRp(e.recent)}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table></div>`;
 }
 
 // ── INSIGHTS GEO ──
