@@ -98,6 +98,9 @@ Settings    → (settings modules)
 ```
 New modules go at the **top** of their target section. Never append to the bottom.
 
+### Page scroll reset
+`showPage()` resets scroll to top via `document.querySelector('.content').scrollTop = 0`. This is already wired — do not remove it.
+
 ---
 
 ## API Convention
