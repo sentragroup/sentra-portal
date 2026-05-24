@@ -9881,9 +9881,9 @@ function _rstUpdateSelected() {
   if (e) e.textContent = _rstSelectedItems.size;
 }
 
-async function generateRestockPO() {
-  const supplierId = document.getElementById('rst-supplier')?.value;
-  if (!supplierId) { alert('Pilih supplier terlebih dahulu.'); return; }
+function generateRestockPO() {
+  const supplierEl = document.getElementById('rst-supplier');
+  const supplierName = supplierEl?.options[supplierEl.selectedIndex]?.text || 'MGMT';
 
   const items = [];
   document.querySelectorAll('.rst-var-chk:checked').forEach(chk => {
@@ -9891,36 +9891,59 @@ async function generateRestockPO() {
     const qty   = parseFloat(row?.querySelector('.rst-qty-input')?.value)   || 0;
     const price = parseFloat(row?.querySelector('.rst-price-input')?.value) || 0;
     if (qty <= 0) return;
-    items.push({ item_id: Number(chk.dataset.itemId), item_code: chk.dataset.itemCode, item_name: chk.dataset.itemName, qty, price });
+    items.push({ sku: chk.dataset.itemCode || '', qty, price });
   });
 
   if (!items.length) { alert('Tidak ada item dipilih atau semua qty = 0.'); return; }
 
-  const note     = document.getElementById('rst-note')?.value || '';
+  const note    = document.getElementById('rst-note')?.value || '';
+  const today   = new Date().toISOString().slice(0, 10);
   const statusEl = document.getElementById('rst-gen-status');
-  const btn      = document.getElementById('rst-gen-btn');
-  if (btn)      { btn.disabled=true; btn.textContent='⟳ Mengirim ke Jubelio...'; }
-  if (statusEl) statusEl.innerHTML='';
 
-  try {
-    const result = await callEdgeFunction('create-jubelio-purchase-order', {
-      contact_id: Number(supplierId), items, note, location_id: 3,
-    });
-    const poId   = result.purchaseorder_id;
-    const poNo   = result.purchaseorder_no || poId || '—';
-    const link   = poId
-      ? `<a href="https://v2.jubelio.com/purchasing/transactions/order/view/${poId}" target="_blank" style="color:#3C3489;font-weight:600">${poNo}</a>`
-      : `<strong>${poNo}</strong>`;
-    const totalQty = items.reduce((s,i) => s+i.qty, 0);
-    if (statusEl) statusEl.innerHTML = `✅ PO berhasil dibuat: ${link} · ${items.length} SKU · ${totalQty} unit total`;
-    _rstSelectedItems.clear();
-    _rstUpdateSelected();
-    if (_rstData) renderRestockTable(_rstData.products);
-  } catch(e) {
-    if (statusEl) statusEl.innerHTML = `<span style="color:#c0392b">❌ Gagal: ${e.message}</span>`;
-  } finally {
-    if (btn) { btn.disabled=false; btn.textContent='🛒 Generate PO ke Jubelio'; }
-  }
+  // CSV escape: wrap in quotes if value contains comma, quote, or newline
+  const esc = v => {
+    const s = String(v ?? '');
+    return (s.includes(',') || s.includes('"') || s.includes('\n'))
+      ? '"' + s.replace(/"/g, '""') + '"'
+      : s;
+  };
+
+  const COLS = ['No. Pesanan','No. Ref Pemasok','Tanggal','Zona Waktu','Nama Pemasok',
+                'Email Pemasok','No Telp. Pemasok','Harga Termasuk Pajak','Lokasi',
+                'Keterangan','SKU','Harga','Qty','Nilai Diskon','Pajak'];
+
+  const lines = [COLS.join(',')];
+
+  items.forEach((it, i) => {
+    if (i === 0) {
+      // Header row + first item
+      lines.push([
+        '[auto]', '', esc(today), 'WIB', esc(supplierName),
+        '', '', 'FALSE', 'Gudang Penerimaan Barang',
+        esc(note), esc(it.sku), it.price, it.qty, 0, 'No Tax'
+      ].join(','));
+    } else {
+      // Continuation rows: header columns empty, only item columns filled
+      lines.push([
+        '', '', '', '', '',
+        '', '', '', '',
+        '', esc(it.sku), it.price, it.qty, 0, 'No Tax'
+      ].join(','));
+    }
+  });
+
+  const csv      = lines.join('\r\n');
+  const blob     = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url      = URL.createObjectURL(blob);
+  const filename = `PO-Restock-${today}.csv`;
+  const a        = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+
+  const totalQty = items.reduce((s,i) => s+i.qty, 0);
+  if (statusEl) statusEl.innerHTML =
+    `✅ <strong>${filename}</strong> berhasil diunduh · ${items.length} SKU · ${totalQty} unit total`+
+    ` · <span style="color:var(--g400);font-size:12px">Import via Jubelio → Pembelian → Import</span>`;
 }
 
 // Keep session in sync (handles token refresh, tab-switching, etc.)

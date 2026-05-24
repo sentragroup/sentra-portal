@@ -182,7 +182,7 @@
         <div class="sb-label" style="margin-bottom:0.6rem">Purchasing</div>
         <div class="home-grid" style="margin-bottom:1.5rem">
           <div class="tool-card" onclick="showPage('po',null)"><span class="tc-icon">🛒</span><div class="tc-name">Purchase Orders</div><div class="tc-desc">Track dan kelola purchase order ke vendor — dari draft hingga penerimaan barang.</div></div>
-          <div class="tool-card" onclick="showPage('restock',null)"><span class="tc-icon">📦</span><div class="tc-name">Need Restock</div><div class="tc-desc">Generate PO ke Jubelio untuk produk SD&amp;Y, Lagaa, dan Marte yang perlu di-restock.</div></div>
+          <div class="tool-card" onclick="showPage('restock',null)"><span class="tc-icon">📦</span><div class="tc-name">Need Restock</div><div class="tc-desc">Download CSV import PO untuk produk SD&amp;Y, Lagaa, dan Marte yang perlu di-restock.</div></div>
         </div>
 
         <div class="sb-label" style="margin-bottom:0.6rem">Warehouse</div>
@@ -1025,7 +1025,7 @@
     <!-- NEED RESTOCK -->
     <div class="page" id="page-restock">
       <div class="page-header">
-        <div><div class="page-title">Need Restock</div><div class="page-sub">Generate PO ke Jubelio untuk produk SD&amp;Y, Lagaa, dan Marte yang perlu di-restock.</div></div>
+        <div><div class="page-title">Need Restock</div><div class="page-sub">Download CSV import PO untuk produk SD&amp;Y, Lagaa, dan Marte yang perlu di-restock, lalu import via Jubelio → Pembelian → Import.</div></div>
       </div>
 
       <div class="filter-panel">
@@ -1065,7 +1065,7 @@
           <input type="text" id="rst-note" placeholder="Note opsional..." style="font-size:13px;padding:6px 10px;border:1px solid var(--g200);border-radius:6px;width:100%;box-sizing:border-box">
         </div>
         <div style="flex:0 0 auto">
-          <button id="rst-gen-btn" onclick="generateRestockPO()" style="background:#3C3489;color:white;border:none;border-radius:6px;padding:8px 18px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">🛒 Generate PO ke Jubelio</button>
+          <button id="rst-gen-btn" onclick="generateRestockPO()" style="background:#3C3489;color:white;border:none;border-radius:6px;padding:8px 18px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">⬇️ Download CSV Import Jubelio</button>
         </div>
         <div id="rst-gen-status" style="flex:0 0 100%;font-size:12px;margin-top:2px;min-height:16px"></div>
       </div>
