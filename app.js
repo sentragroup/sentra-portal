@@ -10069,14 +10069,25 @@ function _renderInsBCG() {
       },
       scales: {
         x: {
-          title: {display:true, text:'Market Share (%)', font:{size:11}, color:'#888'},
+          type: 'logarithmic',
+          title: {display:true, text:'Market Share — log scale (%)', font:{size:11}, color:'#888'},
           grid: {display:false},
-          min: 0,
-          ticks: {font:{size:10}, callback: v => v+'%'},
+          min: Math.max(0.05, Math.min(...entities.map(e=>e.share)) * 0.5),
+          max: Math.min(100,  Math.max(...entities.map(e=>e.share)) * 1.5),
+          ticks: {
+            font:{size:10},
+            callback: v => {
+              // Show clean labels at log-friendly values
+              const clean = [0.1,0.2,0.5,1,2,5,10,20,50,100];
+              return clean.includes(+v.toFixed(1)) || clean.includes(+v.toFixed(0)) ? v+'%' : '';
+            }
+          },
         },
         y: {
           title: {display:true, text:`Growth Rate — ${rLabel} vs ${pLabel} (%)`, font:{size:11}, color:'#888'},
           grid: {display:false},
+          suggestedMin: Math.min(...entities.map(e=>e.growth)) - 10,
+          suggestedMax: Math.max(...entities.map(e=>e.growth)) + 10,
           ticks: {font:{size:10}, callback: v => (v>=0?'+':'')+v+'%'},
         }
       }
