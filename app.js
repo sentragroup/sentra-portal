@@ -2927,7 +2927,7 @@ async function loadProductMap(page=0, search=''){
     document.getElementById("pm-tcount").textContent=hasFilter
       ? `${uniqueCount} produk${activeFilters.length?` · ${activeFilters.join(" · ")}`:""}`
       : `${unmappedCount||0} belum mapped`;
-    renderPMTable(uniqueNames,pmByName);
+    renderPMTable(uniqueNames,pmByName,hasFilter);
     renderPMPagination(page, hasFilter ? uniqueCount : (filteredCount||0));
     renderPMSortHeaders();
   } catch(e){
@@ -2961,10 +2961,16 @@ function renderPMPagination(page,total){
   `;
 }
 
-function renderPMTable(uniqueNames, pmByName){
+function renderPMTable(uniqueNames, pmByName, hasFilter=false){
   const tbody=document.getElementById("pmTableBody");
   if(!tbody) return;
-  if(!uniqueNames.length){tbody.innerHTML=`<tr><td class="empty-td" colspan="7">Tidak ada produk.</td></tr>`;return;}
+  if(!uniqueNames.length){
+    const msg=hasFilter
+      ? "Tidak ada produk yang cocok dengan filter."
+      : "Cari nama produk atau gunakan filter untuk menampilkan produk.";
+    tbody.innerHTML=`<tr><td class="empty-td" colspan="7">${msg}</td></tr>`;
+    return;
+  }
   const bmOpts=allBMRows.map(r=>`<option value="${(r.name||"").replace(/"/g,"&quot;")}">${r.name}</option>`).join("");
   const ipOpts=allIPRows.map(r=>`<option value="${(r.name||"").replace(/"/g,"&quot;")}">${r.name}</option>`).join("");
   const rrOpts=allRRRows.map(r=>`<option value="${(r.name||r.rowIndex||"").replace(/"/g,"&quot;")}">${r.name||r.rowIndex}</option>`).join("");
