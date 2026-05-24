@@ -9679,75 +9679,26 @@ async function loadInsights() {
     // Geo data
     emEl.textContent='Mengambil data geo...';
     const geoRaw = await _fetchAllPages('jubelio_sales_orders',
-      'shipping_city,shipping_province,sub_total,total_disc',
+      'salesorder_id,shipping_city,shipping_province,sub_total,total_disc',
       q => q.gte('transaction_date','2026-01-01').lte('transaction_date','2026-12-31T23:59:59')
             .in('wms_status',VALID).not('shipping_province','is',null).neq('shipping_province','')
     );
-    // Province name normalization: map all variants → canonical uppercase name
-    const _PROV_NORM = {
-      'JAKARTA':'DKI JAKARTA','JAKARTA RAYA':'DKI JAKARTA',
-      'DAERAH KHUSUS IBUKOTA JAKARTA':'DKI JAKARTA',
-      'D.I. YOGYAKARTA':'DI YOGYAKARTA','D.I. YOGYAKARTA':'DI YOGYAKARTA',
-      'YOGYAKARTA':'DI YOGYAKARTA',
-      'NANGGROE ACEH DARUSSALAM':'ACEH','NANGGROE ACEH DARUSSALAM (NAD)':'ACEH','ACEH':'ACEH',
-      'NUSA TENGGARA BARAT (NTB)':'NUSA TENGGARA BARAT',
-      'NUSA TENGGARA TIMUR (NTT)':'NUSA TENGGARA TIMUR',
-      'BANGKA BELITUNG':'KEPULAUAN BANGKA BELITUNG',
-      'KEPULAUAN BANGKA BELITUNG':'KEPULAUAN BANGKA BELITUNG',
-      'NORTH SUMATRA':'SUMATERA UTARA','SOUTH SUMATRA':'SUMATERA SELATAN',
-      'WEST SUMATRA':'SUMATERA BARAT',
-    };
-    const _ID_PROVS = new Set([
-      'ACEH','SUMATERA UTARA','SUMATERA BARAT','RIAU','KEPULAUAN RIAU',
-      'JAMBI','BENGKULU','SUMATERA SELATAN','KEPULAUAN BANGKA BELITUNG','LAMPUNG',
-      'DKI JAKARTA','JAWA BARAT','BANTEN','JAWA TENGAH','DI YOGYAKARTA',
-      'JAWA TIMUR','BALI','NUSA TENGGARA BARAT','NUSA TENGGARA TIMUR',
-      'KALIMANTAN BARAT','KALIMANTAN TENGAH','KALIMANTAN SELATAN','KALIMANTAN TIMUR','KALIMANTAN UTARA',
-      'SULAWESI UTARA','GORONTALO','SULAWESI TENGAH','SULAWESI BARAT','SULAWESI SELATAN','SULAWESI TENGGARA',
-      'MALUKU UTARA','MALUKU','PAPUA BARAT','PAPUA','PAPUA TENGAH','PAPUA PEGUNUNGAN','PAPUA SELATAN','PAPUA BARAT DAYA',
-    ]);
-    // Known international regions → country label
-    const _INTL_MAP = {
-      'KUALA LUMPUR':'Malaysia','JOHOR':'Malaysia','SELANGOR':'Malaysia','KEDAH':'Malaysia',
-      'PERAK':'Malaysia','PAHANG':'Malaysia','SABAH':'Malaysia','SARAWAK':'Malaysia',
-      'PENANG':'Malaysia','NEGERI SEMBILAN':'Malaysia','PUTRAJAYA':'Malaysia',
-      'QUEENSLAND':'Australia','NEW SOUTH WALES':'Australia','VICTORIA':'Australia',
-      'SINGAPORE':'Singapore','SINGAPURA':'Singapore',
-    };
-    const _gProvMap={}, _gCityMap={}, _gIntlMap={};
-    let geoTotal=0;
-    for (const r of geoRaw) {
-      let prov=(r.shipping_province||'').trim().toUpperCase();
-      const city=(r.shipping_city||'').trim().toUpperCase();
-      if (!prov) continue;
-      geoTotal++;
-      const net=(parseFloat(r.sub_total||0))-(parseFloat(r.total_disc||0));
-      // Normalize province name
-      prov = _PROV_NORM[prov] || prov;
-      // Check international
-      if (_INTL_MAP[prov] || _INTL_MAP[city]) {
-        const country = _INTL_MAP[prov] || _INTL_MAP[city] || 'Lainnya';
-        if (!_gIntlMap[country]) _gIntlMap[country]={orders:0,revenue:0};
-        _gIntlMap[country].orders++; _gIntlMap[country].revenue+=net;
-        continue;
-      }
-      // Skip garbage (not a valid Indonesian province)
-      if (!_ID_PROVS.has(prov)) continue;
-      if (!_gProvMap[prov]) _gProvMap[prov]={orders:0,revenue:0};
-      _gProvMap[prov].orders++; _gProvMap[prov].revenue+=net;
-      if (city) {
-        const k=city+'||'+prov;
-        if (!_gCityMap[k]) _gCityMap[k]={city,prov,orders:0,revenue:0};
-        _gCityMap[k].orders++; _gCityMap[k].revenue+=net;
-      }
+    const {geoProvinces,geoCities,geoIntl,geoTotal} = _aggregateGeo(geoRaw);
+
+    // Build salesorder_id lookup per IP and per brand
+    const ipToOrderIds={}, brandToOrderIds={};
+    for (const it of items) {
+      const ip=(mById[it.item_id]||{}).ip||'(Lainnya)';
+      const brand=(mById[it.item_id]||{}).brand||'(Lainnya)';
+      if (!ipToOrderIds[ip]) ipToOrderIds[ip]=new Set();
+      ipToOrderIds[ip].add(it.salesorder_id);
+      if (!brandToOrderIds[brand]) brandToOrderIds[brand]=new Set();
+      brandToOrderIds[brand].add(it.salesorder_id);
     }
-    const geoProvinces=Object.entries(_gProvMap).map(([prov,d])=>({prov,...d})).sort((a,b)=>b.orders-a.orders);
-    const geoCities=Object.values(_gCityMap).sort((a,b)=>b.orders-a.orders);
-    const geoIntl=Object.entries(_gIntlMap).map(([country,d])=>({country,...d})).sort((a,b)=>b.orders-a.orders);
 
     _insData={ID_MONTHS,cm,dayOfYear,daysLeft,monthlyTotals,projectedMonthly,ipMonthly,
       ytdNet,yearEndProj,projDailyNet,stockHorizon,ips:Object.keys(ipMonthly).sort(),
-      geoProvinces,geoCities,geoTotal,geoIntl,brandMonthly};
+      geoProvinces,geoCities,geoTotal,geoIntl,geoRaw,ipToOrderIds,brandToOrderIds,brandMonthly};
 
     emEl.style.display='none';
     document.getElementById('instab-'+_insTab).style.display='block';
@@ -10167,6 +10118,67 @@ function _renderInsBCG() {
 }
 
 // ── INSIGHTS GEO ──
+const _GEO_PROV_NORM = {
+  'JAKARTA':'DKI JAKARTA','JAKARTA RAYA':'DKI JAKARTA',
+  'DAERAH KHUSUS IBUKOTA JAKARTA':'DKI JAKARTA',
+  'D.I. YOGYAKARTA':'DI YOGYAKARTA','YOGYAKARTA':'DI YOGYAKARTA',
+  'NANGGROE ACEH DARUSSALAM':'ACEH','NANGGROE ACEH DARUSSALAM (NAD)':'ACEH','ACEH':'ACEH',
+  'NUSA TENGGARA BARAT (NTB)':'NUSA TENGGARA BARAT',
+  'NUSA TENGGARA TIMUR (NTT)':'NUSA TENGGARA TIMUR',
+  'BANGKA BELITUNG':'KEPULAUAN BANGKA BELITUNG',
+  'KEPULAUAN BANGKA BELITUNG':'KEPULAUAN BANGKA BELITUNG',
+  'NORTH SUMATRA':'SUMATERA UTARA','SOUTH SUMATRA':'SUMATERA SELATAN',
+  'WEST SUMATRA':'SUMATERA BARAT',
+};
+const _GEO_ID_PROVS = new Set([
+  'ACEH','SUMATERA UTARA','SUMATERA BARAT','RIAU','KEPULAUAN RIAU',
+  'JAMBI','BENGKULU','SUMATERA SELATAN','KEPULAUAN BANGKA BELITUNG','LAMPUNG',
+  'DKI JAKARTA','JAWA BARAT','BANTEN','JAWA TENGAH','DI YOGYAKARTA',
+  'JAWA TIMUR','BALI','NUSA TENGGARA BARAT','NUSA TENGGARA TIMUR',
+  'KALIMANTAN BARAT','KALIMANTAN TENGAH','KALIMANTAN SELATAN','KALIMANTAN TIMUR','KALIMANTAN UTARA',
+  'SULAWESI UTARA','GORONTALO','SULAWESI TENGAH','SULAWESI BARAT','SULAWESI SELATAN','SULAWESI TENGGARA',
+  'MALUKU UTARA','MALUKU','PAPUA BARAT','PAPUA','PAPUA TENGAH','PAPUA PEGUNUNGAN','PAPUA SELATAN','PAPUA BARAT DAYA',
+]);
+const _GEO_INTL_MAP = {
+  'KUALA LUMPUR':'Malaysia','JOHOR':'Malaysia','SELANGOR':'Malaysia','KEDAH':'Malaysia',
+  'PERAK':'Malaysia','PAHANG':'Malaysia','SABAH':'Malaysia','SARAWAK':'Malaysia',
+  'PENANG':'Malaysia','NEGERI SEMBILAN':'Malaysia','PUTRAJAYA':'Malaysia',
+  'QUEENSLAND':'Australia','NEW SOUTH WALES':'Australia','VICTORIA':'Australia',
+  'SINGAPORE':'Singapore','SINGAPURA':'Singapore',
+};
+function _aggregateGeo(rows) {
+  const _gProvMap={}, _gCityMap={}, _gIntlMap={};
+  let geoTotal=0;
+  for (const r of rows) {
+    let prov=(r.shipping_province||'').trim().toUpperCase();
+    const city=(r.shipping_city||'').trim().toUpperCase();
+    if (!prov) continue;
+    geoTotal++;
+    const net=(parseFloat(r.sub_total||0))-(parseFloat(r.total_disc||0));
+    prov = _GEO_PROV_NORM[prov] || prov;
+    if (_GEO_INTL_MAP[prov] || _GEO_INTL_MAP[city]) {
+      const country = _GEO_INTL_MAP[prov] || _GEO_INTL_MAP[city] || 'Lainnya';
+      if (!_gIntlMap[country]) _gIntlMap[country]={orders:0,revenue:0};
+      _gIntlMap[country].orders++; _gIntlMap[country].revenue+=net;
+      continue;
+    }
+    if (!_GEO_ID_PROVS.has(prov)) continue;
+    if (!_gProvMap[prov]) _gProvMap[prov]={orders:0,revenue:0};
+    _gProvMap[prov].orders++; _gProvMap[prov].revenue+=net;
+    if (city) {
+      const k=city+'||'+prov;
+      if (!_gCityMap[k]) _gCityMap[k]={city,prov,orders:0,revenue:0};
+      _gCityMap[k].orders++; _gCityMap[k].revenue+=net;
+    }
+  }
+  return {
+    geoProvinces: Object.entries(_gProvMap).map(([prov,d])=>({prov,...d})).sort((a,b)=>b.orders-a.orders),
+    geoCities:    Object.values(_gCityMap).sort((a,b)=>b.orders-a.orders),
+    geoIntl:      Object.entries(_gIntlMap).map(([country,d])=>({country,...d})).sort((a,b)=>b.orders-a.orders),
+    geoTotal,
+  };
+}
+
 const _INS_CITY_COORDS = {
   // Jabodetabek
   "JAKARTA":[-6.21,106.85],"JAKARTA BARAT":[-6.17,106.76],"JAKARTA TIMUR":[-6.22,106.90],
@@ -10223,53 +10235,89 @@ function _insGeoMetric(val) {
 
 async function _renderInsGeo() {
   const d = _insData;
-  if (!d || !d.geoProvinces) return;
+  if (!d || !d.geoRaw) return;
 
   const fmtRp = n => n>=1e9?'Rp '+(n/1e9).toFixed(1)+'M':n>=1e6?'Rp '+(n/1e6).toFixed(1)+'jt':'Rp '+Math.round(n).toLocaleString('id-ID');
   const titl = s => (s||'').toLowerCase().replace(/\b\w/g,c=>c.toUpperCase());
   const _se = (id,v) => { const e=document.getElementById(id); if(e) e.textContent=v; };
   const metric = _insGeoMetricVal;
 
+  // Populate filter dropdown (only once — don't overwrite if already built)
+  const filterSel = document.getElementById('ins-geo-filter');
+  if (filterSel && filterSel.options.length <= 1) {
+    const ips    = Object.keys(d.ipToOrderIds||{}).sort();
+    const brands = Object.keys(d.brandToOrderIds||{}).sort();
+    if (ips.length) {
+      const grp = document.createElement('optgroup'); grp.label = 'Per IP';
+      ips.forEach(ip => { const o=document.createElement('option'); o.value='ip:'+ip; o.textContent=ip; grp.appendChild(o); });
+      filterSel.appendChild(grp);
+    }
+    if (brands.length) {
+      const grp = document.createElement('optgroup'); grp.label = 'Per Brand';
+      brands.forEach(br => { const o=document.createElement('option'); o.value='brand:'+br; o.textContent=br; grp.appendChild(o); });
+      filterSel.appendChild(grp);
+    }
+  }
+
+  // Determine which geoRaw rows to use based on filter
+  const filterVal = filterSel?.value || '';
+  let filteredRaw = d.geoRaw;
+  let filterLabel = 'Semua';
+  if (filterVal.startsWith('ip:')) {
+    const name = filterVal.slice(3);
+    const ids = d.ipToOrderIds[name] || new Set();
+    filteredRaw = d.geoRaw.filter(r => ids.has(r.salesorder_id));
+    filterLabel = 'IP: ' + name;
+  } else if (filterVal.startsWith('brand:')) {
+    const name = filterVal.slice(6);
+    const ids = d.brandToOrderIds[name] || new Set();
+    filteredRaw = d.geoRaw.filter(r => ids.has(r.salesorder_id));
+    filterLabel = 'Brand: ' + name;
+  }
+
+  // Re-aggregate for current filter
+  const {geoProvinces, geoCities, geoIntl, geoTotal} = _aggregateGeo(filteredRaw);
+
   // Stats
-  _se('ins-g-provinces', d.geoProvinces.length);
-  _se('ins-g-top-prov',  d.geoProvinces[0] ? titl(d.geoProvinces[0].prov) : '—');
-  _se('ins-g-top-city',  d.geoCities[0]    ? titl(d.geoCities[0].city)    : '—');
-  const idOrders = d.geoProvinces.reduce((s,p)=>s+p.orders,0);
-  const covPct = d.geoTotal ? Math.round(idOrders/d.geoTotal*100) : 0;
-  const intlTotal = (d.geoIntl||[]).reduce((s,c)=>s+c.orders,0);
+  _se('ins-g-provinces', geoProvinces.length);
+  _se('ins-g-top-prov',  geoProvinces[0] ? titl(geoProvinces[0].prov) : '—');
+  _se('ins-g-top-city',  geoCities[0]    ? titl(geoCities[0].city)    : '—');
+  const idOrders = geoProvinces.reduce((s,p)=>s+p.orders,0);
+  const covPct = geoTotal ? Math.round(idOrders/geoTotal*100) : 0;
+  const intlTotal = (geoIntl||[]).reduce((s,c)=>s+c.orders,0);
   const intlLabel = intlTotal>0
-    ? ` · ${intlTotal} luar negeri (${(d.geoIntl||[]).map(c=>c.country).join(', ')})`
+    ? ` · ${intlTotal} luar negeri (${(geoIntl||[]).map(c=>c.country).join(', ')})`
     : '';
-  _se('ins-g-coverage', `${covPct}% order punya data geo${intlLabel}`);
+  _se('ins-g-coverage', `${filterLabel} · ${idOrders} orders · ${covPct}% punya data geo${intlLabel}`);
 
   // Province ranking table
   const provTbody = document.getElementById('ins-g-prov-tbody');
-  if (provTbody) provTbody.innerHTML = d.geoProvinces.slice(0,18).map((p,i)=>`
+  if (provTbody) provTbody.innerHTML = geoProvinces.slice(0,18).map((p,i)=>`
     <tr>
       <td style="font-size:12px">${i+1}. ${titl(p.prov)}</td>
       <td style="text-align:right;font-weight:600;font-family:var(--mono);font-size:11px">${p.orders.toLocaleString('id-ID')}</td>
       <td style="text-align:right;font-family:var(--mono);font-size:11px;color:var(--g400)">${fmtRp(p.revenue)}</td>
-    </tr>`).join('');
+    </tr>`).join('') || '<tr><td class="empty-td" colspan="3">Tidak ada data</td></tr>';
 
   // City ranking table
   const cityTbody = document.getElementById('ins-g-city-tbody');
-  if (cityTbody) cityTbody.innerHTML = d.geoCities.slice(0,18).map((c,i)=>`
+  if (cityTbody) cityTbody.innerHTML = geoCities.slice(0,18).map((c,i)=>`
     <tr>
       <td style="font-size:12px">${i+1}. ${titl(c.city)}</td>
       <td style="font-size:11px;color:var(--g400)">${titl(c.prov)}</td>
       <td style="text-align:right;font-weight:600;font-family:var(--mono);font-size:11px">${c.orders.toLocaleString('id-ID')}</td>
       <td style="text-align:right;font-family:var(--mono);font-size:11px;color:var(--g400)">${fmtRp(c.revenue)}</td>
-    </tr>`).join('');
+    </tr>`).join('') || '<tr><td class="empty-td" colspan="4">Tidak ada data</td></tr>';
 
   // International orders section
   const intlWrap = document.getElementById('ins-g-intl-wrap');
-  if (intlWrap && d.geoIntl && d.geoIntl.length) {
+  if (intlWrap && geoIntl && geoIntl.length) {
     intlWrap.innerHTML = `
       <div style="font-family:var(--mono);font-size:11px;text-transform:uppercase;color:var(--g400);margin-bottom:8px;letter-spacing:.05em">🌏 International Orders</div>
       <div class="table-wrap" style="margin:0"><table style="width:100%;table-layout:fixed">
         <colgroup><col style="width:auto"><col style="width:70px"><col style="width:120px"></colgroup>
         <thead><tr><th>Negara</th><th style="text-align:right">Orders</th><th style="text-align:right">Revenue</th></tr></thead>
-        <tbody>${d.geoIntl.map(c=>`
+        <tbody>${geoIntl.map(c=>`
           <tr>
             <td style="font-size:12px">${c.country}</td>
             <td style="text-align:right;font-weight:600;font-family:var(--mono);font-size:11px">${c.orders}</td>
@@ -10296,10 +10344,10 @@ async function _renderInsGeo() {
 
   // Province choropleth
   const provDataMap = {};
-  d.geoProvinces.forEach(p => { provDataMap[p.prov] = p; });
+  geoProvinces.forEach(p => { provDataMap[p.prov] = p; });
   const maxVal = metric==='orders'
-    ? Math.max(...d.geoProvinces.map(p=>p.orders),1)
-    : Math.max(...d.geoProvinces.map(p=>p.revenue),1);
+    ? Math.max(...geoProvinces.map(p=>p.orders),1)
+    : Math.max(...geoProvinces.map(p=>p.revenue),1);
 
   try {
     const resp = await fetch('https://raw.githubusercontent.com/superpikar/indonesia-geojson/master/indonesia-province-simple.json');
@@ -10327,8 +10375,8 @@ async function _renderInsGeo() {
   } catch(e) { console.warn('GeoJSON failed:', e); }
 
   // City circles
-  const maxCityVal = d.geoCities.length ? Math.max(...d.geoCities.map(c=>metric==='orders'?c.orders:c.revenue),1) : 1;
-  d.geoCities.slice(0,60).forEach(c => {
+  const maxCityVal = geoCities.length ? Math.max(...geoCities.map(c=>metric==='orders'?c.orders:c.revenue),1) : 1;
+  geoCities.slice(0,60).forEach(c => {
     const coords = _INS_CITY_COORDS[c.city];
     if (!coords) return;
     const val = metric==='orders' ? c.orders : c.revenue;

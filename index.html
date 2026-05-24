@@ -2093,7 +2093,7 @@
         <div class="stat-card success"><div class="stat-num" id="ins-g-top-prov">—</div><div class="stat-lbl">Provinsi Teratas</div></div>
         <div class="stat-card info"><div class="stat-num" id="ins-g-top-city">—</div><div class="stat-lbl">Kota Teratas</div></div>
       </div>
-      <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:12px">
         <span style="font-family:var(--mono);font-size:11px;color:var(--g400);text-transform:uppercase;letter-spacing:.05em">Tampilkan:</span>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;font-family:var(--sans)">
           <input type="radio" name="ins-geo-metric" value="orders" checked onchange="_insGeoMetric(this.value)"> Orders
@@ -2101,6 +2101,9 @@
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;font-family:var(--sans)">
           <input type="radio" name="ins-geo-metric" value="revenue" onchange="_insGeoMetric(this.value)"> Revenue
         </label>
+        <select id="ins-geo-filter" onchange="_renderInsGeo()" style="height:30px;border:1px solid var(--g200);border-radius:6px;font-family:var(--mono);font-size:11px;padding:0 8px;background:var(--white);cursor:pointer">
+          <option value="">Semua IP & Brand</option>
+        </select>
         <span id="ins-g-coverage" style="font-family:var(--mono);font-size:11px;color:var(--g400);margin-left:auto"></span>
       </div>
       <div style="background:var(--white);border:1px solid var(--g100);border-radius:8px;overflow:hidden;margin-bottom:1.25rem">
@@ -2176,6 +2179,6 @@
 <div id="proj-overlay" class="proj-panel-overlay" style="display:none" onclick="if(event.target===this)closeProjectDetail()"></div>
 <div id="proj-panel" class="proj-panel" style="display:none"></div>
 
-<script src="app.js?v=20260524i"></script>
+<script src="app.js?v=20260524j"></script>
 </body>
 </html>
