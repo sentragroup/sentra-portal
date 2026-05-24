@@ -9,6 +9,8 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2/dist/chartjs-plugin-datalabels.min.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -2029,6 +2031,7 @@
       <button class="tab-btn active" id="ins-tab-revenue" onclick="switchInsTab('revenue',this)">Revenue 2026</button>
       <button class="tab-btn" id="ins-tab-momentum" onclick="switchInsTab('momentum',this)">IP Momentum</button>
       <button class="tab-btn" id="ins-tab-stock" onclick="switchInsTab('stock',this)">Stock Horizon</button>
+      <button class="tab-btn" id="ins-tab-geo" onclick="switchInsTab('geo',this)">Geo Map</button>
     </div>
     <div id="ins-empty" style="text-align:center;padding:3rem;color:var(--g400);font-family:var(--mono);font-size:12px">Klik "↻ Load Insights" untuk memuat data 2026.</div>
 
@@ -2081,6 +2084,46 @@
       </div>
       <div id="ins-stock-wrap"></div>
     </div>
+
+    <!-- Geo Map -->
+    <div id="instab-geo" style="display:none">
+      <div class="stats-row" style="grid-template-columns:repeat(3,1fr);margin-bottom:1.25rem">
+        <div class="stat-card"><div class="stat-num" id="ins-g-provinces">—</div><div class="stat-lbl">Provinsi Terlayani</div></div>
+        <div class="stat-card success"><div class="stat-num" id="ins-g-top-prov">—</div><div class="stat-lbl">Provinsi Teratas</div></div>
+        <div class="stat-card info"><div class="stat-num" id="ins-g-top-city">—</div><div class="stat-lbl">Kota Teratas</div></div>
+      </div>
+      <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px">
+        <span style="font-family:var(--mono);font-size:11px;color:var(--g400);text-transform:uppercase;letter-spacing:.05em">Tampilkan:</span>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;font-family:var(--sans)">
+          <input type="radio" name="ins-geo-metric" value="orders" checked onchange="_insGeoMetric(this.value)"> Orders
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;font-family:var(--sans)">
+          <input type="radio" name="ins-geo-metric" value="revenue" onchange="_insGeoMetric(this.value)"> Revenue
+        </label>
+        <span id="ins-g-coverage" style="font-family:var(--mono);font-size:11px;color:var(--g400);margin-left:auto"></span>
+      </div>
+      <div style="background:var(--white);border:1px solid var(--g100);border-radius:8px;overflow:hidden;margin-bottom:1.25rem">
+        <div id="ins-geo-map" style="height:440px"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div>
+          <div style="font-family:var(--mono);font-size:11px;text-transform:uppercase;color:var(--g400);margin-bottom:8px;letter-spacing:.05em">Top Provinsi</div>
+          <div class="table-wrap" style="margin:0"><table style="width:100%;table-layout:fixed">
+            <colgroup><col style="width:auto"><col style="width:70px"><col style="width:110px"></colgroup>
+            <thead><tr><th>Provinsi</th><th style="text-align:right">Orders</th><th style="text-align:right">Revenue</th></tr></thead>
+            <tbody id="ins-g-prov-tbody"><tr><td class="empty-td" colspan="3">—</td></tr></tbody>
+          </table></div>
+        </div>
+        <div>
+          <div style="font-family:var(--mono);font-size:11px;text-transform:uppercase;color:var(--g400);margin-bottom:8px;letter-spacing:.05em">Top Kota</div>
+          <div class="table-wrap" style="margin:0"><table style="width:100%;table-layout:fixed">
+            <colgroup><col style="width:auto"><col style="width:90px"><col style="width:70px"><col style="width:100px"></colgroup>
+            <thead><tr><th>Kota</th><th>Provinsi</th><th style="text-align:right">Orders</th><th style="text-align:right">Revenue</th></tr></thead>
+            <tbody id="ins-g-city-tbody"><tr><td class="empty-td" colspan="4">—</td></tr></tbody>
+          </table></div>
+        </div>
+      </div>
+    </div>
   </div>
 
   </div>
@@ -2107,6 +2150,6 @@
 <div id="proj-overlay" class="proj-panel-overlay" style="display:none" onclick="if(event.target===this)closeProjectDetail()"></div>
 <div id="proj-panel" class="proj-panel" style="display:none"></div>
 
-<script src="app.js?v=20260521i"></script>
+<script src="app.js?v=20260524g"></script>
 </body>
 </html>

@@ -1593,6 +1593,8 @@ let spData = null;
 let spChartView = 'month';
 let _insData = null;
 let _insTab  = 'revenue';
+let _insGeoMap = null;
+let _insGeoMetricVal = 'orders';
 let _spChart = null;
 let _spAllMappings = null;
 const SP_PROD_PAGE_SIZE = 20;
@@ -9564,7 +9566,7 @@ async function loadInsights() {
   btn.disabled = true; btn.textContent = 'Memuat...';
   const emEl = document.getElementById('ins-empty');
   emEl.style.display = 'block'; emEl.textContent = 'Mengambil data order 2026...';
-  ['revenue','momentum','stock'].forEach(t => { const e=document.getElementById('instab-'+t); if(e) e.style.display='none'; });
+  ['revenue','momentum','stock','geo'].forEach(t => { const e=document.getElementById('instab-'+t); if(e) e.style.display='none'; });
 
   try {
     const VALID = ['COMPLETED','FINISH_PACK','FINISH_PICK','CLOSED','PAID','PENDING'];
@@ -9667,8 +9669,34 @@ async function loadInsights() {
       products:b.products.sort((a,z)=>(a.daysOfStock||9999)-(z.daysOfStock||9999)),
     })).sort((a,b)=>(a.daysOfStock||9999)-(b.daysOfStock||9999));
 
+    // Geo data
+    emEl.textContent='Mengambil data geo...';
+    const geoRaw = await _fetchAllPages('jubelio_sales_orders',
+      'shipping_city,shipping_province,sub_total,total_disc',
+      q => q.gte('transaction_date','2026-01-01').lte('transaction_date','2026-12-31T23:59:59')
+            .in('wms_status',VALID).not('shipping_province','is',null).neq('shipping_province','')
+    );
+    const _gProvMap={}, _gCityMap={};
+    for (const r of geoRaw) {
+      const prov=(r.shipping_province||'').trim().toUpperCase();
+      const city=(r.shipping_city||'').trim().toUpperCase();
+      if (!prov) continue;
+      const net=(parseFloat(r.sub_total||0))-(parseFloat(r.total_disc||0));
+      if (!_gProvMap[prov]) _gProvMap[prov]={orders:0,revenue:0};
+      _gProvMap[prov].orders++; _gProvMap[prov].revenue+=net;
+      if (city) {
+        const k=city+'||'+prov;
+        if (!_gCityMap[k]) _gCityMap[k]={city,prov,orders:0,revenue:0};
+        _gCityMap[k].orders++; _gCityMap[k].revenue+=net;
+      }
+    }
+    const geoProvinces=Object.entries(_gProvMap).map(([prov,d])=>({prov,...d})).sort((a,b)=>b.orders-a.orders);
+    const geoCities=Object.values(_gCityMap).sort((a,b)=>b.orders-a.orders);
+    const geoTotal=geoRaw.length;
+
     _insData={ID_MONTHS,cm,dayOfYear,daysLeft,monthlyTotals,projectedMonthly,ipMonthly,
-      ytdNet,yearEndProj,projDailyNet,stockHorizon,ips:Object.keys(ipMonthly).sort()};
+      ytdNet,yearEndProj,projDailyNet,stockHorizon,ips:Object.keys(ipMonthly).sort(),
+      geoProvinces,geoCities,geoTotal};
 
     emEl.style.display='none';
     document.getElementById('instab-'+_insTab).style.display='block';
@@ -9679,7 +9707,7 @@ async function loadInsights() {
 
 function switchInsTab(tab, btn) {
   _insTab=tab;
-  ['revenue','momentum','stock'].forEach(t=>{
+  ['revenue','momentum','stock','geo'].forEach(t=>{
     const tb=document.getElementById('ins-tab-'+t); if(tb) tb.classList.toggle('active',t===tab);
     const pg=document.getElementById('instab-'+t); if(pg) pg.style.display=(t===tab&&_insData)?'block':'none';
   });
@@ -9690,6 +9718,7 @@ function _renderInsTab(tab) {
   if (tab==='revenue')  _renderInsRevenue();
   if (tab==='momentum') _renderInsMomentum();
   if (tab==='stock')    _renderInsStock();
+  if (tab==='geo')      _renderInsGeo();
 }
 
 function _renderInsRevenue() {
@@ -9902,6 +9931,157 @@ function _insToggleStock(bi) {
   const open=row.style.display!=='none';
   row.style.display=open?'none':'table-row';
   if (exp) exp.textContent=open?'▶':'▼';
+}
+
+// ── INSIGHTS GEO ──
+const _INS_CITY_COORDS = {
+  // Jabodetabek
+  "JAKARTA":[-6.21,106.85],"JAKARTA BARAT":[-6.17,106.76],"JAKARTA TIMUR":[-6.22,106.90],
+  "JAKARTA SELATAN":[-6.26,106.81],"JAKARTA UTARA":[-6.14,106.90],"JAKARTA PUSAT":[-6.19,106.83],
+  "BEKASI":[-6.24,107.00],"DEPOK":[-6.40,106.82],"KOTA DEPOK":[-6.40,106.82],
+  "BOGOR":[-6.60,106.80],"TANGERANG":[-6.18,106.63],"TANGERANG SELATAN":[-6.29,106.72],
+  "CIPUTAT":[-6.33,106.74],"BALARAJA":[-6.20,106.49],"CIBINONG":[-6.48,106.86],
+  "KARAWANG":[-6.32,107.34],"KOTA BEKASI":[-6.24,107.00],
+  // Jawa Barat
+  "BANDUNG":[-6.92,107.61],"CIREBON":[-6.73,108.55],"TASIKMALAYA":[-7.34,108.22],
+  "SUKABUMI":[-6.92,106.93],"GARUT":[-7.22,107.91],"SUBANG":[-6.56,107.76],
+  "PURWAKARTA":[-6.56,107.44],"CIAMIS":[-7.33,108.35],"INDRAMAYU":[-6.32,108.32],
+  // Jawa Tengah
+  "SEMARANG":[-7.00,110.42],"SOLO":[-7.57,110.83],"SURAKARTA":[-7.57,110.83],
+  "MAGELANG":[-7.47,110.22],"SALATIGA":[-7.33,110.49],"KUDUS":[-6.80,110.84],
+  "JEPARA":[-6.59,110.67],"PURWOKERTO":[-7.42,109.23],"TEGAL":[-6.87,109.13],
+  "PEKALONGAN":[-6.90,109.67],"CILACAP":[-7.73,109.00],
+  // DI Yogyakarta
+  "YOGYAKARTA":[-7.80,110.37],"SLEMAN":[-7.71,110.36],"BANTUL":[-7.89,110.33],
+  // Jawa Timur
+  "SURABAYA":[-7.25,112.75],"MALANG":[-7.98,112.63],"SIDOARJO":[-7.45,112.72],
+  "GRESIK":[-7.16,112.65],"MOJOKERTO":[-7.47,112.43],"JEMBER":[-8.17,113.70],
+  "KEDIRI":[-7.82,112.01],"MADIUN":[-7.63,111.52],"BLITAR":[-8.10,112.17],
+  "BANYUWANGI":[-8.22,114.37],"PASURUAN":[-7.64,112.91],"PROBOLINGGO":[-7.75,113.22],
+  // Banten
+  "SERANG":[-6.12,106.15],"CILEGON":[-6.00,106.06],"PANDEGLANG":[-6.30,106.11],
+  // Sumatera
+  "MEDAN":[3.58,98.67],"PALEMBANG":[-2.99,104.75],"PEKANBARU":[0.51,101.45],
+  "PADANG":[-0.95,100.35],"BATAM":[1.13,104.03],"BANDAR LAMPUNG":[-5.43,105.26],
+  "BENGKULU":[-3.79,102.27],"JAMBI":[-1.61,103.61],"BANDA ACEH":[5.55,95.32],
+  "BINJAI":[3.60,98.49],"PEMATANG SIANTAR":[2.96,99.07],"LUBUKLINGGAU":[-3.30,102.86],
+  "DUMAI":[1.67,101.45],"BUKITTINGGI":[-0.31,100.37],"RANTAU PRAPAT":[2.10,99.83],
+  "TANJUNG BALAI":[2.97,99.80],"BATANGHARI":[-1.85,102.80],
+  // Kalimantan
+  "PONTIANAK":[-0.02,109.33],"SAMARINDA":[-0.50,117.14],"BALIKPAPAN":[-1.27,116.83],
+  "BANJARMASIN":[-3.32,114.59],"PALANGKA RAYA":[-2.21,113.92],"TARAKAN":[3.30,117.64],
+  "BONTANG":[0.13,117.50],"SINGKAWANG":[0.90,108.99],
+  // Sulawesi
+  "MAKASSAR":[-5.14,119.41],"MANADO":[1.48,124.84],"PALU":[-0.90,119.87],
+  "KENDARI":[-3.97,122.51],"GORONTALO":[0.54,123.06],"AMBON":[-3.70,128.18],
+  "BITUNG":[1.44,125.19],"PAREPARE":[-4.02,119.63],
+  // Bali & NTB/NTT
+  "DENPASAR":[-8.65,115.22],"LDENPASAR":[-8.65,115.22],"MATARAM":[-8.58,116.12],
+  "KUPANG":[-10.17,123.61],"SINGARAJA":[-8.11,115.09],
+  // Maluku & Papua
+  "SORONG":[-0.87,131.26],"JAYAPURA":[-2.53,140.72],"TERNATE":[0.79,127.38],
+  "MANOKWARI":[-0.87,134.08]
+};
+
+function _insGeoMetric(val) {
+  _insGeoMetricVal = val;
+  if (_insData) _renderInsGeo();
+}
+
+async function _renderInsGeo() {
+  const d = _insData;
+  if (!d || !d.geoProvinces) return;
+
+  const fmtRp = n => n>=1e9?'Rp '+(n/1e9).toFixed(1)+'M':n>=1e6?'Rp '+(n/1e6).toFixed(1)+'jt':'Rp '+Math.round(n).toLocaleString('id-ID');
+  const titl = s => (s||'').toLowerCase().replace(/\b\w/g,c=>c.toUpperCase());
+  const _se = (id,v) => { const e=document.getElementById(id); if(e) e.textContent=v; };
+  const metric = _insGeoMetricVal;
+
+  // Stats
+  _se('ins-g-provinces', d.geoProvinces.length);
+  _se('ins-g-top-prov',  d.geoProvinces[0] ? titl(d.geoProvinces[0].prov) : '—');
+  _se('ins-g-top-city',  d.geoCities[0]    ? titl(d.geoCities[0].city)    : '—');
+  const covPct = d.geoTotal ? Math.round(d.geoProvinces.reduce((s,p)=>s+p.orders,0)/d.geoTotal*100) : 0;
+  _se('ins-g-coverage', `${covPct}% order punya data kota/provinsi`);
+
+  // Province ranking table
+  const provTbody = document.getElementById('ins-g-prov-tbody');
+  if (provTbody) provTbody.innerHTML = d.geoProvinces.slice(0,18).map((p,i)=>`
+    <tr>
+      <td style="font-size:12px">${i+1}. ${titl(p.prov)}</td>
+      <td style="text-align:right;font-weight:600;font-family:var(--mono);font-size:11px">${p.orders.toLocaleString('id-ID')}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:11px;color:var(--g400)">${fmtRp(p.revenue)}</td>
+    </tr>`).join('');
+
+  // City ranking table
+  const cityTbody = document.getElementById('ins-g-city-tbody');
+  if (cityTbody) cityTbody.innerHTML = d.geoCities.slice(0,18).map((c,i)=>`
+    <tr>
+      <td style="font-size:12px">${i+1}. ${titl(c.city)}</td>
+      <td style="font-size:11px;color:var(--g400)">${titl(c.prov)}</td>
+      <td style="text-align:right;font-weight:600;font-family:var(--mono);font-size:11px">${c.orders.toLocaleString('id-ID')}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:11px;color:var(--g400)">${fmtRp(c.revenue)}</td>
+    </tr>`).join('');
+
+  // Map
+  const mapEl = document.getElementById('ins-geo-map');
+  if (!mapEl || typeof L === 'undefined') return;
+
+  // Destroy existing instance
+  if (_insGeoMap) { try { _insGeoMap.remove(); } catch(e){} _insGeoMap = null; }
+
+  _insGeoMap = L.map('ins-geo-map', {
+    center: [-2.5, 118], zoom: 5,
+    zoomControl: true, attributionControl: false
+  });
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png',
+    {subdomains:'abcd',maxZoom:19}).addTo(_insGeoMap);
+
+  // Province choropleth
+  const provDataMap = {};
+  d.geoProvinces.forEach(p => { provDataMap[p.prov] = p; });
+  const maxVal = metric==='orders'
+    ? Math.max(...d.geoProvinces.map(p=>p.orders),1)
+    : Math.max(...d.geoProvinces.map(p=>p.revenue),1);
+
+  try {
+    const resp = await fetch('https://raw.githubusercontent.com/superpikar/indonesia-geojson/master/indonesia-province-simple.json');
+    const geojson = await resp.json();
+    L.geoJSON(geojson, {
+      style: feature => {
+        const provName = (feature.properties.Propinsi||feature.properties.name||'').toUpperCase();
+        const pd = provDataMap[provName];
+        const val = pd ? (metric==='orders'?pd.orders:pd.revenue) : 0;
+        const t = maxVal>0 ? val/maxVal : 0;
+        return {
+          fillColor: `rgba(60,52,137,${(0.1+t*0.8).toFixed(2)})`,
+          fillOpacity:1, color:'#3C3489', weight:0.8, opacity:0.5
+        };
+      },
+      onEachFeature: (feature, layer) => {
+        const provName = (feature.properties.Propinsi||feature.properties.name||'').toUpperCase();
+        const pd = provDataMap[provName];
+        const lbl = pd
+          ? `<b>${titl(provName)}</b><br>${pd.orders} orders<br>${fmtRp(pd.revenue)}`
+          : `<b>${titl(provName)}</b><br><span style="color:#aaa">No data</span>`;
+        layer.bindTooltip(lbl, {sticky:true, className:'ins-geo-tip'});
+      }
+    }).addTo(_insGeoMap);
+  } catch(e) { console.warn('GeoJSON failed:', e); }
+
+  // City circles
+  const maxCityVal = d.geoCities.length ? Math.max(...d.geoCities.map(c=>metric==='orders'?c.orders:c.revenue),1) : 1;
+  d.geoCities.slice(0,60).forEach(c => {
+    const coords = _INS_CITY_COORDS[c.city];
+    if (!coords) return;
+    const val = metric==='orders' ? c.orders : c.revenue;
+    const r = 5 + (val/maxCityVal)*22;
+    L.circleMarker(coords, {
+      radius:r, fillColor:'#e74c3c', fillOpacity:0.75, color:'#c0392b', weight:1
+    }).addTo(_insGeoMap)
+    .bindTooltip(`<b>${titl(c.city)}</b>, ${titl(c.prov)}<br>${c.orders} orders · ${fmtRp(c.revenue)}`,
+      {sticky:true, className:'ins-geo-tip'});
+  });
 }
 
 // ── DUPLICATE CHECK ──
