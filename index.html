@@ -1845,26 +1845,6 @@
         <div class="cal-grid" id="cal-grid"></div>
       </div>
 
-  </div>
-  </div>
-</div>
-
-<!-- SYNC ALL MODAL -->
-<div id="sync-all-modal" style="display:none;position:fixed;inset:0;background:rgba(12,12,12,0.45);z-index:9990;align-items:center;justify-content:center">
-  <div style="background:var(--white);border-radius:12px;width:100%;max-width:420px;box-shadow:0 8px 40px rgba(0,0,0,0.18);overflow:hidden">
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--g100)">
-      <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:15px">Sync Jubelio</div>
-      <button id="sync-all-close" onclick="closeSyncModal()" style="background:none;border:none;cursor:pointer;color:var(--g400);font-size:18px;line-height:1;padding:2px 6px;border-radius:4px" disabled>✕</button>
-    </div>
-    <div id="sync-all-list" style="padding:12px 20px;display:flex;flex-direction:column;gap:8px"></div>
-    <div id="sync-all-footer" style="padding:12px 20px;border-top:1px solid var(--g100);display:flex;align-items:center;justify-content:space-between">
-      <span id="sync-all-summary" style="font-size:12px;color:var(--g400)"></span>
-      <button id="sync-all-done-btn" onclick="closeSyncModal()" disabled style="padding:6px 18px;background:var(--black);color:var(--white);border:none;border-radius:6px;font-size:13px;cursor:not-allowed;opacity:0.4">Tutup</button>
-    </div>
-  </div>
-</div>
-
-
       <!-- SALES PERFORMANCE -->
       <div class="page" id="page-salesperf">
         <div class="page-header">
@@ -1917,6 +1897,26 @@
           <div id="sp-prod-pagination" style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;font-family:var(--mono);font-size:11px;color:var(--g500)"></div>
         </div>
       </div>
+
+  </div>
+  </div>
+</div>
+
+<!-- SYNC ALL MODAL -->
+<div id="sync-all-modal" style="display:none;position:fixed;inset:0;background:rgba(12,12,12,0.45);z-index:9990;align-items:center;justify-content:center">
+  <div style="background:var(--white);border-radius:12px;width:100%;max-width:420px;box-shadow:0 8px 40px rgba(0,0,0,0.18);overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--g100)">
+      <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:15px">Sync Jubelio</div>
+      <button id="sync-all-close" onclick="closeSyncModal()" style="background:none;border:none;cursor:pointer;color:var(--g400);font-size:18px;line-height:1;padding:2px 6px;border-radius:4px" disabled>✕</button>
+    </div>
+    <div id="sync-all-list" style="padding:12px 20px;display:flex;flex-direction:column;gap:8px"></div>
+    <div id="sync-all-footer" style="padding:12px 20px;border-top:1px solid var(--g100);display:flex;align-items:center;justify-content:space-between">
+      <span id="sync-all-summary" style="font-size:12px;color:var(--g400)"></span>
+      <button id="sync-all-done-btn" onclick="closeSyncModal()" disabled style="padding:6px 18px;background:var(--black);color:var(--white);border:none;border-radius:6px;font-size:13px;cursor:not-allowed;opacity:0.4">Tutup</button>
+    </div>
+  </div>
+</div>
+
 
 <!-- Project Detail Panel -->
 <div id="proj-overlay" class="proj-panel-overlay" style="display:none" onclick="if(event.target===this)closeProjectDetail()"></div>
