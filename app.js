@@ -1583,6 +1583,15 @@ let _spChart = null;
 let _spAllMappings = null;
 const SP_PROD_PAGE_SIZE = 20;
 let _spProdPage = 0;
+const SP_CHANNEL_LABELS = {
+  'SHOPEE':'Shopee', 'SHOPEE INTERNATIONAL':'Shopee International',
+  'JUBELIO-POS':'Marte Offline Store',
+  'Shop | Tokopedia':'TikTok Shop / Tokopedia',
+  'TOKOPEDIA':'Tokopedia',
+  'SHOPIFY':'Webstore SD&Y',
+  'PLUGO':'Webstore Lagaa',
+  'INTERNAL':'Pop Up Booth', 'Offline Booth':'Pop Up Booth',
+};
 
 function switchDPTab(name, el) {
   document.querySelectorAll("#page-distpartner .tab-btn").forEach(b=>b.classList.remove("active"));
@@ -8954,8 +8963,7 @@ function _initSPMultiSelects() {
 async function _preloadSPFiltersAndRun() {
   // Load product_mappings (cached) → populate brand/IP/collection dropdowns
   if (!_spAllMappings) {
-    const { data: pm } = await sb.from('product_mappings').select('item_name,brand,ip,collection');
-    _spAllMappings = pm || [];
+    _spAllMappings = await _fetchAllPages('product_mappings', 'item_name,brand,ip,collection');
   }
   const brandMS=_spMS['sp-ms-brand'], ipMS=_spMS['sp-ms-ip'], colMS=_spMS['sp-ms-collection'];
   if (_spAllMappings) {
@@ -9007,7 +9015,7 @@ function populateSPFilterDropdowns(orders, channelData, storeData, productData) 
   if (chMS) {
     const chCount = {}; channelData.forEach(d=>chCount[d.channel]=d.orders);
     const chs = [...new Set(orders.map(o=>o.channel_name).filter(Boolean))].sort();
-    chMS.setOptions(chs.map(c=>({value:c,label:c,count:chCount[c]??null})));
+    chMS.setOptions(chs.map(c=>({value:c,label:SP_CHANNEL_LABELS[c]||c,count:chCount[c]??null})));
   }
   // Store — always refresh with counts from current result
   const stMS = _spMS['sp-ms-store'];
@@ -9103,10 +9111,9 @@ async function loadSalesPerf() {
       allItems.push(...rows);
     }
 
-    // 3. Load product_mappings (cached)
+    // 3. Load product_mappings (cached, all pages)
     if (!_spAllMappings) {
-      const { data: pm } = await sb.from('product_mappings').select('item_name,brand,ip,collection');
-      _spAllMappings = pm || [];
+      _spAllMappings = await _fetchAllPages('product_mappings', 'item_name,brand,ip,collection');
     }
     const mappingByName = {};
     for (const m of _spAllMappings) {
@@ -9295,7 +9302,7 @@ function renderSPChannelTable(data, totalNet) {
   tbody.innerHTML = data.map(d => {
     const pct = totalNet > 0 ? ((d.net / totalNet) * 100).toFixed(1) + '%' : '—';
     return `<tr>
-      <td style="padding:7px 10px;font-size:12px;font-weight:500">${d.channel}</td>
+      <td style="padding:7px 10px;font-size:12px;font-weight:500">${SP_CHANNEL_LABELS[d.channel]||d.channel}</td>
       <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px">${d.orders.toLocaleString('id-ID')}</td>
       <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px">${Math.round(d.qty).toLocaleString('id-ID')}</td>
       <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--g600)">${fmtRp(d.revenue)}</td>
@@ -9314,15 +9321,14 @@ function renderSPProductTable(data, page) {
   _spProdPage = page || 0;
   if (countEl) countEl.textContent = data.length + ' produk';
   const fmtRp = n => 'Rp ' + Math.round(n).toLocaleString('id-ID');
-  if (!data.length) { tbody.innerHTML = `<tr><td class="empty-td" colspan="8">Tidak ada produk.</td></tr>`; if(pagDiv) pagDiv.innerHTML=''; return; }
+  if (!data.length) { tbody.innerHTML = `<tr><td class="empty-td" colspan="7">Tidak ada produk.</td></tr>`; if(pagDiv) pagDiv.innerHTML=''; return; }
   const totalPages = Math.ceil(data.length / SP_PROD_PAGE_SIZE);
   const start = _spProdPage * SP_PROD_PAGE_SIZE;
   const pageData = data.slice(start, start + SP_PROD_PAGE_SIZE);
   tbody.innerHTML = pageData.map((d,i) => `<tr>
-    <td style="padding:7px 10px;font-size:12px;font-weight:500;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${d.name}">${start+i+1}. ${d.name}</td>
+    <td style="padding:7px 10px;font-size:12px;font-weight:500;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${d.name}">${start+i+1}. ${d.name}</td>
     <td style="padding:7px 10px;font-size:11px;color:var(--g600)">${d.brand || '—'}</td>
     <td style="padding:7px 10px;font-size:11px;color:var(--g600)">${d.ip || '—'}</td>
-    <td style="padding:7px 10px;font-size:11px;color:var(--g600)">${d.collection || '—'}</td>
     <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px">${Math.round(d.qty).toLocaleString('id-ID')}</td>
     <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--g600)">${fmtRp(d.revenue)}</td>
     <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:#c0392b">${d.disc > 0 ? fmtRp(d.disc) : '—'}</td>
