@@ -298,6 +298,7 @@
               <div class="fg"><label>Termin</label><select id="ip-termin"><option value="">Pilih termin...</option><option>Per Bulan</option><option>Per Quarter</option><option>Per Tahun</option><option>Per Akhir Project</option></select></div>
               <div class="fg"><label>PPh Tax Rate (%)</label><input type="number" id="ip-pph" placeholder="e.g. 2.5" step="0.1" min="0"></div>
               <div class="fg full"><label>Notes</label><input type="text" id="ip-notes" placeholder="Catatan tambahan"></div>
+              <div class="fg full"><label>Email</label><input type="text" id="ip-email" placeholder="email1@domain.com, email2@domain.com"><div style="font-size:11px;color:var(--g400);margin-top:3px;font-family:var(--mono)">Pisah dengan koma untuk multiple email</div></div>
             </div>
             <div class="btn-row">
               <button class="btn-primary" id="ipSubmitBtn" onclick="submitIP()">Simpan IP</button>
@@ -324,8 +325,8 @@
           </div>
           <div class="table-wrap">
             <table>
-              <thead id="ip-thead"><tr><th class="sortable" data-col="id" onclick="sortIPBy('id')">ID</th><th class="sortable" data-col="name" onclick="sortIPBy('name')">IP / Brand</th><th class="sortable" data-col="category" onclick="sortIPBy('category')">Category</th><th class="sortable" data-col="pic" onclick="sortIPBy('pic')">PIC</th><th>Revenue</th><th>Related Agreement</th><th class="sortable" data-col="ipStatus" onclick="sortIPBy('ipStatus')">Agr. Status</th><th class="sortable" data-col="liveStatus" onclick="sortIPBy('liveStatus')">Live Status</th><th>Royalty Type</th><th>%</th><th>Fixed (IDR)</th><th>Termin</th><th>PPh %</th><th>Notes</th><th></th></tr></thead>
-              <tbody id="ipTableBody"><tr><td class="empty-td" colspan="15">Klik "Semua IP" untuk memuat.</td></tr></tbody>
+              <thead id="ip-thead"><tr><th class="sortable" data-col="id" onclick="sortIPBy('id')">ID</th><th class="sortable" data-col="name" onclick="sortIPBy('name')">IP / Brand</th><th class="sortable" data-col="category" onclick="sortIPBy('category')">Category</th><th class="sortable" data-col="pic" onclick="sortIPBy('pic')">PIC</th><th>Revenue</th><th>Related Agreement</th><th class="sortable" data-col="ipStatus" onclick="sortIPBy('ipStatus')">Agr. Status</th><th class="sortable" data-col="liveStatus" onclick="sortIPBy('liveStatus')">Live Status</th><th>Royalty Type</th><th>%</th><th>Fixed (IDR)</th><th>Termin</th><th>PPh %</th><th>Notes</th><th>Email</th><th></th></tr></thead>
+              <tbody id="ipTableBody"><tr><td class="empty-td" colspan="16">Klik "Semua IP" untuk memuat.</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -513,6 +514,7 @@
               <div class="fg"><label>Others Rate (%) <span style="color:var(--g400);font-size:9px;text-transform:none;letter-spacing:0;">normal: 30%</span></label><input type="number" id="bm-others" placeholder="30" step="0.1" min="0" max="100"></div>
             </div>
             <div class="fg" style="margin-top:1rem;"><label>Notes</label><input type="text" id="bm-notes" placeholder="Catatan tambahan"></div>
+            <div class="fg" style="margin-top:0.5rem;"><label>Email</label><input type="text" id="bm-email" placeholder="email1@domain.com, email2@domain.com"><div style="font-size:11px;color:var(--g400);margin-top:3px;font-family:var(--mono)">Pisah dengan koma untuk multiple email</div></div>
             <div class="btn-row">
               <button class="btn-primary" id="bmSubmitBtn" onclick="submitBM()">Simpan Brand</button>
               <button class="btn-ghost" onclick="clearBMForm()">Bersihkan</button>
@@ -537,8 +539,8 @@
           </div>
           <div class="table-wrap">
             <table>
-              <thead id="bm-thead"><tr><th class="sortable" data-col="id" onclick="sortBMBy('id')">ID</th><th class="sortable" data-col="name" onclick="sortBMBy('name')">Brand</th><th class="sortable" data-col="category" onclick="sortBMBy('category')">Category</th><th class="sortable" data-col="liveStatus" onclick="sortBMBy('liveStatus')">Live</th><th class="sortable" data-col="pic" onclick="sortBMBy('pic')">PIC</th><th>Revenue</th><th>Agreement</th><th>Apparel</th><th>Accessories</th><th>Collectible</th><th>Preloved</th><th>Wellness</th><th>Others</th><th>Notes</th><th></th></tr></thead>
-              <tbody id="bmTableBody"><tr><td class="empty-td" colspan="15">Klik "Semua Brand" untuk memuat.</td></tr></tbody>
+              <thead id="bm-thead"><tr><th class="sortable" data-col="id" onclick="sortBMBy('id')">ID</th><th class="sortable" data-col="name" onclick="sortBMBy('name')">Brand</th><th class="sortable" data-col="category" onclick="sortBMBy('category')">Category</th><th class="sortable" data-col="liveStatus" onclick="sortBMBy('liveStatus')">Live</th><th class="sortable" data-col="pic" onclick="sortBMBy('pic')">PIC</th><th>Revenue</th><th>Agreement</th><th>Apparel</th><th>Accessories</th><th>Collectible</th><th>Preloved</th><th>Wellness</th><th>Others</th><th>Notes</th><th>Email</th><th></th></tr></thead>
+              <tbody id="bmTableBody"><tr><td class="empty-td" colspan="16">Klik "Semua Brand" untuk memuat.</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -651,6 +653,7 @@
                 <div style="font-size:11px;color:var(--g400);margin-top:3px;font-family:var(--mono)">Pilih dari dropdown atau ketik manual, pisah dengan koma</div>
               </div>
               <div class="fg full"><label>Notes</label><input type="text" id="dp-notes" placeholder="Catatan tambahan"></div>
+              <div class="fg full"><label>Email</label><input type="text" id="dp-email" placeholder="email1@domain.com, email2@domain.com"><div style="font-size:11px;color:var(--g400);margin-top:3px;font-family:var(--mono)">Pisah dengan koma untuk multiple email</div></div>
             </div>
             <div class="btn-row">
               <button class="btn-primary" id="dpSubmitBtn" onclick="submitDP()">Simpan Partner</button>
@@ -676,8 +679,8 @@
           </div>
           <div class="table-wrap">
             <table>
-              <thead id="dp-thead"><tr><th class="sortable" data-col="id" onclick="sortDPBy('id')">ID</th><th class="sortable" data-col="name" onclick="sortDPBy('name')">Partner Name</th><th class="sortable" data-col="type" onclick="sortDPBy('type')">Type</th><th>Channel</th><th class="sortable" data-col="region" onclick="sortDPBy('region')">Region</th><th class="sortable" data-col="pic" onclick="sortDPBy('pic')">PIC</th><th>Contact</th><th>Agreement</th><th class="sortable" data-col="liveStatus" onclick="sortDPBy('liveStatus')">Live</th><th>Revenue</th><th>Notes</th><th></th></tr></thead>
-              <tbody id="dpTableBody"><tr><td class="empty-td" colspan="11">Klik "Semua Partner" untuk memuat.</td></tr></tbody>
+              <thead id="dp-thead"><tr><th class="sortable" data-col="id" onclick="sortDPBy('id')">ID</th><th class="sortable" data-col="name" onclick="sortDPBy('name')">Partner Name</th><th class="sortable" data-col="type" onclick="sortDPBy('type')">Type</th><th>Channel</th><th class="sortable" data-col="region" onclick="sortDPBy('region')">Region</th><th class="sortable" data-col="pic" onclick="sortDPBy('pic')">PIC</th><th>Contact</th><th>Email</th><th>Agreement</th><th class="sortable" data-col="liveStatus" onclick="sortDPBy('liveStatus')">Live</th><th>Revenue</th><th>Notes</th><th></th></tr></thead>
+              <tbody id="dpTableBody"><tr><td class="empty-td" colspan="13">Klik "Semua Partner" untuk memuat.</td></tr></tbody>
             </table>
           </div>
         </div>
