@@ -264,6 +264,6 @@ th.sortable:hover{color:var(--black);background:var(--off);}
 /* Leaflet geo tooltip */
 .ins-geo-tip{font-family:var(--sans);font-size:12px;line-height:1.5;border-radius:6px;border:1px solid var(--g100);box-shadow:0 4px 12px rgba(0,0,0,.12);}
 @keyframes ticker-scroll{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
-#ann-ticker{display:none;height:34px;background:var(--black);overflow:hidden;flex-shrink:0;cursor:pointer;position:sticky;top:52px;z-index:199;}
-#ann-ticker:hover{background:#1a1a1a;}
+#ann-ticker{display:none;height:34px;width:100%;background:var(--black);overflow:hidden;flex-shrink:0;cursor:pointer;position:sticky;top:52px;z-index:199;}
+#ann-ticker:hover{background:#1c1c1c;}
 @media(max-width:768px){#loginScreen{grid-template-columns:1fr;}.login-left{display:none;}.menu-btn{display:flex;}.sidebar{display:none;position:fixed;top:calc(52px + var(--ticker-h));left:0;height:calc(100vh - 52px - var(--ticker-h));z-index:300;background:var(--white);box-shadow:4px 0 24px rgba(0,0,0,0.12);}.sidebar.open{display:block;}.stats-row{grid-template-columns:repeat(2,1fr)!important;}.form-grid,.filter-grid,.edit-row-grid{grid-template-columns:1fr;}.page{padding:1.25rem;}}
