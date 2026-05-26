@@ -91,6 +91,9 @@
       </div>
       <div class="sb-sec">
         <div class="sb-label">General</div>
+        <div class="sb-item" onclick="showPage('reminders',this)" id="nav-reminders">
+          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="1" width="10" height="13" rx="1.5"/><path d="M5 4h6M5 7h6M5 10h3"/><path d="M12 10l3 3m-1.5-1.5L12 13"/></svg>Reminders
+        </div>
         <div class="sb-item" onclick="showPage('insights',this)" id="nav-insights">
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M8 5v3l2 2"/><path d="M5 1.5C6 1.2 7 1 8 1"/></svg>Insights
         </div>
@@ -146,6 +149,7 @@
 
         <div class="sb-label" style="margin-bottom:0.6rem;margin-top:0.25rem">General</div>
         <div class="home-grid" style="margin-bottom:1.5rem">
+          <div class="tool-card" onclick="showPage('reminders',null)"><span class="tc-icon">📝</span><div class="tc-name">Reminders</div><div class="tc-desc">Sticky notes tim dengan @mention — buat pengingat dan tag rekan kerja langsung.</div></div>
           <div class="tool-card" onclick="showPage('project',null)"><span class="tc-icon">📌</span><div class="tc-name">Project Board</div><div class="tc-desc">Kanban tracker untuk semua project tim — dari backlog hingga selesai.</div></div>
           <div class="tool-card" onclick="showPage('calendar',null)"><span class="tc-icon">📅</span><div class="tc-name">Calendar</div><div class="tc-desc">Semua deadline & event penting dari Project Board, Collection, dan Leads dalam satu tampilan.</div></div>
           <div class="tool-card" onclick="showPage('salesperf',null)"><span class="tc-icon">📊</span><div class="tc-name">Sales Performance</div><div class="tc-desc">Analisis penjualan berdasarkan brand, IP, koleksi, channel, dan periode.</div></div>
@@ -2170,9 +2174,79 @@
     </div>
 
   </div><!-- /.page#page-insights -->
+
+      <!-- REMINDERS -->
+      <div class="page" id="page-reminders">
+        <div class="page-header">
+          <div>
+            <div class="page-title">Reminders</div>
+            <div class="page-sub">Sticky notes tim — ketik @ untuk mention rekan kerja</div>
+          </div>
+          <button class="btn-primary" onclick="openReminderModal()">+ New Note</button>
+        </div>
+        <div class="tab-bar" style="margin-bottom:1.25rem">
+          <button class="tab-btn active" id="rmd-tab-all"     onclick="switchRmdTab('all',this)">Semua Aktif</button>
+          <button class="tab-btn"        id="rmd-tab-mine"    onclick="switchRmdTab('mine',this)">Milik Saya</button>
+          <button class="tab-btn"        id="rmd-tab-mention" onclick="switchRmdTab('mention',this)">Mention Saya</button>
+          <button class="tab-btn"        id="rmd-tab-done"    onclick="switchRmdTab('done',this)">Selesai</button>
+        </div>
+        <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
+          <div class="stat-card"><div class="stat-num" id="rmd-s-total">—</div><div class="stat-lbl">Notes Aktif</div></div>
+          <div class="stat-card info"><div class="stat-num" id="rmd-s-mine">—</div><div class="stat-lbl">Milik Saya</div></div>
+          <div class="stat-card warn"><div class="stat-num" id="rmd-s-mention">—</div><div class="stat-lbl">Mention Saya</div></div>
+          <div class="stat-card success"><div class="stat-num" id="rmd-s-done">—</div><div class="stat-lbl">Selesai</div></div>
+        </div>
+        <div id="rmd-grid" style="columns:3 280px;gap:1rem">
+          <div style="color:var(--g400);font-size:14px;padding:2rem 0">Memuat...</div>
+        </div>
+      </div><!-- /.page#page-reminders -->
+
   </div><!-- /.content -->
   </div><!-- /.shell -->
 </div><!-- /#app -->
+
+<!-- REMINDER MODAL -->
+<div id="rmd-modal" style="display:none;position:fixed;inset:0;background:rgba(12,12,12,0.5);z-index:9999;align-items:center;justify-content:center">
+  <div style="background:var(--white);border-radius:12px;width:100%;max-width:490px;margin:0 16px;box-shadow:0 8px 40px rgba(0,0,0,0.2);max-height:90vh;overflow-y:auto">
+    <div style="padding:20px 24px 0">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <div style="font-family:var(--syne);font-weight:600;font-size:16px" id="rmd-modal-title">Note Baru</div>
+        <button onclick="closeReminderModal()" style="background:none;border:none;cursor:pointer;color:var(--g400);font-size:20px;line-height:1;padding:0">✕</button>
+      </div>
+      <div class="fg" style="margin-bottom:12px">
+        <label>Judul</label>
+        <input type="text" id="rmd-title" placeholder="Judul singkat (opsional)..." style="width:100%;box-sizing:border-box">
+      </div>
+      <div class="fg" style="margin-bottom:4px;position:relative">
+        <label>Isi Note <span style="color:var(--g400);font-weight:400;font-size:11px">(ketik @ untuk mention)</span></label>
+        <textarea id="rmd-body" rows="4" placeholder="Tulis reminder atau catatan..." style="width:100%;box-sizing:border-box;resize:vertical"></textarea>
+        <div id="rmd-mention-dropdown" style="display:none;position:absolute;left:0;right:0;background:var(--white);border:1px solid var(--g100);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.12);z-index:10001;overflow:hidden;max-height:180px;overflow-y:auto"></div>
+      </div>
+      <div id="rmd-mention-chips" style="display:flex;flex-wrap:wrap;gap:4px;min-height:4px;margin-bottom:12px"></div>
+      <div class="fg" style="margin-bottom:12px">
+        <label>Warna</label>
+        <div style="display:flex;gap:8px;margin-top:6px">
+          <button class="rmd-color-btn" data-color="yellow" onclick="selectRmdColor('yellow',this)" style="width:26px;height:26px;border-radius:50%;background:#fef9c3;cursor:pointer;flex-shrink:0" title="Kuning"></button>
+          <button class="rmd-color-btn" data-color="blue"   onclick="selectRmdColor('blue',this)"   style="width:26px;height:26px;border-radius:50%;background:#dbeafe;cursor:pointer;flex-shrink:0" title="Biru"></button>
+          <button class="rmd-color-btn" data-color="green"  onclick="selectRmdColor('green',this)"  style="width:26px;height:26px;border-radius:50%;background:#dcfce7;cursor:pointer;flex-shrink:0" title="Hijau"></button>
+          <button class="rmd-color-btn" data-color="pink"   onclick="selectRmdColor('pink',this)"   style="width:26px;height:26px;border-radius:50%;background:#fce7f3;cursor:pointer;flex-shrink:0" title="Pink"></button>
+          <button class="rmd-color-btn" data-color="purple" onclick="selectRmdColor('purple',this)" style="width:26px;height:26px;border-radius:50%;background:#ede9fe;cursor:pointer;flex-shrink:0" title="Ungu"></button>
+        </div>
+      </div>
+      <div class="fg" style="margin-bottom:8px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:400">
+          <input type="checkbox" id="rmd-pinned" style="width:14px;height:14px;cursor:pointer">
+          <span>📌 Pin ke atas</span>
+        </label>
+      </div>
+    </div>
+    <div style="padding:14px 24px 18px;display:flex;align-items:center;gap:8px;justify-content:flex-end;border-top:1px solid var(--g100);margin-top:12px">
+      <div class="feedback" id="rmd-feedback" style="flex:1;margin:0;font-size:12px"></div>
+      <button class="btn-ghost" onclick="closeReminderModal()">Batal</button>
+      <button class="btn-primary" id="rmd-save-btn" onclick="saveReminder()">Simpan Note</button>
+    </div>
+  </div>
+</div>
 
 <!-- SYNC ALL MODAL -->
 <div id="sync-all-modal" style="display:none;position:fixed;inset:0;background:rgba(12,12,12,0.45);z-index:9990;align-items:center;justify-content:center">
@@ -2194,6 +2268,6 @@
 <div id="proj-overlay" class="proj-panel-overlay" style="display:none" onclick="if(event.target===this)closeProjectDetail()"></div>
 <div id="proj-panel" class="proj-panel" style="display:none"></div>
 
-<script src="app.js?v=20260524n"></script>
+<script src="app.js?v=20260526a"></script>
 </body>
 </html>
