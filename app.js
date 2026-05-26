@@ -135,7 +135,7 @@ function enterApp(user, freshLogin) {
   // Restore page: prefer URL hash, fall back to sessionStorage
   let _pg = location.hash.slice(1).split('/')[0];
   if (!_pg) _pg = sessionStorage.getItem('snt_page') || '';
-  const _pages = ['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','popupbooth','activitylog','jubsales','mesign','po','stockmovement','productmap','collections','designermaster','dsgworkflow','warehousekpi','stockadjmgmt','returnreason','tradorders','invcheck','salesperf','reminders'];
+  const _pages = ['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','popupbooth','activitylog','jubsales','mesign','po','stockmovement','productmap','collections','designermaster','dsgworkflow','warehousekpi','stockadjmgmt','returnreason','tradorders','invcheck','salesperf','reminders','announcements'];
   if (_pages.includes(_pg))
     showPage(_pg, document.getElementById('nav-'+_pg));
 }
@@ -159,7 +159,7 @@ function showPage(name, el) {
   document.getElementById("page-"+name).classList.add("active");
   if (el) el.classList.add("active");
   const _c = document.querySelector('.content'); if (_c) _c.scrollTop = 0;
-  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Need Restock",stockmovement:"Stock Movement",productmap:"Product Mapping",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders"};
+  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Need Restock",stockmovement:"Stock Movement",productmap:"Product Mapping",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -233,6 +233,7 @@ function showPage(name, el) {
     _preloadSPFiltersAndRun();
   }
   if (name==="reminders") loadReminders();
+  if (name==="announcements") loadAnnouncements();
   window.scrollTo(0, 0);
   closeMobileSidebar();
 }
@@ -2207,7 +2208,7 @@ function renderNotifDropdown(items) {
 async function handleNotif(id, module, recordId) {
   await sb.from("notifications").update({is_read:true}).eq("id",id);
   document.getElementById("notif-dropdown").style.display = "none";
-  const pageMap = {"Agreement":"agreement","IP Master":"ipmaster","Royalty Recipients":"recipients","Brand Master":"brandmaster","Sales Report":"salesreport","Account Report":"salesreport","Leads Tracker":"leads","Leads Management":"leads","Distribution Partner":"distpartner","Pop Up Booth":"popupbooth","Jubelio Offline Sales":"jubsales","reminders":"reminders"};
+  const pageMap = {"Agreement":"agreement","IP Master":"ipmaster","Royalty Recipients":"recipients","Brand Master":"brandmaster","Sales Report":"salesreport","Account Report":"salesreport","Leads Tracker":"leads","Leads Management":"leads","Distribution Partner":"distpartner","Pop Up Booth":"popupbooth","Jubelio Offline Sales":"jubsales","reminders":"reminders","announcements":"announcements"};
   const page = pageMap[module];
   if (page) {
     showPage(page, document.getElementById("nav-"+page));
@@ -10566,6 +10567,261 @@ async function _renderInsGeo() {
     .bindTooltip(`<b>${titl(c.city)}</b>, ${titl(c.prov)}<br>${c.orders} orders · ${fmtRp(c.revenue)}`,
       {sticky:true, className:'ins-geo-tip'});
   });
+}
+
+// ── ANNOUNCEMENTS ──
+const ANN_CAT = {
+  'Info':        {emoji:'📢', bg:'#e8f0fc', border:'#a8c4f0', label:'Info'},
+  'Update':      {emoji:'🔄', bg:'#fef9c3', border:'#fde047', label:'Update'},
+  'Reminder':    {emoji:'⏰', bg:'#ffedd5', border:'#fdba74', label:'Reminder'},
+  'Celebration': {emoji:'🎉', bg:'#fce7f3', border:'#f9a8d4', label:'Celebration'},
+};
+
+let allAnnouncements = [], annReactions = {}; // annReactions: {ann_id: [{user_email,user_name,emoji}]}
+let _annTab = 'all', _annEditId = null;
+let _annMentions = [], _annACSetup = false;
+
+async function loadAnnouncements() {
+  if (!portalUsers.length) await loadPortalUsers();
+  if (!_annACSetup) { _annSetupMentionAC(); _annACSetup = true; }
+
+  const [{data: posts}, {data: reacts}] = await Promise.all([
+    sb.from('announcements').select('*').order('pinned',{ascending:false}).order('created_at',{ascending:false}),
+    sb.from('announcement_reactions').select('announcement_id,user_email,user_name,emoji'),
+  ]);
+  allAnnouncements = posts || [];
+  // Group reactions by announcement_id
+  annReactions = {};
+  for (const r of (reacts||[])) {
+    if (!annReactions[r.announcement_id]) annReactions[r.announcement_id] = [];
+    annReactions[r.announcement_id].push(r);
+  }
+  _renderAnnStats();
+  _renderAnnFeed();
+}
+
+function _renderAnnStats() {
+  document.getElementById('ann-s-total').textContent       = allAnnouncements.length;
+  document.getElementById('ann-s-info').textContent        = allAnnouncements.filter(a=>a.category==='Info'||a.category==='Update').length;
+  document.getElementById('ann-s-reminder').textContent    = allAnnouncements.filter(a=>a.category==='Reminder').length;
+  document.getElementById('ann-s-celebration').textContent = allAnnouncements.filter(a=>a.category==='Celebration').length;
+}
+
+function switchAnnTab(tab, btn) {
+  _annTab = tab;
+  document.querySelectorAll('#page-announcements .tab-btn').forEach(b=>b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  _renderAnnFeed();
+}
+
+function _renderAnnFeed() {
+  const feed = document.getElementById('ann-feed');
+  if (!feed) return;
+
+  let list = allAnnouncements;
+  if (_annTab==='pinned') list = allAnnouncements.filter(a=>a.pinned);
+  else if (_annTab==='mine') list = allAnnouncements.filter(a=>a.created_by===currentUserEmail);
+
+  if (!list.length) {
+    const msgs = {all:'Belum ada announcement. Klik "+ Post" untuk mulai!', pinned:'Belum ada post yang di-pin.', mine:'Kamu belum pernah post.'};
+    feed.innerHTML = `<div style="color:var(--g400);font-size:14px;padding:2rem 0">${msgs[_annTab]||''}</div>`;
+    return;
+  }
+
+  feed.innerHTML = list.map(a => {
+    const cat   = ANN_CAT[a.category] || ANN_CAT['Info'];
+    const reacts= annReactions[a.id] || [];
+    const mentionChips = a.mentions
+      ? a.mentions.split(',').map(m=>m.trim()).filter(Boolean)
+          .map(m=>`<span style="display:inline-block;background:rgba(0,0,0,0.06);border-radius:10px;padding:1px 8px;font-size:12px;font-family:var(--mono)">@${_escRmd(m)}</span>`).join(' ')
+      : '';
+    const bodyHtml = (a.body||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+    const canEdit  = a.created_by===currentUserEmail;
+    const pinBadge = a.pinned ? '<span style="font-size:11px;margin-right:4px">📌</span>' : '';
+
+    // Reaction summary: count per emoji
+    const emojiCounts = {};
+    for (const r of reacts) emojiCounts[r.emoji] = (emojiCounts[r.emoji]||0)+1;
+    const myReacts = new Set(reacts.filter(r=>r.user_email===currentUserEmail).map(r=>r.emoji));
+    const reactionBtns = ['👍','🔥','❤️','😂'].map(em => {
+      const cnt    = emojiCounts[em]||0;
+      const active = myReacts.has(em);
+      return `<button onclick="toggleAnnReaction('${a.id}','${em}')"
+        style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:12px;border:1px solid ${active?'#1a1a1a':'var(--g100)'};background:${active?'var(--off)':'transparent'};cursor:pointer;font-size:13px;transition:all .15s">
+        ${em}${cnt?`<span style="font-family:var(--mono);font-size:11px;color:var(--g600)">${cnt}</span>`:''}
+      </button>`;
+    }).join('');
+
+    return `<div style="background:var(--white);border:1.5px solid var(--g100);border-radius:12px;margin-bottom:1rem;overflow:hidden${a.pinned?';border-color:'+cat.border:''}">
+  <div style="background:${cat.bg};border-bottom:1px solid ${cat.border};padding:10px 16px;display:flex;align-items:center;justify-content:space-between">
+    <div style="display:flex;align-items:center;gap:8px">
+      ${pinBadge}<span style="font-size:13px">${cat.emoji}</span>
+      <span style="font-family:var(--mono);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--g600)">${a.category}</span>
+      ${a.title?`<span style="font-family:var(--syne);font-weight:600;font-size:14px;color:var(--black)">${_escRmd(a.title)}</span>`:''}
+    </div>
+    <div style="display:flex;gap:4px;align-items:center">
+      ${canEdit?`<button onclick="openAnnModal('${a.id}')" title="Edit" style="background:none;border:1px solid ${cat.border};border-radius:5px;cursor:pointer;padding:2px 7px;font-size:12px;color:var(--g600)">✎</button>
+      <button onclick="deleteAnn('${a.id}')" title="Hapus" style="background:none;border:1px solid ${cat.border};border-radius:5px;cursor:pointer;padding:2px 7px;font-size:12px;color:var(--g600)">✕</button>`:''}
+    </div>
+  </div>
+  <div style="padding:14px 16px">
+    ${a.body?`<div style="font-size:14px;color:var(--black);line-height:1.65;margin-bottom:${mentionChips?'10':'12'}px;white-space:pre-wrap">${bodyHtml}</div>`:''}
+    ${mentionChips?`<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px">${mentionChips}</div>`:''}
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+      <div style="display:flex;gap:6px;flex-wrap:wrap">${reactionBtns}</div>
+      <div style="font-family:var(--mono);font-size:11px;color:var(--g400)">${_escRmd(a.created_by_name||a.created_by)} · ${_rmdTimeAgo(a.created_at)}</div>
+    </div>
+  </div>
+</div>`;
+  }).join('');
+}
+
+function openAnnModal(id) {
+  _annEditId = id||null;
+  _annMentions = [];
+  const fb = document.getElementById('ann-feedback');
+  if (fb) fb.textContent = '';
+
+  if (id) {
+    const a = allAnnouncements.find(x=>x.id===id);
+    if (!a) return;
+    document.getElementById('ann-title').value    = a.title||'';
+    document.getElementById('ann-body').value     = a.body||'';
+    document.getElementById('ann-category').value = a.category||'Info';
+    document.getElementById('ann-pinned').checked = a.pinned||false;
+    if (a.mentions) {
+      a.mentions.split(',').map(m=>m.trim()).filter(Boolean).forEach(name=>{
+        const pu = portalUsers.find(u=>u.display_name===name);
+        _annMentions.push({email:pu?pu.email:'', name});
+      });
+    }
+    document.getElementById('ann-modal-title').textContent = 'Edit Post';
+    document.getElementById('ann-save-btn').textContent    = 'Simpan Perubahan';
+  } else {
+    document.getElementById('ann-title').value    = '';
+    document.getElementById('ann-body').value     = '';
+    document.getElementById('ann-category').value = 'Info';
+    document.getElementById('ann-pinned').checked = false;
+    document.getElementById('ann-modal-title').textContent = 'Post Baru';
+    document.getElementById('ann-save-btn').textContent    = 'Post Sekarang';
+  }
+
+  _renderAnnMentionChips();
+  document.getElementById('ann-modal').style.display = 'flex';
+  setTimeout(()=>document.getElementById('ann-title').focus(), 50);
+}
+
+function closeAnnModal() {
+  document.getElementById('ann-modal').style.display = 'none';
+  const dd = document.getElementById('ann-mention-dropdown');
+  if (dd) dd.style.display = 'none';
+}
+
+function _renderAnnMentionChips() {
+  const el = document.getElementById('ann-mention-chips');
+  if (!el) return;
+  el.innerHTML = _annMentions.map((m,i)=>
+    `<span style="display:inline-flex;align-items:center;gap:4px;background:var(--off);border:1px solid var(--g100);border-radius:10px;padding:2px 8px;font-size:11px;font-family:var(--mono)">@${_escRmd(m.name)}<button onclick="_annRemoveMention(${i})" style="background:none;border:none;cursor:pointer;color:var(--g400);font-size:10px;padding:0;line-height:1;margin-left:2px">✕</button></span>`
+  ).join('');
+}
+function _annRemoveMention(i) { _annMentions.splice(i,1); _renderAnnMentionChips(); }
+
+function _annSetupMentionAC() {
+  const ta = document.getElementById('ann-body');
+  const dd = document.getElementById('ann-mention-dropdown');
+  if (!ta||!dd) return;
+
+  ta.addEventListener('input', ()=>{
+    const val=ta.value, pos=ta.selectionStart, before=val.slice(0,pos);
+    const match=before.match(/@(\w*)$/);
+    if (!match) { dd.style.display='none'; return; }
+    const hits=portalUsers.filter(u=>u.display_name.toLowerCase().includes(match[1].toLowerCase())&&!_annMentions.some(m=>m.email===u.email)).slice(0,8);
+    if (!hits.length) { dd.style.display='none'; return; }
+    dd.innerHTML=hits.map(u=>
+      `<div onclick="_annSelectMention('${_escRmd(u.email)}','${_escRmd(u.display_name)}')"
+        style="padding:8px 12px;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--g100)"
+        onmouseover="this.style.background='var(--off)'" onmouseout="this.style.background=''">
+        <span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:var(--off);border:1px solid var(--g100);font-size:11px;font-family:var(--mono);font-weight:600;flex-shrink:0">${u.display_name.charAt(0).toUpperCase()}</span>
+        ${_escRmd(u.display_name)}
+      </div>`
+    ).join('');
+    dd.style.display='block';
+    dd.style.top=(ta.offsetTop+ta.offsetHeight+2)+'px';
+    dd.style.left='0'; dd.style.right='0';
+  });
+  ta.addEventListener('keydown',e=>{ if(e.key==='Escape') dd.style.display='none'; });
+  document.addEventListener('click',e=>{ if(!ta.contains(e.target)&&!dd.contains(e.target)) dd.style.display='none'; },true);
+}
+
+function _annSelectMention(email,name) {
+  const ta=document.getElementById('ann-body'), dd=document.getElementById('ann-mention-dropdown');
+  const val=ta.value, pos=ta.selectionStart;
+  const newBefore=val.slice(0,pos).replace(/@(\w*)$/,'@'+name+' ');
+  ta.value=newBefore+val.slice(pos);
+  ta.selectionStart=ta.selectionEnd=newBefore.length;
+  ta.focus();
+  if(dd) dd.style.display='none';
+  if(!_annMentions.some(m=>m.email===email)) { _annMentions.push({email,name}); _renderAnnMentionChips(); }
+}
+
+async function saveAnn() {
+  const title  = (document.getElementById('ann-title').value||'').trim();
+  const body   = (document.getElementById('ann-body').value||'').trim();
+  const cat    = document.getElementById('ann-category').value;
+  const pinned = document.getElementById('ann-pinned').checked;
+  const fb     = document.getElementById('ann-feedback');
+
+  if (!title && !body) { fb.textContent='⚠ Isi judul atau teks post.'; fb.style.color='#e74c3c'; return; }
+
+  const btn=document.getElementById('ann-save-btn');
+  btn.disabled=true; btn.textContent='Memposting...';
+
+  const payload={title,body,category:cat,pinned,mentions:_annMentions.map(m=>m.name).join(', '),created_by:currentUserEmail,created_by_name:currentUser,updated_at:new Date().toISOString()};
+
+  let error, newId;
+  if (_annEditId) {
+    ({error}=await sb.from('announcements').update(payload).eq('id',_annEditId));
+  } else {
+    newId=genId('ANN');
+    payload.id=newId; payload.created_at=new Date().toISOString();
+    ({error}=await sb.from('announcements').insert(payload));
+
+    if (!error) {
+      // Notify all portal users (except self) + any @mentioned users
+      const allEmails=portalUsers.map(u=>u.email).filter(e=>e!==currentUserEmail);
+      const notifs=allEmails.map(e=>({
+        recipient:e, module:'announcements', record_id:newId,
+        message:`${currentUser} post announcement baru: "${title||body.slice(0,50)}"`,
+        is_read:false,
+      }));
+      if(notifs.length) await sb.from('notifications').insert(notifs);
+    }
+  }
+
+  btn.disabled=false; btn.textContent=_annEditId?'Simpan Perubahan':'Post Sekarang';
+  if(error){fb.textContent='⚠ Gagal: '+error.message;fb.style.color='#e74c3c';return;}
+  closeAnnModal();
+  await loadAnnouncements();
+}
+
+async function toggleAnnReaction(id, emoji) {
+  const reacts = annReactions[id]||[];
+  const existing = reacts.find(r=>r.user_email===currentUserEmail&&r.emoji===emoji);
+  if (existing) {
+    await sb.from('announcement_reactions').delete().eq('announcement_id',id).eq('user_email',currentUserEmail).eq('emoji',emoji);
+  } else {
+    await sb.from('announcement_reactions').insert({announcement_id:id,user_email:currentUserEmail,user_name:currentUser,emoji});
+  }
+  // Optimistic refresh of reactions only
+  const {data}=await sb.from('announcement_reactions').select('announcement_id,user_email,user_name,emoji').eq('announcement_id',id);
+  annReactions[id]=data||[];
+  _renderAnnFeed();
+}
+
+async function deleteAnn(id) {
+  if(!confirm('Hapus announcement ini?')) return;
+  const {error}=await sb.from('announcements').delete().eq('id',id);
+  if(!error){allAnnouncements=allAnnouncements.filter(x=>x.id!==id);delete annReactions[id];_renderAnnStats();_renderAnnFeed();}
 }
 
 // ── REMINDERS ──
