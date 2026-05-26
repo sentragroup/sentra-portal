@@ -128,6 +128,7 @@ function enterApp(user, freshLogin) {
   loadStats();
   preloadAutocomplete();
   upsertPortalUser(user);
+  loadAnnTicker();
   if (freshLogin) logActivity("Auth","login",null,"Login berhasil");
   loadNotifications();
   if (notifPollTimer) clearInterval(notifPollTimer);
@@ -10570,6 +10571,31 @@ async function _renderInsGeo() {
 }
 
 // ── ANNOUNCEMENTS ──
+async function loadAnnTicker() {
+  const ticker = document.getElementById('ann-ticker');
+  const track  = document.getElementById('ann-ticker-track');
+  if (!ticker || !track) return;
+  const {data} = await sb.from('announcements').select('id,title,body,category').eq('pinned',true).order('created_at',{ascending:false}).limit(10);
+  if (!data || !data.length) {
+    ticker.style.display = 'none';
+    document.documentElement.style.setProperty('--ticker-h','0px');
+    return;
+  }
+  const cats = {Info:{e:'📢'},Update:{e:'🔄'},Reminder:{e:'⏰'},Celebration:{e:'🎉'}};
+  const items = data.map(a=>{
+    const e = (cats[a.category]||cats.Info).e;
+    const txt = (a.title||(a.body||'').replace(/\n/g,' ')).slice(0,90);
+    return `<span style="color:rgba(255,255,255,0.85);font-size:13px;padding:0 32px 0 0">${e} ${txt}</span><span style="color:rgba(255,255,255,0.15);padding:0 32px 0 0;font-size:18px;line-height:1">·</span>`;
+  }).join('');
+  // Duplicate for seamless loop
+  track.innerHTML = items + items;
+  const totalChars = data.reduce((s,a)=>s+(a.title||(a.body||'').slice(0,90)).length,0);
+  const dur = Math.max(14, Math.min(60, totalChars * 0.28));
+  track.style.animation = `ticker-scroll ${dur}s linear infinite`;
+  ticker.style.display = 'block';
+  document.documentElement.style.setProperty('--ticker-h','34px');
+}
+
 const ANN_CAT = {
   'Info':        {emoji:'📢', bg:'#e8f0fc', border:'#a8c4f0', label:'Info'},
   'Update':      {emoji:'🔄', bg:'#fef9c3', border:'#fde047', label:'Update'},
@@ -10802,6 +10828,7 @@ async function saveAnn() {
   if(error){fb.textContent='⚠ Gagal: '+error.message;fb.style.color='#e74c3c';return;}
   closeAnnModal();
   await loadAnnouncements();
+  loadAnnTicker();
 }
 
 async function toggleAnnReaction(id, emoji) {
@@ -10821,7 +10848,7 @@ async function toggleAnnReaction(id, emoji) {
 async function deleteAnn(id) {
   if(!confirm('Hapus announcement ini?')) return;
   const {error}=await sb.from('announcements').delete().eq('id',id);
-  if(!error){allAnnouncements=allAnnouncements.filter(x=>x.id!==id);delete annReactions[id];_renderAnnStats();_renderAnnFeed();}
+  if(!error){allAnnouncements=allAnnouncements.filter(x=>x.id!==id);delete annReactions[id];_renderAnnStats();_renderAnnFeed();loadAnnTicker();}
 }
 
 // ── REMINDERS ──

@@ -80,6 +80,22 @@
       <button class="btn-out" onclick="doLogout()">Keluar</button>
     </div>
   </div>
+  <!-- ANNOUNCEMENT TICKER -->
+  <div id="ann-ticker" onclick="showPage('announcements',document.getElementById('nav-announcements'));switchAnnTab('pinned',document.getElementById('ann-tab-pinned'))" title="Klik untuk lihat semua pinned announcements">
+    <div style="display:flex;align-items:center;height:100%">
+      <div style="padding:0 14px;height:100%;display:flex;align-items:center;gap:6px;background:rgba(255,255,255,0.06);border-right:1px solid rgba(255,255,255,0.1);flex-shrink:0">
+        <span style="font-size:13px">📣</span>
+        <span style="font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,0.45)">LIVE</span>
+      </div>
+      <div style="flex:1;overflow:hidden;position:relative;height:100%">
+        <div id="ann-ticker-track" style="display:inline-flex;align-items:center;height:100%;white-space:nowrap;will-change:transform"></div>
+      </div>
+      <div style="padding:0 14px;height:100%;display:flex;align-items:center;border-left:1px solid rgba(255,255,255,0.1);flex-shrink:0">
+        <span style="font-family:var(--mono);font-size:10px;color:rgba(255,255,255,0.35)">Lihat →</span>
+      </div>
+    </div>
+  </div>
+
   <div id="sidebar-overlay" class="sidebar-overlay" onclick="toggleMobileSidebar()"></div>
   <div class="shell">
     <nav class="sidebar" id="sidebar">
@@ -2339,6 +2355,6 @@
 <div id="proj-overlay" class="proj-panel-overlay" style="display:none" onclick="if(event.target===this)closeProjectDetail()"></div>
 <div id="proj-panel" class="proj-panel" style="display:none"></div>
 
-<script src="app.js?v=20260526b"></script>
+<script src="app.js?v=20260526c"></script>
 </body>
 </html>
