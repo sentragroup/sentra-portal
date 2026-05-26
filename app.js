@@ -127,6 +127,7 @@ function enterApp(user, freshLogin) {
   document.getElementById("greetDate").textContent = new Date().toLocaleDateString("id-ID",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
   loadStats();
   preloadAutocomplete();
+  upsertPortalUser(user);
   if (freshLogin) logActivity("Auth","login",null,"Login berhasil");
   loadNotifications();
   if (notifPollTimer) clearInterval(notifPollTimer);
@@ -134,7 +135,7 @@ function enterApp(user, freshLogin) {
   // Restore page: prefer URL hash, fall back to sessionStorage
   let _pg = location.hash.slice(1).split('/')[0];
   if (!_pg) _pg = sessionStorage.getItem('snt_page') || '';
-  const _pages = ['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','popupbooth','activitylog','jubsales','mesign','po','stockmovement','productmap','collections','designermaster','dsgworkflow','warehousekpi','stockadjmgmt','returnreason','tradorders','invcheck','salesperf'];
+  const _pages = ['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','popupbooth','activitylog','jubsales','mesign','po','stockmovement','productmap','collections','designermaster','dsgworkflow','warehousekpi','stockadjmgmt','returnreason','tradorders','invcheck','salesperf','reminders'];
   if (_pages.includes(_pg))
     showPage(_pg, document.getElementById('nav-'+_pg));
 }
@@ -158,7 +159,7 @@ function showPage(name, el) {
   document.getElementById("page-"+name).classList.add("active");
   if (el) el.classList.add("active");
   const _c = document.querySelector('.content'); if (_c) _c.scrollTop = 0;
-  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Need Restock",stockmovement:"Stock Movement",productmap:"Product Mapping",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights"};
+  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Need Restock",stockmovement:"Stock Movement",productmap:"Product Mapping",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -231,6 +232,7 @@ function showPage(name, el) {
     // Pre-load filter options then auto-run
     _preloadSPFiltersAndRun();
   }
+  if (name==="reminders") loadReminders();
   window.scrollTo(0, 0);
   closeMobileSidebar();
 }
@@ -2205,7 +2207,7 @@ function renderNotifDropdown(items) {
 async function handleNotif(id, module, recordId) {
   await sb.from("notifications").update({is_read:true}).eq("id",id);
   document.getElementById("notif-dropdown").style.display = "none";
-  const pageMap = {"Agreement":"agreement","IP Master":"ipmaster","Royalty Recipients":"recipients","Brand Master":"brandmaster","Sales Report":"salesreport","Account Report":"salesreport","Leads Tracker":"leads","Leads Management":"leads","Distribution Partner":"distpartner","Pop Up Booth":"popupbooth","Jubelio Offline Sales":"jubsales"};
+  const pageMap = {"Agreement":"agreement","IP Master":"ipmaster","Royalty Recipients":"recipients","Brand Master":"brandmaster","Sales Report":"salesreport","Account Report":"salesreport","Leads Tracker":"leads","Leads Management":"leads","Distribution Partner":"distpartner","Pop Up Booth":"popupbooth","Jubelio Offline Sales":"jubsales","reminders":"reminders"};
   const page = pageMap[module];
   if (page) {
     showPage(page, document.getElementById("nav-"+page));
@@ -10564,6 +10566,329 @@ async function _renderInsGeo() {
     .bindTooltip(`<b>${titl(c.city)}</b>, ${titl(c.prov)}<br>${c.orders} orders · ${fmtRp(c.revenue)}`,
       {sticky:true, className:'ins-geo-tip'});
   });
+}
+
+// ── REMINDERS ──
+const RMD_COLORS = {
+  yellow: {bg:'#fef9c3', border:'#fde047'},
+  blue:   {bg:'#dbeafe', border:'#93c5fd'},
+  green:  {bg:'#dcfce7', border:'#86efac'},
+  pink:   {bg:'#fce7f3', border:'#f9a8d4'},
+  purple: {bg:'#ede9fe', border:'#c4b5fd'},
+};
+
+let allReminders = [], portalUsers = [];
+let _rmdTab = 'all', _rmdEditId = null, _rmdColor = 'yellow';
+let _rmdMentions = []; // [{email, name}]
+let _rmdACSetup = false;
+
+async function upsertPortalUser(user) {
+  const name = user.user_metadata?.name || user.email.split('@')[0];
+  await sb.from('portal_users').upsert({email: user.email, display_name: name, last_seen: new Date().toISOString()}, {onConflict: 'email'});
+}
+
+async function loadPortalUsers() {
+  const {data} = await sb.from('portal_users').select('email,display_name').order('display_name');
+  portalUsers = data || [];
+}
+
+async function loadReminders() {
+  await loadPortalUsers();
+  if (!_rmdACSetup) { _rmdSetupMentionAC(); _rmdACSetup = true; }
+  const {data, error} = await sb.from('reminders').select('*')
+    .order('pinned',{ascending:false}).order('created_at',{ascending:false});
+  if (error) { console.error(error); return; }
+  allReminders = data || [];
+  _renderRmdStats();
+  _renderRmdGrid();
+}
+
+function _renderRmdStats() {
+  const active   = allReminders.filter(r => !r.is_done);
+  const mine     = active.filter(r => r.created_by === currentUserEmail);
+  const mentions = active.filter(r => _rmdMentionedMe(r));
+  const done     = allReminders.filter(r => r.is_done);
+  document.getElementById('rmd-s-total').textContent   = active.length;
+  document.getElementById('rmd-s-mine').textContent    = mine.length;
+  document.getElementById('rmd-s-mention').textContent = mentions.length;
+  document.getElementById('rmd-s-done').textContent    = done.length;
+}
+
+function _rmdMentionedMe(r) {
+  if (!r.mentions) return false;
+  const names  = r.mentions.split(',').map(s=>s.trim().toLowerCase()).filter(Boolean);
+  const myName = (currentUser||'').toLowerCase();
+  const myEmail= (currentUserEmail||'').toLowerCase();
+  return names.some(n => n===myName || n===myEmail || myEmail.startsWith(n+'@'));
+}
+
+function switchRmdTab(tab, btn) {
+  _rmdTab = tab;
+  document.querySelectorAll('#page-reminders .tab-btn').forEach(b=>b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  _renderRmdGrid();
+}
+
+function _renderRmdGrid() {
+  const grid = document.getElementById('rmd-grid');
+  if (!grid) return;
+
+  let list = allReminders;
+  if (_rmdTab==='mine')    list = allReminders.filter(r=>!r.is_done && r.created_by===currentUserEmail);
+  else if (_rmdTab==='mention') list = allReminders.filter(r=>!r.is_done && _rmdMentionedMe(r));
+  else if (_rmdTab==='done')    list = allReminders.filter(r=>r.is_done);
+  else list = allReminders.filter(r=>!r.is_done);
+
+  if (!list.length) {
+    const msgs = {all:'Belum ada note aktif. Klik "+ New Note" untuk mulai!',mine:'Kamu belum punya note.',mention:'Belum ada yang mention kamu.',done:'Belum ada note yang ditandai selesai.'};
+    grid.innerHTML = `<div style="color:var(--g400);font-size:14px;padding:2rem 0">${msgs[_rmdTab]||''}</div>`;
+    return;
+  }
+
+  grid.innerHTML = list.map(r => {
+    const col = RMD_COLORS[r.color]||RMD_COLORS.yellow;
+    const mentionChips = r.mentions
+      ? r.mentions.split(',').map(m=>m.trim()).filter(Boolean)
+          .map(m=>`<span style="display:inline-block;background:rgba(0,0,0,0.07);border-radius:10px;padding:1px 7px;font-size:11px;font-family:var(--mono)">@${_escRmd(m)}</span>`).join(' ')
+      : '';
+    const bodyHtml = (r.body||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+    const pinIcon  = r.pinned ? '<span style="font-size:11px" title="Pinned">📌 </span>' : '';
+    const canEdit  = r.created_by===currentUserEmail;
+    const doneStyle= r.is_done ? 'text-decoration:line-through;opacity:0.6' : '';
+
+    return `<div style="break-inside:avoid;margin-bottom:1rem;background:${col.bg};border:1.5px solid ${col.border};border-radius:10px;padding:14px 14px 10px;box-shadow:0 1px 6px rgba(0,0,0,0.05);${r.is_done?'opacity:0.6':''}">
+  <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:${r.body||mentionChips?'8':'4'}px">
+    <div style="font-family:var(--syne);font-weight:600;font-size:13px;color:var(--black);flex:1;line-height:1.4;${doneStyle}">${pinIcon}${r.title?_escRmd(r.title):'<span style="color:var(--g400);font-weight:400;font-style:italic">tanpa judul</span>'}</div>
+    <div style="display:flex;gap:3px;flex-shrink:0">
+      <button onclick="toggleRmdDone('${r.id}')" title="${r.is_done?'Aktifkan kembali':'Tandai selesai'}" style="background:none;border:1px solid ${col.border};border-radius:5px;cursor:pointer;padding:2px 6px;font-size:12px;color:var(--g600);line-height:1">${r.is_done?'↩':'✓'}</button>
+      ${canEdit?`<button onclick="openReminderModal('${r.id}')" title="Edit" style="background:none;border:1px solid ${col.border};border-radius:5px;cursor:pointer;padding:2px 6px;font-size:12px;color:var(--g600);line-height:1">✎</button>
+      <button onclick="deleteReminder('${r.id}')" title="Hapus" style="background:none;border:1px solid ${col.border};border-radius:5px;cursor:pointer;padding:2px 6px;font-size:12px;color:var(--g600);line-height:1">✕</button>`:''}
+    </div>
+  </div>
+  ${r.body?`<div style="font-size:13px;color:var(--black);line-height:1.6;margin-bottom:8px;white-space:pre-wrap">${bodyHtml}</div>`:''}
+  ${mentionChips?`<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px">${mentionChips}</div>`:''}
+  <div style="font-family:var(--mono);font-size:10px;color:var(--g400);display:flex;align-items:center;gap:5px;border-top:1px solid ${col.border};padding-top:7px;margin-top:2px">
+    <span>${_escRmd(r.created_by_name||r.created_by)}</span><span>·</span><span>${_rmdTimeAgo(r.created_at)}</span>
+  </div>
+</div>`;
+  }).join('');
+}
+
+function _escRmd(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function _rmdTimeAgo(iso) {
+  if (!iso) return '';
+  const diff = Date.now()-new Date(iso).getTime();
+  const m=Math.floor(diff/60000);
+  if (m<1)   return 'baru saja';
+  if (m<60)  return m+' mnt lalu';
+  const h=Math.floor(m/60);
+  if (h<24)  return h+' jam lalu';
+  const d=Math.floor(h/24);
+  if (d<7)   return d+' hari lalu';
+  return new Date(iso).toLocaleDateString('id-ID',{day:'numeric',month:'short'});
+}
+
+function openReminderModal(id) {
+  _rmdEditId = id||null;
+  _rmdMentions = [];
+  _rmdColor = 'yellow';
+  const fb = document.getElementById('rmd-feedback');
+  if (fb) fb.textContent = '';
+
+  if (id) {
+    const r = allReminders.find(x=>x.id===id);
+    if (!r) return;
+    document.getElementById('rmd-title').value = r.title||'';
+    document.getElementById('rmd-body').value  = r.body||'';
+    document.getElementById('rmd-pinned').checked = r.pinned||false;
+    _rmdColor = r.color||'yellow';
+    if (r.mentions) {
+      r.mentions.split(',').map(m=>m.trim()).filter(Boolean).forEach(name => {
+        const pu = portalUsers.find(u=>u.display_name===name);
+        _rmdMentions.push({email:pu?pu.email:'', name});
+      });
+    }
+    document.getElementById('rmd-modal-title').textContent = 'Edit Note';
+    document.getElementById('rmd-save-btn').textContent    = 'Simpan Perubahan';
+  } else {
+    document.getElementById('rmd-title').value  = '';
+    document.getElementById('rmd-body').value   = '';
+    document.getElementById('rmd-pinned').checked = false;
+    document.getElementById('rmd-modal-title').textContent = 'Note Baru';
+    document.getElementById('rmd-save-btn').textContent    = 'Simpan Note';
+  }
+
+  // Sync color picker UI
+  _rmdSyncColorPicker();
+  // Render mention chips
+  _renderRmdMentionChips();
+
+  document.getElementById('rmd-modal').style.display = 'flex';
+  setTimeout(()=>document.getElementById('rmd-title').focus(), 50);
+}
+
+function closeReminderModal() {
+  document.getElementById('rmd-modal').style.display = 'none';
+  const dd = document.getElementById('rmd-mention-dropdown');
+  if (dd) dd.style.display = 'none';
+}
+
+function selectRmdColor(color, btn) {
+  _rmdColor = color;
+  _rmdSyncColorPicker();
+}
+
+function _rmdSyncColorPicker() {
+  document.querySelectorAll('.rmd-color-btn').forEach(b => {
+    b.style.border = b.dataset.color===_rmdColor ? '3px solid #1a1a1a' : '2px solid var(--g200)';
+    b.style.outline = b.dataset.color===_rmdColor ? '2px solid rgba(0,0,0,0.15)' : 'none';
+    b.style.outlineOffset = '1px';
+  });
+}
+
+function _renderRmdMentionChips() {
+  const el = document.getElementById('rmd-mention-chips');
+  if (!el) return;
+  el.innerHTML = _rmdMentions.map((m,i) =>
+    `<span style="display:inline-flex;align-items:center;gap:4px;background:var(--off);border:1px solid var(--g100);border-radius:10px;padding:2px 8px;font-size:11px;font-family:var(--mono)">@${_escRmd(m.name)}<button onclick="_rmdRemoveMention(${i})" style="background:none;border:none;cursor:pointer;color:var(--g400);font-size:10px;padding:0;line-height:1;margin-left:2px">✕</button></span>`
+  ).join('');
+}
+
+function _rmdRemoveMention(i) {
+  _rmdMentions.splice(i, 1);
+  _renderRmdMentionChips();
+}
+
+function _rmdSetupMentionAC() {
+  const ta = document.getElementById('rmd-body');
+  const dd = document.getElementById('rmd-mention-dropdown');
+  if (!ta || !dd) return;
+
+  ta.addEventListener('input', () => {
+    const val    = ta.value;
+    const pos    = ta.selectionStart;
+    const before = val.slice(0, pos);
+    const match  = before.match(/@(\w*)$/);
+    if (!match) { dd.style.display = 'none'; return; }
+
+    const query = match[1].toLowerCase();
+    const hits  = portalUsers.filter(u =>
+      u.display_name.toLowerCase().includes(query) &&
+      !_rmdMentions.some(m=>m.email===u.email)
+    ).slice(0, 8);
+
+    if (!hits.length) { dd.style.display = 'none'; return; }
+
+    dd.innerHTML = hits.map(u =>
+      `<div onclick="_rmdSelectMention('${_escRmd(u.email)}','${_escRmd(u.display_name)}')"
+        style="padding:8px 12px;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--g100)"
+        onmouseover="this.style.background='var(--off)'"
+        onmouseout="this.style.background=''">
+        <span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:var(--off);border:1px solid var(--g100);font-size:11px;font-family:var(--mono);font-weight:600;flex-shrink:0">${u.display_name.charAt(0).toUpperCase()}</span>
+        <span>${_escRmd(u.display_name)}</span>
+      </div>`
+    ).join('');
+
+    dd.style.display = 'block';
+    // Position: just below textarea
+    dd.style.top  = (ta.offsetTop + ta.offsetHeight + 2) + 'px';
+    dd.style.left = '0';
+    dd.style.right = '0';
+  });
+
+  ta.addEventListener('keydown', e => {
+    if (e.key==='Escape') dd.style.display = 'none';
+  });
+
+  document.addEventListener('click', e => {
+    if (!ta.contains(e.target) && !dd.contains(e.target)) dd.style.display = 'none';
+  }, true);
+}
+
+function _rmdSelectMention(email, name) {
+  const ta     = document.getElementById('rmd-body');
+  const dd     = document.getElementById('rmd-mention-dropdown');
+  const val    = ta.value;
+  const pos    = ta.selectionStart;
+  const before = val.slice(0, pos);
+  const after  = val.slice(pos);
+  const newBefore = before.replace(/@(\w*)$/, '@'+name+' ');
+  ta.value = newBefore + after;
+  ta.selectionStart = ta.selectionEnd = newBefore.length;
+  ta.focus();
+  if (dd) dd.style.display = 'none';
+  if (!_rmdMentions.some(m=>m.email===email)) {
+    _rmdMentions.push({email, name});
+    _renderRmdMentionChips();
+  }
+}
+
+async function saveReminder() {
+  const title  = (document.getElementById('rmd-title').value||'').trim();
+  const body   = (document.getElementById('rmd-body').value||'').trim();
+  const pinned = document.getElementById('rmd-pinned').checked;
+  const fb     = document.getElementById('rmd-feedback');
+
+  if (!title && !body) {
+    fb.textContent = '⚠ Isi judul atau teks note.'; fb.style.color='#e74c3c'; return;
+  }
+
+  const btn = document.getElementById('rmd-save-btn');
+  btn.disabled = true; btn.textContent = 'Menyimpan...';
+
+  const mentionsStr = _rmdMentions.map(m=>m.name).join(', ');
+  const payload = {
+    title, body, color:_rmdColor,
+    mentions: mentionsStr,
+    created_by: currentUserEmail,
+    created_by_name: currentUser,
+    updated_at: new Date().toISOString(),
+    pinned,
+  };
+
+  let error, newId;
+  if (_rmdEditId) {
+    ({error} = await sb.from('reminders').update(payload).eq('id', _rmdEditId));
+  } else {
+    newId = genId('RMD');
+    payload.id = newId;
+    payload.created_at = new Date().toISOString();
+    payload.is_done = false;
+    ({error} = await sb.from('reminders').insert(payload));
+    // Notify mentioned users
+    if (!error && _rmdMentions.length) {
+      const notifs = _rmdMentions
+        .filter(m=>m.email && m.email!==currentUserEmail)
+        .map(m=>({
+          recipient: m.email,
+          module: 'reminders',
+          record_id: newId,
+          message: `${currentUser} mention kamu di note: "${title||body.slice(0,45)}"`,
+          is_read: false,
+        }));
+      if (notifs.length) await sb.from('notifications').insert(notifs);
+    }
+  }
+
+  btn.disabled = false; btn.textContent = _rmdEditId ? 'Simpan Perubahan' : 'Simpan Note';
+  if (error) { fb.textContent='⚠ Gagal: '+error.message; fb.style.color='#e74c3c'; return; }
+
+  closeReminderModal();
+  await loadReminders();
+}
+
+async function toggleRmdDone(id) {
+  const r = allReminders.find(x=>x.id===id);
+  if (!r) return;
+  await sb.from('reminders').update({is_done:!r.is_done, updated_at:new Date().toISOString()}).eq('id',id);
+  await loadReminders();
+}
+
+async function deleteReminder(id) {
+  if (!confirm('Hapus note ini? Tindakan ini tidak dapat dibatalkan.')) return;
+  const {error} = await sb.from('reminders').delete().eq('id',id);
+  if (!error) { allReminders = allReminders.filter(x=>x.id!==id); _renderRmdStats(); _renderRmdGrid(); }
 }
 
 // ── DUPLICATE CHECK ──
