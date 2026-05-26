@@ -217,7 +217,7 @@ function showPage(name, el) {
   if (name==="salesperf") {
     _initSPMultiSelects();
     // Default status to "Completed" only each time page is opened
-    { const _sms=_spMS['sp-ms-status']; if(_sms && _sms.allValues.length) { _sms.selected=new Set(['Completed']); _sms._render(); _sms._updateToggle(); } }
+    { const _sms=_spMS['sp-ms-status']; if(_sms && _sms.allValues.length) { _sms.selected=new Set(['Completed','In Progress']); _sms._render(); _sms._updateToggle(); } }
     // Set default date range: current month
     const _now=new Date(), _y=_now.getFullYear(), _m=String(_now.getMonth()+1).padStart(2,'0'), _d=String(_now.getDate()).padStart(2,'0');
     const _fromEl=document.getElementById('sp-fil-from'), _toEl=document.getElementById('sp-fil-to');
