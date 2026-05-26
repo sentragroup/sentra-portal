@@ -10662,7 +10662,7 @@ function _renderAnnFeed() {
       ? a.mentions.split(',').map(m=>m.trim()).filter(Boolean)
           .map(m=>`<span style="display:inline-block;background:rgba(0,0,0,0.06);border-radius:10px;padding:1px 8px;font-size:12px;font-family:var(--mono)">@${_escRmd(m)}</span>`).join(' ')
       : '';
-    const bodyHtml = (a.body||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+    const bodyHtml = (a.body||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>').replace(/(https?:\/\/[^\s<]+)/g,'<a href="$1" target="_blank" rel="noopener" style="color:#1a4a8a;text-decoration:underline;word-break:break-all" onclick="event.stopPropagation()">$1</a>');
     const canEdit  = a.created_by===currentUserEmail;
     const pinBadge = a.pinned ? '<span style="font-size:11px;margin-right:4px">📌</span>' : '';
 
@@ -10935,7 +10935,7 @@ function _renderRmdGrid() {
       ? r.mentions.split(',').map(m=>m.trim()).filter(Boolean)
           .map(m=>`<span style="display:inline-block;background:rgba(0,0,0,0.07);border-radius:10px;padding:1px 7px;font-size:11px;font-family:var(--mono)">@${_escRmd(m)}</span>`).join(' ')
       : '';
-    const bodyHtml = (r.body||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+    const bodyHtml = (r.body||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>').replace(/(https?:\/\/[^\s<]+)/g,'<a href="$1" target="_blank" rel="noopener" style="color:#1a4a8a;text-decoration:underline;word-break:break-all" onclick="event.stopPropagation()">$1</a>');
     const pinIcon  = r.pinned ? '<span style="font-size:11px" title="Pinned">📌 </span>' : '';
     const canEdit  = r.created_by===currentUserEmail;
     const doneStyle= r.is_done ? 'text-decoration:line-through;opacity:0.6' : '';
