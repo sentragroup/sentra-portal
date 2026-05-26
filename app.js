@@ -10583,16 +10583,17 @@ async function loadAnnTicker() {
   }
   const cats = {Info:{e:'📢'},Update:{e:'🔄'},Reminder:{e:'⏰'},Celebration:{e:'🎉'}};
   const items = data.map(a=>{
-    const e = (cats[a.category]||cats.Info).e;
-    const txt = (a.title||(a.body||'').replace(/\n/g,' ')).slice(0,90);
-    return `<span style="color:rgba(255,255,255,0.85);font-size:13px;padding:0 32px 0 0">${e} ${txt}</span><span style="color:rgba(255,255,255,0.15);padding:0 32px 0 0;font-size:18px;line-height:1">·</span>`;
+    const e   = (cats[a.category]||cats.Info).e;
+    const ttl = (a.title||'').trim();
+    const bod = (a.body||'').replace(/\n/g,' ').trim();
+    const txt = ttl && bod ? `<strong style="font-weight:600">${ttl}</strong><span style="opacity:.55"> — </span>${bod}` : `<strong style="font-weight:600">${ttl||bod}</strong>`;
+    return `<span style="color:rgba(255,255,255,0.88);font-size:13px;padding:0 40px 0 0;display:inline-flex;align-items:center;gap:7px">${e} <span>${txt}</span></span><span style="color:rgba(255,255,255,0.15);padding:0 40px 0 0;font-size:18px;line-height:1">·</span>`;
   }).join('');
-  // Duplicate for seamless loop
   track.innerHTML = items + items;
-  const totalChars = data.reduce((s,a)=>s+(a.title||(a.body||'').slice(0,90)).length,0);
-  const dur = Math.max(14, Math.min(60, totalChars * 0.28));
+  const totalChars = data.reduce((s,a)=>s+(a.title||'').length+(a.body||'').slice(0,80).length,0);
+  const dur = Math.max(16, Math.min(70, totalChars * 0.22));
   track.style.animation = `ticker-scroll ${dur}s linear infinite`;
-  ticker.style.display = 'block';
+  ticker.style.display = 'flex';
   document.documentElement.style.setProperty('--ticker-h','34px');
 }
 
