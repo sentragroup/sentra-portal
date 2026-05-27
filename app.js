@@ -160,7 +160,7 @@ function showPage(name, el) {
   document.getElementById("page-"+name).classList.add("active");
   if (el) el.classList.add("active");
   const _c = document.querySelector('.content'); if (_c) _c.scrollTop = 0;
-  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Need Restock",stockmovement:"Stock Movement",productmap:"Product Mapping",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Sales Report"};
+  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Need Restock",stockmovement:"Stock Movement",productmap:"Product Mapping",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Sales Report",marteskucat:"SKU Categories"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -237,6 +237,7 @@ function showPage(name, el) {
   if (name==="announcements") loadAnnouncements();
   if (name==="marte") loadMarteSettlements();
   if (name==="martereport") { const inp=document.getElementById('mr-period'); if(!inp.value) inp.value=new Date().toISOString().slice(0,7); }
+  if (name==="marteskucat") loadMarteSKUCat();
   window.scrollTo(0, 0);
   closeMobileSidebar();
 }
@@ -12365,6 +12366,282 @@ function _rstDoDownloadCSV() {
   if (statusEl) statusEl.innerHTML =
     `✅ <strong>${filename}</strong> berhasil diunduh · ${items.length} SKU · ${totalQty} unit`+
     ` · <span style="color:var(--g400);font-size:12px">Import via Jubelio → Pembelian → Import</span>`;
+}
+
+// ── MARTE SKU CATEGORIES ──
+const MSC_CATS = ['Apparel','Accessories','Collectible','Wellness','Preloved','Others'];
+let _mscAllRows  = [];    // raw rows from RPC
+let _mscFiltered = [];    // rows after filter
+let _mscPending  = {};    // {item_code: new_category} — unsaved changes
+
+async function loadMarteSKUCat() {
+  const wrap = document.getElementById('msc-brand-groups');
+  const empty = document.getElementById('msc-empty');
+  if (!wrap) return;
+  wrap.innerHTML = '<div style="padding:40px;text-align:center;color:var(--g400)">Memuat data…</div>';
+  empty.style.display = 'none';
+  _mscPending = {};
+  _mscUpdatePendingBadge();
+
+  const { data, error } = await sb.rpc('get_marte_sku_mapping');
+  if (error) {
+    wrap.innerHTML = `<div style="padding:40px;text-align:center;color:var(--red)">Error: ${error.message}</div>`;
+    return;
+  }
+  _mscAllRows = data || [];
+
+  // Populate brand dropdown
+  const brands = [...new Set(_mscAllRows.map(r => r.brand))].sort((a,b)=>a.localeCompare(b,'id'));
+  const sel = document.getElementById('msc-filter-brand');
+  const curVal = sel.value;
+  sel.innerHTML = '<option value="">Semua Brand</option>';
+  brands.forEach(b => {
+    const o = document.createElement('option');
+    o.value = b; o.textContent = b;
+    if (b === curVal) o.selected = true;
+    sel.appendChild(o);
+  });
+
+  _mscRenderStats();
+  _mscApplyFilter();
+}
+
+function _mscRenderStats() {
+  const el = document.getElementById('msc-stats');
+  if (!el) return;
+  const total = _mscAllRows.length;
+  const uncat = _mscAllRows.filter(r => !r.fee_category).length;
+  const catCount = total - uncat;
+  const byBrand = {};
+  _mscAllRows.forEach(r => {
+    if (!byBrand[r.brand]) byBrand[r.brand] = {total:0,uncat:0};
+    byBrand[r.brand].total++;
+    if (!r.fee_category) byBrand[r.brand].uncat++;
+  });
+  const uncatBrands = Object.entries(byBrand).filter(([,v])=>v.uncat>0).length;
+
+  el.innerHTML = `
+    <div class="stat-card"><div class="sc-val">${total}</div><div class="sc-lbl">Total SKU</div></div>
+    <div class="stat-card"><div class="sc-val" style="color:var(--green)">${catCount}</div><div class="sc-lbl">Terkategorikan</div></div>
+    <div class="stat-card"><div class="sc-val" style="color:var(--amber,#f59e0b)">${uncat}</div><div class="sc-lbl">Belum Kategori</div></div>
+    <div class="stat-card"><div class="sc-val" style="color:var(--amber,#f59e0b)">${uncatBrands}</div><div class="sc-lbl">Brand dgn gap</div></div>
+  `;
+}
+
+function _mscApplyFilter() {
+  const brand = document.getElementById('msc-filter-brand').value;
+  const uncatOnly = document.getElementById('msc-filter-uncat').checked;
+  _mscFiltered = _mscAllRows.filter(r => {
+    if (brand && r.brand !== brand) return false;
+    if (uncatOnly && r.fee_category) return false;
+    return true;
+  });
+  _mscRenderGroups();
+}
+
+function _mscRenderGroups() {
+  const wrap = document.getElementById('msc-brand-groups');
+  const empty = document.getElementById('msc-empty');
+  if (!wrap) return;
+
+  if (_mscFiltered.length === 0) {
+    wrap.innerHTML = '';
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+
+  // Group by brand
+  const groups = {};
+  _mscFiltered.forEach(r => {
+    if (!groups[r.brand]) groups[r.brand] = [];
+    groups[r.brand].push(r);
+  });
+
+  let html = '';
+  Object.keys(groups).sort((a,b)=>a.localeCompare(b,'id')).forEach(brand => {
+    const rows = groups[brand];
+    const uncatCount = rows.filter(r => !r.fee_category && !_mscPending[r.item_code]).length;
+    const catOptions = MSC_CATS.map(c=>`<option value="${c}">${c}</option>`).join('');
+    const safeB = brand.replace(/'/g,"\\'");
+
+    html += `
+      <div class="msc-brand-block" id="msc-block-${_mscSafeId(brand)}" style="margin-bottom:24px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;padding:8px 10px;background:var(--g50,#f8f9fa);border-radius:8px;flex-wrap:wrap">
+          <div style="font-family:var(--syne);font-weight:600;font-size:14px;flex:1;min-width:120px">${brand}</div>
+          <div style="font-size:12px;color:var(--g400)">${rows.length} SKU${uncatCount>0?` · <span style="color:var(--amber,#f59e0b)">${uncatCount} belum</span>`:' · ✅ semua terkategori'}</div>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-size:12px;color:var(--g500)">Set semua ke:</span>
+            <select id="msc-bulk-${_mscSafeId(brand)}" style="padding:4px 8px;font-size:12px;border:1px solid var(--g200);border-radius:6px">
+              <option value="">— Pilih —</option>
+              ${catOptions}
+            </select>
+            <button onclick="_mscBulkApply('${safeB}', false)" title="Hanya terapkan ke item yang belum punya kategori" style="padding:4px 10px;font-size:12px;background:var(--g100);border:1px solid var(--g200);border-radius:6px;cursor:pointer">Yg Belum</button>
+            <button onclick="_mscBulkApply('${safeB}', true)" title="Terapkan ke semua item brand ini" style="padding:4px 10px;font-size:12px;background:var(--primary);color:#fff;border:none;border-radius:6px;cursor:pointer">Semua</button>
+          </div>
+        </div>
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead>
+            <tr style="border-bottom:2px solid var(--g100)">
+              <th style="text-align:left;padding:6px 8px;color:var(--g400);font-weight:500;width:180px">Item Code</th>
+              <th style="text-align:left;padding:6px 8px;color:var(--g400);font-weight:500">Nama Item</th>
+              <th style="text-align:center;padding:6px 8px;color:var(--g400);font-weight:500;width:140px">Kategori Saat Ini</th>
+              <th style="text-align:center;padding:6px 8px;color:var(--g400);font-weight:500;width:160px">Set Kategori</th>
+            </tr>
+          </thead>
+          <tbody id="msc-tbody-${_mscSafeId(brand)}">
+            ${rows.map(r => _mscItemRow(r)).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  });
+  wrap.innerHTML = html;
+}
+
+function _mscSafeId(brand) {
+  return brand.replace(/[^a-zA-Z0-9]/g,'_');
+}
+
+function _mscItemRow(r) {
+  const curCat = r.fee_category || '';
+  const pending = _mscPending[r.item_code];
+  const displayCat = pending !== undefined ? pending : curCat;
+  const isChanged = pending !== undefined && pending !== curCat;
+
+  const catPill = curCat
+    ? `<span style="display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;background:var(--g100);color:var(--g600)">${curCat}</span>`
+    : `<span style="display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;background:#fef3c7;color:#92400e">Belum</span>`;
+
+  const catOpts = `<option value="">— Pilih —</option>`
+    + MSC_CATS.map(c=>`<option value="${c}"${displayCat===c?' selected':''}>${c}</option>`).join('');
+
+  const rowStyle = isChanged ? 'background:#fffbeb' : '';
+
+  return `<tr style="border-bottom:1px solid var(--g50,#f8f9fa);${rowStyle}" id="msc-row-${r.item_code.replace(/[^a-zA-Z0-9]/g,'_')}">
+    <td style="padding:6px 8px;font-family:var(--mono,monospace);font-size:11px;color:var(--g500)">${r.item_code}</td>
+    <td style="padding:6px 8px">${r.item_name || '—'}</td>
+    <td style="padding:6px 8px;text-align:center">${catPill}</td>
+    <td style="padding:6px 8px;text-align:center">
+      <select style="padding:4px 8px;font-size:12px;border:1px solid ${isChanged?'var(--amber,#f59e0b)':'var(--g200)'};border-radius:6px;width:140px"
+              onchange="_mscSetPending('${r.item_code.replace(/'/g,"\\'")}', this.value)">${catOpts}</select>
+    </td>
+  </tr>`;
+}
+
+function _mscSetPending(itemCode, val) {
+  const original = (_mscAllRows.find(r=>r.item_code===itemCode)||{}).fee_category || '';
+  if (val === original) {
+    delete _mscPending[itemCode];
+  } else {
+    _mscPending[itemCode] = val;
+  }
+  _mscUpdatePendingBadge();
+  // highlight row
+  const rowId = 'msc-row-'+itemCode.replace(/[^a-zA-Z0-9]/g,'_');
+  const row = document.getElementById(rowId);
+  if (row) {
+    const isChanged = _mscPending[itemCode] !== undefined;
+    row.style.background = isChanged ? '#fffbeb' : '';
+    const sel = row.querySelector('select');
+    if (sel) sel.style.borderColor = isChanged ? 'var(--amber,#f59e0b)' : 'var(--g200)';
+  }
+}
+
+function _mscBulkApply(brand, applyAll) {
+  const selEl = document.getElementById('msc-bulk-'+_mscSafeId(brand));
+  if (!selEl || !selEl.value) { alert('Pilih kategori dulu.'); return; }
+  const cat = selEl.value;
+  const rows = _mscAllRows.filter(r => r.brand === brand);
+  rows.forEach(r => {
+    // "Unset" button (applyAll=false) → only apply to currently uncategorized
+    // "Semua" button (applyAll=true) → apply to all items in brand
+    if (applyAll || !r.fee_category) {
+      const original = r.fee_category || '';
+      if (cat === original) {
+        delete _mscPending[r.item_code];
+      } else {
+        _mscPending[r.item_code] = cat;
+      }
+    }
+  });
+  _mscUpdatePendingBadge();
+  _mscApplyFilter(); // re-render to show highlights
+}
+
+function _mscUpdatePendingBadge() {
+  const count = Object.keys(_mscPending).length;
+  const badge = document.getElementById('msc-pending-badge');
+  const btn = document.getElementById('msc-save-btn');
+  if (!badge || !btn) return;
+  if (count > 0) {
+    badge.style.display = 'inline-block';
+    badge.textContent = `${count} perubahan pending`;
+    btn.style.display = 'inline-block';
+  } else {
+    badge.style.display = 'none';
+    btn.style.display = 'none';
+  }
+}
+
+async function saveMarteSKUCat() {
+  const pending = Object.entries(_mscPending);
+  if (pending.length === 0) return;
+
+  const btn = document.getElementById('msc-save-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Menyimpan…'; }
+
+  // Only save rows that have a category (skip empty/cleared)
+  const toUpsert = pending
+    .filter(([,cat]) => cat !== '')
+    .map(([item_code, fee_category]) => ({ item_code, fee_category }));
+
+  // For cleared rows (set to ""), delete from marte_sku_categories
+  const toDelete = pending.filter(([,cat]) => cat === '').map(([code]) => code);
+
+  let errors = [];
+
+  if (toUpsert.length > 0) {
+    const { error } = await sb.from('marte_sku_categories')
+      .upsert(toUpsert, { onConflict: 'item_code' });
+    if (error) errors.push(error.message);
+  }
+
+  if (toDelete.length > 0) {
+    const { error } = await sb.from('marte_sku_categories')
+      .delete().in('item_code', toDelete);
+    if (error) errors.push(error.message);
+  }
+
+  if (errors.length > 0) {
+    alert('Ada error saat menyimpan:\n' + errors.join('\n'));
+    if (btn) { btn.disabled = false; btn.textContent = '💾 Simpan Perubahan'; }
+    return;
+  }
+
+  // Update local cache
+  pending.forEach(([item_code, fee_category]) => {
+    const row = _mscAllRows.find(r => r.item_code === item_code);
+    if (row) row.fee_category = fee_category || null;
+  });
+
+  _mscPending = {};
+  _mscUpdatePendingBadge();
+  _mscRenderStats();
+  _mscApplyFilter();
+
+  if (btn) { btn.disabled = false; btn.textContent = '💾 Simpan Perubahan'; }
+
+  // Brief success flash
+  const badge = document.getElementById('msc-pending-badge');
+  if (badge) {
+    badge.style.display = 'inline-block';
+    badge.style.background = 'var(--green)';
+    badge.textContent = `✓ ${toUpsert.length + toDelete.length} SKU tersimpan`;
+    setTimeout(() => { badge.style.display = 'none'; badge.style.background = ''; }, 3000);
+  }
+
+  await logActivity('marteskucat','bulk_update',null,`${toUpsert.length} categorized, ${toDelete.length} cleared`);
 }
 
 // Keep session in sync (handles token refresh, tab-switching, etc.)
