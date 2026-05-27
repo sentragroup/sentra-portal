@@ -2955,17 +2955,17 @@ async function loadProductMap(page=0, search=''){
       if(pmFilters.mappingCount==='mapped') q=isMapped(q);
       return q;
     };
-    // When filter/search active: fetch all matching rows (no range limit) so
-    // client-side dedup by item_name returns every matching product.
-    // When no filter (unmapped view): paginate with PM_PAGE_SIZE to avoid huge loads.
-    const rowsQuery = applyFilter(sb.from("product_mappings").select("*",{count:"exact"}))
-      .order(pmSort.col,{ascending:pmSort.dir==='asc'});
+    // Fetch all matching rows, dedupe by item_name, then slice to current page.
+    // Pagination is based on unique product count, not raw row count.
+    const rowsQuery = applyFilter(sb.from("product_mappings").select("*"))
+      .order(pmSort.col,{ascending:pmSort.dir==='asc'})
+      .limit(5000);
     const [
-      {data:rows,count:filteredCount,error:rowsErr},
+      {data:rows,error:rowsErr},
       {count:totalCount},
       {count:unmappedCount}
     ]=await Promise.all([
-      hasFilter ? rowsQuery.limit(2000) : rowsQuery.range(from,to),
+      rowsQuery,
       sb.from("product_mappings").select("*",{count:"exact",head:true}),
       isUnmapped(sb.from("product_mappings").select("*",{count:"exact",head:true}))
     ]);
@@ -2978,16 +2978,18 @@ async function loadProductMap(page=0, search=''){
       pmByName[r.itemName].variantCount++;
     });
     const uniqueNames=Object.keys(pmByName);
+    const uniqueCount=uniqueNames.length;
     document.getElementById("pm-s-total").textContent=totalCount||0;
     document.getElementById("pm-s-mapped").textContent=(totalCount||0)-(unmappedCount||0);
     document.getElementById("pm-s-unmapped").textContent=unmappedCount||0;
     const activeFilters=[search&&`"${search}"`,pmFilters.brand,pmFilters.ip,pmFilters.collection,pmFilters.mappingCount!==''&&`mapping ${pmFilters.mappingCount}/3`].filter(Boolean);
-    const uniqueCount=uniqueNames.length;
     document.getElementById("pm-tcount").textContent=hasFilter
       ? `${uniqueCount} produk${activeFilters.length?` · ${activeFilters.join(" · ")}`:""}`
       : `${unmappedCount||0} belum mapped`;
-    renderPMTable(uniqueNames,pmByName,hasFilter);
-    renderPMPagination(page, hasFilter ? uniqueCount : (filteredCount||0));
+    // Slice unique names to current page
+    const pageNames=uniqueNames.slice(from,from+PM_PAGE_SIZE);
+    renderPMTable(pageNames,pmByName,hasFilter);
+    renderPMPagination(page, uniqueCount);
     renderPMSortHeaders();
   } catch(e){
     if(tbody) tbody.innerHTML=`<tr><td class="empty-td" colspan="7">Gagal: ${e.message||e}</td></tr>`;
