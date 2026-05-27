@@ -147,6 +147,9 @@
       </div>
       <div class="sb-sec">
         <div class="sb-label">Marte Operations</div>
+        <div class="sb-item" onclick="showPage('martereport',this)" id="nav-martereport">
+          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 12l4-4 3 3 4-5"/><circle cx="14" cy="3" r="1.5" fill="currentColor" stroke="none"/></svg>Sales Report
+        </div>
         <div class="sb-item" onclick="showPage('marte',this)" id="nav-marte">
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="1" width="12" height="14" rx="1.5"/><path d="M5 5h6M5 8h6M5 11h3"/><path d="M10 10l1.5 1.5L14 9"/></svg>Monthly Settlement
         </div>
@@ -200,6 +203,7 @@
 
         <div class="sb-label" style="margin-bottom:0.6rem">Marte Operations</div>
         <div class="home-grid" style="margin-bottom:1.5rem">
+          <div class="tool-card" onclick="showPage('martereport',null)"><span class="tc-icon">📊</span><div class="tc-name">Sales Report</div><div class="tc-desc">Download laporan penjualan Marte per brand — gross sales, konsinyasi fee, dan net payout per periode.</div></div>
           <div class="tool-card" onclick="showPage('marte',null)"><span class="tc-icon">🏪</span><div class="tc-name">Monthly Settlement</div><div class="tc-desc">Laporan konsinyasi bulanan Marte — penjualan per SKU, fee, PPh 23, invoice & debit note per brand.</div></div>
         </div>
 
@@ -2410,6 +2414,84 @@
         </div>
       </div><!-- /.page#page-marte -->
 
+      <!-- MARTE SALES REPORT -->
+      <div class="page" id="page-martereport">
+        <div class="page-header">
+          <div><div class="page-title">Sales Report</div><div class="page-sub">Marte Operations — laporan penjualan per brand, per periode</div></div>
+        </div>
+
+        <!-- Period selector -->
+        <div class="form-card" style="margin-bottom:1.25rem">
+          <div class="form-sec">Pilih Periode</div>
+          <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
+            <div class="fg" style="min-width:160px">
+              <label>Dari Tanggal</label>
+              <input type="date" id="mr-date-start">
+            </div>
+            <div class="fg" style="min-width:160px">
+              <label>Sampai Tanggal</label>
+              <input type="date" id="mr-date-end">
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;padding-bottom:1px">
+              <button class="btn-ghost" style="font-size:12px;padding:6px 10px" onclick="mrSetRange('thismonth')">Bulan Ini</button>
+              <button class="btn-ghost" style="font-size:12px;padding:6px 10px" onclick="mrSetRange('lastmonth')">Bulan Lalu</button>
+              <button class="btn-ghost" style="font-size:12px;padding:6px 10px" onclick="mrSetRange('thisquarter')">Kuartal Ini</button>
+              <button class="btn-ghost" style="font-size:12px;padding:6px 10px" onclick="mrSetRange('ytd')">YTD</button>
+            </div>
+            <button class="btn-primary" id="mr-generate-btn" onclick="generateMarteReport()" style="padding:8px 20px">Generate</button>
+          </div>
+          <div class="feedback" id="mr-feedback"></div>
+        </div>
+
+        <!-- Summary stats -->
+        <div class="stats-row" id="mr-stats" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem;display:none">
+          <div class="stat-card"><div class="stat-num" id="mr-s-brands">—</div><div class="stat-lbl">Brand Aktif</div></div>
+          <div class="stat-card"><div class="stat-num" id="mr-s-sales">—</div><div class="stat-lbl">Total Gross Sales</div></div>
+          <div class="stat-card"><div class="stat-num" id="mr-s-fee">—</div><div class="stat-lbl">Total Konsinyasi Fee</div></div>
+          <div class="stat-card"><div class="stat-num" id="mr-s-net">—</div><div class="stat-lbl">Total Net Payout</div></div>
+        </div>
+
+        <!-- Results -->
+        <div id="mr-result-wrap" style="display:none">
+          <div class="table-toolbar">
+            <div style="display:flex;align-items:center;gap:8px">
+              <button class="btn-primary" onclick="downloadMarteReportCSV()" style="padding:6px 16px;font-size:13px">⬇ Download CSV</button>
+              <div class="tcount" id="mr-tcount">—</div>
+            </div>
+            <div id="mr-period-label" style="font-size:12px;color:var(--g400);font-family:var(--mono)"></div>
+          </div>
+          <div class="table-wrap" style="overflow-x:auto">
+            <table id="mr-table">
+              <thead>
+                <tr>
+                  <th rowspan="2" style="min-width:160px;vertical-align:bottom">Brand</th>
+                  <th colspan="2" style="text-align:center;border-bottom:1px solid var(--g200)">Apparel</th>
+                  <th colspan="2" style="text-align:center;border-bottom:1px solid var(--g200)">Accessories</th>
+                  <th colspan="2" style="text-align:center;border-bottom:1px solid var(--g200)">Collectible</th>
+                  <th colspan="2" style="text-align:center;border-bottom:1px solid var(--g200)">Wellness</th>
+                  <th colspan="2" style="text-align:center;border-bottom:1px solid var(--g200)">Preloved</th>
+                  <th colspan="2" style="text-align:center;border-bottom:1px solid var(--g200)">Others</th>
+                  <th rowspan="2" style="min-width:110px;vertical-align:bottom">Total Sales</th>
+                  <th rowspan="2" style="min-width:100px;vertical-align:bottom">Total Fee</th>
+                  <th rowspan="2" style="min-width:110px;vertical-align:bottom">Net Payout</th>
+                  <th rowspan="2" style="vertical-align:bottom">Qty</th>
+                  <th rowspan="2" style="vertical-align:bottom">Orders</th>
+                </tr>
+                <tr>
+                  <th style="font-size:11px;color:var(--g400)">Sales</th><th style="font-size:11px;color:var(--g400)">Fee (30%)</th>
+                  <th style="font-size:11px;color:var(--g400)">Sales</th><th style="font-size:11px;color:var(--g400)">Fee (25%)</th>
+                  <th style="font-size:11px;color:var(--g400)">Sales</th><th style="font-size:11px;color:var(--g400)">Fee (20%)</th>
+                  <th style="font-size:11px;color:var(--g400)">Sales</th><th style="font-size:11px;color:var(--g400)">Fee (20%)</th>
+                  <th style="font-size:11px;color:var(--g400)">Sales</th><th style="font-size:11px;color:var(--g400)">Fee (20%)</th>
+                  <th style="font-size:11px;color:var(--g400)">Sales</th><th style="font-size:11px;color:var(--g400)">Fee (30%)</th>
+                </tr>
+              </thead>
+              <tbody id="mr-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div><!-- /.page#page-martereport -->
+
   </div><!-- /.content -->
   </div><!-- /.shell -->
 </div><!-- /#app -->
@@ -2521,6 +2603,6 @@
 <div id="proj-overlay" class="proj-panel-overlay" style="display:none" onclick="if(event.target===this)closeProjectDetail()"></div>
 <div id="proj-panel" class="proj-panel" style="display:none"></div>
 
-<script src="app.js?v=20260527a"></script>
+<script src="app.js?v=20260527b"></script>
 </body>
 </html>

@@ -160,7 +160,7 @@ function showPage(name, el) {
   document.getElementById("page-"+name).classList.add("active");
   if (el) el.classList.add("active");
   const _c = document.querySelector('.content'); if (_c) _c.scrollTop = 0;
-  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Need Restock",stockmovement:"Stock Movement",productmap:"Product Mapping",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement"};
+  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Need Restock",stockmovement:"Stock Movement",productmap:"Product Mapping",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Sales Report"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -11442,6 +11442,168 @@ async function deleteReminder(id) {
   if (!confirm('Hapus note ini? Tindakan ini tidak dapat dibatalkan.')) return;
   const {error} = await sb.from('reminders').delete().eq('id',id);
   if (!error) { allReminders = allReminders.filter(x=>x.id!==id); _renderRmdStats(); _renderRmdGrid(); }
+}
+
+// ── MARTE SALES REPORT ──
+let _mrData = [], _mrStart = '', _mrEnd = '';
+
+function _mrRp(n) {
+  const v = parseFloat(n) || 0;
+  if (v === 0) return '—';
+  return 'Rp' + Math.round(v).toLocaleString('id-ID');
+}
+function _mrRpFull(n) {
+  const v = parseFloat(n) || 0;
+  return 'Rp' + Math.round(v).toLocaleString('id-ID');
+}
+
+function mrSetRange(preset) {
+  const now = new Date();
+  let s, e;
+  if (preset === 'thismonth') {
+    s = new Date(now.getFullYear(), now.getMonth(), 1);
+    e = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  } else if (preset === 'lastmonth') {
+    s = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    e = new Date(now.getFullYear(), now.getMonth(), 0);
+  } else if (preset === 'thisquarter') {
+    const q = Math.floor(now.getMonth() / 3);
+    s = new Date(now.getFullYear(), q * 3, 1);
+    e = new Date(now.getFullYear(), q * 3 + 3, 0);
+  } else if (preset === 'ytd') {
+    s = new Date(now.getFullYear(), 0, 1);
+    e = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  }
+  const fmt = d => d.toISOString().slice(0, 10);
+  document.getElementById('mr-date-start').value = fmt(s);
+  document.getElementById('mr-date-end').value   = fmt(e);
+}
+
+async function generateMarteReport() {
+  const startVal = document.getElementById('mr-date-start').value;
+  const endVal   = document.getElementById('mr-date-end').value;
+  const fb = document.getElementById('mr-feedback');
+  if (!startVal || !endVal) { fb.textContent = 'Pilih tanggal mulai dan selesai dulu.'; fb.className = 'feedback err'; return; }
+  if (startVal > endVal)    { fb.textContent = 'Tanggal mulai harus sebelum tanggal selesai.'; fb.className = 'feedback err'; return; }
+
+  fb.textContent = '';
+  const btn = document.getElementById('mr-generate-btn');
+  btn.textContent = 'Loading...'; btn.disabled = true;
+
+  // p_end_date is exclusive — add 1 day so the end date is inclusive
+  const endDateExclusive = new Date(endVal);
+  endDateExclusive.setDate(endDateExclusive.getDate() + 1);
+  const endISO = endDateExclusive.toISOString().slice(0, 10);
+
+  const { data, error } = await sb.rpc('get_marte_sales_report', {
+    p_start_date: startVal + 'T00:00:00+07:00',
+    p_end_date:   endISO   + 'T00:00:00+07:00'
+  });
+
+  btn.textContent = 'Generate'; btn.disabled = false;
+
+  if (error) { fb.textContent = 'Error: ' + error.message; fb.className = 'feedback err'; return; }
+  if (!data || data.length === 0) {
+    fb.textContent = 'Tidak ada data penjualan untuk periode ini.';
+    fb.className = 'feedback err';
+    document.getElementById('mr-result-wrap').style.display = 'none';
+    document.getElementById('mr-stats').style.display = 'none';
+    return;
+  }
+
+  _mrData  = data;
+  _mrStart = startVal;
+  _mrEnd   = endVal;
+
+  // Compute totals
+  let totSales = 0, totFee = 0, totNet = 0;
+  data.forEach(r => { totSales += parseFloat(r.total_sales)||0; totFee += parseFloat(r.total_fee)||0; totNet += parseFloat(r.net_payout)||0; });
+
+  // Stats
+  document.getElementById('mr-s-brands').textContent = data.length;
+  document.getElementById('mr-s-sales').textContent  = _mrRpFull(totSales);
+  document.getElementById('mr-s-fee').textContent    = _mrRpFull(totFee);
+  document.getElementById('mr-s-net').textContent    = _mrRpFull(totNet);
+  document.getElementById('mr-stats').style.display  = 'grid';
+
+  // Period label
+  const fmtDisp = s => { const [y,m,d]=s.split('-'); return `${d}/${m}/${y}`; };
+  document.getElementById('mr-period-label').textContent = `Periode: ${fmtDisp(startVal)} – ${fmtDisp(endVal)}`;
+  document.getElementById('mr-tcount').textContent = data.length + ' brand';
+
+  // Render table
+  const tbody = document.getElementById('mr-tbody');
+  tbody.innerHTML = data.map(r => {
+    const ts = parseFloat(r.total_sales)||0;
+    const tf = parseFloat(r.total_fee)||0;
+    const np = parseFloat(r.net_payout)||0;
+    const hasOthers = (parseFloat(r.others_sales)||0) > 0;
+    return `<tr>
+      <td style="font-weight:500">${r.brand_name}</td>
+      <td>${_mrRp(r.apparel_sales)}</td>
+      <td style="color:var(--g400)">${_mrRp(r.apparel_fee)}</td>
+      <td>${_mrRp(r.accessories_sales)}</td>
+      <td style="color:var(--g400)">${_mrRp(r.accessories_fee)}</td>
+      <td>${_mrRp(r.collectible_sales)}</td>
+      <td style="color:var(--g400)">${_mrRp(r.collectible_fee)}</td>
+      <td>${_mrRp(r.wellness_sales)}</td>
+      <td style="color:var(--g400)">${_mrRp(r.wellness_fee)}</td>
+      <td>${_mrRp(r.preloved_sales)}</td>
+      <td style="color:var(--g400)">${_mrRp(r.preloved_fee)}</td>
+      <td${hasOthers ? ' style="color:var(--g600)"' : ''}>${_mrRp(r.others_sales)}${hasOthers ? ' ⚠' : ''}</td>
+      <td style="color:var(--g400)">${_mrRp(r.others_fee)}</td>
+      <td style="font-weight:600">${_mrRpFull(ts)}</td>
+      <td style="color:#c05">${_mrRpFull(tf)}</td>
+      <td style="font-weight:600;color:#080">${_mrRpFull(np)}</td>
+      <td style="text-align:center">${parseInt(r.total_qty)||0}</td>
+      <td style="text-align:center">${parseInt(r.order_count)||0}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('mr-result-wrap').style.display = 'block';
+}
+
+function downloadMarteReportCSV() {
+  if (!_mrData.length) return;
+  const fmtDisp = s => { const [y,m,d]=s.split('-'); return `${d}/${m}/${y}`; };
+  const fmtNum  = n => Math.round(parseFloat(n)||0).toString();
+  const header = [
+    'Brand','Apparel Sales','Apparel Fee (30%)','Accessories Sales','Accessories Fee (25%)',
+    'Collectible Sales','Collectible Fee (20%)','Wellness Sales','Wellness Fee (20%)',
+    'Preloved Sales','Preloved Fee (20%)','Others Sales','Others Fee (30%)',
+    'Total Sales','Total Fee','Net Payout','Total Qty','Total Orders'
+  ];
+  const rows = _mrData.map(r => [
+    r.brand_name,
+    fmtNum(r.apparel_sales),     fmtNum(r.apparel_fee),
+    fmtNum(r.accessories_sales), fmtNum(r.accessories_fee),
+    fmtNum(r.collectible_sales), fmtNum(r.collectible_fee),
+    fmtNum(r.wellness_sales),    fmtNum(r.wellness_fee),
+    fmtNum(r.preloved_sales),    fmtNum(r.preloved_fee),
+    fmtNum(r.others_sales),      fmtNum(r.others_fee),
+    fmtNum(r.total_sales), fmtNum(r.total_fee), fmtNum(r.net_payout),
+    fmtNum(r.total_qty), fmtNum(r.order_count)
+  ]);
+
+  // Totals row
+  const tot = col => rows.reduce((s,r) => s + (parseInt(r[col])||0), 0).toString();
+  const totRow = ['TOTAL','','',  '','',  '','',  '','',  '','',  '','',
+    tot(13), tot(14), tot(15), tot(16), tot(17)];
+  rows.push(totRow);
+
+  const csvLines = [
+    `Marte Sales Report — ${fmtDisp(_mrStart)} s/d ${fmtDisp(_mrEnd)}`,
+    '',
+    header.join(','),
+    ...rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(','))
+  ];
+  const blob = new Blob(['﻿' + csvLines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `marte-sales-report-${_mrStart}-to-${_mrEnd}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 // ── DUPLICATE CHECK ──
