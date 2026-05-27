@@ -136,7 +136,7 @@ function enterApp(user, freshLogin) {
   // Restore page: prefer URL hash, fall back to sessionStorage
   let _pg = location.hash.slice(1).split('/')[0];
   if (!_pg) _pg = sessionStorage.getItem('snt_page') || '';
-  const _pages = ['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','popupbooth','activitylog','jubsales','mesign','po','stockmovement','productmap','collections','designermaster','dsgworkflow','warehousekpi','stockadjmgmt','returnreason','tradorders','invcheck','salesperf','reminders','announcements'];
+  const _pages = ['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','popupbooth','activitylog','jubsales','mesign','po','stockmovement','productmap','collections','designermaster','dsgworkflow','warehousekpi','stockadjmgmt','returnreason','tradorders','invcheck','salesperf','reminders','announcements','marte'];
   if (_pages.includes(_pg))
     showPage(_pg, document.getElementById('nav-'+_pg));
 }
@@ -160,7 +160,7 @@ function showPage(name, el) {
   document.getElementById("page-"+name).classList.add("active");
   if (el) el.classList.add("active");
   const _c = document.querySelector('.content'); if (_c) _c.scrollTop = 0;
-  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Need Restock",stockmovement:"Stock Movement",productmap:"Product Mapping",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements"};
+  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Need Restock",stockmovement:"Stock Movement",productmap:"Product Mapping",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -235,6 +235,7 @@ function showPage(name, el) {
   }
   if (name==="reminders") loadReminders();
   if (name==="announcements") loadAnnouncements();
+  if (name==="marte") loadMarteSettlements();
   window.scrollTo(0, 0);
   closeMobileSidebar();
 }
@@ -10568,6 +10569,274 @@ async function _renderInsGeo() {
     .bindTooltip(`<b>${titl(c.city)}</b>, ${titl(c.prov)}<br>${c.orders} orders · ${fmtRp(c.revenue)}`,
       {sticky:true, className:'ins-geo-tip'});
   });
+}
+
+// ── MARTE SETTLEMENTS ──
+const MST_CATS   = ['Apparel','Accessories','Collectible','Preloved','Wellness','Others'];
+const MST_CATKEY = {Apparel:'apparel_rate',Accessories:'accessories_rate',Collectible:'collectible_rate',Preloved:'preloved_rate',Wellness:'wellness_rate',Others:'others_rate'};
+const MST_STATUS_CLASS = {Draft:'p-draft',Sent:'p-signings',Invoiced:'p-review',Settled:'p-active'};
+const MST_INV_CLASS    = {Draft:'p-draft',Sent:'p-signings',Paid:'p-active'};
+
+let allMarteSettlements = [], _mstItems = [], _mstTid = 0, _mstEditId = null, _mstBrandRow = null;
+
+function _mstRp(n) { return 'Rp'+Math.round(n||0).toLocaleString('id-ID'); }
+
+async function loadMarteSettlements() {
+  if (!allBMRows.length) await loadBrandMaster();
+  setupAC('mst-brand','ac-mst-brand', ()=>allBMRows.map(r=>r.name).filter(Boolean));
+  const {data,error} = await sb.from('marte_settlements').select('*').order('period',{ascending:false}).order('brand_name');
+  if (error) { console.error(error); return; }
+  allMarteSettlements = data||[];
+  _renderMSTStats();
+  renderMSTTable();
+}
+
+function _renderMSTStats() {
+  const now = new Date().toISOString().slice(0,7);
+  document.getElementById('mst-s-total').textContent   = allMarteSettlements.length;
+  document.getElementById('mst-s-sales').textContent   = _mstRp(allMarteSettlements.filter(r=>r.period===now).reduce((s,r)=>s+parseFloat(r.total_sales||0),0));
+  document.getElementById('mst-s-pending').textContent = allMarteSettlements.filter(r=>r.status!=='Settled').length;
+  document.getElementById('mst-s-settled').textContent = allMarteSettlements.filter(r=>r.status==='Settled').length;
+}
+
+function switchMSTTab(tab, btn) {
+  document.querySelectorAll('#page-marte .tab-btn').forEach(b=>b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  document.getElementById('msttab-new').style.display  = tab==='new'  ? '' : 'none';
+  document.getElementById('msttab-list').style.display = tab==='list' ? '' : 'none';
+}
+
+function renderMSTTable() {
+  const st  = (document.getElementById('mst-fil-status')||{}).value||'';
+  const srch= ((document.getElementById('mst-fil-search')||{}).value||'').toLowerCase();
+  let list  = allMarteSettlements;
+  if (st)   list = list.filter(r=>r.status===st);
+  if (srch) list = list.filter(r=>(r.brand_name+r.period).toLowerCase().includes(srch));
+
+  document.getElementById('mst-tcount').textContent = list.length+' entri';
+  const tb = document.getElementById('mst-tbody');
+  if (!list.length) { tb.innerHTML=`<tr><td colspan="9" style="padding:24px;text-align:center;color:var(--g400)">Belum ada data.</td></tr>`; return; }
+
+  tb.innerHTML = list.map(r=>`
+<tr>
+  <td style="font-family:var(--mono);font-weight:600">${r.period}</td>
+  <td>${_escRmd(r.brand_name)}</td>
+  <td><span class="pill ${r.brand_type==='PT'?'p-signings':'p-draft'}" style="font-size:10px">${r.brand_type}</span></td>
+  <td style="text-align:right;font-family:var(--mono);font-size:12px">${_mstRp(r.total_sales)}</td>
+  <td style="text-align:right;font-family:var(--mono);font-size:12px;font-weight:600">${_mstRp(r.net_to_brand)}</td>
+  <td><span class="pill ${MST_STATUS_CLASS[r.status]||'p-draft'}">${r.status}</span></td>
+  <td>${r.invoice_number?`<span style="font-family:var(--mono);font-size:11px">${_escRmd(r.invoice_number)}</span><br><span class="pill ${MST_INV_CLASS[r.invoice_status]||'p-draft'}" style="font-size:9px">${r.invoice_status}</span>`:'<span style="color:var(--g400);font-size:11px">—</span>'}</td>
+  <td>${r.debit_note_number?`<span style="font-family:var(--mono);font-size:11px">${_escRmd(r.debit_note_number)}</span>`:'<span style="color:var(--g400);font-size:11px">—</span>'}</td>
+  <td>
+    <button class="btn-edit" onclick="openMSTEdit('${r.id}')">Edit</button>
+    <button class="btn-del" onclick="deleteMSTEntry('${r.id}')">Hapus</button>
+  </td>
+</tr>`).join('');
+}
+
+// ── MST Form helpers ──
+function mstBrandInput() {
+  const name = (document.getElementById('mst-brand').value||'').trim();
+  _mstBrandRow = allBMRows.find(r=>r.name===name)||null;
+  // Re-apply rates to existing items if brand changed
+  if (_mstBrandRow) _mstItems.forEach(it=>{ it.consign_fee_rate=_mstGetRate(it.category); _mstCalcItem(it); });
+  _mstRenderItems();
+}
+
+function _mstGetRate(category) {
+  if (!_mstBrandRow) return 0;
+  return parseFloat(_mstBrandRow[MST_CATKEY[category]]||0);
+}
+
+function mstAddItem() {
+  const tid = ++_mstTid;
+  const cat = 'Apparel';
+  const rate = _mstGetRate(cat);
+  _mstItems.push({tid, sku_id:'', item_description:'', category:cat, qty_sold:0, total_sales:0, consign_fee_rate:rate, consign_fee_amount:0, net_receive:0});
+  document.getElementById('mst-items-empty').style.display='none';
+  _mstRenderItems();
+}
+
+function mstRemoveItem(tid) {
+  _mstItems = _mstItems.filter(it=>it.tid!==tid);
+  _mstRenderItems();
+  mstRecalcSummary();
+}
+
+function mstItemChange(tid, field, value) {
+  const it = _mstItems.find(x=>x.tid===tid);
+  if (!it) return;
+  it[field] = (field==='qty_sold'||field==='total_sales'||field==='consign_fee_rate') ? parseFloat(value)||0 : value;
+  if (field==='category') { it.consign_fee_rate=_mstGetRate(value); document.getElementById(`mst-ir-rate-${tid}`).value=it.consign_fee_rate; }
+  _mstCalcItem(it);
+  document.getElementById(`mst-ir-fee-${tid}`).textContent  = _mstRp(it.consign_fee_amount);
+  document.getElementById(`mst-ir-net-${tid}`).textContent  = _mstRp(it.net_receive);
+  mstRecalcSummary();
+}
+
+function _mstCalcItem(it) {
+  it.consign_fee_amount = it.total_sales * (it.consign_fee_rate/100);
+  it.net_receive        = it.total_sales - it.consign_fee_amount;
+}
+
+function _mstRenderItems() {
+  const tbody = document.getElementById('mst-items-body');
+  const foot  = document.getElementById('mst-items-foot');
+  const empty = document.getElementById('mst-items-empty');
+  if (!_mstItems.length) { empty.style.display=''; foot.style.display='none'; tbody.innerHTML=''; tbody.appendChild(empty); mstRecalcSummary(); return; }
+  empty.style.display='none';
+  foot.style.display='';
+  const catOpts = MST_CATS.map(c=>`<option value="${c}">${c}</option>`).join('');
+  const rows = _mstItems.map(it=>`
+<tr id="mst-item-${it.tid}" style="border-bottom:1px solid var(--g100)">
+  <td style="padding:6px 8px"><input value="${_escRmd(it.sku_id)}" oninput="mstItemChange(${it.tid},'sku_id',this.value)" style="width:100%;min-width:130px;font-size:12px;padding:4px 7px"></td>
+  <td style="padding:6px 8px"><input value="${_escRmd(it.item_description)}" oninput="mstItemChange(${it.tid},'item_description',this.value)" style="width:100%;min-width:180px;font-size:12px;padding:4px 7px"></td>
+  <td style="padding:6px 8px"><select onchange="mstItemChange(${it.tid},'category',this.value)" style="font-size:12px;padding:4px 7px;width:100%">${MST_CATS.map(c=>`<option value="${c}"${c===it.category?' selected':''}>${c}</option>`).join('')}</select></td>
+  <td style="padding:6px 8px"><input type="number" min="0" value="${it.qty_sold}" oninput="mstItemChange(${it.tid},'qty_sold',this.value)" style="width:60px;text-align:right;font-size:12px;padding:4px 7px"></td>
+  <td style="padding:6px 8px"><input type="number" min="0" id="mst-ir-sales-${it.tid}" value="${it.total_sales}" oninput="mstItemChange(${it.tid},'total_sales',this.value)" style="width:110px;text-align:right;font-family:var(--mono);font-size:12px;padding:4px 7px"></td>
+  <td style="padding:6px 8px"><input type="number" min="0" max="100" id="mst-ir-rate-${it.tid}" value="${it.consign_fee_rate}" oninput="mstItemChange(${it.tid},'consign_fee_rate',this.value)" style="width:55px;text-align:right;font-size:12px;padding:4px 7px"></td>
+  <td style="padding:6px 8px;text-align:right;font-family:var(--mono);font-size:12px;color:#c0392b;white-space:nowrap" id="mst-ir-fee-${it.tid}">${_mstRp(it.consign_fee_amount)}</td>
+  <td style="padding:6px 8px;text-align:right;font-family:var(--mono);font-size:12px;font-weight:600;white-space:nowrap" id="mst-ir-net-${it.tid}">${_mstRp(it.net_receive)}</td>
+  <td style="padding:6px 8px;text-align:center"><button onclick="mstRemoveItem(${it.tid})" style="background:none;border:none;cursor:pointer;color:var(--g400);font-size:14px;padding:2px 4px">✕</button></td>
+</tr>`);
+  tbody.innerHTML = rows.join('');
+  tbody.appendChild(empty);
+  mstRecalcSummary();
+}
+
+function mstRecalcSummary() {
+  const totSales = _mstItems.reduce((s,it)=>s+it.total_sales,0);
+  const totFee   = _mstItems.reduce((s,it)=>s+it.consign_fee_amount,0);
+  const isPT     = (document.getElementById('mst-brand-type')||{}).value==='PT';
+  const pph      = isPT ? totFee*0.02 : 0;
+  const net      = totSales - totFee + pph;
+
+  const sum = document.getElementById('mst-summary');
+  const foot= document.getElementById('mst-items-foot');
+  if (_mstItems.length) {
+    sum.style.display=''; foot.style.display='';
+  } else {
+    sum.style.display='none'; foot.style.display='none';
+  }
+
+  const pphCol = document.getElementById('mst-sum-pph-col');
+  if (pphCol) pphCol.style.display = isPT ? '' : 'none';
+
+  _mstSetEl('mst-foot-sales', _mstRp(totSales));
+  _mstSetEl('mst-foot-fee',   _mstRp(totFee));
+  _mstSetEl('mst-foot-net',   _mstRp(net));
+  _mstSetEl('mst-sum-sales',  _mstRp(totSales));
+  _mstSetEl('mst-sum-fee',    '−'+_mstRp(totFee));
+  _mstSetEl('mst-sum-pph',    '+'+_mstRp(pph));
+  _mstSetEl('mst-sum-net',    _mstRp(net));
+}
+function _mstSetEl(id, v) { const el=document.getElementById(id); if(el) el.textContent=v; }
+
+function clearMSTForm() {
+  _mstEditId=null; _mstItems=[]; _mstTid=0; _mstBrandRow=null;
+  ['mst-brand','mst-period','mst-from','mst-to','mst-report-date','mst-report-link','mst-inv-num','mst-inv-date','mst-dn-num','mst-dn-date','mst-notes'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  document.getElementById('mst-brand-type').value='PT';
+  document.getElementById('mst-inv-status').value='Draft';
+  document.getElementById('mst-status').value='Draft';
+  _mstRenderItems();
+  const fb=document.getElementById('mst-feedback'); if(fb)fb.textContent='';
+  const btn=document.getElementById('mst-submit-btn'); if(btn)btn.textContent='Simpan Settlement';
+}
+
+async function openMSTEdit(id) {
+  const r = allMarteSettlements.find(x=>x.id===id);
+  if (!r) return;
+  _mstEditId = id;
+  _mstBrandRow = allBMRows.find(x=>x.name===r.brand_name)||null;
+
+  document.getElementById('mst-brand').value       = r.brand_name;
+  document.getElementById('mst-period').value      = r.period;
+  document.getElementById('mst-from').value        = r.date_range_from||'';
+  document.getElementById('mst-to').value          = r.date_range_to||'';
+  document.getElementById('mst-report-date').value = r.report_date||'';
+  document.getElementById('mst-brand-type').value  = r.brand_type||'PT';
+  document.getElementById('mst-report-link').value = r.report_link||'';
+  document.getElementById('mst-inv-num').value     = r.invoice_number||'';
+  document.getElementById('mst-inv-date').value    = r.invoice_date||'';
+  document.getElementById('mst-inv-status').value  = r.invoice_status||'Draft';
+  document.getElementById('mst-dn-num').value      = r.debit_note_number||'';
+  document.getElementById('mst-dn-date').value     = r.debit_note_date||'';
+  document.getElementById('mst-status').value      = r.status||'Draft';
+  document.getElementById('mst-notes').value       = r.notes||'';
+
+  // Load items
+  const {data:items} = await sb.from('marte_settlement_items').select('*').eq('settlement_id',id).order('id');
+  _mstItems = (items||[]).map(it=>({tid:++_mstTid, sku_id:it.sku_id, item_description:it.item_description, category:it.category, qty_sold:it.qty_sold, total_sales:parseFloat(it.total_sales), consign_fee_rate:parseFloat(it.consign_fee_rate), consign_fee_amount:parseFloat(it.consign_fee_amount), net_receive:parseFloat(it.net_receive)}));
+  _mstRenderItems();
+
+  const btn=document.getElementById('mst-submit-btn'); if(btn)btn.textContent='Simpan Perubahan';
+  switchMSTTab('new', document.getElementById('mst-tab-new-btn'));
+  document.querySelector('#page-marte').scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+async function saveMarteSettlement() {
+  const brand  = (document.getElementById('mst-brand').value||'').trim();
+  const period = (document.getElementById('mst-period').value||'').trim();
+  const fb = document.getElementById('mst-feedback');
+  if (!brand||!period) { fb.textContent='⚠ Brand dan Periode wajib diisi.'; fb.style.color='#e74c3c'; return; }
+  if (!_mstItems.length) { fb.textContent='⚠ Tambahkan minimal 1 item terjual.'; fb.style.color='#e74c3c'; return; }
+
+  const btn=document.getElementById('mst-submit-btn');
+  btn.disabled=true; btn.textContent='Menyimpan...';
+
+  const bmRow   = allBMRows.find(r=>r.name===brand);
+  const isPT    = document.getElementById('mst-brand-type').value==='PT';
+  const totSales= _mstItems.reduce((s,it)=>s+it.total_sales,0);
+  const totFee  = _mstItems.reduce((s,it)=>s+it.consign_fee_amount,0);
+  const pph     = isPT ? totFee*0.02 : 0;
+  const net     = totSales - totFee + pph;
+
+  const hdr = {
+    brand_id: bmRow?bmRow.id:'', brand_name: brand,
+    period, brand_type: document.getElementById('mst-brand-type').value,
+    date_range_from: document.getElementById('mst-from').value||null,
+    date_range_to:   document.getElementById('mst-to').value||null,
+    report_date:     document.getElementById('mst-report-date').value||null,
+    total_sales:totSales, consign_fee:totFee, pph_23:pph, net_to_brand:net,
+    invoice_number:  document.getElementById('mst-inv-num').value.trim(),
+    invoice_date:    document.getElementById('mst-inv-date').value||null,
+    invoice_status:  document.getElementById('mst-inv-status').value,
+    debit_note_number: document.getElementById('mst-dn-num').value.trim(),
+    debit_note_date: document.getElementById('mst-dn-date').value||null,
+    status:          document.getElementById('mst-status').value,
+    report_link:     document.getElementById('mst-report-link').value.trim(),
+    notes:           document.getElementById('mst-notes').value.trim(),
+    created_by:      currentUser,
+    updated_at:      new Date().toISOString(),
+  };
+
+  let sid = _mstEditId;
+  let error;
+  if (sid) {
+    ({error} = await sb.from('marte_settlements').update(hdr).eq('id',sid));
+  } else {
+    sid = genId('MST');
+    hdr.id = sid; hdr.created_at = new Date().toISOString();
+    ({error} = await sb.from('marte_settlements').insert(hdr));
+  }
+  if (error) { btn.disabled=false; btn.textContent=_mstEditId?'Simpan Perubahan':'Simpan Settlement'; fb.textContent='⚠ '+error.message; fb.style.color='#e74c3c'; return; }
+
+  // Replace items
+  await sb.from('marte_settlement_items').delete().eq('settlement_id',sid);
+  const itemPayload = _mstItems.map(it=>({settlement_id:sid, sku_id:it.sku_id, item_description:it.item_description, category:it.category, qty_sold:it.qty_sold, total_sales:it.total_sales, consign_fee_rate:it.consign_fee_rate, consign_fee_amount:it.consign_fee_amount, net_receive:it.net_receive}));
+  if (itemPayload.length) await sb.from('marte_settlement_items').insert(itemPayload);
+
+  btn.disabled=false;
+  fb.textContent='✓ Settlement berhasil disimpan!'; fb.style.color='#27ae60';
+  setTimeout(()=>{ clearMSTForm(); switchMSTTab('list',document.getElementById('mst-tab-list-btn')); },800);
+  await loadMarteSettlements();
+}
+
+async function deleteMSTEntry(id) {
+  if (!confirm('Hapus settlement ini? Data item juga akan ikut terhapus.')) return;
+  await sb.from('marte_settlements').delete().eq('id',id);
+  allMarteSettlements = allMarteSettlements.filter(r=>r.id!==id);
+  _renderMSTStats(); renderMSTTable();
 }
 
 // ── ANNOUNCEMENTS ──

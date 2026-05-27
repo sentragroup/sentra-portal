@@ -146,6 +146,12 @@
         </div>
       </div>
       <div class="sb-sec">
+        <div class="sb-label">Marte Operations</div>
+        <div class="sb-item" onclick="showPage('marte',this)" id="nav-marte">
+          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="1" width="12" height="14" rx="1.5"/><path d="M5 5h6M5 8h6M5 11h3"/><path d="M10 10l1.5 1.5L14 9"/></svg>Monthly Settlement
+        </div>
+      </div>
+      <div class="sb-sec">
         <div class="sb-label">Logs</div>
         <div class="sb-item" onclick="showPage('mesign',this)" id="nav-mesign">
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2h10a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z"/><path d="M5 6h6M5 9h4"/><path d="M10 12l2-2-2-2"/></svg>Mekari Sign
@@ -190,6 +196,11 @@
         <div class="home-grid" style="margin-bottom:1.5rem">
           <div class="tool-card" onclick="showPage('collections',null)"><span class="tc-icon">🎨</span><div class="tc-name">Collection Development</div><div class="tc-desc">Manajemen collection merchandise — dari ideation hingga approval design.</div></div>
           <div class="tool-card" onclick="showPage('dsgworkflow',null)"><span class="tc-icon">✏️</span><div class="tc-name">Designer Workflow</div><div class="tc-desc">Track deliverables, approval status, dan payment designer per collection.</div></div>
+        </div>
+
+        <div class="sb-label" style="margin-bottom:0.6rem">Marte Operations</div>
+        <div class="home-grid" style="margin-bottom:1.5rem">
+          <div class="tool-card" onclick="showPage('marte',null)"><span class="tc-icon">🏪</span><div class="tc-name">Monthly Settlement</div><div class="tc-desc">Laporan konsinyasi bulanan Marte — penjualan per SKU, fee, PPh 23, invoice & debit note per brand.</div></div>
         </div>
 
         <div class="sb-label" style="margin-bottom:0.6rem">Sales Operation</div>
@@ -2242,6 +2253,163 @@
         </div>
       </div><!-- /.page#page-reminders -->
 
+      <!-- MARTE SETTLEMENT -->
+      <div class="page" id="page-marte">
+        <div class="page-header">
+          <div><div class="page-title">Monthly Settlement</div><div class="page-sub">Marte Operations — laporan konsinyasi bulanan per brand</div></div>
+          <div class="tab-bar">
+            <button class="tab-btn active" id="mst-tab-new-btn" onclick="switchMSTTab('new',this)">+ Tambah</button>
+            <button class="tab-btn" id="mst-tab-list-btn" onclick="switchMSTTab('list',this)">Semua</button>
+          </div>
+        </div>
+        <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
+          <div class="stat-card"><div class="stat-num" id="mst-s-total">—</div><div class="stat-lbl">Total Settlement</div></div>
+          <div class="stat-card info"><div class="stat-num" id="mst-s-sales">—</div><div class="stat-lbl">Total Sales (bulan ini)</div></div>
+          <div class="stat-card warn"><div class="stat-num" id="mst-s-pending">—</div><div class="stat-lbl">Belum Settled</div></div>
+          <div class="stat-card success"><div class="stat-num" id="mst-s-settled">—</div><div class="stat-lbl">Settled</div></div>
+        </div>
+
+        <!-- FORM TAB -->
+        <div id="msttab-new">
+          <div class="form-card">
+            <div class="form-sec">Info Settlement</div>
+            <div class="form-grid">
+              <div class="fg">
+                <label>Brand <span class="req">*</span></label>
+                <div class="ac-wrap"><input type="text" id="mst-brand" placeholder="Cari brand dari Brand Master..." autocomplete="off" oninput="mstBrandInput()"><div class="ac-list" id="ac-mst-brand"></div></div>
+              </div>
+              <div class="fg">
+                <label>Periode <span class="req">*</span></label>
+                <input type="month" id="mst-period">
+              </div>
+              <div class="fg">
+                <label>Date Range From</label>
+                <input type="date" id="mst-from">
+              </div>
+              <div class="fg">
+                <label>Date Range To</label>
+                <input type="date" id="mst-to">
+              </div>
+              <div class="fg">
+                <label>Report Date</label>
+                <input type="date" id="mst-report-date">
+              </div>
+              <div class="fg">
+                <label>Tipe Brand</label>
+                <select id="mst-brand-type" onchange="mstRecalcSummary()">
+                  <option value="PT">PT — kena PPh 23 (2%)</option>
+                  <option value="Individu">Individu — tanpa PPh</option>
+                </select>
+              </div>
+              <div class="fg full">
+                <label>Link Report Drive</label>
+                <input type="url" id="mst-report-link" placeholder="https://drive.google.com/...">
+              </div>
+            </div>
+          </div>
+
+          <div class="form-card">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem">
+              <div class="form-sec" style="margin-bottom:0">Item Terjual</div>
+              <button class="btn-ghost" onclick="mstAddItem()" style="font-size:12px;padding:5px 12px">+ Tambah Item</button>
+            </div>
+            <div style="overflow-x:auto">
+              <table style="width:100%;border-collapse:collapse;font-size:12px">
+                <thead><tr style="background:var(--off);border-bottom:1px solid var(--g100)">
+                  <th style="padding:8px;text-align:left;font-family:var(--mono);font-size:9px;letter-spacing:.08em;white-space:nowrap;min-width:140px">SKU ID</th>
+                  <th style="padding:8px;text-align:left;font-family:var(--mono);font-size:9px;letter-spacing:.08em;min-width:200px">DESKRIPSI ITEM</th>
+                  <th style="padding:8px;text-align:left;font-family:var(--mono);font-size:9px;letter-spacing:.08em;white-space:nowrap">KATEGORI</th>
+                  <th style="padding:8px;text-align:right;font-family:var(--mono);font-size:9px;letter-spacing:.08em;white-space:nowrap">QTY</th>
+                  <th style="padding:8px;text-align:right;font-family:var(--mono);font-size:9px;letter-spacing:.08em;white-space:nowrap;min-width:110px">TOTAL SALES</th>
+                  <th style="padding:8px;text-align:right;font-family:var(--mono);font-size:9px;letter-spacing:.08em;white-space:nowrap">FEE %</th>
+                  <th style="padding:8px;text-align:right;font-family:var(--mono);font-size:9px;letter-spacing:.08em;white-space:nowrap;min-width:100px">FEE Rp</th>
+                  <th style="padding:8px;text-align:right;font-family:var(--mono);font-size:9px;letter-spacing:.08em;white-space:nowrap;min-width:110px">NET RECEIVE</th>
+                  <th style="padding:8px;width:32px"></th>
+                </tr></thead>
+                <tbody id="mst-items-body">
+                  <tr id="mst-items-empty"><td colspan="9" style="padding:24px;text-align:center;color:var(--g400);font-size:12px">Belum ada item — klik "+ Tambah Item"</td></tr>
+                </tbody>
+                <tfoot id="mst-items-foot" style="display:none">
+                  <tr style="border-top:2px solid var(--g200);background:var(--off)">
+                    <td colspan="4" style="padding:8px 8px;font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.06em">TOTAL</td>
+                    <td style="padding:8px;text-align:right;font-family:var(--mono);font-size:11px;font-weight:700" id="mst-foot-sales">Rp0</td>
+                    <td></td>
+                    <td style="padding:8px;text-align:right;font-family:var(--mono);font-size:11px;font-weight:700;color:#c0392b" id="mst-foot-fee">Rp0</td>
+                    <td style="padding:8px;text-align:right;font-family:var(--mono);font-size:11px;font-weight:700" id="mst-foot-net">Rp0</td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+            <!-- Summary -->
+            <div id="mst-summary" style="display:none;margin-top:1rem;padding:1rem 1.25rem;background:var(--off);border-radius:8px;border:1px solid var(--g100)">
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:1rem;text-align:center">
+                <div><div style="font-family:var(--mono);font-size:9px;color:var(--g400);letter-spacing:.08em;text-transform:uppercase;margin-bottom:5px">Total Sales</div><div style="font-family:var(--mono);font-size:16px;font-weight:700" id="mst-sum-sales">Rp0</div></div>
+                <div><div style="font-family:var(--mono);font-size:9px;color:var(--g400);letter-spacing:.08em;text-transform:uppercase;margin-bottom:5px">Consign Fee</div><div style="font-family:var(--mono);font-size:16px;font-weight:700;color:#c0392b" id="mst-sum-fee">−Rp0</div></div>
+                <div id="mst-sum-pph-col"><div style="font-family:var(--mono);font-size:9px;color:var(--g400);letter-spacing:.08em;text-transform:uppercase;margin-bottom:5px">PPh 23 (2%)</div><div style="font-family:var(--mono);font-size:16px;font-weight:700;color:#27ae60" id="mst-sum-pph">+Rp0</div></div>
+                <div style="border-left:1px solid var(--g200);padding-left:1rem"><div style="font-family:var(--mono);font-size:9px;color:var(--g400);letter-spacing:.08em;text-transform:uppercase;margin-bottom:5px">Net to Brand</div><div style="font-family:var(--mono);font-size:20px;font-weight:800" id="mst-sum-net">Rp0</div></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-card">
+            <div class="form-sec">Invoice &amp; Debit Note</div>
+            <div class="form-grid">
+              <div class="fg"><label>Nomor Invoice</label><input type="text" id="mst-inv-num" placeholder="INV/MARTE/V/2026/001"></div>
+              <div class="fg"><label>Tanggal Invoice</label><input type="date" id="mst-inv-date"></div>
+              <div class="fg">
+                <label>Status Invoice</label>
+                <select id="mst-inv-status">
+                  <option value="Draft">Draft</option>
+                  <option value="Sent">Sent</option>
+                  <option value="Paid">Paid</option>
+                </select>
+              </div>
+              <div class="fg"><label>Nomor Debit Note</label><input type="text" id="mst-dn-num" placeholder="DN/BRAND/V/2026/001"></div>
+              <div class="fg"><label>Tanggal Debit Note</label><input type="date" id="mst-dn-date"></div>
+              <div class="fg">
+                <label>Status Settlement</label>
+                <select id="mst-status">
+                  <option value="Draft">Draft</option>
+                  <option value="Sent">Sent</option>
+                  <option value="Invoiced">Invoiced</option>
+                  <option value="Settled">Settled</option>
+                </select>
+              </div>
+              <div class="fg full"><label>Catatan</label><textarea id="mst-notes" rows="2" placeholder="Catatan tambahan..."></textarea></div>
+            </div>
+            <div class="btn-row">
+              <button class="btn-primary" id="mst-submit-btn" onclick="saveMarteSettlement()">Simpan Settlement</button>
+              <button class="btn-ghost" onclick="clearMSTForm()">Bersihkan</button>
+            </div>
+            <div class="feedback" id="mst-feedback"></div>
+          </div>
+        </div>
+
+        <!-- LIST TAB -->
+        <div id="msttab-list" style="display:none">
+          <div class="filter-panel">
+            <select id="mst-fil-status" onchange="renderMSTTable()"><option value="">Semua Status</option><option value="Draft">Draft</option><option value="Sent">Sent</option><option value="Invoiced">Invoiced</option><option value="Settled">Settled</option></select>
+            <input type="text" id="mst-fil-search" placeholder="Cari brand / periode..." oninput="renderMSTTable()" style="max-width:220px">
+          </div>
+          <div class="table-toolbar">
+            <button class="btn-refresh" onclick="loadMarteSettlements()">↻ Refresh</button>
+            <div class="tcount" id="mst-tcount">— entri</div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Periode</th><th>Brand</th><th>Tipe</th>
+                <th style="text-align:right">Total Sales</th>
+                <th style="text-align:right">Net to Brand</th>
+                <th>Status</th><th>Invoice</th><th>Debit Note</th><th>Aksi</th>
+              </tr></thead>
+              <tbody id="mst-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div><!-- /.page#page-marte -->
+
   </div><!-- /.content -->
   </div><!-- /.shell -->
 </div><!-- /#app -->
@@ -2353,6 +2521,6 @@
 <div id="proj-overlay" class="proj-panel-overlay" style="display:none" onclick="if(event.target===this)closeProjectDetail()"></div>
 <div id="proj-panel" class="proj-panel" style="display:none"></div>
 
-<script src="app.js?v=20260526e"></script>
+<script src="app.js?v=20260527a"></script>
 </body>
 </html>
