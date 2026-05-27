@@ -11756,7 +11756,7 @@ async function downloadMRBrandXLSX() {
   const monthName = new Date(parseInt(yr), parseInt(mo)-1, 1)
     .toLocaleDateString('id-ID', {month:'long', year:'numeric'});
 
-  const rp = n => 'Rp ' + Math.round(parseFloat(n)||0).toLocaleString('id-ID');
+  const rp = n => 'Rp ' + Math.round(parseFloat(n)||0).toLocaleString('id-ID');
   const totSales  = parseFloat(salesRow?.total_sales)||0;
   const totFeeAmt = parseFloat(salesRow?.total_fee)||0;
   const netPayout = parseFloat(salesRow?.net_payout)||0;
@@ -11764,162 +11764,110 @@ async function downloadMRBrandXLSX() {
   const totSub    = skuData.reduce((s,r)=>s+(parseFloat(r.subtotal)||0),0);
   const totFee    = skuData.reduce((s,r)=>s+(parseFloat(r.fee_amount)||0),0);
 
-  // Convert logo to data-URL so it works in the print window
   let logoSrc = '';
   try {
     const resp = await fetch('assets/logo-marte.png');
     const buf  = await resp.arrayBuffer();
     const b64  = btoa(String.fromCharCode(...new Uint8Array(buf)));
-    logoSrc = `data:image/png;base64,${b64}`;
-  } catch(e) { /* skip */ }
+    logoSrc = 'data:image/png;base64,' + b64;
+  } catch(e) {}
 
-  const CAT_COLOR = { Apparel:'#3b82f6', Accessories:'#8b5cf6', Collectible:'#f59e0b', Wellness:'#10b981', Preloved:'#ec4899', Others:'#6b7280' };
-  const CAT_BG    = { Apparel:'#dbeafe', Accessories:'#ede9fe', Collectible:'#fef3c7', Wellness:'#d1fae5', Preloved:'#fce7f3', Others:'#f3f4f6' };
+  const CAT_COLOR = { Apparel:'#2563eb',Accessories:'#7c3aed',Collectible:'#d97706',Wellness:'#059669',Preloved:'#db2777',Others:'#6b7280' };
+  const CAT_BG    = { Apparel:'#dbeafe',Accessories:'#ede9fe',Collectible:'#fef3c7',Wellness:'#d1fae5',Preloved:'#fce7f3',Others:'#f3f4f6' };
 
-  const skuRows = skuData.map((r, i) => {
-    const cat  = r.fee_category || 'Others';
-    const bg   = CAT_BG[cat]    || CAT_BG.Others;
-    const fc   = CAT_COLOR[cat] || CAT_COLOR.Others;
-    const even = i % 2 === 0;
-    return `
-      <tr style="background:${even?'#fff':'#f9f8ff'}">
-        <td style="text-align:center;color:#aaa;font-size:11px">${i+1}</td>
-        <td style="font-family:'Courier New',monospace;font-size:11px;color:#555">${r.item_code||''}</td>
-        <td>${r.item_name||''}</td>
-        <td style="text-align:center">
-          <span style="display:inline-block;padding:2px 9px;border-radius:99px;font-size:10px;font-weight:700;background:${bg};color:${fc}">${cat}</span>
-        </td>
-        <td style="text-align:center">${r.total_qty||0}</td>
-        <td style="text-align:right">${rp(r.subtotal)}</td>
-        <td style="text-align:center;color:#6b6094">${Math.round((parseFloat(r.fee_rate)||0))}%</td>
-        <td style="text-align:right;font-weight:600;color:#3c3489">${rp(r.fee_amount)}</td>
-      </tr>`;
+  const skuRows = skuData.map(function(r,i){
+    const cat=r.fee_category||'Others', bg=CAT_BG[cat]||CAT_BG.Others, fc=CAT_COLOR[cat]||CAT_COLOR.Others;
+    return '<tr>'
+      +'<td class="c muted">'+(i+1)+'</td>'
+      +'<td class="mono">'+(r.item_code||'')+'</td>'
+      +'<td>'+(r.item_name||'')+'</td>'
+      +'<td class="c"><span class="pill" style="background:'+bg+';color:'+fc+'">'+cat+'</span></td>'
+      +'<td class="c">'+(r.total_qty||0)+'</td>'
+      +'<td class="r">'+rp(r.subtotal)+'</td>'
+      +'<td class="c muted">'+Math.round(parseFloat(r.fee_rate)||0)+'%</td>'
+      +'<td class="r bold accent">'+rp(r.fee_amount)+'</td>'
+      +'</tr>';
   }).join('');
 
-  const logoTag = logoSrc ? `<img src="${logoSrc}" style="height:52px;display:block">` : '<div style="font-weight:800;font-size:20px;color:#fff;letter-spacing:-1px">marte</div>';
-  const today   = new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'});
+  const logoTag = logoSrc
+    ? '<img src="'+logoSrc+'" style="max-height:42px;max-width:62px;object-fit:contain;display:block">'
+    : '<span style="font-weight:800;font-size:18px;color:#fff;letter-spacing:-1px">marte</span>';
+  const today = new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'});
 
-  const html = `<!DOCTYPE html>
-<html lang="id">
-<head>
-<meta charset="UTF-8">
-<title>Marte Sales Report – ${brandName} – ${period}</title>
-<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
-<style>
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:'DM Sans',sans-serif;font-size:12px;color:#1a1a1a;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-  @page{size:A4 portrait;margin:0}
+  const CSS = [
+    '*{box-sizing:border-box;margin:0;padding:0}',
+    'body{font-family:"DM Sans",sans-serif;font-size:11.5px;color:#1a1a1a;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}',
+    '@page{size:A4 portrait;margin:14mm 14mm 12mm 14mm}',
+    '.hdr{display:flex;align-items:stretch;background:#3c3489;border-radius:6px;overflow:hidden;margin-bottom:16px}',
+    '.hdr-logo{background:#2e2870;width:72px;min-width:72px;display:flex;align-items:center;justify-content:center;padding:10px}',
+    '.hdr-body{flex:1;padding:12px 18px;display:flex;flex-direction:column;justify-content:center}',
+    '.hdr-title{font-family:"Syne",sans-serif;font-size:17px;font-weight:800;color:#fff;letter-spacing:.4px}',
+    '.hdr-sub{font-size:11px;color:#b8b3e8;margin-top:3px}',
+    '.kpi-row{display:flex;gap:10px;margin-bottom:16px}',
+    '.kpi{flex:1;border:1px solid #e5e3f5;border-radius:6px;padding:10px 14px}',
+    '.kpi-label{font-size:9px;text-transform:uppercase;letter-spacing:.9px;color:#9790c9;font-weight:600;margin-bottom:5px}',
+    '.kpi-val{font-family:"Syne",sans-serif;font-size:15px;font-weight:700;color:#3c3489}',
+    'table{width:100%;border-collapse:collapse;font-size:11px}',
+    'thead th{padding:7px 9px;background:#3c3489;color:#fff;font-weight:600;font-size:10px;letter-spacing:.2px;white-space:nowrap}',
+    'thead th.r{text-align:right} thead th.c{text-align:center}',
+    'tbody tr{border-bottom:1px solid #efefef}',
+    'tbody td{padding:7px 9px;vertical-align:middle;background:#fff}',
+    '.c{text-align:center} .r{text-align:right}',
+    '.muted{color:#bbb} .mono{font-family:"Courier New",monospace;font-size:10px;color:#555}',
+    '.bold{font-weight:600} .accent{color:#3c3489}',
+    '.pill{display:inline-block;padding:2px 8px;border-radius:99px;font-size:10px;font-weight:700}',
+    '.tot td{padding:8px 9px;background:#f4f3fb;border-top:2px solid #3c3489;font-weight:700;font-size:12px}',
+    '.tot .tlabel{text-align:right;color:#3c3489;font-family:"Syne",sans-serif}',
+    '.tot .tfee{text-align:right;color:#3c3489;font-size:13px;font-weight:700}',
+    '.footer{margin-top:18px;padding-top:9px;border-top:1px solid #eee;display:flex;justify-content:space-between;font-size:9px;color:#bbb;font-style:italic}',
+    '@media print{.hdr{-webkit-print-color-adjust:exact;print-color-adjust:exact}}'
+  ].join('\n');
 
-  .page{width:210mm;min-height:297mm;padding:0;background:#fff;position:relative}
+  const html = [
+    '<!DOCTYPE html>',
+    '<html lang="id"><head><meta charset="UTF-8">',
+    '<title>Marte Sales Report - '+brandName+' - '+period+'</title>',
+    '<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet">',
+    '<style>'+CSS+'</style></head>',
+    '<body>',
+    '<div class="hdr"><div class="hdr-logo">'+logoTag+'</div>',
+    '<div class="hdr-body"><div class="hdr-title">MARTE SALES REPORT</div>',
+    '<div class="hdr-sub">'+brandName+'&nbsp;&nbsp;&middot;&nbsp;&nbsp;'+monthName+'</div></div></div>',
+    '<div class="kpi-row">',
+    '<div class="kpi"><div class="kpi-label">Gross Sales</div><div class="kpi-val">'+rp(totSales)+'</div></div>',
+    '<div class="kpi"><div class="kpi-label">Fee Konsinyasi</div><div class="kpi-val">'+rp(totFeeAmt)+'</div></div>',
+    '<div class="kpi"><div class="kpi-label">Net Payout ke Brand</div><div class="kpi-val">'+rp(netPayout)+'</div></div>',
+    '</div>',
+    '<table>',
+    '<thead><tr>',
+    '<th class="c" style="width:26px">#</th>',
+    '<th style="width:108px">SKU / Item Code</th>',
+    '<th>Nama Item</th>',
+    '<th class="c" style="width:86px">Kategori</th>',
+    '<th class="c" style="width:36px">Qty</th>',
+    '<th class="r" style="width:108px">Gross Subtotal</th>',
+    '<th class="c" style="width:56px">Fee Rate</th>',
+    '<th class="r" style="width:108px">Fee Amount</th>',
+    '</tr></thead>',
+    '<tbody>'+skuRows+'</tbody>',
+    '<tfoot><tr class="tot">',
+    '<td colspan="4" class="tlabel">TOTAL</td>',
+    '<td class="c">'+totQty+'</td>',
+    '<td class="r">'+rp(totSub)+'</td>',
+    '<td></td>',
+    '<td class="tfee">'+rp(totFee)+'</td>',
+    '</tr></tfoot>',
+    '</table>',
+    '<div class="footer">',
+    '<span>Dokumen ini dibuat otomatis oleh Sentra Internal Portal &middot; '+today+'</span>',
+    '<span>Sentra &middot; Internal Use Only</span>',
+    '</div>',
+    '<script>window.onload=function(){setTimeout(function(){window.print();},350);};<\/script>',
+    '</body></html>'
+  ].join('\n');
 
-  /* ── Header bar ── */
-  .hdr{background:#3c3489;display:flex;align-items:stretch;min-height:80px}
-  .hdr-logo{width:80px;min-width:80px;background:#2e2870;display:flex;align-items:center;justify-content:center;padding:12px}
-  .hdr-text{flex:1;padding:14px 20px;display:flex;flex-direction:column;justify-content:center}
-  .hdr-title{font-family:'Syne',sans-serif;font-size:18px;font-weight:800;color:#fff;letter-spacing:.5px}
-  .hdr-sub{font-family:'Syne',sans-serif;font-size:12px;color:#ccc8ef;margin-top:3px}
-
-  /* ── KPI strip ── */
-  .kpi-strip{display:flex;border-bottom:3px solid #3c3489}
-  .kpi{flex:1;padding:12px 16px;border-right:1px solid #e8e6f7;background:#f4f3fc}
-  .kpi:last-child{border-right:none}
-  .kpi-label{font-size:9px;text-transform:uppercase;letter-spacing:.8px;color:#8b85c1;font-weight:600;margin-bottom:4px}
-  .kpi-val{font-family:'Syne',sans-serif;font-size:16px;font-weight:700;color:#3c3489}
-
-  /* ── Table ── */
-  .wrap{padding:0 20px 20px}
-  table{width:100%;border-collapse:collapse;margin-top:16px;font-size:11px}
-  thead tr{background:#3c3489}
-  thead th{padding:8px 10px;text-align:left;color:#fff;font-weight:600;font-size:10px;letter-spacing:.3px;white-space:nowrap}
-  thead th.r{text-align:right}
-  thead th.c{text-align:center}
-  tbody td{padding:7px 10px;border-bottom:1px solid #f0eff8;vertical-align:middle}
-  tbody td.r{text-align:right}
-  tbody td.c{text-align:center}
-  .tfoot-row td{padding:9px 10px;font-weight:700;font-size:12px;background:#edeafa;border-top:2px solid #3c3489;border-bottom:2px solid #3c3489}
-  .tfoot-row td.r{text-align:right}
-  .tfoot-row td.c{text-align:center}
-  .tfoot-label{text-align:right;font-family:'Syne',sans-serif;letter-spacing:.5px;color:#3c3489}
-  .tfoot-fee{color:#3c3489;font-size:14px}
-
-  /* ── Footer ── */
-  .footer{margin-top:24px;padding:0 20px 16px;display:flex;justify-content:space-between;align-items:center;border-top:1px solid #e8e6f7;padding-top:10px}
-  .footer-note{font-size:9px;color:#aaa;font-style:italic}
-  .footer-page{font-size:9px;color:#bbb}
-
-  @media print{
-    body{margin:0}
-    .page{page-break-after:always}
-    button{display:none!important}
-    .no-print{display:none!important}
-  }
-</style>
-</head>
-<body>
-<div class="page">
-
-  <!-- Header -->
-  <div class="hdr">
-    <div class="hdr-logo">${logoTag}</div>
-    <div class="hdr-text">
-      <div class="hdr-title">MARTE SALES REPORT</div>
-      <div class="hdr-sub">${brandName}&nbsp;&nbsp;·&nbsp;&nbsp;${monthName}</div>
-    </div>
-  </div>
-
-  <!-- KPI strip -->
-  <div class="kpi-strip">
-    <div class="kpi"><div class="kpi-label">Gross Sales</div><div class="kpi-val">${rp(totSales)}</div></div>
-    <div class="kpi"><div class="kpi-label">Fee Konsinyasi</div><div class="kpi-val">${rp(totFeeAmt)}</div></div>
-    <div class="kpi"><div class="kpi-label">Net Payout ke Brand</div><div class="kpi-val">${rp(netPayout)}</div></div>
-  </div>
-
-  <!-- Detail table -->
-  <div class="wrap">
-    <table>
-      <thead>
-        <tr>
-          <th class="c" style="width:28px">#</th>
-          <th style="width:110px">SKU / Item Code</th>
-          <th>Nama Item</th>
-          <th class="c" style="width:90px">Kategori</th>
-          <th class="c" style="width:40px">Qty</th>
-          <th class="r" style="width:110px">Gross Subtotal</th>
-          <th class="c" style="width:60px">Fee Rate</th>
-          <th class="r" style="width:110px">Fee Amount</th>
-        </tr>
-      </thead>
-      <tbody>${skuRows}</tbody>
-      <tfoot>
-        <tr class="tfoot-row">
-          <td colspan="4" class="tfoot-label">TOTAL</td>
-          <td class="c">${totQty}</td>
-          <td class="r">${rp(totSub)}</td>
-          <td></td>
-          <td class="r tfoot-fee">${rp(totFee)}</td>
-        </tr>
-      </tfoot>
-    </table>
-
-    <!-- Footer -->
-    <div class="footer">
-      <div class="footer-note">Dokumen ini dibuat otomatis oleh Sentra Internal Portal &middot; ${today}</div>
-      <div class="footer-page">Sentra &middot; Internal Use Only</div>
-    </div>
-  </div>
-
-</div>
-
-<!-- Print trigger -->
-<script>
-  window.onload = function() {
-    setTimeout(function(){ window.print(); }, 400);
-  };
-<\/script>
-</body>
-</html>`;
-
-  const win = window.open('', '_blank', 'width=900,height=700');
+  const win = window.open('', '_blank', 'width=860,height=680');
+  if (!win) { alert('Pop-up diblokir browser. Izinkan pop-up untuk portal ini.'); return; }
   win.document.write(html);
   win.document.close();
 }
