@@ -236,6 +236,7 @@ function showPage(name, el) {
   if (name==="reminders") loadReminders();
   if (name==="announcements") loadAnnouncements();
   if (name==="marte") loadMarteSettlements();
+  if (name==="martereport") { const inp=document.getElementById('mr-period'); if(!inp.value) inp.value=new Date().toISOString().slice(0,7); }
   window.scrollTo(0, 0);
   closeMobileSidebar();
 }
@@ -11445,164 +11446,329 @@ async function deleteReminder(id) {
 }
 
 // ── MARTE SALES REPORT ──
-let _mrData = [], _mrStart = '', _mrEnd = '';
+let _mrSummary  = [];   // per-brand summary from RPC
+let _mrTracking = {};   // {brand_id: marte_settlements row}
+let _mrPeriod   = '';   // YYYY-MM
+let _mrModal    = null; // {brandId, brandName, salesRow, trkRow, skuData}
 
-function _mrRp(n) {
-  const v = parseFloat(n) || 0;
-  if (v === 0) return '—';
-  return 'Rp' + Math.round(v).toLocaleString('id-ID');
+function _mrRp(n)     { const v=parseFloat(n)||0; return v===0?'—':'Rp'+Math.round(v).toLocaleString('id-ID'); }
+function _mrRpFull(n) { return 'Rp'+Math.round(parseFloat(n)||0).toLocaleString('id-ID'); }
+function _mrFmtDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
 }
-function _mrRpFull(n) {
-  const v = parseFloat(n) || 0;
-  return 'Rp' + Math.round(v).toLocaleString('id-ID');
-}
-
-function mrSetRange(preset) {
-  const now = new Date();
-  let s, e;
-  if (preset === 'thismonth') {
-    s = new Date(now.getFullYear(), now.getMonth(), 1);
-    e = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-  } else if (preset === 'lastmonth') {
-    s = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    e = new Date(now.getFullYear(), now.getMonth(), 0);
-  } else if (preset === 'thisquarter') {
-    const q = Math.floor(now.getMonth() / 3);
-    s = new Date(now.getFullYear(), q * 3, 1);
-    e = new Date(now.getFullYear(), q * 3 + 3, 0);
-  } else if (preset === 'ytd') {
-    s = new Date(now.getFullYear(), 0, 1);
-    e = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-  }
-  const fmt = d => d.toISOString().slice(0, 10);
-  document.getElementById('mr-date-start').value = fmt(s);
-  document.getElementById('mr-date-end').value   = fmt(e);
+function _mrShort(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
 }
 
-async function generateMarteReport() {
-  const startVal = document.getElementById('mr-date-start').value;
-  const endVal   = document.getElementById('mr-date-end').value;
-  const fb = document.getElementById('mr-feedback');
-  if (!startVal || !endVal) { fb.textContent = 'Pilih tanggal mulai dan selesai dulu.'; fb.className = 'feedback err'; return; }
-  if (startVal > endVal)    { fb.textContent = 'Tanggal mulai harus sebelum tanggal selesai.'; fb.className = 'feedback err'; return; }
+// Period navigation
+function mrNavPeriod(offset) {
+  const inp = document.getElementById('mr-period');
+  if (offset === 0) { inp.value = new Date().toISOString().slice(0,7); return; }
+  const cur = inp.value ? new Date(inp.value+'-01') : new Date();
+  cur.setMonth(cur.getMonth() + offset);
+  inp.value = cur.toISOString().slice(0,7);
+}
 
-  fb.textContent = '';
-  const btn = document.getElementById('mr-generate-btn');
-  btn.textContent = 'Loading...'; btn.disabled = true;
+// ── Load period data ──
+async function loadMarteReport() {
+  const period = document.getElementById('mr-period').value;
+  const fb  = document.getElementById('mr-feedback');
+  const btn = document.getElementById('mr-load-btn');
+  if (!period) { fb.textContent='Pilih periode dulu.'; fb.className='feedback err'; return; }
 
-  // p_end_date is exclusive — add 1 day so the end date is inclusive
-  const endDateExclusive = new Date(endVal);
-  endDateExclusive.setDate(endDateExclusive.getDate() + 1);
-  const endISO = endDateExclusive.toISOString().slice(0, 10);
+  _mrPeriod = period;
+  fb.textContent=''; btn.textContent='Loading...'; btn.disabled=true;
 
-  const { data, error } = await sb.rpc('get_marte_sales_report', {
-    p_start_date: startVal + 'T00:00:00+07:00',
-    p_end_date:   endISO   + 'T00:00:00+07:00'
-  });
+  const [year, month] = period.split('-').map(Number);
+  const startISO = `${period}-01T00:00:00+07:00`;
+  const endISO   = new Date(year, month, 1).toISOString().slice(0,10) + 'T00:00:00+07:00';
 
-  btn.textContent = 'Generate'; btn.disabled = false;
+  const [salesRes, trkRes] = await Promise.all([
+    sb.rpc('get_marte_sales_report', { p_start_date: startISO, p_end_date: endISO }),
+    sb.from('marte_settlements').select('*').eq('period', period)
+  ]);
 
-  if (error) { fb.textContent = 'Error: ' + error.message; fb.className = 'feedback err'; return; }
-  if (!data || data.length === 0) {
-    fb.textContent = 'Tidak ada data penjualan untuk periode ini.';
-    fb.className = 'feedback err';
-    document.getElementById('mr-result-wrap').style.display = 'none';
-    document.getElementById('mr-stats').style.display = 'none';
+  btn.textContent='Load Data'; btn.disabled=false;
+
+  if (salesRes.error) { fb.textContent='Error: '+salesRes.error.message; fb.className='feedback err'; return; }
+
+  _mrSummary  = salesRes.data || [];
+  _mrTracking = {};
+  (trkRes.data||[]).forEach(r => { _mrTracking[r.brand_id] = r; });
+
+  if (!_mrSummary.length) {
+    fb.textContent='Tidak ada data penjualan untuk periode ini.'; fb.className='feedback err';
+    document.getElementById('mr-stats').style.display='none';
+    document.getElementById('mr-result-wrap').style.display='none';
     return;
   }
 
-  _mrData  = data;
-  _mrStart = startVal;
-  _mrEnd   = endVal;
-
-  // Compute totals
-  let totSales = 0, totFee = 0, totNet = 0;
-  data.forEach(r => { totSales += parseFloat(r.total_sales)||0; totFee += parseFloat(r.total_fee)||0; totNet += parseFloat(r.net_payout)||0; });
-
   // Stats
-  document.getElementById('mr-s-brands').textContent = data.length;
-  document.getElementById('mr-s-sales').textContent  = _mrRpFull(totSales);
-  document.getElementById('mr-s-fee').textContent    = _mrRpFull(totFee);
-  document.getElementById('mr-s-net').textContent    = _mrRpFull(totNet);
+  let totS=0, totF=0, totN=0;
+  _mrSummary.forEach(r=>{ totS+=parseFloat(r.total_sales)||0; totF+=parseFloat(r.total_fee)||0; totN+=parseFloat(r.net_payout)||0; });
+  document.getElementById('mr-s-brands').textContent = _mrSummary.length;
+  document.getElementById('mr-s-sales').textContent  = _mrRpFull(totS);
+  document.getElementById('mr-s-fee').textContent    = _mrRpFull(totF);
+  document.getElementById('mr-s-net').textContent    = _mrRpFull(totN);
   document.getElementById('mr-stats').style.display  = 'grid';
+  document.getElementById('mr-tcount').textContent   = _mrSummary.length+' brand';
+  document.getElementById('mr-result-wrap').style.display = 'block';
+  _mrRenderTable();
+}
 
-  // Period label
-  const fmtDisp = s => { const [y,m,d]=s.split('-'); return `${d}/${m}/${y}`; };
-  document.getElementById('mr-period-label').textContent = `Periode: ${fmtDisp(startVal)} – ${fmtDisp(endVal)}`;
-  document.getElementById('mr-tcount').textContent = data.length + ' brand';
+function _mrStatusPill(trk) {
+  // Returns array of 4 pills: [report, invoice, payment, buktipotong]
+  if (!trk) return [
+    `<span class="pill p-inactive" style="font-size:10px">—</span>`,
+    `<span class="pill p-inactive" style="font-size:10px">—</span>`,
+    `<span class="pill p-inactive" style="font-size:10px">—</span>`,
+    `<span class="pill p-inactive" style="font-size:10px">—</span>`
+  ];
+  const reportPill = trk.report_sent_at
+    ? `<span class="pill p-active" style="font-size:10px">✓ ${_mrShort(trk.report_sent_at)}</span>`
+    : `<span class="pill p-draft" style="font-size:10px">Belum</span>`;
+  const invPill = trk.invoice_number
+    ? `<span class="pill p-review" style="font-size:10px;white-space:nowrap">${_escRmd(trk.invoice_number)}</span>`
+    : `<span class="pill p-draft" style="font-size:10px">Belum</span>`;
+  const payPill = trk.payment_received_at
+    ? `<span class="pill p-active" style="font-size:10px">✓ Lunas ${_mrShort(trk.payment_received_at)}</span>`
+    : `<span class="pill p-draft" style="font-size:10px">Belum</span>`;
+  let bpPill;
+  if (trk.brand_type === 'Individu') {
+    bpPill = `<span class="pill p-inactive" style="font-size:10px">N/A</span>`;
+  } else if (trk.brand_type === 'PT') {
+    bpPill = trk.bukti_potong_received_at
+      ? `<span class="pill p-active" style="font-size:10px">✓ ${_mrShort(trk.bukti_potong_received_at)}</span>`
+      : `<span class="pill p-near" style="font-size:10px">Belum</span>`;
+  } else {
+    bpPill = `<span class="pill p-inactive" style="font-size:10px">—</span>`;
+  }
+  return [reportPill, invPill, payPill, bpPill];
+}
 
-  // Render table
-  const tbody = document.getElementById('mr-tbody');
-  tbody.innerHTML = data.map(r => {
-    const ts = parseFloat(r.total_sales)||0;
-    const tf = parseFloat(r.total_fee)||0;
-    const np = parseFloat(r.net_payout)||0;
+function _mrRenderTable() {
+  const tb = document.getElementById('mr-tbody');
+  tb.innerHTML = _mrSummary.map(r => {
+    const trk   = _mrTracking[r.brand_id] || null;
+    const pills = _mrStatusPill(trk);
+    const tipe  = trk?.brand_type || '—';
+    const tipeClass = tipe==='PT'?'p-signings':tipe==='Individu'?'p-draft':'p-inactive';
     const hasOthers = (parseFloat(r.others_sales)||0) > 0;
+    const warn  = hasOthers ? `<span style="color:orange;margin-left:4px;font-size:11px" title="${_mrRp(r.others_sales)} belum terkategori">⚠</span>` : '';
+    const bid   = _escRmd(r.brand_id||'');
+    const bname = _escRmd(r.brand_name||'');
+    return `<tr style="cursor:pointer" onclick="openMRDetail('${bid}','${bname}')">
+      <td style="font-weight:500">${bname}${warn}</td>
+      <td><span class="pill ${tipeClass}" style="font-size:10px">${tipe}</span></td>
+      <td style="text-align:right;font-family:var(--mono);font-size:12px">${_mrRpFull(r.total_sales)}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:12px;color:#c05">${_mrRpFull(r.total_fee)}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:12px;font-weight:600">${_mrRpFull(r.net_payout)}</td>
+      <td style="text-align:center">${pills[0]}</td>
+      <td style="text-align:center">${pills[1]}</td>
+      <td style="text-align:center">${pills[2]}</td>
+      <td style="text-align:center">${pills[3]}</td>
+      <td><button class="btn-edit" onclick="event.stopPropagation();openMRDetail('${bid}','${bname}')">Detail</button></td>
+    </tr>`;
+  }).join('');
+}
+
+// ── Detail modal ──
+async function openMRDetail(brandId, brandName) {
+  const salesRow = _mrSummary.find(r => r.brand_id === brandId) || null;
+  const trkRow   = _mrTracking[brandId] || null;
+  _mrModal = { brandId, brandName, salesRow, trkRow, skuData: null };
+
+  // Populate header
+  document.getElementById('mr-modal-brand').textContent  = brandName;
+  document.getElementById('mr-modal-period').textContent = _mrPeriod;
+  document.getElementById('mr-modal-sales').textContent  = salesRow ? _mrRpFull(salesRow.total_sales) : '—';
+  document.getElementById('mr-modal-fee').textContent    = salesRow ? _mrRpFull(salesRow.total_fee)   : '—';
+  document.getElementById('mr-modal-net').textContent    = salesRow ? _mrRpFull(salesRow.net_payout)  : '—';
+
+  // Status cards
+  _mrRenderStatusCards(trkRow);
+
+  // Populate form
+  document.getElementById('mr-f-brand-type').value  = trkRow?.brand_type    || '';
+  document.getElementById('mr-f-report-sent').value = trkRow?.report_sent_at ? new Date(trkRow.report_sent_at).toISOString().slice(0,10) : '';
+  document.getElementById('mr-f-inv-no').value      = trkRow?.invoice_number || '';
+  document.getElementById('mr-f-inv-date').value    = trkRow?.invoice_date   || '';
+  document.getElementById('mr-f-inv-status').value  = trkRow?.invoice_status || '';
+  document.getElementById('mr-f-pay-date').value    = trkRow?.payment_received_at ? new Date(trkRow.payment_received_at).toISOString().slice(0,10) : '';
+  document.getElementById('mr-f-pay-ref').value     = trkRow?.payment_ref    || '';
+  document.getElementById('mr-f-bp-date').value     = trkRow?.bukti_potong_received_at ? new Date(trkRow.bukti_potong_received_at).toISOString().slice(0,10) : '';
+  document.getElementById('mr-f-notes').value       = trkRow?.notes          || '';
+  document.getElementById('mr-f-feedback').textContent = '';
+  _mrToggleBPField();
+
+  // Show overlay
+  const ov = document.getElementById('mr-modal-overlay');
+  ov.style.display = 'flex';
+
+  // Load SKU detail async
+  document.getElementById('mr-sku-loading').style.display = '';
+  document.getElementById('mr-sku-wrap').style.display    = 'none';
+  _mrLoadSKUDetail(brandId);
+}
+
+function _mrRenderStatusCards(trk) {
+  const pills = _mrStatusPill(trk);
+  const labels = ['① Sales Report','② Invoice','③ Pembayaran','④ Bukti Potong'];
+  document.getElementById('mr-modal-status-grid').innerHTML = labels.map((lbl,i) =>
+    `<div style="border:1px solid var(--g100);border-radius:8px;padding:10px 12px">
+      <div style="font-size:11px;color:var(--g400);margin-bottom:6px">${lbl}</div>
+      <div>${pills[i]}</div>
+    </div>`
+  ).join('');
+}
+
+function _mrToggleBPField() {
+  const tipe = document.getElementById('mr-f-brand-type').value;
+  document.getElementById('mr-f-bp-wrap').style.display = tipe==='PT' ? '' : 'none';
+}
+
+async function _mrLoadSKUDetail(brandId) {
+  if (!_mrPeriod || !brandId) return;
+  const [year, month] = _mrPeriod.split('-').map(Number);
+  const startISO = `${_mrPeriod}-01T00:00:00+07:00`;
+  const endISO   = new Date(year, month, 1).toISOString().slice(0,10) + 'T00:00:00+07:00';
+
+  const { data, error } = await sb.rpc('get_marte_brand_detail', {
+    p_brand_id: brandId, p_start_date: startISO, p_end_date: endISO
+  });
+
+  if (_mrModal?.brandId !== brandId) return; // modal changed while loading
+  document.getElementById('mr-sku-loading').style.display = 'none';
+
+  if (error || !data?.length) {
+    document.getElementById('mr-sku-loading').textContent = error ? 'Gagal memuat data.' : 'Tidak ada data SKU.';
+    document.getElementById('mr-sku-loading').style.display = '';
+    return;
+  }
+
+  _mrModal.skuData = data;
+  let totQty=0, totSub=0, totFee=0;
+  data.forEach(r=>{ totQty+=parseInt(r.total_qty)||0; totSub+=parseFloat(r.subtotal)||0; totFee+=parseFloat(r.fee_amount)||0; });
+
+  const catColor = {Apparel:'#4a90d9',Accessories:'#7b5ea7',Collectible:'#e8a838',Wellness:'#2e9e5a',Preloved:'#c05040',Others:'#888'};
+  document.getElementById('mr-sku-tbody').innerHTML = data.map(r => {
+    const cc = catColor[r.fee_category]||'#888';
     return `<tr>
-      <td style="font-weight:500">${r.brand_name}</td>
-      <td>${_mrRp(r.apparel_sales)}</td>
-      <td style="color:var(--g400)">${_mrRp(r.apparel_fee)}</td>
-      <td>${_mrRp(r.accessories_sales)}</td>
-      <td style="color:var(--g400)">${_mrRp(r.accessories_fee)}</td>
-      <td>${_mrRp(r.collectible_sales)}</td>
-      <td style="color:var(--g400)">${_mrRp(r.collectible_fee)}</td>
-      <td>${_mrRp(r.wellness_sales)}</td>
-      <td style="color:var(--g400)">${_mrRp(r.wellness_fee)}</td>
-      <td>${_mrRp(r.preloved_sales)}</td>
-      <td style="color:var(--g400)">${_mrRp(r.preloved_fee)}</td>
-      <td${hasOthers ? ' style="color:var(--g600)"' : ''}>${_mrRp(r.others_sales)}${hasOthers ? ' ⚠' : ''}</td>
-      <td style="color:var(--g400)">${_mrRp(r.others_fee)}</td>
-      <td style="font-weight:600">${_mrRpFull(ts)}</td>
-      <td style="color:#c05">${_mrRpFull(tf)}</td>
-      <td style="font-weight:600;color:#080">${_mrRpFull(np)}</td>
-      <td style="text-align:center">${parseInt(r.total_qty)||0}</td>
-      <td style="text-align:center">${parseInt(r.order_count)||0}</td>
+      <td style="font-family:var(--mono);font-size:11px">${_escRmd(r.item_code||'')}</td>
+      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_escRmd(r.item_name||'')}">${_escRmd(r.item_name||'')}</td>
+      <td><span style="font-size:10px;color:${cc};font-weight:600">${r.fee_category||'Others'}</span></td>
+      <td style="text-align:right;font-family:var(--mono)">${parseInt(r.total_qty)||0}</td>
+      <td style="text-align:right;font-family:var(--mono)">${_mrRp(r.subtotal)}</td>
+      <td style="text-align:right;font-family:var(--mono);color:var(--g400)">${parseFloat(r.fee_rate)||0}%</td>
+      <td style="text-align:right;font-family:var(--mono);color:#c05">${_mrRp(r.fee_amount)}</td>
     </tr>`;
   }).join('');
 
-  document.getElementById('mr-result-wrap').style.display = 'block';
+  document.getElementById('mr-sku-tfoot').innerHTML = `<tr style="font-weight:600;border-top:2px solid var(--g200)">
+    <td colspan="3" style="padding:8px 10px">TOTAL</td>
+    <td style="text-align:right;font-family:var(--mono);padding:8px 10px">${totQty}</td>
+    <td style="text-align:right;font-family:var(--mono);padding:8px 10px">${_mrRpFull(totSub)}</td>
+    <td></td>
+    <td style="text-align:right;font-family:var(--mono);color:#c05;padding:8px 10px">${_mrRpFull(totFee)}</td>
+  </tr>`;
+
+  document.getElementById('mr-sku-wrap').style.display = '';
 }
 
-function downloadMarteReportCSV() {
-  if (!_mrData.length) return;
-  const fmtDisp = s => { const [y,m,d]=s.split('-'); return `${d}/${m}/${y}`; };
-  const fmtNum  = n => Math.round(parseFloat(n)||0).toString();
-  const header = [
-    'Brand','Apparel Sales','Apparel Fee (30%)','Accessories Sales','Accessories Fee (25%)',
-    'Collectible Sales','Collectible Fee (20%)','Wellness Sales','Wellness Fee (20%)',
-    'Preloved Sales','Preloved Fee (20%)','Others Sales','Others Fee (30%)',
-    'Total Sales','Total Fee','Net Payout','Total Qty','Total Orders'
-  ];
-  const rows = _mrData.map(r => [
-    r.brand_name,
-    fmtNum(r.apparel_sales),     fmtNum(r.apparel_fee),
-    fmtNum(r.accessories_sales), fmtNum(r.accessories_fee),
-    fmtNum(r.collectible_sales), fmtNum(r.collectible_fee),
-    fmtNum(r.wellness_sales),    fmtNum(r.wellness_fee),
-    fmtNum(r.preloved_sales),    fmtNum(r.preloved_fee),
-    fmtNum(r.others_sales),      fmtNum(r.others_fee),
-    fmtNum(r.total_sales), fmtNum(r.total_fee), fmtNum(r.net_payout),
-    fmtNum(r.total_qty), fmtNum(r.order_count)
-  ]);
+function closeMRModal(e) {
+  if (e && e.target !== document.getElementById('mr-modal-overlay')) return;
+  document.getElementById('mr-modal-overlay').style.display = 'none';
+  _mrModal = null;
+}
 
-  // Totals row
-  const tot = col => rows.reduce((s,r) => s + (parseInt(r[col])||0), 0).toString();
-  const totRow = ['TOTAL','','',  '','',  '','',  '','',  '','',  '','',
-    tot(13), tot(14), tot(15), tot(16), tot(17)];
-  rows.push(totRow);
+// ── Save tracking ──
+async function saveMRTracking() {
+  if (!_mrModal) return;
+  const fb = document.getElementById('mr-f-feedback');
+  fb.textContent=''; fb.className='feedback';
 
+  const brandType  = document.getElementById('mr-f-brand-type').value;
+  const reportSent = document.getElementById('mr-f-report-sent').value;
+  const invNo      = document.getElementById('mr-f-inv-no').value.trim();
+  const invDate    = document.getElementById('mr-f-inv-date').value;
+  const invStatus  = document.getElementById('mr-f-inv-status').value;
+  const payDate    = document.getElementById('mr-f-pay-date').value;
+  const payRef     = document.getElementById('mr-f-pay-ref').value.trim();
+  const bpDate     = document.getElementById('mr-f-bp-date').value;
+  const notes      = document.getElementById('mr-f-notes').value.trim();
+
+  const { brandId, brandName, salesRow, trkRow } = _mrModal;
+
+  const payload = {
+    brand_id:                 brandId,
+    brand_name:               brandName,
+    period:                   _mrPeriod,
+    date_range_from:          _mrPeriod + '-01',
+    date_range_to:            new Date(parseInt(_mrPeriod.split('-')[0]), parseInt(_mrPeriod.split('-')[1]), 0).toISOString().slice(0,10),
+    brand_type:               brandType || null,
+    total_sales:              parseFloat(salesRow?.total_sales) || 0,
+    consign_fee:              parseFloat(salesRow?.total_fee)   || 0,
+    net_to_brand:             parseFloat(salesRow?.net_payout)  || 0,
+    report_sent_at:           reportSent ? reportSent+'T00:00:00+07:00' : null,
+    invoice_number:           invNo      || null,
+    invoice_date:             invDate    || null,
+    invoice_status:           invStatus  || null,
+    payment_received_at:      payDate    ? payDate+'T00:00:00+07:00' : null,
+    payment_ref:              payRef     || null,
+    bukti_potong_received_at: (brandType==='PT'&&bpDate) ? bpDate+'T00:00:00+07:00' : null,
+    notes:                    notes      || null,
+    updated_at:               new Date().toISOString(),
+    updated_by:               currentUser
+  };
+
+  let error;
+  if (trkRow) {
+    ({ error } = await sb.from('marte_settlements').update(payload).eq('id', trkRow.id));
+  } else {
+    payload.id         = genId('MST');
+    payload.created_by = currentUser;
+    payload.created_at = new Date().toISOString();
+    ({ error } = await sb.from('marte_settlements').insert(payload));
+  }
+
+  if (error) { fb.textContent='Gagal menyimpan: '+error.message; fb.className='feedback err'; return; }
+
+  fb.textContent='Tersimpan ✓'; fb.className='feedback ok';
+
+  // Refresh tracking cache for this brand
+  const { data: fresh } = await sb.from('marte_settlements').select('*').eq('brand_id', brandId).eq('period', _mrPeriod).single();
+  if (fresh) { _mrTracking[brandId] = fresh; _mrModal.trkRow = fresh; }
+  _mrRenderStatusCards(fresh);
+  _mrRenderTable();
+}
+
+// ── Download CSV for one brand ──
+function downloadMRBrandCSV() {
+  if (!_mrModal?.skuData?.length) { alert('Load data SKU dulu.'); return; }
+  const { brandName, salesRow, skuData } = _mrModal;
+  const fmtN = n => Math.round(parseFloat(n)||0).toString();
+  const header = ['SKU','Nama Item','Kategori','Qty','Subtotal','Fee Rate (%)','Fee Amount'];
+  const rows   = skuData.map(r => [r.item_code, r.item_name, r.fee_category||'Others', r.total_qty, fmtN(r.subtotal), parseFloat(r.fee_rate)||0, fmtN(r.fee_amount)]);
+  const totSub = skuData.reduce((s,r)=>s+(parseFloat(r.subtotal)||0),0);
+  const totFee = skuData.reduce((s,r)=>s+(parseFloat(r.fee_amount)||0),0);
+  rows.push(['','','TOTAL', skuData.reduce((s,r)=>s+(parseInt(r.total_qty)||0),0), fmtN(totSub), '', fmtN(totFee)]);
+
+  const period = _mrPeriod;
   const csvLines = [
-    `Marte Sales Report — ${fmtDisp(_mrStart)} s/d ${fmtDisp(_mrEnd)}`,
+    `Marte Sales Report — ${brandName} — ${period}`,
+    `Gross Sales: ${_mrRpFull(salesRow?.total_sales)} | Fee: ${_mrRpFull(salesRow?.total_fee)} | Net Payout: ${_mrRpFull(salesRow?.net_payout)}`,
     '',
     header.join(','),
     ...rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(','))
   ];
-  const blob = new Blob(['﻿' + csvLines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+  const blob = new Blob(['﻿'+csvLines.join('\r\n')], {type:'text/csv;charset=utf-8;'});
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
-  a.href     = url;
-  a.download = `marte-sales-report-${_mrStart}-to-${_mrEnd}.csv`;
-  a.click();
+  a.href=url; a.download=`marte-${brandName.replace(/[^a-z0-9]/gi,'-')}-${period}.csv`; a.click();
   URL.revokeObjectURL(url);
 }
 

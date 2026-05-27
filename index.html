@@ -2417,77 +2417,170 @@
       <!-- MARTE SALES REPORT -->
       <div class="page" id="page-martereport">
         <div class="page-header">
-          <div><div class="page-title">Sales Report</div><div class="page-sub">Marte Operations — laporan penjualan per brand, per periode</div></div>
+          <div><div class="page-title">Sales Report</div><div class="page-sub">Marte Operations — per brand per bulan · sales, fee, invoice, pembayaran</div></div>
         </div>
 
         <!-- Period selector -->
         <div class="form-card" style="margin-bottom:1.25rem">
-          <div class="form-sec">Pilih Periode</div>
           <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
-            <div class="fg" style="min-width:160px">
-              <label>Dari Tanggal</label>
-              <input type="date" id="mr-date-start">
-            </div>
-            <div class="fg" style="min-width:160px">
-              <label>Sampai Tanggal</label>
-              <input type="date" id="mr-date-end">
+            <div class="fg" style="min-width:180px">
+              <label>Periode</label>
+              <input type="month" id="mr-period">
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;padding-bottom:1px">
-              <button class="btn-ghost" style="font-size:12px;padding:6px 10px" onclick="mrSetRange('thismonth')">Bulan Ini</button>
-              <button class="btn-ghost" style="font-size:12px;padding:6px 10px" onclick="mrSetRange('lastmonth')">Bulan Lalu</button>
-              <button class="btn-ghost" style="font-size:12px;padding:6px 10px" onclick="mrSetRange('thisquarter')">Kuartal Ini</button>
-              <button class="btn-ghost" style="font-size:12px;padding:6px 10px" onclick="mrSetRange('ytd')">YTD</button>
+              <button class="btn-ghost" style="font-size:12px;padding:6px 10px" onclick="mrNavPeriod(-1)">← Bulan Lalu</button>
+              <button class="btn-ghost" style="font-size:12px;padding:6px 10px" onclick="mrNavPeriod(0)">Bulan Ini</button>
+              <button class="btn-ghost" style="font-size:12px;padding:6px 10px" onclick="mrNavPeriod(1)">Bulan Depan →</button>
             </div>
-            <button class="btn-primary" id="mr-generate-btn" onclick="generateMarteReport()" style="padding:8px 20px">Generate</button>
+            <button class="btn-primary" id="mr-load-btn" onclick="loadMarteReport()" style="padding:8px 20px">Load Data</button>
           </div>
           <div class="feedback" id="mr-feedback"></div>
         </div>
 
-        <!-- Summary stats -->
+        <!-- Stats row -->
         <div class="stats-row" id="mr-stats" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem;display:none">
-          <div class="stat-card"><div class="stat-num" id="mr-s-brands">—</div><div class="stat-lbl">Brand Aktif</div></div>
-          <div class="stat-card"><div class="stat-num" id="mr-s-sales">—</div><div class="stat-lbl">Total Gross Sales</div></div>
-          <div class="stat-card"><div class="stat-num" id="mr-s-fee">—</div><div class="stat-lbl">Total Konsinyasi Fee</div></div>
-          <div class="stat-card"><div class="stat-num" id="mr-s-net">—</div><div class="stat-lbl">Total Net Payout</div></div>
+          <div class="stat-card"><div class="stat-num" id="mr-s-brands">—</div><div class="stat-lbl">Brand</div></div>
+          <div class="stat-card"><div class="stat-num" id="mr-s-sales">—</div><div class="stat-lbl">Gross Sales</div></div>
+          <div class="stat-card"><div class="stat-num" id="mr-s-fee">—</div><div class="stat-lbl">Total Fee</div></div>
+          <div class="stat-card"><div class="stat-num" id="mr-s-net">—</div><div class="stat-lbl">Net Payout</div></div>
         </div>
 
-        <!-- Results -->
+        <!-- Table -->
         <div id="mr-result-wrap" style="display:none">
           <div class="table-toolbar">
-            <div style="display:flex;align-items:center;gap:8px">
-              <button class="btn-primary" onclick="downloadMarteReportCSV()" style="padding:6px 16px;font-size:13px">⬇ Download CSV</button>
-              <div class="tcount" id="mr-tcount">—</div>
-            </div>
-            <div id="mr-period-label" style="font-size:12px;color:var(--g400);font-family:var(--mono)"></div>
+            <button class="btn-refresh" onclick="loadMarteReport()">↻ Refresh</button>
+            <div class="tcount" id="mr-tcount">—</div>
           </div>
           <div class="table-wrap" style="overflow-x:auto">
-            <table id="mr-table">
-              <thead>
-                <tr>
-                  <th rowspan="2" style="min-width:160px;vertical-align:bottom">Brand</th>
-                  <th colspan="2" style="text-align:center;border-bottom:1px solid var(--g200)">Apparel</th>
-                  <th colspan="2" style="text-align:center;border-bottom:1px solid var(--g200)">Accessories</th>
-                  <th colspan="2" style="text-align:center;border-bottom:1px solid var(--g200)">Collectible</th>
-                  <th colspan="2" style="text-align:center;border-bottom:1px solid var(--g200)">Wellness</th>
-                  <th colspan="2" style="text-align:center;border-bottom:1px solid var(--g200)">Preloved</th>
-                  <th colspan="2" style="text-align:center;border-bottom:1px solid var(--g200)">Others</th>
-                  <th rowspan="2" style="min-width:110px;vertical-align:bottom">Total Sales</th>
-                  <th rowspan="2" style="min-width:100px;vertical-align:bottom">Total Fee</th>
-                  <th rowspan="2" style="min-width:110px;vertical-align:bottom">Net Payout</th>
-                  <th rowspan="2" style="vertical-align:bottom">Qty</th>
-                  <th rowspan="2" style="vertical-align:bottom">Orders</th>
-                </tr>
-                <tr>
-                  <th style="font-size:11px;color:var(--g400)">Sales</th><th style="font-size:11px;color:var(--g400)">Fee (30%)</th>
-                  <th style="font-size:11px;color:var(--g400)">Sales</th><th style="font-size:11px;color:var(--g400)">Fee (25%)</th>
-                  <th style="font-size:11px;color:var(--g400)">Sales</th><th style="font-size:11px;color:var(--g400)">Fee (20%)</th>
-                  <th style="font-size:11px;color:var(--g400)">Sales</th><th style="font-size:11px;color:var(--g400)">Fee (20%)</th>
-                  <th style="font-size:11px;color:var(--g400)">Sales</th><th style="font-size:11px;color:var(--g400)">Fee (20%)</th>
-                  <th style="font-size:11px;color:var(--g400)">Sales</th><th style="font-size:11px;color:var(--g400)">Fee (30%)</th>
-                </tr>
-              </thead>
+            <table>
+              <thead><tr>
+                <th style="min-width:150px">Brand</th>
+                <th>Tipe</th>
+                <th style="text-align:right;min-width:120px">Gross Sales</th>
+                <th style="text-align:right;min-width:110px">Fee</th>
+                <th style="text-align:right;min-width:120px">Net Payout</th>
+                <th style="text-align:center;min-width:100px">① Sales Report</th>
+                <th style="text-align:center;min-width:110px">② Invoice</th>
+                <th style="text-align:center;min-width:100px">③ Pembayaran</th>
+                <th style="text-align:center;min-width:100px">④ Bukti Potong</th>
+                <th></th>
+              </tr></thead>
               <tbody id="mr-tbody"></tbody>
             </table>
+          </div>
+        </div>
+
+        <!-- Detail Modal -->
+        <div id="mr-modal-overlay" style="display:none;position:fixed;inset:0;background:rgba(12,12,12,0.45);z-index:1000;align-items:flex-start;justify-content:flex-end" onclick="closeMRModal(event)">
+          <div id="mr-modal" style="background:var(--white);width:min(680px,100vw);height:100vh;overflow-y:auto;box-shadow:-4px 0 24px rgba(0,0,0,0.12);padding:0" onclick="event.stopPropagation()">
+            <!-- Modal header -->
+            <div style="position:sticky;top:0;background:var(--white);border-bottom:1px solid var(--g100);padding:20px 24px 16px;z-index:10">
+              <div style="display:flex;align-items:flex-start;justify-content:space-between">
+                <div>
+                  <div style="font-family:var(--syne);font-weight:700;font-size:18px" id="mr-modal-brand">—</div>
+                  <div style="font-size:12px;color:var(--g400);font-family:var(--mono);margin-top:2px" id="mr-modal-period">—</div>
+                </div>
+                <button onclick="closeMRModal()" style="background:none;border:none;cursor:pointer;color:var(--g400);font-size:20px;padding:0;line-height:1">✕</button>
+              </div>
+              <!-- Summary strip -->
+              <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:14px">
+                <div style="background:var(--off);border-radius:8px;padding:10px 12px">
+                  <div style="font-size:11px;color:var(--g400);margin-bottom:2px">Gross Sales</div>
+                  <div style="font-family:var(--mono);font-weight:700;font-size:14px" id="mr-modal-sales">—</div>
+                </div>
+                <div style="background:var(--off);border-radius:8px;padding:10px 12px">
+                  <div style="font-size:11px;color:var(--g400);margin-bottom:2px">Konsinyasi Fee</div>
+                  <div style="font-family:var(--mono);font-weight:700;font-size:14px;color:#c05" id="mr-modal-fee">—</div>
+                </div>
+                <div style="background:var(--off);border-radius:8px;padding:10px 12px">
+                  <div style="font-size:11px;color:var(--g400);margin-bottom:2px">Net Payout</div>
+                  <div style="font-family:var(--mono);font-weight:700;font-size:14px;color:#080" id="mr-modal-net">—</div>
+                </div>
+              </div>
+            </div>
+
+            <div style="padding:20px 24px">
+              <!-- Status section -->
+              <div style="font-family:var(--syne);font-weight:600;font-size:13px;margin-bottom:12px">Status Tracking</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px" id="mr-modal-status-grid">
+                <!-- rendered by JS -->
+              </div>
+
+              <!-- Settlement form -->
+              <div style="border:1px solid var(--g100);border-radius:10px;padding:16px;margin-bottom:20px">
+                <div style="font-size:12px;font-weight:600;margin-bottom:12px;color:var(--g600)">Update Status</div>
+                <div class="form-grid">
+                  <div class="fg">
+                    <label>Tipe Brand</label>
+                    <select id="mr-f-brand-type" onchange="_mrToggleBPField()">
+                      <option value="">Pilih tipe...</option>
+                      <option value="Individu">Individu</option>
+                      <option value="PT">PT</option>
+                    </select>
+                  </div>
+                  <div class="fg">
+                    <label>Laporan Terkirim</label>
+                    <input type="date" id="mr-f-report-sent" placeholder="Kosongkan jika belum">
+                  </div>
+                  <div class="fg">
+                    <label>Nomor Invoice</label>
+                    <input type="text" id="mr-f-inv-no" placeholder="INV/MARTE/V/2026/001">
+                  </div>
+                  <div class="fg">
+                    <label>Tgl Invoice</label>
+                    <input type="date" id="mr-f-inv-date">
+                  </div>
+                  <div class="fg">
+                    <label>Status Invoice</label>
+                    <select id="mr-f-inv-status">
+                      <option value="">—</option>
+                      <option value="Draft">Draft</option>
+                      <option value="Sent">Sent</option>
+                      <option value="Paid">Paid</option>
+                    </select>
+                  </div>
+                  <div class="fg">
+                    <label>Tanggal Bayar</label>
+                    <input type="date" id="mr-f-pay-date">
+                  </div>
+                  <div class="fg">
+                    <label>Ref Pembayaran</label>
+                    <input type="text" id="mr-f-pay-ref" placeholder="No. transfer / referensi">
+                  </div>
+                  <div class="fg" id="mr-f-bp-wrap">
+                    <label>Bukti Potong Diterima</label>
+                    <input type="date" id="mr-f-bp-date" placeholder="Kosongkan jika belum">
+                  </div>
+                  <div class="fg full">
+                    <label>Catatan</label>
+                    <input type="text" id="mr-f-notes" placeholder="Opsional">
+                  </div>
+                </div>
+                <div class="btn-row" style="margin-top:12px">
+                  <button class="btn-primary" onclick="saveMRTracking()">Simpan</button>
+                  <button class="btn-ghost" onclick="closeMRModal()">Batal</button>
+                  <button class="btn-ghost" style="margin-left:auto;font-size:12px" onclick="downloadMRBrandCSV()">⬇ Download CSV</button>
+                </div>
+                <div class="feedback" id="mr-f-feedback"></div>
+              </div>
+
+              <!-- SKU Detail -->
+              <div style="font-family:var(--syne);font-weight:600;font-size:13px;margin-bottom:10px">Detail SKU Terjual</div>
+              <div id="mr-sku-loading" style="color:var(--g400);font-size:13px;padding:12px 0">Memuat data...</div>
+              <div class="table-wrap" id="mr-sku-wrap" style="display:none">
+                <table style="font-size:12px">
+                  <thead><tr>
+                    <th>SKU</th><th>Nama Item</th><th>Kategori</th>
+                    <th style="text-align:right">Qty</th>
+                    <th style="text-align:right">Subtotal</th>
+                    <th style="text-align:right">Rate</th>
+                    <th style="text-align:right">Fee</th>
+                  </tr></thead>
+                  <tbody id="mr-sku-tbody"></tbody>
+                  <tfoot id="mr-sku-tfoot"></tfoot>
+                </table>
+              </div>
+            </div>
           </div>
         </div>
       </div><!-- /.page#page-martereport -->
@@ -2603,6 +2696,6 @@
 <div id="proj-overlay" class="proj-panel-overlay" style="display:none" onclick="if(event.target===this)closeProjectDetail()"></div>
 <div id="proj-panel" class="proj-panel" style="display:none"></div>
 
-<script src="app.js?v=20260527b"></script>
+<script src="app.js?v=20260527c"></script>
 </body>
 </html>
