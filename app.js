@@ -11756,211 +11756,172 @@ async function downloadMRBrandXLSX() {
   const monthName = new Date(parseInt(yr), parseInt(mo)-1, 1)
     .toLocaleDateString('id-ID', {month:'long', year:'numeric'});
 
-  // ── Workbook & worksheet ──
-  const wb = new ExcelJS.Workbook();
-  wb.creator = 'Sentra Portal'; wb.created = new Date();
-  const ws = wb.addWorksheet('Sales Report', { pageSetup: { paperSize:9, orientation:'portrait', fitToPage:true, fitToWidth:1, fitToHeight:0, margins:{left:0.5,right:0.5,top:0.75,bottom:0.75,header:0.3,footer:0.3} }});
+  const rp = n => 'Rp ' + Math.round(parseFloat(n)||0).toLocaleString('id-ID');
+  const totSales  = parseFloat(salesRow?.total_sales)||0;
+  const totFeeAmt = parseFloat(salesRow?.total_fee)||0;
+  const netPayout = parseFloat(salesRow?.net_payout)||0;
+  const totQty    = skuData.reduce((s,r)=>s+(parseInt(r.total_qty)||0),0);
+  const totSub    = skuData.reduce((s,r)=>s+(parseFloat(r.subtotal)||0),0);
+  const totFee    = skuData.reduce((s,r)=>s+(parseFloat(r.fee_amount)||0),0);
 
-  // ── Column widths ──
-  ws.columns = [
-    {width:6},   // A  (row num)
-    {width:22},  // B  SKU
-    {width:40},  // C  Nama Item
-    {width:16},  // D  Kategori
-    {width:10},  // E  Qty
-    {width:20},  // F  Subtotal
-    {width:14},  // G  Fee Rate
-    {width:20},  // H  Fee Amount
-  ];
-
-  // ── Colour palette ──
-  const BLACK   = 'FF1A1A1A';
-  const WHITE   = 'FFFFFFFF';
-  const BRAND   = 'FF3C3489';   // Marte / Sentra purple
-  const BRAND_L = 'FFE8E6F7';   // light purple tint
-  const GREY_H  = 'FFF2F3F5';   // table header row
-  const GREY_B  = 'FFFAFAFA';   // alternate data row
-  const TOTAL_F = 'FFF0EEF9';   // totals row fill
-  const AMBER   = 'FFF59E0B';
-
-  const mono = { name:'Courier New', size:9 };
-  const sans = { name:'DM Sans',     size:10 };
-  const syne = { name:'Calibri',     size:10 };   // fallback for Syne
-
-  const thinBorder = (color='FFD0D0D0') => ({style:'thin', color:{argb:color}});
-  const cellBorder = (top,right,bot,left) => ({top:thinBorder(top),right:thinBorder(right),bottom:thinBorder(bot),left:thinBorder(left)});
-
-  // ── Helper: apply style to a cell ──
-  function sc(row, col, value, style={}) {
-    const cell = ws.getCell(row, col);
-    cell.value = value;
-    if (style.fill)      cell.fill      = style.fill;
-    if (style.font)      cell.font      = style.font;
-    if (style.alignment) cell.alignment = style.alignment;
-    if (style.border)    cell.border    = style.border;
-    if (style.numFmt)    cell.numFmt    = style.numFmt;
-    return cell;
-  }
-  function solidFill(argb) { return {type:'pattern',pattern:'solid',fgColor:{argb}}; }
-  function merge(r1,c1,r2,c2) { ws.mergeCells(r1,c1,r2,c2); }
-
-  // ════════════════════════════════════════════
-  // ROW 1-2 — Logo + Document title block
-  // ════════════════════════════════════════════
-  ws.getRow(1).height = 46;
-  ws.getRow(2).height = 22;
-
-  // Logo in A1:A2
+  // Convert logo to data-URL so it works in the print window
+  let logoSrc = '';
   try {
-    const resp    = await fetch('assets/logo-marte.png');
-    const buf     = await resp.arrayBuffer();
-    const imgId   = wb.addImage({ buffer: buf, extension: 'png' });
-    ws.addImage(imgId, { tl:{col:0,row:0}, br:{col:1,row:2}, editAs:'oneCell' });
-  } catch(e) { /* logo optional — skip if missing */ }
+    const resp = await fetch('assets/logo-marte.png');
+    const buf  = await resp.arrayBuffer();
+    const b64  = btoa(String.fromCharCode(...new Uint8Array(buf)));
+    logoSrc = `data:image/png;base64,${b64}`;
+  } catch(e) { /* skip */ }
 
-  // Title block B1:H1
-  merge(1,2,1,8);
-  sc(1,2, 'MARTE SALES REPORT', {
-    fill: solidFill(BRAND),
-    font: { name:'Calibri', size:16, bold:true, color:{argb:WHITE} },
-    alignment: { vertical:'middle', horizontal:'left', indent:1 },
-  });
-  // apply fill for the merged region too
-  for(let c=3;c<=8;c++) ws.getCell(1,c).fill = solidFill(BRAND);
+  const CAT_COLOR = { Apparel:'#3b82f6', Accessories:'#8b5cf6', Collectible:'#f59e0b', Wellness:'#10b981', Preloved:'#ec4899', Others:'#6b7280' };
+  const CAT_BG    = { Apparel:'#dbeafe', Accessories:'#ede9fe', Collectible:'#fef3c7', Wellness:'#d1fae5', Preloved:'#fce7f3', Others:'#f3f4f6' };
 
-  // Sub-title B2:H2
-  merge(2,2,2,8);
-  sc(2,2, `${brandName}  ·  ${monthName}`, {
-    fill: solidFill(BRAND),
-    font: { name:'Calibri', size:11, color:{argb:'FFCCC8EF'} },
-    alignment: { vertical:'middle', horizontal:'left', indent:1 },
-  });
-  for(let c=3;c<=8;c++) { ws.getCell(2,c).fill = solidFill(BRAND); }
+  const skuRows = skuData.map((r, i) => {
+    const cat  = r.fee_category || 'Others';
+    const bg   = CAT_BG[cat]    || CAT_BG.Others;
+    const fc   = CAT_COLOR[cat] || CAT_COLOR.Others;
+    const even = i % 2 === 0;
+    return `
+      <tr style="background:${even?'#fff':'#f9f8ff'}">
+        <td style="text-align:center;color:#aaa;font-size:11px">${i+1}</td>
+        <td style="font-family:'Courier New',monospace;font-size:11px;color:#555">${r.item_code||''}</td>
+        <td>${r.item_name||''}</td>
+        <td style="text-align:center">
+          <span style="display:inline-block;padding:2px 9px;border-radius:99px;font-size:10px;font-weight:700;background:${bg};color:${fc}">${cat}</span>
+        </td>
+        <td style="text-align:center">${r.total_qty||0}</td>
+        <td style="text-align:right">${rp(r.subtotal)}</td>
+        <td style="text-align:center;color:#6b6094">${Math.round((parseFloat(r.fee_rate)||0))}%</td>
+        <td style="text-align:right;font-weight:600;color:#3c3489">${rp(r.fee_amount)}</td>
+      </tr>`;
+  }).join('');
 
-  // ════════════════════════════════════════════
-  // ROW 3 — spacer
-  // ════════════════════════════════════════════
-  ws.getRow(3).height = 6;
-  for(let c=1;c<=8;c++) ws.getCell(3,c).fill = solidFill(BRAND_L);
+  const logoTag = logoSrc ? `<img src="${logoSrc}" style="height:52px;display:block">` : '<div style="font-weight:800;font-size:20px;color:#fff;letter-spacing:-1px">marte</div>';
+  const today   = new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'});
 
-  // ════════════════════════════════════════════
-  // ROW 4-5 — Summary KPI boxes
-  // ════════════════════════════════════════════
-  ws.getRow(4).height = 14;
-  ws.getRow(5).height = 26;
+  const html = `<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<title>Marte Sales Report – ${brandName} – ${period}</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'DM Sans',sans-serif;font-size:12px;color:#1a1a1a;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  @page{size:A4 portrait;margin:0}
 
-  const totSales   = parseFloat(salesRow?.total_sales)||0;
-  const totFeeAmt  = parseFloat(salesRow?.total_fee)||0;
-  const netPayout  = parseFloat(salesRow?.net_payout)||0;
+  .page{width:210mm;min-height:297mm;padding:0;background:#fff;position:relative}
 
-  const kpis = [
-    {label:'Gross Sales', value:totSales,  cols:[2,3]},
-    {label:'Fee Konsinyasi', value:totFeeAmt, cols:[4,5]},
-    {label:'Net Payout ke Brand', value:netPayout, cols:[6,8]},
-  ];
-  kpis.forEach(({label, value, cols}) => {
-    const [cs, ce] = cols;
-    merge(4, cs, 4, ce);
-    sc(4, cs, label, { fill:solidFill(BRAND_L), font:{name:'Calibri',size:9,color:{argb:'FF6B6094'}}, alignment:{horizontal:'center',vertical:'bottom'} });
-    for(let c=cs+1;c<=ce;c++) ws.getCell(4,c).fill = solidFill(BRAND_L);
+  /* ── Header bar ── */
+  .hdr{background:#3c3489;display:flex;align-items:stretch;min-height:80px}
+  .hdr-logo{width:80px;min-width:80px;background:#2e2870;display:flex;align-items:center;justify-content:center;padding:12px}
+  .hdr-text{flex:1;padding:14px 20px;display:flex;flex-direction:column;justify-content:center}
+  .hdr-title{font-family:'Syne',sans-serif;font-size:18px;font-weight:800;color:#fff;letter-spacing:.5px}
+  .hdr-sub{font-family:'Syne',sans-serif;font-size:12px;color:#ccc8ef;margin-top:3px}
 
-    merge(5, cs, 5, ce);
-    sc(5, cs, value, {
-      fill: solidFill(WHITE),
-      font: {name:'Calibri', size:14, bold:true, color:{argb:BRAND}},
-      alignment: {horizontal:'center', vertical:'middle'},
-      numFmt: '#,##0',
-    });
-    for(let c=cs+1;c<=ce;c++) { ws.getCell(5,c).fill=solidFill(WHITE); }
-  });
-  // A4:A5 empty with light fill
-  merge(4,1,5,1); ws.getCell(4,1).fill = solidFill(BRAND_L);
+  /* ── KPI strip ── */
+  .kpi-strip{display:flex;border-bottom:3px solid #3c3489}
+  .kpi{flex:1;padding:12px 16px;border-right:1px solid #e8e6f7;background:#f4f3fc}
+  .kpi:last-child{border-right:none}
+  .kpi-label{font-size:9px;text-transform:uppercase;letter-spacing:.8px;color:#8b85c1;font-weight:600;margin-bottom:4px}
+  .kpi-val{font-family:'Syne',sans-serif;font-size:16px;font-weight:700;color:#3c3489}
 
-  // ════════════════════════════════════════════
-  // ROW 6 — spacer
-  // ════════════════════════════════════════════
-  ws.getRow(6).height = 8;
+  /* ── Table ── */
+  .wrap{padding:0 20px 20px}
+  table{width:100%;border-collapse:collapse;margin-top:16px;font-size:11px}
+  thead tr{background:#3c3489}
+  thead th{padding:8px 10px;text-align:left;color:#fff;font-weight:600;font-size:10px;letter-spacing:.3px;white-space:nowrap}
+  thead th.r{text-align:right}
+  thead th.c{text-align:center}
+  tbody td{padding:7px 10px;border-bottom:1px solid #f0eff8;vertical-align:middle}
+  tbody td.r{text-align:right}
+  tbody td.c{text-align:center}
+  .tfoot-row td{padding:9px 10px;font-weight:700;font-size:12px;background:#edeafa;border-top:2px solid #3c3489;border-bottom:2px solid #3c3489}
+  .tfoot-row td.r{text-align:right}
+  .tfoot-row td.c{text-align:center}
+  .tfoot-label{text-align:right;font-family:'Syne',sans-serif;letter-spacing:.5px;color:#3c3489}
+  .tfoot-fee{color:#3c3489;font-size:14px}
 
-  // ════════════════════════════════════════════
-  // ROW 7 — Table header
-  // ════════════════════════════════════════════
-  ws.getRow(7).height = 22;
-  const headers = ['#','SKU / Item Code','Nama Item','Kategori','Qty','Gross Subtotal (Rp)','Fee Rate','Fee Amount (Rp)'];
-  const hAlign  = ['center','left','left','center','center','right','center','right'];
-  headers.forEach((h, i) => {
-    sc(7, i+1, h, {
-      fill:   solidFill(BRAND),
-      font:   { name:'Calibri', size:9, bold:true, color:{argb:WHITE} },
-      alignment: { horizontal: hAlign[i], vertical:'middle', wrapText:true },
-      border: cellBorder('FFD0D0D0','FFD0D0D0','FFD0D0D0','FFD0D0D0'),
-    });
-  });
+  /* ── Footer ── */
+  .footer{margin-top:24px;padding:0 20px 16px;display:flex;justify-content:space-between;align-items:center;border-top:1px solid #e8e6f7;padding-top:10px}
+  .footer-note{font-size:9px;color:#aaa;font-style:italic}
+  .footer-page{font-size:9px;color:#bbb}
 
-  // ════════════════════════════════════════════
-  // ROWS 8+ — Data rows
-  // ════════════════════════════════════════════
-  const CAT_COLORS = { Apparel:'FF3B82F6', Accessories:'FF8B5CF6', Collectible:'FFF59E0B', Wellness:'FF10B981', Preloved:'FFEC4899', Others:'FF6B7280' };
-  const CAT_TINTS  = { Apparel:'FFD9E8FE', Accessories:'FFEDE8FD', Collectible:'FFFEF3C7', Wellness:'FFD1FAE5', Preloved:'FFFCE7F3', Others:'FFF3F4F6' };
+  @media print{
+    body{margin:0}
+    .page{page-break-after:always}
+    button{display:none!important}
+    .no-print{display:none!important}
+  }
+</style>
+</head>
+<body>
+<div class="page">
 
-  skuData.forEach((r, idx) => {
-    const rowNum = 8 + idx;
-    const fill   = idx % 2 === 0 ? solidFill(WHITE) : solidFill(GREY_B);
-    ws.getRow(rowNum).height = 18;
+  <!-- Header -->
+  <div class="hdr">
+    <div class="hdr-logo">${logoTag}</div>
+    <div class="hdr-text">
+      <div class="hdr-title">MARTE SALES REPORT</div>
+      <div class="hdr-sub">${brandName}&nbsp;&nbsp;·&nbsp;&nbsp;${monthName}</div>
+    </div>
+  </div>
 
-    const catColor = CAT_COLORS[r.fee_category] || CAT_COLORS.Others;
-    const bdr = cellBorder('FFE8E8E8','FFE8E8E8','FFE8E8E8','FFE8E8E8');
+  <!-- KPI strip -->
+  <div class="kpi-strip">
+    <div class="kpi"><div class="kpi-label">Gross Sales</div><div class="kpi-val">${rp(totSales)}</div></div>
+    <div class="kpi"><div class="kpi-label">Fee Konsinyasi</div><div class="kpi-val">${rp(totFeeAmt)}</div></div>
+    <div class="kpi"><div class="kpi-label">Net Payout ke Brand</div><div class="kpi-val">${rp(netPayout)}</div></div>
+  </div>
 
-    sc(rowNum,1, idx+1,            { fill, font:{...syne,size:9,color:{argb:'FFAAAAAA'}}, alignment:{horizontal:'center',vertical:'middle'}, border:bdr });
-    sc(rowNum,2, r.item_code||'',  { fill, font:{...mono,size:9}, alignment:{horizontal:'left',vertical:'middle',indent:1}, border:bdr });
-    sc(rowNum,3, r.item_name||'',  { fill, font:{...syne,size:10}, alignment:{horizontal:'left',vertical:'middle',indent:1,wrapText:true}, border:bdr });
-    const catTint = CAT_TINTS[r.fee_category] || CAT_TINTS.Others;
-    sc(rowNum,4, r.fee_category||'Others', { fill:solidFill(catTint), font:{name:'Calibri',size:9,bold:true,color:{argb:catColor}}, alignment:{horizontal:'center',vertical:'middle'}, border:bdr });
-    sc(rowNum,5, parseInt(r.total_qty)||0,  { fill, font:{...syne}, alignment:{horizontal:'center',vertical:'middle'}, border:bdr });
-    sc(rowNum,6, parseFloat(r.subtotal)||0, { fill, font:{...syne}, alignment:{horizontal:'right',vertical:'middle',indent:1}, numFmt:'#,##0', border:bdr });
-    sc(rowNum,7, (parseFloat(r.fee_rate)||0)/100, { fill, font:{...syne,color:{argb:'FF6B6094'}}, alignment:{horizontal:'center',vertical:'middle'}, numFmt:'0%', border:bdr });
-    sc(rowNum,8, parseFloat(r.fee_amount)||0, { fill, font:{...syne,bold:true,color:{argb:BRAND}}, alignment:{horizontal:'right',vertical:'middle',indent:1}, numFmt:'#,##0', border:bdr });
-  });
+  <!-- Detail table -->
+  <div class="wrap">
+    <table>
+      <thead>
+        <tr>
+          <th class="c" style="width:28px">#</th>
+          <th style="width:110px">SKU / Item Code</th>
+          <th>Nama Item</th>
+          <th class="c" style="width:90px">Kategori</th>
+          <th class="c" style="width:40px">Qty</th>
+          <th class="r" style="width:110px">Gross Subtotal</th>
+          <th class="c" style="width:60px">Fee Rate</th>
+          <th class="r" style="width:110px">Fee Amount</th>
+        </tr>
+      </thead>
+      <tbody>${skuRows}</tbody>
+      <tfoot>
+        <tr class="tfoot-row">
+          <td colspan="4" class="tfoot-label">TOTAL</td>
+          <td class="c">${totQty}</td>
+          <td class="r">${rp(totSub)}</td>
+          <td></td>
+          <td class="r tfoot-fee">${rp(totFee)}</td>
+        </tr>
+      </tfoot>
+    </table>
 
-  // ════════════════════════════════════════════
-  // TOTALS row
-  // ════════════════════════════════════════════
-  const totRow  = 8 + skuData.length;
-  ws.getRow(totRow).height = 22;
-  const totQty  = skuData.reduce((s,r)=>s+(parseInt(r.total_qty)||0),0);
-  const totSub2 = skuData.reduce((s,r)=>s+(parseFloat(r.subtotal)||0),0);
-  const totFee2 = skuData.reduce((s,r)=>s+(parseFloat(r.fee_amount)||0),0);
-  const bdrTot  = cellBorder(BRAND,BRAND,BRAND,BRAND);
+    <!-- Footer -->
+    <div class="footer">
+      <div class="footer-note">Dokumen ini dibuat otomatis oleh Sentra Internal Portal &middot; ${today}</div>
+      <div class="footer-page">Sentra &middot; Internal Use Only</div>
+    </div>
+  </div>
 
-  merge(totRow,1,totRow,4);
-  sc(totRow,1,'TOTAL', { fill:solidFill(TOTAL_F), font:{name:'Calibri',size:10,bold:true,color:{argb:BRAND}}, alignment:{horizontal:'right',vertical:'middle',indent:1}, border:bdrTot });
-  sc(totRow,5, totQty,  { fill:solidFill(TOTAL_F), font:{name:'Calibri',size:10,bold:true}, alignment:{horizontal:'center',vertical:'middle'}, border:bdrTot });
-  sc(totRow,6, totSub2, { fill:solidFill(TOTAL_F), font:{name:'Calibri',size:10,bold:true}, alignment:{horizontal:'right',vertical:'middle',indent:1}, numFmt:'#,##0', border:bdrTot });
-  sc(totRow,7,'',       { fill:solidFill(TOTAL_F), border:bdrTot });
-  sc(totRow,8, totFee2, { fill:solidFill(TOTAL_F), font:{name:'Calibri',size:11,bold:true,color:{argb:BRAND}}, alignment:{horizontal:'right',vertical:'middle',indent:1}, numFmt:'#,##0', border:bdrTot });
+</div>
 
-  // ════════════════════════════════════════════
-  // FOOTER note
-  // ════════════════════════════════════════════
-  const footRow = totRow + 2;
-  merge(footRow,1,footRow,8);
-  sc(footRow,1, `Dokumen ini dibuat otomatis oleh Sentra Internal Portal · ${new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'})}`, {
-    font: { name:'Calibri', size:8, italic:true, color:{argb:'FFAAAAAA'} },
-    alignment: { horizontal:'left', vertical:'middle' },
-  });
+<!-- Print trigger -->
+<script>
+  window.onload = function() {
+    setTimeout(function(){ window.print(); }, 400);
+  };
+<\/script>
+</body>
+</html>`;
 
-  // ════════════════════════════════════════════
-  // Print settings & freeze panes
-  // ════════════════════════════════════════════
-  ws.views = [{ state:'frozen', xSplit:0, ySplit:7, topLeftCell:'A8', activeCell:'A8' }];
-
-  // ── Write & download ──
-  const buf      = await wb.xlsx.writeBuffer();
-  const blob     = new Blob([buf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
-  const url      = URL.createObjectURL(blob);
-  const safeName = brandName.replace(/[^a-z0-9]/gi,'-');
-  const a        = document.createElement('a');
-  a.href=url; a.download=`marte-${safeName}-${period}.xlsx`; a.click();
-  URL.revokeObjectURL(url);
+  const win = window.open('', '_blank', 'width=900,height=700');
+  win.document.write(html);
+  win.document.close();
 }
 
 // ── DUPLICATE CHECK ──
