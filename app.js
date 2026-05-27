@@ -1407,59 +1407,29 @@ function pickPKS(agrId, label) {
 }
 
 // ── LEADS TRACKER ──
-let allLeadsRows = [], acLeadsCategories = ["Musician","Brand","Filmmaker"];
+let allLeadsRows = [], acLeadsCategories = ["Musician","Brand","Filmmaker","Artist"];
+let _ldDetail = null;   // currently open lead object
+let _ldClosedOpen = false;
 
-function stagePillClass(s) {
-  return {"New":"p-draft","Contacted":"p-review","Meeting":"p-signings","Proposal":"p-near","Negotiation":"p-near","Won":"p-active","Lost":"p-expired","On Hold":"p-inactive"}[s]||"p-draft";
+// ── Stage helpers ──
+const LD_PIPELINE = ["New","Contacted","Meeting","Proposal","Negotiation"];
+const LD_CLOSED   = ["Won","Lost","On Hold"];
+const LD_STAGES   = [...LD_PIPELINE, ...LD_CLOSED];
+
+function stagePillClass(s){
+  return {New:"p-draft",Contacted:"p-review",Meeting:"p-signings",Proposal:"p-near",
+          Negotiation:"p-near",Won:"p-active",Lost:"p-expired","On Hold":"p-inactive"}[s]||"p-draft";
 }
+const STAGE_COLORS={New:"#6b7280",Contacted:"#3b82f6",Meeting:"#8b5cf6",Proposal:"#f59e0b",
+                    Negotiation:"#ef4444",Won:"#22c55e",Lost:"#dc2626","On Hold":"#9ca3af"};
 
-function switchLeadsTab(name, el) {
-  document.querySelectorAll("#page-leads .tab-btn").forEach(b=>b.classList.remove("active"));
-  el.classList.add("active");
-  document.getElementById("ldtab-new").style.display  = name==="new"  ? "block":"none";
-  document.getElementById("ldtab-list").style.display = name==="list" ? "block":"none";
-  if (name==="list") loadLeads();
-}
-
-async function submitLead() {
-  const name=document.getElementById("ld-name").value.trim();
-  const category=document.getElementById("ld-category").value.trim();
-  const stage=document.getElementById("ld-stage").value;
-  if (!name)     { showLdFeedback("Lead Name wajib diisi.","err"); return; }
-  if (!category) { showLdFeedback("Category wajib diisi.","err"); return; }
-  if (!stage)    { showLdFeedback("Stage wajib dipilih.","err"); return; }
-  const revenues=[...document.querySelectorAll("#ld-revenue-checks input:checked")].map(c=>c.value);
-  const btn=document.getElementById("ldSubmitBtn"); btn.disabled=true; btn.textContent="Menyimpan...";
-  try {
-    const id=genId("LD");
-    const {error}=await sb.from("leads").insert({id,lead_name:name,category,stage,pic:document.getElementById("ld-pic").value.trim(),contact:document.getElementById("ld-contact").value.trim(),revenue_stream:revenues.join(", "),notes:document.getElementById("ld-notes").value.trim(),priority:document.getElementById("ld-priority").value,follow_up_date:document.getElementById("ld-followup").value||null,added_by:currentUser,last_updated:new Date().toISOString(),last_updated_by:currentUser});
-    if(error)throw error;
-    showLdFeedback("✓ Lead tersimpan — ID: "+id,"ok");
-    logActivity("Leads Tracker","create",id,name+" ("+category+") — "+stage);
-    insertNotif(document.getElementById("ld-pic").value.trim(),"Leads Tracker",id,`${currentUser} menambahkan kamu sebagai PIC di Leads: ${name}`);
-    if (!acLeadsCategories.includes(category)) acLeadsCategories.push(category);
-    clearLeadForm(); loadLeads();
-  } catch(e) { showLdFeedback("Gagal: "+(e.message||e),"err"); }
-  btn.disabled=false; btn.textContent="Simpan Lead";
-}
-
-function clearLeadForm() {
-  ["ld-name","ld-category","ld-pic","ld-contact","ld-notes","ld-followup"].forEach(id=>document.getElementById(id).value="");
-  document.getElementById("ld-stage").value=""; document.getElementById("ld-priority").value="";
-  document.querySelectorAll("#ld-revenue-checks input").forEach(c=>c.checked=false);
-}
-
-function showLdFeedback(msg,type) {
-  const el=document.getElementById("ld-feedback"); el.textContent=msg; el.className="feedback "+type;
-  if(type==="ok") setTimeout(()=>el.className="feedback",6000);
-}
-
-async function loadLeads() {
-  document.getElementById("ldTableBody").innerHTML=`<tr><td class="empty-td" colspan="12">Memuat...</td></tr>`;
+// ── Load + render board ──
+async function loadLeads(){
   try {
     const {data,error}=await sb.from("leads").select("*").order("id");
-    if(error)throw error;
+    if(error) throw error;
     allLeadsRows=(data||[]).map(mapLD);
+    // populate filter dropdowns
     const cats=[...new Set(allLeadsRows.map(r=>r.category).filter(Boolean))];
     cats.forEach(c=>{if(!acLeadsCategories.includes(c))acLeadsCategories.push(c);});
     const catSel=document.getElementById("ld-fil-category");
@@ -1467,127 +1437,401 @@ async function loadLeads() {
     const pics=[...new Set(allLeadsRows.map(r=>r.pic).filter(Boolean))];
     const picSel=document.getElementById("ld-fil-pic");
     if(picSel){while(picSel.options.length>1)picSel.remove(1);pics.forEach(p=>{const o=document.createElement("option");o.value=o.textContent=p;picSel.appendChild(o);});}
-    computeLeadsStats(allLeadsRows); applyLeadsFilters();
-  } catch(e){document.getElementById("ldTableBody").innerHTML=`<tr><td class="empty-td" colspan="11">Gagal: ${e.message}</td></tr>`;}
+    computeLeadsStats(allLeadsRows);
+    applyLeadsFilters();
+  } catch(e){ console.error("loadLeads",e); }
 }
 
-const LD_PIPELINE_STAGES=["New","Contacted","Meeting","Proposal","Negotiation"];
-const LD_STAGES=["New","Contacted","Meeting","Proposal","Negotiation","Won","Lost","On Hold"];
-
-function computeLeadsStats(rows) {
+function computeLeadsStats(rows){
   document.getElementById("ld-s-total").textContent    = rows.length;
-  document.getElementById("ld-s-pipeline").textContent = rows.filter(r=>LD_PIPELINE_STAGES.includes(r.stage)).length;
+  document.getElementById("ld-s-pipeline").textContent = rows.filter(r=>LD_PIPELINE.includes(r.stage)).length;
   document.getElementById("ld-s-won").textContent      = rows.filter(r=>r.stage==="Won").length;
   document.getElementById("ld-s-lost").textContent     = rows.filter(r=>r.stage==="Lost").length;
   document.getElementById("ld-s-onhold").textContent   = rows.filter(r=>r.stage==="On Hold").length;
 }
 
-function applyLeadsFilters() {
-  const q     =(document.getElementById("ldSearch").value||"").toLowerCase();
-  const fStage=document.getElementById("ld-fil-stage").value;
-  const fCat  =document.getElementById("ld-fil-category").value;
-  const fRev  =document.getElementById("ld-fil-revenue").value;
-  const fPic      =document.getElementById("ld-fil-pic").value;
-  const fPriority =document.getElementById("ld-fil-priority").value;
-  ["ld-fil-stage","ld-fil-category","ld-fil-revenue","ld-fil-pic","ld-fil-priority"].forEach(id=>{const el=document.getElementById(id);if(el)el.classList.toggle("active-filter",!!el.value);});
+function applyLeadsFilters(){
+  const q=((document.getElementById("ldSearch")||{}).value||"").toLowerCase();
+  const fCat=(document.getElementById("ld-fil-category")||{}).value||"";
+  const fPic=(document.getElementById("ld-fil-pic")||{}).value||"";
+  const fPri=(document.getElementById("ld-fil-priority")||{}).value||"";
+  const fRev=(document.getElementById("ld-fil-revenue")||{}).value||"";
   const filtered=allLeadsRows.filter(r=>{
-    if(q        &&![r.name,r.contact,r.notes,r.pic].some(v=>(v||"").toLowerCase().includes(q)))return false;
-    if(fStage   &&r.stage!==fStage)return false;
-    if(fCat     &&r.category!==fCat)return false;
-    if(fRev     &&!(r.revenue||"").includes(fRev))return false;
-    if(fPic     &&r.pic!==fPic)return false;
-    if(fPriority&&r.priority!==fPriority)return false;
+    if(q&&![r.name,r.contact,r.notes,r.pic,r.category].some(v=>(v||"").toLowerCase().includes(q)))return false;
+    if(fCat&&r.category!==fCat)return false;
+    if(fPic&&r.pic!==fPic)return false;
+    if(fPri&&r.priority!==fPri)return false;
+    if(fRev&&!(r.revenue||"").includes(fRev))return false;
     return true;
   });
-  computeLeadsStats(filtered); renderLeadsTable(filtered);
+  computeLeadsStats(filtered);
+  document.getElementById("ld-tcount").textContent=filtered.length+" lead";
+  renderLeadsBoard(filtered);
 }
 
-function clearLeadsFilters() {
-  ["ld-fil-stage","ld-fil-category","ld-fil-revenue","ld-fil-pic","ld-fil-priority"].forEach(id=>{const el=document.getElementById(id);if(el){el.value="";el.classList.remove("active-filter");}});
-  document.getElementById("ldSearch").value="";
-  computeLeadsStats(allLeadsRows); renderLeadsTable(allLeadsRows);
+function clearLeadsFilters(){
+  ["ld-fil-category","ld-fil-pic","ld-fil-priority","ld-fil-revenue"].forEach(id=>{const el=document.getElementById(id);if(el){el.value="";el.classList.remove("active-filter");}});
+  const s=document.getElementById("ldSearch"); if(s)s.value="";
+  applyLeadsFilters();
 }
 
-function renderLeadsTable(rows) {
-  rows=sortBy(rows,ldSort.col,ldSort.dir);
-  updateSortTh('ld-thead',ldSort.col,ldSort.dir);
-  document.getElementById("ld-tcount").textContent=rows.length+" entri";
-  const body=document.getElementById("ldTableBody");
-  if(!rows.length){body.innerHTML=`<tr><td class="empty-td" colspan="12">Belum ada data.</td></tr>`;return;}
-  const priorityPill=p=>p==="High"?`<span class="pill p-expired">${p}</span>`:p==="Medium"?`<span class="pill p-near">${p}</span>`:p==="Low"?`<span class="pill p-draft">${p}</span>`:"—";
-  body.innerHTML=rows.map(r=>{
-    const streams=(r.revenue||"").split(",").map(s=>s.trim()).filter(Boolean);
-    return`<tr>
-      <td class="td-id">${r.id||"—"}</td>
-      <td style="font-weight:500">${r.name||"—"}</td>
-      <td><span class="pill p-draft">${r.category||"—"}</span></td>
-      <td><select class="pill status-inline ${stagePillClass(r.stage)}" onchange="updateLeadStage(this,'${r.rowIndex}')">${LD_STAGES.map(s=>`<option ${s===r.stage?"selected":""}>${s}</option>`).join("")}</select></td>
-      <td style="font-size:12px">${r.pic||"—"}</td>
-      <td>${streams.map(s=>`<span class="pill" style="background:#EEEDFE;color:#3C3489;border:0.5px solid #AFA9EC;margin-right:3px">${s}</span>`).join("")||"—"}</td>
-      <td style="font-size:11px;color:var(--g600)">${r.contact||"—"}</td>
-      <td style="font-size:11px;color:var(--g600);max-width:200px;">${r.notes||"—"}</td>
-      <td>${priorityPill(r.priority)}</td>
-      <td class="td-audit">${r.date||"—"}</td>
-      <td class="td-audit">${r.by||"—"}</td>
-      <td><button class="btn-icon" onclick="openLeadEdit('${r.rowIndex}')">Edit</button> <button class="btn-icon" style="color:#c0392b;" onclick="deleteLead('${r.rowIndex}')">Del</button></td>
-    </tr>
-    <tr id="ld-edit-row-${r.rowIndex}" style="display:none"><td colspan="12" style="padding:0 12px 12px;">
-      <div class="edit-row-form">
-        <div class="edit-row-grid">
-          <div class="fg"><label>Lead Name</label><input type="text" id="ld-e-name-${r.rowIndex}" value="${r.name||""}"></div>
-          <div class="fg"><label>Category</label><input type="text" id="ld-e-cat-${r.rowIndex}" value="${r.category||""}"></div>
-          <div class="fg"><label>Stage</label><select id="ld-e-stage-${r.rowIndex}">${LD_STAGES.map(s=>`<option ${s===r.stage?"selected":""}>${s}</option>`).join("")}</select></div>
-          <div class="fg"><label>PIC</label><input type="text" id="ld-e-pic-${r.rowIndex}" value="${r.pic||""}"></div>
-          <div class="fg"><label>Contact</label><input type="text" id="ld-e-contact-${r.rowIndex}" value="${r.contact||""}"></div>
-          <div class="fg"><label>Revenue Stream</label><input type="text" id="ld-e-revenue-${r.rowIndex}" value="${r.revenue||""}" placeholder="SD&Y, Lagaa, Distribution"></div>
-          <div class="fg"><label>Notes</label><input type="text" id="ld-e-notes-${r.rowIndex}" value="${r.notes||""}"></div>
-          <div class="fg"><label>Priority</label><select id="ld-e-priority-${r.rowIndex}"><option value="" ${!r.priority?"selected":""}>—</option><option ${r.priority==="Low"?"selected":""}>Low</option><option ${r.priority==="Medium"?"selected":""}>Medium</option><option ${r.priority==="High"?"selected":""}>High</option></select></div>
-          <div class="fg"><label>Follow-up Date</label><input type="date" id="ld-e-followup-${r.rowIndex}" value="${r.followUpDate||""}"></div>
+// ── Kanban board render ──
+function renderLeadsBoard(rows){
+  _renderKbSection(rows, LD_PIPELINE, "ld-board");
+  if(_ldClosedOpen) _renderKbSection(rows, LD_CLOSED, "ld-closed-board");
+}
+
+function _renderKbSection(rows, stages, containerId){
+  const el=document.getElementById(containerId); if(!el) return;
+  el.innerHTML=stages.map(stage=>{
+    const cards=rows.filter(r=>r.stage===stage);
+    const colColor=STAGE_COLORS[stage]||"#888";
+    return `<div class="kanban-col" id="kb-col-${stage.replace(/ /g,'-')}"
+                 ondragover="event.preventDefault();this.classList.add('drag-over')"
+                 ondragleave="this.classList.remove('drag-over')"
+                 ondrop="_ldDrop(event,'${stage}')">
+      <div class="kanban-col-header">
+        <div style="display:flex;align-items:center;gap:7px">
+          <span style="width:8px;height:8px;border-radius:50%;background:${colColor};display:inline-block;flex-shrink:0"></span>
+          <span style="font-family:var(--mono);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--black)">${stage}</span>
         </div>
-        <div class="edit-row-btns">
-          <button class="btn-save" onclick="saveLeadEdit('${r.rowIndex}')">Simpan</button>
-          <button class="btn-cancel" onclick="closeLeadEdit('${r.rowIndex}')">Batal</button>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="font-family:var(--mono);font-size:10px;color:var(--g400)">${cards.length}</span>
+          <button class="kanban-add-btn" onclick="openLdAddModalStage('${stage}')" title="Tambah lead ke ${stage}">+</button>
         </div>
       </div>
-    </td></tr>`;
+      <div class="kanban-cards" id="kb-cards-${stage.replace(/ /g,'-')}">
+        ${cards.length ? cards.map(r=>_ldCardHTML(r)).join('') : '<div class="kanban-empty"><span style="font-size:11px;color:var(--g200);font-family:var(--mono)">kosong</span></div>'}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function _ldCardHTML(r){
+  const prio=r.priority;
+  const prioColor=prio==="High"?"#c0392b":prio==="Medium"?"#e67e22":"#7f8c8d";
+  const streams=(r.revenue||"").split(",").map(s=>s.trim()).filter(Boolean);
+  const today=new Date(); today.setHours(0,0,0,0);
+  const fuDate=r.followUpDate?new Date(r.followUpDate):null;
+  const fuOverdue=fuDate&&fuDate<today;
+  const fuTag=fuDate?`<span style="font-size:10px;font-family:var(--mono);color:${fuOverdue?"#c0392b":"var(--g400)"}">${fuOverdue?"⚠ ":""}${fuDate.toLocaleDateString("id-ID",{day:"2-digit",month:"short"})}</span>`:"";
+  return `<div class="kanban-card" draggable="true"
+               ondragstart="_ldDragStart(event,'${r.rowIndex}')"
+               ondragend="this.classList.remove('dragging')"
+               onclick="openLeadDetail('${r.rowIndex}')">
+    <div class="kcard-title">${r.name||"—"}</div>
+    <div class="kcard-meta">
+      ${r.category?`<span class="kcard-tag" style="color:var(--g600);border-color:var(--g200);background:var(--off)">${r.category}</span>`:""}
+      ${prio?`<span class="kcard-tag" style="color:${prioColor};border-color:${prioColor}22;background:${prioColor}11">${prio}</span>`:""}
+      ${streams.map(s=>`<span class="kcard-tag" style="color:#3C3489;border-color:#AFA9EC;background:#EEEDFE">${s}</span>`).join("")}
+    </div>
+    <div class="kcard-footer">
+      <span style="font-size:11px;color:var(--g400)">${r.pic||""}</span>
+      ${fuTag}
+    </div>
+  </div>`;
+}
+
+// ── Drag & drop ──
+let _ldDragId=null;
+function _ldDragStart(e,id){
+  _ldDragId=id;
+  e.dataTransfer.setData("text/plain",id);
+  setTimeout(()=>{const el=document.querySelector(`.kanban-card[onclick*="${id}"]`);if(el)el.classList.add("dragging");},0);
+}
+async function _ldDrop(e,stage){
+  e.preventDefault();
+  document.querySelectorAll(".kanban-col").forEach(c=>c.classList.remove("drag-over"));
+  const id=e.dataTransfer.getData("text/plain")||_ldDragId;
+  if(!id)return;
+  const row=allLeadsRows.find(r=>r.rowIndex===id);
+  if(!row||row.stage===stage)return;
+  row.stage=stage;
+  renderLeadsBoard(allLeadsRows);
+  await sb.from("leads").update({stage,last_updated:new Date().toISOString(),last_updated_by:currentUser}).eq("id",id);
+  logActivity("Leads","stage_change",id,"Stage → "+stage);
+  computeLeadsStats(allLeadsRows);
+  if(_ldDetail&&_ldDetail.rowIndex===id){
+    _ldDetail.stage=stage;
+    document.getElementById("ldp-stage-sel").value=stage;
+  }
+}
+
+// ── Toggle closed section ──
+function toggleLdClosed(){
+  _ldClosedOpen=!_ldClosedOpen;
+  document.getElementById("ld-closed-board").style.display=_ldClosedOpen?"flex":"none";
+  document.getElementById("ld-closed-arrow").textContent=_ldClosedOpen?"▼":"▶";
+  if(_ldClosedOpen) _renderKbSection(allLeadsRows, LD_CLOSED, "ld-closed-board");
+}
+
+// ── Add lead modal ──
+function openLdAddModal(){ document.getElementById("ld-add-overlay").style.display="flex"; }
+function openLdAddModalStage(stage){
+  openLdAddModal();
+  setTimeout(()=>{document.getElementById("ld-stage").value=stage;},50);
+}
+function closeLdAddModal(e){
+  if(e&&e.target!==document.getElementById("ld-add-overlay"))return;
+  document.getElementById("ld-add-overlay").style.display="none";
+}
+
+async function submitLead(){
+  const name=document.getElementById("ld-name").value.trim();
+  const category=document.getElementById("ld-category").value.trim();
+  const stage=document.getElementById("ld-stage").value;
+  if(!name)    {showLdFeedback("Lead Name wajib diisi.","err");return;}
+  if(!category){showLdFeedback("Category wajib diisi.","err");return;}
+  if(!stage)   {showLdFeedback("Stage wajib dipilih.","err");return;}
+  const revenues=[...document.querySelectorAll("#ld-revenue-checks input:checked")].map(c=>c.value);
+  const btn=document.getElementById("ldSubmitBtn"); btn.disabled=true; btn.textContent="Menyimpan…";
+  try {
+    const id=genId("LD");
+    const {error}=await sb.from("leads").insert({
+      id, lead_name:name, category, stage,
+      pic:document.getElementById("ld-pic").value.trim(),
+      contact:document.getElementById("ld-contact").value.trim(),
+      revenue_stream:revenues.join(", "),
+      notes:document.getElementById("ld-notes").value.trim(),
+      priority:document.getElementById("ld-priority").value,
+      follow_up_date:document.getElementById("ld-followup").value||null,
+      added_by:currentUser, last_updated:new Date().toISOString(), last_updated_by:currentUser
+    });
+    if(error) throw error;
+    showLdFeedback("✓ Lead tersimpan — ID: "+id,"ok");
+    logActivity("Leads","create",id,name+" ("+category+") — "+stage);
+    insertNotif(document.getElementById("ld-pic").value.trim(),"Leads",id,`${currentUser} menambahkan kamu sebagai PIC di Leads: ${name}`);
+    if(!acLeadsCategories.includes(category))acLeadsCategories.push(category);
+    clearLeadForm();
+    await loadLeads();
+    setTimeout(()=>closeLdAddModal(null),1200);
+  } catch(e){showLdFeedback("Gagal: "+(e.message||e),"err");}
+  btn.disabled=false; btn.textContent="Simpan Lead";
+}
+
+function clearLeadForm(){
+  ["ld-name","ld-category","ld-pic","ld-contact","ld-notes","ld-followup"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
+  const s=document.getElementById("ld-stage");if(s)s.value="";
+  const p=document.getElementById("ld-priority");if(p)p.value="";
+  document.querySelectorAll("#ld-revenue-checks input").forEach(c=>c.checked=false);
+}
+
+function showLdFeedback(msg,type){
+  const el=document.getElementById("ld-feedback");if(!el)return;
+  el.textContent=msg; el.className="feedback "+type;
+  if(type==="ok") setTimeout(()=>el.className="feedback",5000);
+}
+
+// ══════════════════════════════════════════════════════
+// ── Lead Detail Panel ──
+// ══════════════════════════════════════════════════════
+async function openLeadDetail(id){
+  const row=allLeadsRows.find(r=>r.rowIndex===id); if(!row)return;
+  _ldDetail=row;
+  // populate header
+  document.getElementById("ldp-name").textContent=row.name||"—";
+  const streams=(row.revenue||"").split(",").map(s=>s.trim()).filter(Boolean);
+  document.getElementById("ldp-meta").textContent=[row.category,row.pic].filter(Boolean).join(" · ");
+  const stageSel=document.getElementById("ldp-stage-sel"); stageSel.value=row.stage||"New";
+  // colour the stage select
+  _ldpColorStageSel(row.stage);
+  // populate info form
+  document.getElementById("ldp-f-category").value=row.category||"";
+  document.getElementById("ldp-f-pic").value=row.pic||"";
+  document.getElementById("ldp-f-contact").value=row.contact||"";
+  document.getElementById("ldp-f-priority").value=row.priority||"";
+  document.getElementById("ldp-f-followup").value=row.followUpDate||"";
+  document.getElementById("ldp-f-notes").value=row.notes||"";
+  document.querySelectorAll("#ldp-f-revenue-checks input").forEach(cb=>{
+    cb.checked=(row.revenue||"").includes(cb.value);
+  });
+  // show panel
+  document.getElementById("ld-panel-overlay").style.display="block";
+  document.body.style.overflow="hidden";
+  // switch to info tab first
+  switchLdTab("info", document.querySelector('.ldp-tab[data-tab="ldp-info"]'));
+  // load tasks & comments in bg
+  ldpLoadTasks(id);
+  ldpLoadComments(id);
+}
+
+function _ldpColorStageSel(stage){
+  const c=STAGE_COLORS[stage]||"#888";
+  const sel=document.getElementById("ldp-stage-sel");
+  sel.style.background=c+"18"; sel.style.borderColor=c+"66"; sel.style.color=c;
+}
+
+function closeLdPanel(e){
+  if(e&&e.target!==document.getElementById("ld-panel-overlay"))return;
+  document.getElementById("ld-panel-overlay").style.display="none";
+  document.body.style.overflow="";
+  _ldDetail=null;
+}
+
+function switchLdTab(name,el){
+  document.querySelectorAll(".ldp-tab").forEach(b=>b.classList.remove("active"));
+  if(el) el.classList.add("active");
+  ["ldp-info","ldp-tasks","ldp-discuss"].forEach(id=>{
+    const d=document.getElementById(id);
+    if(d) d.style.display=(id==="ldp-"+name)?"flex":"none";
+  });
+}
+
+async function ldpUpdateStage(){
+  if(!_ldDetail)return;
+  const stage=document.getElementById("ldp-stage-sel").value;
+  _ldpColorStageSel(stage);
+  _ldDetail.stage=stage;
+  // update card in board
+  const row=allLeadsRows.find(r=>r.rowIndex===_ldDetail.rowIndex);
+  if(row) row.stage=stage;
+  renderLeadsBoard(allLeadsRows);
+  computeLeadsStats(allLeadsRows);
+  await sb.from("leads").update({stage,last_updated:new Date().toISOString(),last_updated_by:currentUser}).eq("id",_ldDetail.rowIndex);
+  logActivity("Leads","stage_change",_ldDetail.rowIndex,"Stage → "+stage);
+}
+
+async function ldpSaveInfo(){
+  if(!_ldDetail)return;
+  const revenues=[...document.querySelectorAll("#ldp-f-revenue-checks input:checked")].map(c=>c.value);
+  const upd={
+    category:document.getElementById("ldp-f-category").value.trim(),
+    pic:document.getElementById("ldp-f-pic").value.trim(),
+    contact:document.getElementById("ldp-f-contact").value.trim(),
+    priority:document.getElementById("ldp-f-priority").value,
+    follow_up_date:document.getElementById("ldp-f-followup").value||null,
+    notes:document.getElementById("ldp-f-notes").value.trim(),
+    revenue_stream:revenues.join(", "),
+    last_updated:new Date().toISOString(), last_updated_by:currentUser
+  };
+  const {error}=await sb.from("leads").update(upd).eq("id",_ldDetail.rowIndex);
+  const fb=document.getElementById("ldp-info-feedback");
+  if(error){ fb.textContent="Gagal: "+error.message; fb.style.color="#c0392b"; return; }
+  // update local cache
+  Object.assign(_ldDetail,{category:upd.category,pic:upd.pic,contact:upd.contact,priority:upd.priority,followUpDate:upd.follow_up_date,notes:upd.notes,revenue:upd.revenue_stream});
+  const row=allLeadsRows.find(r=>r.rowIndex===_ldDetail.rowIndex); if(row) Object.assign(row,{category:upd.category,pic:upd.pic,contact:upd.contact,priority:upd.priority,followUpDate:upd.follow_up_date,notes:upd.notes,revenue:upd.revenue_stream});
+  renderLeadsBoard(allLeadsRows);
+  document.getElementById("ldp-meta").textContent=[upd.category,upd.pic].filter(Boolean).join(" · ");
+  fb.textContent="✓ Tersimpan"; fb.style.color="#1a5c25";
+  setTimeout(()=>fb.textContent="",3000);
+  logActivity("Leads","edit",_ldDetail.rowIndex,"Info diperbarui");
+}
+
+async function ldpDeleteLead(){
+  if(!_ldDetail)return;
+  if(!confirm("Hapus lead "+_ldDetail.name+"? Tindakan tidak dapat dibatalkan."))return;
+  const {error}=await sb.from("leads").delete().eq("id",_ldDetail.rowIndex);
+  if(error){alert("Gagal hapus: "+error.message);return;}
+  logActivity("Leads","delete",_ldDetail.rowIndex,"Dihapus");
+  allLeadsRows=allLeadsRows.filter(r=>r.rowIndex!==_ldDetail.rowIndex);
+  closeLdPanel(null);
+  renderLeadsBoard(allLeadsRows);
+  computeLeadsStats(allLeadsRows);
+}
+
+// ── Action Items ──
+async function ldpLoadTasks(leadId){
+  const list=document.getElementById("ldp-tasks-list"); if(!list)return;
+  list.innerHTML='<div style="text-align:center;padding:24px;color:var(--g400);font-size:12px">Memuat…</div>';
+  const {data,error}=await sb.from("lead_action_items").select("*").eq("lead_id",leadId).order("created_at");
+  if(error){list.innerHTML='<div style="color:#c0392b;font-size:12px;padding:12px">Error: '+error.message+'</div>';return;}
+  const tasks=data||[];
+  _ldpRenderTasks(tasks);
+}
+
+function _ldpRenderTasks(tasks){
+  const list=document.getElementById("ldp-tasks-list"); if(!list)return;
+  const done=tasks.filter(t=>t.is_done).length;
+  const total=tasks.length;
+  // progress bar
+  const prog=document.getElementById("ldp-tasks-progress");
+  const bar=document.getElementById("ldp-tasks-bar");
+  const lbl=document.getElementById("ldp-tasks-pct-label");
+  if(total>0){
+    prog.style.display="block";
+    bar.style.width=Math.round(done/total*100)+"%";
+    lbl.textContent=done+"/"+total+" selesai";
+  } else {
+    prog.style.display="none";
+  }
+  // badge
+  const badge=document.getElementById("ldp-tasks-badge");
+  if(badge){ badge.textContent=total; badge.style.display=total>0?"inline":"none"; }
+  if(!tasks.length){list.innerHTML='<div style="text-align:center;padding:24px;color:var(--g400);font-family:var(--mono);font-size:11px">Belum ada action item</div>';return;}
+  list.innerHTML=tasks.map(t=>{
+    const due=t.due_date?new Date(t.due_date):null;
+    const today=new Date();today.setHours(0,0,0,0);
+    const overdue=!t.is_done&&due&&due<today;
+    return `<div class="ld-task-row" id="ldtask-${t.id}" style="display:flex;align-items:flex-start;gap:10px;padding:9px 10px;border-radius:8px;background:${t.is_done?"var(--off)":"var(--white)"};border:1px solid ${t.is_done?"var(--g100)":"var(--g200)"};margin-bottom:6px">
+      <input type="checkbox" ${t.is_done?"checked":""} style="margin-top:3px;cursor:pointer;flex-shrink:0;width:15px;height:15px" onchange="ldpToggleTask('${t.id}',this.checked)">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12px;${t.is_done?"text-decoration:line-through;color:var(--g400)":"font-weight:500"}">${t.title}</div>
+        <div style="display:flex;gap:8px;margin-top:3px;flex-wrap:wrap">
+          ${t.assignee?`<span style="font-size:10px;color:var(--g400);font-family:var(--mono)">👤 ${t.assignee}</span>`:""}
+          ${due?`<span style="font-size:10px;font-family:var(--mono);color:${overdue?"#c0392b":"var(--g400)"}">${overdue?"⚠ ":""}${due.toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"})}</span>`:""}
+        </div>
+      </div>
+      <button onclick="ldpDeleteTask('${t.id}')" style="background:none;border:none;cursor:pointer;font-size:12px;color:var(--g200);padding:2px 4px;border-radius:4px;flex-shrink:0" onmouseover="this.style.color='#c0392b'" onmouseout="this.style.color='var(--g200)'">✕</button>
+    </div>`;
   }).join("");
 }
 
-function openLeadEdit(rowIndex){document.querySelectorAll("[id^='ld-edit-row-']").forEach(el=>el.style.display="none");document.getElementById("ld-edit-row-"+rowIndex).style.display="table-row";}
-function closeLeadEdit(rowIndex){document.getElementById("ld-edit-row-"+rowIndex).style.display="none";}
-
-async function deleteLead(rowIndex) {
-  if (!confirm("Hapus lead ini? Tindakan tidak dapat dibatalkan.")) return;
-  try {
-    const {error}=await sb.from("leads").delete().eq("id",rowIndex);
-    if(error){alert("Gagal hapus: "+error.message);return;}
-    logActivity("Leads Tracker","delete",rowIndex,"Dihapus");
-    loadLeads();
-  } catch(e) { alert("Koneksi gagal."); }
+async function ldpAddTask(){
+  if(!_ldDetail)return;
+  const title=document.getElementById("ldp-task-title").value.trim();
+  if(!title)return;
+  const due=document.getElementById("ldp-task-due").value||null;
+  const assignee=document.getElementById("ldp-task-assignee").value.trim()||null;
+  const id=genId("LDT");
+  const {error}=await sb.from("lead_action_items").insert({id,lead_id:_ldDetail.rowIndex,title,due_date:due,assignee,is_done:false,created_by:currentUser});
+  if(error){alert("Gagal: "+error.message);return;}
+  document.getElementById("ldp-task-title").value="";
+  document.getElementById("ldp-task-due").value="";
+  document.getElementById("ldp-task-assignee").value="";
+  ldpLoadTasks(_ldDetail.rowIndex);
 }
 
-async function updateLeadStage(sel,rowIndex) {
-  const newStage=sel.value;
-  sel.className=`pill status-inline ${stagePillClass(newStage)}`;
-  try {
-    const {error}=await sb.from("leads").update({stage:newStage,last_updated:new Date().toISOString(),last_updated_by:currentUser}).eq("id",rowIndex);
-    if(error){alert("Gagal update: "+error.message);return;}
-    logActivity("Leads Tracker","stage_change",rowIndex,"Stage → "+newStage);
-    const row=allLeadsRows.find(r=>r.rowIndex===rowIndex);
-    if(row)row.stage=newStage;
-    computeLeadsStats(allLeadsRows);
-  } catch(e){alert("Koneksi gagal.");}
+async function ldpToggleTask(id,isDone){
+  await sb.from("lead_action_items").update({is_done:isDone,updated_at:new Date().toISOString()}).eq("id",id);
+  ldpLoadTasks(_ldDetail.rowIndex);
 }
 
-async function saveLeadEdit(rowIndex) {
-  try {
-    const {error}=await sb.from("leads").update({lead_name:document.getElementById("ld-e-name-"+rowIndex).value.trim(),category:document.getElementById("ld-e-cat-"+rowIndex).value.trim(),stage:document.getElementById("ld-e-stage-"+rowIndex).value,pic:document.getElementById("ld-e-pic-"+rowIndex).value.trim(),contact:document.getElementById("ld-e-contact-"+rowIndex).value.trim(),revenue_stream:document.getElementById("ld-e-revenue-"+rowIndex).value.trim(),notes:document.getElementById("ld-e-notes-"+rowIndex).value.trim(),priority:document.getElementById("ld-e-priority-"+rowIndex).value,follow_up_date:document.getElementById("ld-e-followup-"+rowIndex).value||null,last_updated:new Date().toISOString(),last_updated_by:currentUser}).eq("id",rowIndex);
-    if(error){alert("Gagal simpan: "+error.message);return;}
-    logActivity("Leads Tracker","edit",rowIndex,"Data diperbarui");
-    const _ld=allLeadsRows.find(r=>r.rowIndex===rowIndex);
-    if(_ld?.addedBy) insertNotif(_ld.addedBy,"Leads Tracker",rowIndex,`${currentUser} mengedit Leads: ${_ld.name}`);
-    closeLeadEdit(rowIndex); loadLeads();
-  } catch(e){alert("Koneksi gagal.");}
+async function ldpDeleteTask(id){
+  await sb.from("lead_action_items").delete().eq("id",id);
+  ldpLoadTasks(_ldDetail.rowIndex);
+}
+
+// ── Comments ──
+async function ldpLoadComments(leadId){
+  const list=document.getElementById("ldp-comments-list"); if(!list)return;
+  list.innerHTML='<div style="text-align:center;padding:24px;color:var(--g400);font-size:12px">Memuat…</div>';
+  const {data,error}=await sb.from("lead_comments").select("*").eq("lead_id",leadId).order("created_at");
+  if(error){list.innerHTML='<div style="color:#c0392b;font-size:12px;padding:12px">Error: '+error.message+'</div>';return;}
+  const comments=data||[];
+  const badge=document.getElementById("ldp-discuss-badge");
+  if(badge){badge.textContent=comments.length;badge.style.display=comments.length>0?"inline":"none";}
+  if(!comments.length){list.innerHTML='<div style="text-align:center;padding:32px;color:var(--g400);font-family:var(--mono);font-size:11px">Belum ada diskusi</div>';return;}
+  list.innerHTML=comments.map(c=>{
+    const dt=new Date(c.created_at);
+    const dtStr=dt.toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"})+" · "+dt.toLocaleTimeString("id-ID",{hour:"2-digit",minute:"2-digit"});
+    const isMe=c.created_by===currentUser;
+    return `<div style="display:flex;flex-direction:column;gap:3px;align-items:${isMe?"flex-end":"flex-start"}">
+      <div style="font-size:10px;color:var(--g400);font-family:var(--mono)">${c.created_by||"—"} · ${dtStr}</div>
+      <div style="background:${isMe?"#3c3489":"var(--off)"};color:${isMe?"#fff":"var(--black)"};border-radius:${isMe?"12px 12px 2px 12px":"12px 12px 12px 2px"};padding:9px 13px;max-width:90%;font-size:13px;line-height:1.5;white-space:pre-wrap">${c.body}</div>
+    </div>`;
+  }).join("");
+  list.scrollTop=list.scrollHeight;
+}
+
+async function ldpAddComment(){
+  if(!_ldDetail)return;
+  const body=document.getElementById("ldp-comment-body").value.trim();
+  if(!body)return;
+  const id=genId("LDC");
+  const {error}=await sb.from("lead_comments").insert({id,lead_id:_ldDetail.rowIndex,body,created_by:currentUser});
+  if(error){alert("Gagal: "+error.message);return;}
+  document.getElementById("ldp-comment-body").value="";
+  ldpLoadComments(_ldDetail.rowIndex);
 }
 
 setupAC("ld-category","ac-ld-category",()=>acLeadsCategories);
