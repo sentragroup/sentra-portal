@@ -9,6 +9,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2/dist/chartjs-plugin-datalabels.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4/dist/exceljs.min.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <link rel="stylesheet" href="style.css">
@@ -2563,7 +2564,7 @@
                 <div class="btn-row" style="margin-top:12px">
                   <button class="btn-primary" onclick="saveMRTracking()">Simpan</button>
                   <button class="btn-ghost" onclick="closeMRModal()">Batal</button>
-                  <button class="btn-ghost" style="margin-left:auto;font-size:12px" onclick="downloadMRBrandCSV()">⬇ Download CSV</button>
+                  <button class="btn-ghost" style="margin-left:auto;font-size:12px" onclick="downloadMRBrandXLSX()">⬇ Download Excel</button>
                 </div>
                 <div class="feedback" id="mr-f-feedback"></div>
               </div>
@@ -2735,6 +2736,6 @@
 <div id="proj-overlay" class="proj-panel-overlay" style="display:none" onclick="if(event.target===this)closeProjectDetail()"></div>
 <div id="proj-panel" class="proj-panel" style="display:none"></div>
 
-<script src="app.js?v=20260527d"></script>
+<script src="app.js?v=20260527e"></script>
 </body>
 </html>
