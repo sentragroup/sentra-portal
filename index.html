@@ -2844,11 +2844,13 @@
     <div style="display:flex;gap:6px;align-items:flex-end;position:relative">
       <div id="chat-ac"></div>
       <textarea id="chat-input" placeholder="Tulis pesan… Ketik @ untuk mention" rows="1"></textarea>
+      <input type="file" id="chat-img-input" accept="image/*" style="display:none" onchange="_chatUploadImage(this.files[0])">
+      <button id="chat-img-btn" onclick="_chatPickImage()" title="Kirim gambar" style="flex-shrink:0;height:38px;width:38px;border:1px solid var(--g100);border-radius:9px;background:var(--off);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center">🖼</button>
       <button class="btn-primary" id="chat-send-btn" onclick="sendChatMessage()" style="flex-shrink:0;height:38px;padding:0 14px;font-size:13px">Kirim</button>
     </div>
   </div>
 </div>
 
-<script src="app.js?v=20260530f"></script>
+<script src="app.js?v=20260530g"></script>
 </body>
 </html>
