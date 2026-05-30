@@ -1414,6 +1414,9 @@ function pickPKS(agrId, label) {
 let allLeadsRows = [], acLeadsCategories = ["Musician","Brand","Filmmaker","Artist"];
 let _ldDetail = null;   // currently open lead object
 let _ldClosedOpen = false;
+let _ldMainTab = 'board';
+let _ldAllTasks = [];
+let _ldpDiscussAtQuery = '', _ldpDiscussAtStart = -1;
 
 // ── Stage helpers ──
 const LD_PIPELINE = ["New","Contacted","Meeting","Proposal","Negotiation"];
@@ -1471,6 +1474,7 @@ function applyLeadsFilters(){
   computeLeadsStats(filtered);
   document.getElementById("ld-tcount").textContent=filtered.length+" lead";
   renderLeadsBoard(filtered);
+  if (_ldMainTab === 'alltasks') applyLdTasksFilters();
 }
 
 function clearLeadsFilters(){
@@ -1821,7 +1825,7 @@ async function ldpLoadComments(leadId){
     const isMe=c.created_by===currentUser;
     return `<div style="display:flex;flex-direction:column;gap:3px;align-items:${isMe?"flex-end":"flex-start"}">
       <div style="font-size:10px;color:var(--g400);font-family:var(--mono)">${c.created_by||"—"} · ${dtStr}</div>
-      <div style="background:${isMe?"#3c3489":"var(--off)"};color:${isMe?"#fff":"var(--black)"};border-radius:${isMe?"12px 12px 2px 12px":"12px 12px 12px 2px"};padding:9px 13px;max-width:90%;font-size:13px;line-height:1.5;white-space:pre-wrap">${c.body}</div>
+      <div style="background:${isMe?"#3c3489":"var(--off)"};color:${isMe?"#fff":"var(--black)"};border-radius:${isMe?"12px 12px 2px 12px":"12px 12px 12px 2px"};padding:9px 13px;max-width:90%;font-size:13px;line-height:1.5;white-space:pre-wrap;word-break:break-word">${_chatHighlight(_chatRenderBody(c.body||''))}</div>
     </div>`;
   }).join("");
   list.scrollTop=list.scrollHeight;
@@ -1840,6 +1844,152 @@ async function ldpAddComment(){
 
 setupAC("ld-category","ac-ld-category",()=>acLeadsCategories);
 setupAC("ld-pic","ac-ld-pic",()=>acPics);
+setupAC("ldp-task-assignee","ac-ldp-task-assignee",()=>acPics);
+setupAC("ldp-f-pic","ac-ldp-f-pic",()=>acPics);
+setupAC("ldp-f-category","ac-ldp-f-category",()=>acLeadsCategories);
+
+function switchLdMainTab(name, el) {
+  _ldMainTab = name;
+  document.querySelectorAll('#ld-main-tabs .tab-btn').forEach(b => b.classList.remove('active'));
+  if (el) el.classList.add('active');
+  else {
+    document.querySelectorAll('#ld-main-tabs .tab-btn').forEach(b => {
+      if ((name==='board'&&b.textContent==='Board')||(name==='alltasks'&&b.textContent==='Action Items')) b.classList.add('active');
+    });
+  }
+  const board = document.getElementById('ldtab-board');
+  const tasks = document.getElementById('ldtab-alltasks');
+  if (board) board.style.display = name === 'board' ? 'block' : 'none';
+  if (tasks) tasks.style.display = name === 'alltasks' ? 'block' : 'none';
+  if (name === 'alltasks') loadAllLeadTasks();
+}
+
+async function loadAllLeadTasks() {
+  const tbody = document.getElementById('ldt-tbody');
+  if (tbody) tbody.innerHTML = '<tr><td class="empty-td" colspan="7">Memuat…</td></tr>';
+  if (!allLeadsRows.length) {
+    const {data} = await sb.from('leads').select('*').order('id');
+    if (data) allLeadsRows = data.map(mapLD);
+  }
+  const {data, error} = await sb.from('lead_action_items').select('*').order('due_date', {ascending:true});
+  if (error) { if(tbody) tbody.innerHTML='<tr><td class="empty-td" colspan="7">Error: '+error.message+'</td></tr>'; return; }
+  _ldAllTasks = (data||[]).map(t => {
+    const lead = allLeadsRows.find(r => r.rowIndex === t.lead_id) || {};
+    return Object.assign({}, t, {_leadName: lead.name||'—', _leadStage: lead.stage||'—', _leadPic: lead.pic||'', _leadCategory: lead.category||''});
+  });
+  applyLdTasksFilters();
+}
+
+function applyLdTasksFilters() {
+  const q = ((document.getElementById('ldSearch')||{}).value||'').toLowerCase();
+  const fPic = (document.getElementById('ld-fil-pic')||{}).value||'';
+  const fCat = (document.getElementById('ld-fil-category')||{}).value||'';
+  const filtered = _ldAllTasks.filter(t => {
+    if (fPic && t._leadPic !== fPic) return false;
+    if (fCat && t._leadCategory !== fCat) return false;
+    if (q && ![(t._leadName),(t.title||''),(t.assignee||'')].some(v=>v.toLowerCase().includes(q))) return false;
+    return true;
+  });
+  const cnt = document.getElementById('ldt-tcount');
+  if (cnt) cnt.textContent = filtered.length + ' item';
+  renderAllLeadTasks(filtered);
+}
+
+function renderAllLeadTasks(tasks) {
+  const tbody = document.getElementById('ldt-tbody'); if(!tbody) return;
+  if (!tasks.length) { tbody.innerHTML='<tr><td class="empty-td" colspan="7">Tidak ada action item.</td></tr>'; return; }
+  const today = new Date(); today.setHours(0,0,0,0);
+  tbody.innerHTML = tasks.map(t => {
+    const due = t.due_date ? new Date(t.due_date) : null;
+    const overdue = !t.is_done && due && due < today;
+    const dueStr = due ? due.toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'numeric'}) : '—';
+    const c = STAGE_COLORS[t._leadStage]||'#888';
+    return '<tr style="'+(t.is_done?'opacity:.55':'')+'">'
+      + '<td><div style="font-weight:500;font-size:12px;cursor:pointer;color:#2563eb;text-decoration:underline;text-underline-offset:2px" onclick="openLeadDetail(\''+t.lead_id+'\')">'+_esc(t._leadName)+'</div>'
+      + '<div style="font-size:10px;color:var(--g400);font-family:var(--mono)">'+_esc(t._leadPic)+'</div></td>'
+      + '<td><span class="pill" style="background:'+c+'18;color:'+c+';border-color:'+c+'44">'+_esc(t._leadStage)+'</span></td>'
+      + '<td style="font-size:12px;'+(t.is_done?'text-decoration:line-through;color:var(--g400)':'')+'">'+_esc(t.title||'')+'</td>'
+      + '<td style="font-size:12px;font-family:var(--mono);color:var(--g600)">'+_esc(t.assignee||'—')+'</td>'
+      + '<td style="font-size:11px;font-family:var(--mono);color:'+(overdue?'#c0392b':'var(--g400)')+'">'+((overdue?'⚠ ':'')+dueStr)+'</td>'
+      + '<td><label style="cursor:pointer;display:flex;align-items:center;gap:5px"><input type="checkbox" '+(t.is_done?'checked':'')+' onchange="ldpToggleTaskGlobal(\''+t.id+'\',this.checked)">'
+      + '<span style="font-size:11px;font-family:var(--mono);color:'+(t.is_done?'#1a5c25':'var(--g400)')+'">'+( t.is_done?'Done':'Open')+'</span></label></td>'
+      + '<td style="font-size:11px;color:var(--g400)">'+_esc(t.created_by||'')+'</td>'
+      + '</tr>';
+  }).join('');
+}
+
+async function ldpToggleTaskGlobal(id, isDone) {
+  await sb.from('lead_action_items').update({is_done:isDone, updated_at:new Date().toISOString()}).eq('id',id);
+  const t = _ldAllTasks.find(t=>t.id===id); if(t) t.is_done=isDone;
+  applyLdTasksFilters();
+}
+
+function _ldpDiscussOnInput(e) {
+  const inp = e.target;
+  inp.style.height = 'auto';
+  inp.style.height = Math.min(inp.scrollHeight, 120) + 'px';
+  const val = inp.value, pos = inp.selectionStart, before = val.slice(0, pos);
+  const atIdx = before.lastIndexOf('@');
+  if (atIdx !== -1) {
+    const afterAt = before.slice(atIdx + 1);
+    if (!afterAt.includes(' ')) { _ldpDiscussAtStart = atIdx; _ldpDiscussAtQuery = afterAt.toLowerCase(); _ldpDiscussShowAC(_ldpDiscussAtQuery); return; }
+  }
+  _closeLdpDiscussAC();
+}
+
+function _ldpDiscussOnKeydown(e) {
+  const ac = document.getElementById('ldp-discuss-ac');
+  if (ac && ac.style.display !== 'none') {
+    const items = ac.querySelectorAll('.chat-ac-item');
+    const active = ac.querySelector('.chat-ac-item.active');
+    if (e.key === 'ArrowDown') { e.preventDefault(); const nxt=active?(active.nextElementSibling||items[0]):items[0]; if(active)active.classList.remove('active'); if(nxt)nxt.classList.add('active'); return; }
+    if (e.key === 'ArrowUp')   { e.preventDefault(); const prv=active?(active.previousElementSibling||items[items.length-1]):items[items.length-1]; if(active)active.classList.remove('active'); if(prv)prv.classList.add('active'); return; }
+    if (e.key === 'Enter' || e.key === 'Tab') { const sel=ac.querySelector('.chat-ac-item.active')||items[0]; if(sel){e.preventDefault();_ldpDiscussPickMention(sel.dataset.name);return;} }
+    if (e.key === 'Escape') { _closeLdpDiscussAC(); return; }
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); ldpAddComment(); }
+}
+
+function _ldpDiscussShowAC(query) {
+  const ac = document.getElementById('ldp-discuss-ac'); if(!ac) return;
+  const allNames = [...new Set([...(acPics||[]).map(p=>p.split('@')[0])])].filter(Boolean);
+  const matches = query ? allNames.filter(n=>n.toLowerCase().includes(query)) : allNames.slice(0,8);
+  if (!matches.length) { _closeLdpDiscussAC(); return; }
+  ac.innerHTML = matches.slice(0,8).map(p=>'<div class="chat-ac-item" data-name="'+_esc(p)+'" onclick="_ldpDiscussPickMention(\''+_esc(p)+'\')">'+_esc(p)+'</div>').join('');
+  ac.style.display = 'block';
+}
+
+function _ldpDiscussPickMention(name) {
+  const inp = document.getElementById('ldp-comment-body'); if(!inp) return;
+  const before = inp.value.slice(0, _ldpDiscussAtStart), after = inp.value.slice(inp.selectionStart);
+  inp.value = before + '@' + name + ' ' + after;
+  const newPos = before.length + name.length + 2;
+  inp.setSelectionRange(newPos, newPos);
+  _closeLdpDiscussAC();
+  inp.focus();
+}
+
+function _closeLdpDiscussAC() {
+  const ac = document.getElementById('ldp-discuss-ac'); if(ac) ac.style.display='none';
+  _ldpDiscussAtQuery = ''; _ldpDiscussAtStart = -1;
+}
+
+async function _ldpUploadCommentImage(file) {
+  if (!file || !_ldDetail) return;
+  if (file.size > 5*1024*1024) { alert('Ukuran file maksimal 5MB.'); return; }
+  const btn = document.getElementById('ldp-comment-img-btn');
+  if (btn) { btn.disabled=true; btn.textContent='⏳'; }
+  const ext = file.name.split('.').pop().toLowerCase();
+  const path = 'discuss/' + genId('DCM') + '.' + ext;
+  const {error:upErr} = await sb.storage.from('chat-attachments').upload(path, file, {contentType:file.type, upsert:false});
+  if (upErr) { alert('Gagal upload: '+upErr.message); if(btn){btn.disabled=false;btn.textContent='🖼';} return; }
+  const {data:{publicUrl}} = sb.storage.from('chat-attachments').getPublicUrl(path);
+  const id = genId('LDC');
+  const {error} = await sb.from('lead_comments').insert({id, lead_id:_ldDetail.rowIndex, body:publicUrl, created_by:currentUser});
+  if (!error) ldpLoadComments(_ldDetail.rowIndex);
+  if (btn) { btn.disabled=false; btn.textContent='🖼'; }
+  const imgInp = document.getElementById('ldp-comment-img-input'); if(imgInp) imgInp.value='';
+}
 
 // ── DISTRIBUTION PARTNER ──
 let allDPRows = [], acDPTypes = ["Consignment","Bulk Purchase"], acDPChannels = ["Online Store","Physical Store","Marketplace","Pop-up"];
