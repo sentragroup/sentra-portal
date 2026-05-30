@@ -67,7 +67,7 @@ function mapPB(r) { return {rowIndex:r.id,id:r.id,eventDate:r.event_date||"",eve
 
 let currentUser = "";
 let currentUserEmail = "";
-let allRows = [], acBrands = [], acTypes = [], acPics = [];
+let allRows = [], acBrands = [], acTypes = [], acPics = [], _teamPics = [];
 let allIPRows = [], acAgrOptions = [], acIPCategories = ["Musician","Brand","Filmmaker"];
 let acAgrLinks = {}; // agrId -> driveLink
 let allRRRows = [], acRRTipes = [], acRRIPs = [];
@@ -356,7 +356,7 @@ async function loadStats() {
     computeStats(rows);
     acAgrOptions = rows.map(r=>({id:r.id,label:[r.partner,r.type].filter(Boolean).join(" — ")}));
     acAgrLinks = {}; rows.forEach(r=>{ if(r.id&&r.link) acAgrLinks[r.id]=r.link; });
-    if(!acBrands.length) { acBrands=[...new Set(rows.map(r=>r.brand).filter(Boolean))]; acTypes=[...new Set(rows.map(r=>r.type).filter(Boolean))]; acPics=[...new Set(rows.map(r=>r.pic).filter(Boolean))]; }
+    if(!acBrands.length) { acBrands=[...new Set(rows.map(r=>r.brand).filter(Boolean))]; acTypes=[...new Set(rows.map(r=>r.type).filter(Boolean))]; acPics=[...new Set([..._teamPics,...rows.map(r=>r.pic).filter(Boolean)])]; }
   } catch(e) {}
 }
 
@@ -398,7 +398,7 @@ async function loadAgreements() {
     if (error) throw error;
     allRows=(data||[]).map(mapAgr);
     acTypes=[...new Set(allRows.map(r=>r.type).filter(Boolean))];
-    acPics=[...new Set(allRows.map(r=>r.pic).filter(Boolean))];
+    acPics=[...new Set([..._teamPics,...allRows.map(r=>r.pic).filter(Boolean)])];
     acAgrOptions=allRows.map(r=>({id:r.id,label:[r.partner,r.type].filter(Boolean).join(" — ")}));
     acAgrLinks={}; allRows.forEach(r=>{if(r.id&&r.link)acAgrLinks[r.id]=r.link;});
     const agrBrands=[...new Set(allRows.map(r=>r.brand).filter(Boolean))];
@@ -1354,9 +1354,10 @@ async function preloadAutocomplete() {
       sb.from("brand_master").select("*"),
       sb.from("team_members").select("name").eq("is_active",true).order("name")
     ]);
-    // Seed acPics from team_members first so it's always the authoritative list
+    // Seed _teamPics + acPics from team_members — this is the protected base list
     if (!tmRes.error && tmRes.data?.length) {
-      acPics = [...new Set(tmRes.data.map(r=>r.name).filter(Boolean))];
+      _teamPics = [...new Set(tmRes.data.map(r=>r.name).filter(Boolean))];
+      acPics = [..._teamPics];
     }
     if (!agrRes.error) {
       const rows=(agrRes.data||[]).map(mapAgr);
@@ -13992,7 +13993,8 @@ async function saveNewTeamMember(btn){
     const { data, error } = await sb.from('team_members').insert({ name, role, email }).select().single();
     if(error) throw error;
     _teamRows.push(data);
-    // Update acPics live so autocomplete works immediately
+    // Update _teamPics + acPics live so autocomplete works immediately
+    if(!_teamPics.includes(data.name)) _teamPics.push(data.name);
     if(!acPics.includes(data.name)) acPics.push(data.name);
     renderTeamList();
     modal.remove();
@@ -14007,8 +14009,9 @@ async function toggleTeamActive(id, newState){
     await sb.from('team_members').update({is_active:newState}).eq('id',id);
     const m = _teamRows.find(x=>x.id===id);
     if(m) m.is_active = newState;
-    // Sync acPics: only include active members
-    acPics = _teamRows.filter(x=>x.is_active).map(x=>x.name);
+    // Sync _teamPics and acPics
+    _teamPics = _teamRows.filter(x=>x.is_active).map(x=>x.name);
+    acPics = [...new Set([..._teamPics, ...acPics.filter(n=>!_teamRows.map(x=>x.name).includes(n))])];
     renderTeamList();
   } catch(e){ alert('Gagal: '+e.message); }
 }
@@ -14018,7 +14021,8 @@ async function deleteTeamMember(id){
   try{
     await sb.from('team_members').delete().eq('id',id);
     _teamRows = _teamRows.filter(x=>x.id!==id);
-    acPics = _teamRows.filter(x=>x.is_active).map(x=>x.name);
+    _teamPics = _teamRows.filter(x=>x.is_active).map(x=>x.name);
+    acPics = [...new Set([..._teamPics, ...acPics.filter(n=>!_teamRows.map(x=>x.name).includes(n))])];
     renderTeamList();
   } catch(e){ alert('Gagal hapus: '+e.message); }
 }
