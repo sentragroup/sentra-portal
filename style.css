@@ -306,4 +306,12 @@ th.sortable:hover{color:var(--black);background:var(--off);}
 .chat-msg:hover .chat-thread-empty{display:block;}
 .chat-thread-empty:hover{color:var(--black);background:var(--off);}
 .chat-unread-badge{background:#c0392b;color:#fff;font-size:9px;font-family:var(--mono);border-radius:99px;min-width:15px;height:15px;display:inline-flex;align-items:center;justify-content:center;padding:0 3px;}
+/* delete, links, images */
+.chat-del-btn{display:none;background:none;border:none;cursor:pointer;padding:2px 5px;font-size:13px;border-radius:5px;color:var(--g400);flex-shrink:0;align-self:flex-start;margin-top:2px;transition:color .1s,background .1s;}
+.chat-del-btn:hover{color:#c0392b;background:#fdf0f0;}
+.chat-msg:hover .chat-del-btn{display:inline-flex;}
+.chat-link{color:#2563eb;text-decoration:underline;text-underline-offset:2px;word-break:break-all;}
+.chat-link:hover{color:#1d4ed8;}
+.chat-img{max-width:100%;max-height:180px;border-radius:8px;border:1px solid var(--g100);cursor:pointer;display:block;margin-top:4px;object-fit:cover;}
+.chat-img:hover{opacity:.9;}
 @media(max-width:768px){#chat-popup{width:calc(100vw - 24px);right:12px;bottom:76px;}#chat-fab{bottom:16px;right:16px;}}

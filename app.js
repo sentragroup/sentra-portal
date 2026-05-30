@@ -12190,6 +12190,14 @@ async function loadChat() {
           }
         }
       })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'chat_messages' }, function(payload) {
+        const idx = _chatAllMsgs.findIndex(function(m){ return m.id === payload.new.id; });
+        if (idx !== -1) {
+          if (payload.new.is_deleted) _chatAllMsgs.splice(idx, 1);
+          else _chatAllMsgs[idx] = payload.new;
+          _chatRender();
+        }
+      })
       .subscribe();
   }
 }
@@ -12288,7 +12296,11 @@ function _chatMsgHTML(msg, prev, inThread) {
     divider = '<div style="text-align:center;margin:10px 0 6px"><span style="background:var(--off);border:1px solid var(--g100);border-radius:99px;padding:2px 10px;font-size:10px;font-family:var(--mono);color:var(--g600)">' + _esc(_chatDateLabel(ts)) + '</span></div>';
   }
 
-  const bodyHtml = _chatHighlight(_esc(msg.body||''));
+  const bodyHtml = _chatHighlight(_chatRenderBody(msg.body||''));
+  const isOwn    = msg.sender === currentUser;
+  const deleteBtn = isOwn
+    ? '<button class="chat-del-btn" onclick="deleteChatMsg(\''+_esc(msg.id)+'\')" title="Hapus">🗑</button>'
+    : '';
 
   // Thread bar — only on root messages in main view
   let threadBar = '';
@@ -12322,6 +12334,7 @@ function _chatMsgHTML(msg, prev, inThread) {
       + '<div class="chat-msg chat-grouped" id="cmsg-' + msg.id + '" title="' + _esc(timeStr) + '">'
       + '<div class="chat-avatar-space"></div>'
       + '<div class="chat-bubble"><div class="chat-body">' + bodyHtml + '</div>' + threadBar + '</div>'
+      + deleteBtn
       + '</div>';
   }
 
@@ -12332,7 +12345,9 @@ function _chatMsgHTML(msg, prev, inThread) {
     + '<div class="chat-meta"><span class="chat-sender">' + _esc(senderShort) + '</span><span class="chat-time">' + _esc(timeStr) + '</span></div>'
     + '<div class="chat-body">' + bodyHtml + '</div>'
     + threadBar
-    + '</div></div>';
+    + '</div>'
+    + deleteBtn
+    + '</div>';
 }
 
 // ── Send ───────────────────────────────────────────────────────────────
@@ -12477,6 +12492,87 @@ function closeChatAC() {
   const ac = document.getElementById('chat-ac');
   if (ac) ac.style.display = 'none';
   _chatAtQuery = ''; _chatAtStart = -1;
+}
+
+// ── Body renderer: links + images ──────────────────────────────────────
+function _chatRenderBody(rawText) {
+  // Split text by URLs, render image URLs as <img>, other URLs as <a>
+  const URL_RE = /https?:\/\/[^\s<>"]+/g;
+  const IMG_EXT = /\.(jpg|jpeg|png|gif|webp)(\?[^\s]*)?$/i;
+  let last = 0, result = '';
+  let m;
+  URL_RE.lastIndex = 0;
+  while ((m = URL_RE.exec(rawText)) !== null) {
+    result += _esc(rawText.slice(last, m.index));
+    const url = m[0];
+    if (IMG_EXT.test(url)) {
+      result += '<img class="chat-img" src="' + _esc(url) + '" alt="image" onclick="window.open(\'' + _esc(url) + '\',\'_blank\')">';
+    } else {
+      result += '<a class="chat-link" href="' + _esc(url) + '" target="_blank" rel="noopener noreferrer">' + _esc(url) + '</a>';
+    }
+    last = m.index + url.length;
+  }
+  result += _esc(rawText.slice(last));
+  return result;
+}
+
+// ── Delete message ─────────────────────────────────────────────────────
+async function deleteChatMsg(id) {
+  if (!confirm('Hapus pesan ini?')) return;
+  const idx = _chatAllMsgs.findIndex(function(m){ return m.id === id; });
+  if (idx !== -1) _chatAllMsgs.splice(idx, 1);
+  _chatRender();
+  const { error } = await sb.from('chat_messages').update({ is_deleted: true }).eq('id', id);
+  if (error) {
+    console.error(error);
+    // rollback not needed — realtime UPDATE will sync state
+  }
+}
+
+// ── Image upload ───────────────────────────────────────────────────────
+function _chatPickImage() {
+  const inp = document.getElementById('chat-img-input');
+  if (inp) inp.click();
+}
+
+async function _chatUploadImage(file) {
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) { alert('Ukuran file maksimal 5MB.'); return; }
+  const btn = document.getElementById('chat-img-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
+
+  const ext  = file.name.split('.').pop().toLowerCase();
+  const path = 'chat/' + genId('IMG') + '.' + ext;
+  const { error: upErr } = await sb.storage.from('chat-attachments').upload(path, file, { contentType: file.type, upsert: false });
+
+  if (upErr) {
+    console.error(upErr);
+    alert('Gagal upload gambar: ' + upErr.message);
+    if (btn) { btn.disabled = false; btn.textContent = '🖼'; }
+    return;
+  }
+
+  const { data: { publicUrl } } = sb.storage.from('chat-attachments').getPublicUrl(path);
+
+  // Send as a chat message containing only the image URL (render will show inline)
+  const msgId   = genId('CHT');
+  const replyTo = _chatView === 'thread' ? _chatThreadRootId : null;
+  const optimistic = { id: msgId, body: publicUrl, sender: currentUser, reply_to: replyTo, created_at: new Date().toISOString(), is_deleted: false };
+  _chatAllMsgs.push(optimistic);
+  _chatRender();
+  _chatScrollBottom(false);
+
+  const { error } = await sb.from('chat_messages').insert({ id: msgId, body: publicUrl, sender: currentUser, reply_to: replyTo });
+  if (error) {
+    console.error(error);
+    _chatAllMsgs = _chatAllMsgs.filter(function(m){ return m.id !== msgId; });
+    _chatRender();
+  }
+
+  if (btn) { btn.disabled = false; btn.textContent = '🖼'; }
+  // Reset file input so same file can be re-uploaded
+  const imgInp = document.getElementById('chat-img-input');
+  if (imgInp) imgInp.value = '';
 }
 
 // Legacy stubs
