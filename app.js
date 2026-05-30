@@ -8477,7 +8477,7 @@ function projRenderTasksSection(projectId){
       <input id="pd-task-assignee" type="text" list="pd-task-assignee-opts" placeholder="Assignee…"
         style="width:110px;padding:6px 10px;border:1px solid var(--g200);border-radius:7px;font-size:12px;outline:none">
       <datalist id="pd-task-assignee-opts">
-        ${[...new Set(projAll.map(x=>x.assignee).filter(Boolean))].map(n=>`<option value="${projEsc(n)}">`).join('')}
+        ${(acPics||[]).map(n=>`<option value="${projEsc(n)}">`).join('')}
       </datalist>
       <input id="pd-task-due" type="date"
         style="padding:6px 8px;border:1px solid var(--g200);border-radius:7px;font-size:12px;outline:none;width:130px">
@@ -8999,7 +8999,7 @@ function projHandleMentionInput(pid){
   const match  = before.match(/@(\w*)$/);
   if(!match){ drop.style.display='none'; return; }
   const q = match[1].toLowerCase();
-  const pics = [...new Set(projAll.map(p=>p.assignee).filter(Boolean))];
+  const pics = acPics || [];
   const hits = pics.filter(n=>n.toLowerCase().includes(q)).slice(0,6);
   if(!hits.length){ drop.style.display='none'; return; }
   drop.innerHTML = hits.map(n=>`<div onclick="projInsertMention('${projEsc(n)}')"
