@@ -8256,6 +8256,8 @@ let projActivity = {};
 let projDragId = null;
 let projDragSourceStatus = null;
 let projDetailId = null;
+let projTasks = {};
+let projTaskCounts = {};
 let _projSearchTimer = null;
 let projFilterCat = '';
 let projFilterSearch = '';
@@ -8305,14 +8307,22 @@ async function loadProjects(){
   const board = document.getElementById('proj-board');
   if(board) board.innerHTML = `<div style="padding:40px;text-align:center;color:var(--g400);font-size:14px">Memuat data...</div>`;
   try{
-    const [{ data:cats, error:cErr }, { data:projs, error:pErr }] = await Promise.all([
+    const [{ data:cats, error:cErr }, { data:projs, error:pErr }, { data:taskRows }] = await Promise.all([
       sb.from('project_categories').select('*').order('name'),
-      sb.from('projects').select('*').order('position').order('created_at',{ascending:false})
+      sb.from('projects').select('*').order('position').order('created_at',{ascending:false}),
+      sb.from('project_action_items').select('project_id,is_done')
     ]);
     if(cErr) throw cErr;
     if(pErr) throw pErr;
     projCats = cats || [];
     projAll = (projs||[]).map(mapProj);
+    // Build task counts map: { projectId: { total, done } }
+    projTaskCounts = {};
+    (taskRows||[]).forEach(t=>{
+      if(!projTaskCounts[t.project_id]) projTaskCounts[t.project_id] = {total:0,done:0};
+      projTaskCounts[t.project_id].total++;
+      if(t.is_done) projTaskCounts[t.project_id].done++;
+    });
     renderProjCatFilter();
     renderProjStats();
     renderKanban();
@@ -8434,10 +8444,142 @@ function renderProjCard(p){
       <div style="display:flex;align-items:center;gap:6px">
         ${pri?`<span style="font-size:10px;font-family:var(--mono);color:${pri.color};font-weight:600">${pri.label.toUpperCase()}</span>`:''}
         ${p.assignee?`<span style="font-size:11px;color:var(--g400)">· ${projEsc(p.assignee)}</span>`:''}
+        ${(()=>{ const tc=projTaskCounts[p.id]; if(!tc||!tc.total) return ''; const allDone=tc.done===tc.total; return `<span style="font-size:10px;font-family:var(--mono);color:${allDone?'#10b981':'var(--g400)'};font-weight:600">✓ ${tc.done}/${tc.total}</span>`; })()}
       </div>
       ${dueStr?`<span style="font-size:10px;font-family:var(--mono);${dueCl}">${dueIcon} ${dueStr}${dueLabel}</span>`:''}
     </div>
   </div>`;
+}
+
+// ── PROJECT ACTION ITEMS ──
+function projRenderTasksSection(projectId){
+  const tasks = projTasks[projectId] || [];
+  const done = tasks.filter(t=>t.is_done).length;
+  const total = tasks.length;
+  const pct = total ? Math.round(done/total*100) : 0;
+  const barColor = pct===100 ? '#10b981' : pct>=50 ? '#f59e0b' : '#3b82f6';
+  return `<div id="pd-tasks-section-${projectId}" style="padding-top:14px;border-top:1px solid var(--g100)">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <span style="font-size:13px;font-weight:600;color:var(--black)">☑ Action Items</span>
+      ${total?`<span style="font-size:11px;font-family:var(--mono);color:${pct===100?'#10b981':'var(--g400)'}">${done}/${total} selesai</span>`:''}
+    </div>
+    ${total?`<div style="height:4px;background:var(--g100);border-radius:99px;margin-bottom:12px;overflow:hidden">
+      <div style="height:100%;width:${pct}%;background:${barColor};border-radius:99px;transition:width .3s"></div>
+    </div>`:''}
+    <div id="pd-tasks-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px">
+      ${tasks.map(t=>projRenderTaskRow(t, projectId)).join('')}
+      ${!tasks.length?'<div style="font-size:12px;color:var(--g400);font-style:italic">Belum ada action item</div>':''}
+    </div>
+    <div style="display:flex;gap:6px;align-items:center">
+      <input id="pd-task-in" type="text" placeholder="Tambah action item…"
+        style="flex:1;padding:6px 10px;border:1px solid var(--g200);border-radius:7px;font-size:12px;outline:none"
+        onkeydown="if(event.key==='Enter')projAddTask('${projectId}')">
+      <input id="pd-task-assignee" type="text" list="pd-task-assignee-opts" placeholder="Assignee…"
+        style="width:110px;padding:6px 10px;border:1px solid var(--g200);border-radius:7px;font-size:12px;outline:none">
+      <datalist id="pd-task-assignee-opts">
+        ${[...new Set(projAll.map(x=>x.assignee).filter(Boolean))].map(n=>`<option value="${projEsc(n)}">`).join('')}
+      </datalist>
+      <input id="pd-task-due" type="date"
+        style="padding:6px 8px;border:1px solid var(--g200);border-radius:7px;font-size:12px;outline:none;width:130px">
+      <button onclick="projAddTask('${projectId}')"
+        style="padding:6px 12px;background:var(--black);color:var(--white);border:none;border-radius:7px;font-size:12px;cursor:pointer;white-space:nowrap">+ Tambah</button>
+    </div>
+  </div>`;
+}
+
+function projRenderTaskRow(t, projectId){
+  const daysLeft = t.due_date ? projDayDiff(t.due_date) : null;
+  const dueStr = t.due_date ? new Date(t.due_date+'T00:00:00').toLocaleDateString('id-ID',{day:'numeric',month:'short'}) : '';
+  const overdue = daysLeft !== null && daysLeft < 0 && !t.is_done;
+  const dueCl = overdue ? 'color:#ef4444' : 'color:var(--g400)';
+  return `<div class="proj-task-row" data-task-id="${t.id}" style="display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--off);border-radius:8px;border:1px solid var(--g100)">
+    <input type="checkbox" ${t.is_done?'checked':''} onchange="projToggleTask('${t.id}',this.checked,'${projectId}')"
+      style="width:15px;height:15px;cursor:pointer;accent-color:var(--black);flex-shrink:0">
+    <span style="flex:1;font-size:12px;color:var(--black);${t.is_done?'text-decoration:line-through;color:var(--g400)':''}">${projEsc(t.title)}</span>
+    ${t.assignee?`<span style="font-size:11px;color:var(--g400);white-space:nowrap">@${projEsc(t.assignee)}</span>`:''}
+    ${dueStr?`<span style="font-size:10px;font-family:var(--mono);${dueCl};white-space:nowrap">${overdue?'🔴 ':daysLeft===0?'⚠️ ':'📅 '}${dueStr}</span>`:''}
+    <button onclick="projDeleteTask('${t.id}','${projectId}')"
+      style="background:none;border:none;color:var(--g400);cursor:pointer;font-size:13px;padding:0 2px;opacity:0;transition:opacity .15s"
+      onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0'"
+      class="proj-task-del">✕</button>
+  </div>`;
+}
+
+async function projAddTask(projectId){
+  const titleEl = document.getElementById('pd-task-in');
+  const title = titleEl?.value?.trim();
+  if(!title) return;
+  const assignee = document.getElementById('pd-task-assignee')?.value?.trim() || null;
+  const dueDate = document.getElementById('pd-task-due')?.value || null;
+  const id = genId('PTSK');
+  try{
+    const { data, error } = await sb.from('project_action_items').insert({
+      id, project_id:projectId, title, assignee:assignee||null,
+      due_date:dueDate||null, created_by:currentUser
+    }).select().single();
+    if(error) throw error;
+    if(!projTasks[projectId]) projTasks[projectId] = [];
+    projTasks[projectId].push(data);
+    // Update counts
+    if(!projTaskCounts[projectId]) projTaskCounts[projectId] = {total:0,done:0};
+    projTaskCounts[projectId].total++;
+    // Clear inputs
+    titleEl.value = '';
+    if(document.getElementById('pd-task-assignee')) document.getElementById('pd-task-assignee').value='';
+    if(document.getElementById('pd-task-due')) document.getElementById('pd-task-due').value='';
+    // Re-render tasks section
+    _projRefreshTasksSection(projectId);
+    // Update card badge
+    const card = document.getElementById('pcard-'+projectId);
+    if(card) card.outerHTML = renderProjCard(projAll.find(x=>x.id===projectId));
+  } catch(e){ alert('Gagal tambah task: '+e.message); }
+}
+
+async function projToggleTask(taskId, isDone, projectId){
+  try{
+    await sb.from('project_action_items').update({is_done:isDone, updated_at:new Date().toISOString()}).eq('id',taskId);
+    const task = (projTasks[projectId]||[]).find(t=>t.id===taskId);
+    if(task){
+      const wasDone = task.is_done;
+      task.is_done = isDone;
+      if(!projTaskCounts[projectId]) projTaskCounts[projectId] = {total:0,done:0};
+      if(isDone && !wasDone) projTaskCounts[projectId].done++;
+      else if(!isDone && wasDone) projTaskCounts[projectId].done--;
+    }
+    _projRefreshTasksSection(projectId);
+    // Update card badge
+    const card = document.getElementById('pcard-'+projectId);
+    if(card) card.outerHTML = renderProjCard(projAll.find(x=>x.id===projectId));
+  } catch(e){ console.error('[projToggleTask]',e); }
+}
+
+async function projDeleteTask(taskId, projectId){
+  if(!confirm('Hapus action item ini?')) return;
+  try{
+    await sb.from('project_action_items').delete().eq('id',taskId);
+    const task = (projTasks[projectId]||[]).find(t=>t.id===taskId);
+    projTasks[projectId] = (projTasks[projectId]||[]).filter(t=>t.id!==taskId);
+    if(projTaskCounts[projectId]){
+      projTaskCounts[projectId].total--;
+      if(task?.is_done) projTaskCounts[projectId].done--;
+      if(projTaskCounts[projectId].total<=0) delete projTaskCounts[projectId];
+    }
+    _projRefreshTasksSection(projectId);
+    const card = document.getElementById('pcard-'+projectId);
+    if(card) card.outerHTML = renderProjCard(projAll.find(x=>x.id===projectId));
+  } catch(e){ alert('Gagal hapus: '+e.message); }
+}
+
+function _projRefreshTasksSection(projectId){
+  const panel = document.getElementById('proj-panel');
+  if(!panel) return;
+  const existing = document.getElementById('pd-tasks-section-'+projectId);
+  if(!existing) return;
+  const newSection = projRenderTasksSection(projectId);
+  const tmp = document.createElement('div');
+  tmp.innerHTML = newSection;
+  const newEl = tmp.firstElementChild;
+  existing.replaceWith(newEl);
 }
 
 // ── DRAG & DROP ──
@@ -8499,12 +8641,14 @@ async function openProjectDetail(id, defaultStatus='backlog'){
   panel.innerHTML = `<div style="padding:40px;text-align:center;color:var(--g400);flex:1">Memuat...</div>`;
   if(id){
     try{
-      const [{ data:cmts },{ data:acts }] = await Promise.all([
+      const [{ data:cmts },{ data:acts },{ data:tasks }] = await Promise.all([
         sb.from('project_comments').select('*').eq('project_id',id).order('created_at'),
-        sb.from('project_activity').select('*').eq('project_id',id).order('created_at',{ascending:false}).limit(50)
+        sb.from('project_activity').select('*').eq('project_id',id).order('created_at',{ascending:false}).limit(50),
+        sb.from('project_action_items').select('*').eq('project_id',id).order('created_at')
       ]);
       projComments[id] = cmts || [];
       projActivity[id] = acts || [];
+      projTasks[id] = tasks || [];
     } catch(e){ console.error(e); }
   }
   renderProjDetail(id, defaultStatus);
@@ -8604,6 +8748,7 @@ function renderProjDetail(id, defaultStatus='backlog'){
         </button>
         <span id="pd-feedback" style="font-size:12px;color:var(--g400)"></span>
       </div>
+      ${!isNew ? projRenderTasksSection(id) : ''}
       ${!isNew?`<div style="padding-top:12px;border-top:1px solid var(--g100)"><span style="font-size:11px;font-family:var(--mono);color:var(--g400)">
         Dibuat ${p.createdBy?'oleh '+projEsc(p.createdBy)+' · ':''} ${p.createdAt?new Date(p.createdAt).toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'}):'—'}
       </span></div>`:''}
