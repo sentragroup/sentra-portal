@@ -2100,23 +2100,69 @@
       <div class="page" id="page-calendar">
         <div class="page-header">
           <div><div class="page-title">Calendar</div><div class="page-sub">Semua deadline &amp; event penting dari seluruh modul</div></div>
-        </div>
-        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:1.25rem;">
-          <div style="display:flex;gap:8px;flex-wrap:wrap" id="cal-filters">
-            <span class="cal-filter-chip active" data-src="project" onclick="calToggleFilter('project',this)">📌 Project Board</span>
-            <span class="cal-filter-chip active" data-src="collection" onclick="calToggleFilter('collection',this)">🎨 Collection Release</span>
-            <span class="cal-filter-chip active" data-src="colitem" onclick="calToggleFilter('colitem',this)">🧵 Collection Items</span>
-            <span class="cal-filter-chip active" data-src="leads" onclick="calToggleFilter('leads',this)">🎯 Leads Follow-up</span>
-            <span class="cal-filter-chip active" data-src="popup" onclick="calToggleFilter('popup',this)">🎪 Pop-up Booth</span>
-          </div>
-          <div style="display:flex;align-items:center;gap:8px">
-            <button onclick="calShowIcsUrl()" style="padding:5px 12px;border:1px solid var(--g200);border-radius:6px;background:none;font-size:11px;font-family:var(--mono);cursor:pointer;color:var(--g600);display:flex;align-items:center;gap:5px" title="Subscribe Google Calendar">📅 Google Cal</button>
-            <button class="cal-nav-btn" onclick="calChangeMonth(-1)">&#8249;</button>
-            <span id="cal-month-title" style="font-size:17px;font-weight:700;font-family:var(--head);color:var(--black);min-width:160px;text-align:center">—</span>
-            <button class="cal-nav-btn" onclick="calChangeMonth(1)">&#8250;</button>
+          <div class="tab-bar" id="cal-main-tabs">
+            <button class="tab-btn active" onclick="switchCalTab('cal',this)">Kalender</button>
+            <button class="tab-btn" onclick="switchCalTab('momentum',this)">🎉 Momentum</button>
           </div>
         </div>
-        <div class="cal-grid" id="cal-grid"></div>
+
+        <!-- Calendar tab -->
+        <div id="caltab-cal">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:1.25rem;">
+            <div style="display:flex;gap:8px;flex-wrap:wrap" id="cal-filters">
+              <span class="cal-filter-chip active" data-src="project" onclick="calToggleFilter('project',this)">📌 Project Board</span>
+              <span class="cal-filter-chip active" data-src="collection" onclick="calToggleFilter('collection',this)">🎨 Collection Release</span>
+              <span class="cal-filter-chip active" data-src="colitem" onclick="calToggleFilter('colitem',this)">🧵 Collection Items</span>
+              <span class="cal-filter-chip active" data-src="leads" onclick="calToggleFilter('leads',this)">🎯 Leads Follow-up</span>
+              <span class="cal-filter-chip active" data-src="popup" onclick="calToggleFilter('popup',this)">🎪 Pop-up Booth</span>
+              <span class="cal-filter-chip active" data-src="momentum" onclick="calToggleFilter('momentum',this)">🎉 Momentum</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <button onclick="calShowIcsUrl()" style="padding:5px 12px;border:1px solid var(--g200);border-radius:6px;background:none;font-size:11px;font-family:var(--mono);cursor:pointer;color:var(--g600);display:flex;align-items:center;gap:5px" title="Subscribe Google Calendar">📅 Google Cal</button>
+              <button class="cal-nav-btn" onclick="calChangeMonth(-1)">&#8249;</button>
+              <span id="cal-month-title" style="font-size:17px;font-weight:700;font-family:var(--head);color:var(--black);min-width:160px;text-align:center">—</span>
+              <button class="cal-nav-btn" onclick="calChangeMonth(1)">&#8250;</button>
+            </div>
+          </div>
+          <div class="cal-grid" id="cal-grid"></div>
+        </div>
+
+        <!-- Momentum tab -->
+        <div id="caltab-momentum" style="display:none">
+          <div style="display:grid;grid-template-columns:340px 1fr;gap:24px;align-items:flex-start">
+            <!-- Add form -->
+            <div class="form-card" style="position:sticky;top:72px">
+              <div class="form-sec">Tambah Momentum</div>
+              <div class="form-grid">
+                <div class="fg full"><label>Judul <span class="req">*</span></label><input type="text" id="mom-title" placeholder="e.g. Sun Eater Birthday"></div>
+                <div class="fg"><label>Tanggal <span class="req">*</span></label><input type="date" id="mom-date"></div>
+                <div class="fg"><label>Kategori</label><select id="mom-category"><option>Birthday</option><option>Anniversary</option><option>Launch</option><option>Special Day</option><option>Other</option></select></div>
+                <div class="fg full"><label>Terkait dengan</label><input type="text" id="mom-related" placeholder="e.g. SD&amp;Y, Sun Eater, Lagaa…"></div>
+                <div class="fg full"><label>Notes</label><input type="text" id="mom-notes" placeholder="Catatan tambahan"></div>
+                <div class="fg full">
+                  <label style="display:flex;align-items:center;gap:8px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer;font-size:13px">
+                    <input type="checkbox" id="mom-recurs" checked>
+                    Berulang setiap tahun
+                  </label>
+                </div>
+              </div>
+              <div class="btn-row">
+                <button class="btn-primary" id="momSubmitBtn" onclick="submitMoment()">Simpan</button>
+                <button class="btn-ghost" onclick="clearMomentForm()">Bersihkan</button>
+              </div>
+              <div class="feedback" id="mom-feedback"></div>
+            </div>
+
+            <!-- List -->
+            <div>
+              <div class="table-toolbar" style="margin-bottom:10px">
+                <button class="btn-refresh" onclick="loadMomentum()">↻ Refresh</button>
+                <div class="tcount" id="mom-tcount">— entri</div>
+              </div>
+              <div id="mom-list"></div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- SALES PERFORMANCE -->
@@ -2881,6 +2927,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260530j"></script>
+<script src="app.js?v=20260531a"></script>
 </body>
 </html>

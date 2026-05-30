@@ -8887,18 +8887,29 @@ function projCmtKeydown(e, pid){
 let calYear = new Date().getFullYear();
 let calMonth = new Date().getMonth();
 let calEvents = [];
-let calActiveFilters = new Set(['project','collection','colitem','leads','popup']);
+let calActiveFilters = new Set(['project','collection','colitem','leads','popup','momentum']);
+let _calTab = 'cal';
+
+function switchCalTab(name, el) {
+  _calTab = name;
+  document.querySelectorAll('#cal-main-tabs .tab-btn').forEach(b => b.classList.remove('active'));
+  if (el) el.classList.add('active');
+  document.getElementById('caltab-cal').style.display      = name === 'cal'      ? 'block' : 'none';
+  document.getElementById('caltab-momentum').style.display = name === 'momentum' ? 'block' : 'none';
+  if (name === 'momentum') loadMomentum();
+}
 const CAL_MONTH_NAMES = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
 const CAL_DAY_NAMES = ['Min','Sen','Sel','Rab','Kam','Jum','Sab'];
 
 async function loadCalendar() {
   try {
-    const [projRes, colRes, colItemRes, leadsRes, popupRes] = await Promise.all([
+    const [projRes, colRes, colItemRes, leadsRes, popupRes, momRes] = await Promise.all([
       sb.from('projects').select('id,title,due_date,status').not('due_date','is',null).neq('status','done'),
       sb.from('collections').select('id,collection_name,release_date').not('release_date','is',null),
       sb.from('collection_items').select('id,sku_name,deadline,collection_id').not('deadline','is',null),
       sb.from('leads').select('id,lead_name,follow_up_date,stage').not('follow_up_date','is',null),
-      sb.from('popup_booths').select('id,event_name,event_date,location').not('event_date','is',null)
+      sb.from('popup_booths').select('id,event_name,event_date,location').not('event_date','is',null),
+      sb.from('calendar_moments').select('*').order('date')
     ]);
     calEvents = [];
     (projRes.data||[]).forEach(r=>calEvents.push({src:'project',date:r.due_date,label:r.title,id:r.id}));
@@ -8906,6 +8917,7 @@ async function loadCalendar() {
     (colItemRes.data||[]).forEach(r=>calEvents.push({src:'colitem',date:r.deadline,label:r.sku_name,id:r.collection_id}));
     (leadsRes.data||[]).forEach(r=>calEvents.push({src:'leads',date:r.follow_up_date,label:r.lead_name,id:r.id}));
     (popupRes.data||[]).forEach(r=>calEvents.push({src:'popup',date:r.event_date,label:r.event_name+(r.location?` · ${r.location}`:''),id:r.id}));
+    (momRes.data||[]).forEach(r=>calEvents.push({src:'momentum',date:r.date,mmdd:r.date.slice(5),recurs:r.recurs_yearly,label:(r.category==='Birthday'?'🎂 ':r.category==='Anniversary'?'🎊 ':r.category==='Launch'?'🚀 ':'🎉 ')+r.title+(r.related_to?' · '+r.related_to:''),id:r.id}));
     renderCalendar();
   } catch(e){ console.error('Calendar load error:',e); }
 }
@@ -8936,9 +8948,14 @@ function renderCalendar() {
 
   const filtered = calEvents.filter(e => calActiveFilters.has(e.src));
   const byDate = {};
-  filtered.forEach(e => { if (!byDate[e.date]) byDate[e.date] = []; byDate[e.date].push(e); });
+  filtered.forEach(e => {
+    // Recurring momentum events: pin to current calendar year by MM-DD
+    const key = (e.src === 'momentum' && e.recurs) ? `${calYear}-${e.mmdd}` : e.date;
+    if (!byDate[key]) byDate[key] = [];
+    byDate[key].push(e);
+  });
 
-  const srcLabel = {project:'📌',collection:'🎨',colitem:'🧵',leads:'🎯',popup:'🎪'};
+  const srcLabel = {project:'📌',collection:'🎨',colitem:'🧵',leads:'🎯',popup:'🎪',momentum:'🎉'};
   let html = CAL_DAY_NAMES.map(d=>`<div class="cal-dow">${d}</div>`).join('');
 
   // prev month fillers
@@ -8970,7 +8987,107 @@ function renderCalendar() {
 
 function calEventClick(src, id) {
   const pageMap = {project:'project',collection:'collections',colitem:'collections',leads:'leads',popup:'popup-booth'};
+  if (src === 'momentum') { switchCalTab('momentum', document.querySelector('#cal-main-tabs .tab-btn:nth-child(2)')); return; }
   if (pageMap[src]) showPage(pageMap[src], null);
+}
+
+// ── Momentum CRUD ──────────────────────────────────────────────────────
+let _momRows = [];
+
+async function loadMomentum() {
+  const list = document.getElementById('mom-list');
+  if (list) list.innerHTML = '<div style="text-align:center;padding:32px;color:var(--g400);font-size:12px">Memuat…</div>';
+  const {data, error} = await sb.from('calendar_moments').select('*').order('date');
+  if (error) { if(list) list.innerHTML='<div style="color:#c0392b;padding:12px;font-size:12px">Error: '+error.message+'</div>'; return; }
+  _momRows = data || [];
+  const cnt = document.getElementById('mom-tcount');
+  if (cnt) cnt.textContent = _momRows.length + ' entri';
+  renderMomentList();
+}
+
+const MOM_CAT_ICON = {Birthday:'🎂', Anniversary:'🎊', Launch:'🚀', 'Special Day':'⭐', Other:'🎉'};
+
+function renderMomentList() {
+  const list = document.getElementById('mom-list'); if (!list) return;
+  if (!_momRows.length) {
+    list.innerHTML = '<div style="text-align:center;padding:48px;color:var(--g400);font-family:var(--mono);font-size:11px">Belum ada momentum. Tambahkan di form kiri.</div>';
+    return;
+  }
+  // Group by month (MM-DD order)
+  const sorted = [..._momRows].sort((a,b) => a.date.slice(5).localeCompare(b.date.slice(5)));
+  const today = new Date(); today.setHours(0,0,0,0);
+  list.innerHTML = sorted.map(r => {
+    const raw = new Date(r.date + 'T00:00:00');
+    const mmdd = r.date.slice(5);
+    const displayDate = raw.toLocaleDateString('id-ID', {day:'2-digit', month:'long'}) + (r.recurs_yearly ? '' : ' ' + raw.getFullYear());
+    const icon = MOM_CAT_ICON[r.category] || '🎉';
+    // Next occurrence
+    const thisYear = new Date(today.getFullYear() + '-' + mmdd + 'T00:00:00');
+    const nextOcc  = thisYear >= today ? thisYear : new Date((today.getFullYear()+1) + '-' + mmdd + 'T00:00:00');
+    const daysLeft = Math.round((nextOcc - today) / 86400000);
+    const soon     = daysLeft <= 30;
+    const isToday  = daysLeft === 0;
+    return '<div style="display:flex;align-items:center;gap:14px;padding:12px 14px;border-radius:10px;border:1px solid '+(isToday?'#f0d080':soon?'#fde8d0':'var(--g100)')+';background:'+(isToday?'#fff8e6':soon?'#fff7f2':'var(--white)')+';margin-bottom:8px">'
+      + '<div style="font-size:24px;flex-shrink:0;line-height:1">'+icon+'</div>'
+      + '<div style="flex:1;min-width:0">'
+      + '<div style="font-weight:600;font-size:13px;color:var(--black)">'+_esc(r.title)+'</div>'
+      + '<div style="font-size:11px;color:var(--g400);font-family:var(--mono);margin-top:1px">'
+      + _esc(displayDate)+(r.related_to?' · '+_esc(r.related_to):'')+(r.recurs_yearly?' · 🔁 tahunan':'')
+      + '</div>'
+      + (r.notes ? '<div style="font-size:11px;color:var(--g600);margin-top:2px">'+_esc(r.notes)+'</div>' : '')
+      + '</div>'
+      + '<div style="text-align:right;flex-shrink:0">'
+      + '<div style="font-size:11px;font-family:var(--mono);color:'+(isToday?'#7a5000':soon?'#b45309':'var(--g400)')+';font-weight:'+(soon?'600':'400')+'">'
+      + (isToday ? '🎉 Hari ini!' : soon ? 'dalam '+daysLeft+' hari' : daysLeft+' hari lagi')
+      + '</div>'
+      + '<span class="pill p-draft" style="font-size:9px;margin-top:4px;display:inline-block">'+_esc(r.category||'')+'</span>'
+      + '</div>'
+      + '<button onclick="deleteMoment(\''+_esc(r.id)+'\')" style="background:none;border:none;cursor:pointer;font-size:13px;color:var(--g200);padding:4px;border-radius:4px;flex-shrink:0" onmouseover="this.style.color=\'#c0392b\'" onmouseout="this.style.color=\'var(--g200)\'">✕</button>'
+      + '</div>';
+  }).join('');
+}
+
+async function submitMoment() {
+  const title = document.getElementById('mom-title').value.trim();
+  const date  = document.getElementById('mom-date').value;
+  if (!title) { showMomFeedback('Judul wajib diisi.','err'); return; }
+  if (!date)  { showMomFeedback('Tanggal wajib diisi.','err'); return; }
+  const btn = document.getElementById('momSubmitBtn'); btn.disabled=true; btn.textContent='Menyimpan…';
+  const id = genId('MOM');
+  const {error} = await sb.from('calendar_moments').insert({
+    id, title, date,
+    recurs_yearly: document.getElementById('mom-recurs').checked,
+    category:   document.getElementById('mom-category').value,
+    related_to: document.getElementById('mom-related').value.trim()||null,
+    notes:      document.getElementById('mom-notes').value.trim()||null,
+    added_by:   currentUser
+  });
+  btn.disabled=false; btn.textContent='Simpan';
+  if (error) { showMomFeedback('Gagal: '+error.message,'err'); return; }
+  showMomFeedback('✓ Tersimpan!','ok');
+  clearMomentForm();
+  loadMomentum();
+  loadCalendar();
+}
+
+async function deleteMoment(id) {
+  if (!confirm('Hapus momentum ini?')) return;
+  await sb.from('calendar_moments').delete().eq('id', id);
+  loadMomentum();
+  loadCalendar();
+}
+
+function clearMomentForm() {
+  ['mom-title','mom-related','mom-notes'].forEach(i => { const e=document.getElementById(i); if(e) e.value=''; });
+  const d=document.getElementById('mom-date'); if(d) d.value='';
+  const c=document.getElementById('mom-category'); if(c) c.value='Birthday';
+  const r=document.getElementById('mom-recurs'); if(r) r.checked=true;
+}
+
+function showMomFeedback(msg, type) {
+  const el = document.getElementById('mom-feedback'); if(!el) return;
+  el.textContent=msg; el.className='feedback '+type;
+  if (type==='ok') setTimeout(()=>el.className='feedback',4000);
 }
 
 const CAL_ICS_URL = 'https://qyxdjdwgvwtrpnvfndnu.supabase.co/functions/v1/calendar-ics?token=sntr-cal-f8k2';
