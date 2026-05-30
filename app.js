@@ -12193,6 +12193,8 @@ async function loadChat() {
     _chatRealtime = sb.channel('chat-general')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages' }, payload => {
         if (!payload.new.is_deleted) {
+          // Skip if already added optimistically
+          if (_chatMsgs.find(m => m.id === payload.new.id)) return;
           _chatMsgs.push(payload.new);
           _chatRender();
           // Auto-scroll only if user is near bottom
@@ -12322,20 +12324,33 @@ async function sendChatMessage() {
   const btn = document.querySelector('#chat-compose .btn-primary');
   if (btn) { btn.disabled = true; btn.textContent = '…'; }
 
-  const { error } = await sb.from('chat_messages').insert({
-    id: genId('CHT'),
-    body: body,
-    sender: currentUser,
-    reply_to: _chatReplyId || null
-  });
-
-  if (btn) { btn.disabled = false; btn.textContent = 'Kirim'; }
-  if (error) { console.error(error); return; }
+  const msgId = genId('CHT');
+  const replyTo = _chatReplyId || null;
 
   inp.value = '';
   inp.style.height = 'auto';
   clearChatReply();
   closeChatAC();
+
+  // Optimistic: show immediately without waiting for realtime
+  const optimistic = { id: msgId, body, sender: currentUser, reply_to: replyTo, created_at: new Date().toISOString(), is_deleted: false };
+  _chatMsgs.push(optimistic);
+  _chatRender();
+  _chatScrollBottom(false);
+
+  const { error } = await sb.from('chat_messages').insert({
+    id: msgId, body, sender: currentUser, reply_to: replyTo
+  });
+
+  if (btn) { btn.disabled = false; btn.textContent = 'Kirim'; }
+  if (error) {
+    console.error(error);
+    // roll back optimistic message
+    _chatMsgs = _chatMsgs.filter(m => m.id !== msgId);
+    _chatRender();
+    inp.value = body; // restore text
+    return;
+  }
 
   // Mention notifications
   const mentions = [...body.matchAll(/@([\w.\-]+)/g)].map(function(m) { return m[1]; });
