@@ -12126,45 +12126,32 @@ async function downloadMRBrandXLSX() {
 
 
 // ── CHAT ──
-let _chatRealtime = null;
-let _chatLoaded   = false;
-let _chatReplyId  = null;
-let _chatMsgs     = [];
-let _chatAtQuery  = '';
-let _chatAtStart  = -1;
+let _chatRealtime     = null;
+let _chatLoaded       = false;
+let _chatAllMsgs      = [];      // all messages: root + replies
+let _chatView         = 'main';  // 'main' | 'thread'
+let _chatThreadRootId = null;
+let _chatAtQuery      = '';
+let _chatAtStart      = -1;
 
+// ── Panel ──────────────────────────────────────────────────────────────
 function toggleChatPanel() {
   const popup = document.getElementById('chat-popup');
   if (!popup) return;
-  if (popup.style.display === 'none' || !popup.style.display) {
-    openChatPanel();
-  } else {
-    closeChatPanel();
-  }
+  if (popup.style.display === 'none' || !popup.style.display) openChatPanel();
+  else closeChatPanel();
 }
 
 function openChatPanel() {
   const popup = document.getElementById('chat-popup');
   if (!popup) return;
   popup.style.display = 'flex';
-
-  // Clear unread badge
   const badge = document.getElementById('chat-unread-badge');
   if (badge) badge.style.display = 'none';
-
-  // Setup input handlers each time panel opens
   const inp = document.getElementById('chat-input');
-  if (inp) {
-    inp.oninput   = _chatOnInput;
-    inp.onkeydown = _chatOnKeydown;
-  }
-
-  if (!_chatLoaded) {
-    _chatLoaded = true;
-    loadChat();
-  } else {
-    _chatScrollBottom(true);
-  }
+  if (inp) { inp.oninput = _chatOnInput; inp.onkeydown = _chatOnKeydown; }
+  if (!_chatLoaded) { _chatLoaded = true; loadChat(); }
+  else _chatScrollBottom(true);
 }
 
 function closeChatPanel() {
@@ -12173,42 +12160,33 @@ function closeChatPanel() {
   closeChatAC();
 }
 
+// ── Load ───────────────────────────────────────────────────────────────
 async function loadChat() {
   const wrap = document.getElementById('chat-msgs');
   if (wrap) wrap.innerHTML = '<div style="padding:32px;text-align:center;color:var(--g400);font-size:12px">Memuat pesan…</div>';
 
   const { data, error } = await sb.from('chat_messages')
-    .select('*')
-    .eq('is_deleted', false)
-    .order('created_at', { ascending: true })
-    .limit(200);
+    .select('*').eq('is_deleted', false)
+    .order('created_at', { ascending: true }).limit(300);
 
   if (error) { console.error(error); return; }
-  _chatMsgs = data || [];
+  _chatAllMsgs = data || [];
   _chatRender();
   _chatScrollBottom(true);
 
-  // Start realtime subscription (once per session)
   if (!_chatRealtime) {
     _chatRealtime = sb.channel('chat-general')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages' }, payload => {
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages' }, function(payload) {
         if (!payload.new.is_deleted) {
-          // Skip if already added optimistically
-          if (_chatMsgs.find(m => m.id === payload.new.id)) return;
-          _chatMsgs.push(payload.new);
+          if (_chatAllMsgs.find(function(m){ return m.id === payload.new.id; })) return;
+          _chatAllMsgs.push(payload.new);
           _chatRender();
-          // Auto-scroll only if user is near bottom
           const m = document.getElementById('chat-msgs');
           if (m && m.scrollHeight - m.scrollTop - m.clientHeight < 100) _chatScrollBottom(false);
-          // Unread badge if popup is closed
           const popup = document.getElementById('chat-popup');
           if (!popup || popup.style.display === 'none') {
             const badge = document.getElementById('chat-unread-badge');
-            if (badge) {
-              badge.style.display = 'inline-flex';
-              const n = parseInt(badge.textContent) || 0;
-              badge.textContent = n + 1;
-            }
+            if (badge) { badge.style.display = 'inline-flex'; badge.textContent = (parseInt(badge.textContent)||0) + 1; }
           }
         }
       })
@@ -12216,69 +12194,205 @@ async function loadChat() {
   }
 }
 
+// ── Thread view ────────────────────────────────────────────────────────
+function openChatThread(rootId) {
+  _chatView = 'thread';
+  _chatThreadRootId = rootId;
+  _chatUpdateHeader();
+  _chatUpdateCompose();
+  _chatRender();
+  _chatScrollBottom(true);
+  setTimeout(function() { const inp = document.getElementById('chat-input'); if (inp) inp.focus(); }, 80);
+}
+
+function closeChatThread() {
+  _chatView = 'main';
+  _chatThreadRootId = null;
+  _chatUpdateHeader();
+  _chatUpdateCompose();
+  _chatRender();
+  _chatScrollBottom(true);
+}
+
+function _chatUpdateHeader() {
+  const h = document.getElementById('chat-popup-header');
+  if (!h) return;
+  if (_chatView === 'main') {
+    h.innerHTML = '<div style="display:flex;align-items:center;gap:8px"><span style="font-family:var(--head);font-weight:700;font-size:14px">Chat</span><span style="font-size:11px;color:var(--g400);font-family:var(--mono)">General Channel</span></div><button onclick="closeChatPanel()" style="background:none;border:none;cursor:pointer;color:var(--g400);font-size:18px;line-height:1;padding:2px 6px;border-radius:4px">✕</button>';
+  } else {
+    const root  = _chatAllMsgs.find(function(m){ return m.id === _chatThreadRootId; });
+    const sndr  = root ? (root.sender||'').split('@')[0] : '';
+    const prev  = root ? (root.body||'').slice(0,40) + ((root.body||'').length > 40 ? '…' : '') : '';
+    h.innerHTML = '<div style="display:flex;align-items:center;gap:6px;min-width:0;flex:1;overflow:hidden">'
+      + '<button onclick="closeChatThread()" style="background:none;border:none;cursor:pointer;color:var(--black);font-size:18px;padding:0 6px 0 0;flex-shrink:0;line-height:1">←</button>'
+      + '<div style="min-width:0"><div style="font-family:var(--head);font-weight:700;font-size:13px">Thread</div>'
+      + '<div style="font-size:10px;color:var(--g400);font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + _esc(sndr) + ': ' + _esc(prev) + '</div></div></div>'
+      + '<button onclick="closeChatPanel()" style="background:none;border:none;cursor:pointer;color:var(--g400);font-size:18px;line-height:1;padding:2px 6px;border-radius:4px;flex-shrink:0">✕</button>';
+  }
+}
+
+function _chatUpdateCompose() {
+  const label = document.getElementById('chat-thread-label');
+  const inp   = document.getElementById('chat-input');
+  if (label) label.style.display = _chatView === 'thread' ? 'block' : 'none';
+  if (inp)   inp.placeholder = _chatView === 'thread' ? 'Balas di thread… (Enter kirim)' : 'Tulis pesan… Ketik @ untuk mention';
+}
+
+// ── Render ─────────────────────────────────────────────────────────────
 function _chatRender() {
+  if (_chatView === 'thread') _chatRenderThread();
+  else _chatRenderMain();
+}
+
+function _chatRenderMain() {
   const wrap = document.getElementById('chat-msgs');
   if (!wrap) return;
-  if (!_chatMsgs.length) {
+  const roots = _chatAllMsgs.filter(function(m){ return !m.reply_to; });
+  if (!roots.length) {
     wrap.innerHTML = '<div style="padding:40px 16px;text-align:center;color:var(--g400);font-size:12px">Belum ada pesan. Mulai ngobrol! 💬</div>';
     return;
   }
   const html = [];
   let prev = null;
-  for (const msg of _chatMsgs) {
-    html.push(_chatMsgHTML(msg, prev));
-    prev = msg;
+  for (let i = 0; i < roots.length; i++) { html.push(_chatMsgHTML(roots[i], prev, false)); prev = roots[i]; }
+  wrap.innerHTML = html.join('');
+}
+
+function _chatRenderThread() {
+  const wrap    = document.getElementById('chat-msgs');
+  if (!wrap) return;
+  const root    = _chatAllMsgs.find(function(m){ return m.id === _chatThreadRootId; });
+  const replies = _chatAllMsgs.filter(function(m){ return m.reply_to === _chatThreadRootId; });
+  const html    = [];
+  if (root) html.push(_chatMsgHTML(root, null, true));
+  if (replies.length) {
+    html.push('<div style="margin:8px 10px 4px;display:flex;align-items:center;gap:8px"><span style="font-size:10px;font-family:var(--mono);color:var(--g400)">' + replies.length + ' balasan</span><span style="flex:1;height:1px;background:var(--g100)"></span></div>');
+    let prev = null;
+    for (let i = 0; i < replies.length; i++) { html.push(_chatMsgHTML(replies[i], prev, true)); prev = replies[i]; }
+  } else {
+    html.push('<div style="padding:16px;text-align:center;color:var(--g400);font-size:12px">Belum ada balasan. Jadi yang pertama! 😊</div>');
   }
   wrap.innerHTML = html.join('');
 }
 
-function _chatMsgHTML(msg, prev) {
-  const senderShort = (msg.sender || '').split('@')[0];
-  const initials = senderShort.slice(0, 2).toUpperCase();
-  const ts = new Date(msg.created_at);
-  const timeStr = ts.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
-  const dateLabel = _chatDateLabel(ts);
+function _chatMsgHTML(msg, prev, inThread) {
+  const senderShort = (msg.sender||'').split('@')[0];
+  const initials    = senderShort.slice(0,2).toUpperCase();
+  const ts          = new Date(msg.created_at);
+  const timeStr     = ts.toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'});
+  const sameDay     = prev && _chatSameDay(new Date(prev.created_at), ts);
+  const grouped     = prev && prev.sender===msg.sender && (ts - new Date(prev.created_at)) < 5*60*1000 && sameDay;
 
-  const sameDay = prev && _chatSameDay(new Date(prev.created_at), ts);
-  const grouped = prev && prev.sender === msg.sender
-    && (ts - new Date(prev.created_at)) < 5 * 60 * 1000
-    && sameDay;
-
-  // Date divider
   let divider = '';
   if (!prev || !sameDay) {
-    divider = '<div style="text-align:center;margin:10px 0 6px"><span style="background:var(--off);border:1px solid var(--g100);border-radius:99px;padding:2px 10px;font-size:10px;font-family:var(--mono);color:var(--g600)">' + _esc(dateLabel) + '</span></div>';
+    divider = '<div style="text-align:center;margin:10px 0 6px"><span style="background:var(--off);border:1px solid var(--g100);border-radius:99px;padding:2px 10px;font-size:10px;font-family:var(--mono);color:var(--g600)">' + _esc(_chatDateLabel(ts)) + '</span></div>';
   }
 
-  // Reply reference
-  let replyHtml = '';
-  if (msg.reply_to) {
-    const parent = _chatMsgs.find(m => m.id === msg.reply_to);
-    if (parent) {
-      const pShort = (parent.sender || '').split('@')[0];
-      const pBody = (parent.body || '').slice(0, 80) + ((parent.body || '').length > 80 ? '…' : '');
-      replyHtml = '<div class="chat-reply-ref" onclick="_chatScrollTo(\'' + _esc(msg.reply_to) + '\')"><strong>' + _esc(pShort) + '</strong> ' + _esc(pBody) + '</div>';
+  const bodyHtml = _chatHighlight(_esc(msg.body||''));
+
+  // Thread bar — only on root messages in main view
+  let threadBar = '';
+  if (!inThread) {
+    const COLORS = ['#7c3aed','#2563eb','#059669','#d97706','#dc2626','#0891b2','#9333ea','#65a30d'];
+    const replies = _chatAllMsgs.filter(function(m){ return m.reply_to === msg.id; });
+    if (replies.length > 0) {
+      const seen = {}, uniqSenders = [];
+      replies.forEach(function(r){ const s=(r.sender||'').split('@')[0]; if(!seen[s]){seen[s]=1;uniqSenders.push(s);} });
+      const avatars = uniqSenders.slice(0,3).map(function(s){
+        const c = COLORS[s.charCodeAt(0) % COLORS.length];
+        return '<span style="width:18px;height:18px;border-radius:50%;background:' + c + '22;color:' + c + ';font-size:8px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0">' + s.slice(0,2).toUpperCase() + '</span>';
+      }).join('');
+      threadBar = '<div class="chat-thread-bar" onclick="openChatThread(\'' + _esc(msg.id) + '\')">'
+        + '<div style="display:flex;gap:2px">' + avatars + '</div>'
+        + '<span class="chat-thread-count">' + replies.length + ' balasan</span>'
+        + '<span style="color:var(--g200);margin-left:auto;font-size:11px">›</span>'
+        + '</div>';
+    } else {
+      threadBar = '<div class="chat-thread-empty" onclick="openChatThread(\'' + _esc(msg.id) + '\')">Balas di thread</div>';
     }
   }
 
-  const bodyHtml = _chatHighlight(_esc(msg.body || ''));
-
-  // Avatar color
   const COLORS = ['#7c3aed','#2563eb','#059669','#d97706','#dc2626','#0891b2','#9333ea','#65a30d'];
-  const ci = senderShort.charCodeAt(0) % COLORS.length;
-  const avatarBg = COLORS[ci] + '22';
-  const avatarFg = COLORS[ci];
-
-  const escapedBody = _esc(msg.body || '');
-  const replyBtn = '<button class="chat-act-btn" data-mid="' + _esc(msg.id) + '" data-sender="' + _esc(senderShort) + '" data-body="' + escapedBody + '" onclick="_chatReply(this)">&#8617; Balas</button>';
+  const ci        = senderShort.charCodeAt(0) % COLORS.length;
+  const avatarBg  = COLORS[ci] + '22';
+  const avatarFg  = COLORS[ci];
 
   if (grouped) {
-    return divider + '<div class="chat-msg chat-grouped" id="cmsg-' + msg.id + '" title="' + _esc(timeStr) + '"><div class="chat-avatar-space"></div><div class="chat-bubble">' + replyHtml + '<div class="chat-body">' + bodyHtml + '</div><div class="chat-actions">' + replyBtn + '</div></div></div>';
+    return divider
+      + '<div class="chat-msg chat-grouped" id="cmsg-' + msg.id + '" title="' + _esc(timeStr) + '">'
+      + '<div class="chat-avatar-space"></div>'
+      + '<div class="chat-bubble"><div class="chat-body">' + bodyHtml + '</div>' + threadBar + '</div>'
+      + '</div>';
   }
 
-  return divider + '<div class="chat-msg" id="cmsg-' + msg.id + '"><div class="chat-avatar" style="background:' + avatarBg + ';color:' + avatarFg + '">' + initials + '</div><div class="chat-bubble"><div class="chat-meta"><span class="chat-sender">' + _esc(senderShort) + '</span><span class="chat-time">' + _esc(timeStr) + '</span></div>' + replyHtml + '<div class="chat-body">' + bodyHtml + '</div><div class="chat-actions">' + replyBtn + '</div></div></div>';
+  return divider
+    + '<div class="chat-msg" id="cmsg-' + msg.id + '">'
+    + '<div class="chat-avatar" style="background:' + avatarBg + ';color:' + avatarFg + '">' + initials + '</div>'
+    + '<div class="chat-bubble">'
+    + '<div class="chat-meta"><span class="chat-sender">' + _esc(senderShort) + '</span><span class="chat-time">' + _esc(timeStr) + '</span></div>'
+    + '<div class="chat-body">' + bodyHtml + '</div>'
+    + threadBar
+    + '</div></div>';
 }
 
+// ── Send ───────────────────────────────────────────────────────────────
+async function sendChatMessage() {
+  const inp = document.getElementById('chat-input');
+  if (!inp) return;
+  const body = inp.value.trim();
+  if (!body) return;
+
+  const btn = document.getElementById('chat-send-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+
+  const msgId   = genId('CHT');
+  const replyTo = _chatView === 'thread' ? _chatThreadRootId : null;
+
+  inp.value = '';
+  inp.style.height = 'auto';
+  closeChatAC();
+
+  // Optimistic render
+  const optimistic = { id: msgId, body: body, sender: currentUser, reply_to: replyTo, created_at: new Date().toISOString(), is_deleted: false };
+  _chatAllMsgs.push(optimistic);
+  _chatRender();
+  _chatScrollBottom(false);
+
+  const { error } = await sb.from('chat_messages').insert({ id: msgId, body: body, sender: currentUser, reply_to: replyTo });
+
+  if (btn) { btn.disabled = false; btn.textContent = 'Kirim'; }
+  if (error) {
+    console.error(error);
+    _chatAllMsgs = _chatAllMsgs.filter(function(m){ return m.id !== msgId; });
+    _chatRender();
+    inp.value = body;
+    return;
+  }
+
+  // Notify: reply to thread
+  if (replyTo) {
+    const root = _chatAllMsgs.find(function(m){ return m.id === replyTo; });
+    if (root && root.sender !== currentUser) {
+      insertNotif(root.sender, 'chat', msgId, currentUser.split('@')[0] + ' membalas thread kamu di Chat');
+    }
+    // Other thread participants
+    const seen = {};
+    _chatAllMsgs.filter(function(m){ return m.reply_to === replyTo && m.sender !== currentUser && m.sender !== (root && root.sender); })
+      .forEach(function(m){
+        if (!seen[m.sender]) { seen[m.sender] = 1; insertNotif(m.sender, 'chat', msgId, currentUser.split('@')[0] + ' juga membalas thread di Chat'); }
+      });
+  }
+
+  // Notify: @mentions
+  const mentions = [...body.matchAll(/@([\w.\-]+)/g)].map(function(m){ return m[1]; });
+  for (const name of mentions) {
+    const match = (acPics||[]).find(function(p){ return p.toLowerCase().includes(name.toLowerCase()); });
+    if (match) insertNotif(match, 'chat', msgId, currentUser.split('@')[0] + ' menyebut kamu di Chat');
+  }
+  logActivity('Chat', 'send', 'CHT', body.slice(0,60));
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────
 function _chatHighlight(escapedText) {
   const meShort = currentUser ? currentUser.split('@')[0] : '';
   return escapedText.replace(/@([\w.\-]+)/g, function(m, name) {
@@ -12293,120 +12407,33 @@ function _chatDateLabel(d) {
   const diff = (today - dd) / 86400000;
   if (diff === 0) return 'Hari ini';
   if (diff === 1) return 'Kemarin';
-  return d.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+  return d.toLocaleDateString('id-ID', { day:'numeric', month:'long', year:'numeric' });
 }
 
 function _chatSameDay(a, b) {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  return a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate();
 }
 
 function _esc(s) {
-  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
 function _chatScrollBottom(instant) {
   const wrap = document.getElementById('chat-msgs');
   if (!wrap) return;
-  setTimeout(function() { wrap.scrollTop = wrap.scrollHeight; }, instant ? 0 : 60);
+  setTimeout(function(){ wrap.scrollTop = wrap.scrollHeight; }, instant ? 0 : 60);
 }
 
-function _chatScrollTo(id) {
-  const el = document.getElementById('cmsg-' + id);
-  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-}
-
-async function sendChatMessage() {
-  const inp = document.getElementById('chat-input');
-  if (!inp) return;
-  const body = inp.value.trim();
-  if (!body) return;
-
-  const btn = document.querySelector('#chat-compose .btn-primary');
-  if (btn) { btn.disabled = true; btn.textContent = '…'; }
-
-  const msgId = genId('CHT');
-  const replyTo = _chatReplyId || null;
-
-  inp.value = '';
-  inp.style.height = 'auto';
-  clearChatReply();
-  closeChatAC();
-
-  // Optimistic: show immediately without waiting for realtime
-  const optimistic = { id: msgId, body, sender: currentUser, reply_to: replyTo, created_at: new Date().toISOString(), is_deleted: false };
-  _chatMsgs.push(optimistic);
-  _chatRender();
-  _chatScrollBottom(false);
-
-  const { error } = await sb.from('chat_messages').insert({
-    id: msgId, body, sender: currentUser, reply_to: replyTo
-  });
-
-  if (btn) { btn.disabled = false; btn.textContent = 'Kirim'; }
-  if (error) {
-    console.error(error);
-    // roll back optimistic message
-    _chatMsgs = _chatMsgs.filter(m => m.id !== msgId);
-    _chatRender();
-    inp.value = body; // restore text
-    return;
-  }
-
-  // Mention notifications
-  const mentions = [...body.matchAll(/@([\w.\-]+)/g)].map(function(m) { return m[1]; });
-  for (const name of mentions) {
-    const match = (acPics || []).find(function(p) { return p.toLowerCase().includes(name.toLowerCase()); });
-    if (match) insertNotif(match, 'chat', 'CHT-mention', currentUser.split('@')[0] + ' menyebut kamu di Chat');
-  }
-  logActivity('Chat', 'send', 'CHT', body.slice(0, 60));
-}
-
-function _chatReply(btn) {
-  const id     = btn.dataset.mid;
-  const sender = btn.dataset.sender;
-  const body   = btn.dataset.body || '';
-  _chatReplyId = id;
-  const bar  = document.getElementById('chat-reply-bar');
-  const name = document.getElementById('chat-reply-name');
-  const text = document.getElementById('chat-reply-bar-text');
-  if (bar)  bar.style.display = 'flex';
-  if (name) name.textContent = sender;
-  if (text) text.textContent = body.slice(0, 100) + (body.length > 100 ? '…' : '');
-  document.getElementById('chat-input')?.focus();
-}
-
-function setChatReply(id) {
-  // kept for backward compat — look up from _chatMsgs
-  const msg = _chatMsgs.find(m => m.id === id);
-  if (msg) {
-    const btn = { dataset: { mid: id, sender: (msg.sender||'').split('@')[0], body: msg.body||'' } };
-    _chatReply(btn);
-  }
-}
-
-function clearChatReply() {
-  _chatReplyId = null;
-  const bar = document.getElementById('chat-reply-bar');
-  if (bar) bar.style.display = 'none';
-}
-
-// @mention autocomplete
+// ── @mention autocomplete ──────────────────────────────────────────────
 function _chatOnInput(e) {
   const inp = e.target;
   inp.style.height = 'auto';
   inp.style.height = Math.min(inp.scrollHeight, 100) + 'px';
-  const val = inp.value;
-  const pos = inp.selectionStart;
-  const before = val.slice(0, pos);
+  const val = inp.value, pos = inp.selectionStart, before = val.slice(0, pos);
   const atIdx = before.lastIndexOf('@');
   if (atIdx !== -1) {
     const afterAt = before.slice(atIdx + 1);
-    if (!afterAt.includes(' ')) {
-      _chatAtStart = atIdx;
-      _chatAtQuery = afterAt.toLowerCase();
-      _chatShowAC(_chatAtQuery);
-      return;
-    }
+    if (!afterAt.includes(' ')) { _chatAtStart = atIdx; _chatAtQuery = afterAt.toLowerCase(); _chatShowAC(_chatAtQuery); return; }
   }
   closeChatAC();
 }
@@ -12416,52 +12443,29 @@ function _chatOnKeydown(e) {
   if (ac && ac.style.display !== 'none') {
     const items = ac.querySelectorAll('.chat-ac-item');
     const active = ac.querySelector('.chat-ac-item.active');
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      const nxt = active ? (active.nextElementSibling || items[0]) : items[0];
-      if (active) active.classList.remove('active');
-      if (nxt) nxt.classList.add('active');
-      return;
-    }
-    if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      const prv = active ? (active.previousElementSibling || items[items.length-1]) : items[items.length-1];
-      if (active) active.classList.remove('active');
-      if (prv) prv.classList.add('active');
-      return;
-    }
-    if (e.key === 'Enter' || e.key === 'Tab') {
-      const sel = ac.querySelector('.chat-ac-item.active') || items[0];
-      if (sel) { e.preventDefault(); _chatPickMention(sel.dataset.name); return; }
-    }
+    if (e.key === 'ArrowDown') { e.preventDefault(); const nxt = active?(active.nextElementSibling||items[0]):items[0]; if(active)active.classList.remove('active'); if(nxt)nxt.classList.add('active'); return; }
+    if (e.key === 'ArrowUp')   { e.preventDefault(); const prv = active?(active.previousElementSibling||items[items.length-1]):items[items.length-1]; if(active)active.classList.remove('active'); if(prv)prv.classList.add('active'); return; }
+    if (e.key === 'Enter' || e.key === 'Tab') { const sel = ac.querySelector('.chat-ac-item.active')||items[0]; if(sel){e.preventDefault();_chatPickMention(sel.dataset.name);return;} }
     if (e.key === 'Escape') { closeChatAC(); return; }
   }
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    sendChatMessage();
-  }
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(); }
 }
 
 function _chatShowAC(query) {
   const ac = document.getElementById('chat-ac');
   if (!ac) return;
-  const senders = [...new Set(_chatMsgs.map(function(m) { return (m.sender||'').split('@')[0]; }).filter(Boolean))];
-  const allNames = [...new Set([...(acPics||[]).map(function(p){return p.split('@')[0];}), ...senders])].filter(Boolean);
-  const matches = query ? allNames.filter(function(n){ return n.toLowerCase().includes(query); }) : allNames.slice(0, 8);
+  const senders = [...new Set(_chatAllMsgs.map(function(m){ return (m.sender||'').split('@')[0]; }).filter(Boolean))];
+  const allNames = [...new Set([...(acPics||[]).map(function(p){ return p.split('@')[0]; }), ...senders])].filter(Boolean);
+  const matches = query ? allNames.filter(function(n){ return n.toLowerCase().includes(query); }) : allNames.slice(0,8);
   if (!matches.length) { closeChatAC(); return; }
-  ac.innerHTML = matches.slice(0, 8).map(function(p) {
-    return '<div class="chat-ac-item" data-name="' + _esc(p) + '" onclick="_chatPickMention(\'' + _esc(p) + '\')">' + _esc(p) + '</div>';
-  }).join('');
+  ac.innerHTML = matches.slice(0,8).map(function(p){ return '<div class="chat-ac-item" data-name="'+_esc(p)+'" onclick="_chatPickMention(\''+_esc(p)+'\')">'+_esc(p)+'</div>'; }).join('');
   ac.style.display = 'block';
 }
 
 function _chatPickMention(name) {
   const inp = document.getElementById('chat-input');
   if (!inp) return;
-  const val    = inp.value;
-  const pos    = inp.selectionStart;
-  const before = val.slice(0, _chatAtStart);
-  const after  = val.slice(pos);
+  const before = inp.value.slice(0, _chatAtStart), after = inp.value.slice(inp.selectionStart);
   inp.value = before + '@' + name + ' ' + after;
   const newPos = before.length + name.length + 2;
   inp.setSelectionRange(newPos, newPos);
@@ -12472,9 +12476,13 @@ function _chatPickMention(name) {
 function closeChatAC() {
   const ac = document.getElementById('chat-ac');
   if (ac) ac.style.display = 'none';
-  _chatAtQuery = '';
-  _chatAtStart = -1;
+  _chatAtQuery = ''; _chatAtStart = -1;
 }
+
+// Legacy stubs
+function setChatReply(){}
+function clearChatReply(){}
+function _chatReply(){}
 
 // ── DUPLICATE CHECK ──
 async function checkDuplicate(name, excludeSheet) {
