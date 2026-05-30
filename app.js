@@ -13917,27 +13917,35 @@ function renderTeamList(){
     el.innerHTML = `<div style="color:var(--g400);font-size:13px;padding:20px;font-style:italic">Belum ada anggota tim. Klik "+ Tambah Anggota" untuk mulai.</div>`;
     return;
   }
-  el.innerHTML = _teamRows.map(m => `
-    <div style="background:var(--white);border:1px solid var(--g100);border-radius:12px;padding:16px;display:flex;align-items:center;gap:12px;transition:box-shadow .15s"
-      onmouseover="this.style.boxShadow='0 2px 12px rgba(0,0,0,.07)'" onmouseout="this.style.boxShadow=''">
-      <div style="width:40px;height:40px;border-radius:50%;background:${_teamAvatarColor(m.name)};display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;color:#fff;flex-shrink:0">
-        ${_esc((m.name||'?')[0].toUpperCase())}
+  el.innerHTML = _teamRows.map(m => {
+    const initials = (m.name||'?').split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);
+    return `
+    <div style="background:var(--white);border:1px solid var(--g100);border-radius:12px;padding:16px 18px;display:flex;flex-direction:column;gap:10px;transition:box-shadow .15s;${m.is_active?'':'opacity:.55'}"
+      onmouseover="this.style.boxShadow='0 2px 10px rgba(0,0,0,.07)'" onmouseout="this.style.boxShadow=''">
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="width:42px;height:42px;border-radius:50%;background:${_teamAvatarColor(m.name)};display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff;flex-shrink:0;letter-spacing:.5px">
+          ${initials}
+        </div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:14px;font-weight:600;color:var(--black);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(m.name)}</div>
+          <div style="font-size:11px;color:var(--g400);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${m.role ? _esc(m.role) : '<span style="font-style:italic;color:var(--g300)">No role</span>'}</div>
+        </div>
       </div>
-      <div style="flex:1;min-width:0">
-        <div style="font-size:14px;font-weight:600;color:var(--black)">${_esc(m.name)}</div>
-        ${m.role?`<div style="font-size:12px;color:var(--g400);margin-top:1px">${_esc(m.role)}</div>`:''}
-        ${m.email?`<div style="font-size:11px;color:var(--g400);font-family:var(--mono);margin-top:2px">${_esc(m.email)}</div>`:''}
-      </div>
-      <div style="display:flex;gap:6px;flex-shrink:0">
+      ${m.email ? `<div style="font-size:11px;color:var(--g400);font-family:var(--mono);background:var(--off);border-radius:6px;padding:5px 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(m.email)}</div>` : ''}
+      <div style="display:flex;align-items:center;gap:6px;padding-top:2px;border-top:1px solid var(--g100)">
+        <button onclick="openEditTeamMember('${_esc(m.id)}')"
+          style="flex:1;padding:5px 10px;border-radius:6px;border:1px solid var(--g200);background:none;color:var(--g600);font-size:12px;cursor:pointer;text-align:center"
+          onmouseover="this.style.background='var(--off)'" onmouseout="this.style.background='none'">✏ Edit</button>
         <button onclick="toggleTeamActive('${_esc(m.id)}',${!m.is_active})"
-          style="padding:4px 10px;border-radius:6px;border:1px solid ${m.is_active?'var(--g200)':'#fca5a5'};background:${m.is_active?'var(--off)':'#fff1f2'};color:${m.is_active?'var(--g600)':'#ef4444'};font-size:11px;cursor:pointer">
-          ${m.is_active?'Aktif':'Nonaktif'}
-        </button>
+          style="flex:1;padding:5px 10px;border-radius:6px;border:1px solid ${m.is_active?'var(--g200)':'#fca5a5'};background:${m.is_active?'none':'#fff1f2'};color:${m.is_active?'var(--g600)':'#ef4444'};font-size:12px;cursor:pointer;text-align:center"
+          onmouseover="this.style.background='var(--off)'" onmouseout="this.style.background='${m.is_active?'none':'#fff1f2'}'">
+          ${m.is_active?'✓ Aktif':'✕ Nonaktif'}</button>
         <button onclick="deleteTeamMember('${_esc(m.id)}')"
-          style="padding:4px 8px;border-radius:6px;border:1px solid var(--g100);background:none;color:var(--g400);font-size:13px;cursor:pointer"
-          onmouseover="this.style.color='#ef4444'" onmouseout="this.style.color='var(--g400)'">✕</button>
+          style="padding:5px 9px;border-radius:6px;border:1px solid var(--g100);background:none;color:var(--g400);font-size:13px;cursor:pointer"
+          onmouseover="this.style.color='#ef4444';this.style.borderColor='#fca5a5'" onmouseout="this.style.color='var(--g400)';this.style.borderColor='var(--g100)'">🗑</button>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 function _teamAvatarColor(name){
@@ -13996,6 +14004,71 @@ async function saveNewTeamMember(btn){
     // Update _teamPics + acPics live so autocomplete works immediately
     if(!_teamPics.includes(data.name)) _teamPics.push(data.name);
     if(!acPics.includes(data.name)) acPics.push(data.name);
+    renderTeamList();
+    modal.remove();
+  } catch(e){
+    btn.disabled=false; btn.textContent='Simpan';
+    alert('Gagal menyimpan: '+e.message);
+  }
+}
+
+function openEditTeamMember(id){
+  const m = _teamRows.find(x=>x.id===id);
+  if(!m) return;
+  const modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;inset:0;z-index:600;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center';
+  modal.onclick = e => { if(e.target===modal) modal.remove(); };
+  modal.innerHTML = `
+    <div style="background:var(--white);border-radius:14px;padding:28px;width:360px;box-shadow:0 8px 32px rgba(0,0,0,.15)">
+      <div style="font-family:var(--head);font-size:16px;font-weight:700;margin-bottom:18px">Edit Anggota Tim</div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div>
+          <div class="fg-label">Nama <span style="color:#ef4444">*</span></div>
+          <input id="tm-edit-name" type="text" value="${_esc(m.name)}"
+            style="width:100%;padding:8px 10px;border:1px solid var(--g200);border-radius:8px;font-size:13px;outline:none;box-sizing:border-box">
+        </div>
+        <div>
+          <div class="fg-label">Role / Jabatan</div>
+          <input id="tm-edit-role" type="text" value="${_esc(m.role||'')}" placeholder="mis. Designer, PM, Sales…"
+            style="width:100%;padding:8px 10px;border:1px solid var(--g200);border-radius:8px;font-size:13px;outline:none;box-sizing:border-box">
+        </div>
+        <div>
+          <div class="fg-label">Email</div>
+          <input id="tm-edit-email" type="email" value="${_esc(m.email||'')}" placeholder="nama@sentra.com"
+            style="width:100%;padding:8px 10px;border:1px solid var(--g200);border-radius:8px;font-size:13px;outline:none;box-sizing:border-box">
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:20px;justify-content:flex-end">
+        <button onclick="this.closest('[style*=fixed]').remove()"
+          style="padding:8px 16px;background:none;border:1px solid var(--g200);border-radius:8px;font-size:13px;cursor:pointer">Batal</button>
+        <button onclick="saveEditTeamMember('${_esc(id)}',this)"
+          style="padding:8px 18px;background:var(--black);color:var(--white);border:none;border-radius:8px;font-size:13px;cursor:pointer">Simpan</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.querySelector('#tm-edit-name').focus();
+}
+
+async function saveEditTeamMember(id, btn){
+  const modal = btn.closest('[style*=fixed]');
+  const name  = modal.querySelector('#tm-edit-name').value.trim();
+  if(!name){ modal.querySelector('#tm-edit-name').style.borderColor='#ef4444'; return; }
+  const role  = modal.querySelector('#tm-edit-role').value.trim() || null;
+  const email = modal.querySelector('#tm-edit-email').value.trim() || null;
+  btn.disabled = true; btn.textContent = 'Menyimpan…';
+  try{
+    const { error } = await sb.from('team_members').update({ name, role, email }).eq('id', id);
+    if(error) throw error;
+    const m = _teamRows.find(x=>x.id===id);
+    if(m){
+      // Update _teamPics/acPics if name changed
+      if(m.name !== name){
+        const oldName = m.name;
+        _teamPics = _teamPics.map(n => n===oldName ? name : n);
+        acPics    = acPics.map(n => n===oldName ? name : n);
+      }
+      m.name = name; m.role = role; m.email = email;
+    }
     renderTeamList();
     modal.remove();
   } catch(e){
