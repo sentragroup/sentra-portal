@@ -1,5 +1,17 @@
 # Sentra Internal Tools — CLAUDE.md
 
+## Working Style — Clarification Rule
+**Before making any change that could be interpreted multiple ways, ask first.**
+
+Examples of ambiguous requests that should trigger a clarifying question:
+- "delete the sidebar" → could mean hide it entirely OR remove specific items from it
+- "clean up the nav" → could mean reorder, remove, or redesign
+- "update the layout" → too vague to act on safely
+
+Keep the question short (1–2 sentences). Do not ask more than one question per ambiguity.
+
+---
+
 ## What is this?
 Internal tools portal for Sentra, a merchandise company that manages musicians, brands, and filmmakers. Handles licensing agreements, royalty payments, and sales report tracking for their IP portfolio.
 
