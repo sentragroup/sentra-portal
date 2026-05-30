@@ -12267,7 +12267,7 @@ function _chatMsgHTML(msg, prev) {
   const avatarBg = COLORS[ci] + '22';
   const avatarFg = COLORS[ci];
 
-  const replyBtn = '<button class="chat-act-btn" onclick="setChatReply(\'' + _esc(msg.id) + '\',\'' + _esc(senderShort) + '\',' + JSON.stringify(msg.body || '') + ')">&#8617; Balas</button>';
+  const replyBtn = '<button class="chat-act-btn" onclick="setChatReply(\'' + _esc(msg.id) + '\')">&#8617; Balas</button>';
 
   if (grouped) {
     return divider + '<div class="chat-msg chat-grouped" id="cmsg-' + msg.id + '" title="' + _esc(timeStr) + '"><div class="chat-avatar-space"></div><div class="chat-bubble">' + replyHtml + '<div class="chat-body">' + bodyHtml + '</div><div class="chat-actions">' + replyBtn + '</div></div></div>';
@@ -12345,14 +12345,18 @@ async function sendChatMessage() {
   logActivity('Chat', 'send', 'CHT', body.slice(0, 60));
 }
 
-function setChatReply(id, senderName, body) {
+function setChatReply(id) {
+  const msg = _chatMsgs.find(m => m.id === id);
+  if (!msg) return;
   _chatReplyId = id;
+  const senderName = (msg.sender || '').split('@')[0];
+  const body = msg.body || '';
   const bar  = document.getElementById('chat-reply-bar');
   const name = document.getElementById('chat-reply-name');
   const text = document.getElementById('chat-reply-bar-text');
   if (bar)  bar.style.display = 'flex';
   if (name) name.textContent = senderName;
-  if (text) text.textContent = (body || '').slice(0, 100) + ((body || '').length > 100 ? '…' : '');
+  if (text) text.textContent = body.slice(0, 100) + (body.length > 100 ? '…' : '');
   const inp = document.getElementById('chat-input');
   if (inp) inp.focus();
 }
