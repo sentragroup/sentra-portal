@@ -200,7 +200,7 @@ function showPage(name, el) {
     }
     loadCollections();
     setupAC("col-ip","ac-col-ip",()=>allIPRows.map(r=>r.name).filter(Boolean));
-    setupAC("col-pic","ac-col-pic",()=>[...new Set(allColRows.map(r=>r.pic).filter(Boolean))]);
+    setupAC("col-pic","ac-col-pic",()=>acPics);
   }
   if (name==="designermaster") { loadDesignerMaster(); const cats=[...new Set([...DSG_CATEGORIES_DEFAULT,...allDsgRows.map(r=>r.category).filter(Boolean)])]; setupAC("dsg-category","ac-dsg-category",()=>cats); }
   if (name==="dsgworkflow") loadDsgWorkflow();
@@ -3807,7 +3807,7 @@ async function loadCollections() {
       if(!allPOReceives.length&&poFetches[pi]) { allPOReceives=poResults[pi]||[]; }
     }
     setupAC("col-ip","ac-col-ip",()=>allIPRows.map(r=>r.name).filter(Boolean));
-    setupAC("col-pic","ac-col-pic",()=>[...new Set(allColRows.map(r=>r.pic).filter(Boolean))]);
+    setupAC("col-pic","ac-col-pic",()=>acPics);
     // Auto-create DW projects + stage placeholders for any collection missing them (background)
     ensureDWProjects(allColRows, dwCheck||[]);
     ensureColStages(allColRows, csData||[]);
@@ -4360,7 +4360,7 @@ function renderColDetail(col, items) {
 
   // Setup autocompletes
   setupAC("col-dp-ip","ac-col-dp-ip",()=>allIPRows.map(x=>x.name).filter(Boolean));
-  setupAC("col-dp-pic","ac-col-dp-pic",()=>[...new Set(allColRows.map(r=>r.pic).filter(Boolean))]);
+  setupAC("col-dp-pic","ac-col-dp-pic",()=>acPics);
   setupAC(`ci-dp-cat-${col.id}`,`ac-ci-dp-cat-${col.id}`,()=>skuCats);
   setupAC(`ci-dp-dsg-${col.id}`,`ac-ci-dp-${col.id}`,()=>allDsgRows.filter(d=>d.status==="Active").map(d=>d.name));
   items.forEach(i=>{
@@ -8718,7 +8718,7 @@ function renderProjDetail(id, defaultStatus='backlog'){
           <input id="pd-assignee" type="text" list="pd-assignee-opts" value="${projEsc(p?.assignee||'')}" placeholder="Nama PIC…" oninput="projMarkDirty()"
             style="width:100%;padding:7px 10px;border:1px solid var(--g200);border-radius:8px;font-size:13px">
           <datalist id="pd-assignee-opts">
-            ${[...new Set(projAll.map(x=>x.assignee).filter(Boolean))].map(n=>`<option value="${projEsc(n)}">`).join('')}
+            ${(acPics||[]).map(n=>`<option value="${projEsc(n)}">`).join('')}
           </datalist>
         </div>
         <div>
