@@ -218,6 +218,8 @@ th.sortable:hover{color:var(--black);background:var(--off);}
 .cal-filter-chip.active[data-src="colitem"]{background:#ec4899;color:#fff;}
 .cal-filter-chip.active[data-src="leads"]{background:#f59e0b;color:#fff;}
 .cal-filter-chip.active[data-src="popup"]{background:#10b981;color:#fff;}
+.cal-filter-chip[data-src="momentum"]{color:#db2777;border-color:#db2777;}
+.cal-filter-chip.active[data-src="momentum"]{background:#db2777;color:#fff;}
 .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:1px;background:var(--g100);border:1px solid var(--g100);border-radius:12px;overflow:hidden;}
 .cal-dow{background:var(--off);padding:8px 10px;font-size:10px;font-family:var(--mono);color:var(--g400);text-transform:uppercase;letter-spacing:.06em;text-align:center;}
 .cal-day{background:var(--white);min-height:88px;padding:7px 8px;display:flex;flex-direction:column;gap:3px;}
