@@ -410,7 +410,7 @@ async function loadAgreements() {
 
 function populateFilterDropdowns() {
   const setOpts=(id,vals)=>{const sel=document.getElementById(id);if(!sel)return;const cur=sel.value;while(sel.options.length>1)sel.remove(1);vals.forEach(v=>{const o=document.createElement("option");o.value=o.textContent=v;sel.appendChild(o);});if(cur)sel.value=cur;};
-  setOpts("fil-brand",acBrands); setOpts("fil-pic",acPics); setOpts("fil-type",acTypes);
+  setOpts("fil-brand",acBrands); setOpts("fil-pic",[...new Set(allRows.map(r=>r.pic).filter(Boolean))]); setOpts("fil-type",acTypes);
 }
 
 function applyFilters() {
