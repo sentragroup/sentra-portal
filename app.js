@@ -160,7 +160,7 @@ function showPage(name, el) {
   document.getElementById("page-"+name).classList.add("active");
   if (el) el.classList.add("active");
   const _c = document.querySelector('.content'); if (_c) _c.scrollTop = 0;
-  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Need Restock",stockmovement:"Stock Movement",productmap:"Product Mapping",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Sales Report",marteskucat:"SKU Categories"};
+  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Need Restock",stockmovement:"Stock Movement",productmap:"Product Mapping",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Sales Report",marteskucat:"SKU Categories",chat:"Chat"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -238,6 +238,7 @@ function showPage(name, el) {
   if (name==="marte") loadMarteSettlements();
   if (name==="martereport") { const inp=document.getElementById('mr-period'); if(!inp.value) inp.value=new Date().toISOString().slice(0,7); }
   if (name==="marteskucat") loadMarteSKUCat();
+  if (name==="chat") loadChat();
   window.scrollTo(0, 0);
   closeMobileSidebar();
 }
@@ -12116,6 +12117,314 @@ async function downloadMRBrandXLSX() {
   if (!win) { alert('Pop-up diblokir browser. Izinkan pop-up untuk portal ini.'); return; }
   win.document.write(html);
   win.document.close();
+}
+
+
+// ── CHAT ──
+let _chatRealtime = null;
+let _chatReplyId  = null;
+let _chatMsgs     = [];
+let _chatAtQuery  = '';
+let _chatAtStart  = -1;
+
+async function loadChat() {
+  const wrap = document.getElementById('chat-msgs');
+  if (wrap) wrap.innerHTML = '<div style="padding:32px;text-align:center;color:var(--g400);font-size:13px">Memuat pesan…</div>';
+
+  const { data, error } = await sb.from('chat_messages')
+    .select('*')
+    .eq('is_deleted', false)
+    .order('created_at', { ascending: true })
+    .limit(150);
+
+  if (error) { console.error(error); return; }
+  _chatMsgs = data || [];
+  _chatRender();
+  _chatScrollBottom(true);
+
+  // Start realtime subscription (once per session)
+  if (!_chatRealtime) {
+    _chatRealtime = sb.channel('chat-general')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages' }, payload => {
+        if (!payload.new.is_deleted) {
+          _chatMsgs.push(payload.new);
+          _chatRender();
+          // Auto-scroll only if user is near bottom
+          const m = document.getElementById('chat-msgs');
+          if (m && m.scrollHeight - m.scrollTop - m.clientHeight < 120) _chatScrollBottom(false);
+          // Unread badge if chat page not active
+          const pg = document.getElementById('page-chat');
+          if (!pg || !pg.classList.contains('active')) {
+            const badge = document.getElementById('chat-unread-badge');
+            if (badge) {
+              badge.style.display = 'inline-flex';
+              const n = parseInt(badge.textContent) || 0;
+              badge.textContent = n + 1;
+            }
+          }
+        }
+      })
+      .subscribe();
+  }
+
+  // Clear unread badge
+  const badge = document.getElementById('chat-unread-badge');
+  if (badge) badge.style.display = 'none';
+
+  // Setup input handlers
+  const inp = document.getElementById('chat-input');
+  if (inp) {
+    inp.oninput  = _chatOnInput;
+    inp.onkeydown = _chatOnKeydown;
+  }
+}
+
+function _chatRender() {
+  const wrap = document.getElementById('chat-msgs');
+  if (!wrap) return;
+  if (!_chatMsgs.length) {
+    wrap.innerHTML = '<div style="padding:48px;text-align:center;color:var(--g400);font-size:13px">Belum ada pesan. Mulai ngobrol! 💬</div>';
+    return;
+  }
+  const html = [];
+  let prev = null;
+  for (const msg of _chatMsgs) {
+    html.push(_chatMsgHTML(msg, prev));
+    prev = msg;
+  }
+  wrap.innerHTML = html.join('');
+}
+
+function _chatMsgHTML(msg, prev) {
+  const senderShort = (msg.sender || '').split('@')[0];
+  const initials = senderShort.slice(0, 2).toUpperCase();
+  const ts = new Date(msg.created_at);
+  const timeStr = ts.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+  const dateLabel = _chatDateLabel(ts);
+
+  // Grouped: same sender, within 5 min, no date separator needed
+  const sameDay = prev && _chatSameDay(new Date(prev.created_at), ts);
+  const grouped = prev && prev.sender === msg.sender
+    && (ts - new Date(prev.created_at)) < 5 * 60 * 1000
+    && sameDay;
+
+  // Date divider
+  let divider = '';
+  if (!prev || !sameDay) {
+    divider = `<div style="text-align:center;margin:12px 0 8px;"><span style="background:var(--off);border:1px solid var(--g100);border-radius:99px;padding:3px 12px;font-size:11px;font-family:var(--mono);color:var(--g600)">${_esc(dateLabel)}</span></div>`;
+  }
+
+  // Reply reference
+  let replyHtml = '';
+  if (msg.reply_to) {
+    const parent = _chatMsgs.find(m => m.id === msg.reply_to);
+    if (parent) {
+      const pShort = (parent.sender || '').split('@')[0];
+      const pBody = (parent.body || '').slice(0, 100) + ((parent.body || '').length > 100 ? '…' : '');
+      replyHtml = `<div class="chat-reply-ref" onclick="_chatScrollTo('${_esc(msg.reply_to)}')"><strong>${_esc(pShort)}</strong> ${_esc(pBody)}</div>`;
+    }
+  }
+
+  const bodyHtml = _chatHighlight(_esc(msg.body || ''));
+
+  // Avatar color derived from sender name
+  const COLORS = ['#7c3aed','#2563eb','#059669','#d97706','#dc2626','#0891b2','#9333ea','#65a30d'];
+  const ci = senderShort.charCodeAt(0) % COLORS.length;
+  const avatarBg = COLORS[ci] + '22';
+  const avatarFg = COLORS[ci];
+
+  const replyBtn = `<button class="chat-act-btn" onclick="setChatReply('${_esc(msg.id)}','${_esc(senderShort)}',${JSON.stringify(msg.body || '')})">&#8617; Balas</button>`;
+
+  if (grouped) {
+    return divider + `<div class="chat-msg chat-grouped" id="cmsg-${msg.id}" title="${_esc(timeStr)}">
+      <div class="chat-avatar-space"></div>
+      <div class="chat-bubble">${replyHtml}<div class="chat-body">${bodyHtml}</div><div class="chat-actions">${replyBtn}</div></div>
+    </div>`;
+  }
+
+  return divider + `<div class="chat-msg" id="cmsg-${msg.id}">
+    <div class="chat-avatar" style="background:${avatarBg};color:${avatarFg}">${initials}</div>
+    <div class="chat-bubble">
+      <div class="chat-meta"><span class="chat-sender">${_esc(senderShort)}</span><span class="chat-time">${_esc(timeStr)}</span></div>
+      ${replyHtml}<div class="chat-body">${bodyHtml}</div>
+      <div class="chat-actions">${replyBtn}</div>
+    </div>
+  </div>`;
+}
+
+function _chatHighlight(escapedText) {
+  const meShort = currentUser ? currentUser.split('@')[0] : '';
+  return escapedText.replace(/@([\w.\-]+)/g, (m, name) => {
+    const isMe = meShort && name.toLowerCase() === meShort.toLowerCase();
+    return `<span class="chat-mention${isMe ? ' chat-mention-me' : ''}">${m}</span>`;
+  });
+}
+
+function _chatDateLabel(d) {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const dd = new Date(d); dd.setHours(0,0,0,0);
+  const diff = (today - dd) / 86400000;
+  if (diff === 0) return 'Hari ini';
+  if (diff === 1) return 'Kemarin';
+  return d.toLocaleDateString('id-ID', { day:'numeric', month:'long', year:'numeric' });
+}
+
+function _chatSameDay(a, b) {
+  return a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate();
+}
+
+function _esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function _chatScrollBottom(instant) {
+  const wrap = document.getElementById('chat-msgs');
+  if (!wrap) return;
+  setTimeout(() => { wrap.scrollTop = wrap.scrollHeight; }, instant ? 0 : 60);
+}
+
+function _chatScrollTo(id) {
+  const el = document.getElementById('cmsg-' + id);
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+async function sendChatMessage() {
+  const inp = document.getElementById('chat-input');
+  if (!inp) return;
+  const body = inp.value.trim();
+  if (!body) return;
+
+  const btn = document.querySelector('#chat-compose .btn-primary');
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+
+  const { error } = await sb.from('chat_messages').insert({
+    id: genId('CHT'),
+    body,
+    sender: currentUser,
+    reply_to: _chatReplyId || null
+  });
+
+  if (btn) { btn.disabled = false; btn.textContent = 'Kirim'; }
+  if (error) { console.error(error); return; }
+
+  inp.value = '';
+  inp.style.height = 'auto';
+  clearChatReply();
+  closeChatAC();
+
+  // Mention notifications
+  const mentions = [...body.matchAll(/@([\w.\-]+)/g)].map(m => m[1]);
+  for (const name of mentions) {
+    const match = (acPics || []).find(p => p.toLowerCase().includes(name.toLowerCase()));
+    if (match) insertNotif(match, 'chat', 'CHT-mention', `${currentUser.split('@')[0]} menyebut kamu di Chat`);
+  }
+  logActivity('Chat', 'send', 'CHT', body.slice(0, 60));
+}
+
+function setChatReply(id, senderName, body) {
+  _chatReplyId = id;
+  const bar  = document.getElementById('chat-reply-bar');
+  const name = document.getElementById('chat-reply-name');
+  const text = document.getElementById('chat-reply-bar-text');
+  if (bar)  bar.style.display = 'flex';
+  if (name) name.textContent = senderName;
+  if (text) text.textContent = (body || '').slice(0, 120) + ((body || '').length > 120 ? '…' : '');
+  const inp = document.getElementById('chat-input');
+  if (inp) inp.focus();
+}
+
+function clearChatReply() {
+  _chatReplyId = null;
+  const bar = document.getElementById('chat-reply-bar');
+  if (bar) bar.style.display = 'none';
+}
+
+// @mention autocomplete
+function _chatOnInput(e) {
+  const inp = e.target;
+  inp.style.height = 'auto';
+  inp.style.height = Math.min(inp.scrollHeight, 120) + 'px';
+  const val = inp.value;
+  const pos = inp.selectionStart;
+  const before = val.slice(0, pos);
+  const atIdx = before.lastIndexOf('@');
+  if (atIdx !== -1) {
+    const afterAt = before.slice(atIdx + 1);
+    if (!afterAt.includes(' ')) {
+      _chatAtStart = atIdx;
+      _chatAtQuery = afterAt.toLowerCase();
+      _chatShowAC(_chatAtQuery);
+      return;
+    }
+  }
+  closeChatAC();
+}
+
+function _chatOnKeydown(e) {
+  const ac = document.getElementById('chat-ac');
+  if (ac && ac.style.display !== 'none') {
+    const items = ac.querySelectorAll('.chat-ac-item');
+    const active = ac.querySelector('.chat-ac-item.active');
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      const nxt = active ? (active.nextElementSibling || items[0]) : items[0];
+      if (active) active.classList.remove('active');
+      if (nxt) nxt.classList.add('active');
+      return;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      const prv = active ? (active.previousElementSibling || items[items.length-1]) : items[items.length-1];
+      if (active) active.classList.remove('active');
+      if (prv) prv.classList.add('active');
+      return;
+    }
+    if (e.key === 'Enter' || e.key === 'Tab') {
+      const sel = ac.querySelector('.chat-ac-item.active') || items[0];
+      if (sel) { e.preventDefault(); _chatPickMention(sel.dataset.name); return; }
+    }
+    if (e.key === 'Escape') { closeChatAC(); return; }
+  }
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendChatMessage();
+  }
+}
+
+function _chatShowAC(query) {
+  const ac = document.getElementById('chat-ac');
+  if (!ac) return;
+  const senders = [...new Set(_chatMsgs.map(m => (m.sender||'').split('@')[0]).filter(Boolean))];
+  const allNames = [...new Set([...(acPics||[]).map(p=>p.split('@')[0]), ...senders])].filter(Boolean);
+  const matches = query
+    ? allNames.filter(n => n.toLowerCase().includes(query))
+    : allNames.slice(0, 8);
+  if (!matches.length) { closeChatAC(); return; }
+  ac.innerHTML = matches.slice(0, 8).map(p =>
+    `<div class="chat-ac-item" data-name="${_esc(p)}" onclick="_chatPickMention('${_esc(p)}')">${_esc(p)}</div>`
+  ).join('');
+  ac.style.display = 'block';
+}
+
+function _chatPickMention(name) {
+  const inp = document.getElementById('chat-input');
+  if (!inp) return;
+  const val  = inp.value;
+  const pos  = inp.selectionStart;
+  const before = val.slice(0, _chatAtStart);
+  const after  = val.slice(pos);
+  inp.value = before + '@' + name + ' ' + after;
+  const newPos = before.length + name.length + 2;
+  inp.setSelectionRange(newPos, newPos);
+  closeChatAC();
+  inp.focus();
+}
+
+function closeChatAC() {
+  const ac = document.getElementById('chat-ac');
+  if (ac) ac.style.display = 'none';
+  _chatAtQuery = '';
+  _chatAtStart = -1;
 }
 
 // ── DUPLICATE CHECK ──
