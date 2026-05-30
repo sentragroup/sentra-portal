@@ -281,6 +281,7 @@ th.sortable:hover{color:var(--black);background:var(--off);}
 .chat-msg{display:flex;gap:9px;padding:3px 4px;border-radius:7px;position:relative;}
 .chat-msg:hover{background:var(--off);}
 .chat-msg:hover .chat-actions{opacity:1;}
+.chat-msg:hover .chat-body{padding-right:52px;}
 .chat-grouped{padding-left:4px;}
 .chat-avatar{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0;margin-top:2px;}
 .chat-avatar-space{width:28px;flex-shrink:0;}
@@ -292,9 +293,10 @@ th.sortable:hover{color:var(--black);background:var(--off);}
 .chat-reply-ref{background:var(--off);border-left:3px solid var(--g200);border-radius:0 5px 5px 0;padding:3px 8px;font-size:11px;margin-bottom:4px;cursor:pointer;color:var(--g600);line-height:1.4;}
 .chat-reply-ref:hover{background:var(--g100);}
 .chat-reply-ref strong{color:var(--black);}
-.chat-actions{opacity:0;display:flex;gap:3px;margin-top:2px;transition:opacity .12s;}
-.chat-act-btn{background:none;border:1px solid var(--g100);border-radius:5px;padding:1px 7px;font-size:10px;color:var(--g400);cursor:pointer;font-family:var(--mono);}
-.chat-act-btn:hover{background:var(--white);color:var(--black);border-color:var(--g400);}
+.chat-actions{opacity:0;position:absolute;right:4px;top:4px;display:flex;gap:3px;transition:opacity .15s;}
+.chat-msg:hover .chat-actions{opacity:1;}
+.chat-act-btn{background:var(--white);border:1px solid var(--g100);border-radius:5px;padding:2px 8px;font-size:10px;color:var(--g400);cursor:pointer;font-family:var(--mono);box-shadow:0 1px 4px rgba(0,0,0,0.08);}
+.chat-act-btn:hover{background:var(--off);color:var(--black);border-color:var(--g400);}
 .chat-mention{background:#ede9fe;color:#6d28d9;border-radius:3px;padding:0 3px;font-weight:500;}
 .chat-mention-me{background:#fef9c3;color:#92400e;}
 #chat-reply-bar{background:var(--off);padding:6px 12px;display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-shrink:0;border-top:1px solid var(--g100);}

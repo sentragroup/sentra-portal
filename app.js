@@ -12267,7 +12267,8 @@ function _chatMsgHTML(msg, prev) {
   const avatarBg = COLORS[ci] + '22';
   const avatarFg = COLORS[ci];
 
-  const replyBtn = '<button class="chat-act-btn" onclick="setChatReply(\'' + _esc(msg.id) + '\')">&#8617; Balas</button>';
+  const escapedBody = _esc(msg.body || '');
+  const replyBtn = '<button class="chat-act-btn" data-mid="' + _esc(msg.id) + '" data-sender="' + _esc(senderShort) + '" data-body="' + escapedBody + '" onclick="_chatReply(this)">&#8617; Balas</button>';
 
   if (grouped) {
     return divider + '<div class="chat-msg chat-grouped" id="cmsg-' + msg.id + '" title="' + _esc(timeStr) + '"><div class="chat-avatar-space"></div><div class="chat-bubble">' + replyHtml + '<div class="chat-body">' + bodyHtml + '</div><div class="chat-actions">' + replyBtn + '</div></div></div>';
@@ -12345,20 +12346,27 @@ async function sendChatMessage() {
   logActivity('Chat', 'send', 'CHT', body.slice(0, 60));
 }
 
-function setChatReply(id) {
-  const msg = _chatMsgs.find(m => m.id === id);
-  if (!msg) return;
+function _chatReply(btn) {
+  const id     = btn.dataset.mid;
+  const sender = btn.dataset.sender;
+  const body   = btn.dataset.body || '';
   _chatReplyId = id;
-  const senderName = (msg.sender || '').split('@')[0];
-  const body = msg.body || '';
   const bar  = document.getElementById('chat-reply-bar');
   const name = document.getElementById('chat-reply-name');
   const text = document.getElementById('chat-reply-bar-text');
   if (bar)  bar.style.display = 'flex';
-  if (name) name.textContent = senderName;
+  if (name) name.textContent = sender;
   if (text) text.textContent = body.slice(0, 100) + (body.length > 100 ? '…' : '');
-  const inp = document.getElementById('chat-input');
-  if (inp) inp.focus();
+  document.getElementById('chat-input')?.focus();
+}
+
+function setChatReply(id) {
+  // kept for backward compat — look up from _chatMsgs
+  const msg = _chatMsgs.find(m => m.id === id);
+  if (msg) {
+    const btn = { dataset: { mid: id, sender: (msg.sender||'').split('@')[0], body: msg.body||'' } };
+    _chatReply(btn);
+  }
 }
 
 function clearChatReply() {
