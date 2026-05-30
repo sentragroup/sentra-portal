@@ -131,7 +131,7 @@ function enterApp(user, freshLogin) {
   loadAnnTicker();
   if (freshLogin) logActivity("Auth","login",null,"Login berhasil");
   loadNotifications();
-  const _chatFab = document.getElementById('chat-fab'); if (_chatFab) _chatFab.classList.add('visible');
+  const _chatFab = document.getElementById('chat-fab'); if (_chatFab) _chatFab.style.display='flex';
   if (notifPollTimer) clearInterval(notifPollTimer);
   notifPollTimer = setInterval(loadNotifications, 60000);
   // Restore page: prefer URL hash, fall back to sessionStorage
@@ -150,7 +150,7 @@ async function doLogout() {
   currentUser = ""; allRows = [];
   document.getElementById("app").style.display = "none";
   document.getElementById("loginScreen").style.display = "grid";
-    const _cf = document.getElementById('chat-fab'); if (_cf) _cf.classList.remove('visible');
+    const _cf = document.getElementById('chat-fab'); if (_cf) _cf.style.display='none';
     const _cp = document.getElementById('chat-popup'); if (_cp) _cp.style.display = 'none';
     _chatLoaded = false; _chatRealtime = null; _chatMsgs = [];
   document.getElementById("loginEmail").value = "";
@@ -2471,13 +2471,13 @@ async function handleNotif(id, module, recordId) {
     }, 80);
   }
   loadNotifications();
-  const _chatFab = document.getElementById('chat-fab'); if (_chatFab) _chatFab.classList.add('visible');
+  const _chatFab = document.getElementById('chat-fab'); if (_chatFab) _chatFab.style.display='flex';
 }
 
 async function markAllNotifRead() {
   await sb.from("notifications").update({is_read:true}).eq("recipient",currentUser).eq("is_read",false);
   loadNotifications();
-  const _chatFab = document.getElementById('chat-fab'); if (_chatFab) _chatFab.classList.add('visible');
+  const _chatFab = document.getElementById('chat-fab'); if (_chatFab) _chatFab.style.display='flex';
 }
 
 function toggleNotifDropdown() {
@@ -13326,7 +13326,7 @@ sb.auth.onAuthStateChange((event, session) => {
     currentUser = ""; allRows = [];
     document.getElementById("app").style.display = "none";
     document.getElementById("loginScreen").style.display = "grid";
-    const _cf = document.getElementById('chat-fab'); if (_cf) _cf.classList.remove('visible');
+    const _cf = document.getElementById('chat-fab'); if (_cf) _cf.style.display='none';
     const _cp = document.getElementById('chat-popup'); if (_cp) _cp.style.display = 'none';
     _chatLoaded = false; _chatRealtime = null; _chatMsgs = [];
     document.getElementById("loginBox").style.display = "block";
