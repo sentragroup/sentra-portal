@@ -220,6 +220,7 @@ function showPage(name, el) {
   }
   if (name==="project") loadProjects();
   if (name==="calendar") loadCalendar();
+  if (name==="team") loadTeamMembers();
   if (name==="salesperf") {
     _initSPMultiSelects();
     // Default status to "Completed" only each time page is opened
@@ -1347,11 +1348,16 @@ document.getElementById("sr-startdate-modal").addEventListener("click", function
 // ── PRELOAD AUTOCOMPLETE ON LOGIN ──
 async function preloadAutocomplete() {
   try {
-    const [agrRes,ipRes,bmRes] = await Promise.all([
+    const [agrRes,ipRes,bmRes,tmRes] = await Promise.all([
       sb.from("agreements").select("*"),
       sb.from("ip_master").select("*"),
-      sb.from("brand_master").select("*")
+      sb.from("brand_master").select("*"),
+      sb.from("team_members").select("name").eq("is_active",true).order("name")
     ]);
+    // Seed acPics from team_members first so it's always the authoritative list
+    if (!tmRes.error && tmRes.data?.length) {
+      acPics = [...new Set(tmRes.data.map(r=>r.name).filter(Boolean))];
+    }
     if (!agrRes.error) {
       const rows=(agrRes.data||[]).map(mapAgr);
       acAgrOptions=rows.map(r=>({id:r.id,label:[r.partner,r.type].filter(Boolean).join(" — ")}));
@@ -1359,7 +1365,8 @@ async function preloadAutocomplete() {
       rows.forEach(r=>{if(r.id&&r.link)acAgrLinks[r.id]=r.link;});
       acBrands=[...new Set(rows.map(r=>r.brand).filter(Boolean))];
       acTypes=[...new Set(rows.map(r=>r.type).filter(Boolean))];
-      acPics=[...new Set(rows.map(r=>r.pic).filter(Boolean))];
+      // Merge agreement PICs into acPics (in case team_members is empty or incomplete)
+      rows.map(r=>r.pic).filter(Boolean).forEach(n=>{ if(!acPics.includes(n)) acPics.push(n); });
     }
     if (!ipRes.error) {
       allIPRows=(ipRes.data||[]).map(r=>{const m=mapIP(r);m.ipStatus=computeIPStatusLocal(m.agreements);return m;});
@@ -13884,4 +13891,135 @@ sb.auth.onAuthStateChange((event, session) => {
     document.getElementById("resetBox").style.display = "none";
   }
 });
+
+// ── TEAM MEMBERS ──
+let _teamRows = [];
+
+async function loadTeamMembers(){
+  const el = document.getElementById('team-list');
+  if(!el) return;
+  el.innerHTML = `<div style="color:var(--g400);font-size:13px;padding:20px">Memuat...</div>`;
+  try{
+    const { data, error } = await sb.from('team_members').select('*').order('name');
+    if(error) throw error;
+    _teamRows = data || [];
+    renderTeamList();
+  } catch(e){
+    el.innerHTML = `<div style="color:#ef4444;font-size:13px;padding:20px">Gagal memuat: ${_esc(e.message)}</div>`;
+  }
+}
+
+function renderTeamList(){
+  const el = document.getElementById('team-list');
+  if(!el) return;
+  if(!_teamRows.length){
+    el.innerHTML = `<div style="color:var(--g400);font-size:13px;padding:20px;font-style:italic">Belum ada anggota tim. Klik "+ Tambah Anggota" untuk mulai.</div>`;
+    return;
+  }
+  el.innerHTML = _teamRows.map(m => `
+    <div style="background:var(--white);border:1px solid var(--g100);border-radius:12px;padding:16px;display:flex;align-items:center;gap:12px;transition:box-shadow .15s"
+      onmouseover="this.style.boxShadow='0 2px 12px rgba(0,0,0,.07)'" onmouseout="this.style.boxShadow=''">
+      <div style="width:40px;height:40px;border-radius:50%;background:${_teamAvatarColor(m.name)};display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;color:#fff;flex-shrink:0">
+        ${_esc((m.name||'?')[0].toUpperCase())}
+      </div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:14px;font-weight:600;color:var(--black)">${_esc(m.name)}</div>
+        ${m.role?`<div style="font-size:12px;color:var(--g400);margin-top:1px">${_esc(m.role)}</div>`:''}
+        ${m.email?`<div style="font-size:11px;color:var(--g400);font-family:var(--mono);margin-top:2px">${_esc(m.email)}</div>`:''}
+      </div>
+      <div style="display:flex;gap:6px;flex-shrink:0">
+        <button onclick="toggleTeamActive('${_esc(m.id)}',${!m.is_active})"
+          style="padding:4px 10px;border-radius:6px;border:1px solid ${m.is_active?'var(--g200)':'#fca5a5'};background:${m.is_active?'var(--off)':'#fff1f2'};color:${m.is_active?'var(--g600)':'#ef4444'};font-size:11px;cursor:pointer">
+          ${m.is_active?'Aktif':'Nonaktif'}
+        </button>
+        <button onclick="deleteTeamMember('${_esc(m.id)}')"
+          style="padding:4px 8px;border-radius:6px;border:1px solid var(--g100);background:none;color:var(--g400);font-size:13px;cursor:pointer"
+          onmouseover="this.style.color='#ef4444'" onmouseout="this.style.color='var(--g400)'">✕</button>
+      </div>
+    </div>`).join('');
+}
+
+function _teamAvatarColor(name){
+  const colors = ['#6366f1','#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#14b8a6'];
+  let h = 0; for(let i=0;i<(name||'').length;i++) h = name.charCodeAt(i) + ((h<<5)-h);
+  return colors[Math.abs(h) % colors.length];
+}
+
+function openAddTeamMember(){
+  const modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;inset:0;z-index:600;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center';
+  modal.onclick = e => { if(e.target===modal) modal.remove(); };
+  modal.innerHTML = `
+    <div style="background:var(--white);border-radius:14px;padding:28px;width:360px;box-shadow:0 8px 32px rgba(0,0,0,.15)">
+      <div style="font-family:var(--head);font-size:16px;font-weight:700;margin-bottom:18px">Tambah Anggota Tim</div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div>
+          <div class="fg-label">Nama <span style="color:#ef4444">*</span></div>
+          <input id="tm-name" type="text" placeholder="Nama lengkap…"
+            style="width:100%;padding:8px 10px;border:1px solid var(--g200);border-radius:8px;font-size:13px;outline:none;box-sizing:border-box">
+        </div>
+        <div>
+          <div class="fg-label">Role / Jabatan</div>
+          <input id="tm-role" type="text" placeholder="mis. Designer, PM, Sales…"
+            style="width:100%;padding:8px 10px;border:1px solid var(--g200);border-radius:8px;font-size:13px;outline:none;box-sizing:border-box">
+        </div>
+        <div>
+          <div class="fg-label">Email</div>
+          <input id="tm-email" type="email" placeholder="nama@sentra.com"
+            style="width:100%;padding:8px 10px;border:1px solid var(--g200);border-radius:8px;font-size:13px;outline:none;box-sizing:border-box">
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:20px;justify-content:flex-end">
+        <button onclick="this.closest('[style*=fixed]').remove()"
+          style="padding:8px 16px;background:none;border:1px solid var(--g200);border-radius:8px;font-size:13px;cursor:pointer">Batal</button>
+        <button onclick="saveNewTeamMember(this)"
+          style="padding:8px 18px;background:var(--black);color:var(--white);border:none;border-radius:8px;font-size:13px;cursor:pointer">Simpan</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.querySelector('#tm-name').focus();
+  modal.querySelector('#tm-name').onkeydown = e => { if(e.key==='Enter') modal.querySelector('[onclick*=saveNewTeamMember]').click(); };
+}
+
+async function saveNewTeamMember(btn){
+  const modal = btn.closest('[style*=fixed]');
+  const name = modal.querySelector('#tm-name').value.trim();
+  if(!name){ modal.querySelector('#tm-name').style.borderColor='#ef4444'; return; }
+  const role  = modal.querySelector('#tm-role').value.trim() || null;
+  const email = modal.querySelector('#tm-email').value.trim() || null;
+  btn.disabled = true; btn.textContent = 'Menyimpan…';
+  try{
+    const { data, error } = await sb.from('team_members').insert({ name, role, email }).select().single();
+    if(error) throw error;
+    _teamRows.push(data);
+    // Update acPics live so autocomplete works immediately
+    if(!acPics.includes(data.name)) acPics.push(data.name);
+    renderTeamList();
+    modal.remove();
+  } catch(e){
+    btn.disabled=false; btn.textContent='Simpan';
+    alert('Gagal menyimpan: '+e.message);
+  }
+}
+
+async function toggleTeamActive(id, newState){
+  try{
+    await sb.from('team_members').update({is_active:newState}).eq('id',id);
+    const m = _teamRows.find(x=>x.id===id);
+    if(m) m.is_active = newState;
+    // Sync acPics: only include active members
+    acPics = _teamRows.filter(x=>x.is_active).map(x=>x.name);
+    renderTeamList();
+  } catch(e){ alert('Gagal: '+e.message); }
+}
+
+async function deleteTeamMember(id){
+  if(!confirm('Hapus anggota ini dari daftar tim?')) return;
+  try{
+    await sb.from('team_members').delete().eq('id',id);
+    _teamRows = _teamRows.filter(x=>x.id!==id);
+    acPics = _teamRows.filter(x=>x.is_active).map(x=>x.name);
+    renderTeamList();
+  } catch(e){ alert('Gagal hapus: '+e.message); }
+}
 

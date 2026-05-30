@@ -156,6 +156,9 @@
         <div class="sb-item" onclick="showPage('jubsales',this)" id="nav-jubsales">
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="4" width="12" height="9" rx="1"/><path d="M5 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1"/><line x1="8" y1="8" x2="8" y2="10"/><line x1="6" y1="9" x2="10" y2="9"/></svg>Offline Sales Log
         </div>
+        <div class="sb-item" onclick="showPage('team',this)" id="nav-team">
+          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="5" r="2.5"/><path d="M1 13c0-2.761 2.239-4 5-4s5 1.239 5 4"/><circle cx="12" cy="5" r="1.8"/><path d="M14.5 13c0-1.933-1.119-3-2.5-3"/></svg>Tim
+        </div>
       </div>
     </nav>
     <div class="content">
@@ -1079,6 +1082,17 @@
               <tbody id="jubTableBody"><tr><td class="empty-td" colspan="8">Klik "Semua" untuk memuat data.</td></tr></tbody>
             </table>
           </div>
+        </div>
+      </div>
+
+      <!-- TEAM MEMBERS -->
+      <div class="page" id="page-team">
+        <div class="page-header">
+          <div><div class="page-title">👥 Tim</div><div class="page-sub">Daftar anggota tim — digunakan sebagai autocomplete assignee & PIC di seluruh portal.</div></div>
+          <button class="btn-primary" onclick="openAddTeamMember()" style="padding:7px 16px;background:var(--black);color:var(--white);border:none;border-radius:8px;font-size:13px;cursor:pointer;font-family:var(--body)">+ Tambah Anggota</button>
+        </div>
+        <div id="team-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;margin-top:4px">
+          <div style="color:var(--g400);font-size:13px;padding:20px">Memuat...</div>
         </div>
       </div>
 
@@ -2927,6 +2941,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260531d"></script>
+<script src="app.js?v=20260531e"></script>
 </body>
 </html>
