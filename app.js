@@ -1823,9 +1823,10 @@ async function ldpLoadComments(leadId){
     const dt=new Date(c.created_at);
     const dtStr=dt.toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"})+" · "+dt.toLocaleTimeString("id-ID",{hour:"2-digit",minute:"2-digit"});
     const isMe=c.created_by===currentUser;
-    return `<div style="display:flex;flex-direction:column;gap:3px;align-items:${isMe?"flex-end":"flex-start"}">
-      <div style="font-size:10px;color:var(--g400);font-family:var(--mono)">${c.created_by||"—"} · ${dtStr}</div>
-      <div style="background:${isMe?"#3c3489":"var(--off)"};color:${isMe?"#fff":"var(--black)"};border-radius:${isMe?"12px 12px 2px 12px":"12px 12px 12px 2px"};padding:9px 13px;max-width:90%;font-size:13px;line-height:1.5;white-space:pre-wrap;word-break:break-word">${_chatHighlight(_chatRenderBody(c.body||''))}</div>
+    const delBtn=isMe?`<button class="ldp-cmt-del" onclick="ldpDeleteComment('${_esc(c.id)}')" title="Hapus">🗑</button>`:'';
+    return `<div class="ldp-cmt-wrap" style="display:flex;flex-direction:column;gap:3px;align-items:${isMe?"flex-end":"flex-start"}">
+      <div style="font-size:10px;color:var(--g400);font-family:var(--mono);display:flex;align-items:center;gap:6px">${delBtn}${_esc(c.created_by||"—")} · ${dtStr}</div>
+      <div class="${isMe?'ldp-bubble-me':''}" style="background:${isMe?"var(--black)":"var(--off)"};color:${isMe?"var(--white)":"var(--black)"};border-radius:${isMe?"12px 12px 2px 12px":"12px 12px 12px 2px"};padding:9px 13px;max-width:90%;font-size:13px;line-height:1.5;white-space:pre-wrap;word-break:break-word">${_chatHighlight(_chatRenderBody(c.body||''))}</div>
     </div>`;
   }).join("");
   list.scrollTop=list.scrollHeight;
@@ -1840,6 +1841,13 @@ async function ldpAddComment(){
   if(error){alert("Gagal: "+error.message);return;}
   document.getElementById("ldp-comment-body").value="";
   ldpLoadComments(_ldDetail.rowIndex);
+}
+
+async function ldpDeleteComment(id){
+  if(!confirm('Hapus komentar ini?'))return;
+  const {error}=await sb.from('lead_comments').delete().eq('id',id);
+  if(error){alert('Gagal: '+error.message);return;}
+  if(_ldDetail) ldpLoadComments(_ldDetail.rowIndex);
 }
 
 setupAC("ld-category","ac-ld-category",()=>acLeadsCategories);
