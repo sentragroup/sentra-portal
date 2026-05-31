@@ -2643,8 +2643,8 @@
                 <th style="min-width:150px">Brand</th>
                 <th>Tipe</th>
                 <th>VAT</th>
-                <th style="text-align:right;min-width:80px;border-left:2px solid var(--g100)">Stock (qty)</th>
-                <th style="text-align:right;min-width:110px">Stock (retail)</th>
+                <th style="text-align:right;min-width:80px;border-left:2px solid var(--g100)" title="Stok saat ini di Jubelio (snapshot terbaru, bukan per periode)">Stock Now</th>
+                <th style="text-align:right;min-width:110px" title="Nilai retail stok saat ini">Stock Value Now</th>
                 <th style="text-align:right;min-width:80px">Inbound</th>
                 <th style="text-align:right;min-width:80px">Outbound</th>
                 <th style="text-align:right;min-width:120px;border-left:2px solid var(--g100)">Gross Sales</th>
@@ -2691,7 +2691,7 @@
               <!-- Inventory strip -->
               <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:8px">
                 <div style="background:#eff6ff;border-radius:8px;padding:10px 12px">
-                  <div style="font-size:11px;color:#3b82f6;margin-bottom:2px">Stock (qty)</div>
+                  <div style="font-size:11px;color:#3b82f6;margin-bottom:2px">Stock Now (qty)</div>
                   <div style="font-family:var(--mono);font-weight:700;font-size:14px;color:#1d4ed8" id="mr-modal-stock-qty">—</div>
                 </div>
                 <div style="background:#f0fdf4;border-radius:8px;padding:10px 12px">
@@ -2703,7 +2703,7 @@
                   <div style="font-family:var(--mono);font-weight:700;font-size:14px;color:#c2410c" id="mr-modal-outbound">—</div>
                 </div>
                 <div style="background:var(--off);border-radius:8px;padding:10px 12px">
-                  <div style="font-size:11px;color:var(--g400);margin-bottom:2px">Stock (retail)</div>
+                  <div style="font-size:11px;color:var(--g400);margin-bottom:2px">Stock Value Now</div>
                   <div style="font-family:var(--mono);font-weight:700;font-size:14px" id="mr-modal-stock-value">—</div>
                 </div>
               </div>
@@ -2964,6 +2964,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260531n"></script>
+<script src="app.js?v=20260531o"></script>
 </body>
 </html>
