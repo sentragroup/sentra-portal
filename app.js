@@ -8079,6 +8079,9 @@ function applyInvFilters(){
   let filtered=invGroups;
   // Text search (matches parent name or brand)
   if(invFilterSearch) filtered=filtered.filter(g=>g.parent_name.toLowerCase().includes(invFilterSearch)||(g.brand_name||'').toLowerCase().includes(invFilterSearch));
+  // Only show parent items that have stock (>0) in at least one visible warehouse column
+  const _activeLocIds=activeCols.map(c=>c.location_id);
+  filtered=filtered.filter(g=>_activeLocIds.some(lid=>(parseFloat(g.byLocation[lid])||0)>0));
   const totalSkus=filtered.reduce((s,g)=>s+new Set(g.skus.map(sk=>sk.item_code)).size,0);
   const tcEl=document.getElementById('inv-tcount');
   if(tcEl) tcEl.textContent=`${filtered.length} parent item · ${totalSkus} SKU`;
