@@ -7933,13 +7933,26 @@ async function loadInvCheck(){
     if(cErr) throw cErr;
     invLocations=(cats||[]);
     const locIds=invLocations.map(l=>l.location_id);
-    // 2. Fetch all stock rows for mapped locations only — use _fetchAllPages to bypass 1000-row cap
-    const stock=locIds.length
-      ? await _fetchAllPages('jubelio_inventory_by_location',
-          'location_id,item_id,item_code,item_name,item_group_id,item_group_name,brand_name,qty_on_hand,qty_available,synced_at',
-          q=>q.in('location_id',locIds))
-      : [];
-    invStockFlat=(stock||[]);
+    // 2. Read from fresh jubelio_inventory_stocks (synced by sync-jubelio-inventory),
+    //    joining item metadata (name/brand/group) from jubelio_items client-side.
+    //    by_location was stale (separate, un-synced table) so we no longer use it.
+    const [stockRows, itemRows] = locIds.length ? await Promise.all([
+      _fetchAllPages('jubelio_inventory_stocks','location_id,item_id,on_hand,available,synced_at',
+        q=>q.in('location_id',locIds).neq('on_hand',0)),
+      _fetchAllPages('jubelio_items','item_id,item_code,item_name,item_group_id,brand_name')
+    ]) : [[],[]];
+    const itemMeta={};
+    for(const it of (itemRows||[])) itemMeta[it.item_id]=it;
+    invStockFlat=(stockRows||[]).map(s=>{
+      const m=itemMeta[s.item_id]||{};
+      return {
+        location_id:s.location_id, item_id:s.item_id,
+        item_code:m.item_code||'', item_name:m.item_name||'—',
+        item_group_id:m.item_group_id??s.item_id, item_group_name:null,
+        brand_name:m.brand_name||null,
+        qty_on_hand:s.on_hand, qty_available:s.available, synced_at:s.synced_at
+      };
+    });
     // Build fast lookup map
     invStockMap={};
     for(const s of invStockFlat) invStockMap[`${s.location_id}_${s.item_id}`]=s;
