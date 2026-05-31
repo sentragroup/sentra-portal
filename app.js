@@ -12206,10 +12206,12 @@ async function loadMarteReport() {
 
   _mrAllRows = allMarteBrands.map(b => {
     const s   = salesMap[b.id] || { brand_id:b.id, brand_name:b.name, total_sales:0, total_fee:0, net_payout:0, others_sales:0 };
-    const inv = invMap[b.name.toUpperCase().trim()] || { stock_qty:0, stock_value:0, outbound_qty:0, inbound_qty:0 };
+    const inv = invMap[b.name.toUpperCase().trim()] || { net_stock:0, stock_value_retail:0, outbound_period:0, inbound_period:0 };
     return { ...s, _bm_brand_type:b.brand_type||null, _bm_vat_status:b.vat_status||null,
-      _stock_qty: parseFloat(inv.stock_qty)||0, _stock_value: parseFloat(inv.stock_value)||0,
-      _outbound_qty: parseFloat(inv.outbound_qty)||0, _inbound_qty: parseFloat(inv.inbound_qty)||0 };
+      _stock_qty:     parseFloat(inv.net_stock)||0,
+      _stock_value:   parseFloat(inv.stock_value_retail)||0,
+      _outbound_qty:  parseFloat(inv.outbound_period)||0,
+      _inbound_qty:   parseFloat(inv.inbound_period)||0 };
   });
 
   // Stats (based on brands WITH sales only)
