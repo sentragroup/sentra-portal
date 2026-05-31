@@ -2643,10 +2643,14 @@
                 <th style="min-width:150px">Brand</th>
                 <th>Tipe</th>
                 <th>VAT</th>
-                <th style="text-align:right;min-width:120px">Gross Sales</th>
+                <th style="text-align:right;min-width:80px;border-left:2px solid var(--g100)">Stock (qty)</th>
+                <th style="text-align:right;min-width:110px">Stock Value</th>
+                <th style="text-align:right;min-width:80px">Inbound</th>
+                <th style="text-align:right;min-width:80px">Outbound</th>
+                <th style="text-align:right;min-width:120px;border-left:2px solid var(--g100)">Gross Sales</th>
                 <th style="text-align:right;min-width:110px">Fee</th>
                 <th style="text-align:right;min-width:120px">Net Payout</th>
-                <th style="text-align:center;min-width:100px">① Sales Report</th>
+                <th style="text-align:center;min-width:100px;border-left:2px solid var(--g100)">① Sales Report</th>
                 <th style="text-align:center;min-width:110px">② Invoice</th>
                 <th style="text-align:center;min-width:100px">③ Pembayaran</th>
                 <th style="text-align:center;min-width:100px">④ Bukti Potong</th>
@@ -2682,6 +2686,25 @@
                 <div style="background:var(--off);border-radius:8px;padding:10px 12px">
                   <div style="font-size:11px;color:var(--g400);margin-bottom:2px">Net Payout</div>
                   <div style="font-family:var(--mono);font-weight:700;font-size:14px;color:#080" id="mr-modal-net">—</div>
+                </div>
+              </div>
+              <!-- Inventory strip -->
+              <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:8px">
+                <div style="background:#eff6ff;border-radius:8px;padding:10px 12px">
+                  <div style="font-size:11px;color:#3b82f6;margin-bottom:2px">Stock (qty)</div>
+                  <div style="font-family:var(--mono);font-weight:700;font-size:14px;color:#1d4ed8" id="mr-modal-stock-qty">—</div>
+                </div>
+                <div style="background:#f0fdf4;border-radius:8px;padding:10px 12px">
+                  <div style="font-size:11px;color:#16a34a;margin-bottom:2px">Inbound</div>
+                  <div style="font-family:var(--mono);font-weight:700;font-size:14px;color:#15803d" id="mr-modal-inbound">—</div>
+                </div>
+                <div style="background:#fff7ed;border-radius:8px;padding:10px 12px">
+                  <div style="font-size:11px;color:#ea580c;margin-bottom:2px">Outbound</div>
+                  <div style="font-family:var(--mono);font-weight:700;font-size:14px;color:#c2410c" id="mr-modal-outbound">—</div>
+                </div>
+                <div style="background:var(--off);border-radius:8px;padding:10px 12px">
+                  <div style="font-size:11px;color:var(--g400);margin-bottom:2px">Stock Value</div>
+                  <div style="font-family:var(--mono);font-weight:700;font-size:14px" id="mr-modal-stock-value">—</div>
                 </div>
               </div>
             </div>
@@ -2941,6 +2964,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260531l"></script>
+<script src="app.js?v=20260531m"></script>
 </body>
 </html>
