@@ -60,7 +60,7 @@ function sortLogBy(c){logSort.dir=logSort.col===c?(logSort.dir==='asc'?'desc':'a
 function mapAgr(r) { return {rowIndex:r.id,id:r.id,title:r.title||"",partner:r.partner||"",pic:r.pic||"",brand:r.brand||"",revenue:r.revenue||"",type:r.type||"",start:r.start_date||"",end:r.end_date||"",status:r.status||"Draft",link:r.link||"",emailLink:r.email_link||"",notes:r.notes||"",lastUpdate:r.last_updated?new Date(r.last_updated).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"",lastBy:r.last_updated_by||"",addedBy:r.submitted_by||""}; }
 function mapIP(r) { return {rowIndex:r.id,id:r.id,name:r.name||"",category:r.category||"",liveStatus:r.live_status||"Active",revenue:r.revenue_stream||"",agreements:r.related_agreement||"",royaltyType:r.royalty_type||"",pct:r.percentage||"",fixed:r.fixed_amount||"",termin:r.termin||"",pph:r.pph_tax_rate||"",notes:r.notes||"",email:r.email||"",pic:r.pic||"",ipStatus:"",addedBy:r.added_by||""}; }
 function mapRR(r) { return {rowIndex:r.id,id:r.id,name:r.nama||"",tipe:r.tipe||"",ip:r.related_ip||"",royaltyType:r.royalty_type||"",pct:r.percentage||"",fixed:r.fixed_amount||"",termin:r.termin||"",pks:r.pks||"",notes:r.notes||"",pic:r.pic||"",addedBy:r.added_by||""}; }
-function mapBM(r) { return {rowIndex:r.id,id:r.id,name:r.name||"",category:r.category||"",liveStatus:r.live_status||"Active",revenue:r.revenue_stream||"",agreements:r.related_agreement||"",apparel:r.apparel_rate!=null?r.apparel_rate:"",accessories:r.accessories_rate!=null?r.accessories_rate:"",collectible:r.collectible_rate!=null?r.collectible_rate:"",preloved:r.preloved_rate!=null?r.preloved_rate:"",wellness:r.wellness_rate!=null?r.wellness_rate:"",others:r.others_rate!=null?r.others_rate:"",notes:r.notes||"",email:r.email||"",pic:r.pic||"",addedBy:r.added_by||""}; }
+function mapBM(r) { return {rowIndex:r.id,id:r.id,name:r.name||"",category:r.category||"",liveStatus:r.live_status||"Active",brandType:r.brand_type||"",vatStatus:r.vat_status||"",revenue:r.revenue_stream||"",agreements:r.related_agreement||"",apparel:r.apparel_rate!=null?r.apparel_rate:"",accessories:r.accessories_rate!=null?r.accessories_rate:"",collectible:r.collectible_rate!=null?r.collectible_rate:"",preloved:r.preloved_rate!=null?r.preloved_rate:"",wellness:r.wellness_rate!=null?r.wellness_rate:"",others:r.others_rate!=null?r.others_rate:"",notes:r.notes||"",email:r.email||"",pic:r.pic||"",addedBy:r.added_by||""}; }
 function mapLD(r) { return {rowIndex:r.id,id:r.id,name:r.lead_name||"",category:r.category||"",stage:r.stage||"",pic:r.pic||"",revenue:r.revenue_stream||"",contact:r.contact||"",notes:r.notes||"",priority:r.priority||"",followUpDate:r.follow_up_date||"",date:r.date_added?new Date(r.date_added).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"",by:r.added_by||"",lastUpdate:r.last_updated?new Date(r.last_updated).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"",lastBy:r.last_updated_by||"",addedBy:r.added_by||""}; }
 function mapDP(r) { return {rowIndex:r.id,id:r.id,name:r.partner_name||"",type:r.type||"",channel:r.channel||"",region:r.region||"",pic:r.pic||"",contactPerson:r.contact_person||"",contactInfo:r.contact_info||"",agreements:r.related_agreement||"",liveStatus:r.live_status||"Active",notes:r.notes||"",email:r.email||"",addedBy:r.added_by||""}; }
 function mapPB(r) { return {rowIndex:r.id,id:r.id,eventDate:r.event_date||"",eventName:r.event_name||"",location:r.location||"",ipRelated:r.ip_related||"",manpower:r.manpower||"",suratJalanUrl:r.surat_jalan_url||"",deliveryStatus:r.delivery_status||"",eventStatus:r.event_status||"",reinboundStatus:r.reinbound_status||"",reinboundQty:r.reinbound_qty!=null?r.reinbound_qty:"",srDeadline:r.sr_deadline||"",actualSales:r.actual_sales!=null?r.actual_sales:"",paymentMethod:r.payment_method||"",idPesananJubelio:r.id_pesanan_jubelio||"",notes:r.notes||"",dateAdded:r.date_added||"",addedBy:r.added_by||"",lastUpdated:r.last_updated||"",lastUpdatedBy:r.last_updated_by||""}; }
@@ -887,7 +887,7 @@ async function submitBM() {
   btn.disabled=true; btn.textContent="Menyimpan...";
   try {
     const id=genId("BM");
-    const {error}=await sb.from("brand_master").insert({id,name,category,live_status:liveStatus||"Active",pic:document.getElementById("bm-pic").value.trim(),revenue_stream:revenues.join(", "),related_agreement:document.getElementById("bm-agreements").value.trim(),apparel_rate:parseFloat(document.getElementById("bm-apparel").value)||BM_NORMAL.apparel,accessories_rate:parseFloat(document.getElementById("bm-accessories").value)||BM_NORMAL.accessories,collectible_rate:parseFloat(document.getElementById("bm-collectible").value)||BM_NORMAL.collectible,preloved_rate:parseFloat(document.getElementById("bm-preloved").value)||BM_NORMAL.preloved,wellness_rate:parseFloat(document.getElementById("bm-wellness").value)||BM_NORMAL.wellness,others_rate:parseFloat(document.getElementById("bm-others").value)||BM_NORMAL.others,notes:document.getElementById("bm-notes").value.trim(),email:document.getElementById("bm-email").value.trim()||null,added_by:currentUser,last_updated:new Date().toISOString(),last_updated_by:currentUser});
+    const {error}=await sb.from("brand_master").insert({id,name,category,live_status:liveStatus||"Active",brand_type:document.getElementById("bm-brand-type").value||null,vat_status:document.getElementById("bm-vat-status").value||null,pic:document.getElementById("bm-pic").value.trim(),revenue_stream:revenues.join(", "),related_agreement:document.getElementById("bm-agreements").value.trim(),apparel_rate:parseFloat(document.getElementById("bm-apparel").value)||BM_NORMAL.apparel,accessories_rate:parseFloat(document.getElementById("bm-accessories").value)||BM_NORMAL.accessories,collectible_rate:parseFloat(document.getElementById("bm-collectible").value)||BM_NORMAL.collectible,preloved_rate:parseFloat(document.getElementById("bm-preloved").value)||BM_NORMAL.preloved,wellness_rate:parseFloat(document.getElementById("bm-wellness").value)||BM_NORMAL.wellness,others_rate:parseFloat(document.getElementById("bm-others").value)||BM_NORMAL.others,notes:document.getElementById("bm-notes").value.trim(),email:document.getElementById("bm-email").value.trim()||null,added_by:currentUser,last_updated:new Date().toISOString(),last_updated_by:currentUser});
     if(error)throw error;
     showBMFeedback("✓ Brand tersimpan — ID: "+id,"ok");
     logActivity("Brand Master","create",id,name+" ("+category+")");
@@ -901,6 +901,8 @@ async function submitBM() {
 function clearBMForm() {
   ["bm-name","bm-category","bm-pic","bm-agreements","bm-notes","bm-apparel","bm-accessories","bm-collectible","bm-preloved","bm-wellness","bm-others","bm-email"].forEach(id=>document.getElementById(id).value="");
   document.getElementById("bm-live-status").value="Active";
+  document.getElementById("bm-brand-type").value="";
+  document.getElementById("bm-vat-status").value="";
   document.querySelectorAll("#bm-revenue-checks input").forEach(c=>c.checked=false);
 }
 
@@ -978,6 +980,8 @@ function renderBMTable(rows) {
       <td style="font-weight:500">${r.name||"—"}${hasNego?` <span title="Ada rate nego" style="color:#8a4000;font-size:10px">⚠</span>`:""}</td>
       <td><span class="pill p-draft">${r.category||"—"}</span></td>
       <td><span class="pill ${r.liveStatus==="Active"?"p-active":"p-inactive"}">${r.liveStatus||"—"}</span></td>
+      <td>${r.brandType?`<span class="pill p-draft" style="font-size:10px">${r.brandType}</span>`:"—"}</td>
+      <td>${r.vatStatus?`<span class="pill p-signings" style="font-size:10px">${r.vatStatus}</span>`:"—"}</td>
       <td style="font-size:11px;color:var(--g600)">${r.pic||"—"}</td>
       <td>${streams.map(s=>`<span class="pill" style="background:#EEEDFE;color:#3C3489;border:0.5px solid #AFA9EC;margin-right:3px">${s}</span>`).join("")||"—"}</td>
       <td>${agrs.length?agrs.map(a=>{const lnk=acAgrLinks[a];return lnk?`<a href="${lnk}" target="_blank" class="pill" style="background:#E6F1FB;color:#0C447C;border:0.5px solid #85B7EB;margin-right:3px;text-decoration:none">${a} ↗</a>`:`<span class="pill" style="background:#E6F1FB;color:#0C447C;border:0.5px solid #85B7EB;margin-right:3px">${a}</span>`;}).join(""):"—"}</td>
@@ -1005,6 +1009,8 @@ function renderBMTable(rows) {
           <div class="fg"><label>Preloved % <span style="color:var(--g400);font-size:9px;text-transform:none;letter-spacing:0;">normal: 20</span></label><input type="number" id="bm-e-pre-${r.rowIndex}" value="${r.preloved||""}" step="0.1" placeholder="20"></div>
           <div class="fg"><label>Wellness % <span style="color:var(--g400);font-size:9px;text-transform:none;letter-spacing:0;">normal: 20</span></label><input type="number" id="bm-e-wel-${r.rowIndex}" value="${r.wellness||""}" step="0.1" placeholder="20"></div>
           <div class="fg"><label>Others % <span style="color:var(--g400);font-size:9px;text-transform:none;letter-spacing:0;">normal: 30</span></label><input type="number" id="bm-e-oth-${r.rowIndex}" value="${r.others||""}" step="0.1" placeholder="30"></div>
+          <div class="fg"><label>Brand Type</label><select id="bm-e-btype-${r.rowIndex}"><option value="">— Pilih</option><option value="Individu"${r.brandType==="Individu"?" selected":""}>Individu</option><option value="PT"${r.brandType==="PT"?" selected":""}>PT</option></select></div>
+          <div class="fg"><label>VAT Status</label><select id="bm-e-vat-${r.rowIndex}"><option value="">— Pilih</option><option value="VAT Included"${r.vatStatus==="VAT Included"?" selected":""}>VAT Included</option><option value="VAT Excluded"${r.vatStatus==="VAT Excluded"?" selected":""}>VAT Excluded</option></select></div>
           <div class="fg"><label>Notes</label><input type="text" id="bm-e-notes-${r.rowIndex}" value="${r.notes||""}"></div>
           <div class="fg"><label>Email</label><input type="text" id="bm-e-email-${r.rowIndex}" value="${r.email||""}" placeholder="email1@x.com, email2@x.com"></div>
           <div class="fg"><label>PIC</label><input type="text" id="bm-e-pic-${r.rowIndex}" value="${r.pic||""}"></div>
@@ -1033,7 +1039,7 @@ async function deleteBM(rowIndex) {
 
 async function saveBMEdit(rowIndex) {
   try {
-    const {error}=await sb.from("brand_master").update({name:document.getElementById("bm-e-name-"+rowIndex).value.trim(),category:document.getElementById("bm-e-cat-"+rowIndex).value.trim(),live_status:document.getElementById("bm-e-live-"+rowIndex).value,revenue_stream:document.getElementById("bm-e-rev-"+rowIndex).value.trim(),related_agreement:document.getElementById("bm-e-agr-"+rowIndex).value.trim(),apparel_rate:parseFloat(document.getElementById("bm-e-apparel-"+rowIndex).value)||BM_NORMAL.apparel,accessories_rate:parseFloat(document.getElementById("bm-e-acc-"+rowIndex).value)||BM_NORMAL.accessories,collectible_rate:parseFloat(document.getElementById("bm-e-col-"+rowIndex).value)||BM_NORMAL.collectible,preloved_rate:parseFloat(document.getElementById("bm-e-pre-"+rowIndex).value)||BM_NORMAL.preloved,wellness_rate:parseFloat(document.getElementById("bm-e-wel-"+rowIndex).value)||BM_NORMAL.wellness,others_rate:parseFloat(document.getElementById("bm-e-oth-"+rowIndex).value)||BM_NORMAL.others,notes:document.getElementById("bm-e-notes-"+rowIndex).value.trim(),email:document.getElementById("bm-e-email-"+rowIndex).value.trim()||null,pic:document.getElementById("bm-e-pic-"+rowIndex).value.trim(),last_updated:new Date().toISOString(),last_updated_by:currentUser}).eq("id",rowIndex);
+    const {error}=await sb.from("brand_master").update({name:document.getElementById("bm-e-name-"+rowIndex).value.trim(),category:document.getElementById("bm-e-cat-"+rowIndex).value.trim(),live_status:document.getElementById("bm-e-live-"+rowIndex).value,brand_type:document.getElementById("bm-e-btype-"+rowIndex).value||null,vat_status:document.getElementById("bm-e-vat-"+rowIndex).value||null,revenue_stream:document.getElementById("bm-e-rev-"+rowIndex).value.trim(),related_agreement:document.getElementById("bm-e-agr-"+rowIndex).value.trim(),apparel_rate:parseFloat(document.getElementById("bm-e-apparel-"+rowIndex).value)||BM_NORMAL.apparel,accessories_rate:parseFloat(document.getElementById("bm-e-acc-"+rowIndex).value)||BM_NORMAL.accessories,collectible_rate:parseFloat(document.getElementById("bm-e-col-"+rowIndex).value)||BM_NORMAL.collectible,preloved_rate:parseFloat(document.getElementById("bm-e-pre-"+rowIndex).value)||BM_NORMAL.preloved,wellness_rate:parseFloat(document.getElementById("bm-e-wel-"+rowIndex).value)||BM_NORMAL.wellness,others_rate:parseFloat(document.getElementById("bm-e-oth-"+rowIndex).value)||BM_NORMAL.others,notes:document.getElementById("bm-e-notes-"+rowIndex).value.trim(),email:document.getElementById("bm-e-email-"+rowIndex).value.trim()||null,pic:document.getElementById("bm-e-pic-"+rowIndex).value.trim(),last_updated:new Date().toISOString(),last_updated_by:currentUser}).eq("id",rowIndex);
     if(error){alert("Gagal simpan: "+error.message);return;}
     logActivity("Brand Master","edit",rowIndex,"Data diperbarui");
     const _bm=allBMRows.find(r=>r.rowIndex===rowIndex);
@@ -12172,7 +12178,7 @@ async function loadMarteReport() {
   const [salesRes, trkRes, bmRes] = await Promise.all([
     sb.rpc('get_marte_sales_report', { p_start_date: startISO, p_end_date: endISO }),
     sb.from('marte_settlements').select('*').eq('period', period),
-    sb.from('brand_master').select('id,name').eq('live_status','Active').ilike('revenue_stream','%Marte%').order('name')
+    sb.from('brand_master').select('id,name,brand_type,vat_status').eq('live_status','Active').ilike('revenue_stream','%Marte%').order('name')
   ]);
 
   btn.textContent='Load Data'; btn.disabled=false;
@@ -12189,9 +12195,13 @@ async function loadMarteReport() {
   const allMarteBrands = (bmRes.data||[]);
   // Add any brands from sales data that aren't in brand_master (legacy/manual)
   _mrSummary.forEach(r => { if (!allMarteBrands.find(b=>b.id===r.brand_id)) allMarteBrands.push({id:r.brand_id, name:r.brand_name}); });
-  _mrAllRows = allMarteBrands.map(b => salesMap[b.id] || {
-    brand_id: b.id, brand_name: b.name,
-    total_sales: 0, total_fee: 0, net_payout: 0, others_sales: 0
+  // Build _bmTypeMap: brand_id → {brand_type, vat_status} from brand_master
+  const _bmTypeMap = {};
+  allMarteBrands.forEach(b => { _bmTypeMap[b.id] = { brand_type: b.brand_type||null, vat_status: b.vat_status||null }; });
+
+  _mrAllRows = allMarteBrands.map(b => {
+    const s = salesMap[b.id] || { brand_id:b.id, brand_name:b.name, total_sales:0, total_fee:0, net_payout:0, others_sales:0 };
+    return { ...s, _bm_brand_type: b.brand_type||null, _bm_vat_status: b.vat_status||null };
   });
 
   // Stats (based on brands WITH sales only)
@@ -12242,8 +12252,11 @@ function _mrRenderTable() {
   tb.innerHTML = _mrAllRows.map(r => {
     const trk     = _mrTracking[r.brand_id] || null;
     const pills   = _mrStatusPill(trk);
-    const tipe    = trk?.brand_type || '—';
+    // brand_type: from Brand Master first, fallback to tracking row
+    const tipe    = r._bm_brand_type || trk?.brand_type || '—';
+    const vatSt   = r._bm_vat_status || '—';
     const tipeClass = tipe==='PT'?'p-signings':tipe==='Individu'?'p-draft':'p-inactive';
+    const vatClass  = vatSt==='VAT Included'?'p-active':vatSt==='VAT Excluded'?'p-near':'p-inactive';
     const hasSales  = (parseFloat(r.total_sales)||0) > 0;
     const hasOthers = (parseFloat(r.others_sales)||0) > 0;
     const warn    = hasOthers ? `<span style="color:orange;margin-left:4px;font-size:11px" title="${_mrRp(r.others_sales)} belum terkategori">⚠</span>` : '';
@@ -12254,6 +12267,7 @@ function _mrRenderTable() {
     return `<tr style="${rowStyle}" onclick="openMRDetail('${bid}','${bname}')">
       <td style="font-weight:500">${bname}${warn}</td>
       <td><span class="pill ${tipeClass}" style="font-size:10px">${tipe}</span></td>
+      <td>${vatSt!=='—'?`<span class="pill ${vatClass}" style="font-size:10px">${vatSt}</span>`:'<span style="color:var(--g300);font-size:11px">—</span>'}</td>
       <td style="text-align:right">${hasSales ? `<span style="font-family:var(--mono);font-size:12px">${_mrRpFull(r.total_sales)}</span>` : zeroCell}</td>
       <td style="text-align:right">${hasSales ? `<span style="font-family:var(--mono);font-size:12px;color:#c05">${_mrRpFull(r.total_fee)}</span>` : zeroCell}</td>
       <td style="text-align:right">${hasSales ? `<span style="font-family:var(--mono);font-size:12px;font-weight:600">${_mrRpFull(r.net_payout)}</span>` : zeroCell}</td>
@@ -12283,7 +12297,11 @@ async function openMRDetail(brandId, brandName) {
   _mrRenderStatusCards(trkRow);
 
   // Populate form
-  document.getElementById('mr-f-brand-type').value  = trkRow?.brand_type    || '';
+  // brand_type comes from Brand Master, not editable here
+  const bmType = salesRow?._bm_brand_type || _mrAllRows.find(r=>r.brand_id===brandId)?._bm_brand_type || trkRow?.brand_type || '';
+  document.getElementById('mr-f-brand-type').value = bmType;
+  const btDisp = document.getElementById('mr-f-brand-type-display');
+  if(btDisp) btDisp.textContent = bmType || '—';
   document.getElementById('mr-f-report-sent').value = trkRow?.report_sent_at ? new Date(trkRow.report_sent_at).toISOString().slice(0,10) : '';
   document.getElementById('mr-f-inv-no').value      = trkRow?.invoice_number || '';
   document.getElementById('mr-f-inv-date').value    = trkRow?.invoice_date   || '';

@@ -532,6 +532,8 @@
               <div class="fg full"><label>IP / Brand Name <span class="req">*</span></label><input type="text" id="bm-name" placeholder="e.g. Cooluncle"></div>
               <div class="fg"><label>Category <span class="req">*</span></label><div class="ac-wrap"><input type="text" id="bm-category" placeholder="Musician, Brand, Filmmaker..." autocomplete="off"><div class="ac-list" id="ac-bm-category"></div></div></div>
               <div class="fg"><label>Live Status <span class="req">*</span></label><select id="bm-live-status"><option value="Active" selected>Active</option><option>Inactive</option></select></div>
+              <div class="fg"><label>Brand Type</label><select id="bm-brand-type"><option value="">— Pilih</option><option value="Individu">Individu</option><option value="PT">PT</option></select></div>
+              <div class="fg"><label>VAT Status</label><select id="bm-vat-status"><option value="">— Pilih</option><option value="VAT Included">VAT Included</option><option value="VAT Excluded">VAT Excluded</option></select></div>
               <div class="fg"><label>PIC</label><div class="ac-wrap"><input type="text" id="bm-pic" placeholder="Nama PIC..." autocomplete="off"><div class="ac-list" id="ac-bm-pic"></div></div></div>
               <div class="fg full"><label>Revenue Stream</label>
                 <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px;" id="bm-revenue-checks">
@@ -2640,6 +2642,7 @@
               <thead><tr>
                 <th style="min-width:150px">Brand</th>
                 <th>Tipe</th>
+                <th>VAT</th>
                 <th style="text-align:right;min-width:120px">Gross Sales</th>
                 <th style="text-align:right;min-width:110px">Fee</th>
                 <th style="text-align:right;min-width:120px">Net Payout</th>
@@ -2695,12 +2698,9 @@
                 <div style="font-size:12px;font-weight:600;margin-bottom:12px;color:var(--g600)">Update Status</div>
                 <div class="form-grid">
                   <div class="fg">
-                    <label>Tipe Brand</label>
-                    <select id="mr-f-brand-type" onchange="_mrToggleBPField()">
-                      <option value="">Pilih tipe...</option>
-                      <option value="Individu">Individu</option>
-                      <option value="PT">PT</option>
-                    </select>
+                    <label>Tipe Brand <span style="font-size:10px;color:var(--g400);text-transform:none;letter-spacing:0;font-weight:400">(dari Brand Master)</span></label>
+                    <div id="mr-f-brand-type-display" style="padding:7px 10px;border:1px solid var(--g200);border-radius:8px;font-size:13px;background:var(--off);color:var(--g600)">—</div>
+                    <input type="hidden" id="mr-f-brand-type" value="">
                   </div>
                   <div class="fg">
                     <label>Laporan Terkirim</label>
@@ -2941,6 +2941,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260531j"></script>
+<script src="app.js?v=20260531k"></script>
 </body>
 </html>
