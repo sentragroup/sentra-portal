@@ -2678,13 +2678,14 @@
               <div class="feedback" id="mr-tl-feedback" style="padding-bottom:6px"></div>
             </div>
           </div>
-          <div id="mr-tl-summary" class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem;display:none">
+          <div id="mr-tl-summary" class="stats-row" style="grid-template-columns:repeat(3,1fr);margin-bottom:1.25rem;display:none">
             <div class="stat-card"><div class="stat-num" id="mr-tl-s-months">—</div><div class="stat-lbl">Bulan Aktif</div></div>
             <div class="stat-card"><div class="stat-num" id="mr-tl-s-sales">—</div><div class="stat-lbl">Total Gross Sales</div></div>
             <div class="stat-card"><div class="stat-num" id="mr-tl-s-fee">—</div><div class="stat-lbl">Total Fee</div></div>
             <div class="stat-card"><div class="stat-num" id="mr-tl-s-net">—</div><div class="stat-lbl">Total Net Payout</div></div>
             <div class="stat-card"><div class="stat-num" id="mr-tl-s-inbound">—</div><div class="stat-lbl">Total Inbound</div></div>
-            <div class="stat-card"><div class="stat-num" id="mr-tl-s-outbound">—</div><div class="stat-lbl">Total Outbound</div></div>
+            <div class="stat-card"><div class="stat-num" id="mr-tl-s-outsales">—</div><div class="stat-lbl">Total Out (Sales)</div></div>
+            <div class="stat-card"><div class="stat-num" id="mr-tl-s-outadj">—</div><div class="stat-lbl">Total Out (Adj)</div></div>
             <div class="stat-card"><div class="stat-num" id="mr-tl-s-stock">—</div><div class="stat-lbl">Stock Now</div></div>
             <div class="stat-card"><div class="stat-num" id="mr-tl-s-stockval">—</div><div class="stat-lbl">Stock Value (retail)</div></div>
           </div>
@@ -2696,7 +2697,8 @@
                 <th style="text-align:right;min-width:110px">Fee</th>
                 <th style="text-align:right;min-width:120px">Net Payout</th>
                 <th style="text-align:right;min-width:80px;border-left:2px solid var(--g100)">Inbound</th>
-                <th style="text-align:right;min-width:80px">Outbound</th>
+                <th style="text-align:right;min-width:90px" title="Outbound dari penjualan">Out (Sales)</th>
+                <th style="text-align:right;min-width:90px" title="Outbound dari adjustment negatif">Out (Adj)</th>
                 <th style="text-align:center;min-width:100px;border-left:2px solid var(--g100)">① Sales Report</th>
                 <th style="text-align:center;min-width:110px">② Invoice</th>
                 <th style="text-align:center;min-width:100px">③ Pembayaran</th>
@@ -3036,6 +3038,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260601b"></script>
+<script src="app.js?v=20260601c"></script>
 </body>
 </html>
