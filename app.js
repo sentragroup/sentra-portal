@@ -164,7 +164,7 @@ function showPage(name, el) {
   document.getElementById("page-"+name).classList.add("active");
   if (el) el.classList.add("active");
   const _c = document.querySelector('.content'); if (_c) _c.scrollTop = 0;
-  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Need Restock",stockmovement:"Stock Movement",productmap:"Product Mapping",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Sales Report",marteskucat:"SKU Categories"};
+  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Need Restock",stockmovement:"Stock Movement",productmap:"Product Mapping",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -12672,12 +12672,12 @@ async function downloadMRBrandXLSX() {
   const html = [
     '<!DOCTYPE html>',
     '<html lang="id"><head><meta charset="UTF-8">',
-    '<title>Marte Sales Report - '+brandName+' - '+period+'</title>',
+    '<title>Consignment Report - '+brandName+' - '+period+'</title>',
     '<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet">',
     '<style>'+CSS+'</style></head>',
     '<body>',
     '<div class="hdr"><div class="hdr-logo">'+logoTag+'</div>',
-    '<div class="hdr-body"><div class="hdr-title">MARTE SALES REPORT</div>',
+    '<div class="hdr-body"><div class="hdr-title">CONSIGNMENT REPORT</div>',
     '<div class="hdr-sub">'+brandName+'&nbsp;&nbsp;&middot;&nbsp;&nbsp;'+monthName+'</div></div></div>',
     '<div class="kpi-row">',
     '<div class="kpi"><div class="kpi-label">Gross Sales</div><div class="kpi-val">'+rp(totSales)+'</div></div>',

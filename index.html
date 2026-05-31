@@ -197,7 +197,7 @@
 
         <div class="sb-label" style="margin-bottom:0.6rem">Marte Operations</div>
         <div class="home-grid" style="margin-bottom:1.5rem">
-          <div class="tool-card" onclick="showPage('martereport',null)"><span class="tc-icon">📊</span><div class="tc-name">Sales Report</div><div class="tc-desc">Download laporan penjualan Marte per brand — gross sales, konsinyasi fee, dan net payout per periode.</div></div>
+          <div class="tool-card" onclick="showPage('martereport',null)"><span class="tc-icon">📊</span><div class="tc-name">Consignment Report</div><div class="tc-desc">Laporan konsinyasi Marte per brand — gross sales, konsinyasi fee, net payout, & inventory movement per periode.</div></div>
           <div class="tool-card" onclick="showPage('marteskucat',null)"><span class="tc-icon">🏷️</span><div class="tc-name">SKU Categories</div><div class="tc-desc">Kelola fee category per SKU brand Marte — tentukan Apparel, Collectible, Accessories, dst untuk kalkulasi konsinyasi.</div></div>
           <div class="tool-card" onclick="showPage('marte',null)"><span class="tc-icon">🏪</span><div class="tc-name">Monthly Settlement</div><div class="tc-desc">Laporan konsinyasi bulanan Marte — penjualan per SKU, fee, PPh 23, invoice & debit note per brand.</div></div>
         </div>
@@ -2603,7 +2603,7 @@
       <!-- MARTE SALES REPORT -->
       <div class="page" id="page-martereport">
         <div class="page-header">
-          <div><div class="page-title">Sales Report</div><div class="page-sub">Marte Operations — per brand per bulan · sales, fee, invoice, pembayaran</div></div>
+          <div><div class="page-title">Consignment Report</div><div class="page-sub">Marte Operations — per brand per bulan · sales, fee, invoice, pembayaran</div></div>
         </div>
 
         <!-- Period selector -->
@@ -2663,7 +2663,7 @@
 
         <!-- Detail Modal -->
         <div id="mr-modal-overlay" style="display:none;position:fixed;inset:0;background:rgba(12,12,12,0.45);z-index:1000;align-items:flex-start;justify-content:flex-end" onclick="closeMRModal(event)">
-          <div id="mr-modal" style="background:var(--white);width:min(680px,100vw);height:100vh;overflow-y:auto;box-shadow:-4px 0 24px rgba(0,0,0,0.12);padding:0" onclick="event.stopPropagation()">
+          <div id="mr-modal" style="background:var(--white);width:min(1200px,100vw);height:100vh;overflow-y:auto;box-shadow:-4px 0 24px rgba(0,0,0,0.12);padding:0" onclick="event.stopPropagation()">
             <!-- Modal header -->
             <div style="position:sticky;top:0;background:var(--white);border-bottom:1px solid var(--g100);padding:20px 24px 16px;z-index:10">
               <div style="display:flex;align-items:flex-start;justify-content:space-between">
@@ -2989,6 +2989,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260531x"></script>
+<script src="app.js?v=20260531y"></script>
 </body>
 </html>
