@@ -912,7 +912,7 @@ function showBMFeedback(msg,type) {
 }
 
 async function loadBrandMaster() {
-  document.getElementById("bmTableBody").innerHTML=`<tr><td class="empty-td" colspan="16">Memuat...</td></tr>`;
+  document.getElementById("bmTableBody").innerHTML=`<tr><td class="empty-td" colspan="18">Memuat...</td></tr>`;
   try {
     const {data,error}=await sb.from("brand_master").select("*").order("id");
     if(error)throw error;
@@ -923,7 +923,7 @@ async function loadBrandMaster() {
     if(catSel){while(catSel.options.length>1)catSel.remove(1);acBMCategories.forEach(c=>{const o=document.createElement("option");o.value=o.textContent=c;catSel.appendChild(o);});}
     computeBMStats(allBMRows); applyBMFilters();
   } catch(e) {
-    document.getElementById("bmTableBody").innerHTML=`<tr><td class="empty-td" colspan="14">Gagal: ${e.message}</td></tr>`;
+    document.getElementById("bmTableBody").innerHTML=`<tr><td class="empty-td" colspan="18">Gagal: ${e.message}</td></tr>`;
   }
 }
 
@@ -969,7 +969,7 @@ function renderBMTable(rows) {
   updateSortTh('bm-thead',bmSort.col,bmSort.dir);
   document.getElementById("bm-tcount").textContent = rows.length+" entri";
   const body = document.getElementById("bmTableBody");
-  if (!rows.length) { body.innerHTML=`<tr><td class="empty-td" colspan="16">Belum ada data.</td></tr>`; return; }
+  if (!rows.length) { body.innerHTML=`<tr><td class="empty-td" colspan="18">Belum ada data.</td></tr>`; return; }
   body.innerHTML = rows.map(r=>{
     const streams = (r.revenue||"").split(",").map(s=>s.trim()).filter(Boolean);
     const agrs    = (r.agreements||"").split(",").map(s=>s.trim()).filter(Boolean);
@@ -995,7 +995,7 @@ function renderBMTable(rows) {
       <td style="font-size:11px;font-family:var(--mono)">${emails.map(e=>`<a href="mailto:${e}" style="color:var(--g600);text-decoration:none">${e}</a>`).join("<br>")||"—"}</td>
       <td><button class="btn-icon" onclick="openBMEdit('${r.rowIndex}')">Edit</button> <button class="btn-icon" style="color:#c0392b;" onclick="deleteBM('${r.rowIndex}')">Del</button></td>
     </tr>
-    <tr id="bm-edit-row-${r.rowIndex}" style="display:none"><td colspan="16" style="padding:0 12px 12px;">
+    <tr id="bm-edit-row-${r.rowIndex}" style="display:none"><td colspan="18" style="padding:0 12px 12px;">
       <div class="edit-row-form">
         <div class="edit-row-grid">
           <div class="fg"><label>Brand Name</label><input type="text" id="bm-e-name-${r.rowIndex}" value="${r.name||""}"></div>
