@@ -2796,6 +2796,22 @@
                   <tfoot id="mr-sku-tfoot"></tfoot>
                 </table>
               </div>
+              <!-- Inventory Movement per SKU -->
+              <div style="font-size:12px;font-weight:600;color:var(--black);margin-top:18px;margin-bottom:8px;padding-top:14px;border-top:1px solid var(--g100)">📦 Inventory Movement</div>
+              <div class="table-wrap" id="mr-inv-wrap" style="display:none">
+                <table style="font-size:11px">
+                  <thead><tr>
+                    <th>SKU</th><th>Nama Item</th>
+                    <th style="text-align:right">Total In</th>
+                    <th style="text-align:right;color:#bbf7d0">In (period)</th>
+                    <th style="text-align:right">Total Out</th>
+                    <th style="text-align:right;color:#fed7aa">Out (period)</th>
+                    <th style="text-align:right">Net Stock</th>
+                  </tr></thead>
+                  <tbody id="mr-inv-tbody"></tbody>
+                  <tfoot id="mr-inv-tfoot"></tfoot>
+                </table>
+              </div>
             </div>
           </div>
         </div>
@@ -2973,6 +2989,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260531q"></script>
+<script src="app.js?v=20260531r"></script>
 </body>
 </html>
