@@ -9807,17 +9807,24 @@ async function loadSalesPerf() {
     const colVals     = _spMS['sp-ms-collection'] ? _spMS['sp-ms-collection'].getValues() : [];
     const prodF       = (document.getElementById('sp-fil-product').value || '').trim().toLowerCase();
 
-    // Helper: apply only date/channel/store filters (not status)
+    // jubelio_sales_orders is only complete from 2026; pre-2026 comes from
+    // jubelio_sales_history (CSV import, already enriched with brand/ip/collection).
+    const SP_CUTOFF   = '2026-01-01';
+    const needHistory = (!from || from < SP_CUTOFF);
+    const needOrders  = (!to   || to >= SP_CUTOFF);
+    const _ordFrom    = (from && from > SP_CUTOFF) ? from : SP_CUTOFF; // orders clamped to >= cutoff
+
+    // Helper: date/channel/store filters for the 2026+ orders table (clamped to cutoff)
     const _applyDateChanStore = q => {
-      if (from)              q = q.gte('transaction_date', from);
-      if (to)                q = q.lte('transaction_date', to + 'T23:59:59');
+      q = q.gte('transaction_date', _ordFrom);
+      if (to)                 q = q.lte('transaction_date', to + 'T23:59:59');
       if (channelVals.length) q = q.in('channel_name', channelVals);
       if (storeVals.length)   q = q.in('store_name', storeVals);
       return q;
     };
 
-    // 1. Fetch orders (server-side filter) + return/cancel counts in parallel
-    const [orders, retRes, canRes, totalRes] = await Promise.all([
+    // 1. Fetch 2026+ orders + return/cancel counts (only if range reaches 2026)
+    const [orders, retRes, canRes, totalRes] = needOrders ? await Promise.all([
       _fetchAllPages('jubelio_sales_orders',
         'salesorder_id,transaction_date,wms_status,channel_name,store_name,sub_total,total_disc',
         q => {
@@ -9829,7 +9836,81 @@ async function loadSalesPerf() {
       _applyDateChanStore(sb.from('jubelio_sales_orders').select('salesorder_id',{count:'exact',head:true}).eq('wms_status','RETURNED')),
       _applyDateChanStore(sb.from('jubelio_sales_orders').select('salesorder_id',{count:'exact',head:true}).eq('wms_status','CANCELED')),
       _applyDateChanStore(sb.from('jubelio_sales_orders').select('salesorder_id',{count:'exact',head:true})),
-    ]);
+    ]) : [[], {count:0}, {count:0}, {count:0}];
+
+    const orderMap = new Map(orders.map(o => [o.salesorder_id, o]));
+    const soIds    = orders.map(o => o.salesorder_id);
+
+    // 2. Fetch 2026+ items (chunked by 500 IDs)
+    const allItems = [];
+    if (soIds.length) {
+      emptyEl.textContent = `Mengambil item untuk ${orders.length.toLocaleString('id-ID')} order...`;
+      for (let i = 0; i < soIds.length; i += 500) {
+        const chunk = soIds.slice(i, i + 500);
+        const rows = await _fetchAllPages('jubelio_sales_order_items',
+          'salesorder_id,item_id,item_name,qty,price,disc_amount',
+          q => q.in('salesorder_id', chunk)
+        );
+        allItems.push(...rows);
+      }
+    }
+    // Deduplicate items: sync can produce duplicate rows for same (salesorder_id, item_id).
+    const _seen = new Set();
+    const allItemsDeduped = allItems.filter(it => {
+      const key = `${it.salesorder_id}:${it.item_id}`;
+      if (_seen.has(key)) return false;
+      _seen.add(key);
+      return true;
+    });
+
+    // 2b. Pre-2026 from jubelio_sales_history → synthetic orders + items
+    let spHistReturned = 0, spHistCanceled = 0, spHistTotal = 0;
+    if (needHistory) {
+      emptyEl.textContent = 'Menggabungkan data historis (2024–2025)...';
+      const _histTo = (to && to < SP_CUTOFF) ? to : '2025-12-31';
+      const histRows = await _fetchAllPages('jubelio_sales_history',
+        'salesorder_no,transaction_date,channel_name,store_name,status,item_id,item_name,qty,amount,brand,ip,collection',
+        q => {
+          q = q.lte('transaction_date', _histTo);
+          if (from) q = q.gte('transaction_date', from);
+          if (channelVals.length) q = q.in('channel_name', channelVals);
+          if (storeVals.length)   q = q.in('store_name', storeVals);
+          return q;
+        }
+      );
+      // Count distinct orders by status (ignores status filter — matches rate semantics)
+      const _seenAll = new Set(), _seenRet = new Set(), _seenCan = new Set();
+      for (const r of histRows) {
+        const no = r.salesorder_no || '';
+        if (!_seenAll.has(no)) { _seenAll.add(no); spHistTotal++; }
+        const st = (r.status || '').toUpperCase();
+        if (st === 'RETURNED' && !_seenRet.has(no)) { _seenRet.add(no); spHistReturned++; }
+        if (st === 'CANCELED' && !_seenCan.has(no)) { _seenCan.add(no); spHistCanceled++; }
+      }
+      // Apply status filter (same mapping as orders)
+      const histFiltered = statusVals.length
+        ? histRows.filter(r => statusVals.includes((r.status||'').toUpperCase()))
+        : histRows;
+      // Build synthetic orders (group by salesorder_no) + items
+      const histOrderAgg = {};
+      for (const r of histFiltered) {
+        const sid = 'H:' + (r.salesorder_no || '');
+        const amt = parseFloat(r.amount || 0);
+        const qn  = parseFloat(r.qty || 0);
+        if (!histOrderAgg[sid]) {
+          const o = { salesorder_id: sid, transaction_date: r.transaction_date,
+            wms_status: (r.status||'').toUpperCase(), channel_name: r.channel_name,
+            store_name: r.store_name, sub_total: 0, total_disc: 0 };
+          histOrderAgg[sid] = o; orders.push(o); orderMap.set(sid, o);
+        }
+        histOrderAgg[sid].sub_total += amt;
+        allItemsDeduped.push({
+          salesorder_id: sid, item_id: r.item_id || null, item_name: r.item_name || '?',
+          qty: qn, price: qn ? amt / qn : 0, disc_amount: 0,
+          _hist: true, _brand: r.brand || '', _ip: r.ip || '', _collection: r.collection || '', _parent: r.item_name || '?'
+        });
+      }
+    }
 
     if (!orders.length) {
       emptyEl.textContent = 'Tidak ada order di periode / filter ini.';
@@ -9838,29 +9919,10 @@ async function loadSalesPerf() {
       return;
     }
 
-    const orderMap = new Map(orders.map(o => [o.salesorder_id, o]));
-    const soIds    = orders.map(o => o.salesorder_id);
-
-    // 2. Fetch items (chunked by 500 IDs)
-    emptyEl.textContent = `Mengambil item untuk ${orders.length.toLocaleString('id-ID')} order...`;
-    const allItems = [];
-    for (let i = 0; i < soIds.length; i += 500) {
-      const chunk = soIds.slice(i, i + 500);
-      const rows = await _fetchAllPages('jubelio_sales_order_items',
-        'salesorder_id,item_id,item_name,qty,price,disc_amount',
-        q => q.in('salesorder_id', chunk)
-      );
-      allItems.push(...rows);
-    }
-    // Deduplicate items: sync can produce duplicate rows for same (salesorder_id, item_id).
-    // Keep the first occurrence of each pair to avoid double-counting revenue.
-    const _seen = new Set();
-    const allItemsDeduped = allItems.filter(it => {
-      const key = `${it.salesorder_id}:${it.item_id}`;
-      if (_seen.has(key)) return false;
-      _seen.add(key);
-      return true;
-    });
+    // brand/ip/collection resolver: history items carry their own; 2026 items use product_mappings
+    const _mapOf = it => it._hist
+      ? { brand: it._brand, ip: it._ip, collection: it._collection, item_name: it._parent }
+      : (mappingById[it.item_id] || {});
 
     // 3. Load product_mappings (cached, all pages)
     if (!_spAllMappings) {
@@ -9881,7 +9943,7 @@ async function loadSalesPerf() {
     let items = allItemsDeduped;
     if (brandVals.length || ipVals.length || colVals.length || prodF) {
       items = allItemsDeduped.filter(it => {
-        const m = mappingById[it.item_id] || {};
+        const m = _mapOf(it);
         if (brandVals.length && !brandVals.includes(m.brand)) return false;
         if (ipVals.length    && !ipVals.includes(m.ip))       return false;
         if (colVals.length   && !colVals.includes(m.collection)) return false;
@@ -9952,7 +10014,7 @@ async function loadSalesPerf() {
     // 8. Product summary — grouped by parent name (without size variant)
     const productMap = {};
     for (const it of items) {
-      const m          = mappingById[it.item_id] || {};
+      const m          = _mapOf(it);
       const parentName = m.item_name || it.item_name || '?'; // parent name from mappings (no variant)
       const variantName = it.item_name || '?';               // full SKU name (with size)
       if (!productMap[parentName]) productMap[parentName] = {
@@ -10038,9 +10100,9 @@ async function loadSalesPerf() {
     const avgDay       = totalNet > 0 ? fmtRp(totalNet / dayCount) : '—';
 
     // 10. Return / Cancel rate (across all statuses in the period, ignoring status filter)
-    const _totalAll = totalRes.count || 0;
-    const returnRate = _totalAll > 0 ? ((retRes.count||0) / _totalAll * 100).toFixed(1) + '%' : '—';
-    const cancelRate = _totalAll > 0 ? ((canRes.count||0) / _totalAll * 100).toFixed(1) + '%' : '—';
+    const _totalAll = (totalRes.count || 0) + spHistTotal;
+    const returnRate = _totalAll > 0 ? (((retRes.count||0)+spHistReturned) / _totalAll * 100).toFixed(1) + '%' : '—';
+    const cancelRate = _totalAll > 0 ? (((canRes.count||0)+spHistCanceled) / _totalAll * 100).toFixed(1) + '%' : '—';
 
     spData = { timeSeries, channelData, storeData, productData, totalQty, totalRevenue, totalDisc, totalNet, totalStock, totalStr, dayCount, avgDay };
 
