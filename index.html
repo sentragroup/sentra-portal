@@ -2604,8 +2604,13 @@
       <div class="page" id="page-martereport">
         <div class="page-header">
           <div><div class="page-title">Consignment Report</div><div class="page-sub">Marte Operations — per brand per bulan · sales, fee, invoice, pembayaran</div></div>
+          <div class="tab-bar">
+            <button class="tab-btn active" id="mr-tabbtn-period" onclick="mrSwitchTab('period',this)">Per Periode</button>
+            <button class="tab-btn" id="mr-tabbtn-timeline" onclick="mrSwitchTab('timeline',this)">Per Brand (Timeline)</button>
+          </div>
         </div>
 
+        <div id="mr-tab-period">
         <!-- Period selector -->
         <div class="form-card" style="margin-bottom:1.25rem">
           <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
@@ -2657,6 +2662,44 @@
                 <th></th>
               </tr></thead>
               <tbody id="mr-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+        </div><!-- /#mr-tab-period -->
+
+        <!-- TIMELINE VIEW (per brand, per month) -->
+        <div id="mr-tab-timeline" style="display:none">
+          <div class="form-card" style="margin-bottom:1.25rem">
+            <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
+              <div class="fg" style="min-width:240px">
+                <label>Pilih Brand</label>
+                <select id="mr-tl-brand" onchange="loadMarteTimeline()"><option value="">— Pilih brand —</option></select>
+              </div>
+              <div class="feedback" id="mr-tl-feedback" style="padding-bottom:6px"></div>
+            </div>
+          </div>
+          <div id="mr-tl-summary" class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem;display:none">
+            <div class="stat-card"><div class="stat-num" id="mr-tl-s-months">—</div><div class="stat-lbl">Bulan Aktif</div></div>
+            <div class="stat-card"><div class="stat-num" id="mr-tl-s-sales">—</div><div class="stat-lbl">Total Gross Sales</div></div>
+            <div class="stat-card"><div class="stat-num" id="mr-tl-s-net">—</div><div class="stat-lbl">Total Net Payout</div></div>
+            <div class="stat-card"><div class="stat-num" id="mr-tl-s-stock">—</div><div class="stat-lbl">Stock Now</div></div>
+          </div>
+          <div id="mr-tl-wrap" class="table-wrap" style="overflow-x:auto;display:none">
+            <table>
+              <thead><tr>
+                <th style="min-width:90px">Bulan</th>
+                <th style="text-align:right;min-width:120px;border-left:2px solid var(--g100)">Gross Sales</th>
+                <th style="text-align:right;min-width:110px">Fee</th>
+                <th style="text-align:right;min-width:120px">Net Payout</th>
+                <th style="text-align:right;min-width:80px;border-left:2px solid var(--g100)">Inbound</th>
+                <th style="text-align:right;min-width:80px">Outbound</th>
+                <th style="text-align:center;min-width:100px;border-left:2px solid var(--g100)">① Sales Report</th>
+                <th style="text-align:center;min-width:110px">② Invoice</th>
+                <th style="text-align:center;min-width:100px">③ Pembayaran</th>
+                <th style="text-align:center;min-width:100px">④ Bukti Potong</th>
+              </tr></thead>
+              <tbody id="mr-tl-tbody"></tbody>
+              <tfoot id="mr-tl-tfoot"></tfoot>
             </table>
           </div>
         </div>
@@ -2989,6 +3032,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260531z"></script>
+<script src="app.js?v=20260601a"></script>
 </body>
 </html>
