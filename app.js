@@ -5984,7 +5984,7 @@ let _srcRows=[], _srcGroups=[], _srcBrandsLoaded=false;
 
 async function loadStockMovement(){
   const tb=document.getElementById('srcTableBody');
-  if(tb) tb.innerHTML=`<tr><td class="empty-td" colspan="7">Memuat data reconcile...</td></tr>`;
+  if(tb) tb.innerHTML=`<tr><td class="empty-td" colspan="8">Memuat data reconcile...</td></tr>`;
   try{
     // Paged RPC fetch (PostgREST caps each response at 1000 rows)
     _srcRows=[]; { const PAGE=1000; let from=0;
@@ -6015,7 +6015,7 @@ async function loadStockMovement(){
       _srcBrandsLoaded=true;
     }
     applySrcFilters();
-  }catch(e){ if(tb) tb.innerHTML=`<tr><td class="empty-td" colspan="7" style="color:#c0392b">Gagal: ${invEsc(e.message||String(e))}</td></tr>`; }
+  }catch(e){ if(tb) tb.innerHTML=`<tr><td class="empty-td" colspan="8" style="color:#c0392b">Gagal: ${invEsc(e.message||String(e))}</td></tr>`; }
 }
 
 function clearSrcFilters(){
@@ -6034,11 +6034,14 @@ function applySrcFilters(){
   // Stats
   let tStock=0,tSold=0,tIn=0,tOut=0;
   groups.forEach(g=>{tStock+=g.stock;tSold+=g.sold;tIn+=g.adjIn;tOut+=g.adjOut;});
+  const tVar=tIn-tOut-tSold-tStock;
   const n=x=>Math.round(x).toLocaleString('id-ID');
   document.getElementById('src-s-stock').textContent=n(tStock);
   document.getElementById('src-s-sold').textContent=n(tSold);
   document.getElementById('src-s-in').textContent=n(tIn);
   document.getElementById('src-s-out').textContent=n(tOut);
+  const vEl=document.getElementById('src-s-var');
+  if(vEl){ vEl.textContent=n(tVar); vEl.style.color=Math.round(tVar)!==0?'#c0392b':''; }
   document.getElementById('src-tcount').textContent=`${groups.length} produk · ${_srcRows.length} SKU`;
   renderSrcTable(groups);
 }
@@ -6046,29 +6049,36 @@ function applySrcFilters(){
 function renderSrcTable(groups){
   const tb=document.getElementById('srcTableBody');
   if(!tb) return;
-  if(!groups.length){ tb.innerHTML=`<tr><td class="empty-td" colspan="7">Tidak ada data yang cocok.</td></tr>`; return; }
+  if(!groups.length){ tb.innerHTML=`<tr><td class="empty-td" colspan="8">Tidak ada data yang cocok.</td></tr>`; return; }
   const numCell=(v,clr)=>{ const x=parseFloat(v)||0; return `<td style="text-align:right;font-family:var(--mono);font-size:12px;${x?('color:'+clr):'color:var(--g300)'}">${x?Math.round(x).toLocaleString('id-ID'):'—'}</td>`; };
+  const varCell=(vr)=>{ const x=Math.round(vr); return `<td style="text-align:right;font-family:var(--mono);font-size:12px;font-weight:600;${x!==0?'color:#c0392b':'color:var(--g300)'}">${x!==0?x.toLocaleString('id-ID'):'0'}</td>`; };
   tb.innerHTML=groups.map((g,gi)=>{
     const rid=`src-g-${gi}`;
     const codes=[...new Set(g.variants.map(v=>v.item_code))];
+    const gVar=g.adjIn-g.adjOut-g.sold-g.stock;
     const parent=`<tr>
       <td style="text-align:center;cursor:pointer;color:var(--g400);user-select:none" onclick="toggleSrcSku('${rid}',this)" id="${rid}-tog">▶</td>
       <td><div style="font-weight:500;font-size:13px">${invEsc(g.parent)}</div><div style="font-family:var(--mono);font-size:10px;color:var(--g400)">${codes.length} SKU</div></td>
       <td><span class="pill p-draft" style="font-size:10px">${invEsc(g.brand)}</span></td>
-      ${numCell(g.stock,'var(--black)')}
-      ${numCell(g.sold,'#2d7a2d')}
       ${numCell(g.adjIn,'#16a34a')}
       ${numCell(g.adjOut,'#c0392b')}
+      ${numCell(g.sold,'#2d7a2d')}
+      ${numCell(g.stock,'var(--black)')}
+      ${varCell(gVar)}
     </tr>`;
-    const subs=g.variants.map(v=>`<tr class="${rid}-sku" style="display:none;background:var(--off)">
-      <td></td>
-      <td style="padding-left:24px"><div style="font-family:var(--mono);font-size:10px;color:var(--g400)">${invEsc(v.item_code)}</div><div style="font-size:11px;color:var(--g600)">${invEsc(v.item_name)}</div></td>
-      <td></td>
-      ${numCell(v.stock,'var(--black)')}
-      ${numCell(v.sold,'#2d7a2d')}
-      ${numCell(v.adj_in,'#16a34a')}
-      ${numCell(v.adj_out,'#c0392b')}
-    </tr>`).join('');
+    const subs=g.variants.map(v=>{
+      const vVar=(parseFloat(v.adj_in)||0)-(parseFloat(v.adj_out)||0)-(parseFloat(v.sold)||0)-(parseFloat(v.stock)||0);
+      return `<tr class="${rid}-sku" style="display:none;background:var(--off)">
+        <td></td>
+        <td style="padding-left:24px"><div style="font-family:var(--mono);font-size:10px;color:var(--g400)">${invEsc(v.item_code)}</div><div style="font-size:11px;color:var(--g600)">${invEsc(v.item_name)}</div></td>
+        <td></td>
+        ${numCell(v.adj_in,'#16a34a')}
+        ${numCell(v.adj_out,'#c0392b')}
+        ${numCell(v.sold,'#2d7a2d')}
+        ${numCell(v.stock,'var(--black)')}
+        ${varCell(vVar)}
+      </tr>`;
+    }).join('');
     return parent+subs;
   }).join('');
 }
