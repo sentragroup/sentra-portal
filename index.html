@@ -1596,11 +1596,12 @@
       <div class="page-header">
         <div><div class="page-title">Stock Reconcile</div><div class="page-sub">Rekonsiliasi per produk: stok saat ini · terjual · adjustment in/out (semua item).</div></div>
       </div>
-      <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
-        <div class="stat-card"><div class="stat-num" id="src-s-stock">—</div><div class="stat-lbl">Total Stock</div></div>
-        <div class="stat-card"><div class="stat-num" id="src-s-sold">—</div><div class="stat-lbl">Total Sold</div></div>
-        <div class="stat-card"><div class="stat-num" id="src-s-in">—</div><div class="stat-lbl">Total Adj In</div></div>
+      <div class="stats-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:1.25rem">
+        <div class="stat-card"><div class="stat-num" id="src-s-in">—</div><div class="stat-lbl">PO / Adj In</div></div>
         <div class="stat-card"><div class="stat-num" id="src-s-out">—</div><div class="stat-lbl">Total Adj Out</div></div>
+        <div class="stat-card"><div class="stat-num" id="src-s-sold">—</div><div class="stat-lbl">Total Sold</div></div>
+        <div class="stat-card"><div class="stat-num" id="src-s-stock">—</div><div class="stat-lbl">Total Stock</div></div>
+        <div class="stat-card"><div class="stat-num" id="src-s-var">—</div><div class="stat-lbl">Total Variance</div></div>
       </div>
       <div class="filter-panel">
         <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="clearSrcFilters()">✕ Reset</button></div>
@@ -1620,13 +1621,14 @@
               <th style="width:24px"></th>
               <th>Produk</th>
               <th>Brand</th>
-              <th style="text-align:right">Stock</th>
-              <th style="text-align:right">Sold</th>
-              <th style="text-align:right">Adj In</th>
+              <th style="text-align:right" title="Inbound via PO / adjustment masuk">PO / Adj In</th>
               <th style="text-align:right">Adj Out</th>
+              <th style="text-align:right">Sold</th>
+              <th style="text-align:right">Stock</th>
+              <th style="text-align:right" title="(Adj In − Adj Out − Sold) − Stock. Idealnya 0.">Variance</th>
             </tr>
           </thead>
-          <tbody id="srcTableBody"><tr><td class="empty-td" colspan="7">Klik "↻ Refresh" untuk memuat data.</td></tr></tbody>
+          <tbody id="srcTableBody"><tr><td class="empty-td" colspan="8">Klik "↻ Refresh" untuk memuat data.</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -3023,6 +3025,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260601e"></script>
+<script src="app.js?v=20260601f"></script>
 </body>
 </html>
