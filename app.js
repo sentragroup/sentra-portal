@@ -10194,14 +10194,21 @@ async function loadSalesPerf() {
       pg.qty     += parseFloat(it.qty || 0);
       const _rev = parseFloat(it.qty||0) * parseFloat(it.price||0);
       pg.revenue += _rev;
-      pg.disc    += parseFloat(it.disc_amount || 0);
+      // Discount: prefer item-level; if order applies discount at order level
+      // (item disc_amount = 0, e.g. POS), allocate order total_disc by revenue share.
+      const _o = orderMap.get(it.salesorder_id);
+      const _oDisc = parseFloat(_o?.total_disc || 0), _oSub = parseFloat(_o?.sub_total || 0);
+      const _itemDisc = parseFloat(it.disc_amount || 0) > 0
+        ? parseFloat(it.disc_amount)
+        : (_oDisc > 0 && _oSub > 0 ? _oDisc * (_rev / _oSub) : 0);
+      pg.disc    += _itemDisc;
       if (it.item_id) pg.itemIds.add(it.item_id);
       // Variant-level tracking (store itemId for stock lookup)
       if (!pg.variants[variantName]) pg.variants[variantName] = { name: variantName, itemId: it.item_id, orders: new Set(), qty: 0, revenue: 0, disc: 0 };
       pg.variants[variantName].orders.add(it.salesorder_id);
       pg.variants[variantName].qty     += parseFloat(it.qty || 0);
       pg.variants[variantName].revenue += _rev;
-      pg.variants[variantName].disc    += parseFloat(it.disc_amount || 0);
+      pg.variants[variantName].disc    += _itemDisc;
     }
 
     // 8b. Fetch thumbnails + stock in parallel
@@ -10340,7 +10347,7 @@ function renderSPChart(view) {
           type: 'line', label: 'Qty',
           data: labels.map(k => grouped[k].qty),
           yAxisID: 'yQty', borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.08)',
-          tension: 0.35, pointRadius: 3, pointBackgroundColor: '#3b82f6', fill: false, order: 1,
+          tension: 0, cubicInterpolationMode: 'monotone', pointRadius: 3, pointBackgroundColor: '#3b82f6', fill: false, order: 1,
           datalabels: { display: false }
         }
       ]
@@ -10354,7 +10361,7 @@ function renderSPChart(view) {
       },
       scales: {
         yRevenue: { type: 'linear', position: 'left', ticks: { font: { size: 9, family: 'DM Mono' }, callback: v => fmtVal(v) }, grid: { color: 'rgba(0,0,0,0.04)' } },
-        yQty:     { type: 'linear', position: 'right', ticks: { font: { size: 9, family: 'DM Mono' } }, grid: { display: false } },
+        yQty:     { type: 'linear', position: 'right', beginAtZero: true, ticks: { font: { size: 9, family: 'DM Mono' }, precision: 0 }, grid: { display: false } },
         x:        { ticks: { font: { size: 9, family: 'DM Mono' }, maxRotation: 45 } }
       }
     }
