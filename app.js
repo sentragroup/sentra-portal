@@ -5980,7 +5980,7 @@ function clearDwForm() {
 }
 
 // ── STOCK RECONCILE (global) ──
-let _srcRows=[], _srcGroups=[], _srcBrandsLoaded=false;
+let _srcRows=[], _srcGroups=[], _srcDisplayed=[], _srcBrandsLoaded=false;
 
 async function loadStockMovement(){
   const tb=document.getElementById('srcTableBody');
@@ -6049,6 +6049,7 @@ function applySrcFilters(){
 function renderSrcTable(groups){
   const tb=document.getElementById('srcTableBody');
   if(!tb) return;
+  _srcDisplayed=groups;
   if(!groups.length){ tb.innerHTML=`<tr><td class="empty-td" colspan="8">Tidak ada data yang cocok.</td></tr>`; return; }
   const numCell=(v,clr)=>{ const x=parseFloat(v)||0; return `<td style="text-align:right;font-family:var(--mono);font-size:12px;${x?('color:'+clr):'color:var(--g300)'}">${x?Math.round(x).toLocaleString('id-ID'):'—'}</td>`; };
   const varCell=(vr)=>{ const x=Math.round(vr); return `<td style="text-align:right;font-family:var(--mono);font-size:12px;font-weight:600;${x!==0?'color:#c0392b':'color:var(--g300)'}">${x!==0?x.toLocaleString('id-ID'):'0'}</td>`; };
@@ -6058,7 +6059,7 @@ function renderSrcTable(groups){
     const gVar=g.adjIn-g.adjOut-g.sold-g.stock;
     const parent=`<tr>
       <td style="text-align:center;cursor:pointer;color:var(--g400);user-select:none" onclick="toggleSrcSku('${rid}',this)" id="${rid}-tog">▶</td>
-      <td><div style="font-weight:500;font-size:13px">${invEsc(g.parent)}</div><div style="font-family:var(--mono);font-size:10px;color:var(--g400)">${codes.length} SKU</div></td>
+      <td><div style="font-weight:500;font-size:13px">${invEsc(g.parent)}</div><div style="font-family:var(--mono);font-size:10px;color:var(--g400)">${codes.length} SKU · <span onclick="event.stopPropagation();openSrcLedger(${gi})" style="color:#2563eb;cursor:pointer;text-decoration:underline">📋 records</span></div></td>
       <td><span class="pill p-draft" style="font-size:10px">${invEsc(g.brand)}</span></td>
       ${numCell(g.adjIn,'#16a34a')}
       ${numCell(g.adjOut,'#c0392b')}
@@ -6088,6 +6089,50 @@ function toggleSrcSku(rid,btn){
   const vis=rows.length>0&&rows[0].style.display!=='none';
   rows.forEach(r=>r.style.display=vis?'none':'');
   btn.textContent=vis?'▶':'▼';
+}
+
+function closeSrcLedger(){ const o=document.getElementById('src-ledger-overlay'); if(o) o.style.display='none'; }
+
+async function openSrcLedger(gi){
+  const g=_srcDisplayed[gi]; if(!g) return;
+  const ov=document.getElementById('src-ledger-overlay');
+  document.getElementById('src-ledger-title').textContent=g.parent;
+  document.getElementById('src-ledger-sub').textContent=`${g.brand} · ${[...new Set(g.variants.map(v=>v.item_code))].length} SKU`;
+  const body=document.getElementById('src-ledger-body');
+  body.innerHTML='<div style="color:var(--g400);font-size:13px;padding:20px">Memuat records...</div>';
+  ov.style.display='flex';
+  const itemIds=[...new Set(g.variants.map(v=>v.item_id).filter(Boolean))];
+  try{
+    const {data,error}=await sb.rpc('get_item_movement_ledger',{p_item_ids:itemIds});
+    if(error) throw error;
+    const rows=data||[];
+    if(!rows.length){ body.innerHTML='<div style="color:var(--g400);font-size:13px;padding:20px">Tidak ada records.</div>'; return; }
+    const typeColor={'Adj In':'#16a34a','Adj Out':'#c0392b','Sale':'#2d7a2d','Return':'#b45309','PO Receive':'#1d4ed8'};
+    const fmtD=iso=>{const d=new Date(iso);return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;};
+    // group counts for summary
+    const byType={}; rows.forEach(r=>{byType[r.mtype]=(byType[r.mtype]||0)+1;});
+    const summary=Object.entries(byType).map(([t,c])=>`<span style="font-size:11px;color:${typeColor[t]||'var(--g600)'};font-family:var(--mono)">${t}: ${c}</span>`).join(' · ');
+    body.innerHTML=`<div style="margin-bottom:10px">${summary}</div>
+    <div class="table-wrap" style="margin:0"><table style="width:100%;font-size:12px">
+      <thead><tr>
+        <th style="text-align:left">Tanggal</th><th style="text-align:left">Tipe</th>
+        <th style="text-align:left">No Dokumen</th><th style="text-align:left">SKU</th>
+        <th style="text-align:left">Gudang</th><th style="text-align:right">Qty</th>
+      </tr></thead>
+      <tbody>${rows.map(r=>{
+        const c=typeColor[r.mtype]||'var(--g600)';
+        const q=parseFloat(r.qty)||0;
+        return `<tr>
+          <td style="font-family:var(--mono);font-size:11px;white-space:nowrap">${fmtD(r.txn_date)}</td>
+          <td><span style="font-size:11px;font-weight:600;color:${c}">${invEsc(r.mtype)}</span></td>
+          <td style="font-family:var(--mono);font-size:11px">${invEsc(r.doc_no||'—')}</td>
+          <td style="font-family:var(--mono);font-size:10px;color:var(--g400)">${invEsc(r.item_code||'')}</td>
+          <td style="font-size:11px;color:var(--g600)">${invEsc(r.warehouse||'—')}</td>
+          <td style="text-align:right;font-family:var(--mono);font-size:12px;font-weight:600;color:${q<0?'#c0392b':'#16a34a'}">${q>0?'+':''}${Math.round(q)}</td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table></div>`;
+  }catch(e){ body.innerHTML=`<div style="color:#c0392b;font-size:13px;padding:20px">Gagal: ${invEsc(e.message||String(e))}</div>`; }
 }
 
 // ── STOCK MOVEMENT (legacy, unused) ──
