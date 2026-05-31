@@ -12263,24 +12263,26 @@ async function loadMarteTimeline() {
   if (!brandId) { wrap.style.display='none'; summary.style.display='none'; fb.textContent=''; return; }
   fb.textContent = 'Memuat...'; fb.className = 'feedback';
 
-  const [tlRes, trkRes, skuRes] = await Promise.all([
+  const [tlRes, trkRes, invRes] = await Promise.all([
     sb.rpc('get_marte_brand_timeline', { p_brand_id: brandId }),
     sb.from('marte_settlements').select('*').eq('brand_id', brandId),
-    sb.rpc('get_marte_brand_inventory_sku', { p_brand_id: brandId,
-      p_start_date: '2025-01-01T00:00:00+07:00', p_end_date: '2027-01-01T00:00:00+07:00' }),
+    sb.rpc('get_marte_inventory_report', { p_start_date: '2026-05-01T00:00:00+07:00', p_end_date: '2026-06-01T00:00:00+07:00' }),
   ]);
   if (tlRes.error) { fb.textContent = 'Error: ' + tlRes.error.message; fb.className='feedback err'; return; }
   const rows = tlRes.data || [];
   const trkByPeriod = {}; (trkRes.data||[]).forEach(t => { trkByPeriod[t.period] = t; });
-  const stockNow = (skuRes.data||[]).reduce((s,r)=>s+(parseFloat(r.net_stock)||0),0);
+  const invRow = (invRes.data||[]).find(r => r.brand_master_id === brandId) || {};
+  const stockNow = parseFloat(invRow.net_stock)||0;
+  const stockVal = parseFloat(invRow.stock_value_retail)||0;
 
   if (!rows.length) { fb.textContent='Belum ada data untuk brand ini.'; fb.className='feedback err'; wrap.style.display='none'; summary.style.display='none'; return; }
   fb.textContent = '';
 
-  let totSales=0, totNet=0;
+  let totSales=0, totFee=0, totNet=0, totIn=0, totOut=0;
   document.getElementById('mr-tl-tbody').innerHTML = rows.map(r => {
     const sales=parseFloat(r.total_sales)||0, fee=parseFloat(r.total_fee)||0, net=parseFloat(r.net_payout)||0;
-    totSales+=sales; totNet+=net;
+    totSales+=sales; totFee+=fee; totNet+=net;
+    totIn+=parseFloat(r.inbound_qty)||0; totOut+=parseFloat(r.outbound_qty)||0;
     const pills = _mrStatusPill(trkByPeriod[r.period] || null);
     const z = '<span style="color:var(--g300)">—</span>';
     const mlabel = new Date(r.period+'-01T00:00:00').toLocaleDateString('id-ID',{month:'short',year:'numeric'});
@@ -12306,10 +12308,14 @@ async function loadMarteTimeline() {
     <td colspan="6"></td>
   </tr>`;
 
-  document.getElementById('mr-tl-s-months').textContent = rows.filter(r=>parseFloat(r.total_sales)>0).length;
-  document.getElementById('mr-tl-s-sales').textContent  = _mrRpFull(totSales);
-  document.getElementById('mr-tl-s-net').textContent    = _mrRpFull(totNet);
-  document.getElementById('mr-tl-s-stock').textContent  = Math.round(stockNow).toLocaleString('id-ID')+' pcs';
+  document.getElementById('mr-tl-s-months').textContent   = rows.filter(r=>parseFloat(r.total_sales)>0).length;
+  document.getElementById('mr-tl-s-sales').textContent    = _mrRpFull(totSales);
+  document.getElementById('mr-tl-s-fee').textContent      = _mrRpFull(totFee);
+  document.getElementById('mr-tl-s-net').textContent      = _mrRpFull(totNet);
+  document.getElementById('mr-tl-s-inbound').textContent  = Math.round(totIn).toLocaleString('id-ID')+' pcs';
+  document.getElementById('mr-tl-s-outbound').textContent = Math.round(totOut).toLocaleString('id-ID')+' pcs';
+  document.getElementById('mr-tl-s-stock').textContent    = Math.round(stockNow).toLocaleString('id-ID')+' pcs';
+  document.getElementById('mr-tl-s-stockval').textContent = stockVal>0 ? _mrRpFull(stockVal) : '—';
   summary.style.display='grid';
   wrap.style.display='';
 }
