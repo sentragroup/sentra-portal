@@ -12278,11 +12278,12 @@ async function loadMarteTimeline() {
   if (!rows.length) { fb.textContent='Belum ada data untuk brand ini.'; fb.className='feedback err'; wrap.style.display='none'; summary.style.display='none'; return; }
   fb.textContent = '';
 
-  let totSales=0, totFee=0, totNet=0, totIn=0, totOut=0;
+  let totSales=0, totFee=0, totNet=0, totIn=0, totOutSales=0, totOutAdj=0;
   document.getElementById('mr-tl-tbody').innerHTML = rows.map(r => {
     const sales=parseFloat(r.total_sales)||0, fee=parseFloat(r.total_fee)||0, net=parseFloat(r.net_payout)||0;
+    const oSales=parseFloat(r.outbound_sales)||0, oAdj=parseFloat(r.outbound_adj)||0;
     totSales+=sales; totFee+=fee; totNet+=net;
-    totIn+=parseFloat(r.inbound_qty)||0; totOut+=parseFloat(r.outbound_qty)||0;
+    totIn+=parseFloat(r.inbound_qty)||0; totOutSales+=oSales; totOutAdj+=oAdj;
     const pills = _mrStatusPill(trkByPeriod[r.period] || null);
     const z = '<span style="color:var(--g300)">—</span>';
     const mlabel = new Date(r.period+'-01T00:00:00').toLocaleDateString('id-ID',{month:'short',year:'numeric'});
@@ -12292,7 +12293,8 @@ async function loadMarteTimeline() {
       <td style="text-align:right;font-family:var(--mono);font-size:12px;color:#c05">${fee>0?_mrRpFull(fee):z}</td>
       <td style="text-align:right;font-family:var(--mono);font-size:12px;font-weight:600">${net>0?_mrRpFull(net):z}</td>
       <td style="text-align:right;font-family:var(--mono);font-size:12px;color:#16a34a;border-left:2px solid var(--g100)">${parseFloat(r.inbound_qty)>0?Math.round(r.inbound_qty):z}</td>
-      <td style="text-align:right;font-family:var(--mono);font-size:12px;color:#ea580c">${parseFloat(r.outbound_qty)>0?Math.round(r.outbound_qty):z}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:12px;color:#ea580c">${oSales>0?Math.round(oSales):z}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:12px;color:#b45309">${oAdj>0?Math.round(oAdj):z}</td>
       <td style="text-align:center;border-left:2px solid var(--g100)">${pills[0]}</td>
       <td style="text-align:center">${pills[1]}</td>
       <td style="text-align:center">${pills[2]}</td>
@@ -12303,9 +12305,12 @@ async function loadMarteTimeline() {
   document.getElementById('mr-tl-tfoot').innerHTML = `<tr style="font-weight:700;border-top:2px solid var(--g200);background:var(--off)">
     <td style="padding:8px 10px">TOTAL</td>
     <td style="text-align:right;font-family:var(--mono);padding:8px 10px;border-left:2px solid var(--g100)">${_mrRpFull(totSales)}</td>
-    <td></td>
+    <td style="text-align:right;font-family:var(--mono);padding:8px 10px;color:#c05">${_mrRpFull(totFee)}</td>
     <td style="text-align:right;font-family:var(--mono);padding:8px 10px">${_mrRpFull(totNet)}</td>
-    <td colspan="6"></td>
+    <td style="text-align:right;font-family:var(--mono);padding:8px 10px;color:#16a34a;border-left:2px solid var(--g100)">${Math.round(totIn)}</td>
+    <td style="text-align:right;font-family:var(--mono);padding:8px 10px;color:#ea580c">${Math.round(totOutSales)}</td>
+    <td style="text-align:right;font-family:var(--mono);padding:8px 10px;color:#b45309">${Math.round(totOutAdj)}</td>
+    <td colspan="4"></td>
   </tr>`;
 
   document.getElementById('mr-tl-s-months').textContent   = rows.filter(r=>parseFloat(r.total_sales)>0).length;
@@ -12313,7 +12318,8 @@ async function loadMarteTimeline() {
   document.getElementById('mr-tl-s-fee').textContent      = _mrRpFull(totFee);
   document.getElementById('mr-tl-s-net').textContent      = _mrRpFull(totNet);
   document.getElementById('mr-tl-s-inbound').textContent  = Math.round(totIn).toLocaleString('id-ID')+' pcs';
-  document.getElementById('mr-tl-s-outbound').textContent = Math.round(totOut).toLocaleString('id-ID')+' pcs';
+  document.getElementById('mr-tl-s-outsales').textContent = Math.round(totOutSales).toLocaleString('id-ID')+' pcs';
+  document.getElementById('mr-tl-s-outadj').textContent   = Math.round(totOutAdj).toLocaleString('id-ID')+' pcs';
   document.getElementById('mr-tl-s-stock').textContent    = Math.round(stockNow).toLocaleString('id-ID')+' pcs';
   document.getElementById('mr-tl-s-stockval').textContent = stockVal>0 ? _mrRpFull(stockVal) : '—';
   summary.style.display='grid';
