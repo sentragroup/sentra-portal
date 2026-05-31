@@ -13818,12 +13818,20 @@ async function loadMarteSKUCat() {
   _mscPending = {};
   _mscUpdatePendingBadge();
 
-  const { data, error } = await sb.rpc('get_marte_sku_mapping');
-  if (error) {
-    wrap.innerHTML = `<div style="padding:40px;text-align:center;color:var(--red)">Error: ${error.message}</div>`;
-    return;
+  // Page the RPC response — PostgREST caps each response at 1000 rows.
+  _mscAllRows = [];
+  { const PAGE = 1000; let _from = 0;
+    while (true) {
+      const { data, error } = await sb.rpc('get_marte_sku_mapping').range(_from, _from + PAGE - 1);
+      if (error) {
+        wrap.innerHTML = `<div style="padding:40px;text-align:center;color:var(--red)">Error: ${error.message}</div>`;
+        return;
+      }
+      _mscAllRows = _mscAllRows.concat(data || []);
+      if (!data || data.length < PAGE) break;
+      _from += PAGE;
+    }
   }
-  _mscAllRows = data || [];
 
   // Populate brand dropdown
   const brands = [...new Set(_mscAllRows.map(r => r.brand))].sort((a,b)=>a.localeCompare(b,'id'));
