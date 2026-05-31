@@ -10121,20 +10121,37 @@ async function loadSalesPerf() {
     const filteredOrderIds  = new Set(items.map(it => it.salesorder_id));
     const filteredOrders    = orders.filter(o => filteredOrderIds.has(o.salesorder_id));
 
-    // 5. Time series (daily) — revenue from order sub_total, qty from items
+    // When an item-level filter (brand/IP/collection/product) is active, order-level
+    // sub_total over-counts (an order may contain other products too). In that case
+    // revenue & discount must come from the filtered ITEMS, not the whole order.
+    const hasItemFilter = !!(brandVals.length || ipVals.length || colVals.length || prodF);
+    // Precompute per-item revenue + allocated discount
+    for (const it of items) {
+      const o = orderMap.get(it.salesorder_id);
+      it._rev = parseFloat(it.qty||0) * parseFloat(it.price||0);
+      const oDisc = parseFloat(o?.total_disc||0), oSub = parseFloat(o?.sub_total||0);
+      it._disc = parseFloat(it.disc_amount||0) > 0 ? parseFloat(it.disc_amount)
+        : (oDisc>0 && oSub>0 ? oDisc * (it._rev/oSub) : 0);
+    }
+
+    // 5. Time series (daily) — qty from items; revenue from items (if filtered) or order sub_total
     const timeSeries = {};
-    for (const o of filteredOrders) {
-      const date = (o.transaction_date || '').slice(0, 10);
-      if (!date) continue;
-      if (!timeSeries[date]) timeSeries[date] = { qty: 0, revenue: 0 };
-      timeSeries[date].revenue += parseFloat(o.sub_total || 0);
+    if (!hasItemFilter) {
+      for (const o of filteredOrders) {
+        const date = (o.transaction_date || '').slice(0, 10);
+        if (!date) continue;
+        if (!timeSeries[date]) timeSeries[date] = { qty: 0, revenue: 0 };
+        timeSeries[date].revenue += parseFloat(o.sub_total || 0);
+      }
     }
     for (const it of items) {
       const o = orderMap.get(it.salesorder_id);
       if (!o) continue;
       const date = (o.transaction_date || '').slice(0, 10);
-      if (!date || !timeSeries[date]) continue;
+      if (!date) continue;
+      if (!timeSeries[date]) timeSeries[date] = { qty: 0, revenue: 0 };
       timeSeries[date].qty += parseFloat(it.qty || 0);
+      if (hasItemFilter) timeSeries[date].revenue += it._rev;
     }
     // dayCount available early — needed for restock calc in step 8c
     const dayCount = Math.max(1, Object.keys(timeSeries).length);
@@ -10142,19 +10159,24 @@ async function loadSalesPerf() {
     // 6. Channel summary — revenue/disc from order-level sub_total/total_disc (matches reference export)
     //    qty still from items (orders don't carry total qty)
     const channelMap = {};
-    // First pass: order-level revenue & disc
+    // First pass: order count (+ order-level revenue/disc when no item filter)
     for (const o of filteredOrders) {
       const ch = o.channel_name || '(Lainnya)';
       if (!channelMap[ch]) channelMap[ch] = { orders: 0, qty: 0, revenue: 0, disc: 0 };
       channelMap[ch].orders  += 1;
-      channelMap[ch].revenue += parseFloat(o.sub_total  || 0);
-      channelMap[ch].disc    += parseFloat(o.total_disc || 0);
+      if (!hasItemFilter) {
+        channelMap[ch].revenue += parseFloat(o.sub_total  || 0);
+        channelMap[ch].disc    += parseFloat(o.total_disc || 0);
+      }
     }
-    // Second pass: qty from items
+    // Second pass: qty from items (+ revenue/disc from items when filtered)
     for (const it of items) {
       const o  = orderMap.get(it.salesorder_id); if (!o) continue;
       const ch = o.channel_name || '(Lainnya)';
-      if (channelMap[ch]) channelMap[ch].qty += parseFloat(it.qty || 0);
+      if (channelMap[ch]) {
+        channelMap[ch].qty += parseFloat(it.qty || 0);
+        if (hasItemFilter) { channelMap[ch].revenue += it._rev; channelMap[ch].disc += it._disc; }
+      }
     }
     const channelData = Object.entries(channelMap)
       .map(([ch, d]) => ({ channel: ch, orders: d.orders, qty: d.qty, revenue: d.revenue, disc: d.disc, net: d.revenue - d.disc }))
@@ -10166,12 +10188,15 @@ async function loadSalesPerf() {
       const st = o.store_name || '(Lainnya)';
       if (!storeMap[st]) storeMap[st] = { orders: 0, qty: 0, revenue: 0 };
       storeMap[st].orders  += 1;
-      storeMap[st].revenue += parseFloat(o.sub_total || 0);
+      if (!hasItemFilter) storeMap[st].revenue += parseFloat(o.sub_total || 0);
     }
     for (const it of items) {
       const o  = orderMap.get(it.salesorder_id); if (!o) continue;
       const st = o.store_name || '(Lainnya)';
-      if (storeMap[st]) storeMap[st].qty += parseFloat(it.qty || 0);
+      if (storeMap[st]) {
+        storeMap[st].qty += parseFloat(it.qty || 0);
+        if (hasItemFilter) storeMap[st].revenue += it._rev;
+      }
     }
     const storeData = Object.entries(storeMap)
       .map(([st, d]) => ({ store: st, orders: d.orders, qty: d.qty, revenue: d.revenue }))
@@ -10192,15 +10217,8 @@ async function loadSalesPerf() {
       const pg = productMap[parentName];
       pg.orders.add(it.salesorder_id);
       pg.qty     += parseFloat(it.qty || 0);
-      const _rev = parseFloat(it.qty||0) * parseFloat(it.price||0);
+      const _rev = it._rev, _itemDisc = it._disc;  // precomputed (rev = qty*price; disc allocated)
       pg.revenue += _rev;
-      // Discount: prefer item-level; if order applies discount at order level
-      // (item disc_amount = 0, e.g. POS), allocate order total_disc by revenue share.
-      const _o = orderMap.get(it.salesorder_id);
-      const _oDisc = parseFloat(_o?.total_disc || 0), _oSub = parseFloat(_o?.sub_total || 0);
-      const _itemDisc = parseFloat(it.disc_amount || 0) > 0
-        ? parseFloat(it.disc_amount)
-        : (_oDisc > 0 && _oSub > 0 ? _oDisc * (_rev / _oSub) : 0);
       pg.disc    += _itemDisc;
       if (it.item_id) pg.itemIds.add(it.item_id);
       // Variant-level tracking (store itemId for stock lookup)
@@ -10263,8 +10281,12 @@ async function loadSalesPerf() {
     // Net     = Revenue − Discount
     // Qty     = sum of item qty (orders don't carry a total qty field)
     const totalQty     = items.reduce((s, it) => s + parseFloat(it.qty || 0), 0);
-    const totalRevenue = filteredOrders.reduce((s, o) => s + parseFloat(o.sub_total  || 0), 0);
-    const totalDisc    = filteredOrders.reduce((s, o) => s + parseFloat(o.total_disc || 0), 0);
+    const totalRevenue = hasItemFilter
+      ? items.reduce((s, it) => s + (it._rev || 0), 0)
+      : filteredOrders.reduce((s, o) => s + parseFloat(o.sub_total  || 0), 0);
+    const totalDisc    = hasItemFilter
+      ? items.reduce((s, it) => s + (it._disc || 0), 0)
+      : filteredOrders.reduce((s, o) => s + parseFloat(o.total_disc || 0), 0);
     const totalNet     = totalRevenue - totalDisc;
     const totalStock   = productData.reduce((s, p) => s + (p.stock || 0), 0);
     const totalStr     = (totalQty + totalStock) > 0
