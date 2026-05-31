@@ -12186,7 +12186,11 @@ async function loadMarteReport() {
 
   if (salesRes.error) { fb.textContent='Error: '+salesRes.error.message; fb.className='feedback err'; return; }
 
-  _mrSummary  = salesRes.data || [];
+  // Exclude Sentra's own brands (not third-party consignment partners)
+  const MR_EXCLUDE_BRANDS = ['sd&y','lagaa'];
+  const _mrIsExcluded = (name) => MR_EXCLUDE_BRANDS.includes((name||'').trim().toLowerCase());
+
+  _mrSummary  = (salesRes.data || []).filter(r => !_mrIsExcluded(r.brand_name));
   _mrTracking = {};
   (trkRes.data||[]).forEach(r => { _mrTracking[r.brand_id] = r; });
 
@@ -12197,7 +12201,7 @@ async function loadMarteReport() {
   // Build full brand list: all active marte brands, zero-filled if no sales this period
   const salesMap = {};
   _mrSummary.forEach(r => { salesMap[r.brand_id] = r; });
-  const allMarteBrands = (bmRes.data||[]);
+  const allMarteBrands = (bmRes.data||[]).filter(b => !_mrIsExcluded(b.name));
   // Add any brands from sales data that aren't in brand_master (legacy/manual)
   _mrSummary.forEach(r => { if (!allMarteBrands.find(b=>b.id===r.brand_id)) allMarteBrands.push({id:r.brand_id, name:r.brand_name}); });
   // Build _bmTypeMap: brand_id → {brand_type, vat_status} from brand_master
