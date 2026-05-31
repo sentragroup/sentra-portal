@@ -6117,7 +6117,7 @@ async function openSrcLedger(gi){
       <thead><tr>
         <th style="text-align:left">Tanggal</th><th style="text-align:left">Tipe</th>
         <th style="text-align:left">No Dokumen</th><th style="text-align:left">SKU</th>
-        <th style="text-align:left">Gudang</th><th style="text-align:right">Qty</th>
+        <th style="text-align:left">Gudang</th><th style="text-align:right">Qty</th><th style="text-align:left">Notes</th>
       </tr></thead>
       <tbody>${rows.map(r=>{
         const c=typeColor[r.mtype]||'var(--g600)';
@@ -6129,6 +6129,7 @@ async function openSrcLedger(gi){
           <td style="font-family:var(--mono);font-size:10px;color:var(--g400)">${invEsc(r.item_code||'')}</td>
           <td style="font-size:11px;color:var(--g600)">${invEsc(r.warehouse||'—')}</td>
           <td style="text-align:right;font-family:var(--mono);font-size:12px;font-weight:600;color:${q<0?'#c0392b':'#16a34a'}">${q>0?'+':''}${Math.round(q)}</td>
+          <td style="font-size:11px;color:var(--g600);max-width:220px;white-space:normal;word-break:break-word">${invEsc(r.note||'')||'<span style="color:var(--g300)">—</span>'}</td>
         </tr>`;
       }).join('')}</tbody>
     </table></div>`;
