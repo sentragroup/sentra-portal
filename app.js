@@ -12190,9 +12190,9 @@ async function loadMarteReport() {
   _mrTracking = {};
   (trkRes.data||[]).forEach(r => { _mrTracking[r.brand_id] = r; });
 
-  // Build inventory map keyed by UPPER(brand_name) for case-insensitive matching
+  // Build inventory map keyed by brand_master_id for exact matching
   const invMap = {};
-  (invRes.data||[]).forEach(r => { invMap[r.jubelio_brand] = r; });
+  (invRes.data||[]).forEach(r => { invMap[r.brand_master_id] = r; });
 
   // Build full brand list: all active marte brands, zero-filled if no sales this period
   const salesMap = {};
@@ -12206,12 +12206,13 @@ async function loadMarteReport() {
 
   _mrAllRows = allMarteBrands.map(b => {
     const s   = salesMap[b.id] || { brand_id:b.id, brand_name:b.name, total_sales:0, total_fee:0, net_payout:0, others_sales:0 };
-    const inv = invMap[b.name.toUpperCase().trim()] || {};
+    const inv = invMap[b.id] || {};
     return { ...s, _bm_brand_type:b.brand_type||null, _bm_vat_status:b.vat_status||null,
       _stock_qty:       parseFloat(inv.net_stock)||0,
       _stock_value:     parseFloat(inv.stock_value_retail)||0,
       _inbound_period:  parseFloat(inv.inbound_period)||0,
-      _outbound_period: parseFloat(inv.outbound_period)||0,
+      // outbound_period = total_qty from sales report — single source of truth
+      _outbound_period: parseFloat(s.total_qty)||0,
       _inbound_total:   parseFloat(inv.inbound_total)||0,
       _outbound_total:  parseFloat(inv.outbound_total)||0 };
   });
@@ -12374,7 +12375,7 @@ async function _mrLoadSKUDetail(brandId) {
 
   const [salesRes, invRes] = await Promise.all([
     sb.rpc('get_marte_brand_detail', { p_brand_id: brandId, p_start_date: startISO, p_end_date: endISO }),
-    sb.rpc('get_marte_brand_inventory_sku', { p_brand_name: brandName, p_start_date: startISO, p_end_date: endISO })
+    sb.rpc('get_marte_brand_inventory_sku', { p_brand_id: brandId, p_start_date: startISO, p_end_date: endISO })
   ]);
 
   if (_mrModal?.brandId !== brandId) return;
