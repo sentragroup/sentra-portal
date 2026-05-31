@@ -2643,10 +2643,10 @@
                 <th style="min-width:150px">Brand</th>
                 <th>Tipe</th>
                 <th>VAT</th>
-                <th style="text-align:right;min-width:80px;border-left:2px solid var(--g100)" title="Stok saat ini di Jubelio (snapshot terbaru, bukan per periode)">Stock Now</th>
-                <th style="text-align:right;min-width:110px" title="Nilai retail stok saat ini">Stock Value Now</th>
-                <th style="text-align:right;min-width:80px">Inbound</th>
-                <th style="text-align:right;min-width:80px">Outbound</th>
+                <th style="text-align:right;min-width:80px;border-left:2px solid var(--g100)" title="Stok saat ini di Jubelio (snapshot terbaru)">Stock Now</th>
+                <th style="text-align:right;min-width:110px" title="Nilai retail stok saat ini">Retail Value</th>
+                <th style="text-align:right;min-width:80px" title="Inbound (restock) selama periode ini">Inbound (period)</th>
+                <th style="text-align:right;min-width:80px" title="Outbound (terjual) selama periode ini">Outbound (period)</th>
                 <th style="text-align:right;min-width:120px;border-left:2px solid var(--g100)">Gross Sales</th>
                 <th style="text-align:right;min-width:110px">Fee</th>
                 <th style="text-align:right;min-width:120px">Net Payout</th>
@@ -2689,22 +2689,31 @@
                 </div>
               </div>
               <!-- Inventory strip -->
-              <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:8px">
+              <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px">
                 <div style="background:#eff6ff;border-radius:8px;padding:10px 12px">
-                  <div style="font-size:11px;color:#3b82f6;margin-bottom:2px">Stock Now (qty)</div>
+                  <div style="font-size:11px;color:#3b82f6;margin-bottom:2px">Stock Now</div>
                   <div style="font-family:var(--mono);font-weight:700;font-size:14px;color:#1d4ed8" id="mr-modal-stock-qty">—</div>
                 </div>
-                <div style="background:#f0fdf4;border-radius:8px;padding:10px 12px">
-                  <div style="font-size:11px;color:#16a34a;margin-bottom:2px">Inbound</div>
-                  <div style="font-family:var(--mono);font-weight:700;font-size:14px;color:#15803d" id="mr-modal-inbound">—</div>
+                <div style="background:#eff6ff;border-radius:8px;padding:10px 12px">
+                  <div style="font-size:11px;color:#3b82f6;margin-bottom:2px">Retail Value Now</div>
+                  <div style="font-family:var(--mono);font-weight:700;font-size:12px;color:#1d4ed8" id="mr-modal-stock-value">—</div>
                 </div>
-                <div style="background:#fff7ed;border-radius:8px;padding:10px 12px">
-                  <div style="font-size:11px;color:#ea580c;margin-bottom:2px">Outbound</div>
-                  <div style="font-family:var(--mono);font-weight:700;font-size:14px;color:#c2410c" id="mr-modal-outbound">—</div>
+                <div style="background:var(--off);border-radius:8px;padding:10px 12px;grid-column:span 1">
+                  <div style="font-size:10px;color:var(--g400);margin-bottom:6px;font-weight:600">ALL TIME</div>
+                  <div style="display:flex;justify-content:space-between;font-size:11px">
+                    <span style="color:#16a34a">▲ In: <strong id="mr-modal-inbound-total">—</strong></span>
+                    <span style="color:#c2410c">▼ Out: <strong id="mr-modal-outbound-total">—</strong></span>
+                  </div>
                 </div>
-                <div style="background:var(--off);border-radius:8px;padding:10px 12px">
-                  <div style="font-size:11px;color:var(--g400);margin-bottom:2px">Stock Value Now</div>
-                  <div style="font-family:var(--mono);font-weight:700;font-size:14px" id="mr-modal-stock-value">—</div>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px">
+                <div style="background:#f0fdf4;border-radius:8px;padding:8px 12px;display:flex;justify-content:space-between;align-items:center">
+                  <span style="font-size:11px;color:#16a34a">▲ Inbound (periode)</span>
+                  <span style="font-family:var(--mono);font-weight:700;font-size:13px;color:#15803d" id="mr-modal-inbound">—</span>
+                </div>
+                <div style="background:#fff7ed;border-radius:8px;padding:8px 12px;display:flex;justify-content:space-between;align-items:center">
+                  <span style="font-size:11px;color:#ea580c">▼ Outbound (periode)</span>
+                  <span style="font-family:var(--mono);font-weight:700;font-size:13px;color:#c2410c" id="mr-modal-outbound">—</span>
                 </div>
               </div>
             </div>
@@ -2964,6 +2973,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260531p"></script>
+<script src="app.js?v=20260531q"></script>
 </body>
 </html>
