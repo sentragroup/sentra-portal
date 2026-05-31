@@ -12370,21 +12370,27 @@ async function _mrLoadSKUDetail(brandId) {
   const [year, month] = _mrPeriod.split('-').map(Number);
   const startISO = `${_mrPeriod}-01T00:00:00+07:00`;
   const endISO   = new Date(year, month, 1).toISOString().slice(0,10) + 'T00:00:00+07:00';
+  const brandName = _mrAllRows.find(r=>r.brand_id===brandId)?.brand_name || brandId;
 
-  const { data, error } = await sb.rpc('get_marte_brand_detail', {
-    p_brand_id: brandId, p_start_date: startISO, p_end_date: endISO
-  });
+  const [salesRes, invRes] = await Promise.all([
+    sb.rpc('get_marte_brand_detail', { p_brand_id: brandId, p_start_date: startISO, p_end_date: endISO }),
+    sb.rpc('get_marte_brand_inventory_sku', { p_brand_name: brandName, p_start_date: startISO, p_end_date: endISO })
+  ]);
 
-  if (_mrModal?.brandId !== brandId) return; // modal changed while loading
+  if (_mrModal?.brandId !== brandId) return;
   document.getElementById('mr-sku-loading').style.display = 'none';
 
-  if (error || !data?.length) {
-    document.getElementById('mr-sku-loading').textContent = error ? 'Gagal memuat data.' : 'Tidak ada data SKU.';
+  const data    = salesRes.data || [];
+  const invData = invRes.data  || [];
+
+  if (!data.length && !invData.length) {
+    document.getElementById('mr-sku-loading').textContent = salesRes.error ? 'Gagal memuat data.' : 'Tidak ada data SKU.';
     document.getElementById('mr-sku-loading').style.display = '';
     return;
   }
 
-  _mrModal.skuData = data;
+  _mrModal.skuData    = data;
+  _mrModal.invSkuData = invData;
   let totQty=0, totSub=0, totFee=0;
   data.forEach(r=>{ totQty+=parseInt(r.total_qty)||0; totSub+=parseFloat(r.subtotal)||0; totFee+=parseFloat(r.fee_amount)||0; });
 
@@ -12411,6 +12417,36 @@ async function _mrLoadSKUDetail(brandId) {
   </tr>`;
 
   document.getElementById('mr-sku-wrap').style.display = '';
+
+  // ── Inventory Movement table ──
+  const invWrap = document.getElementById('mr-inv-wrap');
+  if (invWrap && invData.length) {
+    const totIn  = invData.reduce((s,r)=>s+(parseFloat(r.inbound_total)||0),0);
+    const totInP = invData.reduce((s,r)=>s+(parseFloat(r.inbound_period)||0),0);
+    const totOut = invData.reduce((s,r)=>s+(parseFloat(r.outbound_total)||0),0);
+    const totOutP= invData.reduce((s,r)=>s+(parseFloat(r.outbound_period)||0),0);
+    const totNet = invData.reduce((s,r)=>s+(parseFloat(r.net_stock)||0),0);
+
+    document.getElementById('mr-inv-tbody').innerHTML = invData.map(r=>`<tr>
+      <td style="font-family:var(--mono);font-size:10px;color:var(--g400)">${_escRmd(r.item_code||'')}</td>
+      <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px" title="${_escRmd(r.item_name||'')}">${_escRmd(r.item_name||'')}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:11px">${Math.round(r.inbound_total||0)}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:11px;color:#16a34a">${Math.round(r.inbound_period||0)||'—'}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:11px">${Math.round(r.outbound_total||0)}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:11px;color:#ea580c">${Math.round(r.outbound_period||0)||'—'}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:11px;font-weight:600">${Math.round(r.net_stock||0)}</td>
+    </tr>`).join('');
+
+    document.getElementById('mr-inv-tfoot').innerHTML = `<tr style="font-weight:600;border-top:2px solid var(--g200);background:var(--off)">
+      <td colspan="2" style="padding:6px 10px">TOTAL</td>
+      <td style="text-align:right;font-family:var(--mono);padding:6px 10px">${Math.round(totIn)}</td>
+      <td style="text-align:right;font-family:var(--mono);padding:6px 10px;color:#16a34a">${Math.round(totInP)||'—'}</td>
+      <td style="text-align:right;font-family:var(--mono);padding:6px 10px">${Math.round(totOut)}</td>
+      <td style="text-align:right;font-family:var(--mono);padding:6px 10px;color:#ea580c">${Math.round(totOutP)||'—'}</td>
+      <td style="text-align:right;font-family:var(--mono);padding:6px 10px;font-weight:700">${Math.round(totNet)}</td>
+    </tr>`;
+    invWrap.style.display = '';
+  }
 }
 
 function closeMRModal(e) {
@@ -12482,8 +12518,8 @@ async function saveMRTracking() {
 
 // ── Download Excel (branded) for one brand ──
 async function downloadMRBrandXLSX() {
-  if (!_mrModal?.skuData?.length) { alert('Load data SKU dulu.'); return; }
-  const { brandName, salesRow, skuData } = _mrModal;
+  if (!_mrModal?.skuData?.length && !_mrModal?.invSkuData?.length) { alert('Load data SKU dulu.'); return; }
+  const { brandName, salesRow, skuData, invSkuData } = _mrModal;
   const period    = _mrPeriod;
   const [yr, mo]  = period.split('-');
   const monthName = new Date(parseInt(yr), parseInt(mo)-1, 1)
@@ -12591,6 +12627,40 @@ async function downloadMRBrandXLSX() {
     '<td class="tfee">'+rp(totFee)+'</td>',
     '</tr></tfoot>',
     '</table>',
+    // ── Inventory Movement section ──
+    ...(invSkuData?.length ? [
+      '<div style="margin-top:20px;margin-bottom:8px;border-top:2px solid #3c3489;padding-top:14px">',
+      '<div style="font-family:\'Syne\',sans-serif;font-size:13px;font-weight:700;color:#3c3489;margin-bottom:10px">INVENTORY MOVEMENT REPORT</div>',
+      '<table>',
+      '<thead><tr>',
+      '<th style="width:108px">SKU / Item Code</th>',
+      '<th>Nama Item</th>',
+      '<th class="r" style="width:56px">Total In</th>',
+      '<th class="r" style="width:72px;background:#1e4d2b">In (Period)</th>',
+      '<th class="r" style="width:60px">Total Out</th>',
+      '<th class="r" style="width:72px;background:#6b2d1a">Out (Period)</th>',
+      '<th class="r" style="width:62px">Net Stock</th>',
+      '</tr></thead>',
+      '<tbody>' + (invSkuData.map(function(r,i){
+        return '<tr>'
+          +'<td class="mono">'+(r.item_code||'')+'</td>'
+          +'<td>'+(r.item_name||'')+'</td>'
+          +'<td class="r">'+(Math.round(r.inbound_total||0))+'</td>'
+          +'<td class="r bold" style="color:#15803d">'+(Math.round(r.inbound_period||0)||'—')+'</td>'
+          +'<td class="r">'+(Math.round(r.outbound_total||0))+'</td>'
+          +'<td class="r bold" style="color:#c2410c">'+(Math.round(r.outbound_period||0)||'—')+'</td>'
+          +'<td class="r bold">'+(Math.round(r.net_stock||0))+'</td>'
+          +'</tr>';
+      }).join('')),
+      '<tr class="tot">',
+      '<td colspan="2" class="tlabel">TOTAL</td>',
+      '<td class="r">'+(Math.round(invSkuData.reduce(function(s,r){return s+(parseFloat(r.inbound_total)||0);},0)))+'</td>',
+      '<td class="r bold" style="color:#15803d">'+(Math.round(invSkuData.reduce(function(s,r){return s+(parseFloat(r.inbound_period)||0);},0))||'—')+'</td>',
+      '<td class="r">'+(Math.round(invSkuData.reduce(function(s,r){return s+(parseFloat(r.outbound_total)||0);},0)))+'</td>',
+      '<td class="r bold" style="color:#c2410c">'+(Math.round(invSkuData.reduce(function(s,r){return s+(parseFloat(r.outbound_period)||0);},0))||'—')+'</td>',
+      '<td class="r bold">'+(Math.round(invSkuData.reduce(function(s,r){return s+(parseFloat(r.net_stock)||0);},0)))+'</td>',
+      '</tr></tbody></table></div>'
+    ] : []),
     '<div class="footer">',
     '<span>Dokumen ini dibuat otomatis oleh Sentra Internal Portal &middot; '+today+'</span>',
     '<span>Sentra &middot; Internal Use Only</span>',
