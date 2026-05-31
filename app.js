@@ -12127,7 +12127,8 @@ async function deleteReminder(id) {
 }
 
 // ── MARTE SALES REPORT ──
-let _mrSummary  = [];   // per-brand summary from RPC
+let _mrSummary  = [];   // per-brand summary from RPC (only brands with sales)
+let _mrAllRows  = [];   // merged: all marte brands, zero-filled if no sales
 let _mrTracking = {};   // {brand_id: marte_settlements row}
 let _mrPeriod   = '';   // YYYY-MM
 let _mrModal    = null; // {brandId, brandName, salesRow, trkRow, skuData}
@@ -12168,9 +12169,10 @@ async function loadMarteReport() {
   const startISO = `${period}-01T00:00:00+07:00`;
   const endISO   = new Date(year, month, 1).toISOString().slice(0,10) + 'T00:00:00+07:00';
 
-  const [salesRes, trkRes] = await Promise.all([
+  const [salesRes, trkRes, bmRes] = await Promise.all([
     sb.rpc('get_marte_sales_report', { p_start_date: startISO, p_end_date: endISO }),
-    sb.from('marte_settlements').select('*').eq('period', period)
+    sb.from('marte_settlements').select('*').eq('period', period),
+    sb.from('brand_master').select('id,name').eq('live_status','Active').ilike('revenue_stream','%Marte%').order('name')
   ]);
 
   btn.textContent='Load Data'; btn.disabled=false;
@@ -12181,14 +12183,18 @@ async function loadMarteReport() {
   _mrTracking = {};
   (trkRes.data||[]).forEach(r => { _mrTracking[r.brand_id] = r; });
 
-  if (!_mrSummary.length) {
-    fb.textContent='Tidak ada data penjualan untuk periode ini.'; fb.className='feedback err';
-    document.getElementById('mr-stats').style.display='none';
-    document.getElementById('mr-result-wrap').style.display='none';
-    return;
-  }
+  // Build full brand list: all active marte brands, zero-filled if no sales this period
+  const salesMap = {};
+  _mrSummary.forEach(r => { salesMap[r.brand_id] = r; });
+  const allMarteBrands = (bmRes.data||[]);
+  // Add any brands from sales data that aren't in brand_master (legacy/manual)
+  _mrSummary.forEach(r => { if (!allMarteBrands.find(b=>b.id===r.brand_id)) allMarteBrands.push({id:r.brand_id, name:r.brand_name}); });
+  _mrAllRows = allMarteBrands.map(b => salesMap[b.id] || {
+    brand_id: b.id, brand_name: b.name,
+    total_sales: 0, total_fee: 0, net_payout: 0, others_sales: 0
+  });
 
-  // Stats
+  // Stats (based on brands WITH sales only)
   let totS=0, totF=0, totN=0;
   _mrSummary.forEach(r=>{ totS+=parseFloat(r.total_sales)||0; totF+=parseFloat(r.total_fee)||0; totN+=parseFloat(r.net_payout)||0; });
   document.getElementById('mr-s-brands').textContent = _mrSummary.length;
@@ -12196,7 +12202,7 @@ async function loadMarteReport() {
   document.getElementById('mr-s-fee').textContent    = _mrRpFull(totF);
   document.getElementById('mr-s-net').textContent    = _mrRpFull(totN);
   document.getElementById('mr-stats').style.display  = 'grid';
-  document.getElementById('mr-tcount').textContent   = _mrSummary.length+' brand';
+  document.getElementById('mr-tcount').textContent   = _mrAllRows.length+' brand ('+ _mrSummary.length+' ada sales)';
   document.getElementById('mr-result-wrap').style.display = 'block';
   _mrRenderTable();
 }
@@ -12233,21 +12239,24 @@ function _mrStatusPill(trk) {
 
 function _mrRenderTable() {
   const tb = document.getElementById('mr-tbody');
-  tb.innerHTML = _mrSummary.map(r => {
-    const trk   = _mrTracking[r.brand_id] || null;
-    const pills = _mrStatusPill(trk);
-    const tipe  = trk?.brand_type || '—';
+  tb.innerHTML = _mrAllRows.map(r => {
+    const trk     = _mrTracking[r.brand_id] || null;
+    const pills   = _mrStatusPill(trk);
+    const tipe    = trk?.brand_type || '—';
     const tipeClass = tipe==='PT'?'p-signings':tipe==='Individu'?'p-draft':'p-inactive';
+    const hasSales  = (parseFloat(r.total_sales)||0) > 0;
     const hasOthers = (parseFloat(r.others_sales)||0) > 0;
-    const warn  = hasOthers ? `<span style="color:orange;margin-left:4px;font-size:11px" title="${_mrRp(r.others_sales)} belum terkategori">⚠</span>` : '';
-    const bid   = _escRmd(r.brand_id||'');
-    const bname = _escRmd(r.brand_name||'');
-    return `<tr style="cursor:pointer" onclick="openMRDetail('${bid}','${bname}')">
+    const warn    = hasOthers ? `<span style="color:orange;margin-left:4px;font-size:11px" title="${_mrRp(r.others_sales)} belum terkategori">⚠</span>` : '';
+    const bid     = _escRmd(r.brand_id||'');
+    const bname   = _escRmd(r.brand_name||'');
+    const rowStyle = hasSales ? 'cursor:pointer' : 'cursor:pointer;opacity:.55';
+    const zeroCell = `<span style="color:var(--g300);font-family:var(--mono);font-size:12px">—</span>`;
+    return `<tr style="${rowStyle}" onclick="openMRDetail('${bid}','${bname}')">
       <td style="font-weight:500">${bname}${warn}</td>
       <td><span class="pill ${tipeClass}" style="font-size:10px">${tipe}</span></td>
-      <td style="text-align:right;font-family:var(--mono);font-size:12px">${_mrRpFull(r.total_sales)}</td>
-      <td style="text-align:right;font-family:var(--mono);font-size:12px;color:#c05">${_mrRpFull(r.total_fee)}</td>
-      <td style="text-align:right;font-family:var(--mono);font-size:12px;font-weight:600">${_mrRpFull(r.net_payout)}</td>
+      <td style="text-align:right">${hasSales ? `<span style="font-family:var(--mono);font-size:12px">${_mrRpFull(r.total_sales)}</span>` : zeroCell}</td>
+      <td style="text-align:right">${hasSales ? `<span style="font-family:var(--mono);font-size:12px;color:#c05">${_mrRpFull(r.total_fee)}</span>` : zeroCell}</td>
+      <td style="text-align:right">${hasSales ? `<span style="font-family:var(--mono);font-size:12px;font-weight:600">${_mrRpFull(r.net_payout)}</span>` : zeroCell}</td>
       <td style="text-align:center">${pills[0]}</td>
       <td style="text-align:center">${pills[1]}</td>
       <td style="text-align:center">${pills[2]}</td>
