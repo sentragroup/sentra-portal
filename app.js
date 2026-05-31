@@ -12236,6 +12236,84 @@ function mrNavPeriod(offset) {
   inp.value = cur.toISOString().slice(0,7);
 }
 
+// ── Tab switch + per-brand timeline view ──
+let _mrTlBrandsLoaded = false;
+function mrSwitchTab(name, el) {
+  document.querySelectorAll('#page-martereport .tab-bar .tab-btn').forEach(b => b.classList.remove('active'));
+  if (el) el.classList.add('active');
+  document.getElementById('mr-tab-period').style.display   = name === 'period'   ? '' : 'none';
+  document.getElementById('mr-tab-timeline').style.display = name === 'timeline' ? '' : 'none';
+  if (name === 'timeline' && !_mrTlBrandsLoaded) _mrLoadTlBrands();
+}
+
+async function _mrLoadTlBrands() {
+  const sel = document.getElementById('mr-tl-brand');
+  const { data } = await sb.from('brand_master')
+    .select('id,name').eq('live_status','Active').ilike('revenue_stream','%Marte%').order('name');
+  sel.innerHTML = '<option value="">— Pilih brand —</option>' +
+    (data||[]).map(b => `<option value="${_escRmd(b.id)}">${_escRmd(b.name)}</option>`).join('');
+  _mrTlBrandsLoaded = true;
+}
+
+async function loadMarteTimeline() {
+  const brandId = document.getElementById('mr-tl-brand').value;
+  const fb = document.getElementById('mr-tl-feedback');
+  const wrap = document.getElementById('mr-tl-wrap');
+  const summary = document.getElementById('mr-tl-summary');
+  if (!brandId) { wrap.style.display='none'; summary.style.display='none'; fb.textContent=''; return; }
+  fb.textContent = 'Memuat...'; fb.className = 'feedback';
+
+  const [tlRes, trkRes, skuRes] = await Promise.all([
+    sb.rpc('get_marte_brand_timeline', { p_brand_id: brandId }),
+    sb.from('marte_settlements').select('*').eq('brand_id', brandId),
+    sb.rpc('get_marte_brand_inventory_sku', { p_brand_id: brandId,
+      p_start_date: '2025-01-01T00:00:00+07:00', p_end_date: '2027-01-01T00:00:00+07:00' }),
+  ]);
+  if (tlRes.error) { fb.textContent = 'Error: ' + tlRes.error.message; fb.className='feedback err'; return; }
+  const rows = tlRes.data || [];
+  const trkByPeriod = {}; (trkRes.data||[]).forEach(t => { trkByPeriod[t.period] = t; });
+  const stockNow = (skuRes.data||[]).reduce((s,r)=>s+(parseFloat(r.net_stock)||0),0);
+
+  if (!rows.length) { fb.textContent='Belum ada data untuk brand ini.'; fb.className='feedback err'; wrap.style.display='none'; summary.style.display='none'; return; }
+  fb.textContent = '';
+
+  let totSales=0, totNet=0;
+  document.getElementById('mr-tl-tbody').innerHTML = rows.map(r => {
+    const sales=parseFloat(r.total_sales)||0, fee=parseFloat(r.total_fee)||0, net=parseFloat(r.net_payout)||0;
+    totSales+=sales; totNet+=net;
+    const pills = _mrStatusPill(trkByPeriod[r.period] || null);
+    const z = '<span style="color:var(--g300)">—</span>';
+    const mlabel = new Date(r.period+'-01T00:00:00').toLocaleDateString('id-ID',{month:'short',year:'numeric'});
+    return `<tr>
+      <td style="font-weight:600">${mlabel}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:12px;border-left:2px solid var(--g100)">${sales>0?_mrRpFull(sales):z}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:12px;color:#c05">${fee>0?_mrRpFull(fee):z}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:12px;font-weight:600">${net>0?_mrRpFull(net):z}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:12px;color:#16a34a;border-left:2px solid var(--g100)">${parseFloat(r.inbound_qty)>0?Math.round(r.inbound_qty):z}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:12px;color:#ea580c">${parseFloat(r.outbound_qty)>0?Math.round(r.outbound_qty):z}</td>
+      <td style="text-align:center;border-left:2px solid var(--g100)">${pills[0]}</td>
+      <td style="text-align:center">${pills[1]}</td>
+      <td style="text-align:center">${pills[2]}</td>
+      <td style="text-align:center">${pills[3]}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('mr-tl-tfoot').innerHTML = `<tr style="font-weight:700;border-top:2px solid var(--g200);background:var(--off)">
+    <td style="padding:8px 10px">TOTAL</td>
+    <td style="text-align:right;font-family:var(--mono);padding:8px 10px;border-left:2px solid var(--g100)">${_mrRpFull(totSales)}</td>
+    <td></td>
+    <td style="text-align:right;font-family:var(--mono);padding:8px 10px">${_mrRpFull(totNet)}</td>
+    <td colspan="6"></td>
+  </tr>`;
+
+  document.getElementById('mr-tl-s-months').textContent = rows.filter(r=>parseFloat(r.total_sales)>0).length;
+  document.getElementById('mr-tl-s-sales').textContent  = _mrRpFull(totSales);
+  document.getElementById('mr-tl-s-net').textContent    = _mrRpFull(totNet);
+  document.getElementById('mr-tl-s-stock').textContent  = Math.round(stockNow).toLocaleString('id-ID')+' pcs';
+  summary.style.display='grid';
+  wrap.style.display='';
+}
+
 // ── Load period data ──
 async function loadMarteReport() {
   const period = document.getElementById('mr-period').value;
