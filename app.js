@@ -12206,12 +12206,14 @@ async function loadMarteReport() {
 
   _mrAllRows = allMarteBrands.map(b => {
     const s   = salesMap[b.id] || { brand_id:b.id, brand_name:b.name, total_sales:0, total_fee:0, net_payout:0, others_sales:0 };
-    const inv = invMap[b.name.toUpperCase().trim()] || { net_stock:0, stock_value_retail:0, outbound_period:0, inbound_period:0 };
+    const inv = invMap[b.name.toUpperCase().trim()] || {};
     return { ...s, _bm_brand_type:b.brand_type||null, _bm_vat_status:b.vat_status||null,
-      _stock_qty:     parseFloat(inv.net_stock)||0,
-      _stock_value:   parseFloat(inv.stock_value_retail)||0,
-      _outbound_qty:  parseFloat(inv.outbound_period)||0,
-      _inbound_qty:   parseFloat(inv.inbound_period)||0 };
+      _stock_qty:       parseFloat(inv.net_stock)||0,
+      _stock_value:     parseFloat(inv.stock_value_retail)||0,
+      _inbound_period:  parseFloat(inv.inbound_period)||0,
+      _outbound_period: parseFloat(inv.outbound_period)||0,
+      _inbound_total:   parseFloat(inv.inbound_total)||0,
+      _outbound_total:  parseFloat(inv.outbound_total)||0 };
   });
 
   // Stats (based on brands WITH sales only)
@@ -12281,8 +12283,8 @@ function _mrRenderTable() {
       <td>${vatSt!=='—'?`<span class="pill ${vatClass}" style="font-size:10px">${vatSt}</span>`:'<span style="color:var(--g300);font-size:11px">—</span>'}</td>
       <td style="text-align:right">${fmtQty(r._stock_qty)}</td>
       <td style="text-align:right">${r._stock_value>0?`<span style="font-family:var(--mono);font-size:12px">${_mrRpFull(r._stock_value)}</span>`:zeroCell}</td>
-      <td style="text-align:right">${fmtQty(r._inbound_qty)}</td>
-      <td style="text-align:right">${fmtQty(r._outbound_qty)}</td>
+      <td style="text-align:right">${fmtQty(r._inbound_period)}</td>
+      <td style="text-align:right">${fmtQty(r._outbound_period)}</td>
       <td style="text-align:right">${hasSales ? `<span style="font-family:var(--mono);font-size:12px">${_mrRpFull(r.total_sales)}</span>` : zeroCell}</td>
       <td style="text-align:right">${hasSales ? `<span style="font-family:var(--mono);font-size:12px;color:#c05">${_mrRpFull(r.total_fee)}</span>` : zeroCell}</td>
       <td style="text-align:right">${hasSales ? `<span style="font-family:var(--mono);font-size:12px;font-weight:600">${_mrRpFull(r.net_payout)}</span>` : zeroCell}</td>
@@ -12310,10 +12312,12 @@ async function openMRDetail(brandId, brandName) {
   // Inventory from _mrAllRows
   const invRow = _mrAllRows.find(r=>r.brand_id===brandId);
   const fmtQ = n => n>0 ? Math.round(n).toLocaleString('id-ID')+' pcs' : '—';
-  document.getElementById('mr-modal-stock-qty').textContent   = fmtQ(invRow?._stock_qty||0);
-  document.getElementById('mr-modal-inbound').textContent     = fmtQ(invRow?._inbound_qty||0);
-  document.getElementById('mr-modal-outbound').textContent    = fmtQ(invRow?._outbound_qty||0);
-  document.getElementById('mr-modal-stock-value').textContent = (invRow?._stock_value||0)>0 ? _mrRpFull(invRow._stock_value) : '—';
+  document.getElementById('mr-modal-stock-qty').textContent    = fmtQ(invRow?._stock_qty||0);
+  document.getElementById('mr-modal-stock-value').textContent  = (invRow?._stock_value||0)>0 ? _mrRpFull(invRow._stock_value) : '—';
+  document.getElementById('mr-modal-inbound-total').textContent  = fmtQ(invRow?._inbound_total||0);
+  document.getElementById('mr-modal-outbound-total').textContent = fmtQ(invRow?._outbound_total||0);
+  document.getElementById('mr-modal-inbound').textContent      = fmtQ(invRow?._inbound_period||0);
+  document.getElementById('mr-modal-outbound').textContent     = fmtQ(invRow?._outbound_period||0);
 
   // Status cards
   _mrRenderStatusCards(trkRow);
