@@ -6000,18 +6000,21 @@ async function loadStockMovement(){
     const gmap={};
     for(const r of _srcRows){
       const key=r.parent_name||r.item_name||'?';
-      if(!gmap[key]) gmap[key]={parent:key, brand:r.brand||'(Tanpa Brand)', variants:[], stock:0, sold:0, adjIn:0, adjOut:0};
+      if(!gmap[key]) gmap[key]={parent:key, brand:r.brand||'(Tanpa Brand)', ip:r.ip||'(Tanpa IP)', variants:[], stock:0, sold:0, adjIn:0, adjOut:0};
       const g=gmap[key];
       g.variants.push(r);
       g.stock+=parseFloat(r.stock)||0; g.sold+=parseFloat(r.sold)||0;
       g.adjIn+=parseFloat(r.adj_in)||0; g.adjOut+=parseFloat(r.adj_out)||0;
     }
     _srcGroups=Object.values(gmap).sort((a,b)=>a.parent.localeCompare(b.parent,'id'));
-    // Brand dropdown
+    // Brand + IP dropdowns
     if(!_srcBrandsLoaded){
       const sel=document.getElementById('src-fil-brand');
       const brands=[...new Set(_srcGroups.map(g=>g.brand))].sort((a,b)=>a.localeCompare(b,'id'));
       sel.innerHTML='<option value="">Semua Brand</option>'+brands.map(b=>`<option value="${invEsc(b)}">${invEsc(b)}</option>`).join('');
+      const ipSel=document.getElementById('src-fil-ip');
+      const ips=[...new Set(_srcGroups.map(g=>g.ip))].sort((a,b)=>a.localeCompare(b,'id'));
+      ipSel.innerHTML='<option value="">Semua IP</option>'+ips.map(i=>`<option value="${invEsc(i)}">${invEsc(i)}</option>`).join('');
       _srcBrandsLoaded=true;
     }
     applySrcFilters();
@@ -6020,15 +6023,18 @@ async function loadStockMovement(){
 
 function clearSrcFilters(){
   const b=document.getElementById('src-fil-brand'); if(b) b.value='';
+  const i=document.getElementById('src-fil-ip'); if(i) i.value='';
   const s=document.getElementById('srcSearch'); if(s) s.value='';
   applySrcFilters();
 }
 
 function applySrcFilters(){
   const brand=(document.getElementById('src-fil-brand')||{}).value||'';
+  const ip=(document.getElementById('src-fil-ip')||{}).value||'';
   const q=((document.getElementById('srcSearch')||{}).value||'').toLowerCase().trim();
   let groups=_srcGroups;
   if(brand) groups=groups.filter(g=>g.brand===brand);
+  if(ip) groups=groups.filter(g=>g.ip===ip);
   if(q) groups=groups.filter(g=>g.parent.toLowerCase().includes(q)||g.brand.toLowerCase().includes(q)
     ||g.variants.some(v=>(v.item_code||'').toLowerCase().includes(q)));
   // Stats
