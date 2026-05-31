@@ -164,7 +164,7 @@ function showPage(name, el) {
   document.getElementById("page-"+name).classList.add("active");
   if (el) el.classList.add("active");
   const _c = document.querySelector('.content'); if (_c) _c.scrollTop = 0;
-  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Need Restock",stockmovement:"Stock Movement",productmap:"Product Mapping",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories"};
+  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Need Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -186,7 +186,7 @@ function showPage(name, el) {
   if (name==="jubsales") loadJubSales();
   if (name==="mesign") loadMekariEsign();
   if (name==="po") loadPO();
-  if (name==="stockmovement" && !smPORows.length) loadStockMovement();
+  if (name==="stockmovement" && !_srcRows.length) loadStockMovement();
   if (name==="productmap") loadProductMap(0,'');
   if (name==="collections") {
     // If restoring a collection detail from URL, immediately switch to detail view
@@ -5979,7 +5979,108 @@ function clearDwForm() {
   const dls=document.getElementById("dw-dl-status");if(dls)dls.value="Pending";
 }
 
-// ── STOCK MOVEMENT ──
+// ── STOCK RECONCILE (global) ──
+let _srcRows=[], _srcGroups=[], _srcBrandsLoaded=false;
+
+async function loadStockMovement(){
+  const tb=document.getElementById('srcTableBody');
+  if(tb) tb.innerHTML=`<tr><td class="empty-td" colspan="7">Memuat data reconcile...</td></tr>`;
+  try{
+    // Paged RPC fetch (PostgREST caps each response at 1000 rows)
+    _srcRows=[]; { const PAGE=1000; let from=0;
+      while(true){
+        const {data,error}=await sb.rpc('get_stock_reconcile').range(from,from+PAGE-1);
+        if(error) throw error;
+        _srcRows=_srcRows.concat(data||[]);
+        if(!data||data.length<PAGE) break;
+        from+=PAGE;
+      }
+    }
+    // Group by parent_name
+    const gmap={};
+    for(const r of _srcRows){
+      const key=r.parent_name||r.item_name||'?';
+      if(!gmap[key]) gmap[key]={parent:key, brand:r.brand||'(Tanpa Brand)', variants:[], stock:0, sold:0, adjIn:0, adjOut:0};
+      const g=gmap[key];
+      g.variants.push(r);
+      g.stock+=parseFloat(r.stock)||0; g.sold+=parseFloat(r.sold)||0;
+      g.adjIn+=parseFloat(r.adj_in)||0; g.adjOut+=parseFloat(r.adj_out)||0;
+    }
+    _srcGroups=Object.values(gmap).sort((a,b)=>a.parent.localeCompare(b.parent,'id'));
+    // Brand dropdown
+    if(!_srcBrandsLoaded){
+      const sel=document.getElementById('src-fil-brand');
+      const brands=[...new Set(_srcGroups.map(g=>g.brand))].sort((a,b)=>a.localeCompare(b,'id'));
+      sel.innerHTML='<option value="">Semua Brand</option>'+brands.map(b=>`<option value="${invEsc(b)}">${invEsc(b)}</option>`).join('');
+      _srcBrandsLoaded=true;
+    }
+    applySrcFilters();
+  }catch(e){ if(tb) tb.innerHTML=`<tr><td class="empty-td" colspan="7" style="color:#c0392b">Gagal: ${invEsc(e.message||String(e))}</td></tr>`; }
+}
+
+function clearSrcFilters(){
+  const b=document.getElementById('src-fil-brand'); if(b) b.value='';
+  const s=document.getElementById('srcSearch'); if(s) s.value='';
+  applySrcFilters();
+}
+
+function applySrcFilters(){
+  const brand=(document.getElementById('src-fil-brand')||{}).value||'';
+  const q=((document.getElementById('srcSearch')||{}).value||'').toLowerCase().trim();
+  let groups=_srcGroups;
+  if(brand) groups=groups.filter(g=>g.brand===brand);
+  if(q) groups=groups.filter(g=>g.parent.toLowerCase().includes(q)||g.brand.toLowerCase().includes(q)
+    ||g.variants.some(v=>(v.item_code||'').toLowerCase().includes(q)));
+  // Stats
+  let tStock=0,tSold=0,tIn=0,tOut=0;
+  groups.forEach(g=>{tStock+=g.stock;tSold+=g.sold;tIn+=g.adjIn;tOut+=g.adjOut;});
+  const n=x=>Math.round(x).toLocaleString('id-ID');
+  document.getElementById('src-s-stock').textContent=n(tStock);
+  document.getElementById('src-s-sold').textContent=n(tSold);
+  document.getElementById('src-s-in').textContent=n(tIn);
+  document.getElementById('src-s-out').textContent=n(tOut);
+  document.getElementById('src-tcount').textContent=`${groups.length} produk · ${_srcRows.length} SKU`;
+  renderSrcTable(groups);
+}
+
+function renderSrcTable(groups){
+  const tb=document.getElementById('srcTableBody');
+  if(!tb) return;
+  if(!groups.length){ tb.innerHTML=`<tr><td class="empty-td" colspan="7">Tidak ada data yang cocok.</td></tr>`; return; }
+  const numCell=(v,clr)=>{ const x=parseFloat(v)||0; return `<td style="text-align:right;font-family:var(--mono);font-size:12px;${x?('color:'+clr):'color:var(--g300)'}">${x?Math.round(x).toLocaleString('id-ID'):'—'}</td>`; };
+  tb.innerHTML=groups.map((g,gi)=>{
+    const rid=`src-g-${gi}`;
+    const codes=[...new Set(g.variants.map(v=>v.item_code))];
+    const parent=`<tr>
+      <td style="text-align:center;cursor:pointer;color:var(--g400);user-select:none" onclick="toggleSrcSku('${rid}',this)" id="${rid}-tog">▶</td>
+      <td><div style="font-weight:500;font-size:13px">${invEsc(g.parent)}</div><div style="font-family:var(--mono);font-size:10px;color:var(--g400)">${codes.length} SKU</div></td>
+      <td><span class="pill p-draft" style="font-size:10px">${invEsc(g.brand)}</span></td>
+      ${numCell(g.stock,'var(--black)')}
+      ${numCell(g.sold,'#2d7a2d')}
+      ${numCell(g.adjIn,'#16a34a')}
+      ${numCell(g.adjOut,'#c0392b')}
+    </tr>`;
+    const subs=g.variants.map(v=>`<tr class="${rid}-sku" style="display:none;background:var(--off)">
+      <td></td>
+      <td style="padding-left:24px"><div style="font-family:var(--mono);font-size:10px;color:var(--g400)">${invEsc(v.item_code)}</div><div style="font-size:11px;color:var(--g600)">${invEsc(v.item_name)}</div></td>
+      <td></td>
+      ${numCell(v.stock,'var(--black)')}
+      ${numCell(v.sold,'#2d7a2d')}
+      ${numCell(v.adj_in,'#16a34a')}
+      ${numCell(v.adj_out,'#c0392b')}
+    </tr>`).join('');
+    return parent+subs;
+  }).join('');
+}
+
+function toggleSrcSku(rid,btn){
+  const rows=document.querySelectorAll(`.${rid}-sku`);
+  const vis=rows.length>0&&rows[0].style.display!=='none';
+  rows.forEach(r=>r.style.display=vis?'none':'');
+  btn.textContent=vis?'▶':'▼';
+}
+
+// ── STOCK MOVEMENT (legacy, unused) ──
 let smPORows=[], smPOItems=[], smPOBills=[], smPOBillItems=[], smPOReceives=[];
 let smStockMap={};   // item_id → [{loc, qty}]
 let smLocNames={};   // location_id → location_name
@@ -5990,7 +6091,7 @@ let smSort={col:null,dir:'asc'};
 let _smFiltered=[];
 function sortSmBy(c){smSort.dir=smSort.col===c?(smSort.dir==='asc'?'desc':'asc'):'asc';smSort.col=c;renderSmTable(_smFiltered);}
 
-async function loadStockMovement(){
+async function _OLD_loadStockMovement_unused(){
   const tbody=document.getElementById("smTableBody");
   if(tbody) tbody.innerHTML=`<tr><td class="empty-td" colspan="9">Memuat...</td></tr>`;
   try{
