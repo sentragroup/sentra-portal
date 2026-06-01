@@ -127,6 +127,7 @@ function enterApp(user, freshLogin) {
   document.getElementById("greetDate").textContent = new Date().toLocaleDateString("id-ID",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
   loadStats();
   preloadAutocomplete();
+  applyAccessControl();
   upsertPortalUser(user);
   loadAnnTicker();
   if (freshLogin) logActivity("Auth","login",null,"Login berhasil");
@@ -158,7 +159,67 @@ async function doLogout() {
   document.getElementById("loginErr").textContent = "";
 }
 
+// ── ACCESS CONTROL ──
+let _isAdmin = false;
+let _myAccess = null;   // null = all modules; array = allowed module keys
+// All manageable module keys (must match showPage names / nav-<key> ids)
+const ACCESS_MODULES = [
+  {key:'insights',label:'Insights'},{key:'salesperf',label:'Sales Performance'},
+  {key:'project',label:'Project Board'},{key:'calendar',label:'Calendar'},
+  {key:'agreement',label:'Agreement'},{key:'ipmaster',label:'IP Master'},
+  {key:'recipients',label:'Collaborator Royalty'},{key:'brandmaster',label:'Brand Master'},
+  {key:'distpartner',label:'Distribution Partner'},{key:'designermaster',label:'Designer Master'},
+  {key:'productmap',label:'Product Mapping'},{key:'leads',label:'Leads Management'},
+  {key:'collections',label:'Collection Development'},{key:'dsgworkflow',label:'Designer Workflow'},
+  {key:'salesreport',label:'Account Report'},{key:'popupbooth',label:'Pop Up Booth'},
+  {key:'jubsales',label:'Offline Sales Log'},{key:'mesign',label:'Mekari Sign'},
+  {key:'po',label:'Purchase Orders'},{key:'stockmovement',label:'Stock Reconcile'},
+  {key:'warehousekpi',label:'Warehouse KPI'},{key:'stockadjmgmt',label:'Stock Adjustment'},
+  {key:'returnreason',label:'Return Reason'},{key:'tradorders',label:'Wholesale Orders'},
+  {key:'invcheck',label:'Inventory Check'},{key:'marte',label:'Monthly Settlement'},
+  {key:'martereport',label:'Consignment Report'},{key:'marteskucat',label:'SKU Categories'},
+  {key:'reminders',label:'Reminders'},{key:'announcements',label:'Announcements'},
+  {key:'team',label:'Tim / Akses'},
+];
+
+async function applyAccessControl(){
+  _isAdmin=false; _myAccess=null;
+  try{
+    const {data}=await sb.from('team_members').select('name,email,is_admin,module_access');
+    const me=(data||[]).find(m=>
+      (m.email && currentUserEmail && m.email.toLowerCase()===currentUserEmail.toLowerCase()) || m.name===currentUser);
+    if(me){ _isAdmin=!!me.is_admin; _myAccess=Array.isArray(me.module_access)?me.module_access:null; }
+  }catch(e){ /* fail open: full access */ }
+  enforceModuleAccess();
+}
+
+function enforceModuleAccess(){
+  const restricted = (!_isAdmin && Array.isArray(_myAccess));
+  const allowed = restricted ? new Set(_myAccess) : null;
+  const ok = key => !allowed || allowed.has(key) || key==='home';
+  // Sidebar items (id="nav-<key>")
+  document.querySelectorAll('.sb-item[id^="nav-"]').forEach(el=>{
+    el.style.display = ok(el.id.slice(4)) ? '' : 'none';
+  });
+  // Home tool cards (onclick="showPage('<key>'...)")
+  document.querySelectorAll('.tool-card[onclick*="showPage("]').forEach(card=>{
+    const m=(card.getAttribute('onclick')||'').match(/showPage\('([^']+)'/);
+    card.style.display = ok(m?m[1]:'') ? '' : 'none';
+  });
+  // If currently viewing a now-restricted page, bounce to home
+  if(restricted){
+    const act=document.querySelector('.page.active');
+    const curKey=act?act.id.replace('page-',''):'';
+    if(curKey && curKey!=='home' && !allowed.has(curKey)) showPage('home', document.getElementById('nav-home'));
+  }
+}
+
 function showPage(name, el) {
+  // Access control: block modules the current user isn't allowed (admin/null = all)
+  if (name !== 'home' && !_isAdmin && Array.isArray(_myAccess) && !_myAccess.includes(name)) {
+    alert('Kamu tidak punya akses ke modul ini. Hubungi admin.');
+    return;
+  }
   document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
   document.querySelectorAll(".sb-item").forEach(i=>i.classList.remove("active"));
   document.getElementById("page-"+name).classList.add("active");
@@ -14420,11 +14481,13 @@ function renderTeamList(){
           ${initials}
         </div>
         <div style="flex:1;min-width:0">
-          <div style="font-size:14px;font-weight:600;color:var(--black);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(m.name)}</div>
+          <div style="font-size:14px;font-weight:600;color:var(--black);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(m.name)}${m.is_admin?' <span class="pill p-signings" style="font-size:9px;vertical-align:middle">ADMIN</span>':''}</div>
           <div style="font-size:11px;color:var(--g400);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${m.role ? _esc(m.role) : '<span style="font-style:italic;color:var(--g300)">No role</span>'}</div>
         </div>
       </div>
       ${m.email ? `<div style="font-size:11px;color:var(--g400);font-family:var(--mono);background:var(--off);border-radius:6px;padding:5px 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(m.email)}</div>` : ''}
+      <div style="font-size:11px;color:var(--g400)">Akses: <strong style="color:var(--g600)">${m.is_admin?'Semua (admin)':(Array.isArray(m.module_access)?m.module_access.length+' modul':'Semua')}</strong></div>
+      ${_isAdmin?`<button onclick="openTeamAccess('${_esc(m.id)}')" style="padding:5px 10px;border-radius:6px;border:1px solid #c7d2fe;background:#eef2ff;color:#4f46e5;font-size:12px;cursor:pointer;text-align:center">🔑 Atur Akses</button>`:''}
       <div style="display:flex;align-items:center;gap:6px;padding-top:2px;border-top:1px solid var(--g100)">
         <button onclick="openEditTeamMember('${_esc(m.id)}')"
           style="flex:1;padding:5px 10px;border-radius:6px;border:1px solid var(--g200);background:none;color:var(--g600);font-size:12px;cursor:pointer;text-align:center"
@@ -14568,6 +14631,57 @@ async function saveEditTeamMember(id, btn){
     btn.disabled=false; btn.textContent='Simpan';
     alert('Gagal menyimpan: '+e.message);
   }
+}
+
+// ── Access management (admin only) ──
+function openTeamAccess(id){
+  if(!_isAdmin) return;
+  const m=_teamRows.find(x=>x.id===id); if(!m) return;
+  const cur = Array.isArray(m.module_access) ? new Set(m.module_access) : null; // null = all
+  const allChecked = cur===null;
+  const modal=document.createElement('div');
+  modal.style.cssText='position:fixed;inset:0;z-index:600;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;padding:20px';
+  modal.onclick=e=>{ if(e.target===modal) modal.remove(); };
+  const checks=ACCESS_MODULES.map(mod=>`
+    <label style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;font-size:12px;cursor:pointer"
+      onmouseover="this.style.background='var(--off)'" onmouseout="this.style.background=''">
+      <input type="checkbox" class="tac-mod" value="${mod.key}" ${allChecked||cur.has(mod.key)?'checked':''}> ${_esc(mod.label)}
+    </label>`).join('');
+  modal.innerHTML=`
+    <div style="background:var(--white);border-radius:14px;padding:24px;width:520px;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,.15)">
+      <div style="font-family:var(--head);font-size:16px;font-weight:700;margin-bottom:4px">Atur Akses — ${_esc(m.name)}</div>
+      <div style="font-size:12px;color:var(--g400);margin-bottom:14px">Centang modul yang boleh diakses. Centang semua = akses penuh.</div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;margin-bottom:10px;padding:8px;background:#eef2ff;border-radius:8px;cursor:pointer">
+        <input type="checkbox" id="tac-admin" ${m.is_admin?'checked':''}> 👑 Admin (akses semua + bisa atur akses orang lain)
+      </label>
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <button onclick="document.querySelectorAll('.tac-mod').forEach(c=>c.checked=true)" style="font-size:11px;padding:4px 10px;border:1px solid var(--g200);border-radius:6px;background:none;cursor:pointer">Centang semua</button>
+        <button onclick="document.querySelectorAll('.tac-mod').forEach(c=>c.checked=false)" style="font-size:11px;padding:4px 10px;border:1px solid var(--g200);border-radius:6px;background:none;cursor:pointer">Kosongkan</button>
+      </div>
+      <div style="flex:1;overflow-y:auto;border:1px solid var(--g100);border-radius:8px;padding:6px;display:grid;grid-template-columns:1fr 1fr;gap:2px">${checks}</div>
+      <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
+        <button onclick="this.closest('[style*=fixed]').remove()" style="padding:8px 16px;background:none;border:1px solid var(--g200);border-radius:8px;font-size:13px;cursor:pointer">Batal</button>
+        <button onclick="saveTeamAccess('${_esc(id)}',this)" style="padding:8px 18px;background:var(--black);color:var(--white);border:none;border-radius:8px;font-size:13px;cursor:pointer">Simpan</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+}
+
+async function saveTeamAccess(id, btn){
+  const modal=btn.closest('[style*=fixed]');
+  const isAdmin=modal.querySelector('#tac-admin').checked;
+  const checked=[...modal.querySelectorAll('.tac-mod:checked')].map(c=>c.value);
+  // all checked → null (full access); else the array
+  const moduleAccess = (checked.length===ACCESS_MODULES.length) ? null : checked;
+  btn.disabled=true; btn.textContent='Menyimpan…';
+  try{
+    const {error}=await sb.from('team_members').update({is_admin:isAdmin, module_access:moduleAccess}).eq('id',id);
+    if(error) throw error;
+    const m=_teamRows.find(x=>x.id===id);
+    if(m){ m.is_admin=isAdmin; m.module_access=moduleAccess; }
+    renderTeamList();
+    modal.remove();
+  }catch(e){ btn.disabled=false; btn.textContent='Simpan'; alert('Gagal: '+e.message); }
 }
 
 async function toggleTeamActive(id, newState){
