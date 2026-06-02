@@ -9325,7 +9325,7 @@ async function loadCalendar() {
     (colItemRes.data||[]).forEach(r=>calEvents.push({src:'colitem',date:r.deadline,label:r.sku_name,id:r.collection_id}));
     (leadsRes.data||[]).forEach(r=>calEvents.push({src:'leads',date:r.follow_up_date,label:r.lead_name,id:r.id}));
     (popupRes.data||[]).forEach(r=>calEvents.push({src:'popup',date:r.event_date,label:r.event_name+(r.location?` · ${r.location}`:''),id:r.id}));
-    (momRes.data||[]).forEach(r=>calEvents.push({src:'momentum',date:r.date,mmdd:r.date.slice(5),recurs:r.recurs_yearly,label:(r.category==='Birthday'?'🎂 ':r.category==='Anniversary'?'🎊 ':r.category==='Launch'?'🚀 ':'🎉 ')+r.title+(r.related_to?' · '+r.related_to:''),id:r.id}));
+    (momRes.data||[]).forEach(r=>calEvents.push({src:'momentum',date:r.date,end:r.end_date||null,mmdd:r.date.slice(5),recurs:r.recurs_yearly,label:(r.category==='Birthday'?'🎂 ':r.category==='Anniversary'?'🎊 ':r.category==='Launch'?'🚀 ':r.category==='Event'?'📅 ':'🎉 ')+r.title+(r.related_to?' · '+r.related_to:''),id:r.id}));
     renderCalendar();
   } catch(e){ console.error('Calendar load error:',e); }
 }
@@ -9354,10 +9354,31 @@ function renderCalendar() {
   const daysInMonth = new Date(calYear, calMonth+1, 0).getDate();
   const daysInPrev = new Date(calYear, calMonth, 0).getDate();
 
+  const isoDate = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   const filtered = calEvents.filter(e => calActiveFilters.has(e.src));
   const byDate = {};
   filtered.forEach(e => {
-    // Recurring momentum events: pin to current calendar year by MM-DD
+    // Multi-day momentum events: place the event on every day in its range as a connected span
+    if (e.src === 'momentum' && e.end && e.end > e.date) {
+      let startStr, endStr;
+      if (e.recurs) {
+        // pin start to current calendar year, preserve duration
+        startStr = `${calYear}-${e.mmdd}`;
+        const dur = Math.round((new Date(e.end+'T00:00:00') - new Date(e.date+'T00:00:00')) / 86400000);
+        const sd = new Date(startStr+'T00:00:00'); sd.setDate(sd.getDate()+dur);
+        endStr = isoDate(sd);
+      } else { startStr = e.date; endStr = e.end; }
+      const cur = new Date(startStr+'T00:00:00');
+      const last = new Date(endStr+'T00:00:00');
+      while (cur <= last) {
+        const key = isoDate(cur);
+        const isStart = key===startStr, isEnd = key===endStr;
+        (byDate[key] = byDate[key] || []).push({...e, _spanPos: isStart&&isEnd?'single':isStart?'start':isEnd?'end':'mid'});
+        cur.setDate(cur.getDate()+1);
+      }
+      return;
+    }
+    // Recurring single-day momentum events: pin to current calendar year by MM-DD
     const key = (e.src === 'momentum' && e.recurs) ? `${calYear}-${e.mmdd}` : e.date;
     if (!byDate[key]) byDate[key] = [];
     byDate[key].push(e);
@@ -9380,7 +9401,15 @@ function renderCalendar() {
     const dayDate = new Date(calYear, calMonth, d);
     const isToday = dayDate.getTime() === today.getTime();
     const dayEvts = byDate[dateStr] || [];
-    const evHtml = dayEvts.slice(0,3).map(e=>`<div class="cal-event src-${e.src}" onclick="event.stopPropagation();calEventClick('${e.src}','${e.id}')" title="${e.label}">${srcLabel[e.src]} ${e.label}</div>`).join('');
+    const evHtml = dayEvts.slice(0,3).map(e=>{
+      if (e._spanPos && e._spanPos !== 'single') {
+        // connected multi-day bar: rounded only on the outer ends, label only on start
+        const radius = e._spanPos==='start' ? '4px 0 0 4px' : e._spanPos==='end' ? '0 4px 4px 0' : '0';
+        const txt = e._spanPos==='start' ? e.label : '&nbsp;';
+        return `<div class="cal-event src-${e.src}" onclick="event.stopPropagation();calEventClick('${e.src}','${e.id}')" title="${e.label}" style="border-radius:${radius};${e._spanPos!=='start'?'margin-left:-4px;margin-right:-4px;padding-left:8px;':''}${e._spanPos==='start'?'margin-right:-4px;':''}">${txt}</div>`;
+      }
+      return `<div class="cal-event src-${e.src}" onclick="event.stopPropagation();calEventClick('${e.src}','${e.id}')" title="${e.label}">${srcLabel[e.src]} ${e.label}</div>`;
+    }).join('');
     const overflow = dayEvts.length > 3 ? `<div class="cal-overflow">+${dayEvts.length-3} lagi</div>` : '';
     html += `<div class="cal-day${isToday?' today':''}"><div class="cal-day-num">${d}</div>${evHtml}${overflow}</div>`;
   }
@@ -9413,7 +9442,7 @@ async function loadMomentum() {
   renderMomentList();
 }
 
-const MOM_CAT_ICON = {Birthday:'🎂', Anniversary:'🎊', Launch:'🚀', 'Special Day':'⭐', Other:'🎉'};
+const MOM_CAT_ICON = {Event:'📅', Birthday:'🎂', Anniversary:'🎊', Launch:'🚀', 'Special Day':'⭐', Other:'🎉'};
 
 function renderMomentList() {
   const list = document.getElementById('mom-list'); if (!list) return;
@@ -9427,7 +9456,11 @@ function renderMomentList() {
   list.innerHTML = sorted.map(r => {
     const raw = new Date(r.date + 'T00:00:00');
     const mmdd = r.date.slice(5);
-    const displayDate = raw.toLocaleDateString('id-ID', {day:'2-digit', month:'long'}) + (r.recurs_yearly ? '' : ' ' + raw.getFullYear());
+    let displayDate = raw.toLocaleDateString('id-ID', {day:'2-digit', month:'long'}) + (r.recurs_yearly ? '' : ' ' + raw.getFullYear());
+    if (r.end_date && r.end_date > r.date) {
+      const endRaw = new Date(r.end_date + 'T00:00:00');
+      displayDate += ' – ' + endRaw.toLocaleDateString('id-ID', {day:'2-digit', month:'long'}) + (r.recurs_yearly ? '' : ' ' + endRaw.getFullYear());
+    }
     const icon = MOM_CAT_ICON[r.category] || '🎉';
     // Next occurrence
     const thisYear = new Date(today.getFullYear() + '-' + mmdd + 'T00:00:00');
@@ -9458,12 +9491,14 @@ function renderMomentList() {
 async function submitMoment() {
   const title = document.getElementById('mom-title').value.trim();
   const date  = document.getElementById('mom-date').value;
+  const endDate = document.getElementById('mom-end-date').value || null;
   if (!title) { showMomFeedback('Judul wajib diisi.','err'); return; }
   if (!date)  { showMomFeedback('Tanggal wajib diisi.','err'); return; }
+  if (endDate && endDate < date) { showMomFeedback('Tanggal selesai tidak boleh sebelum tanggal mulai.','err'); return; }
   const btn = document.getElementById('momSubmitBtn'); btn.disabled=true; btn.textContent='Menyimpan…';
   const id = genId('MOM');
   const {error} = await sb.from('calendar_moments').insert({
-    id, title, date,
+    id, title, date, end_date: endDate,
     recurs_yearly: document.getElementById('mom-recurs').checked,
     category:   document.getElementById('mom-category').value,
     related_to: document.getElementById('mom-related').value.trim()||null,
@@ -9486,9 +9521,9 @@ async function deleteMoment(id) {
 }
 
 function clearMomentForm() {
-  ['mom-title','mom-related','mom-notes'].forEach(i => { const e=document.getElementById(i); if(e) e.value=''; });
+  ['mom-title','mom-related','mom-notes','mom-end-date'].forEach(i => { const e=document.getElementById(i); if(e) e.value=''; });
   const d=document.getElementById('mom-date'); if(d) d.value='';
-  const c=document.getElementById('mom-category'); if(c) c.value='Birthday';
+  const c=document.getElementById('mom-category'); if(c) c.value='Event';
   const r=document.getElementById('mom-recurs'); if(r) r.checked=true;
 }
 
