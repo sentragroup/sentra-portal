@@ -8163,7 +8163,7 @@ async function loadInvCheck(){
     const [stockRows, itemRows] = locIds.length ? await Promise.all([
       _fetchAllPages('jubelio_inventory_stocks','location_id,item_id,on_hand,available,synced_at',
         q=>q.in('location_id',locIds).neq('on_hand',0)),
-      _fetchAllPages('jubelio_items','item_id,item_code,item_name,item_group_id,brand_name')
+      _fetchAllPages('jubelio_items','item_id,item_code,item_name,item_group_id,brand_name,thumbnail')
     ]) : [[],[]];
     const itemMeta={};
     for(const it of (itemRows||[])) itemMeta[it.item_id]=it;
@@ -8173,7 +8173,7 @@ async function loadInvCheck(){
         location_id:s.location_id, item_id:s.item_id,
         item_code:m.item_code||'', item_name:m.item_name||'—',
         item_group_id:m.item_group_id??s.item_id, item_group_name:null,
-        brand_name:m.brand_name||null,
+        brand_name:m.brand_name||null, thumbnail:m.thumbnail||null,
         qty_on_hand:s.on_hand, qty_available:s.available, synced_at:s.synced_at
       };
     });
@@ -8209,9 +8209,10 @@ function rebuildInvGroups(){
       // derive brand: prefer explicit brand_name, fall back to first segment of item_name
       const rawBrand=row.brand_name||(row.item_name?row.item_name.split(' - ')[0].trim():'');
       const brandKey=rawBrand.toLowerCase().trim();
-      groupMap[gid]={item_group_id:gid,parent_name:pName,brand_name:rawBrand,brandKey,skus:[],byLocation:{}};
+      groupMap[gid]={item_group_id:gid,parent_name:pName,brand_name:rawBrand,brandKey,thumbnail:null,skus:[],byLocation:{}};
     }
     const g=groupMap[gid];
+    if(!g.thumbnail && row.thumbnail) g.thumbnail=row.thumbnail;
     if(!g.skus.find(s=>s.item_id===row.item_id && s.location_id===row.location_id)) g.skus.push(row);
     const locId=row.location_id;
     g.byLocation[locId]=(g.byLocation[locId]||0)+parseFloat(row.qty_on_hand||0);
@@ -8337,7 +8338,7 @@ function renderInvTable(groups,columns,page){
   const pageGroups=groups.slice(start,start+INV_PAGE_SIZE);
   // ── category header row ──
   const stickyTh=`position:sticky;left:0;background:var(--off);z-index:3;`;
-  let catCells=`<th style="${stickyTh}min-width:220px;border-bottom:1px solid var(--g100);padding:6px 12px"></th>`;
+  let catCells=`<th style="${stickyTh}min-width:270px;border-bottom:1px solid var(--g100);padding:6px 12px"></th>`;
   for(const cat of INV_CAT_ORDER){
     const catCols=columns.filter(c=>c.category===cat);
     if(!catCols.length) continue;
@@ -8362,11 +8363,19 @@ function renderInvTable(groups,columns,page){
     // Count unique SKUs across all locations
     const uniqueSkuCodes=[...new Set(group.skus.map(s=>s.item_code))];
     // Parent item cells
+    const thumbHTML=group.thumbnail
+      ? `<div class="sp-thumb-zoom" style="flex-shrink:0"><img src="${group.thumbnail}" style="width:36px;height:36px;object-fit:cover;border-radius:5px;border:1px solid var(--g100);display:block" onerror="this.parentElement.style.display='none'"><img src="${group.thumbnail}" class="sp-thumb-big"></div>`
+      : `<div style="width:36px;height:36px;border-radius:5px;background:var(--off);flex-shrink:0"></div>`;
     let pCells=`<td style="${stickyTd}background:var(--white);padding:10px 12px;border-bottom:1px solid var(--g100);vertical-align:middle">
-      <div style="font-weight:400;font-size:13px;color:var(--black);margin-bottom:2px">${invEsc(group.parent_name)}
-        <button onclick="toggleInvSKUs('${rowId}',this)" style="background:none;border:none;cursor:pointer;color:var(--g400);font-size:10px;padding:1px 5px;border-radius:3px;font-family:var(--mono);margin-left:4px;line-height:1.4">▾ ${uniqueSkuCodes.length} SKU</button>
+      <div style="display:flex;align-items:center;gap:10px">
+        ${thumbHTML}
+        <div style="min-width:0">
+          <div style="font-weight:400;font-size:13px;color:var(--black);margin-bottom:2px">${invEsc(group.parent_name)}
+            <button onclick="toggleInvSKUs('${rowId}',this)" style="background:none;border:none;cursor:pointer;color:var(--g400);font-size:10px;padding:1px 5px;border-radius:3px;font-family:var(--mono);margin-left:4px;line-height:1.4">▾ ${uniqueSkuCodes.length} SKU</button>
+          </div>
+          <div style="font-family:var(--mono);font-size:10px;color:var(--g400)">${invEsc(group.brand_name)}</div>
+        </div>
       </div>
-      <div style="font-family:var(--mono);font-size:10px;color:var(--g400)">${invEsc(group.brand_name)}</div>
     </td>`;
     for(const col of columns){
       const cfg=INV_CAT_CFG[col.category];
