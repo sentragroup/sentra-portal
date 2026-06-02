@@ -8364,7 +8364,7 @@ function renderInvTable(groups,columns,page){
     const uniqueSkuCodes=[...new Set(group.skus.map(s=>s.item_code))];
     // Parent item cells
     const thumbHTML=group.thumbnail
-      ? `<div class="sp-thumb-zoom" style="flex-shrink:0"><img src="${group.thumbnail}" style="width:36px;height:36px;object-fit:cover;border-radius:5px;border:1px solid var(--g100);display:block" onerror="this.parentElement.style.display='none'"><img src="${group.thumbnail}" class="sp-thumb-big"></div>`
+      ? `<img src="${group.thumbnail}" style="width:36px;height:36px;object-fit:cover;border-radius:5px;border:1px solid var(--g100);display:block;flex-shrink:0" onerror="this.style.visibility='hidden'">`
       : `<div style="width:36px;height:36px;border-radius:5px;background:var(--off);flex-shrink:0"></div>`;
     let pCells=`<td style="${stickyTd}background:var(--white);padding:10px 12px;border-bottom:1px solid var(--g100);vertical-align:middle">
       <div style="display:flex;align-items:center;gap:10px">
