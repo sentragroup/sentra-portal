@@ -138,7 +138,7 @@ function enterApp(user, freshLogin) {
   // Restore page: prefer URL hash, fall back to sessionStorage
   let _pg = location.hash.slice(1).split('/')[0];
   if (!_pg) _pg = sessionStorage.getItem('snt_page') || '';
-  const _pages = ['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','popupbooth','activitylog','jubsales','mesign','po','stockmovement','productmap','collections','designermaster','dsgworkflow','warehousekpi','stockadjmgmt','returnreason','tradorders','invcheck','salesperf','reminders','announcements','marte'];
+  const _pages = ['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','popupbooth','activitylog','jubsales','mesign','po','stockmovement','productmap','productdev','collections','designermaster','dsgworkflow','warehousekpi','stockadjmgmt','returnreason','tradorders','invcheck','salesperf','reminders','announcements','marte'];
   if (_pages.includes(_pg))
     showPage(_pg, document.getElementById('nav-'+_pg));
 }
@@ -225,7 +225,7 @@ function showPage(name, el) {
   document.getElementById("page-"+name).classList.add("active");
   if (el) el.classList.add("active");
   const _c = document.querySelector('.content'); if (_c) _c.scrollTop = 0;
-  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Need Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories"};
+  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Need Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -249,6 +249,7 @@ function showPage(name, el) {
   if (name==="po") loadPO();
   if (name==="stockmovement" && !_srcRows.length) loadStockMovement();
   if (name==="productmap") loadProductMap(0,'');
+  if (name==="productdev") loadProductDev();
   if (name==="collections") {
     // If restoring a collection detail from URL, immediately switch to detail view
     // to prevent the "new collection" form from flashing before data loads
@@ -13142,7 +13143,6 @@ async function downloadMRBrandXLSX() {
   win.document.close();
 }
 
-
 // ── CHAT ──
 let _chatRealtime     = null;
 let _chatLoaded       = false;
@@ -13597,6 +13597,662 @@ async function _chatUploadImage(file) {
 function setChatReply(){}
 function clearChatReply(){}
 function _chatReply(){}
+
+// ── PRODUCT DEVELOPMENT ──
+let allPDRows = [];
+let pdAllVendors = [];
+let pdAllCollections = [];
+let pdCollItemsByCol = {};
+let pdSearchQuery = '';
+let pdFilters = {collection:'',vendor:'',type:''};
+let pdPicsToUpload = [];
+let _pdSearchTimer = null;
+const PD_BUCKET = 'product-dev-pictures';
+const PD_MAX_PICS = 2;
+
+function switchPDTab(tab, el) {
+  document.querySelectorAll('#page-productdev .tab-btn').forEach(b=>b.classList.remove('active'));
+  if (el) el.classList.add('active');
+  document.getElementById('pdtab-new').style.display  = tab==='new'  ? '' : 'none';
+  document.getElementById('pdtab-list').style.display = tab==='list' ? '' : 'none';
+  if (tab==='list') loadProductDev();
+}
+
+function mapPD(r) {
+  return {
+    id: r.id, parentId: r.parent_id, collectionId: r.collection_id,
+    collectionItemId: r.collection_item_id, skuName: r.sku_name||'',
+    vendor: r.vendor||'', hpp: r.hpp, qty: r.qty, srp: r.srp,
+    pictures: r.picture_urls||[], notes: r.notes||'',
+    dateAdded: r.date_added, addedBy: r.added_by,
+    lastUpdated: r.last_updated, lastUpdatedBy: r.last_updated_by
+  };
+}
+
+function pdFmtIDR(n) {
+  if (n===null||n===undefined||n==='') return '—';
+  return new Intl.NumberFormat('id-ID').format(Number(n));
+}
+
+function pdComputeRatio(parent, subs) {
+  const srp = Number(parent.srp||0);
+  if (!srp) return null;
+  let totalCost = 0;
+  if (subs && subs.length) {
+    totalCost = subs.reduce((s,sb)=>s + (Number(sb.hpp||0) * Number(sb.qty||1)), 0);
+  } else {
+    totalCost = Number(parent.hpp||0) * Number(parent.qty||1);
+  }
+  if (!totalCost) return null;
+  return srp / totalCost;
+}
+
+async function loadPDVendorList() {
+  // Distinct supplier_name from jubelio_purchase_orders + any custom vendors in product_dev
+  try {
+    const [{data:poData},{data:pdData}] = await Promise.all([
+      sb.from('jubelio_purchase_orders').select('supplier_name').not('supplier_name','is',null).limit(5000),
+      sb.from('product_dev').select('vendor').not('vendor','is',null).limit(5000)
+    ]);
+    const set = new Set();
+    (poData||[]).forEach(r => { if (r.supplier_name) set.add(r.supplier_name.trim()); });
+    (pdData||[]).forEach(r => { if (r.vendor) set.add(r.vendor.trim()); });
+    pdAllVendors = [...set].filter(Boolean).sort();
+  } catch(e) { console.error('loadPDVendorList:',e); pdAllVendors=[]; }
+}
+
+async function loadPDCollections() {
+  if (pdAllCollections.length) return;
+  const {data} = await sb.from('collections').select('id,collection_name').order('collection_name');
+  pdAllCollections = data || [];
+}
+
+async function loadPDCollectionItems(collectionId) {
+  if (!collectionId) return [];
+  if (pdCollItemsByCol[collectionId]) return pdCollItemsByCol[collectionId];
+  const {data} = await sb.from('collection_items').select('id,sku_name').eq('collection_id',collectionId).order('sku_name');
+  pdCollItemsByCol[collectionId] = data || [];
+  return pdCollItemsByCol[collectionId];
+}
+
+function populatePDFormDropdowns() {
+  // Collection dropdown (form + filter)
+  const formSel = document.getElementById('pd-collection');
+  const filSel  = document.getElementById('pd-fil-collection');
+  [formSel, filSel].forEach(sel => {
+    if (!sel) return;
+    const cur = sel.value;
+    const placeholder = sel.id==='pd-collection' ? 'Pilih collection...' : 'Semua Collection';
+    sel.innerHTML = `<option value="">${placeholder}</option>` +
+      pdAllCollections.map(c => `<option value="${c.id}">${(c.collection_name||c.id).replace(/</g,'&lt;')}</option>`).join('');
+    if (cur) sel.value = cur;
+  });
+  // Vendor filter dropdown
+  const vSel = document.getElementById('pd-fil-vendor');
+  if (vSel) {
+    const cur = vSel.value;
+    vSel.innerHTML = `<option value="">Semua Vendor</option>` +
+      pdAllVendors.map(v => `<option value="${v.replace(/"/g,'&quot;')}">${v.replace(/</g,'&lt;')}</option>`).join('');
+    if (cur) vSel.value = cur;
+  }
+  // Vendor datalist (form)
+  const vDl = document.getElementById('pd-vendor-datalist');
+  if (vDl) vDl.innerHTML = pdAllVendors.map(v=>`<option value="${v.replace(/"/g,'&quot;')}">`).join('');
+}
+
+async function onPDCollectionChange() {
+  const cid = document.getElementById('pd-collection').value;
+  const dl  = document.getElementById('pd-sku-datalist');
+  if (!cid) { dl.innerHTML=''; return; }
+  const items = await loadPDCollectionItems(cid);
+  dl.innerHTML = items.map(it => `<option value="${(it.sku_name||'').replace(/"/g,'&quot;')}" data-id="${it.id}">`).join('');
+}
+
+function onPDSearch(val) {
+  clearTimeout(_pdSearchTimer);
+  _pdSearchTimer = setTimeout(()=>{ pdSearchQuery = val.trim(); loadProductDev(); }, 300);
+}
+
+function clearPDFilters() {
+  pdFilters = {collection:'',vendor:'',type:''};
+  pdSearchQuery = '';
+  ['pd-fil-collection','pd-fil-vendor','pd-fil-type','pd-search'].forEach(id=>{
+    const el = document.getElementById(id); if (el) el.value='';
+  });
+  loadProductDev();
+}
+
+function clearPDForm() {
+  ['pd-sku-name','pd-srp','pd-notes','pd-vendor','pd-hpp','pd-qty'].forEach(id=>{
+    const el = document.getElementById(id); if (el) el.value='';
+  });
+  document.getElementById('pd-collection').value = '';
+  document.getElementById('pd-sku-datalist').innerHTML = '';
+  document.getElementById('pd-pics').value = '';
+  document.getElementById('pd-pics-preview').innerHTML = '';
+  pdPicsToUpload = [];
+  document.getElementById('pd-feedback').textContent = '';
+}
+
+function setupPDPicInput() {
+  const inp = document.getElementById('pd-pics');
+  if (!inp || inp._pdWired) return;
+  inp._pdWired = true;
+  inp.addEventListener('change', e => {
+    const files = [...e.target.files];
+    if (files.length > PD_MAX_PICS) {
+      alert(`Maks ${PD_MAX_PICS} foto. Hanya ${PD_MAX_PICS} pertama dipakai.`);
+    }
+    pdPicsToUpload = files.slice(0, PD_MAX_PICS);
+    const prev = document.getElementById('pd-pics-preview');
+    prev.innerHTML = pdPicsToUpload.map(f=>`<span style="font-size:11px;padding:3px 8px;background:var(--off);border-radius:4px">📎 ${f.name}</span>`).join('');
+  });
+}
+
+async function uploadPDPicture(file, sku_id) {
+  const ext = (file.name.split('.').pop()||'jpg').toLowerCase();
+  const path = `${sku_id}/${Date.now()}-${Math.floor(Math.random()*1000)}.${ext}`;
+  const {error} = await sb.storage.from(PD_BUCKET).upload(path, file, {contentType: file.type, upsert: false});
+  if (error) throw error;
+  const {data:{publicUrl}} = sb.storage.from(PD_BUCKET).getPublicUrl(path);
+  return publicUrl;
+}
+
+async function removePDPicture(id, url) {
+  // Strip the base URL to get the storage path
+  const marker = `/${PD_BUCKET}/`;
+  const idx = url.indexOf(marker);
+  if (idx >= 0) {
+    const path = url.slice(idx + marker.length);
+    await sb.storage.from(PD_BUCKET).remove([path]);
+  }
+  // Update DB
+  const row = allPDRows.find(r=>r.id===id);
+  if (!row) return;
+  const newPics = (row.pictures||[]).filter(u=>u!==url);
+  const {error} = await sb.from('product_dev').update({
+    picture_urls:newPics, last_updated:new Date().toISOString(), last_updated_by:currentUser
+  }).eq('id',id);
+  if (error) { alert('Gagal hapus: '+error.message); return; }
+  row.pictures = newPics;
+  renderPDTable();
+}
+
+async function addPDPicture(id, file) {
+  const row = allPDRows.find(r=>r.id===id);
+  if (!row) return;
+  if ((row.pictures||[]).length >= PD_MAX_PICS) {
+    alert(`Maks ${PD_MAX_PICS} foto per SKU.`); return;
+  }
+  try {
+    const url = await uploadPDPicture(file, id);
+    const newPics = [...(row.pictures||[]), url];
+    const {error} = await sb.from('product_dev').update({
+      picture_urls:newPics, last_updated:new Date().toISOString(), last_updated_by:currentUser
+    }).eq('id',id);
+    if (error) throw error;
+    row.pictures = newPics;
+    renderPDTable();
+  } catch(e) { alert('Upload gagal: '+(e.message||e)); }
+}
+
+async function submitPD() {
+  const fb = document.getElementById('pd-feedback');
+  const btn = document.getElementById('pdSubmitBtn');
+  const cid = document.getElementById('pd-collection').value;
+  const skuName = document.getElementById('pd-sku-name').value.trim();
+  const srp = parseFloat(document.getElementById('pd-srp').value);
+  const notes = document.getElementById('pd-notes').value.trim();
+  const vendor = document.getElementById('pd-vendor').value.trim();
+  const hpp = parseFloat(document.getElementById('pd-hpp').value);
+  const qty = parseFloat(document.getElementById('pd-qty').value);
+
+  if (!cid) { fb.textContent='⚠️ Pilih collection.'; return; }
+  if (!skuName) { fb.textContent='⚠️ SKU name wajib.'; return; }
+  if (isNaN(srp) || srp<=0) { fb.textContent='⚠️ SRP wajib dan harus > 0.'; return; }
+
+  // Try to resolve collection_item_id from chosen SKU name (if it matches one of the dropdown items)
+  let collItemId = null;
+  const items = await loadPDCollectionItems(cid);
+  const match = items.find(it => (it.sku_name||'').trim().toLowerCase() === skuName.toLowerCase());
+  if (match) collItemId = match.id;
+
+  btn.disabled = true; fb.textContent = 'Menyimpan...';
+  try {
+    const id = genId('PD');
+    const payload = {
+      id, parent_id: null, collection_id: cid, collection_item_id: collItemId,
+      sku_name: skuName, srp,
+      vendor: vendor || null,
+      hpp: isNaN(hpp) ? null : hpp,
+      qty: isNaN(qty) ? null : qty,
+      notes: notes || null,
+      picture_urls: [],
+      added_by: currentUser, date_added: new Date().toISOString()
+    };
+    const {error} = await sb.from('product_dev').insert(payload);
+    if (error) throw error;
+
+    // Upload pictures
+    if (pdPicsToUpload.length) {
+      fb.textContent = 'Mengunggah foto...';
+      const urls = [];
+      for (const f of pdPicsToUpload) {
+        const url = await uploadPDPicture(f, id);
+        urls.push(url);
+      }
+      await sb.from('product_dev').update({picture_urls: urls}).eq('id', id);
+    }
+
+    fb.textContent = '✅ SKU Parent tersimpan.';
+    clearPDForm();
+    setTimeout(()=>{ fb.textContent=''; }, 3000);
+  } catch(e) {
+    fb.textContent = '❌ Gagal: ' + (e.message||e);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function loadProductDev() {
+  await Promise.all([loadPDCollections(), loadPDVendorList()]);
+  populatePDFormDropdowns();
+  setupPDPicInput();
+
+  // Pull filters
+  pdFilters.collection = document.getElementById('pd-fil-collection')?.value || '';
+  pdFilters.vendor     = document.getElementById('pd-fil-vendor')?.value || '';
+  pdFilters.type       = document.getElementById('pd-fil-type')?.value || '';
+  pdSearchQuery        = document.getElementById('pd-search')?.value.trim() || '';
+
+  const tbody = document.getElementById('pdTableBody');
+  if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="11">Memuat...</td></tr>`;
+
+  try {
+    // Fetch ALL product_dev rows (parents + subs) up to 5000
+    let q = sb.from('product_dev').select('*').order('date_added',{ascending:false}).limit(5000);
+    const {data, error} = await q;
+    if (error) throw error;
+    allPDRows = (data||[]).map(mapPD);
+
+    renderPDTable();
+  } catch(e) {
+    if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="11">Gagal: ${e.message||e}</td></tr>`;
+  }
+}
+
+function getPDFilteredParents() {
+  const parents = allPDRows.filter(r => !r.parentId);
+  const subsByParent = {};
+  allPDRows.filter(r=>r.parentId).forEach(s => {
+    if (!subsByParent[s.parentId]) subsByParent[s.parentId] = [];
+    subsByParent[s.parentId].push(s);
+  });
+
+  const search = pdSearchQuery.toLowerCase();
+  const filtered = parents.filter(p => {
+    if (pdFilters.collection && p.collectionId !== pdFilters.collection) return false;
+    const subs = subsByParent[p.id] || [];
+    if (pdFilters.type === 'solo'   && subs.length > 0) return false;
+    if (pdFilters.type === 'bundle' && subs.length === 0) return false;
+    if (pdFilters.vendor) {
+      const allVendors = [p.vendor, ...subs.map(s=>s.vendor)].filter(Boolean);
+      if (!allVendors.includes(pdFilters.vendor)) return false;
+    }
+    if (search && !p.skuName.toLowerCase().includes(search)) return false;
+    return true;
+  });
+
+  return {parents: filtered, subsByParent};
+}
+
+function renderPDTable() {
+  const tbody = document.getElementById('pdTableBody');
+  if (!tbody) return;
+  const {parents, subsByParent} = getPDFilteredParents();
+
+  // Stats
+  const allParents = allPDRows.filter(r=>!r.parentId);
+  const allSubs    = allPDRows.filter(r=>r.parentId);
+  const bundleParentIds = new Set(allSubs.map(s=>s.parentId));
+  const soloCount   = allParents.filter(p=>!bundleParentIds.has(p.id)).length;
+  const bundleCount = allParents.filter(p=> bundleParentIds.has(p.id)).length;
+  const vendorSet = new Set();
+  allPDRows.forEach(r => { if (r.vendor) vendorSet.add(r.vendor); });
+
+  document.getElementById('pd-s-total').textContent  = allParents.length;
+  document.getElementById('pd-s-solo').textContent   = soloCount;
+  document.getElementById('pd-s-bundle').textContent = bundleCount;
+  document.getElementById('pd-s-vendor').textContent = vendorSet.size;
+  document.getElementById('pd-tcount').textContent   = `${parents.length} SKU parent`;
+
+  if (!parents.length) {
+    tbody.innerHTML = `<tr><td class="empty-td" colspan="11">Tidak ada data. Tambah SKU Parent dulu di tab "Tambah".</td></tr>`;
+    return;
+  }
+
+  const collName = id => (pdAllCollections.find(c=>c.id===id)?.collection_name) || '—';
+  const rows = [];
+
+  parents.forEach(p => {
+    const subs = subsByParent[p.id] || [];
+    const isBundle = subs.length > 0;
+    const ratio = pdComputeRatio(p, subs);
+    const totalHpp = isBundle ? subs.reduce((s,sb)=>s+(Number(sb.hpp||0)*Number(sb.qty||1)),0) : Number(p.hpp||0);
+    const totalQty = isBundle ? subs.reduce((s,sb)=>s+Number(sb.qty||0),0) : Number(p.qty||0);
+
+    rows.push(`<tr data-pd-parent="${p.id}" style="border-top:1px solid var(--g100);background:var(--off)">
+      <td style="padding:8px 6px;text-align:center;cursor:pointer" onclick="togglePDExpand('${p.id}')">
+        <span id="pd-caret-${p.id}" style="font-size:10px">▶</span>
+      </td>
+      <td style="padding:8px 6px;font-size:11px;color:var(--g400);font-family:var(--mono)">${p.id}</td>
+      <td style="padding:8px 10px;font-size:12px;font-weight:600">
+        ${p.skuName.replace(/</g,'&lt;')}
+        ${isBundle?`<span style="font-size:10px;padding:1px 6px;background:var(--white);border-radius:3px;margin-left:6px;color:var(--g600)">${subs.length} sub</span>`:`<span style="font-size:10px;padding:1px 6px;background:var(--white);border-radius:3px;margin-left:6px;color:var(--g400)">solo</span>`}
+      </td>
+      <td style="padding:8px 6px;font-size:11px">${collName(p.collectionId).replace(/</g,'&lt;')}</td>
+      <td style="padding:8px 6px;font-size:11px">${isBundle?'<span style="color:var(--g400);font-style:italic">multi-vendor</span>':(p.vendor||'—').replace(/</g,'&lt;')}</td>
+      <td style="padding:8px 6px;font-size:11px;text-align:right;font-family:var(--mono)">${pdFmtIDR(totalHpp)}</td>
+      <td style="padding:8px 6px;font-size:11px;text-align:right;font-family:var(--mono)">${totalQty||'—'}</td>
+      <td style="padding:8px 6px;font-size:11px;text-align:right;font-family:var(--mono);font-weight:600">${pdFmtIDR(p.srp)}</td>
+      <td style="padding:8px 6px;font-size:11px;text-align:right;font-family:var(--mono)">${ratio?`<span class="pill ${ratio>=2.5?'p-active':(ratio>=1.8?'p-review':'p-near')}" style="font-size:10px">${ratio.toFixed(2)}×</span>`:'—'}</td>
+      <td style="padding:8px 6px;text-align:center">${renderPDPicsCell(p)}</td>
+      <td style="padding:8px 6px;text-align:center;white-space:nowrap">
+        <button class="btn-ghost" style="font-size:10px;padding:2px 6px" onclick="openPDParentEdit('${p.id}')">✎</button>
+        <button class="btn-ghost" style="font-size:10px;padding:2px 6px;color:#c33" onclick="deletePD('${p.id}',true)">🗑</button>
+      </td>
+    </tr>`);
+
+    // Expanded sub-items row (hidden by default)
+    rows.push(`<tr id="pd-sub-${p.id}" style="display:none">
+      <td colspan="11" style="padding:0 0 8px;background:var(--white)">
+        <div style="padding:8px 12px;border-left:3px solid var(--g100);margin-left:30px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+            <span style="font-size:11px;color:var(--g400);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.5px">Sub-items (${subs.length})</span>
+            <button class="btn-ghost" style="font-size:10px;padding:3px 8px" onclick="openPDSubForm('${p.id}')">+ Sub-item</button>
+          </div>
+          <div id="pd-sub-form-${p.id}"></div>
+          ${subs.length ? `<table style="width:100%;border-collapse:collapse;font-size:11px">
+            <thead><tr style="border-bottom:1px solid var(--g100);color:var(--g400)">
+              <th style="text-align:left;padding:4px 6px">Sub SKU</th>
+              <th style="text-align:left;padding:4px 6px">Vendor</th>
+              <th style="text-align:right;padding:4px 6px">HPP</th>
+              <th style="text-align:right;padding:4px 6px">QTY</th>
+              <th style="text-align:right;padding:4px 6px">Subtotal</th>
+              <th style="text-align:center;padding:4px 6px">Pics</th>
+              <th style="width:60px"></th>
+            </tr></thead>
+            <tbody>${subs.map(s => {
+              const subtotal = Number(s.hpp||0) * Number(s.qty||1);
+              return `<tr style="border-bottom:1px solid var(--g100)">
+                <td style="padding:4px 6px">${s.skuName.replace(/</g,'&lt;')}</td>
+                <td style="padding:4px 6px">${(s.vendor||'—').replace(/</g,'&lt;')}</td>
+                <td style="padding:4px 6px;text-align:right;font-family:var(--mono)">${pdFmtIDR(s.hpp)}</td>
+                <td style="padding:4px 6px;text-align:right;font-family:var(--mono)">${s.qty||'—'}</td>
+                <td style="padding:4px 6px;text-align:right;font-family:var(--mono)">${subtotal?pdFmtIDR(subtotal):'—'}</td>
+                <td style="padding:4px 6px;text-align:center">${renderPDPicsCell(s)}</td>
+                <td style="padding:4px 6px;text-align:center;white-space:nowrap">
+                  <button class="btn-ghost" style="font-size:10px;padding:1px 5px" onclick="openPDSubEdit('${s.id}','${p.id}')">✎</button>
+                  <button class="btn-ghost" style="font-size:10px;padding:1px 5px;color:#c33" onclick="deletePD('${s.id}',false,'${p.id}')">🗑</button>
+                </td>
+              </tr>`;
+            }).join('')}</tbody>
+          </table>` : '<div style="font-size:11px;color:var(--g400);padding:4px 6px">Belum ada sub-items.</div>'}
+        </div>
+      </td>
+    </tr>`);
+  });
+
+  tbody.innerHTML = rows.join('');
+}
+
+function renderPDPicsCell(r) {
+  const pics = r.pictures||[];
+  if (!pics.length) return `<label style="font-size:10px;color:var(--g400);cursor:pointer">+ <input type="file" accept="image/*" style="display:none" onchange="addPDPicture('${r.id}',this.files[0])"></label>`;
+  return pics.map(u => `<a href="${u}" target="_blank" title="Lihat full"><img src="${u}" style="width:24px;height:24px;object-fit:cover;border-radius:3px;margin-right:2px;vertical-align:middle"></a>`).join('') +
+    (pics.length < PD_MAX_PICS ? `<label style="font-size:10px;color:var(--g400);cursor:pointer;margin-left:4px">+<input type="file" accept="image/*" style="display:none" onchange="addPDPicture('${r.id}',this.files[0])"></label>` : '') +
+    pics.map(u => `<button class="btn-ghost" style="font-size:9px;padding:0 3px;margin-left:2px;color:#c33" title="Hapus foto" onclick="removePDPicture('${r.id}','${u.replace(/'/g,"\\'")}')">×</button>`).slice(0,1).join('');
+}
+
+function togglePDExpand(parentId) {
+  const row = document.getElementById(`pd-sub-${parentId}`);
+  const caret = document.getElementById(`pd-caret-${parentId}`);
+  if (!row) return;
+  if (row.style.display === 'none') { row.style.display = ''; if (caret) caret.textContent='▼'; }
+  else { row.style.display = 'none'; if (caret) caret.textContent='▶'; }
+}
+
+function openPDSubForm(parentId) {
+  const host = document.getElementById(`pd-sub-form-${parentId}`);
+  if (!host) return;
+  if (host.dataset.open === '1') { host.dataset.open=''; host.innerHTML=''; return; }
+  host.dataset.open='1';
+  const vendorOpts = pdAllVendors.map(v=>`<option value="${v.replace(/"/g,'&quot;')}">`).join('');
+  host.innerHTML = `<div style="background:var(--off);padding:8px;border-radius:4px;margin-bottom:8px;display:grid;grid-template-columns:1.5fr 1fr 0.8fr 0.8fr auto auto;gap:6px;align-items:end">
+    <div><label style="font-size:10px;color:var(--g400)">Sub SKU Name *</label><input id="pds-name-${parentId}" type="text" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
+    <div><label style="font-size:10px;color:var(--g400)">Vendor</label><input id="pds-vendor-${parentId}" list="pd-vendor-datalist" type="text" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
+    <div><label style="font-size:10px;color:var(--g400)">HPP</label><input id="pds-hpp-${parentId}" type="number" min="0" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
+    <div><label style="font-size:10px;color:var(--g400)">QTY</label><input id="pds-qty-${parentId}" type="number" min="0" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
+    <button class="btn-save" style="font-size:10px;padding:4px 10px" onclick="submitPDSubItem('${parentId}')">Simpan</button>
+    <button class="btn-cancel" style="font-size:10px;padding:4px 8px" onclick="openPDSubForm('${parentId}')">Batal</button>
+  </div>`;
+}
+
+async function submitPDSubItem(parentId) {
+  const name = document.getElementById(`pds-name-${parentId}`).value.trim();
+  const vendor = document.getElementById(`pds-vendor-${parentId}`).value.trim();
+  const hpp = parseFloat(document.getElementById(`pds-hpp-${parentId}`).value);
+  const qty = parseFloat(document.getElementById(`pds-qty-${parentId}`).value);
+  if (!name) { alert('Sub SKU name wajib.'); return; }
+  try {
+    const id = genId('PDS');
+    const {error} = await sb.from('product_dev').insert({
+      id, parent_id: parentId,
+      sku_name: name, vendor: vendor||null,
+      hpp: isNaN(hpp)?null:hpp, qty: isNaN(qty)?null:qty,
+      picture_urls: [], added_by: currentUser, date_added: new Date().toISOString()
+    });
+    if (error) throw error;
+    await loadProductDev();
+    // Re-expand the parent we just added to
+    setTimeout(()=>togglePDExpand(parentId), 50);
+  } catch(e) { alert('Gagal: '+(e.message||e)); }
+}
+
+function openPDParentEdit(id) {
+  const r = allPDRows.find(x=>x.id===id);
+  if (!r) return;
+  const newName = prompt('SKU name:', r.skuName);
+  if (newName===null) return;
+  const newSrp = prompt('SRP (Rp):', r.srp||'');
+  if (newSrp===null) return;
+  const newVendor = prompt('Vendor (kosongkan jika bundle):', r.vendor||'');
+  if (newVendor===null) return;
+  const newHpp = prompt('HPP (Rp) (kosongkan jika bundle):', r.hpp||'');
+  if (newHpp===null) return;
+  const newQty = prompt('QTY (kosongkan jika bundle):', r.qty||'');
+  if (newQty===null) return;
+  const upd = {
+    sku_name: newName.trim() || r.skuName,
+    srp: newSrp===''?null:parseFloat(newSrp),
+    vendor: newVendor.trim()||null,
+    hpp: newHpp===''?null:parseFloat(newHpp),
+    qty: newQty===''?null:parseFloat(newQty),
+    last_updated: new Date().toISOString(), last_updated_by: currentUser
+  };
+  sb.from('product_dev').update(upd).eq('id',id).then(({error})=>{
+    if (error) { alert('Gagal: '+error.message); return; }
+    loadProductDev();
+  });
+}
+
+function openPDSubEdit(id, parentId) {
+  const r = allPDRows.find(x=>x.id===id);
+  if (!r) return;
+  const newName   = prompt('Sub SKU name:', r.skuName);    if (newName===null) return;
+  const newVendor = prompt('Vendor:', r.vendor||'');        if (newVendor===null) return;
+  const newHpp    = prompt('HPP (Rp):', r.hpp||'');         if (newHpp===null) return;
+  const newQty    = prompt('QTY:', r.qty||'');              if (newQty===null) return;
+  const upd = {
+    sku_name: newName.trim()||r.skuName,
+    vendor: newVendor.trim()||null,
+    hpp: newHpp===''?null:parseFloat(newHpp),
+    qty: newQty===''?null:parseFloat(newQty),
+    last_updated:new Date().toISOString(), last_updated_by: currentUser
+  };
+  sb.from('product_dev').update(upd).eq('id',id).then(({error})=>{
+    if (error) { alert('Gagal: '+error.message); return; }
+    loadProductDev().then(()=>setTimeout(()=>togglePDExpand(parentId),50));
+  });
+}
+
+async function deletePD(id, isParent, parentId) {
+  const r = allPDRows.find(x=>x.id===id);
+  if (!r) return;
+  const msg = isParent
+    ? `Hapus SKU Parent "${r.skuName}" beserta semua sub-items & foto?`
+    : `Hapus sub-item "${r.skuName}"?`;
+  if (!confirm(msg)) return;
+  try {
+    // Collect picture URLs from this row + all descendants (if parent)
+    const toDelete = [r];
+    if (isParent) {
+      allPDRows.filter(x => x.parentId === id).forEach(s => toDelete.push(s));
+    }
+    const storagePaths = [];
+    toDelete.forEach(x => (x.pictures||[]).forEach(u=>{
+      const marker = `/${PD_BUCKET}/`;
+      const idx = u.indexOf(marker);
+      if (idx >= 0) storagePaths.push(u.slice(idx + marker.length));
+    }));
+    if (storagePaths.length) {
+      await sb.storage.from(PD_BUCKET).remove(storagePaths);
+    }
+    const {error} = await sb.from('product_dev').delete().eq('id', id);
+    if (error) throw error;
+    await loadProductDev();
+    if (!isParent && parentId) setTimeout(()=>togglePDExpand(parentId), 50);
+  } catch(e) { alert('Gagal hapus: '+(e.message||e)); }
+}
+
+// ── PRODUCT DEVELOPMENT — CSV DOWNLOADS ──
+function pdCSVEsc(s) {
+  if (s===null||s===undefined) return '';
+  const t = String(s);
+  return /[",\n\r]/.test(t) ? '"'+t.replace(/"/g,'""')+'"' : t;
+}
+
+function pdBuildRowsForExport() {
+  // Apply current filters; returns flat rows: one per parent (solo) or one per sub-item
+  const {parents, subsByParent} = getPDFilteredParents();
+  const collName = id => (pdAllCollections.find(c=>c.id===id)?.collection_name) || '';
+  const flat = [];
+  parents.forEach(p => {
+    const subs = subsByParent[p.id] || [];
+    const ratio = pdComputeRatio(p, subs);
+    const ratioStr = ratio ? ratio.toFixed(3) : '';
+    if (subs.length === 0) {
+      // Solo SKU: single row
+      flat.push({
+        sku_code: p.id, sku_name: p.skuName, collection: collName(p.collectionId),
+        sub_sku: '', vendor: p.vendor||'', hpp: p.hpp||'', qty: p.qty||'',
+        srp: p.srp||'', ratio: ratioStr, pics: (p.pictures||[]).join(' | ')
+      });
+    } else {
+      // Bundle: one row per sub-item
+      subs.forEach((s, i) => {
+        flat.push({
+          sku_code: p.id, sku_name: p.skuName, collection: collName(p.collectionId),
+          sub_sku: s.skuName, vendor: s.vendor||'', hpp: s.hpp||'', qty: s.qty||'',
+          srp: i===0 ? (p.srp||'') : '', ratio: i===0 ? ratioStr : '',
+          pics: (s.pictures||[]).join(' | ')
+        });
+      });
+    }
+  });
+  return flat;
+}
+
+function pdDownloadCSV(filename, headers, rows) {
+  const lines = [headers.map(h=>pdCSVEsc(h.label)).join(',')];
+  rows.forEach(r => {
+    lines.push(headers.map(h => pdCSVEsc(r[h.key])).join(','));
+  });
+  const csv = lines.join('\r\n');
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
+function downloadPD(mode) {
+  const rows = pdBuildRowsForExport();
+  if (!rows.length) { alert('Tidak ada data sesuai filter.'); return; }
+  const today = new Date().toISOString().slice(0,10);
+  if (mode === 'internal') {
+    const headers = [
+      {key:'sku_code',label:'SKU Code'},
+      {key:'sku_name',label:'SKU Name'},
+      {key:'collection',label:'Collection'},
+      {key:'sub_sku',label:'Sub SKU'},
+      {key:'vendor',label:'Vendor'},
+      {key:'hpp',label:'HPP (Rp)'},
+      {key:'qty',label:'QTY'},
+      {key:'srp',label:'SRP (Rp)'},
+      {key:'ratio',label:'Ratio SRP/HPP'},
+      {key:'pics',label:'Pictures'}
+    ];
+    pdDownloadCSV(`product-dev-internal-${today}.csv`, headers, rows);
+  } else if (mode === 'external') {
+    const headers = [
+      {key:'sku_code',label:'SKU Code'},
+      {key:'sku_name',label:'SKU Name'},
+      {key:'collection',label:'Collection'},
+      {key:'sub_sku',label:'Sub SKU'},
+      {key:'qty',label:'QTY'},
+      {key:'srp',label:'SRP (Rp)'},
+      {key:'pics',label:'Pictures'}
+    ];
+    pdDownloadCSV(`product-dev-external-${today}.csv`, headers, rows);
+  }
+}
+
+function downloadPDVendorPrompt() {
+  if (!pdAllVendors.length) { alert('Belum ada vendor.'); return; }
+  // Build a simple modal-like prompt using a <select> in a confirm dialog substitute.
+  const choice = prompt(
+    'Ketik nama vendor yang mau di-export (atau biarkan kosong untuk batal).\n\nVendor tersedia:\n• ' +
+    pdAllVendors.slice(0,30).join('\n• ') +
+    (pdAllVendors.length>30 ? `\n…dan ${pdAllVendors.length-30} lainnya` : ''),
+    pdAllVendors[0] || ''
+  );
+  if (!choice) return;
+  const vendor = choice.trim();
+  if (!pdAllVendors.some(v => v.toLowerCase() === vendor.toLowerCase())) {
+    if (!confirm(`Vendor "${vendor}" tidak persis cocok dengan daftar. Lanjutkan?`)) return;
+  }
+  downloadPDForVendor(vendor);
+}
+
+function downloadPDForVendor(vendor) {
+  const allRowsExport = pdBuildRowsForExport();
+  const rows = allRowsExport.filter(r => (r.vendor||'').toLowerCase() === vendor.toLowerCase());
+  if (!rows.length) { alert(`Tidak ada SKU untuk vendor "${vendor}" sesuai filter.`); return; }
+  const headers = [
+    {key:'sku_code',label:'SKU Code'},
+    {key:'sku_name',label:'SKU Name'},
+    {key:'collection',label:'Collection'},
+    {key:'sub_sku',label:'Sub SKU'},
+    {key:'vendor',label:'Vendor'},
+    {key:'hpp',label:'HPP (Rp)'},
+    {key:'qty',label:'QTY'},
+    {key:'pics',label:'Pictures'}
+  ];
+  const today = new Date().toISOString().slice(0,10);
+  const safe = vendor.replace(/[^a-z0-9]+/gi,'-').replace(/^-|-$/g,'') || 'vendor';
+  pdDownloadCSV(`product-dev-vendor-${safe}-${today}.csv`, headers, rows);
+}
 
 // ── DUPLICATE CHECK ──
 async function checkDuplicate(name, excludeSheet) {
