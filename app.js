@@ -13718,12 +13718,12 @@ function generateNextBundleCode(parent_id) {
   return `${parentCode}.X${Date.now()%100}`;
 }
 
-// Variant code: {IP3}-{COL3}-{SIZE-COLOR-OTHER}-{NN}
-// Sequence is per (collection, variant-token) across variant rows.
-function generateNextVariantCode(collection_id, size, color, other) {
+// Variant code: {IP3}-{COL3}-{SIZE}-{NN}
+// Sequence is per (collection, size) across variant rows.
+function generateNextVariantCode(collection_id, size) {
   const ip  = pdShort3(pdCollIP(collection_id));
   const col = pdShort3(pdCollName(collection_id));
-  const vrt = pdVariantTokenFor(size, color, other);
+  const vrt = pdVariantToken(size);
   const prefix = `${ip}-${col}-${vrt}-`;
   const taken = new Set(allPDRows
     .filter(r => r.collectionId === collection_id && r.parentId && r.displayCode && r.displayCode.startsWith(prefix))
@@ -13734,6 +13734,9 @@ function generateNextVariantCode(collection_id, size, color, other) {
   }
   return `${prefix}${Date.now()%1000}`;
 }
+
+// Standard size options for the variant form
+const PD_SIZE_OPTIONS = ['S','M','L','XL','XXL','XXXL'];
 
 function updatePDCodePreview() {
   const el = document.getElementById('pd-code-preview');
@@ -14281,58 +14284,48 @@ function renderPDParentCard(p, allChildren) {
 }
 
 function renderPDVariantCard(s, parentId) {
-  const subtotal = Number(s.hpp||0) * Number(s.qty||1);
-  const sizeTag  = s.size  ? `<span style="font-size:10px;padding:2px 6px;background:var(--black);color:var(--white);border-radius:3px;font-weight:600;letter-spacing:0.5px;font-family:var(--mono)">${s.size.replace(/</g,'&lt;')}</span>` : '';
+  // Show legacy color/other tags too if any old rows still have them set,
+  // but the main display is just the size.
+  const sizeTag  = s.size  ? `<span style="font-size:11px;padding:3px 8px;background:var(--black);color:var(--white);border-radius:3px;font-weight:600;letter-spacing:0.5px;font-family:var(--mono)">${s.size.replace(/</g,'&lt;')}</span>` : '';
   const colorTag = s.color ? `<span style="font-size:10px;padding:2px 6px;background:var(--white);border:1px solid var(--g200);border-radius:3px;font-weight:500">${s.color.replace(/</g,'&lt;')}</span>` : '';
-  const otherTag = s.variant && s.variant !== pdVariantTokenFor(s.size, s.color, '') ? `<span style="font-size:10px;padding:2px 6px;background:var(--off);border:1px solid var(--g100);border-radius:3px;color:var(--g600)">${s.variant.replace(/</g,'&lt;')}</span>` : '';
+  const otherTag = s.variant && s.variant !== (s.size||'') && s.variant !== pdVariantToken(s.size) ? `<span style="font-size:10px;padding:2px 6px;background:var(--off);border:1px solid var(--g100);border-radius:3px;color:var(--g600)">${s.variant.replace(/</g,'&lt;')}</span>` : '';
 
-  return `<div class="pd-subcard" style="display:flex;gap:10px;align-items:flex-start;padding:8px 10px;background:var(--white);border:1px solid var(--g100);border-radius:5px;margin-bottom:6px">
-    <div style="flex:0 0 60px">${renderPDPicsLeft(s, 60)}</div>
-    <div style="flex:1;min-width:0">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
-        <div style="min-width:0">
-          <div style="font-family:var(--mono);font-size:10px;color:var(--g400);font-weight:600">${(s.displayCode||'—').replace(/</g,'&lt;')}</div>
-          <div style="font-size:12px;font-weight:500;margin-top:2px;display:flex;align-items:center;gap:5px;flex-wrap:wrap">
-            ${sizeTag} ${colorTag} ${otherTag}
-          </div>
-        </div>
-        <div style="display:flex;gap:3px;flex-shrink:0">
-          <button class="btn-ghost" style="font-size:10px;padding:2px 6px" onclick="openPDSubEdit('${s.id}','${parentId}')">✎</button>
-          <button class="btn-ghost" style="font-size:10px;padding:2px 6px;color:#c33" onclick="deletePD('${s.id}',false,'${parentId}')">🗑</button>
-        </div>
+  return `<div class="pd-subcard" style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 12px;background:var(--white);border:1px solid var(--g100);border-radius:5px;margin-bottom:6px">
+    <div style="min-width:0;flex:1">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span style="font-family:var(--mono);font-size:10px;color:var(--g400);font-weight:600">${(s.displayCode||'—').replace(/</g,'&lt;')}</span>
+        ${sizeTag} ${colorTag} ${otherTag}
       </div>
-      <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:4px;font-size:11px;color:var(--g600)">
+      <div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:4px;font-size:11px;color:var(--g600)">
         <span>Vendor: <b style="color:var(--black)">${(s.vendor||'—').replace(/</g,'&lt;')}</b></span>
         <span>HPP: <span class="mono"><b style="color:var(--black)">${pdFmtIDR(s.hpp)}</b></span></span>
         <span>QTY: <span class="mono"><b style="color:var(--black)">${s.qty||'—'}</b></span></span>
-        <span>Subtotal: <span class="mono"><b style="color:var(--black)">${subtotal?pdFmtIDR(subtotal):'—'}</b></span></span>
       </div>
+    </div>
+    <div style="display:flex;gap:3px;flex-shrink:0">
+      <button class="btn-ghost" style="font-size:10px;padding:2px 6px" onclick="openPDSubEdit('${s.id}','${parentId}')">✎</button>
+      <button class="btn-ghost" style="font-size:10px;padding:2px 6px;color:#c33" onclick="deletePD('${s.id}',false,'${parentId}')">🗑</button>
     </div>
   </div>`;
 }
 
 // ── Bundle item display + edit cards ────────────────────────────────
 function renderPDBundleItemCard(b, parentId) {
-  const subtotal = Number(b.hpp||0) * Number(b.qty||1);
-  return `<div class="pd-subcard" style="display:flex;gap:10px;align-items:flex-start;padding:8px 10px;background:var(--white);border:1px solid var(--g100);border-radius:5px;margin-bottom:6px">
-    <div style="flex:0 0 60px">${renderPDPicsLeft(b, 60)}</div>
-    <div style="flex:1;min-width:0">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
-        <div style="min-width:0">
-          <div style="font-family:var(--mono);font-size:10px;color:var(--g400);font-weight:600">${(b.displayCode||'—').replace(/</g,'&lt;')}</div>
-          <div style="font-size:12px;font-weight:500;margin-top:2px">📦 ${(b.skuName||'—').replace(/</g,'&lt;')}</div>
-        </div>
-        <div style="display:flex;gap:3px;flex-shrink:0">
-          <button class="btn-ghost" style="font-size:10px;padding:2px 6px" onclick="openPDSubEdit('${b.id}','${parentId}')">✎</button>
-          <button class="btn-ghost" style="font-size:10px;padding:2px 6px;color:#c33" onclick="deletePD('${b.id}',false,'${parentId}')">🗑</button>
-        </div>
+  return `<div class="pd-subcard" style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 12px;background:var(--white);border:1px solid var(--g100);border-radius:5px;margin-bottom:6px">
+    <div style="min-width:0;flex:1">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span style="font-family:var(--mono);font-size:10px;color:var(--g400);font-weight:600">${(b.displayCode||'—').replace(/</g,'&lt;')}</span>
+        <span style="font-size:12px;font-weight:500">📦 ${(b.skuName||'—').replace(/</g,'&lt;')}</span>
       </div>
-      <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:4px;font-size:11px;color:var(--g600)">
+      <div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:4px;font-size:11px;color:var(--g600)">
         <span>Vendor: <b style="color:var(--black)">${(b.vendor||'—').replace(/</g,'&lt;')}</b></span>
         <span>HPP: <span class="mono"><b style="color:var(--black)">${pdFmtIDR(b.hpp)}</b></span></span>
         <span>QTY: <span class="mono"><b style="color:var(--black)">${b.qty||'—'}</b></span></span>
-        <span>Subtotal: <span class="mono"><b style="color:var(--black)">${subtotal?pdFmtIDR(subtotal):'—'}</b></span></span>
       </div>
+    </div>
+    <div style="display:flex;gap:3px;flex-shrink:0">
+      <button class="btn-ghost" style="font-size:10px;padding:2px 6px" onclick="openPDSubEdit('${b.id}','${parentId}')">✎</button>
+      <button class="btn-ghost" style="font-size:10px;padding:2px 6px;color:#c33" onclick="deletePD('${b.id}',false,'${parentId}')">🗑</button>
     </div>
   </div>`;
 }
@@ -14344,7 +14337,7 @@ function renderPDBundleItemEditCard(b, parentId) {
       <div style="font-family:var(--mono);font-size:10px;color:var(--g400);font-weight:600;margin-bottom:8px">EDITING BUNDLE ITEM · ${(b.displayCode||b.id).replace(/</g,'&lt;')}</div>
       <div style="display:grid;grid-template-columns:1.6fr 1fr 0.7fr 0.6fr;gap:6px;align-items:end">
         <div><label style="font-size:10px;color:var(--g400)">Item Name *</label><input id="pdbe-name-${b.id}" type="text" value="${(b.skuName||'').replace(/"/g,'&quot;')}" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
-        <div><label style="font-size:10px;color:var(--g400)">Vendor</label><input id="pdbe-vendor-${b.id}" list="pd-vendor-datalist" type="text" value="${(b.vendor||'').replace(/"/g,'&quot;')}" placeholder="Pilih vendor terdaftar di Jubelio..." style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
+        <div><label style="font-size:10px;color:var(--g400)">Vendor</label>${pdVendorSelectHTML(`pdbe-vendor-${b.id}`, b.vendor||'')}</div>
         <div><label style="font-size:10px;color:var(--g400)">HPP</label><input id="pdbe-hpp-${b.id}" type="number" min="0" value="${b.hpp==null?'':b.hpp}" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
         <div><label style="font-size:10px;color:var(--g400)">QTY *</label><input id="pdbe-qty-${b.id}" type="number" min="0" value="${b.qty==null?'':b.qty}" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
       </div>
@@ -14366,7 +14359,7 @@ function openPDBundleForm(parentId) {
     <div style="font-size:11px;color:var(--g600);font-family:var(--mono);margin-bottom:8px">Bundle Item Code (auto): <b style="color:var(--black)">${previewCode}</b></div>
     <div style="display:grid;grid-template-columns:1.6fr 1fr 0.7fr 0.6fr auto auto;gap:6px;align-items:end">
       <div><label style="font-size:10px;color:var(--g400)">Item Name *</label><input id="pdb-name-${parentId}" type="text" placeholder="cth: MDB T-shirt L, Free Sticker..." style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
-      <div><label style="font-size:10px;color:var(--g400)">Vendor</label><input id="pdb-vendor-${parentId}" list="pd-vendor-datalist" type="text" placeholder="Pilih vendor terdaftar di Jubelio..." style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
+      <div><label style="font-size:10px;color:var(--g400)">Vendor</label>${pdVendorSelectHTML(`pdb-vendor-${parentId}`,'')}</div>
       <div><label style="font-size:10px;color:var(--g400)">HPP (Rp)</label><input id="pdb-hpp-${parentId}" type="number" min="0" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
       <div><label style="font-size:10px;color:var(--g400)">QTY *</label><input id="pdb-qty-${parentId}" type="number" min="0" value="1" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
       <button class="btn-save" style="font-size:10px;padding:4px 10px" onclick="submitPDBundleItem('${parentId}')">Simpan</button>
@@ -14447,22 +14440,24 @@ function renderPDParentEditCard(p) {
 }
 
 function renderPDVariantEditCard(s, parentId) {
-  return `<div class="pd-subcard" style="display:flex;gap:10px;align-items:flex-start;padding:8px 10px;background:var(--white);border:2px solid var(--black);border-radius:5px;margin-bottom:6px">
-    <div style="flex:0 0 60px">${renderPDPicsLeft(s, 60)}</div>
-    <div style="flex:1;min-width:0">
-      <div style="font-family:var(--mono);font-size:10px;color:var(--g400);font-weight:600;margin-bottom:8px">EDITING · ${(s.displayCode||s.id).replace(/</g,'&lt;')}</div>
-      <div style="display:grid;grid-template-columns:90px 100px 110px 1fr 0.7fr 0.6fr;gap:6px;align-items:end">
-        <div><label style="font-size:10px;color:var(--g400)">Size</label><input id="pde-size-${s.id}" list="pd-size-options" type="text" value="${(s.size||'').replace(/"/g,'&quot;')}" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%;font-family:var(--mono)"></div>
-        <div><label style="font-size:10px;color:var(--g400)">Color</label><input id="pde-color-${s.id}" type="text" value="${(s.color||'').replace(/"/g,'&quot;')}" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
-        <div><label style="font-size:10px;color:var(--g400)">Other</label><input id="pde-other-${s.id}" type="text" value="${(s.variant||'').replace(/"/g,'&quot;')}" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
-        <div><label style="font-size:10px;color:var(--g400)">Vendor</label><input id="pde-vendor-${s.id}" list="pd-vendor-datalist" type="text" value="${(s.vendor||'').replace(/"/g,'&quot;')}" placeholder="Pilih vendor terdaftar di Jubelio..." style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
-        <div><label style="font-size:10px;color:var(--g400)">HPP</label><input id="pde-hpp-${s.id}" type="number" min="0" value="${s.hpp==null?'':s.hpp}" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
-        <div><label style="font-size:10px;color:var(--g400)">QTY *</label><input id="pde-qty-${s.id}" type="number" min="0" value="${s.qty==null?'':s.qty}" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
+  // Size: dropdown with the standard options + the current value if it's custom (e.g., a legacy entry)
+  const sizeOpts = [...new Set([...PD_SIZE_OPTIONS, s.size||''].filter(Boolean))]
+    .map(v => `<option value="${v}"${v===(s.size||'')?' selected':''}>${v}</option>`).join('');
+  return `<div class="pd-subcard" style="padding:10px 12px;background:var(--white);border:2px solid var(--black);border-radius:5px;margin-bottom:6px">
+    <div style="font-family:var(--mono);font-size:10px;color:var(--g400);font-weight:600;margin-bottom:8px">EDITING · ${(s.displayCode||s.id).replace(/</g,'&lt;')}</div>
+    <div style="display:grid;grid-template-columns:100px 1.4fr 0.8fr 0.7fr;gap:8px;align-items:end">
+      <div><label style="font-size:10px;color:var(--g400)">Size</label>
+        <select id="pde-size-${s.id}" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%;font-family:var(--mono);background:var(--white)">
+          <option value="">—</option>${sizeOpts}
+        </select>
       </div>
-      <div style="display:flex;gap:6px;margin-top:8px">
-        <button class="btn-save" style="font-size:11px;padding:4px 10px" onclick="savePDVariantEdit('${s.id}','${parentId}')">💾 Simpan</button>
-        <button class="btn-cancel" style="font-size:11px;padding:4px 10px" onclick="cancelPDEdit()">✕ Batal</button>
-      </div>
+      <div><label style="font-size:10px;color:var(--g400)">Vendor</label>${pdVendorSelectHTML(`pde-vendor-${s.id}`, s.vendor||'')}</div>
+      <div><label style="font-size:10px;color:var(--g400)">HPP (Rp)</label><input id="pde-hpp-${s.id}" type="number" min="0" value="${s.hpp==null?'':s.hpp}" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
+      <div><label style="font-size:10px;color:var(--g400)">QTY *</label><input id="pde-qty-${s.id}" type="number" min="0" value="${s.qty==null?'':s.qty}" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
+    </div>
+    <div style="display:flex;gap:6px;margin-top:8px">
+      <button class="btn-save" style="font-size:11px;padding:4px 10px" onclick="savePDVariantEdit('${s.id}','${parentId}')">💾 Simpan</button>
+      <button class="btn-cancel" style="font-size:11px;padding:4px 10px" onclick="cancelPDEdit()">✕ Batal</button>
     </div>
   </div>`;
 }
@@ -14512,20 +14507,25 @@ function togglePDExpand(parentId) {
   else { row.style.display = 'none'; if (caret) caret.textContent='▶'; }
 }
 
-function updatePDVariantCodePreview(parentId) {
-  const sizeEl  = document.getElementById(`pdv-size-${parentId}`);
-  const colorEl = document.getElementById(`pdv-color-${parentId}`);
-  const otherEl = document.getElementById(`pdv-other-${parentId}`);
-  const preview = document.getElementById(`pdv-code-preview-${parentId}`);
-  if (!preview) return;
-  const parent = allPDRows.find(r => r.id === parentId);
-  if (!parent) return;
-  preview.textContent = generateNextVariantCode(
-    parent.collectionId,
-    sizeEl?.value||'',
-    colorEl?.value||'',
-    otherEl?.value||''
-  );
+// Toggle a size chip's selected state.
+function togglePDSizeChip(btn) {
+  btn.classList.toggle('pd-size-active');
+  // Toggle inline styles since we can't rely on CSS class
+  const active = btn.classList.contains('pd-size-active');
+  btn.style.background = active ? 'var(--black)' : 'var(--white)';
+  btn.style.color      = active ? 'var(--white)' : 'var(--black)';
+  btn.style.borderColor= active ? 'var(--black)' : 'var(--g100)';
+}
+
+function pdVendorSelectHTML(id, current) {
+  const opts = pdAllVendors.map(v => {
+    const sel = (v.toLowerCase() === (current||'').toLowerCase()) ? ' selected' : '';
+    return `<option value="${v.replace(/"/g,'&quot;')}"${sel}>${v.replace(/</g,'&lt;')}</option>`;
+  }).join('');
+  return `<select id="${id}" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%;background:var(--white)">
+    <option value="">— Pilih vendor —</option>
+    ${opts}
+  </select>`;
 }
 
 function openPDSubForm(parentId) {
@@ -14533,53 +14533,69 @@ function openPDSubForm(parentId) {
   if (!host) return;
   if (host.dataset.open === '1') { host.dataset.open=''; host.innerHTML=''; return; }
   host.dataset.open='1';
-  const parent = allPDRows.find(r=>r.id===parentId);
-  const previewCode = generateNextVariantCode(parent?.collectionId||'','','','');
-  host.innerHTML = `<div style="background:var(--off);padding:10px 12px;border-radius:4px;margin-bottom:8px">
-    <div style="font-size:11px;color:var(--g600);font-family:var(--mono);margin-bottom:8px">Variant SKU Code (auto): <b id="pdv-code-preview-${parentId}" style="color:var(--black)">${previewCode}</b></div>
-    <div style="display:grid;grid-template-columns:90px 100px 100px 1fr 0.7fr 0.6fr auto auto;gap:6px;align-items:end">
-      <div><label style="font-size:10px;color:var(--g400)">Size *</label><input id="pdv-size-${parentId}" list="pd-size-options" type="text" placeholder="S, M, L, XL..." oninput="updatePDVariantCodePreview('${parentId}')" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%;font-family:var(--mono)"></div>
-      <div><label style="font-size:10px;color:var(--g400)">Color</label><input id="pdv-color-${parentId}" type="text" placeholder="Black, Red..." oninput="updatePDVariantCodePreview('${parentId}')" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
-      <div><label style="font-size:10px;color:var(--g400)">Other</label><input id="pdv-other-${parentId}" type="text" placeholder="opsional" oninput="updatePDVariantCodePreview('${parentId}')" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
-      <div><label style="font-size:10px;color:var(--g400)">Vendor</label><input id="pdv-vendor-${parentId}" list="pd-vendor-datalist" type="text" placeholder="Pilih vendor yang sudah terdaftar di Jubelio..." style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
-      <div><label style="font-size:10px;color:var(--g400)">HPP (Rp)</label><input id="pdv-hpp-${parentId}" type="number" min="0" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
-      <div><label style="font-size:10px;color:var(--g400)">QTY *</label><input id="pdv-qty-${parentId}" type="number" min="0" value="1" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
-      <button class="btn-save" style="font-size:10px;padding:4px 10px" onclick="submitPDSubItem('${parentId}')">Simpan</button>
-      <button class="btn-cancel" style="font-size:10px;padding:4px 8px" onclick="openPDSubForm('${parentId}')">Batal</button>
+  const sizeChips = PD_SIZE_OPTIONS.map(s =>
+    `<button type="button" class="pd-size-chip" data-size="${s}" onclick="togglePDSizeChip(this)" style="font-size:11px;padding:5px 12px;border:1px solid var(--g100);border-radius:4px;background:var(--white);color:var(--black);cursor:pointer;font-family:var(--mono);font-weight:600">${s}</button>`
+  ).join(' ');
+  host.innerHTML = `<div style="background:var(--off);padding:12px;border-radius:4px;margin-bottom:8px">
+    <div style="margin-bottom:10px">
+      <label style="font-size:11px;color:var(--g400);display:block;margin-bottom:4px">Sizes * <span style="color:var(--g300);font-weight:400">(pilih satu atau lebih — tiap size = SKU terpisah)</span></label>
+      <div id="pdv-sizes-${parentId}" style="display:flex;gap:6px;flex-wrap:wrap">${sizeChips}</div>
     </div>
-    <div style="font-size:10px;color:var(--g400);margin-top:4px">Tiap kombinasi Size + Color = SKU terpisah. Foto bisa ditambah setelah simpan.</div>
+    <div style="display:grid;grid-template-columns:1.4fr 0.8fr 0.7fr auto auto;gap:8px;align-items:end">
+      <div><label style="font-size:10px;color:var(--g400)">Vendor</label>${pdVendorSelectHTML(`pdv-vendor-${parentId}`,'')}</div>
+      <div><label style="font-size:10px;color:var(--g400)">HPP per unit (Rp)</label><input id="pdv-hpp-${parentId}" type="number" min="0" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
+      <div><label style="font-size:10px;color:var(--g400)">QTY per size *</label><input id="pdv-qty-${parentId}" type="number" min="0" value="1" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
+      <button class="btn-save" style="font-size:10px;padding:5px 12px" onclick="submitPDSubItem('${parentId}')">Simpan</button>
+      <button class="btn-cancel" style="font-size:10px;padding:5px 10px" onclick="openPDSubForm('${parentId}')">Batal</button>
+    </div>
+    <div style="font-size:10px;color:var(--g400);margin-top:6px">Vendor, HPP, dan QTY di-apply ke semua size yang dipilih. Edit per-variant kalau perlu beda.</div>
   </div>`;
 }
 
 async function submitPDSubItem(parentId) {
-  const size   = document.getElementById(`pdv-size-${parentId}`).value.trim();
-  const color  = document.getElementById(`pdv-color-${parentId}`).value.trim();
-  const other  = document.getElementById(`pdv-other-${parentId}`).value.trim();
+  const chipsHost = document.getElementById(`pdv-sizes-${parentId}`);
+  const selectedSizes = chipsHost
+    ? [...chipsHost.querySelectorAll('.pd-size-chip.pd-size-active')].map(b => b.dataset.size)
+    : [];
   const vendor = document.getElementById(`pdv-vendor-${parentId}`).value.trim();
   const hpp    = parseFloat(document.getElementById(`pdv-hpp-${parentId}`).value);
   const qty    = parseFloat(document.getElementById(`pdv-qty-${parentId}`).value);
-  if (!size && !color && !other) { alert('Isi minimal salah satu: Size, Color, atau Other.'); return; }
+  if (!selectedSizes.length) { alert('Pilih minimal satu size.'); return; }
   if (isNaN(qty) || qty <= 0) { alert('QTY wajib (> 0).'); return; }
   const parent = allPDRows.find(r=>r.id===parentId);
-  const code = generateNextVariantCode(parent?.collectionId||'', size, color, other);
-  // Display "variant" stored as the "other" attribute (legacy combined field)
-  const variantDisplay = pdVariantTokenFor(size, color, other);
   try {
-    const id = genId('PDV');
-    const {error} = await sb.from('product_dev').insert({
-      id, parent_id: parentId,
+    // Insert one row per selected size
+    const rows = selectedSizes.map(size => ({
+      id: genId('PDV'),
+      parent_id: parentId,
       collection_id: parent?.collectionId || null,
-      display_code: code,
+      display_code: generateNextVariantCode(parent?.collectionId||'', size),
       sku_type: 'variant',
-      sku_name: parent?.skuName || null,  // inherit name from parent
-      size: size || null,
-      color: color || null,
-      variant: other || variantDisplay,   // store "other" or fallback display
+      sku_name: parent?.skuName || null,
+      size, color: null, variant: null,
       vendor: vendor||null,
       hpp: isNaN(hpp)?null:hpp,
       qty: isNaN(qty)?null:qty,
-      picture_urls: [], added_by: currentUser, date_added: new Date().toISOString()
+      picture_urls: [],
+      added_by: currentUser, date_added: new Date().toISOString()
+    }));
+    // Bump sequence numbers manually so codes are unique within this batch
+    // (generateNextVariantCode reads allPDRows which won't include in-flight rows)
+    const seen = {};
+    rows.forEach(r => {
+      const baseSize = r.size;
+      const base = r.display_code;
+      if (seen[baseSize]) {
+        // Increment the NN suffix manually
+        const m = base.match(/-(\d{2,})$/);
+        if (m) {
+          const next = String(parseInt(m[1],10) + seen[baseSize]).padStart(2,'0');
+          r.display_code = base.replace(/-(\d{2,})$/, `-${next}`);
+        }
+      }
+      seen[baseSize] = (seen[baseSize]||0) + 1;
     });
+    const {error} = await sb.from('product_dev').insert(rows);
     if (error) throw error;
     await fetchPDRows();
     renderPDDetailTable();
@@ -14627,26 +14643,21 @@ async function savePDVariantEdit(id, parentId) {
   const r = allPDRows.find(x=>x.id===id);
   if (!r) return;
   const size   = document.getElementById(`pde-size-${id}`).value.trim();
-  const color  = document.getElementById(`pde-color-${id}`).value.trim();
-  const other  = document.getElementById(`pde-other-${id}`).value.trim();
   const vendor = document.getElementById(`pde-vendor-${id}`).value.trim();
   const hppS   = document.getElementById(`pde-hpp-${id}`).value;
   const qtyS   = document.getElementById(`pde-qty-${id}`).value;
-  if (!size && !color && !other) { alert('Isi minimal salah satu: Size, Color, atau Other.'); return; }
+  if (!size) { alert('Size wajib.'); return; }
   if (qtyS === '' || Number(qtyS) <= 0) { alert('QTY wajib (> 0).'); return; }
 
-  // Regenerate code if size/color/other changed
-  const newTokenInputs = [size, color, other];
-  const oldTokenInputs = [r.size||'', r.color||'', (r.variant||'')];
-  const tokenChanged = newTokenInputs.join('|').toUpperCase() !== oldTokenInputs.join('|').toUpperCase();
+  // Regenerate code if size changed
   let displayCode = r.displayCode;
-  if (tokenChanged) {
-    displayCode = generateNextVariantCode(r.collectionId, size, color, other);
+  if (pdVariantToken(size) !== pdVariantToken(r.size||'')) {
+    displayCode = generateNextVariantCode(r.collectionId, size);
   }
   const upd = {
     display_code: displayCode,
-    size: size||null, color: color||null,
-    variant: other || pdVariantTokenFor(size, color, ''),
+    size: size||null,
+    color: null, variant: null,  // clear legacy color/other on edit
     vendor: vendor||null,
     hpp: hppS===''?null:parseFloat(hppS),
     qty: qtyS===''?null:parseFloat(qtyS),
@@ -14718,38 +14729,28 @@ function buildPDCatalogHTML(title, parents, subsByParent, mode, vendor) {
     // In vendor mode, drop the whole product if no matching children
     if (mode === 'vendor' && fVariants.length === 0 && fBundleItems.length === 0) return '';
 
-    const variantRow = (s) => {
-      const subtotal = Number(s.hpp||0)*Number(s.qty||1);
-      return `<tr>
-        <td class="mono">${pdEsc(s.displayCode||'—')}</td>
-        <td class="mono">${pdEsc(s.size||'—')}</td>
-        <td>${pdEsc(s.color||'—')}</td>
-        ${showVendor ? `<td>${pdEsc(s.vendor||'—')}</td>` : ''}
-        ${showHPP ? `<td class="r mono">${s.hpp?'Rp '+pdFmtIDR(s.hpp):'—'}</td>` : ''}
-        <td class="r mono">${s.qty||'—'}</td>
-        ${showHPP ? `<td class="r mono">${subtotal?'Rp '+pdFmtIDR(subtotal):'—'}</td>` : ''}
-      </tr>`;
-    };
-    const bundleRow = (b) => {
-      const subtotal = Number(b.hpp||0)*Number(b.qty||1);
-      return `<tr>
-        <td class="mono">${pdEsc(b.displayCode||'—')}</td>
-        <td>${pdEsc(b.skuName||'—')}</td>
-        ${showVendor ? `<td>${pdEsc(b.vendor||'—')}</td>` : ''}
-        ${showHPP ? `<td class="r mono">${b.hpp?'Rp '+pdFmtIDR(b.hpp):'—'}</td>` : ''}
-        <td class="r mono">${b.qty||'—'}</td>
-        ${showHPP ? `<td class="r mono">${subtotal?'Rp '+pdFmtIDR(subtotal):'—'}</td>` : ''}
-      </tr>`;
-    };
+    const variantRow = (s) => `<tr>
+      <td class="mono">${pdEsc(s.displayCode||'—')}</td>
+      <td class="mono">${pdEsc(s.size||'—')}</td>
+      ${showVendor ? `<td>${pdEsc(s.vendor||'—')}</td>` : ''}
+      ${showHPP ? `<td class="r mono">${s.hpp?'Rp '+pdFmtIDR(s.hpp):'—'}</td>` : ''}
+      <td class="r mono">${s.qty||'—'}</td>
+    </tr>`;
+    const bundleRow = (b) => `<tr>
+      <td class="mono">${pdEsc(b.displayCode||'—')}</td>
+      <td>${pdEsc(b.skuName||'—')}</td>
+      ${showVendor ? `<td>${pdEsc(b.vendor||'—')}</td>` : ''}
+      ${showHPP ? `<td class="r mono">${b.hpp?'Rp '+pdFmtIDR(b.hpp):'—'}</td>` : ''}
+      <td class="r mono">${b.qty||'—'}</td>
+    </tr>`;
 
     const variantsHTML = fVariants.length ? `<div style="margin-top:8px;font-size:10px;color:#666;text-transform:uppercase;letter-spacing:0.5px">Variants</div>
       <table class="subs">
         <thead><tr>
-          <th>Code</th><th>Size</th><th>Color</th>
+          <th>Code</th><th>Size</th>
           ${showVendor ? '<th>Vendor</th>' : ''}
           ${showHPP ? '<th class="r">HPP</th>' : ''}
           <th class="r">QTY</th>
-          ${showHPP ? '<th class="r">Subtotal</th>' : ''}
         </tr></thead>
         <tbody>${fVariants.map(variantRow).join('')}</tbody>
       </table>` : '';
@@ -14761,7 +14762,6 @@ function buildPDCatalogHTML(title, parents, subsByParent, mode, vendor) {
           ${showVendor ? '<th>Vendor</th>' : ''}
           ${showHPP ? '<th class="r">HPP</th>' : ''}
           <th class="r">QTY</th>
-          ${showHPP ? '<th class="r">Subtotal</th>' : ''}
         </tr></thead>
         <tbody>${fBundleItems.map(bundleRow).join('')}</tbody>
       </table>` : '';
