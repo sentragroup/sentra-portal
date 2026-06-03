@@ -13750,35 +13750,41 @@ function pdFmtIDR(n) {
   return new Intl.NumberFormat('id-ID').format(Number(n));
 }
 
-function pdComputeRatio(parent, subs) {
+// Projection: how much was produced, capital, expected revenue, margin.
+// Returns null fields when inputs are missing.
+function pdComputeProjection(parent, allChildren) {
+  allChildren = allChildren || [];
+  const variants    = allChildren.filter(c => pdChildKind(c) === 'variant');
+  const bundleItems = allChildren.filter(c => pdChildKind(c) === 'bundle_item');
+
+  // Units produced:
+  //  - variants present → total = Σ variant.qty (each variant qty = stock count)
+  //  - pure bundle     → 1 bundle (HPP captures the per-bundle cost via components)
+  //  - nothing         → 0
+  let units = 0;
+  if (variants.length)    units = variants.reduce((s,v)=>s+Number(v.qty||0), 0);
+  else if (bundleItems.length) units = 1;
+
+  // Modal (total capital outlay): Σ child.hpp × child.qty across ALL children
+  const modal = allChildren.reduce((s,c)=>s + (Number(c.hpp||0) * Number(c.qty||0)), 0);
+
+  // Per-unit cost (weighted-avg HPP if variants; full modal if pure bundle)
+  const unitCost = units ? modal / units : null;
+
   const srp = Number(parent.srp||0);
-  if (!srp) return null;
-  let totalCost = 0;
-  if (subs && subs.length) {
-    totalCost = subs.reduce((s,sb)=>s + (Number(sb.hpp||0) * Number(sb.qty||1)), 0);
-  } else {
-    totalCost = Number(parent.hpp||0) * Number(parent.qty||1);
-  }
-  if (!totalCost) return null;
-  return srp / totalCost;
+  const revenue100 = (srp && units) ? srp * units : 0;
+  const grossMargin   = revenue100 - modal;
+  const grossMarginPct = revenue100 ? (grossMargin / revenue100) * 100 : null;
+
+  // Ratio = SRP per item / cost per item. This is the per-unit markup.
+  const ratio = (srp && unitCost) ? srp / unitCost : null;
+
+  return { units, modal, unitCost, revenue100, grossMargin, grossMarginPct, ratio };
 }
 
-function pdFmtIDR(n) {
-  if (n===null||n===undefined||n==='') return '—';
-  return new Intl.NumberFormat('id-ID').format(Number(n));
-}
-
+// Back-compat: existing call sites use pdComputeRatio(parent, subs).
 function pdComputeRatio(parent, subs) {
-  const srp = Number(parent.srp||0);
-  if (!srp) return null;
-  let totalCost = 0;
-  if (subs && subs.length) {
-    totalCost = subs.reduce((s,sb)=>s + (Number(sb.hpp||0) * Number(sb.qty||1)), 0);
-  } else {
-    totalCost = Number(parent.hpp||0) * Number(parent.qty||1);
-  }
-  if (!totalCost) return null;
-  return srp / totalCost;
+  return pdComputeProjection(parent, subs).ratio;
 }
 
 async function loadPDVendorList() {
@@ -14211,9 +14217,10 @@ function renderPDDetailTable() {
 function renderPDParentCard(p, allChildren) {
   const subs        = allChildren.filter(c => pdChildKind(c) === 'variant');
   const bundleItems = allChildren.filter(c => pdChildKind(c) === 'bundle_item');
-  const ratio = pdComputeRatio(p, allChildren);
-  const totalHpp = allChildren.reduce((s,sb)=>s+(Number(sb.hpp||0)*Number(sb.qty||1)),0);
-  const totalQty = subs.reduce((s,sb)=>s+Number(sb.qty||0),0); // stock = variants only
+  const proj  = pdComputeProjection(p, allChildren);
+  const ratio = proj.ratio;
+  const totalHpp = proj.modal;
+  const totalQty = proj.units;
   const vendorSet = new Set(allChildren.map(s=>s.vendor).filter(Boolean));
   const vendorTxt = vendorSet.size === 0 ? '—' : vendorSet.size === 1 ? [...vendorSet][0] : `${vendorSet.size} vendors`;
   const code = p.displayCode || p.id;
@@ -14272,14 +14279,30 @@ function renderPDParentCard(p, allChildren) {
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:16px;font-size:12px;color:var(--g600)">
         <span>Vendor: <b style="color:var(--black)">${vendorTxt.replace(/</g,'&lt;')}</b></span>
-        <span>HPP total: <span class="mono"><b style="color:var(--black)">${totalHpp?pdFmtIDR(totalHpp):'—'}</b></span></span>
-        <span>Stock total: <span class="mono"><b style="color:var(--black)">${totalQty||'—'}</b></span></span>
+        <span>HPP/unit: <span class="mono"><b style="color:var(--black)">${proj.unitCost?pdFmtIDR(Math.round(proj.unitCost)):'—'}</b></span></span>
         <span>SRP: <span class="mono"><b style="color:var(--black)">${pdFmtIDR(p.srp)}</b></span></span>
         <span>Ratio: ${ratioPill}</span>
       </div>
+      ${renderPDProjectionRow(proj)}
       ${p.notes ? `<div style="margin-top:6px;font-size:11px;color:var(--g600);font-style:italic">${p.notes.replace(/</g,'&lt;')}</div>` : ''}
       ${childrenBlock}
     </div>
+  </div>`;
+}
+
+// Business projection strip shown inside each product card.
+function renderPDProjectionRow(proj) {
+  if (!proj.units) return '';  // nothing to project
+  const margin = proj.grossMargin;
+  const marginColor = margin > 0 ? '#0a7d3a' : margin < 0 ? '#c33' : 'var(--g600)';
+  const pctStr = proj.grossMarginPct !== null ? ` (${proj.grossMarginPct.toFixed(1)}%)` : '';
+  const hasRevenue = proj.revenue100 > 0;
+  return `<div style="margin-top:10px;padding:10px 12px;background:rgba(0,0,0,0.04);border-radius:6px;display:flex;flex-wrap:wrap;gap:18px;font-size:11px;color:var(--g600)">
+    <span style="font-family:var(--mono);font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px;align-self:center">📊 Projection (100% sold)</span>
+    <span>Diproduksi: <b style="color:var(--black)" class="mono">${proj.units}</b> unit</span>
+    <span>Modal: <b style="color:var(--black)" class="mono">${proj.modal?'Rp '+pdFmtIDR(proj.modal):'—'}</b></span>
+    <span>Revenue: <b style="color:var(--black)" class="mono">${hasRevenue?'Rp '+pdFmtIDR(proj.revenue100):'—'}</b></span>
+    <span>Gross margin: <b style="color:${marginColor}" class="mono">${hasRevenue?'Rp '+pdFmtIDR(margin)+pctStr:'—'}</b></span>
   </div>`;
 }
 
@@ -14712,9 +14735,10 @@ function buildPDCatalogHTML(title, parents, subsByParent, mode, vendor) {
     const all = subsByParent[p.id] || [];
     const variants    = all.filter(c => pdChildKind(c) === 'variant');
     const bundleItems = all.filter(c => pdChildKind(c) === 'bundle_item');
-    const ratio = pdComputeRatio(p, all);
-    const totalHpp = all.reduce((s,sb)=>s+(Number(sb.hpp||0)*Number(sb.qty||1)),0);
-    const totalQty = variants.reduce((s,v)=>s+Number(v.qty||0),0);
+    const proj = pdComputeProjection(p, all);
+    const ratio = proj.ratio;
+    const totalHpp = proj.modal;
+    const totalQty = proj.units;
     const pics = p.pictures||[];
     const pic1 = pics[0] || '';
     const pic2 = pics[1] || '';
@@ -14784,12 +14808,21 @@ function buildPDCatalogHTML(title, parents, subsByParent, mode, vendor) {
         </div>
         <div class="details">
           <table class="kv">
-            ${showHPP ? `<tr><th>HPP (total)</th><td class="mono">${totalHpp?'Rp '+pdFmtIDR(totalHpp):'—'}</td></tr>` : ''}
-            <tr><th>Stock (total)</th><td class="mono">${totalQty||'—'}</td></tr>
+            ${showHPP ? `<tr><th>HPP/unit</th><td class="mono">${proj.unitCost?'Rp '+pdFmtIDR(Math.round(proj.unitCost)):'—'}</td></tr>` : ''}
+            <tr><th>Diproduksi</th><td class="mono">${totalQty||'—'} unit</td></tr>
             ${showSRP ? `<tr><th>SRP</th><td class="mono"><b>Rp ${pdFmtIDR(p.srp)}</b></td></tr>` : ''}
             ${showRatio && ratio ? `<tr><th>Ratio SRP/HPP</th><td class="mono"><b>${ratio.toFixed(2)}×</b></td></tr>` : ''}
             ${p.notes ? `<tr><th>Notes</th><td>${pdEsc(p.notes)}</td></tr>` : ''}
           </table>
+          ${mode === 'internal' && proj.units ? `
+            <div class="proj">
+              <div class="proj-label">📊 Projection (100% sold)</div>
+              <table class="kv">
+                <tr><th>Modal</th><td class="mono">${proj.modal?'Rp '+pdFmtIDR(proj.modal):'—'}</td></tr>
+                <tr><th>Revenue</th><td class="mono">${proj.revenue100?'Rp '+pdFmtIDR(proj.revenue100):'—'}</td></tr>
+                <tr><th>Gross margin</th><td class="mono"><b>${proj.revenue100?'Rp '+pdFmtIDR(proj.grossMargin):'—'}${proj.grossMarginPct!==null?` (${proj.grossMarginPct.toFixed(1)}%)`:''}</b></td></tr>
+              </table>
+            </div>` : ''}
           ${variantsHTML}
           ${bundleHTML}
         </div>
@@ -14828,6 +14861,9 @@ function buildPDCatalogHTML(title, parents, subsByParent, mode, vendor) {
   table.subs { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 10px; }
   table.subs th, table.subs td { padding: 3px 5px; border-bottom: 1px solid #eee; }
   table.subs th { text-align: left; background: #f3f3ee; color: #555; font-weight: 600; }
+  .proj { margin-top: 10px; padding: 8px 10px; background: #fafaf7; border: 1px solid #e0dfd8; border-radius: 4px; }
+  .proj-label { font-size: 9px; color: #666; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+  .proj table.kv th { width: 100px; }
   .empty { padding: 40px; text-align: center; color: #999; }
   @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } .no-print { display: none; } }
   .no-print { position: fixed; top: 8px; right: 8px; background: #111; color: #fff; padding: 6px 12px; border-radius: 4px; cursor: pointer; border: 0; font-size: 12px; }
