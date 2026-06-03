@@ -13921,11 +13921,12 @@ function pdFmtLaunchDate(dateStr) {
 
 // Brand color for the revenue-stream chip: SD&Y = black, Lagaa = maroon, Marte = yellow.
 function pdRevChipStyle(rev) {
-  const k = (rev||'').toLowerCase().replace(/[^a-z]/g,'');   // normalize: "SD&Y" -> "sdy"
-  if (k === 'lagaa')              return {bg:'#6d1f2b', fg:'#ffffff', border:'#6d1f2b'};  // merah maroon
-  if (k === 'sdy' || k === 'sdny')return {bg:'#0c0c0c', fg:'#ffffff', border:'#0c0c0c'};  // item (hitam)
-  if (k === 'marte')              return {bg:'#f5c518', fg:'#3a2e00', border:'#e0b400'};  // kuning
-  return {bg:'var(--off)', fg:'var(--g600)', border:'var(--g100)'};                        // lainnya
+  // Substring match on lowercased value (tolerant of accents like "marté", and "SD&Y" vs "SDY")
+  const r = (rev||'').toLowerCase();
+  if (r.includes('lagaa'))                 return {bg:'#6d1f2b', fg:'#ffffff', border:'#6d1f2b'};  // merah maroon
+  if (r.includes('sd'))                    return {bg:'#0c0c0c', fg:'#ffffff', border:'#0c0c0c'};  // item (hitam)
+  if (r.includes('mart'))                  return {bg:'#f5c518', fg:'#3a2e00', border:'#e0b400'};  // kuning
+  return {bg:'var(--off)', fg:'var(--g600)', border:'var(--g100)'};                                // lainnya
 }
 
 // Color tone based on days remaining
