@@ -126,9 +126,6 @@
       </div>
       <div class="sb-sec">
         <div class="sb-label">Database</div>
-        <div class="sb-item" onclick="showPage('productdev',this)" id="nav-productdev">
-          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1.5l5.5 3v5L8 13 2.5 9.5v-5z"/><path d="M2.5 4.5L8 7.5l5.5-3"/><line x1="8" y1="7.5" x2="8" y2="13"/><circle cx="12" cy="3.5" r="1.3" fill="currentColor" stroke="none"/></svg>Product Development
-        </div>
         <div class="sb-item" onclick="showPage('ipmaster',this)" id="nav-ipmaster">
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><ellipse cx="8" cy="5" rx="6" ry="2.5"/><path d="M2 5v3c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5V5"/><path d="M2 8v3c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5V8"/></svg>IP Master
         </div>
@@ -194,7 +191,6 @@
 
         <div class="sb-label" style="margin-bottom:0.6rem">Creative Operations</div>
         <div class="home-grid" style="margin-bottom:1.5rem">
-          <div class="tool-card" onclick="showPage('productdev',null)"><span class="tc-icon">🧪</span><div class="tc-name">Product Development</div><div class="tc-desc">Costing &amp; sourcing per SKU — vendor, HPP, QTY, SRP, ratio, dan foto. Siap export untuk internal, eksternal, atau vendor.</div></div>
           <div class="tool-card" onclick="showPage('collections',null)"><span class="tc-icon">🎨</span><div class="tc-name">Collection Development</div><div class="tc-desc">Manajemen collection merchandise — dari ideation hingga approval design.</div></div>
           <div class="tool-card" onclick="showPage('dsgworkflow',null)"><span class="tc-icon">✏️</span><div class="tc-name">Designer Workflow</div><div class="tc-desc">Track deliverables, approval status, dan payment designer per collection.</div></div>
         </div>
@@ -212,9 +208,11 @@
           <div class="tool-card" onclick="showPage('popupbooth',null)"><span class="tc-icon">🛍️</span><div class="tc-name">Pop Up Booth</div><div class="tc-desc">Track event pop-up booth — manpower, stok, penjualan, dan reinbound.</div></div>
         </div>
 
+        <div class="sb-label" style="margin-bottom:0.6rem">Purchasing</div>
         <div class="home-grid" style="margin-bottom:1.5rem">
+          <div class="tool-card" onclick="showPage('productdev',null)"><span class="tc-icon">🧪</span><div class="tc-name">Product Development</div><div class="tc-desc">Costing &amp; sourcing per SKU — vendor, HPP, QTY, SRP, ratio, dan foto. Siap export untuk internal, eksternal, atau vendor.</div></div>
           <div class="tool-card" onclick="showPage('po',null)"><span class="tc-icon">🛒</span><div class="tc-name">Track Purchase Order</div><div class="tc-desc">Track dan kelola purchase order ke vendor — dari draft hingga penerimaan barang.</div></div>
-          <div class="tool-card" onclick="showPage('restock',null)"><span class="tc-icon">📦</span><div class="tc-name">Create New & Restock PO</div><div class="tc-desc">Download CSV import PO untuk produk SD&amp;Y, Lagaa, dan Marte yang perlu di-restock.</div></div>
+          <div class="tool-card" onclick="showPage('restock',null)"><span class="tc-icon">📦</span><div class="tc-name">Create PO Restock</div><div class="tc-desc">Download CSV import PO untuk produk SD&amp;Y, Lagaa, dan Marte yang perlu di-restock.</div></div>
         </div>
 
         <div class="sb-label" style="margin-bottom:0.6rem">Warehouse</div>
@@ -1202,7 +1200,7 @@
     <!-- NEED RESTOCK -->
     <div class="page" id="page-restock">
       <div class="page-header">
-        <div><div class="page-title">Create New & Restock PO</div><div class="page-sub">Download CSV import PO untuk produk SD&amp;Y, Lagaa, dan Marte yang perlu di-restock, lalu import via Jubelio → Pembelian → Import.</div></div>
+        <div><div class="page-title">Create PO Restock</div><div class="page-sub">Download CSV import PO untuk produk SD&amp;Y, Lagaa, dan Marte yang perlu di-restock, lalu import via Jubelio → Pembelian → Import.</div></div>
       </div>
 
       <div class="filter-panel">
@@ -3168,6 +3166,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260601p"></script>
+<script src="app.js?v=20260603a"></script>
 </body>
 </html>
