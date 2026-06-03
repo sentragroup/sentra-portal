@@ -13827,7 +13827,7 @@ async function loadPDVendorList() {
 }
 
 async function loadPDCollections() {
-  const {data} = await sb.from('collections').select('id,collection_name,ip_related').order('collection_name');
+  const {data} = await sb.from('collections').select('id,collection_name,ip_related,release_date').order('collection_name');
   pdAllCollections = data || [];
   // Count requested SKU parents per collection (from Collection Development).
   // Used to compute X/Y "request fulfillment" progress on the grid cards.
@@ -13899,6 +13899,35 @@ function openPDDetail(collection_id) {
 }
 
 // ── GRID VIEW ──────────────────────────────────────────────────────
+// Days from today until the given date (YYYY-MM-DD or ISO).
+// Returns positive for future, 0 for today, negative for past, null when missing.
+function pdDaysUntil(dateStr) {
+  if (!dateStr) return null;
+  const target = new Date(dateStr);
+  if (isNaN(target)) return null;
+  const today = new Date();
+  // Normalize to local midnight for both
+  target.setHours(0,0,0,0); today.setHours(0,0,0,0);
+  return Math.round((target - today) / 86400000);
+}
+
+function pdFmtLaunchDate(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  if (isNaN(d)) return '';
+  return d.toLocaleDateString('id-ID', {day:'2-digit',month:'short',year:'numeric'});
+}
+
+// Color tone based on days remaining
+function pdLaunchTone(days) {
+  if (days === null)        return {bg:'#e8e8e3', fg:'#666',    border:'#d6d5cc', label:'No launch date'};
+  if (days < 0)             return {bg:'#eef1ee', fg:'#6c7c6f', border:'#c8d2c8', label:`Launched ${-days}d ago`};
+  if (days === 0)           return {bg:'#fde0e0', fg:'#b81d1d', border:'#f3a8a8', label:'Launches today!'};
+  if (days <= 7)            return {bg:'#fde0e0', fg:'#b81d1d', border:'#f3a8a8', label:`${days}d to launch`};
+  if (days <= 30)           return {bg:'#fef0d0', fg:'#a66800', border:'#f1cf7a', label:`${days}d to launch`};
+  return                            {bg:'#daf3e0', fg:'#0a7d3a', border:'#a7dab4', label:`${days}d to launch`};
+}
+
 function renderPDGrid() {
   // Populate IP filter dropdown so new IPs are picked up across reloads.
   const ipSel = document.getElementById('pd-grid-ip');
@@ -13917,6 +13946,18 @@ function renderPDGrid() {
     if (ipFilter && (c.ip_related||'').toLowerCase() !== ipFilter.toLowerCase()) return false;
     if (search && !(c.collection_name||'').toLowerCase().includes(search)) return false;
     return true;
+  });
+  // Sort by closest launch first: upcoming (positive days) ascending, then past,
+  // then no-date — surfaces urgent collections at the top.
+  cols.sort((a, b) => {
+    const da = pdDaysUntil(a.release_date);
+    const db = pdDaysUntil(b.release_date);
+    const rank = d => d === null ? 3 : d < 0 ? 2 : 1;       // upcoming → 1, past → 2, none → 3
+    const ra = rank(da), rb = rank(db);
+    if (ra !== rb) return ra - rb;
+    if (ra === 1) return da - db;                            // both upcoming → soonest first
+    if (ra === 2) return db - da;                            // both past → most recent first (least negative wins)
+    return (a.collection_name||'').localeCompare(b.collection_name||'');
   });
   document.getElementById('pd-grid-tcount').textContent = `${cols.length} collection`;
 
@@ -13956,6 +13997,12 @@ function renderPDGrid() {
     const name = (c.collection_name||c.id).replace(/</g,'&lt;');
     const ip   = (c.ip_related||'').trim();
 
+    // Launch urgency
+    const days = pdDaysUntil(c.release_date);
+    const launchTone = pdLaunchTone(days);
+    const launchDate = pdFmtLaunchDate(c.release_date);
+    const launchPill = `<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:4px 10px;border-radius:4px;font-family:var(--mono);background:${launchTone.bg};color:${launchTone.fg};border:1px solid ${launchTone.border}">📅 ${launchTone.label}${launchDate?` · ${launchDate}`:''}</span>`;
+
     return `<div class="tool-card" onclick="openPDDetail('${c.id}')" style="cursor:pointer;padding:14px 16px;display:flex;flex-direction:column;gap:8px">
       <div>
         ${ip
@@ -13963,8 +14010,9 @@ function renderPDGrid() {
           : `<div style="font-size:11px;color:var(--g400);font-style:italic">No IP set</div>`}
         <div style="font-size:12px;color:var(--g600);margin-top:2px">${name}</div>
       </div>
-      <div style="display:flex;align-items:center;gap:10px;margin-top:auto">
+      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:auto">
         <span style="display:inline-block;font-size:11px;font-weight:600;padding:4px 10px;border-radius:4px;font-family:var(--mono);background:${tone.bg};color:${tone.fg};border:1px solid ${tone.border}">${progressLabel}</span>
+        ${launchPill}
       </div>
       ${requested ? `<div style="height:4px;background:var(--g100);border-radius:2px;overflow:hidden;margin-top:-2px">
         <div style="height:100%;width:${Math.min(100,pct)}%;background:${tone.fg};transition:width 0.2s"></div>
