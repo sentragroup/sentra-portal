@@ -14352,13 +14352,19 @@ function renderPDProjectionRow(proj) {
 }
 
 function renderPDVariantCard(s, parentId) {
-  // Show legacy color/other tags too if any old rows still have them set,
-  // but the main display is just the size.
+  // Variants inherit the parent product's pictures (read-only — no own upload).
+  const parent = allPDRows.find(r => r.id === parentId);
+  const parentPic = parent && parent.pictures && parent.pictures[0];
+  const thumb = parentPic
+    ? `<a href="${parentPic}" target="_blank" title="Foto parent: ${(parent.skuName||'').replace(/"/g,'&quot;')}"><img src="${parentPic}" style="width:48px;height:48px;object-fit:cover;border-radius:4px;border:1px solid var(--g100);display:block"></a>`
+    : `<div style="width:48px;height:48px;border:1px dashed var(--g100);border-radius:4px;background:var(--off);display:flex;align-items:center;justify-content:center;color:var(--g400);font-size:9px;text-align:center;line-height:1.1">no<br>pic</div>`;
+
   const sizeTag  = s.size  ? `<span style="font-size:11px;padding:3px 8px;background:var(--black);color:var(--white);border-radius:3px;font-weight:600;letter-spacing:0.5px;font-family:var(--mono)">${s.size.replace(/</g,'&lt;')}</span>` : '';
   const colorTag = s.color ? `<span style="font-size:10px;padding:2px 6px;background:var(--white);border:1px solid var(--g200);border-radius:3px;font-weight:500">${s.color.replace(/</g,'&lt;')}</span>` : '';
   const otherTag = s.variant && s.variant !== (s.size||'') && s.variant !== pdVariantToken(s.size) ? `<span style="font-size:10px;padding:2px 6px;background:var(--off);border:1px solid var(--g100);border-radius:3px;color:var(--g600)">${s.variant.replace(/</g,'&lt;')}</span>` : '';
 
   return `<div class="pd-subcard" style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 12px;background:var(--white);border:1px solid var(--g100);border-radius:5px;margin-bottom:6px">
+    <div style="flex:0 0 48px">${thumb}</div>
     <div style="min-width:0;flex:1">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <span style="font-family:var(--mono);font-size:10px;color:var(--g400);font-weight:600">${(s.displayCode||'—').replace(/</g,'&lt;')}</span>
@@ -14379,7 +14385,9 @@ function renderPDVariantCard(s, parentId) {
 
 // ── Bundle item display + edit cards ────────────────────────────────
 function renderPDBundleItemCard(b, parentId) {
-  return `<div class="pd-subcard" style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 12px;background:var(--white);border:1px solid var(--g100);border-radius:5px;margin-bottom:6px">
+  // Bundle items have their own pictures (different product).
+  return `<div class="pd-subcard" style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding:8px 12px;background:var(--white);border:1px solid var(--g100);border-radius:5px;margin-bottom:6px">
+    <div style="flex:0 0 60px">${renderPDPicsLeft(b, 60)}</div>
     <div style="min-width:0;flex:1">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <span style="font-family:var(--mono);font-size:10px;color:var(--g400);font-weight:600">${(b.displayCode||'—').replace(/</g,'&lt;')}</span>
@@ -14399,7 +14407,7 @@ function renderPDBundleItemCard(b, parentId) {
 }
 
 function renderPDBundleItemEditCard(b, parentId) {
-  return `<div class="pd-subcard" style="display:flex;gap:10px;align-items:flex-start;padding:8px 10px;background:var(--white);border:2px solid var(--black);border-radius:5px;margin-bottom:6px">
+  return `<div class="pd-subcard" style="display:flex;gap:10px;align-items:flex-start;padding:8px 12px;background:var(--white);border:2px solid var(--black);border-radius:5px;margin-bottom:6px">
     <div style="flex:0 0 60px">${renderPDPicsLeft(b, 60)}</div>
     <div style="flex:1;min-width:0">
       <div style="font-family:var(--mono);font-size:10px;color:var(--g400);font-weight:600;margin-bottom:8px">EDITING BUNDLE ITEM · ${(b.displayCode||b.id).replace(/</g,'&lt;')}</div>
@@ -14805,13 +14813,20 @@ function buildPDCatalogHTML(title, parents, subsByParent, mode, vendor) {
       ${showHPP ? `<td class="r mono">${s.hpp?'Rp '+pdFmtIDR(s.hpp):'—'}</td>` : ''}
       <td class="r mono">${s.qty||'—'}</td>
     </tr>`;
-    const bundleRow = (b) => `<tr>
-      <td class="mono">${pdEsc(b.displayCode||'—')}</td>
-      <td>${pdEsc(b.skuName||'—')}</td>
-      ${showVendor ? `<td>${pdEsc(b.vendor||'—')}</td>` : ''}
-      ${showHPP ? `<td class="r mono">${b.hpp?'Rp '+pdFmtIDR(b.hpp):'—'}</td>` : ''}
-      <td class="r mono">${b.qty||'—'}</td>
-    </tr>`;
+    const bundleRow = (b) => {
+      const pic = (b.pictures||[])[0];
+      const picCell = pic
+        ? `<img src="${pdEsc(pic)}" style="width:36px;height:36px;object-fit:cover;border-radius:3px;border:1px solid #ddd;display:block">`
+        : '<span style="color:#bbb;font-size:9px">—</span>';
+      return `<tr>
+        <td style="width:42px">${picCell}</td>
+        <td class="mono">${pdEsc(b.displayCode||'—')}</td>
+        <td>${pdEsc(b.skuName||'—')}</td>
+        ${showVendor ? `<td>${pdEsc(b.vendor||'—')}</td>` : ''}
+        ${showHPP ? `<td class="r mono">${b.hpp?'Rp '+pdFmtIDR(b.hpp):'—'}</td>` : ''}
+        <td class="r mono">${b.qty||'—'}</td>
+      </tr>`;
+    };
 
     const variantsHTML = fVariants.length ? `<div style="margin-top:8px;font-size:10px;color:#666;text-transform:uppercase;letter-spacing:0.5px">Variants</div>
       <table class="subs">
@@ -14827,7 +14842,7 @@ function buildPDCatalogHTML(title, parents, subsByParent, mode, vendor) {
     const bundleHTML = fBundleItems.length ? `<div style="margin-top:10px;font-size:10px;color:#666;text-transform:uppercase;letter-spacing:0.5px">Bundle Items</div>
       <table class="subs">
         <thead><tr>
-          <th>Code</th><th>Item Name</th>
+          <th style="width:42px"></th><th>Code</th><th>Item Name</th>
           ${showVendor ? '<th>Vendor</th>' : ''}
           ${showHPP ? '<th class="r">HPP</th>' : ''}
           <th class="r">QTY</th>
