@@ -13828,7 +13828,7 @@ async function loadPDVendorList() {
 }
 
 async function loadPDCollections() {
-  const {data} = await sb.from('collections').select('id,collection_name,ip_related,release_date').order('collection_name');
+  const {data} = await sb.from('collections').select('id,collection_name,ip_related,release_date,revenue_stream,pd_active').order('collection_name');
   pdAllCollections = data || [];
   // Count requested SKU parents per collection (from Collection Development).
   // Used to compute X/Y "request fulfillment" progress on the grid cards.
@@ -13939,18 +13939,31 @@ function renderPDGrid() {
       ips.map(ip => `<option value="${ip.replace(/"/g,'&quot;')}"${ip===cur?' selected':''}>${ip.replace(/</g,'&lt;')}</option>`).join('');
   }
 
-  const search   = (document.getElementById('pd-grid-search')?.value || '').trim().toLowerCase();
-  const ipFilter = (ipSel?.value || '').trim();
+  // Populate revenue-stream filter dropdown
+  const revSel = document.getElementById('pd-grid-rev');
+  if (revSel) {
+    const revs = [...new Set(pdAllCollections.map(c => (c.revenue_stream||'').trim()).filter(Boolean))].sort();
+    const cur = revSel.value;
+    revSel.innerHTML = `<option value="">Semua Revenue Stream</option>` +
+      revs.map(r => `<option value="${r.replace(/"/g,'&quot;')}"${r===cur?' selected':''}>${r.replace(/</g,'&lt;')}</option>`).join('');
+  }
+
+  const search    = (document.getElementById('pd-grid-search')?.value || '').trim().toLowerCase();
+  const ipFilter  = (ipSel?.value || '').trim();
+  const revFilter = (revSel?.value || '').trim();
 
   // Apply filters to the collections grid
   const cols = pdAllCollections.filter(c => {
     if (ipFilter && (c.ip_related||'').toLowerCase() !== ipFilter.toLowerCase()) return false;
+    if (revFilter && (c.revenue_stream||'').toLowerCase() !== revFilter.toLowerCase()) return false;
     if (search && !(c.collection_name||'').toLowerCase().includes(search)) return false;
     return true;
   });
-  // Sort by closest launch first: upcoming (positive days) ascending, then past,
-  // then no-date — surfaces urgent collections at the top.
+  // Inactive collections always sink to the bottom. Within each active/inactive
+  // bucket, sort by closest launch first: upcoming ascending, then past, then no-date.
   cols.sort((a, b) => {
+    const aActive = a.pd_active !== false, bActive = b.pd_active !== false;
+    if (aActive !== bActive) return aActive ? -1 : 1;        // active first, inactive last
     const da = pdDaysUntil(a.release_date);
     const db = pdDaysUntil(b.release_date);
     const rank = d => d === null ? 3 : d < 0 ? 2 : 1;       // upcoming → 1, past → 2, none → 3
@@ -13997,6 +14010,8 @@ function renderPDGrid() {
 
     const name = (c.collection_name||c.id).replace(/</g,'&lt;');
     const ip   = (c.ip_related||'').trim();
+    const rev  = (c.revenue_stream||'').trim();
+    const active = c.pd_active !== false;
 
     // Launch urgency
     const days = pdDaysUntil(c.release_date);
@@ -14010,20 +14025,53 @@ function renderPDGrid() {
       <div style="height:100%;width:${barFill}%;background:${barColor};transition:width 0.2s"></div>
     </div>`;
 
-    return `<div class="tool-card" onclick="openPDDetail('${c.id}')" style="cursor:pointer;padding:14px 16px;display:flex;flex-direction:column;gap:10px;height:100%;box-sizing:border-box">
-      <div>
-        ${ip
-          ? `<div style="font-size:14px;font-weight:700;color:var(--black);font-family:var(--syne,var(--sans));letter-spacing:0.3px">${ip.replace(/</g,'&lt;')}</div>`
-          : `<div style="font-size:11px;color:var(--g400);font-style:italic">No IP set</div>`}
-        <div style="font-size:12px;color:var(--g600);margin-top:2px">${name}</div>
+    // Revenue-stream chip (top-right) + active/inactive toggle
+    const revChip = rev
+      ? `<span style="font-size:9px;font-weight:600;font-family:var(--mono);padding:2px 7px;border-radius:99px;background:var(--off);color:var(--g600);border:1px solid var(--g100);white-space:nowrap">${rev.replace(/</g,'&lt;')}</span>`
+      : '';
+    const toggle = `<button onclick="event.stopPropagation();togglePDActive('${c.id}',${active?'false':'true'})"
+      title="${active?'Tandai inactive':'Tandai active'}"
+      style="font-size:9px;font-weight:600;font-family:var(--mono);padding:2px 8px;border-radius:99px;cursor:pointer;white-space:nowrap;border:1px solid ${active?'#a7dab4':'#e0a8a8'};background:${active?'#daf3e0':'#fbe6e6'};color:${active?'#0a7d3a':'#b81d1d'}">${active?'● Active':'○ Inactive'}</button>`;
+
+    return `<div class="tool-card" onclick="openPDDetail('${c.id}')" style="cursor:pointer;padding:14px 16px;display:flex;flex-direction:column;gap:10px;height:100%;box-sizing:border-box;${active?'':'opacity:0.55'}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+        <div style="min-width:0">
+          ${ip
+            ? `<div style="font-size:14px;font-weight:700;color:var(--black);font-family:var(--syne,var(--sans));letter-spacing:0.3px">${ip.replace(/</g,'&lt;')}</div>`
+            : `<div style="font-size:11px;color:var(--g400);font-style:italic">No IP set</div>`}
+          <div style="font-size:12px;color:var(--g600);margin-top:2px">${name}</div>
+        </div>
+        ${revChip}
       </div>
       <div style="display:flex;flex-direction:column;align-items:stretch;gap:6px;margin-top:auto">
         <span style="display:block;text-align:center;font-size:11px;font-weight:600;padding:5px 10px;border-radius:4px;font-family:var(--mono);background:${tone.bg};color:${tone.fg};border:1px solid ${tone.border};box-sizing:border-box;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${progressLabel}</span>
-        <span style="display:block;text-align:center;font-size:11px;font-weight:600;padding:5px 10px;border-radius:4px;font-family:var(--mono);background:${launchTone.bg};color:${launchTone.fg};border:1px solid ${launchTone.border};box-sizing:border-box;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">📅 ${launchTone.label}${launchDate?` · ${launchDate}`:''}</span>
+        <span style="display:flex;flex-direction:column;align-items:center;gap:1px;line-height:1.25;font-size:11px;font-weight:600;padding:5px 10px;border-radius:4px;font-family:var(--mono);background:${launchTone.bg};color:${launchTone.fg};border:1px solid ${launchTone.border};box-sizing:border-box">
+          <span>📅 ${launchTone.label}</span>${launchDate?`<span style="font-weight:500;opacity:0.85">${launchDate}</span>`:''}
+        </span>
+        <div style="display:flex;justify-content:center">${toggle}</div>
       </div>
       ${progressBar}
     </div>`;
   }).join('');
+}
+
+// Toggle a collection's active state in the Product Dev grid.
+// Inactive collections sink to the bottom of the grid (see sort in renderPDGrid).
+async function togglePDActive(collectionId, newActive) {
+  const active = newActive === true || newActive === 'true';
+  // optimistic local update
+  const c = pdAllCollections.find(x => x.id === collectionId);
+  if (c) c.pd_active = active;
+  renderPDGrid();
+  try {
+    const {error} = await sb.from('collections').update({pd_active: active}).eq('id', collectionId);
+    if (error) throw error;
+  } catch(e) {
+    console.error('togglePDActive:', e);
+    if (c) c.pd_active = !active;   // revert on failure
+    renderPDGrid();
+    alert('Gagal mengubah status: ' + (e.message||e));
+  }
 }
 
 // ── DETAIL VIEW ────────────────────────────────────────────────────
