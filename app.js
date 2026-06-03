@@ -14002,6 +14002,13 @@ function renderPDGrid() {
     const launchTone = pdLaunchTone(days);
     const launchDate = pdFmtLaunchDate(c.release_date);
 
+    // Progress bar always present so every card has the same height.
+    const barFill = requested ? Math.min(100, pct) : 0;
+    const barColor = requested ? tone.fg : 'var(--g100)';
+    const progressBar = `<div style="height:4px;background:var(--g100);border-radius:2px;overflow:hidden">
+      <div style="height:100%;width:${barFill}%;background:${barColor};transition:width 0.2s"></div>
+    </div>`;
+
     return `<div class="tool-card" onclick="openPDDetail('${c.id}')" style="cursor:pointer;padding:14px 16px;display:flex;flex-direction:column;gap:10px;height:100%;box-sizing:border-box">
       <div>
         ${ip
@@ -14010,12 +14017,10 @@ function renderPDGrid() {
         <div style="font-size:12px;color:var(--g600);margin-top:2px">${name}</div>
       </div>
       <div style="display:flex;flex-direction:column;align-items:stretch;gap:6px;margin-top:auto">
-        <span style="display:block;text-align:center;font-size:11px;font-weight:600;padding:5px 10px;border-radius:4px;font-family:var(--mono);background:${tone.bg};color:${tone.fg};border:1px solid ${tone.border};box-sizing:border-box">${progressLabel}</span>
-        <span style="display:block;text-align:center;font-size:11px;font-weight:600;padding:5px 10px;border-radius:4px;font-family:var(--mono);background:${launchTone.bg};color:${launchTone.fg};border:1px solid ${launchTone.border};box-sizing:border-box">📅 ${launchTone.label}${launchDate?` · ${launchDate}`:''}</span>
+        <span style="display:block;text-align:center;font-size:11px;font-weight:600;padding:5px 10px;border-radius:4px;font-family:var(--mono);background:${tone.bg};color:${tone.fg};border:1px solid ${tone.border};box-sizing:border-box;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${progressLabel}</span>
+        <span style="display:block;text-align:center;font-size:11px;font-weight:600;padding:5px 10px;border-radius:4px;font-family:var(--mono);background:${launchTone.bg};color:${launchTone.fg};border:1px solid ${launchTone.border};box-sizing:border-box;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">📅 ${launchTone.label}${launchDate?` · ${launchDate}`:''}</span>
       </div>
-      ${requested ? `<div style="height:4px;background:var(--g100);border-radius:2px;overflow:hidden">
-        <div style="height:100%;width:${Math.min(100,pct)}%;background:${tone.fg};transition:width 0.2s"></div>
-      </div>` : ''}
+      ${progressBar}
     </div>`;
   }).join('');
 }
