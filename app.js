@@ -14107,12 +14107,28 @@ async function submitPD() {
       await sb.from('product_dev').update({picture_urls: urls}).eq('id', id);
     }
 
-    fb.textContent = '✅ SKU tersimpan.';
+    fb.textContent = '✅ Produk tersimpan. Scroll ke bawah untuk tambah variants / bundle items.';
     await fetchPDRows();
     clearPDForm();
-    renderPDDetailTable();
-    setTimeout(()=>{ fb.textContent=''; }, 3000);
+    try { renderPDDetailTable(); } catch(rerr) {
+      console.error('renderPDDetailTable failed after submit:', rerr);
+      fb.textContent = '⚠️ Tersimpan, tapi tampilan tidak refresh. Reload halaman. (' + (rerr.message||rerr) + ')';
+      return;
+    }
+    // Auto-collapse the add form so the new product card is visible
+    const body  = document.getElementById('pd-add-body');
+    const caret = document.getElementById('pd-add-caret');
+    if (body)  body.style.display  = 'none';
+    if (caret) caret.textContent   = '▶';
+    // Scroll to the new product card
+    setTimeout(()=>{
+      const listBody = document.getElementById('pdListBody');
+      const firstCard = listBody && listBody.querySelector('.pd-card');
+      (firstCard || listBody)?.scrollIntoView({behavior:'smooth', block:'start'});
+    }, 50);
+    setTimeout(()=>{ fb.textContent=''; }, 4000);
   } catch(e) {
+    console.error('submitPD error:', e);
     fb.textContent = '❌ Gagal: ' + (e.message||e);
   } finally {
     btn.disabled = false;
