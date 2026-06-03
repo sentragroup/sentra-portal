@@ -1567,6 +1567,9 @@
             <span id="pd-add-caret" style="font-size:11px;color:var(--g400)">▼</span>
           </div>
           <div id="pd-add-body" style="margin-top:1rem">
+            <div style="background:var(--white);border:1px dashed var(--g100);border-radius:4px;padding:8px 12px;margin-bottom:0.75rem;font-size:11px;color:var(--g600);font-family:var(--mono)">
+              SKU Code (auto): <b id="pd-code-preview" style="color:var(--black)">—</b>
+            </div>
             <div class="form-grid">
               <div class="fg full">
                 <label>Tipe SKU <span class="req">*</span></label>
@@ -1583,10 +1586,10 @@
                 <input type="text" id="pd-sku-name" list="pd-sku-datalist" placeholder="Pilih dari collection items atau ketik baru...">
                 <datalist id="pd-sku-datalist"></datalist>
               </div>
-              <div class="fg"><label>SKU Code <span style="font-size:11px;color:var(--g400);font-weight:400">(auto)</span></label>
-                <input type="text" id="pd-display-code" placeholder="Otomatis dari collection">
+              <div class="fg"><label>Variant / Size <span class="req">*</span></label>
+                <input type="text" id="pd-variant" value="OS" placeholder="cth: S, M, L, XL, OS" oninput="updatePDCodePreview()">
               </div>
-              <div class="fg"><label>SRP (Rp) <span class="req">*</span></label>
+              <div class="fg"><label>SRP (Rp)</label>
                 <input type="number" id="pd-srp" min="0" step="1" placeholder="cth: 250000">
               </div>
               <div class="fg full"><label>Notes</label><input type="text" id="pd-notes" placeholder="Catatan opsional"></div>
@@ -1605,7 +1608,7 @@
               <div class="form-sec" style="margin-top:1.25rem">Vendor / HPP / QTY <span style="font-size:11px;color:var(--g400);font-weight:400">(opsional)</span></div>
               <div class="form-grid">
                 <div class="fg"><label>Vendor</label>
-                  <input type="text" id="pd-vendor" list="pd-vendor-datalist" placeholder="Pilih atau ketik vendor baru...">
+                  <input type="text" id="pd-vendor" list="pd-vendor-datalist" placeholder="Pilih vendor yang sudah terdaftar di Jubelio...">
                   <datalist id="pd-vendor-datalist"></datalist>
                 </div>
                 <div class="fg"><label>HPP (Rp)</label><input type="number" id="pd-hpp" min="0" step="1" placeholder="cth: 80000"></div>
