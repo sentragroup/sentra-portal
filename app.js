@@ -14099,8 +14099,8 @@ function renderPDDetailTable() {
   pdFilters.type   = document.getElementById('pd-fil-type')?.value || '';
   pdSearchQuery    = document.getElementById('pd-search')?.value.trim() || '';
 
-  const tbody = document.getElementById('pdTableBody');
-  if (!tbody) return;
+  const host = document.getElementById('pdListBody');
+  if (!host) return;
   const {parents, subsByParent} = getPDDetailFilteredParents();
 
   // Stats (for this collection)
@@ -14121,12 +14121,11 @@ function renderPDDetailTable() {
   document.getElementById('pd-tcount').textContent  = `${parents.length} SKU`;
 
   if (!parents.length) {
-    tbody.innerHTML = `<tr><td class="empty-td" colspan="10">${allInCol.length ? 'Tidak ada SKU cocok filter.' : 'Belum ada SKU. Tambah pakai form di atas.'}</td></tr>`;
+    host.innerHTML = `<div class="empty-td" style="padding:32px;text-align:center;color:var(--g400);font-size:12px">${allInCol.length ? 'Tidak ada SKU cocok filter.' : 'Belum ada SKU. Tambah pakai form di atas.'}</div>`;
     return;
   }
 
-  const rows = [];
-  parents.forEach(p => {
+  const cards = parents.map(p => {
     const subs = subsByParent[p.id] || [];
     const isMulti = p.skuType === 'multi' || subs.length > 0;
     const ratio = pdComputeRatio(p, subs);
@@ -14134,86 +14133,115 @@ function renderPDDetailTable() {
     const totalQty = isMulti ? subs.reduce((s,sb)=>s+Number(sb.qty||0),0) : Number(p.qty||0);
     const code = p.displayCode || p.id;
     const typePill = isMulti
-      ? `<span style="font-size:9px;padding:1px 5px;background:var(--white);border-radius:3px;margin-left:6px;color:var(--g600);border:1px solid var(--g100)">${subs.length} item</span>`
-      : `<span style="font-size:9px;padding:1px 5px;background:var(--white);border-radius:3px;margin-left:6px;color:var(--g400);border:1px solid var(--g100)">solo</span>`;
+      ? `<span style="font-size:10px;padding:2px 6px;background:var(--white);border-radius:3px;color:var(--g600);border:1px solid var(--g100);font-weight:500">${subs.length} item</span>`
+      : `<span style="font-size:10px;padding:2px 6px;background:var(--white);border-radius:3px;color:var(--g400);border:1px solid var(--g100);font-weight:500">solo</span>`;
+    const ratioPill = ratio ? `<span class="pill ${ratio>=2.5?'p-active':(ratio>=1.8?'p-review':'p-near')}" style="font-size:10px">${ratio.toFixed(2)}×</span>` : '<span style="color:var(--g400);font-size:11px">—</span>';
 
-    rows.push(`<tr data-pd-parent="${p.id}" style="border-top:1px solid var(--g100);background:var(--off)">
-      <td style="padding:8px 6px;text-align:center;cursor:pointer" onclick="togglePDExpand('${p.id}')">
-        <span id="pd-caret-${p.id}" style="font-size:10px">${isMulti?'▶':' '}</span>
-      </td>
-      <td style="padding:8px 6px;font-size:11px;font-family:var(--mono);font-weight:600">${code}</td>
-      <td style="padding:8px 10px;font-size:12px;font-weight:600">
-        ${p.skuName.replace(/</g,'&lt;')} ${typePill}
-      </td>
-      <td style="padding:8px 6px;font-size:11px">${isMulti?'<span style="color:var(--g400);font-style:italic">multi</span>':(p.vendor||'—').replace(/</g,'&lt;')}</td>
-      <td style="padding:8px 6px;font-size:11px;text-align:right;font-family:var(--mono)">${pdFmtIDR(totalHpp)}</td>
-      <td style="padding:8px 6px;font-size:11px;text-align:right;font-family:var(--mono)">${totalQty||'—'}</td>
-      <td style="padding:8px 6px;font-size:11px;text-align:right;font-family:var(--mono);font-weight:600">${pdFmtIDR(p.srp)}</td>
-      <td style="padding:8px 6px;font-size:11px;text-align:right;font-family:var(--mono)">${ratio?`<span class="pill ${ratio>=2.5?'p-active':(ratio>=1.8?'p-review':'p-near')}" style="font-size:10px">${ratio.toFixed(2)}×</span>`:'—'}</td>
-      <td style="padding:8px 6px;text-align:center">${renderPDPicsCell(p)}</td>
-      <td style="padding:8px 6px;text-align:center;white-space:nowrap">
-        <button class="btn-ghost" style="font-size:10px;padding:2px 6px" onclick="openPDParentEdit('${p.id}')">✎</button>
-        <button class="btn-ghost" style="font-size:10px;padding:2px 6px;color:#c33" onclick="deletePD('${p.id}',true)">🗑</button>
-      </td>
-    </tr>`);
-
+    // Sub-items block (only for multi)
+    let subsBlock = '';
     if (isMulti) {
-      rows.push(`<tr id="pd-sub-${p.id}" style="display:none">
-        <td colspan="10" style="padding:0 0 8px;background:var(--white)">
-          <div style="padding:8px 12px;border-left:3px solid var(--g100);margin-left:30px">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-              <span style="font-size:11px;color:var(--g400);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.5px">Sub-items (${subs.length})</span>
-              <button class="btn-ghost" style="font-size:10px;padding:3px 8px" onclick="openPDSubForm('${p.id}')">+ Sub-item</button>
+      const subRows = subs.length ? subs.map(s => {
+        const subtotal = Number(s.hpp||0) * Number(s.qty||1);
+        return `<div class="pd-subcard" style="display:flex;gap:10px;align-items:flex-start;padding:8px 10px;background:var(--white);border:1px solid var(--g100);border-radius:5px;margin-bottom:6px">
+          <div style="flex:0 0 60px">${renderPDPicsLeft(s, 60)}</div>
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+              <div style="min-width:0">
+                <div style="font-family:var(--mono);font-size:10px;color:var(--g400);font-weight:600">${(s.displayCode||'—').replace(/</g,'&lt;')}</div>
+                <div style="font-size:12px;font-weight:500;margin-top:1px">${s.skuName.replace(/</g,'&lt;')}</div>
+              </div>
+              <div style="display:flex;gap:3px;flex-shrink:0">
+                <button class="btn-ghost" style="font-size:10px;padding:2px 6px" onclick="openPDSubEdit('${s.id}','${p.id}')">✎</button>
+                <button class="btn-ghost" style="font-size:10px;padding:2px 6px;color:#c33" onclick="deletePD('${s.id}',false,'${p.id}')">🗑</button>
+              </div>
             </div>
-            <div id="pd-sub-form-${p.id}"></div>
-            ${subs.length ? `<table style="width:100%;border-collapse:collapse;font-size:11px">
-              <thead><tr style="border-bottom:1px solid var(--g100);color:var(--g400)">
-                <th style="text-align:left;padding:4px 6px;width:90px">Code</th>
-                <th style="text-align:left;padding:4px 6px">Sub SKU</th>
-                <th style="text-align:left;padding:4px 6px">Vendor</th>
-                <th style="text-align:right;padding:4px 6px">HPP</th>
-                <th style="text-align:right;padding:4px 6px">QTY</th>
-                <th style="text-align:right;padding:4px 6px">Subtotal</th>
-                <th style="text-align:center;padding:4px 6px;width:70px">Pics</th>
-                <th style="width:60px"></th>
-              </tr></thead>
-              <tbody>${subs.map(s => {
-                const subtotal = Number(s.hpp||0) * Number(s.qty||1);
-                return `<tr style="border-bottom:1px solid var(--g100)">
-                  <td style="padding:4px 6px;font-family:var(--mono);font-weight:600">${s.displayCode||'—'}</td>
-                  <td style="padding:4px 6px">${s.skuName.replace(/</g,'&lt;')}</td>
-                  <td style="padding:4px 6px">${(s.vendor||'—').replace(/</g,'&lt;')}</td>
-                  <td style="padding:4px 6px;text-align:right;font-family:var(--mono)">${pdFmtIDR(s.hpp)}</td>
-                  <td style="padding:4px 6px;text-align:right;font-family:var(--mono)">${s.qty||'—'}</td>
-                  <td style="padding:4px 6px;text-align:right;font-family:var(--mono)">${subtotal?pdFmtIDR(subtotal):'—'}</td>
-                  <td style="padding:4px 6px;text-align:center">${renderPDPicsCell(s)}</td>
-                  <td style="padding:4px 6px;text-align:center;white-space:nowrap">
-                    <button class="btn-ghost" style="font-size:10px;padding:1px 5px" onclick="openPDSubEdit('${s.id}','${p.id}')">✎</button>
-                    <button class="btn-ghost" style="font-size:10px;padding:1px 5px;color:#c33" onclick="deletePD('${s.id}',false,'${p.id}')">🗑</button>
-                  </td>
-                </tr>`;
-              }).join('')}</tbody>
-            </table>` : '<div style="font-size:11px;color:var(--g400);padding:4px 6px">Belum ada sub-items. Klik + Sub-item untuk tambah.</div>'}
+            <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:4px;font-size:11px;color:var(--g600)">
+              <span>Vendor: <b style="color:var(--black)">${(s.vendor||'—').replace(/</g,'&lt;')}</b></span>
+              <span>HPP: <span class="mono"><b style="color:var(--black)">${pdFmtIDR(s.hpp)}</b></span></span>
+              <span>QTY: <span class="mono"><b style="color:var(--black)">${s.qty||'—'}</b></span></span>
+              <span>Subtotal: <span class="mono"><b style="color:var(--black)">${subtotal?pdFmtIDR(subtotal):'—'}</b></span></span>
+            </div>
           </div>
-        </td>
-      </tr>`);
-    }
-  });
+        </div>`;
+      }).join('') : '<div style="font-size:11px;color:var(--g400);padding:8px 4px;text-align:center">Belum ada sub-items. Klik + Sub-item.</div>';
 
-  tbody.innerHTML = rows.join('');
+      subsBlock = `<div id="pd-sub-${p.id}" style="display:none;margin-top:8px;padding:10px 12px;border-left:3px solid var(--g100);background:var(--white);border-radius:0 6px 6px 0">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <span style="font-size:10px;color:var(--g400);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.5px">Sub-items (${subs.length})</span>
+          <button class="btn-ghost" style="font-size:10px;padding:3px 8px" onclick="openPDSubForm('${p.id}')">+ Sub-item</button>
+        </div>
+        <div id="pd-sub-form-${p.id}"></div>
+        ${subRows}
+      </div>`;
+    }
+
+    return `<div class="pd-card" style="display:flex;gap:14px;align-items:flex-start;border:1px solid var(--g100);border-radius:6px;padding:12px;background:var(--off);margin-bottom:10px">
+      <div style="flex:0 0 110px">${renderPDPicsLeft(p, 110)}</div>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px">
+          <div style="min-width:0">
+            <div style="font-family:var(--mono);font-size:11px;color:var(--g400);font-weight:600;letter-spacing:0.5px">${code}</div>
+            <div style="font-size:15px;font-weight:600;margin-top:2px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <span>${p.skuName.replace(/</g,'&lt;')}</span> ${typePill}
+            </div>
+          </div>
+          <div style="display:flex;gap:4px;flex-shrink:0">
+            <button class="btn-ghost" style="font-size:11px;padding:3px 8px" onclick="openPDParentEdit('${p.id}')">✎ Edit</button>
+            <button class="btn-ghost" style="font-size:11px;padding:3px 8px;color:#c33" onclick="deletePD('${p.id}',true)">🗑</button>
+          </div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:16px;font-size:12px;color:var(--g600)">
+          <span>Vendor: <b style="color:var(--black)">${isMulti?'<i style="color:var(--g400);font-weight:400">multi</i>':(p.vendor||'—').replace(/</g,'&lt;')}</b></span>
+          <span>HPP: <span class="mono"><b style="color:var(--black)">${pdFmtIDR(totalHpp)}</b></span>${isMulti?' <span style="font-size:10px;color:var(--g400)">(auto)</span>':''}</span>
+          <span>QTY: <span class="mono"><b style="color:var(--black)">${totalQty||'—'}</b></span></span>
+          <span>SRP: <span class="mono"><b style="color:var(--black)">${pdFmtIDR(p.srp)}</b></span></span>
+          <span>Ratio: ${ratioPill}</span>
+        </div>
+        ${p.notes ? `<div style="margin-top:6px;font-size:11px;color:var(--g600);font-style:italic">${p.notes.replace(/</g,'&lt;')}</div>` : ''}
+        ${isMulti ? `<div style="margin-top:8px"><button class="btn-ghost" style="font-size:11px;padding:3px 10px" onclick="togglePDExpand('${p.id}')"><span id="pd-caret-${p.id}">▶</span> Lihat sub-items (${subs.length})</button></div>` : ''}
+        ${subsBlock}
+      </div>
+    </div>`;
+  }).join('');
+
+  host.innerHTML = cards;
 }
 
-function renderPDPicsCell(r) {
+// Picture column for the left side of cards.
+// size = pixel size of the square (parent 110, sub 60)
+function renderPDPicsLeft(r, size) {
   const pics = r.pictures||[];
-  const addBtn = pics.length < PD_MAX_PICS
-    ? `<button class="btn-ghost" style="font-size:10px;padding:1px 5px;color:var(--g400)" title="Tambah foto" onclick="pickPicForRecord('${r.id}')">+</button>`
-    : '';
-  if (!pics.length) return addBtn || '<span style="color:var(--g400);font-size:10px">—</span>';
-  const thumbs = pics.map(u => `<span style="position:relative;display:inline-block;margin-right:2px">
-    <a href="${u}" target="_blank" title="Lihat full"><img src="${u}" style="width:24px;height:24px;object-fit:cover;border-radius:3px;vertical-align:middle"></a>
-    <button class="btn-ghost" style="position:absolute;top:-6px;right:-6px;font-size:8px;padding:0 3px;background:var(--white);border-radius:50%;line-height:1;color:#c33" title="Hapus foto" onclick="removePDPicture('${r.id}','${u.replace(/'/g,"\\'")}')">×</button>
-  </span>`).join('');
-  return thumbs + addBtn;
+  const px = size;
+  const items = [];
+
+  // Main image area: shows pic 1 large, or placeholder
+  if (pics.length >= 1) {
+    items.push(`<div style="position:relative;width:${px}px;height:${px}px">
+      <a href="${pics[0]}" target="_blank"><img src="${pics[0]}" style="width:100%;height:100%;object-fit:cover;border-radius:4px;border:1px solid var(--g100);background:var(--white);display:block"></a>
+      <button class="btn-ghost" style="position:absolute;top:2px;right:2px;font-size:9px;padding:1px 5px;background:rgba(255,255,255,0.9);border-radius:3px;color:#c33;line-height:1" title="Hapus foto" onclick="removePDPicture('${r.id}','${pics[0].replace(/'/g,"\\'")}')">×</button>
+    </div>`);
+  } else {
+    items.push(`<div style="width:${px}px;height:${px}px;display:flex;align-items:center;justify-content:center;background:var(--white);border:1px dashed var(--g100);border-radius:4px;color:var(--g400);font-size:${Math.max(10,size/8)}px;cursor:pointer" onclick="pickPicForRecord('${r.id}')" title="Tambah foto">+ Foto</div>`);
+  }
+
+  // Secondary image: pic 2 or "+" button if room
+  if (pics.length >= 2) {
+    const sec = Math.round(px * 0.45);
+    items.push(`<div style="position:relative;width:${px}px;height:${sec}px;margin-top:4px">
+      <a href="${pics[1]}" target="_blank"><img src="${pics[1]}" style="width:100%;height:100%;object-fit:cover;border-radius:4px;border:1px solid var(--g100);background:var(--white);display:block"></a>
+      <button class="btn-ghost" style="position:absolute;top:2px;right:2px;font-size:9px;padding:1px 5px;background:rgba(255,255,255,0.9);border-radius:3px;color:#c33;line-height:1" title="Hapus foto" onclick="removePDPicture('${r.id}','${pics[1].replace(/'/g,"\\'")}')">×</button>
+    </div>`);
+  } else if (pics.length === 1) {
+    const sec = Math.round(px * 0.32);
+    items.push(`<div style="width:${px}px;height:${sec}px;margin-top:4px;display:flex;align-items:center;justify-content:center;background:var(--white);border:1px dashed var(--g100);border-radius:4px;color:var(--g400);font-size:${Math.max(9,size/10)}px;cursor:pointer" onclick="pickPicForRecord('${r.id}')" title="Tambah foto ke-2">+ Foto 2</div>`);
+  }
+
+  return `<div style="display:flex;flex-direction:column">${items.join('')}</div>`;
+}
+
+// Backward-compat shim (no longer used in the card layout, kept in case anything calls it)
+function renderPDPicsCell(r) {
+  return renderPDPicsLeft(r, 40);
 }
 
 function togglePDExpand(parentId) {

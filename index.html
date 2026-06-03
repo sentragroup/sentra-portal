@@ -1547,8 +1547,21 @@
           <div class="stat-card"><div class="stat-num" id="pd-d-ratio">—</div><div class="stat-lbl">Avg Ratio</div></div>
         </div>
 
+        <!-- Filter panel (right below scoreboard) -->
+        <div class="filter-panel">
+          <select id="pd-fil-vendor" onchange="renderPDDetailTable()"><option value="">Semua Vendor</option></select>
+          <select id="pd-fil-type" onchange="renderPDDetailTable()">
+            <option value="">Semua Tipe</option>
+            <option value="solo">Solo</option>
+            <option value="multi">Multi-items</option>
+          </select>
+          <input type="text" id="pd-search" placeholder="Cari SKU..." style="padding:5px 10px;font-size:12px;border:1px solid var(--g100);border-radius:6px;width:220px;outline:none" oninput="onPDSearch(this.value)" onkeydown="if(event.key==='Escape'){this.value='';renderPDDetailTable();}">
+          <button class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="clearPDFilters()">✕ Reset</button>
+          <div class="tcount" id="pd-tcount" style="margin-left:auto">— SKU</div>
+        </div>
+
         <!-- Add SKU form -->
-        <div class="form-card" id="pd-add-card">
+        <div class="form-card" id="pd-add-card" style="margin-top:1rem">
           <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="togglePDAddForm()">
             <div class="form-sec" style="margin:0">+ Tambah SKU Parent</div>
             <span id="pd-add-caret" style="font-size:11px;color:var(--g400)">▼</span>
@@ -1608,37 +1621,7 @@
           </div>
         </div>
 
-        <div class="filter-panel" style="margin-top:1rem">
-          <select id="pd-fil-vendor" onchange="renderPDDetailTable()"><option value="">Semua Vendor</option></select>
-          <select id="pd-fil-type" onchange="renderPDDetailTable()">
-            <option value="">Semua Tipe</option>
-            <option value="solo">Solo</option>
-            <option value="multi">Multi-items</option>
-          </select>
-          <input type="text" id="pd-search" placeholder="Cari SKU..." style="padding:5px 10px;font-size:12px;border:1px solid var(--g100);border-radius:6px;width:220px;outline:none" oninput="onPDSearch(this.value)" onkeydown="if(event.key==='Escape'){this.value='';renderPDDetailTable();}">
-          <button class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="clearPDFilters()">✕ Reset</button>
-          <div class="tcount" id="pd-tcount" style="margin-left:auto">— SKU</div>
-        </div>
-
-        <div class="table-wrap">
-          <table id="pd-table">
-            <thead>
-              <tr>
-                <th style="width:30px"></th>
-                <th style="min-width:90px">Code</th>
-                <th style="min-width:200px">SKU Name</th>
-                <th style="min-width:120px">Vendor</th>
-                <th style="text-align:right">HPP (Rp)</th>
-                <th style="text-align:right">QTY</th>
-                <th style="text-align:right">SRP (Rp)</th>
-                <th style="text-align:right">Ratio</th>
-                <th style="width:70px;text-align:center">Pics</th>
-                <th style="width:80px;text-align:center">Aksi</th>
-              </tr>
-            </thead>
-            <tbody id="pdTableBody"><tr><td class="empty-td" colspan="10">Belum ada SKU. Tambah pakai form di atas.</td></tr></tbody>
-          </table>
-        </div>
+        <div id="pdListBody" style="margin-top:1rem"><div class="empty-td" style="padding:32px;text-align:center;color:var(--g400);font-size:12px">Belum ada SKU. Tambah pakai form di atas.</div></div>
       </div>
 
     </div>
