@@ -14259,7 +14259,7 @@ function renderPDParentCard(p, allChildren) {
         <div style="min-width:0">
           <div style="font-family:var(--mono);font-size:11px;color:var(--g400);font-weight:600;letter-spacing:0.5px">${code}</div>
           <div style="font-size:15px;font-weight:600;margin-top:2px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-            <span>${p.skuName.replace(/</g,'&lt;')}</span> ${countPill}
+            <span>${p.skuName.replace(/</g,'&lt;')}</span> ${pills}
           </div>
         </div>
         <div style="display:flex;gap:4px;flex-shrink:0">
