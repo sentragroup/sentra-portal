@@ -1547,6 +1547,17 @@
           <div class="stat-card"><div class="stat-num" id="pd-d-ratio">—</div><div class="stat-lbl">Avg Ratio</div></div>
         </div>
 
+        <!-- Global Projection (entire collection, 100% sold) -->
+        <div id="pd-global-projection" style="background:var(--off);border:1px solid var(--g100);border-radius:8px;padding:14px 16px;margin-bottom:1.25rem">
+          <div style="font-size:11px;color:var(--g400);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px">📊 Global Projection · seluruh produk di collection ini · 100% terjual</div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+            <div><div style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px">Total Diproduksi</div><div class="mono" style="font-size:18px;font-weight:600" id="pd-gp-units">—</div></div>
+            <div><div style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px">Total Modal</div><div class="mono" style="font-size:18px;font-weight:600" id="pd-gp-modal">—</div></div>
+            <div><div style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px">Total Revenue</div><div class="mono" style="font-size:18px;font-weight:600" id="pd-gp-revenue">—</div></div>
+            <div><div style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px">Gross Margin</div><div class="mono" style="font-size:18px;font-weight:600" id="pd-gp-margin">—</div></div>
+          </div>
+        </div>
+
         <!-- Filter panel (right below scoreboard) -->
         <div class="filter-panel">
           <select id="pd-fil-vendor" onchange="renderPDDetailTable()"><option value="">Semua Vendor</option></select>

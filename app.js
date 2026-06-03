@@ -13751,35 +13751,60 @@ function pdFmtIDR(n) {
 }
 
 // Projection: how much was produced, capital, expected revenue, margin.
-// Returns null fields when inputs are missing.
+// Returns null/zero fields when inputs are missing.
+//
+// Units-produced semantics:
+//   - variants present  → Σ variant.qty (each variant qty = stock count of that size)
+//   - pure bundle       → min(bundle_item.qty) — each bundle needs 1 of each component,
+//                         so the limiting component caps how many bundles can be made.
+//                         Components above this count are "leftover" but their cost is
+//                         still in modal.
+//   - mixed             → variants drive units; bundle item cost is added on top.
 function pdComputeProjection(parent, allChildren) {
   allChildren = allChildren || [];
   const variants    = allChildren.filter(c => pdChildKind(c) === 'variant');
   const bundleItems = allChildren.filter(c => pdChildKind(c) === 'bundle_item');
 
-  // Units produced:
-  //  - variants present → total = Σ variant.qty (each variant qty = stock count)
-  //  - pure bundle     → 1 bundle (HPP captures the per-bundle cost via components)
-  //  - nothing         → 0
   let units = 0;
-  if (variants.length)    units = variants.reduce((s,v)=>s+Number(v.qty||0), 0);
-  else if (bundleItems.length) units = 1;
+  if (variants.length) {
+    units = variants.reduce((s,v)=>s+Number(v.qty||0), 0);
+  } else if (bundleItems.length) {
+    const qtys = bundleItems.map(b => Number(b.qty||0)).filter(q => q > 0);
+    units = qtys.length ? Math.min(...qtys) : 0;
+  }
 
   // Modal (total capital outlay): Σ child.hpp × child.qty across ALL children
   const modal = allChildren.reduce((s,c)=>s + (Number(c.hpp||0) * Number(c.qty||0)), 0);
 
-  // Per-unit cost (weighted-avg HPP if variants; full modal if pure bundle)
+  // Per-unit cost
   const unitCost = units ? modal / units : null;
 
   const srp = Number(parent.srp||0);
   const revenue100 = (srp && units) ? srp * units : 0;
-  const grossMargin   = revenue100 - modal;
+  const grossMargin    = revenue100 - modal;
   const grossMarginPct = revenue100 ? (grossMargin / revenue100) * 100 : null;
 
   // Ratio = SRP per item / cost per item. This is the per-unit markup.
   const ratio = (srp && unitCost) ? srp / unitCost : null;
 
   return { units, modal, unitCost, revenue100, grossMargin, grossMarginPct, ratio };
+}
+
+// Global projection: sum across all products in the current collection.
+function pdComputeGlobalProjection() {
+  const cid = pdCurrentCollectionId;
+  const parents = allPDRows.filter(r => !r.parentId && r.collectionId === cid);
+  let units = 0, modal = 0, revenue100 = 0;
+  parents.forEach(p => {
+    const children = allPDRows.filter(r => r.parentId === p.id);
+    const proj = pdComputeProjection(p, children);
+    units      += proj.units || 0;
+    modal      += proj.modal || 0;
+    revenue100 += proj.revenue100 || 0;
+  });
+  const grossMargin    = revenue100 - modal;
+  const grossMarginPct = revenue100 ? (grossMargin / revenue100) * 100 : null;
+  return { units, modal, revenue100, grossMargin, grossMarginPct, productCount: parents.length };
 }
 
 // Back-compat: existing call sites use pdComputeRatio(parent, subs).
@@ -14201,6 +14226,26 @@ function renderPDDetailTable() {
   document.getElementById('pd-d-srp').textContent   = totalSRP ? 'Rp '+pdFmtIDR(totalSRP) : '—';
   document.getElementById('pd-d-ratio').textContent = avgRatio ? avgRatio.toFixed(2)+'×' : '—';
   document.getElementById('pd-tcount').textContent  = `${parents.length} produk`;
+
+  // Global projection (entire collection)
+  const gp = pdComputeGlobalProjection();
+  const gpUnits   = document.getElementById('pd-gp-units');
+  const gpModal   = document.getElementById('pd-gp-modal');
+  const gpRevenue = document.getElementById('pd-gp-revenue');
+  const gpMargin  = document.getElementById('pd-gp-margin');
+  if (gpUnits)   gpUnits.textContent   = gp.units   ? `${pdFmtIDR(gp.units)} unit` : '—';
+  if (gpModal)   gpModal.textContent   = gp.modal   ? 'Rp '+pdFmtIDR(gp.modal)     : '—';
+  if (gpRevenue) gpRevenue.textContent = gp.revenue100 ? 'Rp '+pdFmtIDR(gp.revenue100) : '—';
+  if (gpMargin) {
+    if (gp.revenue100) {
+      const pct = gp.grossMarginPct !== null ? ` (${gp.grossMarginPct.toFixed(1)}%)` : '';
+      gpMargin.textContent = 'Rp '+pdFmtIDR(gp.grossMargin)+pct;
+      gpMargin.style.color = gp.grossMargin > 0 ? '#0a7d3a' : gp.grossMargin < 0 ? '#c33' : '';
+    } else {
+      gpMargin.textContent = '—';
+      gpMargin.style.color = '';
+    }
+  }
 
   if (!parents.length) {
     host.innerHTML = `<div class="empty-td" style="padding:32px;text-align:center;color:var(--g400);font-size:12px">${allInCol.length ? 'Tidak ada produk cocok filter.' : 'Belum ada produk. Tambah pakai form di atas.'}</div>`;
@@ -14864,6 +14909,11 @@ function buildPDCatalogHTML(title, parents, subsByParent, mode, vendor) {
   .proj { margin-top: 10px; padding: 8px 10px; background: #fafaf7; border: 1px solid #e0dfd8; border-radius: 4px; }
   .proj-label { font-size: 9px; color: #666; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
   .proj table.kv th { width: 100px; }
+  .gp { background: #f3f3ee; border: 1px solid #d6d5cc; border-radius: 6px; padding: 12px 14px; margin-bottom: 14px; page-break-inside: avoid; }
+  .gp-title { font-size: 10px; color: #555; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+  .gp-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .gp-lbl { font-size: 9px; color: #777; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
+  .gp-val { font-family: 'SF Mono',Menlo,monospace; font-size: 14px; font-weight: 700; }
   .empty { padding: 40px; text-align: center; color: #999; }
   @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } .no-print { display: none; } }
   .no-print { position: fixed; top: 8px; right: 8px; background: #111; color: #fff; padding: 6px 12px; border-radius: 4px; cursor: pointer; border: 0; font-size: 12px; }
@@ -14875,6 +14925,21 @@ function buildPDCatalogHTML(title, parents, subsByParent, mode, vendor) {
   <div class="sub">${pdEsc(collName)} · ${pdEsc(parents.length)} SKU · ${today}</div>
   <span class="badge">${modeLabel}</span>
 </header>
+${mode === 'internal' ? (() => {
+  const gp = pdComputeGlobalProjection();
+  if (!gp.units) return '';
+  const marginColor = gp.grossMargin > 0 ? '#0a7d3a' : gp.grossMargin < 0 ? '#c33' : '#111';
+  const pct = gp.grossMarginPct !== null ? ` (${gp.grossMarginPct.toFixed(1)}%)` : '';
+  return `<div class="gp">
+    <div class="gp-title">📊 Global Projection · 100% terjual</div>
+    <div class="gp-grid">
+      <div><div class="gp-lbl">Total Diproduksi</div><div class="gp-val">${pdFmtIDR(gp.units)} unit</div></div>
+      <div><div class="gp-lbl">Total Modal</div><div class="gp-val">Rp ${pdFmtIDR(gp.modal)}</div></div>
+      <div><div class="gp-lbl">Total Revenue</div><div class="gp-val">Rp ${pdFmtIDR(gp.revenue100)}</div></div>
+      <div><div class="gp-lbl">Gross Margin</div><div class="gp-val" style="color:${marginColor}">Rp ${pdFmtIDR(gp.grossMargin)}${pct}</div></div>
+    </div>
+  </div>`;
+})() : ''}
 ${cardsHTML || '<div class="empty">Tidak ada SKU untuk export ini.</div>'}
 </body></html>`;
 }
