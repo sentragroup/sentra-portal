@@ -13889,45 +13889,109 @@ function openPDDetail(collection_id) {
 
 // ── GRID VIEW ──────────────────────────────────────────────────────
 function renderPDGrid() {
-  const search = (document.getElementById('pd-grid-search')?.value || '').trim().toLowerCase();
+  // Populate IP filter once per render so freshly-added IPs show up.
+  const ipSel = document.getElementById('pd-grid-ip');
+  if (ipSel) {
+    const ips = [...new Set(pdAllCollections.map(c => (c.ip_related||'').trim()).filter(Boolean))].sort();
+    const cur = ipSel.value;
+    ipSel.innerHTML = `<option value="">Semua IP / Artist</option>` +
+      ips.map(ip => `<option value="${ip.replace(/"/g,'&quot;')}"${ip===cur?' selected':''}>${ip.replace(/</g,'&lt;')}</option>`).join('');
+  }
+
+  const search   = (document.getElementById('pd-grid-search')?.value || '').trim().toLowerCase();
+  const ipFilter = (ipSel?.value || '').trim();
+
   const allParents = allPDRows.filter(r=>!r.parentId);
   const subsByParent = {};
   allPDRows.filter(r=>r.parentId).forEach(s => {
     (subsByParent[s.parentId] = subsByParent[s.parentId] || []).push(s);
   });
 
-  // Stats
-  document.getElementById('pd-g-collections').textContent = pdAllCollections.length;
-  document.getElementById('pd-g-total').textContent = allParents.length;
-  document.getElementById('pd-g-solo').textContent  = allParents.filter(p=>p.skuType==='solo' || (!p.skuType && !(subsByParent[p.id]||[]).length)).length;
-  document.getElementById('pd-g-multi').textContent = allParents.filter(p=>p.skuType==='multi' || (!p.skuType && (subsByParent[p.id]||[]).length)).length;
+  // Apply filters to the collections grid
+  const cols = pdAllCollections.filter(c => {
+    if (ipFilter && (c.ip_related||'').toLowerCase() !== ipFilter.toLowerCase()) return false;
+    if (search && !(c.collection_name||'').toLowerCase().includes(search)) return false;
+    return true;
+  });
+
+  // Per-collection rollup (used both by stats AND card render)
+  const visibleColIds = new Set(cols.map(c => c.id));
+  const visibleParents = allParents.filter(p => visibleColIds.has(p.collectionId));
+
+  // Compute totals + per-collection projection
+  let globalUnits = 0, globalModal = 0, globalRevenue = 0;
+  const ratios = [];
+  const colStats = {};
+  cols.forEach(c => {
+    const skus = allParents.filter(p => p.collectionId === c.id);
+    let cUnits = 0, cModal = 0, cRevenue = 0;
+    const cRatios = [];
+    skus.forEach(p => {
+      const proj = pdComputeProjection(p, subsByParent[p.id]||[]);
+      cUnits   += proj.units || 0;
+      cModal   += proj.modal || 0;
+      cRevenue += proj.revenue100 || 0;
+      if (proj.ratio) cRatios.push(proj.ratio);
+    });
+    const cMargin = cRevenue - cModal;
+    const cMarginPct = cRevenue ? (cMargin / cRevenue) * 100 : null;
+    const cAvgRatio = cRatios.length ? (cRatios.reduce((a,b)=>a+b,0)/cRatios.length) : null;
+    colStats[c.id] = { skus: skus.length, units: cUnits, modal: cModal, revenue: cRevenue, margin: cMargin, marginPct: cMarginPct, avgRatio: cAvgRatio };
+    globalUnits   += cUnits;
+    globalModal   += cModal;
+    globalRevenue += cRevenue;
+    cRatios.forEach(r => ratios.push(r));
+  });
+  const globalMargin = globalRevenue - globalModal;
+  const globalMarginPct = globalRevenue ? (globalMargin / globalRevenue) * 100 : null;
+  const avgRatio = ratios.length ? (ratios.reduce((a,b)=>a+b,0)/ratios.length) : null;
+
+  // Top stats
+  document.getElementById('pd-g-collections').textContent = cols.length;
+  document.getElementById('pd-g-total').textContent = visibleParents.length;
+  document.getElementById('pd-g-units').textContent = globalUnits ? pdFmtIDR(globalUnits) : '0';
+  document.getElementById('pd-g-ratio').textContent = avgRatio ? avgRatio.toFixed(2)+'×' : '—';
+
+  // Global projection
+  document.getElementById('pd-grid-modal').textContent   = globalModal   ? 'Rp '+pdFmtIDR(globalModal)   : '—';
+  document.getElementById('pd-grid-revenue').textContent = globalRevenue ? 'Rp '+pdFmtIDR(globalRevenue) : '—';
+  const gMarginEl = document.getElementById('pd-grid-margin');
+  if (gMarginEl) {
+    if (globalRevenue) {
+      const pct = globalMarginPct !== null ? ` (${globalMarginPct.toFixed(1)}%)` : '';
+      gMarginEl.textContent = 'Rp '+pdFmtIDR(globalMargin)+pct;
+      gMarginEl.style.color = globalMargin > 0 ? '#0a7d3a' : globalMargin < 0 ? '#c33' : '';
+    } else {
+      gMarginEl.textContent = '—';
+      gMarginEl.style.color = '';
+    }
+  }
+
+  document.getElementById('pd-grid-tcount').textContent = `${cols.length} collection`;
 
   const grid = document.getElementById('pd-grid');
   if (!grid) return;
 
-  // Filter collections by search
-  const cols = pdAllCollections.filter(c => !search || (c.collection_name||'').toLowerCase().includes(search));
-  document.getElementById('pd-grid-tcount').textContent = `${cols.length} collection`;
-
   if (!cols.length) {
-    grid.innerHTML = `<div class="empty-td" style="grid-column:1/-1">${pdAllCollections.length ? 'Tidak ada collection cocok.' : 'Belum ada collection. Buat collection dulu di Collection Development.'}</div>`;
+    grid.innerHTML = `<div class="empty-td" style="grid-column:1/-1">${pdAllCollections.length ? 'Tidak ada collection cocok filter.' : 'Belum ada collection. Buat collection dulu di Collection Development.'}</div>`;
     return;
   }
 
   grid.innerHTML = cols.map(c => {
-    const skus = allParents.filter(p => p.collectionId === c.id);
-    const totalSRP = skus.reduce((s,p) => s + Number(p.srp||0), 0);
-    const ratios = skus.map(p => pdComputeRatio(p, subsByParent[p.id]||[])).filter(r => r);
-    const avgRatio = ratios.length ? (ratios.reduce((a,b)=>a+b,0)/ratios.length) : null;
+    const stats = colStats[c.id];
     const name = (c.collection_name||c.id).replace(/</g,'&lt;');
+    const ip   = (c.ip_related||'').trim();
+    const marginColor = stats.margin > 0 ? '#0a7d3a' : stats.margin < 0 ? '#c33' : 'var(--g600)';
+    const pct = stats.marginPct !== null ? ` (${stats.marginPct.toFixed(1)}%)` : '';
     return `<div class="tool-card" onclick="openPDDetail('${c.id}')" style="cursor:pointer">
       <span class="tc-icon">🧪</span>
       <div class="tc-name">${name}</div>
+      ${ip ? `<div style="font-size:10px;color:var(--g400);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.5px;margin-top:-2px;margin-bottom:6px">${ip.replace(/</g,'&lt;')}</div>` : ''}
       <div class="tc-desc" style="margin-top:6px">
-        <div style="display:flex;gap:12px;font-size:11px;color:var(--g600);font-family:var(--mono)">
-          <span><b style="color:var(--black)">${skus.length}</b> SKU</span>
-          <span><b style="color:var(--black)">Rp ${pdFmtIDR(totalSRP)}</b> SRP</span>
-          ${avgRatio ? `<span>Ratio <b style="color:var(--black)">${avgRatio.toFixed(2)}×</b></span>` : ''}
+        <div style="display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--g600);font-family:var(--mono)">
+          <span><b style="color:var(--black)">${stats.skus}</b> products · <b style="color:var(--black)">${stats.units?pdFmtIDR(stats.units):'0'}</b> unit</span>
+          <span>${stats.avgRatio?`Ratio <b style="color:var(--black)">${stats.avgRatio.toFixed(2)}×</b>`:'<span style="color:var(--g400)">no ratio</span>'}</span>
+          <span>Margin <b style="color:${marginColor}">${stats.revenue?'Rp '+pdFmtIDR(stats.margin)+pct:'—'}</b></span>
         </div>
       </div>
     </div>`;
