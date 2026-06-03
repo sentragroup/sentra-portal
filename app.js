@@ -13603,6 +13603,7 @@ let allPDRows = [];
 let pdAllVendors = [];
 let pdAllCollections = [];
 let pdCollItemsByCol = {};
+let pdCollItemCounts = {};   // {collection_id: number_of_requested_sku_parents}
 let pdSearchQuery = '';
 let pdFilters = {vendor:'',type:''};
 let pdPicsToUpload = [];
@@ -13828,6 +13829,16 @@ async function loadPDVendorList() {
 async function loadPDCollections() {
   const {data} = await sb.from('collections').select('id,collection_name,ip_related').order('collection_name');
   pdAllCollections = data || [];
+  // Count requested SKU parents per collection (from Collection Development).
+  // Used to compute X/Y "request fulfillment" progress on the grid cards.
+  try {
+    const {data: itemData} = await sb.from('collection_items').select('id,collection_id').limit(20000);
+    pdCollItemCounts = {};
+    (itemData||[]).forEach(it => {
+      if (!it.collection_id) return;
+      pdCollItemCounts[it.collection_id] = (pdCollItemCounts[it.collection_id]||0) + 1;
+    });
+  } catch(e) { console.error('loadPDCollections counts:', e); pdCollItemCounts = {}; }
 }
 
 async function loadPDCollectionItems(collectionId) {
@@ -13889,7 +13900,7 @@ function openPDDetail(collection_id) {
 
 // ── GRID VIEW ──────────────────────────────────────────────────────
 function renderPDGrid() {
-  // Populate IP filter once per render so freshly-added IPs show up.
+  // Populate IP filter dropdown so new IPs are picked up across reloads.
   const ipSel = document.getElementById('pd-grid-ip');
   if (ipSel) {
     const ips = [...new Set(pdAllCollections.map(c => (c.ip_related||'').trim()).filter(Boolean))].sort();
@@ -13901,72 +13912,12 @@ function renderPDGrid() {
   const search   = (document.getElementById('pd-grid-search')?.value || '').trim().toLowerCase();
   const ipFilter = (ipSel?.value || '').trim();
 
-  const allParents = allPDRows.filter(r=>!r.parentId);
-  const subsByParent = {};
-  allPDRows.filter(r=>r.parentId).forEach(s => {
-    (subsByParent[s.parentId] = subsByParent[s.parentId] || []).push(s);
-  });
-
   // Apply filters to the collections grid
   const cols = pdAllCollections.filter(c => {
     if (ipFilter && (c.ip_related||'').toLowerCase() !== ipFilter.toLowerCase()) return false;
     if (search && !(c.collection_name||'').toLowerCase().includes(search)) return false;
     return true;
   });
-
-  // Per-collection rollup (used both by stats AND card render)
-  const visibleColIds = new Set(cols.map(c => c.id));
-  const visibleParents = allParents.filter(p => visibleColIds.has(p.collectionId));
-
-  // Compute totals + per-collection projection
-  let globalUnits = 0, globalModal = 0, globalRevenue = 0;
-  const ratios = [];
-  const colStats = {};
-  cols.forEach(c => {
-    const skus = allParents.filter(p => p.collectionId === c.id);
-    let cUnits = 0, cModal = 0, cRevenue = 0;
-    const cRatios = [];
-    skus.forEach(p => {
-      const proj = pdComputeProjection(p, subsByParent[p.id]||[]);
-      cUnits   += proj.units || 0;
-      cModal   += proj.modal || 0;
-      cRevenue += proj.revenue100 || 0;
-      if (proj.ratio) cRatios.push(proj.ratio);
-    });
-    const cMargin = cRevenue - cModal;
-    const cMarginPct = cRevenue ? (cMargin / cRevenue) * 100 : null;
-    const cAvgRatio = cRatios.length ? (cRatios.reduce((a,b)=>a+b,0)/cRatios.length) : null;
-    colStats[c.id] = { skus: skus.length, units: cUnits, modal: cModal, revenue: cRevenue, margin: cMargin, marginPct: cMarginPct, avgRatio: cAvgRatio };
-    globalUnits   += cUnits;
-    globalModal   += cModal;
-    globalRevenue += cRevenue;
-    cRatios.forEach(r => ratios.push(r));
-  });
-  const globalMargin = globalRevenue - globalModal;
-  const globalMarginPct = globalRevenue ? (globalMargin / globalRevenue) * 100 : null;
-  const avgRatio = ratios.length ? (ratios.reduce((a,b)=>a+b,0)/ratios.length) : null;
-
-  // Top stats
-  document.getElementById('pd-g-collections').textContent = cols.length;
-  document.getElementById('pd-g-total').textContent = visibleParents.length;
-  document.getElementById('pd-g-units').textContent = globalUnits ? pdFmtIDR(globalUnits) : '0';
-  document.getElementById('pd-g-ratio').textContent = avgRatio ? avgRatio.toFixed(2)+'×' : '—';
-
-  // Global projection
-  document.getElementById('pd-grid-modal').textContent   = globalModal   ? 'Rp '+pdFmtIDR(globalModal)   : '—';
-  document.getElementById('pd-grid-revenue').textContent = globalRevenue ? 'Rp '+pdFmtIDR(globalRevenue) : '—';
-  const gMarginEl = document.getElementById('pd-grid-margin');
-  if (gMarginEl) {
-    if (globalRevenue) {
-      const pct = globalMarginPct !== null ? ` (${globalMarginPct.toFixed(1)}%)` : '';
-      gMarginEl.textContent = 'Rp '+pdFmtIDR(globalMargin)+pct;
-      gMarginEl.style.color = globalMargin > 0 ? '#0a7d3a' : globalMargin < 0 ? '#c33' : '';
-    } else {
-      gMarginEl.textContent = '—';
-      gMarginEl.style.color = '';
-    }
-  }
-
   document.getElementById('pd-grid-tcount').textContent = `${cols.length} collection`;
 
   const grid = document.getElementById('pd-grid');
@@ -13977,23 +13928,47 @@ function renderPDGrid() {
     return;
   }
 
+  // Color thresholds for request fulfillment urgency.
+  // requested === 0      → gray "no requests"
+  // 100% mapped          → green
+  // ≥50% mapped          → orange
+  // <50% mapped          → red
+  const urgencyTone = (mapped, requested) => {
+    if (!requested)                return {bg:'#e8e8e3', fg:'#666',     border:'#d6d5cc'};
+    if (mapped >= requested)       return {bg:'#daf3e0', fg:'#0a7d3a',  border:'#a7dab4'};
+    if (mapped / requested >= 0.5) return {bg:'#fef0d0', fg:'#a66800',  border:'#f1cf7a'};
+    return                                {bg:'#fde0e0', fg:'#b81d1d',  border:'#f3a8a8'};
+  };
+
   grid.innerHTML = cols.map(c => {
-    const stats = colStats[c.id];
+    const requested = pdCollItemCounts[c.id] || 0;
+    const mapped = new Set(
+      allPDRows
+        .filter(r => !r.parentId && r.collectionId === c.id && r.collectionItemId)
+        .map(r => r.collectionItemId)
+    ).size;
+    const tone = urgencyTone(mapped, requested);
+    const pct = requested ? Math.round((mapped/requested)*100) : 0;
+    const progressLabel = requested
+      ? `${mapped}/${requested} SKU mapped${requested>0?` · ${pct}%`:''}`
+      : `No requests dari brand`;
+
     const name = (c.collection_name||c.id).replace(/</g,'&lt;');
     const ip   = (c.ip_related||'').trim();
-    const marginColor = stats.margin > 0 ? '#0a7d3a' : stats.margin < 0 ? '#c33' : 'var(--g600)';
-    const pct = stats.marginPct !== null ? ` (${stats.marginPct.toFixed(1)}%)` : '';
-    return `<div class="tool-card" onclick="openPDDetail('${c.id}')" style="cursor:pointer">
-      <span class="tc-icon">🧪</span>
-      <div class="tc-name">${name}</div>
-      ${ip ? `<div style="font-size:10px;color:var(--g400);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.5px;margin-top:-2px;margin-bottom:6px">${ip.replace(/</g,'&lt;')}</div>` : ''}
-      <div class="tc-desc" style="margin-top:6px">
-        <div style="display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--g600);font-family:var(--mono)">
-          <span><b style="color:var(--black)">${stats.skus}</b> products · <b style="color:var(--black)">${stats.units?pdFmtIDR(stats.units):'0'}</b> unit</span>
-          <span>${stats.avgRatio?`Ratio <b style="color:var(--black)">${stats.avgRatio.toFixed(2)}×</b>`:'<span style="color:var(--g400)">no ratio</span>'}</span>
-          <span>Margin <b style="color:${marginColor}">${stats.revenue?'Rp '+pdFmtIDR(stats.margin)+pct:'—'}</b></span>
-        </div>
+
+    return `<div class="tool-card" onclick="openPDDetail('${c.id}')" style="cursor:pointer;padding:14px 16px;display:flex;flex-direction:column;gap:8px">
+      <div>
+        ${ip
+          ? `<div style="font-size:14px;font-weight:700;color:var(--black);font-family:var(--syne,var(--sans));letter-spacing:0.3px">${ip.replace(/</g,'&lt;')}</div>`
+          : `<div style="font-size:11px;color:var(--g400);font-style:italic">No IP set</div>`}
+        <div style="font-size:12px;color:var(--g600);margin-top:2px">${name}</div>
       </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:auto">
+        <span style="display:inline-block;font-size:11px;font-weight:600;padding:4px 10px;border-radius:4px;font-family:var(--mono);background:${tone.bg};color:${tone.fg};border:1px solid ${tone.border}">${progressLabel}</span>
+      </div>
+      ${requested ? `<div style="height:4px;background:var(--g100);border-radius:2px;overflow:hidden;margin-top:-2px">
+        <div style="height:100%;width:${Math.min(100,pct)}%;background:${tone.fg};transition:width 0.2s"></div>
+      </div>` : ''}
     </div>`;
   }).join('');
 }
