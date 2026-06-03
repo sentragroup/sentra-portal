@@ -13616,6 +13616,7 @@ function mapPD(r) {
     id: r.id, parentId: r.parent_id, collectionId: r.collection_id,
     collectionItemId: r.collection_item_id, skuName: r.sku_name||'',
     displayCode: r.display_code||'', skuType: r.sku_type||null,
+    variant: r.variant||'',
     vendor: r.vendor||'', hpp: r.hpp, qty: r.qty, srp: r.srp,
     pictures: r.picture_urls||[], notes: r.notes||'',
     dateAdded: r.date_added, addedBy: r.added_by,
@@ -13627,46 +13628,52 @@ function pdCollName(id) {
   return (pdAllCollections.find(c=>c.id===id)?.collection_name) || '—';
 }
 
-function pdCollectionPrefix(collection_name) {
-  if (!collection_name) return 'COL';
-  // Take first 3-4 alphanumeric chars from each word, uppercase
-  const words = collection_name.split(/\s+/).filter(Boolean);
-  let pfx;
-  if (words.length >= 2) {
-    pfx = words.slice(0, 3).map(w => (w[0]||'').toUpperCase()).join('');
-  } else {
-    pfx = collection_name.replace(/[^a-zA-Z0-9]/g,'').slice(0,4).toUpperCase();
-  }
-  return pfx || 'COL';
+function pdCollIP(id) {
+  return (pdAllCollections.find(c=>c.id===id)?.ip_related) || '';
 }
 
-function generateNextPDCode(collection_id) {
-  const collName = pdCollName(collection_id);
-  const prefix = pdCollectionPrefix(collName);
-  const existing = allPDRows.filter(r => r.collectionId === collection_id && !r.parentId);
-  // Find next available NN
-  const taken = new Set(existing.map(r => r.displayCode).filter(c => c && c.startsWith(prefix+'-')));
+// Take first 3 alphanumeric chars, uppercase, pad with X if shorter
+function pdShort3(s) {
+  const t = (s||'').replace(/[^a-zA-Z0-9]/g,'').toUpperCase();
+  return (t.slice(0,3) || 'XXX').padEnd(3,'X');
+}
+
+function pdVariantToken(v) {
+  const t = (v||'').replace(/[^a-zA-Z0-9]/g,'').toUpperCase();
+  return t || 'OS';
+}
+
+// Auto SKU code: {IP3}-{COL3}-{VARIANT}-{NN}
+// Sequence is per (collection, variant) so each size has its own counter.
+function generateNextPDCode(collection_id, variant) {
+  const ip  = pdShort3(pdCollIP(collection_id));
+  const col = pdShort3(pdCollName(collection_id));
+  const vrt = pdVariantToken(variant);
+  const prefix = `${ip}-${col}-${vrt}-`;
+  const taken = new Set(allPDRows
+    .filter(r => r.collectionId === collection_id && r.displayCode && r.displayCode.startsWith(prefix))
+    .map(r => r.displayCode));
   for (let i = 1; i <= 999; i++) {
-    const code = `${prefix}-${String(i).padStart(2,'0')}`;
+    const code = `${prefix}${String(i).padStart(2,'0')}`;
     if (!taken.has(code)) return code;
   }
-  return `${prefix}-${Date.now()%1000}`;
+  return `${prefix}${Date.now()%1000}`;
 }
 
-function generateNextSubCode(parent_code, parent_id) {
-  const subs = allPDRows.filter(r => r.parentId === parent_id);
-  const taken = new Set(subs.map(r => r.displayCode).filter(c => c && c.startsWith(parent_code+'.')));
-  // Use letters A, B, C... then AA, AB if exhausted
-  const letter = i => {
-    let s = '';
-    do { s = String.fromCharCode(65 + (i % 26)) + s; i = Math.floor(i/26) - 1; } while (i >= 0);
-    return s;
-  };
-  for (let i = 0; i < 700; i++) {
-    const code = `${parent_code}.${letter(i)}`;
-    if (!taken.has(code)) return code;
-  }
-  return `${parent_code}.X${Date.now()%100}`;
+// Sub-items use the same {IP}-{COL}-{VARIANT}-{NN} pattern
+// (they are siblings in the namespace — uniqueness is per-collection)
+function generateNextSubCode(parent_id, variant) {
+  const parent = allPDRows.find(r => r.id === parent_id);
+  if (!parent) return '';
+  return generateNextPDCode(parent.collectionId, variant);
+}
+
+function updatePDCodePreview() {
+  const el = document.getElementById('pd-code-preview');
+  if (!el) return;
+  if (!pdCurrentCollectionId) { el.textContent = '—'; return; }
+  const variant = document.getElementById('pd-variant')?.value || 'OS';
+  el.textContent = generateNextPDCode(pdCurrentCollectionId, variant);
 }
 
 function pdFmtIDR(n) {
@@ -13719,7 +13726,7 @@ async function loadPDVendorList() {
 }
 
 async function loadPDCollections() {
-  const {data} = await sb.from('collections').select('id,collection_name').order('collection_name');
+  const {data} = await sb.from('collections').select('id,collection_name,ip_related').order('collection_name');
   pdAllCollections = data || [];
 }
 
@@ -13838,15 +13845,15 @@ function renderPDDetail() {
     return;
   }
   document.getElementById('pd-d-title').textContent = coll.collection_name || cid;
-  document.getElementById('pd-d-sub').textContent = `Product Development · prefix: ${pdCollectionPrefix(coll.collection_name)}`;
+  const ip3 = pdShort3(coll.ip_related);
+  const col3 = pdShort3(coll.collection_name);
+  document.getElementById('pd-d-sub').textContent = `Product Development · code prefix: ${ip3}-${col3}-{VARIANT}-NN${coll.ip_related?'':' (IP belum di-set di Collection)'}`;
 
   // Populate form helpers tied to this collection
   populatePDDetailForm();
   setupPDPicInput();
   onPDTypeChange(); // ensure solo fields visible
-  // Pre-suggest display_code
-  const codeInp = document.getElementById('pd-display-code');
-  if (codeInp && !codeInp.value) codeInp.value = generateNextPDCode(cid);
+  updatePDCodePreview();
   // Populate SKU name autocomplete
   loadPDCollectionItems(cid).then(items => {
     const dl = document.getElementById('pd-sku-datalist');
@@ -13911,9 +13918,11 @@ function clearPDFilters() {
 }
 
 function clearPDForm() {
-  ['pd-sku-name','pd-display-code','pd-srp','pd-notes','pd-vendor','pd-hpp','pd-qty'].forEach(id=>{
+  ['pd-sku-name','pd-srp','pd-notes','pd-vendor','pd-hpp','pd-qty'].forEach(id=>{
     const el = document.getElementById(id); if (el) el.value='';
   });
+  const vEl = document.getElementById('pd-variant');
+  if (vEl) vEl.value = 'OS';
   document.querySelector('input[name="pd-type"][value="solo"]').checked = true;
   onPDTypeChange();
   const pics = document.getElementById('pd-pics');
@@ -13923,9 +13932,7 @@ function clearPDForm() {
   pdPicsToUpload = [];
   const fb = document.getElementById('pd-feedback');
   if (fb) fb.textContent = '';
-  // Re-suggest next code
-  const codeInp = document.getElementById('pd-display-code');
-  if (codeInp && pdCurrentCollectionId) codeInp.value = generateNextPDCode(pdCurrentCollectionId);
+  updatePDCodePreview();
 }
 
 // ── Picture handling: bulletproof file-picker ──────────────────────
@@ -14000,7 +14007,7 @@ async function submitPD() {
   if (!cid) { fb.textContent='⚠️ Buka detail collection dulu.'; return; }
   const skuType = (document.querySelector('input[name="pd-type"]:checked')||{}).value;
   const skuName = document.getElementById('pd-sku-name').value.trim();
-  const displayCode = document.getElementById('pd-display-code').value.trim() || generateNextPDCode(cid);
+  const variant = (document.getElementById('pd-variant').value.trim() || 'OS');
   const srp = parseFloat(document.getElementById('pd-srp').value);
   const notes = document.getElementById('pd-notes').value.trim();
   const vendor = document.getElementById('pd-vendor').value.trim();
@@ -14009,13 +14016,10 @@ async function submitPD() {
 
   if (!skuType) { fb.textContent='⚠️ Pilih tipe (Solo atau Multi).'; return; }
   if (!skuName) { fb.textContent='⚠️ SKU name wajib.'; return; }
-  if (isNaN(srp) || srp<=0) { fb.textContent='⚠️ SRP wajib dan harus > 0.'; return; }
+  if (!variant) { fb.textContent='⚠️ Variant wajib (cth: L, M, OS).'; return; }
 
-  // Check duplicate display_code in this collection
-  if (allPDRows.some(r => r.collectionId===cid && r.displayCode===displayCode)) {
-    fb.textContent = `⚠️ Code "${displayCode}" sudah dipakai di collection ini.`;
-    return;
-  }
+  // Auto-generate display_code from IP + collection + variant + sequence
+  const displayCode = generateNextPDCode(cid, variant);
 
   // Resolve collection_item_id from chosen SKU name (if match)
   let collItemId = null;
@@ -14029,7 +14033,8 @@ async function submitPD() {
     const payload = {
       id, parent_id: null, collection_id: cid, collection_item_id: collItemId,
       display_code: displayCode, sku_type: skuType,
-      sku_name: skuName, srp,
+      sku_name: skuName, variant,
+      srp: isNaN(srp) ? null : srp,
       vendor: skuType==='multi' ? null : (vendor || null),
       hpp: skuType==='multi' ? null : (isNaN(hpp) ? null : hpp),
       qty: skuType==='multi' ? null : (isNaN(qty) ? null : qty),
@@ -14135,6 +14140,9 @@ function renderPDDetailTable() {
     const typePill = isMulti
       ? `<span style="font-size:10px;padding:2px 6px;background:var(--white);border-radius:3px;color:var(--g600);border:1px solid var(--g100);font-weight:500">${subs.length} item</span>`
       : `<span style="font-size:10px;padding:2px 6px;background:var(--white);border-radius:3px;color:var(--g400);border:1px solid var(--g100);font-weight:500">solo</span>`;
+    const variantPill = p.variant
+      ? `<span style="font-size:10px;padding:2px 6px;background:var(--black);color:var(--white);border-radius:3px;font-weight:600;letter-spacing:0.5px;font-family:var(--mono)">${p.variant.replace(/</g,'&lt;')}</span>`
+      : '';
     const ratioPill = ratio ? `<span class="pill ${ratio>=2.5?'p-active':(ratio>=1.8?'p-review':'p-near')}" style="font-size:10px">${ratio.toFixed(2)}×</span>` : '<span style="color:var(--g400);font-size:11px">—</span>';
 
     // Sub-items block (only for multi)
@@ -14148,7 +14156,10 @@ function renderPDDetailTable() {
             <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
               <div style="min-width:0">
                 <div style="font-family:var(--mono);font-size:10px;color:var(--g400);font-weight:600">${(s.displayCode||'—').replace(/</g,'&lt;')}</div>
-                <div style="font-size:12px;font-weight:500;margin-top:1px">${s.skuName.replace(/</g,'&lt;')}</div>
+                <div style="font-size:12px;font-weight:500;margin-top:1px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                  <span>${s.skuName.replace(/</g,'&lt;')}</span>
+                  ${s.variant ? `<span style="font-size:9px;padding:1px 5px;background:var(--black);color:var(--white);border-radius:3px;font-weight:600;letter-spacing:0.5px;font-family:var(--mono)">${s.variant.replace(/</g,'&lt;')}</span>` : ''}
+                </div>
               </div>
               <div style="display:flex;gap:3px;flex-shrink:0">
                 <button class="btn-ghost" style="font-size:10px;padding:2px 6px" onclick="openPDSubEdit('${s.id}','${p.id}')">✎</button>
@@ -14182,7 +14193,7 @@ function renderPDDetailTable() {
           <div style="min-width:0">
             <div style="font-family:var(--mono);font-size:11px;color:var(--g400);font-weight:600;letter-spacing:0.5px">${code}</div>
             <div style="font-size:15px;font-weight:600;margin-top:2px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-              <span>${p.skuName.replace(/</g,'&lt;')}</span> ${typePill}
+              <span>${p.skuName.replace(/</g,'&lt;')}</span> ${variantPill} ${typePill}
             </div>
           </div>
           <div style="display:flex;gap:4px;flex-shrink:0">
@@ -14252,40 +14263,52 @@ function togglePDExpand(parentId) {
   else { row.style.display = 'none'; if (caret) caret.textContent='▶'; }
 }
 
+function updatePDSubCodePreview(parentId) {
+  const variantEl = document.getElementById(`pds-variant-${parentId}`);
+  const preview   = document.getElementById(`pds-code-preview-${parentId}`);
+  if (!variantEl || !preview) return;
+  preview.textContent = generateNextSubCode(parentId, variantEl.value || 'OS');
+}
+
 function openPDSubForm(parentId) {
   const host = document.getElementById(`pd-sub-form-${parentId}`);
   if (!host) return;
   if (host.dataset.open === '1') { host.dataset.open=''; host.innerHTML=''; return; }
   host.dataset.open='1';
-  const parent = allPDRows.find(r=>r.id===parentId);
-  const suggestedCode = parent ? generateNextSubCode(parent.displayCode || parent.id, parentId) : '';
-  host.innerHTML = `<div style="background:var(--off);padding:8px;border-radius:4px;margin-bottom:8px;display:grid;grid-template-columns:80px 1.4fr 1fr 0.7fr 0.6fr auto auto;gap:6px;align-items:end">
-    <div><label style="font-size:10px;color:var(--g400)">Code</label><input id="pds-code-${parentId}" type="text" value="${suggestedCode}" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%;font-family:var(--mono)"></div>
-    <div><label style="font-size:10px;color:var(--g400)">Sub SKU Name *</label><input id="pds-name-${parentId}" type="text" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
-    <div><label style="font-size:10px;color:var(--g400)">Vendor</label><input id="pds-vendor-${parentId}" list="pd-vendor-datalist" type="text" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
-    <div><label style="font-size:10px;color:var(--g400)">HPP</label><input id="pds-hpp-${parentId}" type="number" min="0" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
-    <div><label style="font-size:10px;color:var(--g400)">QTY</label><input id="pds-qty-${parentId}" type="number" min="0" value="1" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
-    <button class="btn-save" style="font-size:10px;padding:4px 10px" onclick="submitPDSubItem('${parentId}')">Simpan</button>
-    <button class="btn-cancel" style="font-size:10px;padding:4px 8px" onclick="openPDSubForm('${parentId}')">Batal</button>
+  const previewCode = generateNextSubCode(parentId, 'OS');
+  host.innerHTML = `<div style="background:var(--off);padding:8px 10px;border-radius:4px;margin-bottom:8px">
+    <div style="font-size:11px;color:var(--g600);font-family:var(--mono);margin-bottom:6px">Code (auto): <b id="pds-code-preview-${parentId}" style="color:var(--black)">${previewCode}</b></div>
+    <div style="display:grid;grid-template-columns:1.4fr 70px 1fr 0.7fr 0.6fr auto auto;gap:6px;align-items:end">
+      <div><label style="font-size:10px;color:var(--g400)">Sub SKU Name *</label><input id="pds-name-${parentId}" type="text" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
+      <div><label style="font-size:10px;color:var(--g400)">Variant *</label><input id="pds-variant-${parentId}" type="text" value="OS" oninput="updatePDSubCodePreview('${parentId}')" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
+      <div><label style="font-size:10px;color:var(--g400)">Vendor</label><input id="pds-vendor-${parentId}" list="pd-vendor-datalist" type="text" placeholder="Pilih vendor terdaftar di Jubelio..." style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
+      <div><label style="font-size:10px;color:var(--g400)">HPP</label><input id="pds-hpp-${parentId}" type="number" min="0" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
+      <div><label style="font-size:10px;color:var(--g400)">QTY</label><input id="pds-qty-${parentId}" type="number" min="0" value="1" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
+      <button class="btn-save" style="font-size:10px;padding:4px 10px" onclick="submitPDSubItem('${parentId}')">Simpan</button>
+      <button class="btn-cancel" style="font-size:10px;padding:4px 8px" onclick="openPDSubForm('${parentId}')">Batal</button>
+    </div>
   </div>`;
 }
 
 async function submitPDSubItem(parentId) {
-  const code = document.getElementById(`pds-code-${parentId}`).value.trim();
   const name = document.getElementById(`pds-name-${parentId}`).value.trim();
+  const variant = document.getElementById(`pds-variant-${parentId}`).value.trim() || 'OS';
   const vendor = document.getElementById(`pds-vendor-${parentId}`).value.trim();
   const hpp = parseFloat(document.getElementById(`pds-hpp-${parentId}`).value);
   const qty = parseFloat(document.getElementById(`pds-qty-${parentId}`).value);
   if (!name) { alert('Sub SKU name wajib.'); return; }
+  if (!variant) { alert('Variant wajib.'); return; }
   const parent = allPDRows.find(r=>r.id===parentId);
+  const code = generateNextSubCode(parentId, variant);
   try {
     const id = genId('PDS');
     const {error} = await sb.from('product_dev').insert({
       id, parent_id: parentId,
       collection_id: parent?.collectionId || null,
-      display_code: code || null,
+      display_code: code,
       sku_type: null,
-      sku_name: name, vendor: vendor||null,
+      sku_name: name, variant,
+      vendor: vendor||null,
       hpp: isNaN(hpp)?null:hpp, qty: isNaN(qty)?null:qty,
       picture_urls: [], added_by: currentUser, date_added: new Date().toISOString()
     });
@@ -14299,12 +14322,9 @@ async function submitPDSubItem(parentId) {
 async function openPDParentEdit(id) {
   const r = allPDRows.find(x=>x.id===id);
   if (!r) return;
-  const newCode = prompt('SKU Code:', r.displayCode||'');
-  if (newCode===null) return;
-  const newName = prompt('SKU name:', r.skuName);
-  if (newName===null) return;
-  const newSrp = prompt('SRP (Rp):', r.srp||'');
-  if (newSrp===null) return;
+  const newName = prompt('SKU name:', r.skuName);                       if (newName===null) return;
+  const newVariant = prompt('Variant / Size:', r.variant||'OS');        if (newVariant===null) return;
+  const newSrp = prompt('SRP (Rp) — kosongkan jika belum ada:', r.srp||''); if (newSrp===null) return;
   const isMulti = r.skuType === 'multi';
   let newVendor = r.vendor, newHpp = r.hpp, newQty = r.qty;
   if (!isMulti) {
@@ -14312,9 +14332,17 @@ async function openPDParentEdit(id) {
     const h = prompt('HPP (Rp):', r.hpp||'');  if (h===null) return; newHpp = h===''?null:parseFloat(h);
     const q = prompt('QTY:', r.qty||'');       if (q===null) return; newQty = q===''?null:parseFloat(q);
   }
+  // Regenerate code if variant changed
+  const variant = (newVariant.trim() || r.variant || 'OS');
+  let displayCode = r.displayCode;
+  if (pdVariantToken(variant) !== pdVariantToken(r.variant||'')) {
+    // Build a new code keeping the same NN if possible, otherwise next available
+    displayCode = generateNextPDCode(r.collectionId, variant);
+  }
   const upd = {
-    display_code: newCode.trim() || r.displayCode,
+    display_code: displayCode,
     sku_name: newName.trim() || r.skuName,
+    variant,
     srp: newSrp===''?null:parseFloat(newSrp),
     vendor: newVendor || null,
     hpp: newHpp, qty: newQty,
@@ -14329,14 +14357,20 @@ async function openPDParentEdit(id) {
 async function openPDSubEdit(id, parentId) {
   const r = allPDRows.find(x=>x.id===id);
   if (!r) return;
-  const newCode   = prompt('Sub code:', r.displayCode||''); if (newCode===null) return;
-  const newName   = prompt('Sub SKU name:', r.skuName);    if (newName===null) return;
-  const newVendor = prompt('Vendor:', r.vendor||'');        if (newVendor===null) return;
-  const newHpp    = prompt('HPP (Rp):', r.hpp||'');         if (newHpp===null) return;
-  const newQty    = prompt('QTY:', r.qty||'');              if (newQty===null) return;
+  const newName    = prompt('Sub SKU name:', r.skuName);             if (newName===null) return;
+  const newVariant = prompt('Variant / Size:', r.variant||'OS');     if (newVariant===null) return;
+  const newVendor  = prompt('Vendor:', r.vendor||'');                if (newVendor===null) return;
+  const newHpp     = prompt('HPP (Rp):', r.hpp||'');                 if (newHpp===null) return;
+  const newQty     = prompt('QTY:', r.qty||'');                      if (newQty===null) return;
+  const variant = (newVariant.trim() || r.variant || 'OS');
+  let displayCode = r.displayCode;
+  if (pdVariantToken(variant) !== pdVariantToken(r.variant||'')) {
+    displayCode = generateNextSubCode(parentId, variant);
+  }
   const upd = {
-    display_code: newCode.trim() || r.displayCode,
+    display_code: displayCode,
     sku_name: newName.trim()||r.skuName,
+    variant,
     vendor: newVendor.trim()||null,
     hpp: newHpp===''?null:parseFloat(newHpp),
     qty: newQty===''?null:parseFloat(newQty),
@@ -14406,7 +14440,7 @@ function buildPDCatalogHTML(title, parents, subsByParent, mode, vendor) {
       if (!filteredSubs.length) return '';
       subsHTML = `<table class="subs">
         <thead><tr>
-          <th>Code</th><th>Sub SKU</th>
+          <th>Code</th><th>Sub SKU</th><th>Variant</th>
           ${showVendor ? '<th>Vendor</th>' : ''}
           ${showHPP ? '<th class="r">HPP</th>' : ''}
           <th class="r">QTY</th>
@@ -14417,6 +14451,7 @@ function buildPDCatalogHTML(title, parents, subsByParent, mode, vendor) {
           return `<tr>
             <td class="mono">${pdEsc(s.displayCode||'—')}</td>
             <td>${pdEsc(s.skuName)}</td>
+            <td class="mono">${pdEsc(s.variant||'—')}</td>
             ${showVendor ? `<td>${pdEsc(s.vendor||'—')}</td>` : ''}
             ${showHPP ? `<td class="r mono">${s.hpp?'Rp '+pdFmtIDR(s.hpp):'—'}</td>` : ''}
             <td class="r mono">${s.qty||'—'}</td>
@@ -14434,7 +14469,7 @@ function buildPDCatalogHTML(title, parents, subsByParent, mode, vendor) {
     return `<section class="card">
       <div class="card-head">
         <div class="code">${pdEsc(p.displayCode || p.id)}</div>
-        <div class="name">${pdEsc(p.skuName)}</div>
+        <div class="name">${pdEsc(p.skuName)}${p.variant?` <span style="font-size:11px;padding:2px 6px;background:#111;color:#fff;border-radius:3px;font-family:'SF Mono',Menlo,monospace;letter-spacing:0.5px;vertical-align:middle">${pdEsc(p.variant)}</span>`:''}</div>
         <div class="meta">${isMulti?'Multi-items':'Solo'} · ${pdEsc(collName)}</div>
       </div>
       <div class="card-body">
