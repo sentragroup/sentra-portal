@@ -1535,7 +1535,7 @@
           <div style="display:flex;gap:6px;flex-wrap:wrap">
             <button class="btn-ghost" style="font-size:12px;padding:5px 10px" onclick="exportPDPDF('internal')">📄 Internal PDF</button>
             <button class="btn-ghost" style="font-size:12px;padding:5px 10px" onclick="exportPDPDF('external')">📄 External PDF</button>
-            <button class="btn-ghost" style="font-size:12px;padding:5px 10px" onclick="exportPDVendorPrompt()">📄 Vendor PDF</button>
+            <button class="btn-ghost" style="font-size:12px;padding:5px 10px" onclick="exportPDVendorPrompt(event)">📄 Vendor PDF</button>
           </div>
         </div>
 
@@ -1560,34 +1560,21 @@
           <div class="tcount" id="pd-tcount" style="margin-left:auto">— SKU</div>
         </div>
 
-        <!-- Add SKU form -->
+        <!-- Add product form (parent only — variants are added per-product after save) -->
         <div class="form-card" id="pd-add-card" style="margin-top:1rem">
           <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="togglePDAddForm()">
-            <div class="form-sec" style="margin:0">+ Tambah SKU Parent</div>
+            <div class="form-sec" style="margin:0">+ Tambah Produk</div>
             <span id="pd-add-caret" style="font-size:11px;color:var(--g400)">▼</span>
           </div>
           <div id="pd-add-body" style="margin-top:1rem">
             <div style="background:var(--white);border:1px dashed var(--g100);border-radius:4px;padding:8px 12px;margin-bottom:0.75rem;font-size:11px;color:var(--g600);font-family:var(--mono)">
-              SKU Code (auto): <b id="pd-code-preview" style="color:var(--black)">—</b>
+              Product Code (auto): <b id="pd-code-preview" style="color:var(--black)">—</b>
+              <span style="color:var(--g400);font-weight:400;margin-left:8px">· Variant SKU code dibuat per-variant nanti</span>
             </div>
             <div class="form-grid">
-              <div class="fg full">
-                <label>Tipe SKU <span class="req">*</span></label>
-                <div style="display:flex;gap:16px;margin-top:4px">
-                  <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;font-weight:400">
-                    <input type="radio" name="pd-type" value="solo" checked onchange="onPDTypeChange()"> Solo (1 item, vendor & HPP di parent)
-                  </label>
-                  <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;font-weight:400">
-                    <input type="radio" name="pd-type" value="multi" onchange="onPDTypeChange()"> Multi-items (HPP auto dihitung dari sub-items)
-                  </label>
-                </div>
-              </div>
-              <div class="fg"><label>SKU Name <span class="req">*</span></label>
+              <div class="fg"><label>Nama Produk <span class="req">*</span></label>
                 <input type="text" id="pd-sku-name" list="pd-sku-datalist" placeholder="Pilih dari collection items atau ketik baru...">
                 <datalist id="pd-sku-datalist"></datalist>
-              </div>
-              <div class="fg"><label>Variant / Size <span class="req">*</span></label>
-                <input type="text" id="pd-variant" value="OS" placeholder="cth: S, M, L, XL, OS" oninput="updatePDCodePreview()">
               </div>
               <div class="fg"><label>SRP (Rp)</label>
                 <input type="number" id="pd-srp" min="0" step="1" placeholder="cth: 250000">
@@ -1595,34 +1582,32 @@
               <div class="fg full"><label>Notes</label><input type="text" id="pd-notes" placeholder="Catatan opsional"></div>
             </div>
 
-            <div class="form-sec" style="margin-top:1.25rem">Pictures (max 2)</div>
+            <div class="form-sec" style="margin-top:1.25rem">Pictures Produk (max 2)</div>
             <div class="form-grid">
               <div class="fg full">
                 <input type="file" id="pd-pics" accept="image/*" multiple style="font-size:12px">
                 <div id="pd-pics-preview" style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"></div>
-                <div style="font-size:11px;color:var(--g400);margin-top:4px">JPG/PNG/WEBP. Maks 5 MB per file. Total 2 file. Bisa ditambah/diganti setelah tersimpan.</div>
+                <div style="font-size:11px;color:var(--g400);margin-top:4px">JPG/PNG/WEBP. Maks 5 MB per file. Foto produk umum — variant bisa punya foto sendiri.</div>
               </div>
             </div>
 
-            <div id="pd-solo-fields">
-              <div class="form-sec" style="margin-top:1.25rem">Vendor / HPP / QTY <span style="font-size:11px;color:var(--g400);font-weight:400">(opsional)</span></div>
-              <div class="form-grid">
-                <div class="fg"><label>Vendor</label>
-                  <input type="text" id="pd-vendor" list="pd-vendor-datalist" placeholder="Pilih vendor yang sudah terdaftar di Jubelio...">
-                  <datalist id="pd-vendor-datalist"></datalist>
-                </div>
-                <div class="fg"><label>HPP (Rp)</label><input type="number" id="pd-hpp" min="0" step="1" placeholder="cth: 80000"></div>
-                <div class="fg"><label>QTY</label><input type="number" id="pd-qty" min="0" step="1" placeholder="cth: 100"></div>
-              </div>
+            <div style="background:var(--off);border-radius:4px;padding:8px 12px;margin-top:1rem;font-size:11px;color:var(--g600)">
+              <b style="color:var(--black)">Setelah disimpan:</b> tambah variant (size, color, qty, HPP, vendor) di card produk masing-masing.
+              Tiap variant = SKU terpisah.
             </div>
 
             <div class="btn-row" style="margin-top:1.25rem">
-              <button class="btn-primary" id="pdSubmitBtn" onclick="submitPD()">Simpan SKU Parent</button>
+              <button class="btn-primary" id="pdSubmitBtn" onclick="submitPD()">Simpan Produk</button>
               <button class="btn-ghost" onclick="clearPDForm()">Bersihkan</button>
             </div>
             <div class="feedback" id="pd-feedback"></div>
           </div>
         </div>
+
+        <!-- Size template datalist (shared) -->
+        <datalist id="pd-size-options">
+          <option value="S"><option value="M"><option value="L"><option value="XL"><option value="XXL"><option value="XXXL"><option value="OS"><option value="ALL">
+        </datalist>
 
         <div id="pdListBody" style="margin-top:1rem"><div class="empty-td" style="padding:32px;text-align:center;color:var(--g400);font-size:12px">Belum ada SKU. Tambah pakai form di atas.</div></div>
       </div>

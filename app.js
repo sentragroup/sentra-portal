@@ -13608,6 +13608,7 @@ let pdFilters = {vendor:'',type:''};
 let pdPicsToUpload = [];
 let _pdSearchTimer = null;
 let pdCurrentCollectionId = '';
+let pdEditingId = '';   // ID of the parent or variant currently being inline-edited
 const PD_BUCKET = 'product-dev-pictures';
 const PD_MAX_PICS = 2;
 
@@ -13616,12 +13617,30 @@ function mapPD(r) {
     id: r.id, parentId: r.parent_id, collectionId: r.collection_id,
     collectionItemId: r.collection_item_id, skuName: r.sku_name||'',
     displayCode: r.display_code||'', skuType: r.sku_type||null,
-    variant: r.variant||'',
+    variant: r.variant||'', size: r.size||'', color: r.color||'',
     vendor: r.vendor||'', hpp: r.hpp, qty: r.qty, srp: r.srp,
     pictures: r.picture_urls||[], notes: r.notes||'',
     dateAdded: r.date_added, addedBy: r.added_by,
     lastUpdated: r.last_updated, lastUpdatedBy: r.last_updated_by
   };
+}
+
+// Build the variant token used inside the SKU code: SIZE[-COLOR][-OTHER]
+function pdVariantTokenFor(size, color, other) {
+  const parts = [];
+  if (size)  parts.push(pdVariantToken(size));
+  if (color) parts.push(pdVariantToken(color));
+  if (other) parts.push(pdVariantToken(other));
+  return parts.join('-') || 'OS';
+}
+
+// Pretty display string for a variant SKU
+function pdVariantDisplay(v) {
+  const parts = [];
+  if (v.size)  parts.push(v.size);
+  if (v.color) parts.push(v.color);
+  if (v.variant) parts.push(v.variant);
+  return parts.join(' / ');
 }
 
 function pdCollName(id) {
@@ -13643,15 +13662,35 @@ function pdVariantToken(v) {
   return t || 'OS';
 }
 
-// Auto SKU code: {IP3}-{COL3}-{VARIANT}-{NN}
-// Sequence is per (collection, variant) so each size has its own counter.
-function generateNextPDCode(collection_id, variant) {
+// Parent product code: {IP3}-{COL3}-{NN}
+// NN sequence is per-collection across parent rows only.
+function generateNextParentCode(collection_id) {
   const ip  = pdShort3(pdCollIP(collection_id));
   const col = pdShort3(pdCollName(collection_id));
-  const vrt = pdVariantToken(variant);
+  const prefix = `${ip}-${col}-`;
+  // Only count parent rows so parent and variant codes don't collide.
+  // Parent codes have no variant segment, so they look like IP-COL-NN.
+  const parentRe = new RegExp(`^${ip.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}-${col.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}-([0-9]{2,})$`);
+  const taken = new Set();
+  allPDRows.filter(r => r.collectionId === collection_id && !r.parentId).forEach(r => {
+    if (r.displayCode && parentRe.test(r.displayCode)) taken.add(r.displayCode);
+  });
+  for (let i = 1; i <= 999; i++) {
+    const code = `${prefix}${String(i).padStart(2,'0')}`;
+    if (!taken.has(code)) return code;
+  }
+  return `${prefix}${Date.now()%1000}`;
+}
+
+// Variant code: {IP3}-{COL3}-{SIZE-COLOR-OTHER}-{NN}
+// Sequence is per (collection, variant-token) across variant rows.
+function generateNextVariantCode(collection_id, size, color, other) {
+  const ip  = pdShort3(pdCollIP(collection_id));
+  const col = pdShort3(pdCollName(collection_id));
+  const vrt = pdVariantTokenFor(size, color, other);
   const prefix = `${ip}-${col}-${vrt}-`;
   const taken = new Set(allPDRows
-    .filter(r => r.collectionId === collection_id && r.displayCode && r.displayCode.startsWith(prefix))
+    .filter(r => r.collectionId === collection_id && r.parentId && r.displayCode && r.displayCode.startsWith(prefix))
     .map(r => r.displayCode));
   for (let i = 1; i <= 999; i++) {
     const code = `${prefix}${String(i).padStart(2,'0')}`;
@@ -13660,20 +13699,11 @@ function generateNextPDCode(collection_id, variant) {
   return `${prefix}${Date.now()%1000}`;
 }
 
-// Sub-items use the same {IP}-{COL}-{VARIANT}-{NN} pattern
-// (they are siblings in the namespace — uniqueness is per-collection)
-function generateNextSubCode(parent_id, variant) {
-  const parent = allPDRows.find(r => r.id === parent_id);
-  if (!parent) return '';
-  return generateNextPDCode(parent.collectionId, variant);
-}
-
 function updatePDCodePreview() {
   const el = document.getElementById('pd-code-preview');
   if (!el) return;
   if (!pdCurrentCollectionId) { el.textContent = '—'; return; }
-  const variant = document.getElementById('pd-variant')?.value || 'OS';
-  el.textContent = generateNextPDCode(pdCurrentCollectionId, variant);
+  el.textContent = generateNextParentCode(pdCurrentCollectionId);
 }
 
 function pdFmtIDR(n) {
@@ -13877,9 +13907,8 @@ function populatePDDetailForm() {
 }
 
 function onPDTypeChange() {
-  const t = (document.querySelector('input[name="pd-type"]:checked')||{}).value;
-  const soloBlock = document.getElementById('pd-solo-fields');
-  if (soloBlock) soloBlock.style.display = t === 'multi' ? 'none' : '';
+  // No-op now that the Solo/Multi radio is gone. Kept as a safe stub
+  // in case any older inline handler still references it.
 }
 
 function togglePDAddForm() {
@@ -13918,13 +13947,9 @@ function clearPDFilters() {
 }
 
 function clearPDForm() {
-  ['pd-sku-name','pd-srp','pd-notes','pd-vendor','pd-hpp','pd-qty'].forEach(id=>{
+  ['pd-sku-name','pd-srp','pd-notes'].forEach(id=>{
     const el = document.getElementById(id); if (el) el.value='';
   });
-  const vEl = document.getElementById('pd-variant');
-  if (vEl) vEl.value = 'OS';
-  document.querySelector('input[name="pd-type"][value="solo"]').checked = true;
-  onPDTypeChange();
   const pics = document.getElementById('pd-pics');
   if (pics) pics.value = '';
   const prev = document.getElementById('pd-pics-preview');
@@ -14005,21 +14030,14 @@ async function submitPD() {
   const btn = document.getElementById('pdSubmitBtn');
   const cid = pdCurrentCollectionId;
   if (!cid) { fb.textContent='⚠️ Buka detail collection dulu.'; return; }
-  const skuType = (document.querySelector('input[name="pd-type"]:checked')||{}).value;
   const skuName = document.getElementById('pd-sku-name').value.trim();
-  const variant = (document.getElementById('pd-variant').value.trim() || 'OS');
   const srp = parseFloat(document.getElementById('pd-srp').value);
   const notes = document.getElementById('pd-notes').value.trim();
-  const vendor = document.getElementById('pd-vendor').value.trim();
-  const hpp = parseFloat(document.getElementById('pd-hpp').value);
-  const qty = parseFloat(document.getElementById('pd-qty').value);
 
-  if (!skuType) { fb.textContent='⚠️ Pilih tipe (Solo atau Multi).'; return; }
-  if (!skuName) { fb.textContent='⚠️ SKU name wajib.'; return; }
-  if (!variant) { fb.textContent='⚠️ Variant wajib (cth: L, M, OS).'; return; }
+  if (!skuName) { fb.textContent='⚠️ Nama produk wajib.'; return; }
 
-  // Auto-generate display_code from IP + collection + variant + sequence
-  const displayCode = generateNextPDCode(cid, variant);
+  // Auto-generate parent product code: {IP}-{COL}-{NN}
+  const displayCode = generateNextParentCode(cid);
 
   // Resolve collection_item_id from chosen SKU name (if match)
   let collItemId = null;
@@ -14032,12 +14050,10 @@ async function submitPD() {
     const id = genId('PD');
     const payload = {
       id, parent_id: null, collection_id: cid, collection_item_id: collItemId,
-      display_code: displayCode, sku_type: skuType,
-      sku_name: skuName, variant,
+      display_code: displayCode, sku_type: 'product',
+      sku_name: skuName,
       srp: isNaN(srp) ? null : srp,
-      vendor: skuType==='multi' ? null : (vendor || null),
-      hpp: skuType==='multi' ? null : (isNaN(hpp) ? null : hpp),
-      qty: skuType==='multi' ? null : (isNaN(qty) ? null : qty),
+      vendor: null, hpp: null, qty: null,
       notes: notes || null,
       picture_urls: [],
       added_by: currentUser, date_added: new Date().toISOString()
@@ -14108,114 +14124,157 @@ function renderPDDetailTable() {
   if (!host) return;
   const {parents, subsByParent} = getPDDetailFilteredParents();
 
-  // Stats (for this collection)
+  // Stats: every product has variants. "Single" = 1 variant, "Multi" = >1.
   const allInCol = allPDRows.filter(r => !r.parentId && r.collectionId === cid);
   const subsInCol = {};
   allInCol.forEach(p => { subsInCol[p.id] = (allPDRows.filter(r => r.parentId === p.id)); });
-  const soloCount  = allInCol.filter(p => (p.skuType==='solo') || (!p.skuType && !(subsInCol[p.id]||[]).length)).length;
-  const multiCount = allInCol.filter(p => (p.skuType==='multi') || (!p.skuType && (subsInCol[p.id]||[]).length)).length;
+  const singleCount = allInCol.filter(p => (subsInCol[p.id]||[]).length === 1).length;
+  const multiCount  = allInCol.filter(p => (subsInCol[p.id]||[]).length >  1).length;
   const totalSRP = allInCol.reduce((s,p) => s + Number(p.srp||0), 0);
   const ratios = allInCol.map(p => pdComputeRatio(p, subsInCol[p.id]||[])).filter(r=>r);
   const avgRatio = ratios.length ? (ratios.reduce((a,b)=>a+b,0)/ratios.length) : null;
 
   document.getElementById('pd-d-total').textContent = allInCol.length;
-  document.getElementById('pd-d-solo').textContent  = soloCount;
+  document.getElementById('pd-d-solo').textContent  = singleCount;
   document.getElementById('pd-d-multi').textContent = multiCount;
   document.getElementById('pd-d-srp').textContent   = totalSRP ? 'Rp '+pdFmtIDR(totalSRP) : '—';
   document.getElementById('pd-d-ratio').textContent = avgRatio ? avgRatio.toFixed(2)+'×' : '—';
-  document.getElementById('pd-tcount').textContent  = `${parents.length} SKU`;
+  document.getElementById('pd-tcount').textContent  = `${parents.length} produk`;
 
   if (!parents.length) {
-    host.innerHTML = `<div class="empty-td" style="padding:32px;text-align:center;color:var(--g400);font-size:12px">${allInCol.length ? 'Tidak ada SKU cocok filter.' : 'Belum ada SKU. Tambah pakai form di atas.'}</div>`;
+    host.innerHTML = `<div class="empty-td" style="padding:32px;text-align:center;color:var(--g400);font-size:12px">${allInCol.length ? 'Tidak ada produk cocok filter.' : 'Belum ada produk. Tambah pakai form di atas.'}</div>`;
     return;
   }
 
-  const cards = parents.map(p => {
+  host.innerHTML = parents.map(p => {
     const subs = subsByParent[p.id] || [];
-    const isMulti = p.skuType === 'multi' || subs.length > 0;
-    const ratio = pdComputeRatio(p, subs);
-    const totalHpp = isMulti ? subs.reduce((s,sb)=>s+(Number(sb.hpp||0)*Number(sb.qty||1)),0) : Number(p.hpp||0);
-    const totalQty = isMulti ? subs.reduce((s,sb)=>s+Number(sb.qty||0),0) : Number(p.qty||0);
-    const code = p.displayCode || p.id;
-    const typePill = isMulti
-      ? `<span style="font-size:10px;padding:2px 6px;background:var(--white);border-radius:3px;color:var(--g600);border:1px solid var(--g100);font-weight:500">${subs.length} item</span>`
-      : `<span style="font-size:10px;padding:2px 6px;background:var(--white);border-radius:3px;color:var(--g400);border:1px solid var(--g100);font-weight:500">solo</span>`;
-    const variantPill = p.variant
-      ? `<span style="font-size:10px;padding:2px 6px;background:var(--black);color:var(--white);border-radius:3px;font-weight:600;letter-spacing:0.5px;font-family:var(--mono)">${p.variant.replace(/</g,'&lt;')}</span>`
-      : '';
-    const ratioPill = ratio ? `<span class="pill ${ratio>=2.5?'p-active':(ratio>=1.8?'p-review':'p-near')}" style="font-size:10px">${ratio.toFixed(2)}×</span>` : '<span style="color:var(--g400);font-size:11px">—</span>';
-
-    // Sub-items block (only for multi)
-    let subsBlock = '';
-    if (isMulti) {
-      const subRows = subs.length ? subs.map(s => {
-        const subtotal = Number(s.hpp||0) * Number(s.qty||1);
-        return `<div class="pd-subcard" style="display:flex;gap:10px;align-items:flex-start;padding:8px 10px;background:var(--white);border:1px solid var(--g100);border-radius:5px;margin-bottom:6px">
-          <div style="flex:0 0 60px">${renderPDPicsLeft(s, 60)}</div>
-          <div style="flex:1;min-width:0">
-            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
-              <div style="min-width:0">
-                <div style="font-family:var(--mono);font-size:10px;color:var(--g400);font-weight:600">${(s.displayCode||'—').replace(/</g,'&lt;')}</div>
-                <div style="font-size:12px;font-weight:500;margin-top:1px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-                  <span>${s.skuName.replace(/</g,'&lt;')}</span>
-                  ${s.variant ? `<span style="font-size:9px;padding:1px 5px;background:var(--black);color:var(--white);border-radius:3px;font-weight:600;letter-spacing:0.5px;font-family:var(--mono)">${s.variant.replace(/</g,'&lt;')}</span>` : ''}
-                </div>
-              </div>
-              <div style="display:flex;gap:3px;flex-shrink:0">
-                <button class="btn-ghost" style="font-size:10px;padding:2px 6px" onclick="openPDSubEdit('${s.id}','${p.id}')">✎</button>
-                <button class="btn-ghost" style="font-size:10px;padding:2px 6px;color:#c33" onclick="deletePD('${s.id}',false,'${p.id}')">🗑</button>
-              </div>
-            </div>
-            <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:4px;font-size:11px;color:var(--g600)">
-              <span>Vendor: <b style="color:var(--black)">${(s.vendor||'—').replace(/</g,'&lt;')}</b></span>
-              <span>HPP: <span class="mono"><b style="color:var(--black)">${pdFmtIDR(s.hpp)}</b></span></span>
-              <span>QTY: <span class="mono"><b style="color:var(--black)">${s.qty||'—'}</b></span></span>
-              <span>Subtotal: <span class="mono"><b style="color:var(--black)">${subtotal?pdFmtIDR(subtotal):'—'}</b></span></span>
-            </div>
-          </div>
-        </div>`;
-      }).join('') : '<div style="font-size:11px;color:var(--g400);padding:8px 4px;text-align:center">Belum ada sub-items. Klik + Sub-item.</div>';
-
-      subsBlock = `<div id="pd-sub-${p.id}" style="display:none;margin-top:8px;padding:10px 12px;border-left:3px solid var(--g100);background:var(--white);border-radius:0 6px 6px 0">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-          <span style="font-size:10px;color:var(--g400);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.5px">Sub-items (${subs.length})</span>
-          <button class="btn-ghost" style="font-size:10px;padding:3px 8px" onclick="openPDSubForm('${p.id}')">+ Sub-item</button>
-        </div>
-        <div id="pd-sub-form-${p.id}"></div>
-        ${subRows}
-      </div>`;
-    }
-
-    return `<div class="pd-card" style="display:flex;gap:14px;align-items:flex-start;border:1px solid var(--g100);border-radius:6px;padding:12px;background:var(--off);margin-bottom:10px">
-      <div style="flex:0 0 110px">${renderPDPicsLeft(p, 110)}</div>
-      <div style="flex:1;min-width:0">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px">
-          <div style="min-width:0">
-            <div style="font-family:var(--mono);font-size:11px;color:var(--g400);font-weight:600;letter-spacing:0.5px">${code}</div>
-            <div style="font-size:15px;font-weight:600;margin-top:2px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-              <span>${p.skuName.replace(/</g,'&lt;')}</span> ${variantPill} ${typePill}
-            </div>
-          </div>
-          <div style="display:flex;gap:4px;flex-shrink:0">
-            <button class="btn-ghost" style="font-size:11px;padding:3px 8px" onclick="openPDParentEdit('${p.id}')">✎ Edit</button>
-            <button class="btn-ghost" style="font-size:11px;padding:3px 8px;color:#c33" onclick="deletePD('${p.id}',true)">🗑</button>
-          </div>
-        </div>
-        <div style="display:flex;flex-wrap:wrap;gap:16px;font-size:12px;color:var(--g600)">
-          <span>Vendor: <b style="color:var(--black)">${isMulti?'<i style="color:var(--g400);font-weight:400">multi</i>':(p.vendor||'—').replace(/</g,'&lt;')}</b></span>
-          <span>HPP: <span class="mono"><b style="color:var(--black)">${pdFmtIDR(totalHpp)}</b></span>${isMulti?' <span style="font-size:10px;color:var(--g400)">(auto)</span>':''}</span>
-          <span>QTY: <span class="mono"><b style="color:var(--black)">${totalQty||'—'}</b></span></span>
-          <span>SRP: <span class="mono"><b style="color:var(--black)">${pdFmtIDR(p.srp)}</b></span></span>
-          <span>Ratio: ${ratioPill}</span>
-        </div>
-        ${p.notes ? `<div style="margin-top:6px;font-size:11px;color:var(--g600);font-style:italic">${p.notes.replace(/</g,'&lt;')}</div>` : ''}
-        ${isMulti ? `<div style="margin-top:8px"><button class="btn-ghost" style="font-size:11px;padding:3px 10px" onclick="togglePDExpand('${p.id}')"><span id="pd-caret-${p.id}">▶</span> Lihat sub-items (${subs.length})</button></div>` : ''}
-        ${subsBlock}
-      </div>
-    </div>`;
+    if (pdEditingId === p.id) return renderPDParentEditCard(p);
+    return renderPDParentCard(p, subs);
   }).join('');
+}
 
-  host.innerHTML = cards;
+function renderPDParentCard(p, subs) {
+  const ratio = pdComputeRatio(p, subs);
+  const totalHpp = subs.reduce((s,sb)=>s+(Number(sb.hpp||0)*Number(sb.qty||1)),0);
+  const totalQty = subs.reduce((s,sb)=>s+Number(sb.qty||0),0);
+  const vendorSet = new Set(subs.map(s=>s.vendor).filter(Boolean));
+  const vendorTxt = vendorSet.size === 0 ? '—' : vendorSet.size === 1 ? [...vendorSet][0] : `${vendorSet.size} vendors`;
+  const code = p.displayCode || p.id;
+  const countPill = `<span style="font-size:10px;padding:2px 6px;background:var(--white);border-radius:3px;color:var(--g600);border:1px solid var(--g100);font-weight:500">${subs.length} variant${subs.length===1?'':'s'}</span>`;
+  const ratioPill = ratio ? `<span class="pill ${ratio>=2.5?'p-active':(ratio>=1.8?'p-review':'p-near')}" style="font-size:10px">${ratio.toFixed(2)}×</span>` : '<span style="color:var(--g400);font-size:11px">—</span>';
+
+  const variantsHTML = subs.length ? subs.map(s => {
+    if (pdEditingId === s.id) return renderPDVariantEditCard(s, p.id);
+    return renderPDVariantCard(s, p.id);
+  }).join('') : '<div style="font-size:11px;color:var(--g400);padding:8px 4px;text-align:center">Belum ada variant. Klik + Variant untuk tambah.</div>';
+
+  const variantsBlock = `<div id="pd-sub-${p.id}" style="display:none;margin-top:10px;padding:10px 12px;border-left:3px solid var(--g100);background:var(--white);border-radius:0 6px 6px 0">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <span style="font-size:10px;color:var(--g400);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.5px">Variants (${subs.length})</span>
+      <button class="btn-ghost" style="font-size:11px;padding:3px 10px" onclick="openPDSubForm('${p.id}')">+ Variant</button>
+    </div>
+    <div id="pd-sub-form-${p.id}"></div>
+    ${variantsHTML}
+  </div>`;
+
+  return `<div class="pd-card" style="display:flex;gap:14px;align-items:flex-start;border:1px solid var(--g100);border-radius:6px;padding:12px;background:var(--off);margin-bottom:10px">
+    <div style="flex:0 0 110px">${renderPDPicsLeft(p, 110)}</div>
+    <div style="flex:1;min-width:0">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px">
+        <div style="min-width:0">
+          <div style="font-family:var(--mono);font-size:11px;color:var(--g400);font-weight:600;letter-spacing:0.5px">${code}</div>
+          <div style="font-size:15px;font-weight:600;margin-top:2px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span>${p.skuName.replace(/</g,'&lt;')}</span> ${countPill}
+          </div>
+        </div>
+        <div style="display:flex;gap:4px;flex-shrink:0">
+          <button class="btn-ghost" style="font-size:11px;padding:3px 8px" onclick="openPDParentEdit('${p.id}')">✎ Edit</button>
+          <button class="btn-ghost" style="font-size:11px;padding:3px 8px;color:#c33" onclick="deletePD('${p.id}',true)">🗑</button>
+        </div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:16px;font-size:12px;color:var(--g600)">
+        <span>Vendor: <b style="color:var(--black)">${vendorTxt.replace(/</g,'&lt;')}</b></span>
+        <span>HPP total: <span class="mono"><b style="color:var(--black)">${totalHpp?pdFmtIDR(totalHpp):'—'}</b></span></span>
+        <span>QTY total: <span class="mono"><b style="color:var(--black)">${totalQty||'—'}</b></span></span>
+        <span>SRP: <span class="mono"><b style="color:var(--black)">${pdFmtIDR(p.srp)}</b></span></span>
+        <span>Ratio: ${ratioPill}</span>
+      </div>
+      ${p.notes ? `<div style="margin-top:6px;font-size:11px;color:var(--g600);font-style:italic">${p.notes.replace(/</g,'&lt;')}</div>` : ''}
+      <div style="margin-top:8px"><button class="btn-ghost" style="font-size:11px;padding:3px 10px" onclick="togglePDExpand('${p.id}')"><span id="pd-caret-${p.id}">▶</span> ${subs.length?'Lihat':'Tambah'} variants${subs.length?` (${subs.length})`:''}</button></div>
+      ${variantsBlock}
+    </div>
+  </div>`;
+}
+
+function renderPDVariantCard(s, parentId) {
+  const subtotal = Number(s.hpp||0) * Number(s.qty||1);
+  const sizeTag  = s.size  ? `<span style="font-size:10px;padding:2px 6px;background:var(--black);color:var(--white);border-radius:3px;font-weight:600;letter-spacing:0.5px;font-family:var(--mono)">${s.size.replace(/</g,'&lt;')}</span>` : '';
+  const colorTag = s.color ? `<span style="font-size:10px;padding:2px 6px;background:var(--white);border:1px solid var(--g200);border-radius:3px;font-weight:500">${s.color.replace(/</g,'&lt;')}</span>` : '';
+  const otherTag = s.variant && s.variant !== pdVariantTokenFor(s.size, s.color, '') ? `<span style="font-size:10px;padding:2px 6px;background:var(--off);border:1px solid var(--g100);border-radius:3px;color:var(--g600)">${s.variant.replace(/</g,'&lt;')}</span>` : '';
+
+  return `<div class="pd-subcard" style="display:flex;gap:10px;align-items:flex-start;padding:8px 10px;background:var(--white);border:1px solid var(--g100);border-radius:5px;margin-bottom:6px">
+    <div style="flex:0 0 60px">${renderPDPicsLeft(s, 60)}</div>
+    <div style="flex:1;min-width:0">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+        <div style="min-width:0">
+          <div style="font-family:var(--mono);font-size:10px;color:var(--g400);font-weight:600">${(s.displayCode||'—').replace(/</g,'&lt;')}</div>
+          <div style="font-size:12px;font-weight:500;margin-top:2px;display:flex;align-items:center;gap:5px;flex-wrap:wrap">
+            ${sizeTag} ${colorTag} ${otherTag}
+          </div>
+        </div>
+        <div style="display:flex;gap:3px;flex-shrink:0">
+          <button class="btn-ghost" style="font-size:10px;padding:2px 6px" onclick="openPDSubEdit('${s.id}','${parentId}')">✎</button>
+          <button class="btn-ghost" style="font-size:10px;padding:2px 6px;color:#c33" onclick="deletePD('${s.id}',false,'${parentId}')">🗑</button>
+        </div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:4px;font-size:11px;color:var(--g600)">
+        <span>Vendor: <b style="color:var(--black)">${(s.vendor||'—').replace(/</g,'&lt;')}</b></span>
+        <span>HPP: <span class="mono"><b style="color:var(--black)">${pdFmtIDR(s.hpp)}</b></span></span>
+        <span>QTY: <span class="mono"><b style="color:var(--black)">${s.qty||'—'}</b></span></span>
+        <span>Subtotal: <span class="mono"><b style="color:var(--black)">${subtotal?pdFmtIDR(subtotal):'—'}</b></span></span>
+      </div>
+    </div>
+  </div>`;
+}
+
+// ── Inline edit cards (replace the prompt() popups) ─────────────────
+function renderPDParentEditCard(p) {
+  return `<div class="pd-card" style="display:flex;gap:14px;align-items:flex-start;border:2px solid var(--black);border-radius:6px;padding:12px;background:var(--white);margin-bottom:10px">
+    <div style="flex:0 0 110px">${renderPDPicsLeft(p, 110)}</div>
+    <div style="flex:1;min-width:0">
+      <div style="font-family:var(--mono);font-size:11px;color:var(--g400);font-weight:600;margin-bottom:8px">EDITING · ${(p.displayCode||p.id).replace(/</g,'&lt;')}</div>
+      <div class="form-grid" style="grid-template-columns:2fr 1fr;gap:8px">
+        <div class="fg"><label style="font-size:11px">Nama Produk *</label><input id="pde-name-${p.id}" type="text" value="${(p.skuName||'').replace(/"/g,'&quot;')}" style="font-size:12px;padding:5px 8px"></div>
+        <div class="fg"><label style="font-size:11px">SRP (Rp)</label><input id="pde-srp-${p.id}" type="number" min="0" value="${p.srp==null?'':p.srp}" style="font-size:12px;padding:5px 8px"></div>
+        <div class="fg full"><label style="font-size:11px">Notes</label><input id="pde-notes-${p.id}" type="text" value="${(p.notes||'').replace(/"/g,'&quot;')}" style="font-size:12px;padding:5px 8px"></div>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:10px">
+        <button class="btn-save" style="font-size:11px;padding:5px 12px" onclick="savePDParentEdit('${p.id}')">💾 Simpan</button>
+        <button class="btn-cancel" style="font-size:11px;padding:5px 12px" onclick="cancelPDEdit()">✕ Batal</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderPDVariantEditCard(s, parentId) {
+  return `<div class="pd-subcard" style="display:flex;gap:10px;align-items:flex-start;padding:8px 10px;background:var(--white);border:2px solid var(--black);border-radius:5px;margin-bottom:6px">
+    <div style="flex:0 0 60px">${renderPDPicsLeft(s, 60)}</div>
+    <div style="flex:1;min-width:0">
+      <div style="font-family:var(--mono);font-size:10px;color:var(--g400);font-weight:600;margin-bottom:8px">EDITING · ${(s.displayCode||s.id).replace(/</g,'&lt;')}</div>
+      <div style="display:grid;grid-template-columns:90px 100px 110px 1fr 0.7fr 0.6fr;gap:6px;align-items:end">
+        <div><label style="font-size:10px;color:var(--g400)">Size</label><input id="pde-size-${s.id}" list="pd-size-options" type="text" value="${(s.size||'').replace(/"/g,'&quot;')}" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%;font-family:var(--mono)"></div>
+        <div><label style="font-size:10px;color:var(--g400)">Color</label><input id="pde-color-${s.id}" type="text" value="${(s.color||'').replace(/"/g,'&quot;')}" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
+        <div><label style="font-size:10px;color:var(--g400)">Other</label><input id="pde-other-${s.id}" type="text" value="${(s.variant||'').replace(/"/g,'&quot;')}" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
+        <div><label style="font-size:10px;color:var(--g400)">Vendor</label><input id="pde-vendor-${s.id}" list="pd-vendor-datalist" type="text" value="${(s.vendor||'').replace(/"/g,'&quot;')}" placeholder="Pilih vendor terdaftar di Jubelio..." style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
+        <div><label style="font-size:10px;color:var(--g400)">HPP</label><input id="pde-hpp-${s.id}" type="number" min="0" value="${s.hpp==null?'':s.hpp}" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
+        <div><label style="font-size:10px;color:var(--g400)">QTY *</label><input id="pde-qty-${s.id}" type="number" min="0" value="${s.qty==null?'':s.qty}" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:8px">
+        <button class="btn-save" style="font-size:11px;padding:4px 10px" onclick="savePDVariantEdit('${s.id}','${parentId}')">💾 Simpan</button>
+        <button class="btn-cancel" style="font-size:11px;padding:4px 10px" onclick="cancelPDEdit()">✕ Batal</button>
+      </div>
+    </div>
+  </div>`;
 }
 
 // Picture column for the left side of cards.
@@ -14263,11 +14322,20 @@ function togglePDExpand(parentId) {
   else { row.style.display = 'none'; if (caret) caret.textContent='▶'; }
 }
 
-function updatePDSubCodePreview(parentId) {
-  const variantEl = document.getElementById(`pds-variant-${parentId}`);
-  const preview   = document.getElementById(`pds-code-preview-${parentId}`);
-  if (!variantEl || !preview) return;
-  preview.textContent = generateNextSubCode(parentId, variantEl.value || 'OS');
+function updatePDVariantCodePreview(parentId) {
+  const sizeEl  = document.getElementById(`pdv-size-${parentId}`);
+  const colorEl = document.getElementById(`pdv-color-${parentId}`);
+  const otherEl = document.getElementById(`pdv-other-${parentId}`);
+  const preview = document.getElementById(`pdv-code-preview-${parentId}`);
+  if (!preview) return;
+  const parent = allPDRows.find(r => r.id === parentId);
+  if (!parent) return;
+  preview.textContent = generateNextVariantCode(
+    parent.collectionId,
+    sizeEl?.value||'',
+    colorEl?.value||'',
+    otherEl?.value||''
+  );
 }
 
 function openPDSubForm(parentId) {
@@ -14275,41 +14343,51 @@ function openPDSubForm(parentId) {
   if (!host) return;
   if (host.dataset.open === '1') { host.dataset.open=''; host.innerHTML=''; return; }
   host.dataset.open='1';
-  const previewCode = generateNextSubCode(parentId, 'OS');
-  host.innerHTML = `<div style="background:var(--off);padding:8px 10px;border-radius:4px;margin-bottom:8px">
-    <div style="font-size:11px;color:var(--g600);font-family:var(--mono);margin-bottom:6px">Code (auto): <b id="pds-code-preview-${parentId}" style="color:var(--black)">${previewCode}</b></div>
-    <div style="display:grid;grid-template-columns:1.4fr 70px 1fr 0.7fr 0.6fr auto auto;gap:6px;align-items:end">
-      <div><label style="font-size:10px;color:var(--g400)">Sub SKU Name *</label><input id="pds-name-${parentId}" type="text" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
-      <div><label style="font-size:10px;color:var(--g400)">Variant *</label><input id="pds-variant-${parentId}" type="text" value="OS" oninput="updatePDSubCodePreview('${parentId}')" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
-      <div><label style="font-size:10px;color:var(--g400)">Vendor</label><input id="pds-vendor-${parentId}" list="pd-vendor-datalist" type="text" placeholder="Pilih vendor terdaftar di Jubelio..." style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
-      <div><label style="font-size:10px;color:var(--g400)">HPP</label><input id="pds-hpp-${parentId}" type="number" min="0" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
-      <div><label style="font-size:10px;color:var(--g400)">QTY</label><input id="pds-qty-${parentId}" type="number" min="0" value="1" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
+  const parent = allPDRows.find(r=>r.id===parentId);
+  const previewCode = generateNextVariantCode(parent?.collectionId||'','','','');
+  host.innerHTML = `<div style="background:var(--off);padding:10px 12px;border-radius:4px;margin-bottom:8px">
+    <div style="font-size:11px;color:var(--g600);font-family:var(--mono);margin-bottom:8px">Variant SKU Code (auto): <b id="pdv-code-preview-${parentId}" style="color:var(--black)">${previewCode}</b></div>
+    <div style="display:grid;grid-template-columns:90px 100px 100px 1fr 0.7fr 0.6fr auto auto;gap:6px;align-items:end">
+      <div><label style="font-size:10px;color:var(--g400)">Size *</label><input id="pdv-size-${parentId}" list="pd-size-options" type="text" placeholder="S, M, L, XL..." oninput="updatePDVariantCodePreview('${parentId}')" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%;font-family:var(--mono)"></div>
+      <div><label style="font-size:10px;color:var(--g400)">Color</label><input id="pdv-color-${parentId}" type="text" placeholder="Black, Red..." oninput="updatePDVariantCodePreview('${parentId}')" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
+      <div><label style="font-size:10px;color:var(--g400)">Other</label><input id="pdv-other-${parentId}" type="text" placeholder="opsional" oninput="updatePDVariantCodePreview('${parentId}')" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
+      <div><label style="font-size:10px;color:var(--g400)">Vendor</label><input id="pdv-vendor-${parentId}" list="pd-vendor-datalist" type="text" placeholder="Pilih vendor yang sudah terdaftar di Jubelio..." style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
+      <div><label style="font-size:10px;color:var(--g400)">HPP (Rp)</label><input id="pdv-hpp-${parentId}" type="number" min="0" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
+      <div><label style="font-size:10px;color:var(--g400)">QTY *</label><input id="pdv-qty-${parentId}" type="number" min="0" value="1" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
       <button class="btn-save" style="font-size:10px;padding:4px 10px" onclick="submitPDSubItem('${parentId}')">Simpan</button>
       <button class="btn-cancel" style="font-size:10px;padding:4px 8px" onclick="openPDSubForm('${parentId}')">Batal</button>
     </div>
+    <div style="font-size:10px;color:var(--g400);margin-top:4px">Tiap kombinasi Size + Color = SKU terpisah. Foto bisa ditambah setelah simpan.</div>
   </div>`;
 }
 
 async function submitPDSubItem(parentId) {
-  const name = document.getElementById(`pds-name-${parentId}`).value.trim();
-  const variant = document.getElementById(`pds-variant-${parentId}`).value.trim() || 'OS';
-  const vendor = document.getElementById(`pds-vendor-${parentId}`).value.trim();
-  const hpp = parseFloat(document.getElementById(`pds-hpp-${parentId}`).value);
-  const qty = parseFloat(document.getElementById(`pds-qty-${parentId}`).value);
-  if (!name) { alert('Sub SKU name wajib.'); return; }
-  if (!variant) { alert('Variant wajib.'); return; }
+  const size   = document.getElementById(`pdv-size-${parentId}`).value.trim();
+  const color  = document.getElementById(`pdv-color-${parentId}`).value.trim();
+  const other  = document.getElementById(`pdv-other-${parentId}`).value.trim();
+  const vendor = document.getElementById(`pdv-vendor-${parentId}`).value.trim();
+  const hpp    = parseFloat(document.getElementById(`pdv-hpp-${parentId}`).value);
+  const qty    = parseFloat(document.getElementById(`pdv-qty-${parentId}`).value);
+  if (!size && !color && !other) { alert('Isi minimal salah satu: Size, Color, atau Other.'); return; }
+  if (isNaN(qty) || qty <= 0) { alert('QTY wajib (> 0).'); return; }
   const parent = allPDRows.find(r=>r.id===parentId);
-  const code = generateNextSubCode(parentId, variant);
+  const code = generateNextVariantCode(parent?.collectionId||'', size, color, other);
+  // Display "variant" stored as the "other" attribute (legacy combined field)
+  const variantDisplay = pdVariantTokenFor(size, color, other);
   try {
-    const id = genId('PDS');
+    const id = genId('PDV');
     const {error} = await sb.from('product_dev').insert({
       id, parent_id: parentId,
       collection_id: parent?.collectionId || null,
       display_code: code,
-      sku_type: null,
-      sku_name: name, variant,
+      sku_type: 'variant',
+      sku_name: parent?.skuName || null,  // inherit name from parent
+      size: size || null,
+      color: color || null,
+      variant: other || variantDisplay,   // store "other" or fallback display
       vendor: vendor||null,
-      hpp: isNaN(hpp)?null:hpp, qty: isNaN(qty)?null:qty,
+      hpp: isNaN(hpp)?null:hpp,
+      qty: isNaN(qty)?null:qty,
       picture_urls: [], added_by: currentUser, date_added: new Date().toISOString()
     });
     if (error) throw error;
@@ -14319,68 +14397,88 @@ async function submitPDSubItem(parentId) {
   } catch(e) { alert('Gagal: '+(e.message||e)); }
 }
 
-async function openPDParentEdit(id) {
+// Enter inline-edit mode for a parent product.
+function openPDParentEdit(id) {
+  pdEditingId = id;
+  renderPDDetailTable();
+}
+
+// Enter inline-edit mode for a variant. Also ensures the parent is expanded.
+function openPDSubEdit(id, parentId) {
+  pdEditingId = id;
+  renderPDDetailTable();
+  setTimeout(()=>{
+    const row = document.getElementById(`pd-sub-${parentId}`);
+    if (row && row.style.display === 'none') togglePDExpand(parentId);
+  }, 0);
+}
+
+function cancelPDEdit() {
+  const prevId = pdEditingId;
+  pdEditingId = '';
+  renderPDDetailTable();
+  // Keep the parent expanded if we cancelled an inline variant edit
+  if (prevId) {
+    const r = allPDRows.find(x=>x.id===prevId);
+    if (r && r.parentId) setTimeout(()=>togglePDExpand(r.parentId), 0);
+  }
+}
+
+async function savePDParentEdit(id) {
   const r = allPDRows.find(x=>x.id===id);
   if (!r) return;
-  const newName = prompt('SKU name:', r.skuName);                       if (newName===null) return;
-  const newVariant = prompt('Variant / Size:', r.variant||'OS');        if (newVariant===null) return;
-  const newSrp = prompt('SRP (Rp) — kosongkan jika belum ada:', r.srp||''); if (newSrp===null) return;
-  const isMulti = r.skuType === 'multi';
-  let newVendor = r.vendor, newHpp = r.hpp, newQty = r.qty;
-  if (!isMulti) {
-    const v = prompt('Vendor:', r.vendor||''); if (v===null) return; newVendor = v.trim()||null;
-    const h = prompt('HPP (Rp):', r.hpp||'');  if (h===null) return; newHpp = h===''?null:parseFloat(h);
-    const q = prompt('QTY:', r.qty||'');       if (q===null) return; newQty = q===''?null:parseFloat(q);
-  }
-  // Regenerate code if variant changed
-  const variant = (newVariant.trim() || r.variant || 'OS');
-  let displayCode = r.displayCode;
-  if (pdVariantToken(variant) !== pdVariantToken(r.variant||'')) {
-    // Build a new code keeping the same NN if possible, otherwise next available
-    displayCode = generateNextPDCode(r.collectionId, variant);
-  }
+  const name  = (document.getElementById(`pde-name-${id}`).value||'').trim();
+  const srpS  = document.getElementById(`pde-srp-${id}`).value;
+  const notes = (document.getElementById(`pde-notes-${id}`).value||'').trim();
+  if (!name) { alert('Nama produk wajib.'); return; }
   const upd = {
-    display_code: displayCode,
-    sku_name: newName.trim() || r.skuName,
-    variant,
-    srp: newSrp===''?null:parseFloat(newSrp),
-    vendor: newVendor || null,
-    hpp: newHpp, qty: newQty,
+    sku_name: name,
+    srp: srpS===''?null:parseFloat(srpS),
+    notes: notes || null,
     last_updated: new Date().toISOString(), last_updated_by: currentUser
   };
   const {error} = await sb.from('product_dev').update(upd).eq('id',id);
   if (error) { alert('Gagal: '+error.message); return; }
+  pdEditingId = '';
   await fetchPDRows();
   renderPDDetailTable();
 }
 
-async function openPDSubEdit(id, parentId) {
+async function savePDVariantEdit(id, parentId) {
   const r = allPDRows.find(x=>x.id===id);
   if (!r) return;
-  const newName    = prompt('Sub SKU name:', r.skuName);             if (newName===null) return;
-  const newVariant = prompt('Variant / Size:', r.variant||'OS');     if (newVariant===null) return;
-  const newVendor  = prompt('Vendor:', r.vendor||'');                if (newVendor===null) return;
-  const newHpp     = prompt('HPP (Rp):', r.hpp||'');                 if (newHpp===null) return;
-  const newQty     = prompt('QTY:', r.qty||'');                      if (newQty===null) return;
-  const variant = (newVariant.trim() || r.variant || 'OS');
+  const size   = document.getElementById(`pde-size-${id}`).value.trim();
+  const color  = document.getElementById(`pde-color-${id}`).value.trim();
+  const other  = document.getElementById(`pde-other-${id}`).value.trim();
+  const vendor = document.getElementById(`pde-vendor-${id}`).value.trim();
+  const hppS   = document.getElementById(`pde-hpp-${id}`).value;
+  const qtyS   = document.getElementById(`pde-qty-${id}`).value;
+  if (!size && !color && !other) { alert('Isi minimal salah satu: Size, Color, atau Other.'); return; }
+  if (qtyS === '' || Number(qtyS) <= 0) { alert('QTY wajib (> 0).'); return; }
+
+  // Regenerate code if size/color/other changed
+  const newTokenInputs = [size, color, other];
+  const oldTokenInputs = [r.size||'', r.color||'', (r.variant||'')];
+  const tokenChanged = newTokenInputs.join('|').toUpperCase() !== oldTokenInputs.join('|').toUpperCase();
   let displayCode = r.displayCode;
-  if (pdVariantToken(variant) !== pdVariantToken(r.variant||'')) {
-    displayCode = generateNextSubCode(parentId, variant);
+  if (tokenChanged) {
+    displayCode = generateNextVariantCode(r.collectionId, size, color, other);
   }
   const upd = {
     display_code: displayCode,
-    sku_name: newName.trim()||r.skuName,
-    variant,
-    vendor: newVendor.trim()||null,
-    hpp: newHpp===''?null:parseFloat(newHpp),
-    qty: newQty===''?null:parseFloat(newQty),
-    last_updated:new Date().toISOString(), last_updated_by: currentUser
+    size: size||null, color: color||null,
+    variant: other || pdVariantTokenFor(size, color, ''),
+    vendor: vendor||null,
+    hpp: hppS===''?null:parseFloat(hppS),
+    qty: qtyS===''?null:parseFloat(qtyS),
+    last_updated: new Date().toISOString(), last_updated_by: currentUser
   };
   const {error} = await sb.from('product_dev').update(upd).eq('id',id);
   if (error) { alert('Gagal: '+error.message); return; }
+  pdEditingId = '';
   await fetchPDRows();
   renderPDDetailTable();
-  setTimeout(()=>togglePDExpand(parentId),50);
+  setTimeout(()=>togglePDExpand(parentId), 0);
 }
 
 async function deletePD(id, isParent, parentId) {
@@ -14551,18 +14649,51 @@ function exportPDPDF(mode) {
   w.addEventListener('load', () => setTimeout(()=>w.print(), 400));
 }
 
-function exportPDVendorPrompt() {
-  // Build vendor list scoped to current collection
+// Toggle a small dropdown listing vendors in the current collection.
+// Click a vendor → export PDF for that vendor.
+function exportPDVendorPrompt(ev) {
   const cid = pdCurrentCollectionId;
-  const inThisCol = allPDRows.filter(r => r.collectionId === cid || allPDRows.some(p => p.id===r.parentId && p.collectionId===cid));
+  // Vendors used in this collection (across parent + variant rows)
+  const inThisCol = allPDRows.filter(r => {
+    if (r.collectionId === cid) return true;
+    if (r.parentId) {
+      const p = allPDRows.find(x => x.id === r.parentId);
+      return p && p.collectionId === cid;
+    }
+    return false;
+  });
   const vendorsHere = [...new Set(inThisCol.map(r => r.vendor).filter(Boolean))].sort();
-  if (!vendorsHere.length) { alert('Belum ada vendor di collection ini.'); return; }
-  const choice = prompt(
-    'Pilih vendor untuk export (case-insensitive).\n\nVendor di collection ini:\n• ' + vendorsHere.join('\n• '),
-    vendorsHere[0]
-  );
-  if (!choice) return;
-  const vendor = choice.trim();
+  if (!vendorsHere.length) { alert('Belum ada vendor di collection ini. Tambah vendor di salah satu variant dulu.'); return; }
+
+  // Toggle dropdown if already open
+  const existing = document.getElementById('pd-vendor-dropdown');
+  if (existing) { existing.remove(); return; }
+
+  const btn = (ev && ev.currentTarget) || document.querySelector('[onclick*="exportPDVendorPrompt"]');
+  const rect = btn ? btn.getBoundingClientRect() : {top:100,left:100,bottom:120,width:120};
+  const dropdown = document.createElement('div');
+  dropdown.id = 'pd-vendor-dropdown';
+  dropdown.style.cssText = `position:fixed;top:${rect.bottom+4}px;left:${rect.left}px;min-width:${Math.max(220,rect.width)}px;max-width:340px;max-height:60vh;overflow-y:auto;background:var(--white);border:1px solid var(--g100);border-radius:6px;box-shadow:0 6px 24px rgba(0,0,0,0.18);z-index:9999;padding:6px`;
+  dropdown.innerHTML = `
+    <div style="font-size:10px;color:var(--g400);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.5px;padding:4px 8px;border-bottom:1px solid var(--g100);margin-bottom:4px">Pilih vendor</div>
+    ${vendorsHere.map(v => `<button class="btn-ghost" style="display:block;width:100%;text-align:left;font-size:12px;padding:6px 10px;border-radius:4px;background:transparent" onclick="exportPDForVendor('${v.replace(/'/g,"\\'").replace(/"/g,'&quot;')}')">${v.replace(/</g,'&lt;')}</button>`).join('')}
+  `;
+  document.body.appendChild(dropdown);
+  // Close on outside click
+  setTimeout(()=>{
+    const handler = e => {
+      if (!dropdown.contains(e.target) && e.target !== btn) {
+        dropdown.remove();
+        document.removeEventListener('click', handler, true);
+      }
+    };
+    document.addEventListener('click', handler, true);
+  }, 0);
+}
+
+function exportPDForVendor(vendor) {
+  const dd = document.getElementById('pd-vendor-dropdown');
+  if (dd) dd.remove();
   const {parents, subsByParent} = getPDDetailFilteredParents();
   const html = buildPDCatalogHTML(`Product Dev — Vendor: ${vendor}`, parents, subsByParent, 'vendor', vendor);
   const w = window.open('', '_blank');
