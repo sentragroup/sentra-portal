@@ -13604,29 +13604,87 @@ let pdAllVendors = [];
 let pdAllCollections = [];
 let pdCollItemsByCol = {};
 let pdSearchQuery = '';
-let pdFilters = {collection:'',vendor:'',type:''};
+let pdFilters = {vendor:'',type:''};
 let pdPicsToUpload = [];
 let _pdSearchTimer = null;
+let pdCurrentCollectionId = '';
 const PD_BUCKET = 'product-dev-pictures';
 const PD_MAX_PICS = 2;
-
-function switchPDTab(tab, el) {
-  document.querySelectorAll('#page-productdev .tab-btn').forEach(b=>b.classList.remove('active'));
-  if (el) el.classList.add('active');
-  document.getElementById('pdtab-new').style.display  = tab==='new'  ? '' : 'none';
-  document.getElementById('pdtab-list').style.display = tab==='list' ? '' : 'none';
-  if (tab==='list') loadProductDev();
-}
 
 function mapPD(r) {
   return {
     id: r.id, parentId: r.parent_id, collectionId: r.collection_id,
     collectionItemId: r.collection_item_id, skuName: r.sku_name||'',
+    displayCode: r.display_code||'', skuType: r.sku_type||null,
     vendor: r.vendor||'', hpp: r.hpp, qty: r.qty, srp: r.srp,
     pictures: r.picture_urls||[], notes: r.notes||'',
     dateAdded: r.date_added, addedBy: r.added_by,
     lastUpdated: r.last_updated, lastUpdatedBy: r.last_updated_by
   };
+}
+
+function pdCollName(id) {
+  return (pdAllCollections.find(c=>c.id===id)?.collection_name) || '—';
+}
+
+function pdCollectionPrefix(collection_name) {
+  if (!collection_name) return 'COL';
+  // Take first 3-4 alphanumeric chars from each word, uppercase
+  const words = collection_name.split(/\s+/).filter(Boolean);
+  let pfx;
+  if (words.length >= 2) {
+    pfx = words.slice(0, 3).map(w => (w[0]||'').toUpperCase()).join('');
+  } else {
+    pfx = collection_name.replace(/[^a-zA-Z0-9]/g,'').slice(0,4).toUpperCase();
+  }
+  return pfx || 'COL';
+}
+
+function generateNextPDCode(collection_id) {
+  const collName = pdCollName(collection_id);
+  const prefix = pdCollectionPrefix(collName);
+  const existing = allPDRows.filter(r => r.collectionId === collection_id && !r.parentId);
+  // Find next available NN
+  const taken = new Set(existing.map(r => r.displayCode).filter(c => c && c.startsWith(prefix+'-')));
+  for (let i = 1; i <= 999; i++) {
+    const code = `${prefix}-${String(i).padStart(2,'0')}`;
+    if (!taken.has(code)) return code;
+  }
+  return `${prefix}-${Date.now()%1000}`;
+}
+
+function generateNextSubCode(parent_code, parent_id) {
+  const subs = allPDRows.filter(r => r.parentId === parent_id);
+  const taken = new Set(subs.map(r => r.displayCode).filter(c => c && c.startsWith(parent_code+'.')));
+  // Use letters A, B, C... then AA, AB if exhausted
+  const letter = i => {
+    let s = '';
+    do { s = String.fromCharCode(65 + (i % 26)) + s; i = Math.floor(i/26) - 1; } while (i >= 0);
+    return s;
+  };
+  for (let i = 0; i < 700; i++) {
+    const code = `${parent_code}.${letter(i)}`;
+    if (!taken.has(code)) return code;
+  }
+  return `${parent_code}.X${Date.now()%100}`;
+}
+
+function pdFmtIDR(n) {
+  if (n===null||n===undefined||n==='') return '—';
+  return new Intl.NumberFormat('id-ID').format(Number(n));
+}
+
+function pdComputeRatio(parent, subs) {
+  const srp = Number(parent.srp||0);
+  if (!srp) return null;
+  let totalCost = 0;
+  if (subs && subs.length) {
+    totalCost = subs.reduce((s,sb)=>s + (Number(sb.hpp||0) * Number(sb.qty||1)), 0);
+  } else {
+    totalCost = Number(parent.hpp||0) * Number(parent.qty||1);
+  }
+  if (!totalCost) return null;
+  return srp / totalCost;
 }
 
 function pdFmtIDR(n) {
@@ -13648,7 +13706,6 @@ function pdComputeRatio(parent, subs) {
 }
 
 async function loadPDVendorList() {
-  // Distinct supplier_name from jubelio_purchase_orders + any custom vendors in product_dev
   try {
     const [{data:poData},{data:pdData}] = await Promise.all([
       sb.from('jubelio_purchase_orders').select('supplier_name').not('supplier_name','is',null).limit(5000),
@@ -13662,7 +13719,6 @@ async function loadPDVendorList() {
 }
 
 async function loadPDCollections() {
-  if (pdAllCollections.length) return;
   const {data} = await sb.from('collections').select('id,collection_name').order('collection_name');
   pdAllCollections = data || [];
 }
@@ -13675,19 +13731,133 @@ async function loadPDCollectionItems(collectionId) {
   return pdCollItemsByCol[collectionId];
 }
 
-function populatePDFormDropdowns() {
-  // Collection dropdown (form + filter)
-  const formSel = document.getElementById('pd-collection');
-  const filSel  = document.getElementById('pd-fil-collection');
-  [formSel, filSel].forEach(sel => {
-    if (!sel) return;
-    const cur = sel.value;
-    const placeholder = sel.id==='pd-collection' ? 'Pilih collection...' : 'Semua Collection';
-    sel.innerHTML = `<option value="">${placeholder}</option>` +
-      pdAllCollections.map(c => `<option value="${c.id}">${(c.collection_name||c.id).replace(/</g,'&lt;')}</option>`).join('');
-    if (cur) sel.value = cur;
+// ── Routing entry point ────────────────────────────────────────────
+async function loadProductDev() {
+  // Always pull latest data so stats stay in sync across views
+  await Promise.all([loadPDCollections(), loadPDVendorList(), fetchPDRows()]);
+
+  // Route based on hash: #productdev → grid, #productdev/{id} → detail
+  const hash = location.hash.slice(1);
+  const m = hash.match(/^productdev\/(.+)$/);
+  if (m) {
+    pdCurrentCollectionId = decodeURIComponent(m[1]);
+    showPDDetailView();
+  } else {
+    pdCurrentCollectionId = '';
+    showPDGridView();
+  }
+}
+
+async function fetchPDRows() {
+  try {
+    const {data, error} = await sb.from('product_dev').select('*').order('display_code',{ascending:true}).limit(5000);
+    if (error) throw error;
+    allPDRows = (data||[]).map(mapPD);
+  } catch(e) { console.error('fetchPDRows:',e); allPDRows=[]; }
+}
+
+function showPDGridView() {
+  document.getElementById('pd-view-grid').style.display = '';
+  document.getElementById('pd-view-detail').style.display = 'none';
+  renderPDGrid();
+}
+
+function showPDDetailView() {
+  document.getElementById('pd-view-grid').style.display = 'none';
+  document.getElementById('pd-view-detail').style.display = '';
+  renderPDDetail();
+}
+
+function openPDGrid() {
+  pdCurrentCollectionId = '';
+  history.replaceState(null,'','#productdev');
+  showPDGridView();
+}
+
+function openPDDetail(collection_id) {
+  pdCurrentCollectionId = collection_id;
+  history.replaceState(null,'',`#productdev/${encodeURIComponent(collection_id)}`);
+  showPDDetailView();
+}
+
+// ── GRID VIEW ──────────────────────────────────────────────────────
+function renderPDGrid() {
+  const search = (document.getElementById('pd-grid-search')?.value || '').trim().toLowerCase();
+  const allParents = allPDRows.filter(r=>!r.parentId);
+  const subsByParent = {};
+  allPDRows.filter(r=>r.parentId).forEach(s => {
+    (subsByParent[s.parentId] = subsByParent[s.parentId] || []).push(s);
   });
-  // Vendor filter dropdown
+
+  // Stats
+  document.getElementById('pd-g-collections').textContent = pdAllCollections.length;
+  document.getElementById('pd-g-total').textContent = allParents.length;
+  document.getElementById('pd-g-solo').textContent  = allParents.filter(p=>p.skuType==='solo' || (!p.skuType && !(subsByParent[p.id]||[]).length)).length;
+  document.getElementById('pd-g-multi').textContent = allParents.filter(p=>p.skuType==='multi' || (!p.skuType && (subsByParent[p.id]||[]).length)).length;
+
+  const grid = document.getElementById('pd-grid');
+  if (!grid) return;
+
+  // Filter collections by search
+  const cols = pdAllCollections.filter(c => !search || (c.collection_name||'').toLowerCase().includes(search));
+  document.getElementById('pd-grid-tcount').textContent = `${cols.length} collection`;
+
+  if (!cols.length) {
+    grid.innerHTML = `<div class="empty-td" style="grid-column:1/-1">${pdAllCollections.length ? 'Tidak ada collection cocok.' : 'Belum ada collection. Buat collection dulu di Collection Development.'}</div>`;
+    return;
+  }
+
+  grid.innerHTML = cols.map(c => {
+    const skus = allParents.filter(p => p.collectionId === c.id);
+    const totalSRP = skus.reduce((s,p) => s + Number(p.srp||0), 0);
+    const ratios = skus.map(p => pdComputeRatio(p, subsByParent[p.id]||[])).filter(r => r);
+    const avgRatio = ratios.length ? (ratios.reduce((a,b)=>a+b,0)/ratios.length) : null;
+    const name = (c.collection_name||c.id).replace(/</g,'&lt;');
+    return `<div class="tool-card" onclick="openPDDetail('${c.id}')" style="cursor:pointer">
+      <span class="tc-icon">🧪</span>
+      <div class="tc-name">${name}</div>
+      <div class="tc-desc" style="margin-top:6px">
+        <div style="display:flex;gap:12px;font-size:11px;color:var(--g600);font-family:var(--mono)">
+          <span><b style="color:var(--black)">${skus.length}</b> SKU</span>
+          <span><b style="color:var(--black)">Rp ${pdFmtIDR(totalSRP)}</b> SRP</span>
+          ${avgRatio ? `<span>Ratio <b style="color:var(--black)">${avgRatio.toFixed(2)}×</b></span>` : ''}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── DETAIL VIEW ────────────────────────────────────────────────────
+function renderPDDetail() {
+  const cid = pdCurrentCollectionId;
+  const coll = pdAllCollections.find(c=>c.id===cid);
+  if (!coll) {
+    document.getElementById('pd-d-title').textContent = 'Collection tidak ditemukan';
+    document.getElementById('pd-d-sub').textContent = '';
+    document.getElementById('pdTableBody').innerHTML = `<tr><td class="empty-td" colspan="10">Collection ID tidak valid. <a href="#productdev" onclick="openPDGrid();return false">Kembali</a></td></tr>`;
+    return;
+  }
+  document.getElementById('pd-d-title').textContent = coll.collection_name || cid;
+  document.getElementById('pd-d-sub').textContent = `Product Development · prefix: ${pdCollectionPrefix(coll.collection_name)}`;
+
+  // Populate form helpers tied to this collection
+  populatePDDetailForm();
+  setupPDPicInput();
+  onPDTypeChange(); // ensure solo fields visible
+  // Pre-suggest display_code
+  const codeInp = document.getElementById('pd-display-code');
+  if (codeInp && !codeInp.value) codeInp.value = generateNextPDCode(cid);
+  // Populate SKU name autocomplete
+  loadPDCollectionItems(cid).then(items => {
+    const dl = document.getElementById('pd-sku-datalist');
+    if (dl) dl.innerHTML = items.map(it => `<option value="${(it.sku_name||'').replace(/"/g,'&quot;')}" data-id="${it.id}">`).join('');
+  });
+
+  renderPDDetailTable();
+}
+
+function populatePDDetailForm() {
+  // Vendor filter dropdown + datalist
   const vSel = document.getElementById('pd-fil-vendor');
   if (vSel) {
     const cur = vSel.value;
@@ -13695,43 +13865,22 @@ function populatePDFormDropdowns() {
       pdAllVendors.map(v => `<option value="${v.replace(/"/g,'&quot;')}">${v.replace(/</g,'&lt;')}</option>`).join('');
     if (cur) vSel.value = cur;
   }
-  // Vendor datalist (form)
   const vDl = document.getElementById('pd-vendor-datalist');
   if (vDl) vDl.innerHTML = pdAllVendors.map(v=>`<option value="${v.replace(/"/g,'&quot;')}">`).join('');
 }
 
-async function onPDCollectionChange() {
-  const cid = document.getElementById('pd-collection').value;
-  const dl  = document.getElementById('pd-sku-datalist');
-  if (!cid) { dl.innerHTML=''; return; }
-  const items = await loadPDCollectionItems(cid);
-  dl.innerHTML = items.map(it => `<option value="${(it.sku_name||'').replace(/"/g,'&quot;')}" data-id="${it.id}">`).join('');
+function onPDTypeChange() {
+  const t = (document.querySelector('input[name="pd-type"]:checked')||{}).value;
+  const soloBlock = document.getElementById('pd-solo-fields');
+  if (soloBlock) soloBlock.style.display = t === 'multi' ? 'none' : '';
 }
 
-function onPDSearch(val) {
-  clearTimeout(_pdSearchTimer);
-  _pdSearchTimer = setTimeout(()=>{ pdSearchQuery = val.trim(); loadProductDev(); }, 300);
-}
-
-function clearPDFilters() {
-  pdFilters = {collection:'',vendor:'',type:''};
-  pdSearchQuery = '';
-  ['pd-fil-collection','pd-fil-vendor','pd-fil-type','pd-search'].forEach(id=>{
-    const el = document.getElementById(id); if (el) el.value='';
-  });
-  loadProductDev();
-}
-
-function clearPDForm() {
-  ['pd-sku-name','pd-srp','pd-notes','pd-vendor','pd-hpp','pd-qty'].forEach(id=>{
-    const el = document.getElementById(id); if (el) el.value='';
-  });
-  document.getElementById('pd-collection').value = '';
-  document.getElementById('pd-sku-datalist').innerHTML = '';
-  document.getElementById('pd-pics').value = '';
-  document.getElementById('pd-pics-preview').innerHTML = '';
-  pdPicsToUpload = [];
-  document.getElementById('pd-feedback').textContent = '';
+function togglePDAddForm() {
+  const body = document.getElementById('pd-add-body');
+  const caret = document.getElementById('pd-add-caret');
+  if (!body) return;
+  if (body.style.display === 'none') { body.style.display = ''; caret.textContent = '▼'; }
+  else { body.style.display = 'none'; caret.textContent = '▶'; }
 }
 
 function setupPDPicInput() {
@@ -13740,13 +13889,63 @@ function setupPDPicInput() {
   inp._pdWired = true;
   inp.addEventListener('change', e => {
     const files = [...e.target.files];
-    if (files.length > PD_MAX_PICS) {
-      alert(`Maks ${PD_MAX_PICS} foto. Hanya ${PD_MAX_PICS} pertama dipakai.`);
-    }
+    if (files.length > PD_MAX_PICS) alert(`Maks ${PD_MAX_PICS} foto. Hanya ${PD_MAX_PICS} pertama dipakai.`);
     pdPicsToUpload = files.slice(0, PD_MAX_PICS);
     const prev = document.getElementById('pd-pics-preview');
     prev.innerHTML = pdPicsToUpload.map(f=>`<span style="font-size:11px;padding:3px 8px;background:var(--off);border-radius:4px">📎 ${f.name}</span>`).join('');
   });
+}
+
+function onPDSearch(val) {
+  clearTimeout(_pdSearchTimer);
+  _pdSearchTimer = setTimeout(()=>{ pdSearchQuery = val.trim(); renderPDDetailTable(); }, 250);
+}
+
+function clearPDFilters() {
+  pdFilters = {vendor:'',type:''};
+  pdSearchQuery = '';
+  ['pd-fil-vendor','pd-fil-type','pd-search'].forEach(id=>{
+    const el = document.getElementById(id); if (el) el.value='';
+  });
+  renderPDDetailTable();
+}
+
+function clearPDForm() {
+  ['pd-sku-name','pd-display-code','pd-srp','pd-notes','pd-vendor','pd-hpp','pd-qty'].forEach(id=>{
+    const el = document.getElementById(id); if (el) el.value='';
+  });
+  document.querySelector('input[name="pd-type"][value="solo"]').checked = true;
+  onPDTypeChange();
+  const pics = document.getElementById('pd-pics');
+  if (pics) pics.value = '';
+  const prev = document.getElementById('pd-pics-preview');
+  if (prev) prev.innerHTML = '';
+  pdPicsToUpload = [];
+  const fb = document.getElementById('pd-feedback');
+  if (fb) fb.textContent = '';
+  // Re-suggest next code
+  const codeInp = document.getElementById('pd-display-code');
+  if (codeInp && pdCurrentCollectionId) codeInp.value = generateNextPDCode(pdCurrentCollectionId);
+}
+
+// ── Picture handling: bulletproof file-picker ──────────────────────
+function pickPicForRecord(recordId) {
+  const row = allPDRows.find(r=>r.id===recordId);
+  if (!row) return;
+  if ((row.pictures||[]).length >= PD_MAX_PICS) {
+    alert(`Maks ${PD_MAX_PICS} foto per SKU. Hapus salah satu dulu.`); return;
+  }
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = 'image/*';
+  inp.style.display = 'none';
+  inp.onchange = e => {
+    const f = e.target.files[0];
+    if (f) addPDPicture(recordId, f);
+    document.body.removeChild(inp);
+  };
+  document.body.appendChild(inp);
+  inp.click();
 }
 
 async function uploadPDPicture(file, sku_id) {
@@ -13758,32 +13957,10 @@ async function uploadPDPicture(file, sku_id) {
   return publicUrl;
 }
 
-async function removePDPicture(id, url) {
-  // Strip the base URL to get the storage path
-  const marker = `/${PD_BUCKET}/`;
-  const idx = url.indexOf(marker);
-  if (idx >= 0) {
-    const path = url.slice(idx + marker.length);
-    await sb.storage.from(PD_BUCKET).remove([path]);
-  }
-  // Update DB
-  const row = allPDRows.find(r=>r.id===id);
-  if (!row) return;
-  const newPics = (row.pictures||[]).filter(u=>u!==url);
-  const {error} = await sb.from('product_dev').update({
-    picture_urls:newPics, last_updated:new Date().toISOString(), last_updated_by:currentUser
-  }).eq('id',id);
-  if (error) { alert('Gagal hapus: '+error.message); return; }
-  row.pictures = newPics;
-  renderPDTable();
-}
-
 async function addPDPicture(id, file) {
   const row = allPDRows.find(r=>r.id===id);
   if (!row) return;
-  if ((row.pictures||[]).length >= PD_MAX_PICS) {
-    alert(`Maks ${PD_MAX_PICS} foto per SKU.`); return;
-  }
+  if ((row.pictures||[]).length >= PD_MAX_PICS) { alert(`Maks ${PD_MAX_PICS} foto.`); return; }
   try {
     const url = await uploadPDPicture(file, id);
     const newPics = [...(row.pictures||[]), url];
@@ -13792,26 +13969,55 @@ async function addPDPicture(id, file) {
     }).eq('id',id);
     if (error) throw error;
     row.pictures = newPics;
-    renderPDTable();
+    renderPDDetailTable();
   } catch(e) { alert('Upload gagal: '+(e.message||e)); }
 }
 
+async function removePDPicture(id, url) {
+  if (!confirm('Hapus foto ini?')) return;
+  const marker = `/${PD_BUCKET}/`;
+  const idx = url.indexOf(marker);
+  if (idx >= 0) {
+    const path = url.slice(idx + marker.length);
+    await sb.storage.from(PD_BUCKET).remove([path]);
+  }
+  const row = allPDRows.find(r=>r.id===id);
+  if (!row) return;
+  const newPics = (row.pictures||[]).filter(u=>u!==url);
+  const {error} = await sb.from('product_dev').update({
+    picture_urls:newPics, last_updated:new Date().toISOString(), last_updated_by:currentUser
+  }).eq('id',id);
+  if (error) { alert('Gagal hapus: '+error.message); return; }
+  row.pictures = newPics;
+  renderPDDetailTable();
+}
+
+// ── Submit parent SKU ──────────────────────────────────────────────
 async function submitPD() {
   const fb = document.getElementById('pd-feedback');
   const btn = document.getElementById('pdSubmitBtn');
-  const cid = document.getElementById('pd-collection').value;
+  const cid = pdCurrentCollectionId;
+  if (!cid) { fb.textContent='⚠️ Buka detail collection dulu.'; return; }
+  const skuType = (document.querySelector('input[name="pd-type"]:checked')||{}).value;
   const skuName = document.getElementById('pd-sku-name').value.trim();
+  const displayCode = document.getElementById('pd-display-code').value.trim() || generateNextPDCode(cid);
   const srp = parseFloat(document.getElementById('pd-srp').value);
   const notes = document.getElementById('pd-notes').value.trim();
   const vendor = document.getElementById('pd-vendor').value.trim();
   const hpp = parseFloat(document.getElementById('pd-hpp').value);
   const qty = parseFloat(document.getElementById('pd-qty').value);
 
-  if (!cid) { fb.textContent='⚠️ Pilih collection.'; return; }
+  if (!skuType) { fb.textContent='⚠️ Pilih tipe (Solo atau Multi).'; return; }
   if (!skuName) { fb.textContent='⚠️ SKU name wajib.'; return; }
   if (isNaN(srp) || srp<=0) { fb.textContent='⚠️ SRP wajib dan harus > 0.'; return; }
 
-  // Try to resolve collection_item_id from chosen SKU name (if it matches one of the dropdown items)
+  // Check duplicate display_code in this collection
+  if (allPDRows.some(r => r.collectionId===cid && r.displayCode===displayCode)) {
+    fb.textContent = `⚠️ Code "${displayCode}" sudah dipakai di collection ini.`;
+    return;
+  }
+
+  // Resolve collection_item_id from chosen SKU name (if match)
   let collItemId = null;
   const items = await loadPDCollectionItems(cid);
   const match = items.find(it => (it.sku_name||'').trim().toLowerCase() === skuName.toLowerCase());
@@ -13822,10 +14028,11 @@ async function submitPD() {
     const id = genId('PD');
     const payload = {
       id, parent_id: null, collection_id: cid, collection_item_id: collItemId,
+      display_code: displayCode, sku_type: skuType,
       sku_name: skuName, srp,
-      vendor: vendor || null,
-      hpp: isNaN(hpp) ? null : hpp,
-      qty: isNaN(qty) ? null : qty,
+      vendor: skuType==='multi' ? null : (vendor || null),
+      hpp: skuType==='multi' ? null : (isNaN(hpp) ? null : hpp),
+      qty: skuType==='multi' ? null : (isNaN(qty) ? null : qty),
       notes: notes || null,
       picture_urls: [],
       added_by: currentUser, date_added: new Date().toISOString()
@@ -13833,7 +14040,6 @@ async function submitPD() {
     const {error} = await sb.from('product_dev').insert(payload);
     if (error) throw error;
 
-    // Upload pictures
     if (pdPicsToUpload.length) {
       fb.textContent = 'Mengunggah foto...';
       const urls = [];
@@ -13844,8 +14050,10 @@ async function submitPD() {
       await sb.from('product_dev').update({picture_urls: urls}).eq('id', id);
     }
 
-    fb.textContent = '✅ SKU Parent tersimpan.';
+    fb.textContent = '✅ SKU tersimpan.';
+    await fetchPDRows();
     clearPDForm();
+    renderPDDetailTable();
     setTimeout(()=>{ fb.textContent=''; }, 3000);
   } catch(e) {
     fb.textContent = '❌ Gagal: ' + (e.message||e);
@@ -13854,104 +14062,90 @@ async function submitPD() {
   }
 }
 
-async function loadProductDev() {
-  await Promise.all([loadPDCollections(), loadPDVendorList()]);
-  populatePDFormDropdowns();
-  setupPDPicInput();
-
-  // Pull filters
-  pdFilters.collection = document.getElementById('pd-fil-collection')?.value || '';
-  pdFilters.vendor     = document.getElementById('pd-fil-vendor')?.value || '';
-  pdFilters.type       = document.getElementById('pd-fil-type')?.value || '';
-  pdSearchQuery        = document.getElementById('pd-search')?.value.trim() || '';
-
-  const tbody = document.getElementById('pdTableBody');
-  if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="11">Memuat...</td></tr>`;
-
-  try {
-    // Fetch ALL product_dev rows (parents + subs) up to 5000
-    let q = sb.from('product_dev').select('*').order('date_added',{ascending:false}).limit(5000);
-    const {data, error} = await q;
-    if (error) throw error;
-    allPDRows = (data||[]).map(mapPD);
-
-    renderPDTable();
-  } catch(e) {
-    if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="11">Gagal: ${e.message||e}</td></tr>`;
-  }
-}
-
-function getPDFilteredParents() {
-  const parents = allPDRows.filter(r => !r.parentId);
+// ── Detail table render ────────────────────────────────────────────
+function getPDDetailFilteredParents() {
+  const cid = pdCurrentCollectionId;
+  const parents = allPDRows.filter(r => !r.parentId && r.collectionId === cid);
   const subsByParent = {};
   allPDRows.filter(r=>r.parentId).forEach(s => {
-    if (!subsByParent[s.parentId]) subsByParent[s.parentId] = [];
-    subsByParent[s.parentId].push(s);
+    (subsByParent[s.parentId] = subsByParent[s.parentId] || []).push(s);
   });
 
   const search = pdSearchQuery.toLowerCase();
   const filtered = parents.filter(p => {
-    if (pdFilters.collection && p.collectionId !== pdFilters.collection) return false;
     const subs = subsByParent[p.id] || [];
-    if (pdFilters.type === 'solo'   && subs.length > 0) return false;
-    if (pdFilters.type === 'bundle' && subs.length === 0) return false;
+    const isMulti = p.skuType === 'multi' || subs.length > 0;
+    if (pdFilters.type === 'solo'  && isMulti) return false;
+    if (pdFilters.type === 'multi' && !isMulti) return false;
     if (pdFilters.vendor) {
       const allVendors = [p.vendor, ...subs.map(s=>s.vendor)].filter(Boolean);
       if (!allVendors.includes(pdFilters.vendor)) return false;
     }
-    if (search && !p.skuName.toLowerCase().includes(search)) return false;
+    if (search) {
+      const hay = `${p.skuName} ${p.displayCode}`.toLowerCase();
+      if (!hay.includes(search)) return false;
+    }
     return true;
   });
 
   return {parents: filtered, subsByParent};
 }
 
-function renderPDTable() {
+function renderPDDetailTable() {
+  const cid = pdCurrentCollectionId;
+  if (!cid) return;
+  // Read filters from DOM (in case user changed them)
+  pdFilters.vendor = document.getElementById('pd-fil-vendor')?.value || '';
+  pdFilters.type   = document.getElementById('pd-fil-type')?.value || '';
+  pdSearchQuery    = document.getElementById('pd-search')?.value.trim() || '';
+
   const tbody = document.getElementById('pdTableBody');
   if (!tbody) return;
-  const {parents, subsByParent} = getPDFilteredParents();
+  const {parents, subsByParent} = getPDDetailFilteredParents();
 
-  // Stats
-  const allParents = allPDRows.filter(r=>!r.parentId);
-  const allSubs    = allPDRows.filter(r=>r.parentId);
-  const bundleParentIds = new Set(allSubs.map(s=>s.parentId));
-  const soloCount   = allParents.filter(p=>!bundleParentIds.has(p.id)).length;
-  const bundleCount = allParents.filter(p=> bundleParentIds.has(p.id)).length;
-  const vendorSet = new Set();
-  allPDRows.forEach(r => { if (r.vendor) vendorSet.add(r.vendor); });
+  // Stats (for this collection)
+  const allInCol = allPDRows.filter(r => !r.parentId && r.collectionId === cid);
+  const subsInCol = {};
+  allInCol.forEach(p => { subsInCol[p.id] = (allPDRows.filter(r => r.parentId === p.id)); });
+  const soloCount  = allInCol.filter(p => (p.skuType==='solo') || (!p.skuType && !(subsInCol[p.id]||[]).length)).length;
+  const multiCount = allInCol.filter(p => (p.skuType==='multi') || (!p.skuType && (subsInCol[p.id]||[]).length)).length;
+  const totalSRP = allInCol.reduce((s,p) => s + Number(p.srp||0), 0);
+  const ratios = allInCol.map(p => pdComputeRatio(p, subsInCol[p.id]||[])).filter(r=>r);
+  const avgRatio = ratios.length ? (ratios.reduce((a,b)=>a+b,0)/ratios.length) : null;
 
-  document.getElementById('pd-s-total').textContent  = allParents.length;
-  document.getElementById('pd-s-solo').textContent   = soloCount;
-  document.getElementById('pd-s-bundle').textContent = bundleCount;
-  document.getElementById('pd-s-vendor').textContent = vendorSet.size;
-  document.getElementById('pd-tcount').textContent   = `${parents.length} SKU parent`;
+  document.getElementById('pd-d-total').textContent = allInCol.length;
+  document.getElementById('pd-d-solo').textContent  = soloCount;
+  document.getElementById('pd-d-multi').textContent = multiCount;
+  document.getElementById('pd-d-srp').textContent   = totalSRP ? 'Rp '+pdFmtIDR(totalSRP) : '—';
+  document.getElementById('pd-d-ratio').textContent = avgRatio ? avgRatio.toFixed(2)+'×' : '—';
+  document.getElementById('pd-tcount').textContent  = `${parents.length} SKU`;
 
   if (!parents.length) {
-    tbody.innerHTML = `<tr><td class="empty-td" colspan="11">Tidak ada data. Tambah SKU Parent dulu di tab "Tambah".</td></tr>`;
+    tbody.innerHTML = `<tr><td class="empty-td" colspan="10">${allInCol.length ? 'Tidak ada SKU cocok filter.' : 'Belum ada SKU. Tambah pakai form di atas.'}</td></tr>`;
     return;
   }
 
-  const collName = id => (pdAllCollections.find(c=>c.id===id)?.collection_name) || '—';
   const rows = [];
-
   parents.forEach(p => {
     const subs = subsByParent[p.id] || [];
-    const isBundle = subs.length > 0;
+    const isMulti = p.skuType === 'multi' || subs.length > 0;
     const ratio = pdComputeRatio(p, subs);
-    const totalHpp = isBundle ? subs.reduce((s,sb)=>s+(Number(sb.hpp||0)*Number(sb.qty||1)),0) : Number(p.hpp||0);
-    const totalQty = isBundle ? subs.reduce((s,sb)=>s+Number(sb.qty||0),0) : Number(p.qty||0);
+    const totalHpp = isMulti ? subs.reduce((s,sb)=>s+(Number(sb.hpp||0)*Number(sb.qty||1)),0) : Number(p.hpp||0);
+    const totalQty = isMulti ? subs.reduce((s,sb)=>s+Number(sb.qty||0),0) : Number(p.qty||0);
+    const code = p.displayCode || p.id;
+    const typePill = isMulti
+      ? `<span style="font-size:9px;padding:1px 5px;background:var(--white);border-radius:3px;margin-left:6px;color:var(--g600);border:1px solid var(--g100)">${subs.length} item</span>`
+      : `<span style="font-size:9px;padding:1px 5px;background:var(--white);border-radius:3px;margin-left:6px;color:var(--g400);border:1px solid var(--g100)">solo</span>`;
 
     rows.push(`<tr data-pd-parent="${p.id}" style="border-top:1px solid var(--g100);background:var(--off)">
       <td style="padding:8px 6px;text-align:center;cursor:pointer" onclick="togglePDExpand('${p.id}')">
-        <span id="pd-caret-${p.id}" style="font-size:10px">▶</span>
+        <span id="pd-caret-${p.id}" style="font-size:10px">${isMulti?'▶':' '}</span>
       </td>
-      <td style="padding:8px 6px;font-size:11px;color:var(--g400);font-family:var(--mono)">${p.id}</td>
+      <td style="padding:8px 6px;font-size:11px;font-family:var(--mono);font-weight:600">${code}</td>
       <td style="padding:8px 10px;font-size:12px;font-weight:600">
-        ${p.skuName.replace(/</g,'&lt;')}
-        ${isBundle?`<span style="font-size:10px;padding:1px 6px;background:var(--white);border-radius:3px;margin-left:6px;color:var(--g600)">${subs.length} sub</span>`:`<span style="font-size:10px;padding:1px 6px;background:var(--white);border-radius:3px;margin-left:6px;color:var(--g400)">solo</span>`}
+        ${p.skuName.replace(/</g,'&lt;')} ${typePill}
       </td>
-      <td style="padding:8px 6px;font-size:11px">${collName(p.collectionId).replace(/</g,'&lt;')}</td>
-      <td style="padding:8px 6px;font-size:11px">${isBundle?'<span style="color:var(--g400);font-style:italic">multi-vendor</span>':(p.vendor||'—').replace(/</g,'&lt;')}</td>
+      <td style="padding:8px 6px;font-size:11px">${isMulti?'<span style="color:var(--g400);font-style:italic">multi</span>':(p.vendor||'—').replace(/</g,'&lt;')}</td>
       <td style="padding:8px 6px;font-size:11px;text-align:right;font-family:var(--mono)">${pdFmtIDR(totalHpp)}</td>
       <td style="padding:8px 6px;font-size:11px;text-align:right;font-family:var(--mono)">${totalQty||'—'}</td>
       <td style="padding:8px 6px;font-size:11px;text-align:right;font-family:var(--mono);font-weight:600">${pdFmtIDR(p.srp)}</td>
@@ -13963,44 +14157,47 @@ function renderPDTable() {
       </td>
     </tr>`);
 
-    // Expanded sub-items row (hidden by default)
-    rows.push(`<tr id="pd-sub-${p.id}" style="display:none">
-      <td colspan="11" style="padding:0 0 8px;background:var(--white)">
-        <div style="padding:8px 12px;border-left:3px solid var(--g100);margin-left:30px">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-            <span style="font-size:11px;color:var(--g400);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.5px">Sub-items (${subs.length})</span>
-            <button class="btn-ghost" style="font-size:10px;padding:3px 8px" onclick="openPDSubForm('${p.id}')">+ Sub-item</button>
+    if (isMulti) {
+      rows.push(`<tr id="pd-sub-${p.id}" style="display:none">
+        <td colspan="10" style="padding:0 0 8px;background:var(--white)">
+          <div style="padding:8px 12px;border-left:3px solid var(--g100);margin-left:30px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <span style="font-size:11px;color:var(--g400);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.5px">Sub-items (${subs.length})</span>
+              <button class="btn-ghost" style="font-size:10px;padding:3px 8px" onclick="openPDSubForm('${p.id}')">+ Sub-item</button>
+            </div>
+            <div id="pd-sub-form-${p.id}"></div>
+            ${subs.length ? `<table style="width:100%;border-collapse:collapse;font-size:11px">
+              <thead><tr style="border-bottom:1px solid var(--g100);color:var(--g400)">
+                <th style="text-align:left;padding:4px 6px;width:90px">Code</th>
+                <th style="text-align:left;padding:4px 6px">Sub SKU</th>
+                <th style="text-align:left;padding:4px 6px">Vendor</th>
+                <th style="text-align:right;padding:4px 6px">HPP</th>
+                <th style="text-align:right;padding:4px 6px">QTY</th>
+                <th style="text-align:right;padding:4px 6px">Subtotal</th>
+                <th style="text-align:center;padding:4px 6px;width:70px">Pics</th>
+                <th style="width:60px"></th>
+              </tr></thead>
+              <tbody>${subs.map(s => {
+                const subtotal = Number(s.hpp||0) * Number(s.qty||1);
+                return `<tr style="border-bottom:1px solid var(--g100)">
+                  <td style="padding:4px 6px;font-family:var(--mono);font-weight:600">${s.displayCode||'—'}</td>
+                  <td style="padding:4px 6px">${s.skuName.replace(/</g,'&lt;')}</td>
+                  <td style="padding:4px 6px">${(s.vendor||'—').replace(/</g,'&lt;')}</td>
+                  <td style="padding:4px 6px;text-align:right;font-family:var(--mono)">${pdFmtIDR(s.hpp)}</td>
+                  <td style="padding:4px 6px;text-align:right;font-family:var(--mono)">${s.qty||'—'}</td>
+                  <td style="padding:4px 6px;text-align:right;font-family:var(--mono)">${subtotal?pdFmtIDR(subtotal):'—'}</td>
+                  <td style="padding:4px 6px;text-align:center">${renderPDPicsCell(s)}</td>
+                  <td style="padding:4px 6px;text-align:center;white-space:nowrap">
+                    <button class="btn-ghost" style="font-size:10px;padding:1px 5px" onclick="openPDSubEdit('${s.id}','${p.id}')">✎</button>
+                    <button class="btn-ghost" style="font-size:10px;padding:1px 5px;color:#c33" onclick="deletePD('${s.id}',false,'${p.id}')">🗑</button>
+                  </td>
+                </tr>`;
+              }).join('')}</tbody>
+            </table>` : '<div style="font-size:11px;color:var(--g400);padding:4px 6px">Belum ada sub-items. Klik + Sub-item untuk tambah.</div>'}
           </div>
-          <div id="pd-sub-form-${p.id}"></div>
-          ${subs.length ? `<table style="width:100%;border-collapse:collapse;font-size:11px">
-            <thead><tr style="border-bottom:1px solid var(--g100);color:var(--g400)">
-              <th style="text-align:left;padding:4px 6px">Sub SKU</th>
-              <th style="text-align:left;padding:4px 6px">Vendor</th>
-              <th style="text-align:right;padding:4px 6px">HPP</th>
-              <th style="text-align:right;padding:4px 6px">QTY</th>
-              <th style="text-align:right;padding:4px 6px">Subtotal</th>
-              <th style="text-align:center;padding:4px 6px">Pics</th>
-              <th style="width:60px"></th>
-            </tr></thead>
-            <tbody>${subs.map(s => {
-              const subtotal = Number(s.hpp||0) * Number(s.qty||1);
-              return `<tr style="border-bottom:1px solid var(--g100)">
-                <td style="padding:4px 6px">${s.skuName.replace(/</g,'&lt;')}</td>
-                <td style="padding:4px 6px">${(s.vendor||'—').replace(/</g,'&lt;')}</td>
-                <td style="padding:4px 6px;text-align:right;font-family:var(--mono)">${pdFmtIDR(s.hpp)}</td>
-                <td style="padding:4px 6px;text-align:right;font-family:var(--mono)">${s.qty||'—'}</td>
-                <td style="padding:4px 6px;text-align:right;font-family:var(--mono)">${subtotal?pdFmtIDR(subtotal):'—'}</td>
-                <td style="padding:4px 6px;text-align:center">${renderPDPicsCell(s)}</td>
-                <td style="padding:4px 6px;text-align:center;white-space:nowrap">
-                  <button class="btn-ghost" style="font-size:10px;padding:1px 5px" onclick="openPDSubEdit('${s.id}','${p.id}')">✎</button>
-                  <button class="btn-ghost" style="font-size:10px;padding:1px 5px;color:#c33" onclick="deletePD('${s.id}',false,'${p.id}')">🗑</button>
-                </td>
-              </tr>`;
-            }).join('')}</tbody>
-          </table>` : '<div style="font-size:11px;color:var(--g400);padding:4px 6px">Belum ada sub-items.</div>'}
-        </div>
-      </td>
-    </tr>`);
+        </td>
+      </tr>`);
+    }
   });
 
   tbody.innerHTML = rows.join('');
@@ -14008,10 +14205,15 @@ function renderPDTable() {
 
 function renderPDPicsCell(r) {
   const pics = r.pictures||[];
-  if (!pics.length) return `<label style="font-size:10px;color:var(--g400);cursor:pointer">+ <input type="file" accept="image/*" style="display:none" onchange="addPDPicture('${r.id}',this.files[0])"></label>`;
-  return pics.map(u => `<a href="${u}" target="_blank" title="Lihat full"><img src="${u}" style="width:24px;height:24px;object-fit:cover;border-radius:3px;margin-right:2px;vertical-align:middle"></a>`).join('') +
-    (pics.length < PD_MAX_PICS ? `<label style="font-size:10px;color:var(--g400);cursor:pointer;margin-left:4px">+<input type="file" accept="image/*" style="display:none" onchange="addPDPicture('${r.id}',this.files[0])"></label>` : '') +
-    pics.map(u => `<button class="btn-ghost" style="font-size:9px;padding:0 3px;margin-left:2px;color:#c33" title="Hapus foto" onclick="removePDPicture('${r.id}','${u.replace(/'/g,"\\'")}')">×</button>`).slice(0,1).join('');
+  const addBtn = pics.length < PD_MAX_PICS
+    ? `<button class="btn-ghost" style="font-size:10px;padding:1px 5px;color:var(--g400)" title="Tambah foto" onclick="pickPicForRecord('${r.id}')">+</button>`
+    : '';
+  if (!pics.length) return addBtn || '<span style="color:var(--g400);font-size:10px">—</span>';
+  const thumbs = pics.map(u => `<span style="position:relative;display:inline-block;margin-right:2px">
+    <a href="${u}" target="_blank" title="Lihat full"><img src="${u}" style="width:24px;height:24px;object-fit:cover;border-radius:3px;vertical-align:middle"></a>
+    <button class="btn-ghost" style="position:absolute;top:-6px;right:-6px;font-size:8px;padding:0 3px;background:var(--white);border-radius:50%;line-height:1;color:#c33" title="Hapus foto" onclick="removePDPicture('${r.id}','${u.replace(/'/g,"\\'")}')">×</button>
+  </span>`).join('');
+  return thumbs + addBtn;
 }
 
 function togglePDExpand(parentId) {
@@ -14027,231 +14229,284 @@ function openPDSubForm(parentId) {
   if (!host) return;
   if (host.dataset.open === '1') { host.dataset.open=''; host.innerHTML=''; return; }
   host.dataset.open='1';
-  const vendorOpts = pdAllVendors.map(v=>`<option value="${v.replace(/"/g,'&quot;')}">`).join('');
-  host.innerHTML = `<div style="background:var(--off);padding:8px;border-radius:4px;margin-bottom:8px;display:grid;grid-template-columns:1.5fr 1fr 0.8fr 0.8fr auto auto;gap:6px;align-items:end">
+  const parent = allPDRows.find(r=>r.id===parentId);
+  const suggestedCode = parent ? generateNextSubCode(parent.displayCode || parent.id, parentId) : '';
+  host.innerHTML = `<div style="background:var(--off);padding:8px;border-radius:4px;margin-bottom:8px;display:grid;grid-template-columns:80px 1.4fr 1fr 0.7fr 0.6fr auto auto;gap:6px;align-items:end">
+    <div><label style="font-size:10px;color:var(--g400)">Code</label><input id="pds-code-${parentId}" type="text" value="${suggestedCode}" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%;font-family:var(--mono)"></div>
     <div><label style="font-size:10px;color:var(--g400)">Sub SKU Name *</label><input id="pds-name-${parentId}" type="text" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
     <div><label style="font-size:10px;color:var(--g400)">Vendor</label><input id="pds-vendor-${parentId}" list="pd-vendor-datalist" type="text" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
     <div><label style="font-size:10px;color:var(--g400)">HPP</label><input id="pds-hpp-${parentId}" type="number" min="0" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
-    <div><label style="font-size:10px;color:var(--g400)">QTY</label><input id="pds-qty-${parentId}" type="number" min="0" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
+    <div><label style="font-size:10px;color:var(--g400)">QTY</label><input id="pds-qty-${parentId}" type="number" min="0" value="1" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
     <button class="btn-save" style="font-size:10px;padding:4px 10px" onclick="submitPDSubItem('${parentId}')">Simpan</button>
     <button class="btn-cancel" style="font-size:10px;padding:4px 8px" onclick="openPDSubForm('${parentId}')">Batal</button>
   </div>`;
 }
 
 async function submitPDSubItem(parentId) {
+  const code = document.getElementById(`pds-code-${parentId}`).value.trim();
   const name = document.getElementById(`pds-name-${parentId}`).value.trim();
   const vendor = document.getElementById(`pds-vendor-${parentId}`).value.trim();
   const hpp = parseFloat(document.getElementById(`pds-hpp-${parentId}`).value);
   const qty = parseFloat(document.getElementById(`pds-qty-${parentId}`).value);
   if (!name) { alert('Sub SKU name wajib.'); return; }
+  const parent = allPDRows.find(r=>r.id===parentId);
   try {
     const id = genId('PDS');
     const {error} = await sb.from('product_dev').insert({
       id, parent_id: parentId,
+      collection_id: parent?.collectionId || null,
+      display_code: code || null,
+      sku_type: null,
       sku_name: name, vendor: vendor||null,
       hpp: isNaN(hpp)?null:hpp, qty: isNaN(qty)?null:qty,
       picture_urls: [], added_by: currentUser, date_added: new Date().toISOString()
     });
     if (error) throw error;
-    await loadProductDev();
-    // Re-expand the parent we just added to
+    await fetchPDRows();
+    renderPDDetailTable();
     setTimeout(()=>togglePDExpand(parentId), 50);
   } catch(e) { alert('Gagal: '+(e.message||e)); }
 }
 
-function openPDParentEdit(id) {
+async function openPDParentEdit(id) {
   const r = allPDRows.find(x=>x.id===id);
   if (!r) return;
+  const newCode = prompt('SKU Code:', r.displayCode||'');
+  if (newCode===null) return;
   const newName = prompt('SKU name:', r.skuName);
   if (newName===null) return;
   const newSrp = prompt('SRP (Rp):', r.srp||'');
   if (newSrp===null) return;
-  const newVendor = prompt('Vendor (kosongkan jika bundle):', r.vendor||'');
-  if (newVendor===null) return;
-  const newHpp = prompt('HPP (Rp) (kosongkan jika bundle):', r.hpp||'');
-  if (newHpp===null) return;
-  const newQty = prompt('QTY (kosongkan jika bundle):', r.qty||'');
-  if (newQty===null) return;
+  const isMulti = r.skuType === 'multi';
+  let newVendor = r.vendor, newHpp = r.hpp, newQty = r.qty;
+  if (!isMulti) {
+    const v = prompt('Vendor:', r.vendor||''); if (v===null) return; newVendor = v.trim()||null;
+    const h = prompt('HPP (Rp):', r.hpp||'');  if (h===null) return; newHpp = h===''?null:parseFloat(h);
+    const q = prompt('QTY:', r.qty||'');       if (q===null) return; newQty = q===''?null:parseFloat(q);
+  }
   const upd = {
+    display_code: newCode.trim() || r.displayCode,
     sku_name: newName.trim() || r.skuName,
     srp: newSrp===''?null:parseFloat(newSrp),
-    vendor: newVendor.trim()||null,
-    hpp: newHpp===''?null:parseFloat(newHpp),
-    qty: newQty===''?null:parseFloat(newQty),
+    vendor: newVendor || null,
+    hpp: newHpp, qty: newQty,
     last_updated: new Date().toISOString(), last_updated_by: currentUser
   };
-  sb.from('product_dev').update(upd).eq('id',id).then(({error})=>{
-    if (error) { alert('Gagal: '+error.message); return; }
-    loadProductDev();
-  });
+  const {error} = await sb.from('product_dev').update(upd).eq('id',id);
+  if (error) { alert('Gagal: '+error.message); return; }
+  await fetchPDRows();
+  renderPDDetailTable();
 }
 
-function openPDSubEdit(id, parentId) {
+async function openPDSubEdit(id, parentId) {
   const r = allPDRows.find(x=>x.id===id);
   if (!r) return;
+  const newCode   = prompt('Sub code:', r.displayCode||''); if (newCode===null) return;
   const newName   = prompt('Sub SKU name:', r.skuName);    if (newName===null) return;
   const newVendor = prompt('Vendor:', r.vendor||'');        if (newVendor===null) return;
   const newHpp    = prompt('HPP (Rp):', r.hpp||'');         if (newHpp===null) return;
   const newQty    = prompt('QTY:', r.qty||'');              if (newQty===null) return;
   const upd = {
+    display_code: newCode.trim() || r.displayCode,
     sku_name: newName.trim()||r.skuName,
     vendor: newVendor.trim()||null,
     hpp: newHpp===''?null:parseFloat(newHpp),
     qty: newQty===''?null:parseFloat(newQty),
     last_updated:new Date().toISOString(), last_updated_by: currentUser
   };
-  sb.from('product_dev').update(upd).eq('id',id).then(({error})=>{
-    if (error) { alert('Gagal: '+error.message); return; }
-    loadProductDev().then(()=>setTimeout(()=>togglePDExpand(parentId),50));
-  });
+  const {error} = await sb.from('product_dev').update(upd).eq('id',id);
+  if (error) { alert('Gagal: '+error.message); return; }
+  await fetchPDRows();
+  renderPDDetailTable();
+  setTimeout(()=>togglePDExpand(parentId),50);
 }
 
 async function deletePD(id, isParent, parentId) {
   const r = allPDRows.find(x=>x.id===id);
   if (!r) return;
   const msg = isParent
-    ? `Hapus SKU Parent "${r.skuName}" beserta semua sub-items & foto?`
-    : `Hapus sub-item "${r.skuName}"?`;
+    ? `Hapus SKU "${r.skuName}" (${r.displayCode||r.id}) beserta semua sub-items & foto?`
+    : `Hapus sub-item "${r.skuName}" (${r.displayCode||r.id})?`;
   if (!confirm(msg)) return;
   try {
-    // Collect picture URLs from this row + all descendants (if parent)
     const toDelete = [r];
-    if (isParent) {
-      allPDRows.filter(x => x.parentId === id).forEach(s => toDelete.push(s));
-    }
+    if (isParent) allPDRows.filter(x => x.parentId === id).forEach(s => toDelete.push(s));
     const storagePaths = [];
     toDelete.forEach(x => (x.pictures||[]).forEach(u=>{
       const marker = `/${PD_BUCKET}/`;
       const idx = u.indexOf(marker);
       if (idx >= 0) storagePaths.push(u.slice(idx + marker.length));
     }));
-    if (storagePaths.length) {
-      await sb.storage.from(PD_BUCKET).remove(storagePaths);
-    }
+    if (storagePaths.length) await sb.storage.from(PD_BUCKET).remove(storagePaths);
     const {error} = await sb.from('product_dev').delete().eq('id', id);
     if (error) throw error;
-    await loadProductDev();
+    await fetchPDRows();
+    renderPDDetailTable();
     if (!isParent && parentId) setTimeout(()=>togglePDExpand(parentId), 50);
   } catch(e) { alert('Gagal hapus: '+(e.message||e)); }
 }
 
-// ── PRODUCT DEVELOPMENT — CSV DOWNLOADS ──
-function pdCSVEsc(s) {
-  if (s===null||s===undefined) return '';
-  const t = String(s);
-  return /[",\n\r]/.test(t) ? '"'+t.replace(/"/g,'""')+'"' : t;
+// ── PDF EXPORT (catalog cards via print window) ────────────────────
+function pdEsc(s) {
+  return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-function pdBuildRowsForExport() {
-  // Apply current filters; returns flat rows: one per parent (solo) or one per sub-item
-  const {parents, subsByParent} = getPDFilteredParents();
-  const collName = id => (pdAllCollections.find(c=>c.id===id)?.collection_name) || '';
-  const flat = [];
-  parents.forEach(p => {
+function buildPDCatalogHTML(title, parents, subsByParent, mode, vendor) {
+  // mode: 'internal' | 'external' | 'vendor'
+  const collName = pdCollName(pdCurrentCollectionId);
+  const today = new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'});
+  const showVendor = mode === 'internal' || mode === 'vendor';
+  const showHPP    = mode === 'internal' || mode === 'vendor';
+  const showSRP    = mode === 'internal' || mode === 'external';
+  const showRatio  = mode === 'internal';
+
+  const cardsHTML = parents.map(p => {
     const subs = subsByParent[p.id] || [];
+    const isMulti = p.skuType === 'multi' || subs.length > 0;
     const ratio = pdComputeRatio(p, subs);
-    const ratioStr = ratio ? ratio.toFixed(3) : '';
-    if (subs.length === 0) {
-      // Solo SKU: single row
-      flat.push({
-        sku_code: p.id, sku_name: p.skuName, collection: collName(p.collectionId),
-        sub_sku: '', vendor: p.vendor||'', hpp: p.hpp||'', qty: p.qty||'',
-        srp: p.srp||'', ratio: ratioStr, pics: (p.pictures||[]).join(' | ')
-      });
-    } else {
-      // Bundle: one row per sub-item
-      subs.forEach((s, i) => {
-        flat.push({
-          sku_code: p.id, sku_name: p.skuName, collection: collName(p.collectionId),
-          sub_sku: s.skuName, vendor: s.vendor||'', hpp: s.hpp||'', qty: s.qty||'',
-          srp: i===0 ? (p.srp||'') : '', ratio: i===0 ? ratioStr : '',
-          pics: (s.pictures||[]).join(' | ')
-        });
-      });
+    const totalHpp = isMulti ? subs.reduce((s,sb)=>s+(Number(sb.hpp||0)*Number(sb.qty||1)),0) : Number(p.hpp||0);
+    const totalQty = isMulti ? subs.reduce((s,sb)=>s+Number(sb.qty||0),0) : Number(p.qty||0);
+    const pics = p.pictures||[];
+    const pic1 = pics[0] || '';
+    const pic2 = pics[1] || '';
+
+    // Sub-items table for multi
+    let subsHTML = '';
+    if (isMulti && subs.length) {
+      let filteredSubs = subs;
+      if (mode === 'vendor' && vendor) filteredSubs = subs.filter(s => (s.vendor||'').toLowerCase() === vendor.toLowerCase());
+      if (!filteredSubs.length) return '';
+      subsHTML = `<table class="subs">
+        <thead><tr>
+          <th>Code</th><th>Sub SKU</th>
+          ${showVendor ? '<th>Vendor</th>' : ''}
+          ${showHPP ? '<th class="r">HPP</th>' : ''}
+          <th class="r">QTY</th>
+          ${showHPP ? '<th class="r">Subtotal</th>' : ''}
+        </tr></thead>
+        <tbody>${filteredSubs.map(s => {
+          const subtotal = Number(s.hpp||0)*Number(s.qty||1);
+          return `<tr>
+            <td class="mono">${pdEsc(s.displayCode||'—')}</td>
+            <td>${pdEsc(s.skuName)}</td>
+            ${showVendor ? `<td>${pdEsc(s.vendor||'—')}</td>` : ''}
+            ${showHPP ? `<td class="r mono">${s.hpp?'Rp '+pdFmtIDR(s.hpp):'—'}</td>` : ''}
+            <td class="r mono">${s.qty||'—'}</td>
+            ${showHPP ? `<td class="r mono">${subtotal?'Rp '+pdFmtIDR(subtotal):'—'}</td>` : ''}
+          </tr>`;
+        }).join('')}</tbody>
+      </table>`;
     }
-  });
-  return flat;
+
+    // For vendor mode on solo: skip if vendor doesn't match
+    if (mode === 'vendor' && !isMulti && vendor && (p.vendor||'').toLowerCase() !== vendor.toLowerCase()) return '';
+    // For vendor mode on multi with no matching subs: skip
+    if (mode === 'vendor' && isMulti && !subsHTML) return '';
+
+    return `<section class="card">
+      <div class="card-head">
+        <div class="code">${pdEsc(p.displayCode || p.id)}</div>
+        <div class="name">${pdEsc(p.skuName)}</div>
+        <div class="meta">${isMulti?'Multi-items':'Solo'} · ${pdEsc(collName)}</div>
+      </div>
+      <div class="card-body">
+        <div class="pics">
+          ${pic1 ? `<img src="${pdEsc(pic1)}" alt="">` : '<div class="ph">No photo</div>'}
+          ${pic2 ? `<img src="${pdEsc(pic2)}" alt="">` : ''}
+        </div>
+        <div class="details">
+          <table class="kv">
+            ${showVendor && !isMulti ? `<tr><th>Vendor</th><td>${pdEsc(p.vendor||'—')}</td></tr>` : ''}
+            ${showHPP ? `<tr><th>HPP ${isMulti?'(total)':''}</th><td class="mono">${totalHpp?'Rp '+pdFmtIDR(totalHpp):'—'}</td></tr>` : ''}
+            <tr><th>QTY ${isMulti?'(total)':''}</th><td class="mono">${totalQty||'—'}</td></tr>
+            ${showSRP ? `<tr><th>SRP</th><td class="mono"><b>Rp ${pdFmtIDR(p.srp)}</b></td></tr>` : ''}
+            ${showRatio && ratio ? `<tr><th>Ratio SRP/HPP</th><td class="mono"><b>${ratio.toFixed(2)}×</b></td></tr>` : ''}
+            ${p.notes ? `<tr><th>Notes</th><td>${pdEsc(p.notes)}</td></tr>` : ''}
+          </table>
+          ${subsHTML}
+        </div>
+      </div>
+    </section>`;
+  }).filter(Boolean).join('');
+
+  const modeLabel = mode === 'internal' ? 'Internal' : mode === 'external' ? 'External' : `Vendor — ${pdEsc(vendor||'')}`;
+
+  return `<!doctype html><html><head><meta charset="utf-8">
+<title>${pdEsc(title)}</title>
+<style>
+  @page { size: A4; margin: 12mm; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif; font-size: 11px; color: #111; margin: 0; padding: 0; }
+  header.doc { padding: 0 0 12px; border-bottom: 2px solid #111; margin-bottom: 12px; }
+  header.doc h1 { font-size: 20px; margin: 0; letter-spacing: 0.5px; }
+  header.doc .sub { font-size: 11px; color: #666; margin-top: 2px; }
+  header.doc .badge { display:inline-block;padding:2px 8px;font-size:10px;background:#111;color:#fff;border-radius:3px;margin-top:4px;letter-spacing:0.5px;text-transform:uppercase }
+  .card { page-break-inside: avoid; border: 1px solid #ddd; border-radius: 6px; margin: 0 0 14px; padding: 12px; background: #fafaf7; }
+  .card-head { border-bottom: 1px solid #ddd; padding-bottom: 8px; margin-bottom: 8px; }
+  .card-head .code { font-family: 'SF Mono',Menlo,monospace; font-size: 11px; color: #666; letter-spacing: 0.5px; }
+  .card-head .name { font-size: 16px; font-weight: 700; margin-top: 2px; }
+  .card-head .meta { font-size: 10px; color: #999; margin-top: 2px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .card-body { display: flex; gap: 12px; }
+  .pics { flex: 0 0 35%; display: flex; flex-direction: column; gap: 6px; }
+  .pics img { width: 100%; max-height: 180px; object-fit: cover; border-radius: 4px; border: 1px solid #ddd; }
+  .pics .ph { width: 100%; height: 100px; display: flex; align-items: center; justify-content: center; background: #eee; color: #999; font-size: 10px; border-radius: 4px; }
+  .details { flex: 1; min-width: 0; }
+  table.kv { width: 100%; border-collapse: collapse; }
+  table.kv th, table.kv td { padding: 4px 6px; font-size: 11px; vertical-align: top; }
+  table.kv th { text-align: left; color: #666; font-weight: 500; width: 110px; border-bottom: 1px solid #eee; }
+  table.kv td { border-bottom: 1px solid #eee; }
+  .mono { font-family: 'SF Mono',Menlo,monospace; }
+  .r { text-align: right; }
+  table.subs { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 10px; }
+  table.subs th, table.subs td { padding: 3px 5px; border-bottom: 1px solid #eee; }
+  table.subs th { text-align: left; background: #f3f3ee; color: #555; font-weight: 600; }
+  .empty { padding: 40px; text-align: center; color: #999; }
+  @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } .no-print { display: none; } }
+  .no-print { position: fixed; top: 8px; right: 8px; background: #111; color: #fff; padding: 6px 12px; border-radius: 4px; cursor: pointer; border: 0; font-size: 12px; }
+</style>
+</head><body>
+<button class="no-print" onclick="window.print()">🖨 Print / Save as PDF</button>
+<header class="doc">
+  <h1>${pdEsc(title)}</h1>
+  <div class="sub">${pdEsc(collName)} · ${pdEsc(parents.length)} SKU · ${today}</div>
+  <span class="badge">${modeLabel}</span>
+</header>
+${cardsHTML || '<div class="empty">Tidak ada SKU untuk export ini.</div>'}
+</body></html>`;
 }
 
-function pdDownloadCSV(filename, headers, rows) {
-  const lines = [headers.map(h=>pdCSVEsc(h.label)).join(',')];
-  rows.forEach(r => {
-    lines.push(headers.map(h => pdCSVEsc(r[h.key])).join(','));
-  });
-  const csv = lines.join('\r\n');
-  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = filename; a.click();
-  URL.revokeObjectURL(url);
+function exportPDPDF(mode) {
+  const {parents, subsByParent} = getPDDetailFilteredParents();
+  if (!parents.length) { alert('Tidak ada SKU sesuai filter.'); return; }
+  const title = mode === 'internal' ? 'Product Dev — Internal' : 'Product Dev — External';
+  const html = buildPDCatalogHTML(title, parents, subsByParent, mode, null);
+  const w = window.open('', '_blank');
+  if (!w) { alert('Pop-up diblokir. Izinkan pop-up untuk export PDF.'); return; }
+  w.document.write(html);
+  w.document.close();
+  // Auto-trigger print once images load
+  w.addEventListener('load', () => setTimeout(()=>w.print(), 400));
 }
 
-function downloadPD(mode) {
-  const rows = pdBuildRowsForExport();
-  if (!rows.length) { alert('Tidak ada data sesuai filter.'); return; }
-  const today = new Date().toISOString().slice(0,10);
-  if (mode === 'internal') {
-    const headers = [
-      {key:'sku_code',label:'SKU Code'},
-      {key:'sku_name',label:'SKU Name'},
-      {key:'collection',label:'Collection'},
-      {key:'sub_sku',label:'Sub SKU'},
-      {key:'vendor',label:'Vendor'},
-      {key:'hpp',label:'HPP (Rp)'},
-      {key:'qty',label:'QTY'},
-      {key:'srp',label:'SRP (Rp)'},
-      {key:'ratio',label:'Ratio SRP/HPP'},
-      {key:'pics',label:'Pictures'}
-    ];
-    pdDownloadCSV(`product-dev-internal-${today}.csv`, headers, rows);
-  } else if (mode === 'external') {
-    const headers = [
-      {key:'sku_code',label:'SKU Code'},
-      {key:'sku_name',label:'SKU Name'},
-      {key:'collection',label:'Collection'},
-      {key:'sub_sku',label:'Sub SKU'},
-      {key:'qty',label:'QTY'},
-      {key:'srp',label:'SRP (Rp)'},
-      {key:'pics',label:'Pictures'}
-    ];
-    pdDownloadCSV(`product-dev-external-${today}.csv`, headers, rows);
-  }
-}
-
-function downloadPDVendorPrompt() {
-  if (!pdAllVendors.length) { alert('Belum ada vendor.'); return; }
-  // Build a simple modal-like prompt using a <select> in a confirm dialog substitute.
+function exportPDVendorPrompt() {
+  // Build vendor list scoped to current collection
+  const cid = pdCurrentCollectionId;
+  const inThisCol = allPDRows.filter(r => r.collectionId === cid || allPDRows.some(p => p.id===r.parentId && p.collectionId===cid));
+  const vendorsHere = [...new Set(inThisCol.map(r => r.vendor).filter(Boolean))].sort();
+  if (!vendorsHere.length) { alert('Belum ada vendor di collection ini.'); return; }
   const choice = prompt(
-    'Ketik nama vendor yang mau di-export (atau biarkan kosong untuk batal).\n\nVendor tersedia:\n• ' +
-    pdAllVendors.slice(0,30).join('\n• ') +
-    (pdAllVendors.length>30 ? `\n…dan ${pdAllVendors.length-30} lainnya` : ''),
-    pdAllVendors[0] || ''
+    'Pilih vendor untuk export (case-insensitive).\n\nVendor di collection ini:\n• ' + vendorsHere.join('\n• '),
+    vendorsHere[0]
   );
   if (!choice) return;
   const vendor = choice.trim();
-  if (!pdAllVendors.some(v => v.toLowerCase() === vendor.toLowerCase())) {
-    if (!confirm(`Vendor "${vendor}" tidak persis cocok dengan daftar. Lanjutkan?`)) return;
-  }
-  downloadPDForVendor(vendor);
-}
-
-function downloadPDForVendor(vendor) {
-  const allRowsExport = pdBuildRowsForExport();
-  const rows = allRowsExport.filter(r => (r.vendor||'').toLowerCase() === vendor.toLowerCase());
-  if (!rows.length) { alert(`Tidak ada SKU untuk vendor "${vendor}" sesuai filter.`); return; }
-  const headers = [
-    {key:'sku_code',label:'SKU Code'},
-    {key:'sku_name',label:'SKU Name'},
-    {key:'collection',label:'Collection'},
-    {key:'sub_sku',label:'Sub SKU'},
-    {key:'vendor',label:'Vendor'},
-    {key:'hpp',label:'HPP (Rp)'},
-    {key:'qty',label:'QTY'},
-    {key:'pics',label:'Pictures'}
-  ];
-  const today = new Date().toISOString().slice(0,10);
-  const safe = vendor.replace(/[^a-z0-9]+/gi,'-').replace(/^-|-$/g,'') || 'vendor';
-  pdDownloadCSV(`product-dev-vendor-${safe}-${today}.csv`, headers, rows);
+  const {parents, subsByParent} = getPDDetailFilteredParents();
+  const html = buildPDCatalogHTML(`Product Dev — Vendor: ${vendor}`, parents, subsByParent, 'vendor', vendor);
+  const w = window.open('', '_blank');
+  if (!w) { alert('Pop-up diblokir. Izinkan pop-up untuk export PDF.'); return; }
+  w.document.write(html);
+  w.document.close();
+  w.addEventListener('load', () => setTimeout(()=>w.print(), 400));
 }
 
 // ── DUPLICATE CHECK ──
