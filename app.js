@@ -13682,6 +13682,42 @@ function generateNextParentCode(collection_id) {
   return `${prefix}${Date.now()%1000}`;
 }
 
+// Classify a child row as either 'variant' (size/color SKU of the same product)
+// or 'bundle_item' (a different product included in a bundle).
+// Uses explicit sku_type when set; falls back to size/color presence for legacy rows.
+function pdChildKind(c) {
+  if (c.skuType === 'variant' || c.skuType === 'bundle_item') return c.skuType;
+  if (c.size || c.color) return 'variant';
+  return 'bundle_item';
+}
+function pdVariantsOf(parentId) {
+  return allPDRows.filter(r => r.parentId === parentId && pdChildKind(r) === 'variant');
+}
+function pdBundleItemsOf(parentId) {
+  return allPDRows.filter(r => r.parentId === parentId && pdChildKind(r) === 'bundle_item');
+}
+
+// Bundle item code: {PARENT_CODE}.A, .B, .C ...
+// Different from variant codes — bundle items are flat letter sequences under their parent.
+function generateNextBundleCode(parent_id) {
+  const parent = allPDRows.find(r => r.id === parent_id);
+  if (!parent) return '';
+  const parentCode = parent.displayCode || parent.id;
+  const taken = new Set(allPDRows
+    .filter(r => r.parentId === parent_id && r.displayCode && r.displayCode.startsWith(parentCode + '.'))
+    .map(r => r.displayCode));
+  const letter = i => {
+    let s = '';
+    do { s = String.fromCharCode(65 + (i % 26)) + s; i = Math.floor(i/26) - 1; } while (i >= 0);
+    return s;
+  };
+  for (let i = 0; i < 700; i++) {
+    const code = `${parentCode}.${letter(i)}`;
+    if (!taken.has(code)) return code;
+  }
+  return `${parentCode}.X${Date.now()%100}`;
+}
+
 // Variant code: {IP3}-{COL3}-{SIZE-COLOR-OTHER}-{NN}
 // Sequence is per (collection, variant-token) across variant rows.
 function generateNextVariantCode(collection_id, size, color, other) {
@@ -14153,14 +14189,19 @@ function renderPDDetailTable() {
   }).join('');
 }
 
-function renderPDParentCard(p, subs) {
-  const ratio = pdComputeRatio(p, subs);
-  const totalHpp = subs.reduce((s,sb)=>s+(Number(sb.hpp||0)*Number(sb.qty||1)),0);
-  const totalQty = subs.reduce((s,sb)=>s+Number(sb.qty||0),0);
-  const vendorSet = new Set(subs.map(s=>s.vendor).filter(Boolean));
+function renderPDParentCard(p, allChildren) {
+  const subs        = allChildren.filter(c => pdChildKind(c) === 'variant');
+  const bundleItems = allChildren.filter(c => pdChildKind(c) === 'bundle_item');
+  const ratio = pdComputeRatio(p, allChildren);
+  const totalHpp = allChildren.reduce((s,sb)=>s+(Number(sb.hpp||0)*Number(sb.qty||1)),0);
+  const totalQty = subs.reduce((s,sb)=>s+Number(sb.qty||0),0); // stock = variants only
+  const vendorSet = new Set(allChildren.map(s=>s.vendor).filter(Boolean));
   const vendorTxt = vendorSet.size === 0 ? '—' : vendorSet.size === 1 ? [...vendorSet][0] : `${vendorSet.size} vendors`;
   const code = p.displayCode || p.id;
-  const countPill = `<span style="font-size:10px;padding:2px 6px;background:var(--white);border-radius:3px;color:var(--g600);border:1px solid var(--g100);font-weight:500">${subs.length} variant${subs.length===1?'':'s'}</span>`;
+  const pills = [
+    subs.length        ? `<span style="font-size:10px;padding:2px 6px;background:var(--white);border-radius:3px;color:var(--g600);border:1px solid var(--g100);font-weight:500">${subs.length} variant${subs.length===1?'':'s'}</span>` : '',
+    bundleItems.length ? `<span style="font-size:10px;padding:2px 6px;background:var(--white);border-radius:3px;color:var(--g600);border:1px solid var(--g100);font-weight:500">📦 ${bundleItems.length} bundle item${bundleItems.length===1?'':'s'}</span>` : ''
+  ].filter(Boolean).join(' ');
   const ratioPill = ratio ? `<span class="pill ${ratio>=2.5?'p-active':(ratio>=1.8?'p-review':'p-near')}" style="font-size:10px">${ratio.toFixed(2)}×</span>` : '<span style="color:var(--g400);font-size:11px">—</span>';
 
   const variantsHTML = subs.length ? subs.map(s => {
@@ -14168,14 +14209,32 @@ function renderPDParentCard(p, subs) {
     return renderPDVariantCard(s, p.id);
   }).join('') : '<div style="font-size:11px;color:var(--g400);padding:8px 4px;text-align:center">Belum ada variant. Klik + Variant untuk tambah.</div>';
 
-  const variantsBlock = `<div id="pd-sub-${p.id}" style="display:none;margin-top:10px;padding:10px 12px;border-left:3px solid var(--g100);background:var(--white);border-radius:0 6px 6px 0">
+  // Variants section (size/color SKUs of the same product)
+  const variantsSection = `<div style="margin-top:10px;padding:10px 12px;border-left:3px solid var(--g100);background:var(--white);border-radius:0 6px 6px 0">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-      <span style="font-size:10px;color:var(--g400);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.5px">Variants (${subs.length})</span>
+      <span style="font-size:10px;color:var(--g400);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.5px">Variants (${subs.length}) <span style="color:var(--g200);font-weight:400;text-transform:none;letter-spacing:0">— produk sama, beda size/color</span></span>
       <button class="btn-ghost" style="font-size:11px;padding:3px 10px" onclick="openPDSubForm('${p.id}')">+ Variant</button>
     </div>
     <div id="pd-sub-form-${p.id}"></div>
     ${variantsHTML}
   </div>`;
+
+  // Bundle items section (different products combined into one bundle)
+  const bundleHTML = bundleItems.length ? bundleItems.map(b => {
+    if (pdEditingId === b.id) return renderPDBundleItemEditCard(b, p.id);
+    return renderPDBundleItemCard(b, p.id);
+  }).join('') : '<div style="font-size:11px;color:var(--g400);padding:6px 4px;text-align:center">Belum ada bundle item.</div>';
+
+  const bundleSection = `<div style="margin-top:8px;padding:10px 12px;border-left:3px solid var(--g200);background:var(--white);border-radius:0 6px 6px 0">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <span style="font-size:10px;color:var(--g400);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.5px">Bundle Items (${bundleItems.length}) <span style="color:var(--g200);font-weight:400;text-transform:none;letter-spacing:0">— produk berbeda dalam 1 paket</span></span>
+      <button class="btn-ghost" style="font-size:11px;padding:3px 10px" onclick="openPDBundleForm('${p.id}')">+ Bundle Item</button>
+    </div>
+    <div id="pd-bundle-form-${p.id}"></div>
+    ${bundleHTML}
+  </div>`;
+
+  const childrenBlock = `<div id="pd-sub-${p.id}">${variantsSection}${bundleSection}</div>`;
 
   return `<div class="pd-card" style="display:flex;gap:14px;align-items:flex-start;border:1px solid var(--g100);border-radius:6px;padding:12px;background:var(--off);margin-bottom:10px">
     <div style="flex:0 0 110px">${renderPDPicsLeft(p, 110)}</div>
@@ -14195,13 +14254,12 @@ function renderPDParentCard(p, subs) {
       <div style="display:flex;flex-wrap:wrap;gap:16px;font-size:12px;color:var(--g600)">
         <span>Vendor: <b style="color:var(--black)">${vendorTxt.replace(/</g,'&lt;')}</b></span>
         <span>HPP total: <span class="mono"><b style="color:var(--black)">${totalHpp?pdFmtIDR(totalHpp):'—'}</b></span></span>
-        <span>QTY total: <span class="mono"><b style="color:var(--black)">${totalQty||'—'}</b></span></span>
+        <span>Stock total: <span class="mono"><b style="color:var(--black)">${totalQty||'—'}</b></span></span>
         <span>SRP: <span class="mono"><b style="color:var(--black)">${pdFmtIDR(p.srp)}</b></span></span>
         <span>Ratio: ${ratioPill}</span>
       </div>
       ${p.notes ? `<div style="margin-top:6px;font-size:11px;color:var(--g600);font-style:italic">${p.notes.replace(/</g,'&lt;')}</div>` : ''}
-      <div style="margin-top:8px"><button class="btn-ghost" style="font-size:11px;padding:3px 10px" onclick="togglePDExpand('${p.id}')"><span id="pd-caret-${p.id}">▶</span> ${subs.length?'Lihat':'Tambah'} variants${subs.length?` (${subs.length})`:''}</button></div>
-      ${variantsBlock}
+      ${childrenBlock}
     </div>
   </div>`;
 }
@@ -14235,6 +14293,122 @@ function renderPDVariantCard(s, parentId) {
       </div>
     </div>
   </div>`;
+}
+
+// ── Bundle item display + edit cards ────────────────────────────────
+function renderPDBundleItemCard(b, parentId) {
+  const subtotal = Number(b.hpp||0) * Number(b.qty||1);
+  return `<div class="pd-subcard" style="display:flex;gap:10px;align-items:flex-start;padding:8px 10px;background:var(--white);border:1px solid var(--g100);border-radius:5px;margin-bottom:6px">
+    <div style="flex:0 0 60px">${renderPDPicsLeft(b, 60)}</div>
+    <div style="flex:1;min-width:0">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+        <div style="min-width:0">
+          <div style="font-family:var(--mono);font-size:10px;color:var(--g400);font-weight:600">${(b.displayCode||'—').replace(/</g,'&lt;')}</div>
+          <div style="font-size:12px;font-weight:500;margin-top:2px">📦 ${(b.skuName||'—').replace(/</g,'&lt;')}</div>
+        </div>
+        <div style="display:flex;gap:3px;flex-shrink:0">
+          <button class="btn-ghost" style="font-size:10px;padding:2px 6px" onclick="openPDSubEdit('${b.id}','${parentId}')">✎</button>
+          <button class="btn-ghost" style="font-size:10px;padding:2px 6px;color:#c33" onclick="deletePD('${b.id}',false,'${parentId}')">🗑</button>
+        </div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:4px;font-size:11px;color:var(--g600)">
+        <span>Vendor: <b style="color:var(--black)">${(b.vendor||'—').replace(/</g,'&lt;')}</b></span>
+        <span>HPP: <span class="mono"><b style="color:var(--black)">${pdFmtIDR(b.hpp)}</b></span></span>
+        <span>QTY: <span class="mono"><b style="color:var(--black)">${b.qty||'—'}</b></span></span>
+        <span>Subtotal: <span class="mono"><b style="color:var(--black)">${subtotal?pdFmtIDR(subtotal):'—'}</b></span></span>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderPDBundleItemEditCard(b, parentId) {
+  return `<div class="pd-subcard" style="display:flex;gap:10px;align-items:flex-start;padding:8px 10px;background:var(--white);border:2px solid var(--black);border-radius:5px;margin-bottom:6px">
+    <div style="flex:0 0 60px">${renderPDPicsLeft(b, 60)}</div>
+    <div style="flex:1;min-width:0">
+      <div style="font-family:var(--mono);font-size:10px;color:var(--g400);font-weight:600;margin-bottom:8px">EDITING BUNDLE ITEM · ${(b.displayCode||b.id).replace(/</g,'&lt;')}</div>
+      <div style="display:grid;grid-template-columns:1.6fr 1fr 0.7fr 0.6fr;gap:6px;align-items:end">
+        <div><label style="font-size:10px;color:var(--g400)">Item Name *</label><input id="pdbe-name-${b.id}" type="text" value="${(b.skuName||'').replace(/"/g,'&quot;')}" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
+        <div><label style="font-size:10px;color:var(--g400)">Vendor</label><input id="pdbe-vendor-${b.id}" list="pd-vendor-datalist" type="text" value="${(b.vendor||'').replace(/"/g,'&quot;')}" placeholder="Pilih vendor terdaftar di Jubelio..." style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
+        <div><label style="font-size:10px;color:var(--g400)">HPP</label><input id="pdbe-hpp-${b.id}" type="number" min="0" value="${b.hpp==null?'':b.hpp}" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
+        <div><label style="font-size:10px;color:var(--g400)">QTY *</label><input id="pdbe-qty-${b.id}" type="number" min="0" value="${b.qty==null?'':b.qty}" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:8px">
+        <button class="btn-save" style="font-size:11px;padding:4px 10px" onclick="savePDBundleItemEdit('${b.id}','${parentId}')">💾 Simpan</button>
+        <button class="btn-cancel" style="font-size:11px;padding:4px 10px" onclick="cancelPDEdit()">✕ Batal</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function openPDBundleForm(parentId) {
+  const host = document.getElementById(`pd-bundle-form-${parentId}`);
+  if (!host) return;
+  if (host.dataset.open === '1') { host.dataset.open=''; host.innerHTML=''; return; }
+  host.dataset.open='1';
+  const previewCode = generateNextBundleCode(parentId);
+  host.innerHTML = `<div style="background:var(--off);padding:10px 12px;border-radius:4px;margin-bottom:8px">
+    <div style="font-size:11px;color:var(--g600);font-family:var(--mono);margin-bottom:8px">Bundle Item Code (auto): <b style="color:var(--black)">${previewCode}</b></div>
+    <div style="display:grid;grid-template-columns:1.6fr 1fr 0.7fr 0.6fr auto auto;gap:6px;align-items:end">
+      <div><label style="font-size:10px;color:var(--g400)">Item Name *</label><input id="pdb-name-${parentId}" type="text" placeholder="cth: MDB T-shirt L, Free Sticker..." style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
+      <div><label style="font-size:10px;color:var(--g400)">Vendor</label><input id="pdb-vendor-${parentId}" list="pd-vendor-datalist" type="text" placeholder="Pilih vendor terdaftar di Jubelio..." style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
+      <div><label style="font-size:10px;color:var(--g400)">HPP (Rp)</label><input id="pdb-hpp-${parentId}" type="number" min="0" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
+      <div><label style="font-size:10px;color:var(--g400)">QTY *</label><input id="pdb-qty-${parentId}" type="number" min="0" value="1" style="font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:3px;width:100%"></div>
+      <button class="btn-save" style="font-size:10px;padding:4px 10px" onclick="submitPDBundleItem('${parentId}')">Simpan</button>
+      <button class="btn-cancel" style="font-size:10px;padding:4px 8px" onclick="openPDBundleForm('${parentId}')">Batal</button>
+    </div>
+    <div style="font-size:10px;color:var(--g400);margin-top:4px">Komponen produk yang berbeda — dijual jadi 1 paket bundle.</div>
+  </div>`;
+}
+
+async function submitPDBundleItem(parentId) {
+  const name   = document.getElementById(`pdb-name-${parentId}`).value.trim();
+  const vendor = document.getElementById(`pdb-vendor-${parentId}`).value.trim();
+  const hpp    = parseFloat(document.getElementById(`pdb-hpp-${parentId}`).value);
+  const qty    = parseFloat(document.getElementById(`pdb-qty-${parentId}`).value);
+  if (!name) { alert('Item name wajib.'); return; }
+  if (isNaN(qty) || qty <= 0) { alert('QTY wajib (> 0).'); return; }
+  const parent = allPDRows.find(r=>r.id===parentId);
+  const code = generateNextBundleCode(parentId);
+  try {
+    const id = genId('PDB');
+    const {error} = await sb.from('product_dev').insert({
+      id, parent_id: parentId,
+      collection_id: parent?.collectionId || null,
+      display_code: code,
+      sku_type: 'bundle_item',
+      sku_name: name,
+      vendor: vendor||null,
+      hpp: isNaN(hpp)?null:hpp,
+      qty: isNaN(qty)?null:qty,
+      picture_urls: [], added_by: currentUser, date_added: new Date().toISOString()
+    });
+    if (error) throw error;
+    await fetchPDRows();
+    renderPDDetailTable();
+  } catch(e) { alert('Gagal: '+(e.message||e)); }
+}
+
+async function savePDBundleItemEdit(id, parentId) {
+  const r = allPDRows.find(x=>x.id===id);
+  if (!r) return;
+  const name = document.getElementById(`pdbe-name-${id}`).value.trim();
+  const vendor = document.getElementById(`pdbe-vendor-${id}`).value.trim();
+  const hppS = document.getElementById(`pdbe-hpp-${id}`).value;
+  const qtyS = document.getElementById(`pdbe-qty-${id}`).value;
+  if (!name) { alert('Item name wajib.'); return; }
+  if (qtyS === '' || Number(qtyS) <= 0) { alert('QTY wajib (> 0).'); return; }
+  const upd = {
+    sku_name: name,
+    vendor: vendor||null,
+    hpp: hppS===''?null:parseFloat(hppS),
+    qty: qtyS===''?null:parseFloat(qtyS),
+    last_updated: new Date().toISOString(), last_updated_by: currentUser
+  };
+  const {error} = await sb.from('product_dev').update(upd).eq('id',id);
+  if (error) { alert('Gagal: '+error.message); return; }
+  pdEditingId = '';
+  await fetchPDRows();
+  renderPDDetailTable();
 }
 
 // ── Inline edit cards (replace the prompt() popups) ─────────────────
@@ -14393,7 +14567,6 @@ async function submitPDSubItem(parentId) {
     if (error) throw error;
     await fetchPDRows();
     renderPDDetailTable();
-    setTimeout(()=>togglePDExpand(parentId), 50);
   } catch(e) { alert('Gagal: '+(e.message||e)); }
 }
 
@@ -14403,25 +14576,15 @@ function openPDParentEdit(id) {
   renderPDDetailTable();
 }
 
-// Enter inline-edit mode for a variant. Also ensures the parent is expanded.
+// Enter inline-edit mode for a variant or bundle item.
 function openPDSubEdit(id, parentId) {
   pdEditingId = id;
   renderPDDetailTable();
-  setTimeout(()=>{
-    const row = document.getElementById(`pd-sub-${parentId}`);
-    if (row && row.style.display === 'none') togglePDExpand(parentId);
-  }, 0);
 }
 
 function cancelPDEdit() {
-  const prevId = pdEditingId;
   pdEditingId = '';
   renderPDDetailTable();
-  // Keep the parent expanded if we cancelled an inline variant edit
-  if (prevId) {
-    const r = allPDRows.find(x=>x.id===prevId);
-    if (r && r.parentId) setTimeout(()=>togglePDExpand(r.parentId), 0);
-  }
 }
 
 async function savePDParentEdit(id) {
@@ -14478,7 +14641,6 @@ async function savePDVariantEdit(id, parentId) {
   pdEditingId = '';
   await fetchPDRows();
   renderPDDetailTable();
-  setTimeout(()=>togglePDExpand(parentId), 0);
 }
 
 async function deletePD(id, isParent, parentId) {
@@ -14502,7 +14664,6 @@ async function deletePD(id, isParent, parentId) {
     if (error) throw error;
     await fetchPDRows();
     renderPDDetailTable();
-    if (!isParent && parentId) setTimeout(()=>togglePDExpand(parentId), 50);
   } catch(e) { alert('Gagal hapus: '+(e.message||e)); }
 }
 
@@ -14521,54 +14682,84 @@ function buildPDCatalogHTML(title, parents, subsByParent, mode, vendor) {
   const showRatio  = mode === 'internal';
 
   const cardsHTML = parents.map(p => {
-    const subs = subsByParent[p.id] || [];
-    const isMulti = p.skuType === 'multi' || subs.length > 0;
-    const ratio = pdComputeRatio(p, subs);
-    const totalHpp = isMulti ? subs.reduce((s,sb)=>s+(Number(sb.hpp||0)*Number(sb.qty||1)),0) : Number(p.hpp||0);
-    const totalQty = isMulti ? subs.reduce((s,sb)=>s+Number(sb.qty||0),0) : Number(p.qty||0);
+    const all = subsByParent[p.id] || [];
+    const variants    = all.filter(c => pdChildKind(c) === 'variant');
+    const bundleItems = all.filter(c => pdChildKind(c) === 'bundle_item');
+    const ratio = pdComputeRatio(p, all);
+    const totalHpp = all.reduce((s,sb)=>s+(Number(sb.hpp||0)*Number(sb.qty||1)),0);
+    const totalQty = variants.reduce((s,v)=>s+Number(v.qty||0),0);
     const pics = p.pictures||[];
     const pic1 = pics[0] || '';
     const pic2 = pics[1] || '';
 
-    // Sub-items table for multi
-    let subsHTML = '';
-    if (isMulti && subs.length) {
-      let filteredSubs = subs;
-      if (mode === 'vendor' && vendor) filteredSubs = subs.filter(s => (s.vendor||'').toLowerCase() === vendor.toLowerCase());
-      if (!filteredSubs.length) return '';
-      subsHTML = `<table class="subs">
+    // Vendor-mode filter applied to children
+    const filterByVendor = arr => (mode === 'vendor' && vendor)
+      ? arr.filter(s => (s.vendor||'').toLowerCase() === vendor.toLowerCase())
+      : arr;
+    const fVariants    = filterByVendor(variants);
+    const fBundleItems = filterByVendor(bundleItems);
+
+    // In vendor mode, drop the whole product if no matching children
+    if (mode === 'vendor' && fVariants.length === 0 && fBundleItems.length === 0) return '';
+
+    const variantRow = (s) => {
+      const subtotal = Number(s.hpp||0)*Number(s.qty||1);
+      return `<tr>
+        <td class="mono">${pdEsc(s.displayCode||'—')}</td>
+        <td class="mono">${pdEsc(s.size||'—')}</td>
+        <td>${pdEsc(s.color||'—')}</td>
+        ${showVendor ? `<td>${pdEsc(s.vendor||'—')}</td>` : ''}
+        ${showHPP ? `<td class="r mono">${s.hpp?'Rp '+pdFmtIDR(s.hpp):'—'}</td>` : ''}
+        <td class="r mono">${s.qty||'—'}</td>
+        ${showHPP ? `<td class="r mono">${subtotal?'Rp '+pdFmtIDR(subtotal):'—'}</td>` : ''}
+      </tr>`;
+    };
+    const bundleRow = (b) => {
+      const subtotal = Number(b.hpp||0)*Number(b.qty||1);
+      return `<tr>
+        <td class="mono">${pdEsc(b.displayCode||'—')}</td>
+        <td>${pdEsc(b.skuName||'—')}</td>
+        ${showVendor ? `<td>${pdEsc(b.vendor||'—')}</td>` : ''}
+        ${showHPP ? `<td class="r mono">${b.hpp?'Rp '+pdFmtIDR(b.hpp):'—'}</td>` : ''}
+        <td class="r mono">${b.qty||'—'}</td>
+        ${showHPP ? `<td class="r mono">${subtotal?'Rp '+pdFmtIDR(subtotal):'—'}</td>` : ''}
+      </tr>`;
+    };
+
+    const variantsHTML = fVariants.length ? `<div style="margin-top:8px;font-size:10px;color:#666;text-transform:uppercase;letter-spacing:0.5px">Variants</div>
+      <table class="subs">
         <thead><tr>
-          <th>Code</th><th>Sub SKU</th><th>Variant</th>
+          <th>Code</th><th>Size</th><th>Color</th>
           ${showVendor ? '<th>Vendor</th>' : ''}
           ${showHPP ? '<th class="r">HPP</th>' : ''}
           <th class="r">QTY</th>
           ${showHPP ? '<th class="r">Subtotal</th>' : ''}
         </tr></thead>
-        <tbody>${filteredSubs.map(s => {
-          const subtotal = Number(s.hpp||0)*Number(s.qty||1);
-          return `<tr>
-            <td class="mono">${pdEsc(s.displayCode||'—')}</td>
-            <td>${pdEsc(s.skuName)}</td>
-            <td class="mono">${pdEsc(s.variant||'—')}</td>
-            ${showVendor ? `<td>${pdEsc(s.vendor||'—')}</td>` : ''}
-            ${showHPP ? `<td class="r mono">${s.hpp?'Rp '+pdFmtIDR(s.hpp):'—'}</td>` : ''}
-            <td class="r mono">${s.qty||'—'}</td>
-            ${showHPP ? `<td class="r mono">${subtotal?'Rp '+pdFmtIDR(subtotal):'—'}</td>` : ''}
-          </tr>`;
-        }).join('')}</tbody>
-      </table>`;
-    }
+        <tbody>${fVariants.map(variantRow).join('')}</tbody>
+      </table>` : '';
 
-    // For vendor mode on solo: skip if vendor doesn't match
-    if (mode === 'vendor' && !isMulti && vendor && (p.vendor||'').toLowerCase() !== vendor.toLowerCase()) return '';
-    // For vendor mode on multi with no matching subs: skip
-    if (mode === 'vendor' && isMulti && !subsHTML) return '';
+    const bundleHTML = fBundleItems.length ? `<div style="margin-top:10px;font-size:10px;color:#666;text-transform:uppercase;letter-spacing:0.5px">Bundle Items</div>
+      <table class="subs">
+        <thead><tr>
+          <th>Code</th><th>Item Name</th>
+          ${showVendor ? '<th>Vendor</th>' : ''}
+          ${showHPP ? '<th class="r">HPP</th>' : ''}
+          <th class="r">QTY</th>
+          ${showHPP ? '<th class="r">Subtotal</th>' : ''}
+        </tr></thead>
+        <tbody>${fBundleItems.map(bundleRow).join('')}</tbody>
+      </table>` : '';
+
+    const typeLabel = bundleItems.length && variants.length ? 'Bundle + variants'
+                    : bundleItems.length ? 'Bundle'
+                    : variants.length    ? `${variants.length} variant${variants.length===1?'':'s'}`
+                    : 'Product';
 
     return `<section class="card">
       <div class="card-head">
         <div class="code">${pdEsc(p.displayCode || p.id)}</div>
-        <div class="name">${pdEsc(p.skuName)}${p.variant?` <span style="font-size:11px;padding:2px 6px;background:#111;color:#fff;border-radius:3px;font-family:'SF Mono',Menlo,monospace;letter-spacing:0.5px;vertical-align:middle">${pdEsc(p.variant)}</span>`:''}</div>
-        <div class="meta">${isMulti?'Multi-items':'Solo'} · ${pdEsc(collName)}</div>
+        <div class="name">${pdEsc(p.skuName)}</div>
+        <div class="meta">${pdEsc(typeLabel)} · ${pdEsc(collName)}</div>
       </div>
       <div class="card-body">
         <div class="pics">
@@ -14577,14 +14768,14 @@ function buildPDCatalogHTML(title, parents, subsByParent, mode, vendor) {
         </div>
         <div class="details">
           <table class="kv">
-            ${showVendor && !isMulti ? `<tr><th>Vendor</th><td>${pdEsc(p.vendor||'—')}</td></tr>` : ''}
-            ${showHPP ? `<tr><th>HPP ${isMulti?'(total)':''}</th><td class="mono">${totalHpp?'Rp '+pdFmtIDR(totalHpp):'—'}</td></tr>` : ''}
-            <tr><th>QTY ${isMulti?'(total)':''}</th><td class="mono">${totalQty||'—'}</td></tr>
+            ${showHPP ? `<tr><th>HPP (total)</th><td class="mono">${totalHpp?'Rp '+pdFmtIDR(totalHpp):'—'}</td></tr>` : ''}
+            <tr><th>Stock (total)</th><td class="mono">${totalQty||'—'}</td></tr>
             ${showSRP ? `<tr><th>SRP</th><td class="mono"><b>Rp ${pdFmtIDR(p.srp)}</b></td></tr>` : ''}
             ${showRatio && ratio ? `<tr><th>Ratio SRP/HPP</th><td class="mono"><b>${ratio.toFixed(2)}×</b></td></tr>` : ''}
             ${p.notes ? `<tr><th>Notes</th><td>${pdEsc(p.notes)}</td></tr>` : ''}
           </table>
-          ${subsHTML}
+          ${variantsHTML}
+          ${bundleHTML}
         </div>
       </div>
     </section>`;
