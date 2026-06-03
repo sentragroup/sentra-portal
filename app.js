@@ -13919,6 +13919,15 @@ function pdFmtLaunchDate(dateStr) {
   return d.toLocaleDateString('id-ID', {day:'2-digit',month:'short',year:'numeric'});
 }
 
+// Brand color for the revenue-stream chip: SD&Y = black, Lagaa = maroon, Marte = yellow.
+function pdRevChipStyle(rev) {
+  const k = (rev||'').toLowerCase().replace(/[^a-z]/g,'');   // normalize: "SD&Y" -> "sdy"
+  if (k === 'lagaa')              return {bg:'#6d1f2b', fg:'#ffffff', border:'#6d1f2b'};  // merah maroon
+  if (k === 'sdy' || k === 'sdny')return {bg:'#0c0c0c', fg:'#ffffff', border:'#0c0c0c'};  // item (hitam)
+  if (k === 'marte')              return {bg:'#f5c518', fg:'#3a2e00', border:'#e0b400'};  // kuning
+  return {bg:'var(--off)', fg:'var(--g600)', border:'var(--g100)'};                        // lainnya
+}
+
 // Color tone based on days remaining
 function pdLaunchTone(days) {
   if (days === null)        return {bg:'#e8e8e3', fg:'#666',    border:'#d6d5cc', label:'No launch date'};
@@ -14026,8 +14035,9 @@ function renderPDGrid() {
     </div>`;
 
     // Revenue-stream chip (top-right) + active/inactive toggle
+    const revStyle = pdRevChipStyle(rev);
     const revChip = rev
-      ? `<span style="font-size:9px;font-weight:600;font-family:var(--mono);padding:2px 7px;border-radius:99px;background:var(--off);color:var(--g600);border:1px solid var(--g100);white-space:nowrap">${rev.replace(/</g,'&lt;')}</span>`
+      ? `<span style="font-size:9px;font-weight:700;font-family:var(--mono);padding:2px 8px;border-radius:99px;background:${revStyle.bg};color:${revStyle.fg};border:1px solid ${revStyle.border};white-space:nowrap">${rev.replace(/</g,'&lt;')}</span>`
       : '';
     const toggle = `<button onclick="event.stopPropagation();togglePDActive('${c.id}',${active?'false':'true'})"
       title="${active?'Tandai inactive':'Tandai active'}"
