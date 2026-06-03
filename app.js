@@ -14001,20 +14001,19 @@ function renderPDGrid() {
     const days = pdDaysUntil(c.release_date);
     const launchTone = pdLaunchTone(days);
     const launchDate = pdFmtLaunchDate(c.release_date);
-    const launchPill = `<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:4px 10px;border-radius:4px;font-family:var(--mono);background:${launchTone.bg};color:${launchTone.fg};border:1px solid ${launchTone.border}">📅 ${launchTone.label}${launchDate?` · ${launchDate}`:''}</span>`;
 
-    return `<div class="tool-card" onclick="openPDDetail('${c.id}')" style="cursor:pointer;padding:14px 16px;display:flex;flex-direction:column;gap:8px">
+    return `<div class="tool-card" onclick="openPDDetail('${c.id}')" style="cursor:pointer;padding:14px 16px;display:flex;flex-direction:column;gap:10px;height:100%;box-sizing:border-box">
       <div>
         ${ip
           ? `<div style="font-size:14px;font-weight:700;color:var(--black);font-family:var(--syne,var(--sans));letter-spacing:0.3px">${ip.replace(/</g,'&lt;')}</div>`
           : `<div style="font-size:11px;color:var(--g400);font-style:italic">No IP set</div>`}
         <div style="font-size:12px;color:var(--g600);margin-top:2px">${name}</div>
       </div>
-      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:auto">
-        <span style="display:inline-block;font-size:11px;font-weight:600;padding:4px 10px;border-radius:4px;font-family:var(--mono);background:${tone.bg};color:${tone.fg};border:1px solid ${tone.border}">${progressLabel}</span>
-        ${launchPill}
+      <div style="display:flex;flex-direction:column;align-items:stretch;gap:6px;margin-top:auto">
+        <span style="display:block;text-align:center;font-size:11px;font-weight:600;padding:5px 10px;border-radius:4px;font-family:var(--mono);background:${tone.bg};color:${tone.fg};border:1px solid ${tone.border};box-sizing:border-box">${progressLabel}</span>
+        <span style="display:block;text-align:center;font-size:11px;font-weight:600;padding:5px 10px;border-radius:4px;font-family:var(--mono);background:${launchTone.bg};color:${launchTone.fg};border:1px solid ${launchTone.border};box-sizing:border-box">📅 ${launchTone.label}${launchDate?` · ${launchDate}`:''}</span>
       </div>
-      ${requested ? `<div style="height:4px;background:var(--g100);border-radius:2px;overflow:hidden;margin-top:-2px">
+      ${requested ? `<div style="height:4px;background:var(--g100);border-radius:2px;overflow:hidden">
         <div style="height:100%;width:${Math.min(100,pct)}%;background:${tone.fg};transition:width 0.2s"></div>
       </div>` : ''}
     </div>`;
