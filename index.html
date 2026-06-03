@@ -1504,84 +1504,119 @@
 
     <!-- PRODUCT DEVELOPMENT -->
     <div class="page" id="page-productdev">
-      <div class="page-header">
-        <div><div class="page-title">Product Development</div><div class="page-sub">Costing & sourcing per SKU — vendor, HPP, QTY, SRP, ratio, dan foto.</div></div>
-        <div class="tab-bar">
-          <button class="tab-btn active" onclick="switchPDTab('new',this)">Tambah</button>
-          <button class="tab-btn" onclick="switchPDTab('list',this)">Semua</button>
+
+      <!-- VIEW 1: Collection grid -->
+      <div id="pd-view-grid">
+        <div class="page-header">
+          <div><div class="page-title">Product Development</div><div class="page-sub">Pilih collection untuk lihat / tambah SKU.</div></div>
         </div>
-      </div>
-      <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem;">
-        <div class="stat-card"><div class="stat-num" id="pd-s-total">—</div><div class="stat-lbl">Total SKU Parent</div></div>
-        <div class="stat-card"><div class="stat-num" id="pd-s-solo">—</div><div class="stat-lbl">Solo SKU</div></div>
-        <div class="stat-card"><div class="stat-num" id="pd-s-bundle">—</div><div class="stat-lbl">Bundle SKU</div></div>
-        <div class="stat-card"><div class="stat-num" id="pd-s-vendor">—</div><div class="stat-lbl">Unique Vendor</div></div>
-      </div>
-
-      <div id="pdtab-new">
-        <div class="form-card">
-          <div class="form-sec">SKU Parent</div>
-          <div class="form-grid">
-            <div class="fg"><label>Collection <span class="req">*</span></label>
-              <select id="pd-collection" onchange="onPDCollectionChange()">
-                <option value="">Pilih collection...</option>
-              </select>
-            </div>
-            <div class="fg"><label>SKU Name <span class="req">*</span></label>
-              <input type="text" id="pd-sku-name" list="pd-sku-datalist" placeholder="Pilih dari collection items atau ketik baru...">
-              <datalist id="pd-sku-datalist"></datalist>
-            </div>
-            <div class="fg"><label>SRP (Rp) <span class="req">*</span></label>
-              <input type="number" id="pd-srp" min="0" step="1" placeholder="cth: 250000">
-            </div>
-            <div class="fg full"><label>Notes</label><input type="text" id="pd-notes" placeholder="Catatan opsional"></div>
-          </div>
-
-          <div class="form-sec" style="margin-top:1.5rem">Pictures (max 2)</div>
-          <div class="form-grid">
-            <div class="fg full">
-              <input type="file" id="pd-pics" accept="image/*" multiple style="font-size:12px">
-              <div id="pd-pics-preview" style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"></div>
-              <div style="font-size:11px;color:var(--g400);margin-top:4px">JPG/PNG/WEBP. Maks 5 MB per file. Total 2 file.</div>
-            </div>
-          </div>
-
-          <div class="form-sec" style="margin-top:1.5rem">Vendor / HPP / QTY <span style="font-size:11px;color:var(--g400);font-weight:400">(opsional — isi jika SKU ini solo tanpa sub-items)</span></div>
-          <div class="form-grid">
-            <div class="fg"><label>Vendor</label>
-              <input type="text" id="pd-vendor" list="pd-vendor-datalist" placeholder="Pilih atau ketik vendor baru...">
-              <datalist id="pd-vendor-datalist"></datalist>
-            </div>
-            <div class="fg"><label>HPP (Rp)</label><input type="number" id="pd-hpp" min="0" step="1" placeholder="cth: 80000"></div>
-            <div class="fg"><label>QTY</label><input type="number" id="pd-qty" min="0" step="1" placeholder="cth: 100"></div>
-          </div>
-
-          <div class="btn-row" style="margin-top:1.25rem">
-            <button class="btn-primary" id="pdSubmitBtn" onclick="submitPD()">Simpan SKU Parent</button>
-            <button class="btn-ghost" onclick="clearPDForm()">Bersihkan</button>
-          </div>
-          <div class="feedback" id="pd-feedback"></div>
+        <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
+          <div class="stat-card"><div class="stat-num" id="pd-g-collections">—</div><div class="stat-lbl">Collections</div></div>
+          <div class="stat-card"><div class="stat-num" id="pd-g-total">—</div><div class="stat-lbl">Total SKU</div></div>
+          <div class="stat-card"><div class="stat-num" id="pd-g-solo">—</div><div class="stat-lbl">Solo SKU</div></div>
+          <div class="stat-card"><div class="stat-num" id="pd-g-multi">—</div><div class="stat-lbl">Multi-item SKU</div></div>
         </div>
-      </div>
-
-      <div id="pdtab-list" style="display:none">
-        <div class="filter-panel">
-          <select id="pd-fil-collection" onchange="loadProductDev()"><option value="">Semua Collection</option></select>
-          <select id="pd-fil-vendor" onchange="loadProductDev()"><option value="">Semua Vendor</option></select>
-          <select id="pd-fil-type" onchange="loadProductDev()">
-            <option value="">Semua Tipe</option>
-            <option value="solo">Solo SKU</option>
-            <option value="bundle">Bundle SKU</option>
-          </select>
-          <input type="text" id="pd-search" placeholder="Cari SKU name..." style="padding:5px 10px;font-size:12px;border:1px solid var(--g100);border-radius:6px;width:220px;outline:none" oninput="onPDSearch(this.value)" onkeydown="if(event.key==='Escape'){this.value='';loadProductDev();}">
-          <button class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="clearPDFilters()">✕ Reset</button>
-        </div>
-
-        <div class="table-toolbar" style="gap:8px;flex-wrap:wrap">
+        <div class="table-toolbar" style="gap:8px">
           <button class="btn-refresh" onclick="loadProductDev()">↻ Refresh</button>
-          <button class="btn-ghost" style="padding:5px 10px;font-size:12px" onclick="downloadPD('internal')">⬇ Internal CSV</button>
-          <button class="btn-ghost" style="padding:5px 10px;font-size:12px" onclick="downloadPD('external')">⬇ External CSV</button>
-          <button class="btn-ghost" style="padding:5px 10px;font-size:12px" onclick="downloadPDVendorPrompt()">⬇ Vendor CSV</button>
+          <input type="text" id="pd-grid-search" placeholder="Cari collection..." style="padding:5px 10px;font-size:12px;border:1px solid var(--g100);border-radius:6px;width:220px;outline:none" oninput="renderPDGrid()">
+          <div class="tcount" id="pd-grid-tcount" style="margin-left:auto">— collection</div>
+        </div>
+        <div id="pd-grid" class="home-grid" style="margin-top:1rem"></div>
+      </div>
+
+      <!-- VIEW 2: Collection detail -->
+      <div id="pd-view-detail" style="display:none">
+        <div class="page-header" style="flex-wrap:wrap;gap:8px">
+          <div>
+            <div style="font-size:11px;color:var(--g400);margin-bottom:4px"><a href="#productdev" onclick="openPDGrid();return false" style="color:var(--g400);text-decoration:none">← Semua Collection</a></div>
+            <div class="page-title" id="pd-d-title">Collection</div>
+            <div class="page-sub" id="pd-d-sub">—</div>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="btn-ghost" style="font-size:12px;padding:5px 10px" onclick="exportPDPDF('internal')">📄 Internal PDF</button>
+            <button class="btn-ghost" style="font-size:12px;padding:5px 10px" onclick="exportPDPDF('external')">📄 External PDF</button>
+            <button class="btn-ghost" style="font-size:12px;padding:5px 10px" onclick="exportPDVendorPrompt()">📄 Vendor PDF</button>
+          </div>
+        </div>
+
+        <div class="stats-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:1.25rem">
+          <div class="stat-card"><div class="stat-num" id="pd-d-total">—</div><div class="stat-lbl">Total SKU</div></div>
+          <div class="stat-card"><div class="stat-num" id="pd-d-solo">—</div><div class="stat-lbl">Solo</div></div>
+          <div class="stat-card"><div class="stat-num" id="pd-d-multi">—</div><div class="stat-lbl">Multi-item</div></div>
+          <div class="stat-card"><div class="stat-num" id="pd-d-srp">—</div><div class="stat-lbl">Total SRP</div></div>
+          <div class="stat-card"><div class="stat-num" id="pd-d-ratio">—</div><div class="stat-lbl">Avg Ratio</div></div>
+        </div>
+
+        <!-- Add SKU form -->
+        <div class="form-card" id="pd-add-card">
+          <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="togglePDAddForm()">
+            <div class="form-sec" style="margin:0">+ Tambah SKU Parent</div>
+            <span id="pd-add-caret" style="font-size:11px;color:var(--g400)">▼</span>
+          </div>
+          <div id="pd-add-body" style="margin-top:1rem">
+            <div class="form-grid">
+              <div class="fg full">
+                <label>Tipe SKU <span class="req">*</span></label>
+                <div style="display:flex;gap:16px;margin-top:4px">
+                  <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;font-weight:400">
+                    <input type="radio" name="pd-type" value="solo" checked onchange="onPDTypeChange()"> Solo (1 item, vendor & HPP di parent)
+                  </label>
+                  <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;font-weight:400">
+                    <input type="radio" name="pd-type" value="multi" onchange="onPDTypeChange()"> Multi-items (HPP auto dihitung dari sub-items)
+                  </label>
+                </div>
+              </div>
+              <div class="fg"><label>SKU Name <span class="req">*</span></label>
+                <input type="text" id="pd-sku-name" list="pd-sku-datalist" placeholder="Pilih dari collection items atau ketik baru...">
+                <datalist id="pd-sku-datalist"></datalist>
+              </div>
+              <div class="fg"><label>SKU Code <span style="font-size:11px;color:var(--g400);font-weight:400">(auto)</span></label>
+                <input type="text" id="pd-display-code" placeholder="Otomatis dari collection">
+              </div>
+              <div class="fg"><label>SRP (Rp) <span class="req">*</span></label>
+                <input type="number" id="pd-srp" min="0" step="1" placeholder="cth: 250000">
+              </div>
+              <div class="fg full"><label>Notes</label><input type="text" id="pd-notes" placeholder="Catatan opsional"></div>
+            </div>
+
+            <div class="form-sec" style="margin-top:1.25rem">Pictures (max 2)</div>
+            <div class="form-grid">
+              <div class="fg full">
+                <input type="file" id="pd-pics" accept="image/*" multiple style="font-size:12px">
+                <div id="pd-pics-preview" style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"></div>
+                <div style="font-size:11px;color:var(--g400);margin-top:4px">JPG/PNG/WEBP. Maks 5 MB per file. Total 2 file. Bisa ditambah/diganti setelah tersimpan.</div>
+              </div>
+            </div>
+
+            <div id="pd-solo-fields">
+              <div class="form-sec" style="margin-top:1.25rem">Vendor / HPP / QTY <span style="font-size:11px;color:var(--g400);font-weight:400">(opsional)</span></div>
+              <div class="form-grid">
+                <div class="fg"><label>Vendor</label>
+                  <input type="text" id="pd-vendor" list="pd-vendor-datalist" placeholder="Pilih atau ketik vendor baru...">
+                  <datalist id="pd-vendor-datalist"></datalist>
+                </div>
+                <div class="fg"><label>HPP (Rp)</label><input type="number" id="pd-hpp" min="0" step="1" placeholder="cth: 80000"></div>
+                <div class="fg"><label>QTY</label><input type="number" id="pd-qty" min="0" step="1" placeholder="cth: 100"></div>
+              </div>
+            </div>
+
+            <div class="btn-row" style="margin-top:1.25rem">
+              <button class="btn-primary" id="pdSubmitBtn" onclick="submitPD()">Simpan SKU Parent</button>
+              <button class="btn-ghost" onclick="clearPDForm()">Bersihkan</button>
+            </div>
+            <div class="feedback" id="pd-feedback"></div>
+          </div>
+        </div>
+
+        <div class="filter-panel" style="margin-top:1rem">
+          <select id="pd-fil-vendor" onchange="renderPDDetailTable()"><option value="">Semua Vendor</option></select>
+          <select id="pd-fil-type" onchange="renderPDDetailTable()">
+            <option value="">Semua Tipe</option>
+            <option value="solo">Solo</option>
+            <option value="multi">Multi-items</option>
+          </select>
+          <input type="text" id="pd-search" placeholder="Cari SKU..." style="padding:5px 10px;font-size:12px;border:1px solid var(--g100);border-radius:6px;width:220px;outline:none" oninput="onPDSearch(this.value)" onkeydown="if(event.key==='Escape'){this.value='';renderPDDetailTable();}">
+          <button class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="clearPDFilters()">✕ Reset</button>
           <div class="tcount" id="pd-tcount" style="margin-left:auto">— SKU</div>
         </div>
 
@@ -1590,22 +1625,22 @@
             <thead>
               <tr>
                 <th style="width:30px"></th>
-                <th style="min-width:120px">SKU Code</th>
+                <th style="min-width:90px">Code</th>
                 <th style="min-width:200px">SKU Name</th>
-                <th style="min-width:130px">Collection</th>
-                <th style="min-width:130px">Vendor</th>
+                <th style="min-width:120px">Vendor</th>
                 <th style="text-align:right">HPP (Rp)</th>
                 <th style="text-align:right">QTY</th>
                 <th style="text-align:right">SRP (Rp)</th>
                 <th style="text-align:right">Ratio</th>
-                <th style="width:60px;text-align:center">Pics</th>
+                <th style="width:70px;text-align:center">Pics</th>
                 <th style="width:80px;text-align:center">Aksi</th>
               </tr>
             </thead>
-            <tbody id="pdTableBody"><tr><td class="empty-td" colspan="11">Klik "Refresh" untuk memuat data.</td></tr></tbody>
+            <tbody id="pdTableBody"><tr><td class="empty-td" colspan="10">Belum ada SKU. Tambah pakai form di atas.</td></tr></tbody>
           </table>
         </div>
       </div>
+
     </div>
 
     <!-- DESIGNER MASTER -->
