@@ -10940,10 +10940,22 @@ async function loadInsights() {
       .map(cat=>({cat, orders:_catOrderSets[cat].size, revenue:_catRev[cat]||0, qty:_catQty[cat]||0}))
       .sort((a,b)=>b.revenue-a.revenue);
 
+    // Historical revenue per IP/brand (pre-2026, currently 2025) for the BCG matrix.
+    // full_rev = full prior year; same_rev = Jan..month cm (matches 2026 YTD window).
+    emEl.textContent='Mengambil data historis (2025)...';
+    const histIP={}, histBrand={};
+    try {
+      const {data:histRows} = await sb.rpc('get_history_rev', {p_through_month: cm});
+      (histRows||[]).forEach(r=>{
+        const o = {full:parseFloat(r.full_rev||0)||0, same:parseFloat(r.same_rev||0)||0};
+        if (r.kind==='ip') histIP[r.name]=o; else histBrand[r.name]=o;
+      });
+    } catch(e){ console.warn('get_history_rev:',e); }
+
     _insData={ID_MONTHS,cm,dayOfYear,daysLeft,monthlyTotals,projectedMonthly,ipMonthly,
       ytdNet,yearEndProj,projDailyNet,stockHorizon,ips:Object.keys(ipMonthly).sort(),
       geoProvinces,geoCities,geoTotal,geoIntl,geoRaw,ipToOrderIds,brandToOrderIds,brandMonthly,
-      catData};
+      catData,histIP,histBrand};
 
     emEl.style.display='none';
     document.getElementById('instab-'+_insTab).style.display='block';
@@ -11195,28 +11207,24 @@ function _renderInsBCG() {
   const fmtRp = n => n>=1e9?'Rp '+(n/1e9).toFixed(1)+'M':n>=1e6?'Rp '+(n/1e6).toFixed(1)+'jt':'Rp '+Math.round(n).toLocaleString('id-ID');
   const mode = _insBCGViewMode;
   const monthly = mode==='ip' ? d.ipMonthly : (d.brandMonthly||{});
+  const hist    = mode==='ip' ? (d.histIP||{}) : (d.histBrand||{});
 
-  // Growth period: last N complete months vs prior N months
-  const N = Math.min(3, Math.max(1, Math.floor(d.cm/2)));
-  const recentStart = Math.max(0, d.cm - N);
-  const priorStart  = Math.max(0, recentStart - N);
+  // YoY: 2026 YTD (Jan..month cm-1, i.e. complete months) vs 2025 same period.
+  const cm = d.cm;
+  const periodLabel = cm>0 ? `${d.ID_MONTHS[0]}–${d.ID_MONTHS[cm-1]}` : 'YTD';
 
-  // Period labels for axis title
-  const rLabel = `${d.ID_MONTHS[recentStart]}–${d.ID_MONTHS[d.cm-1]}`;
-  const pLabel = priorStart < recentStart
-    ? `${d.ID_MONTHS[priorStart]}–${d.ID_MONTHS[recentStart-1]}`
-    : `${d.ID_MONTHS[0]}`;
-
-  // Compute metrics per entity
+  // Union of entities seen in 2026 sales and in 2025 history
+  const names = new Set([...Object.keys(monthly), ...Object.keys(hist)]);
   const entities = [];
-  for (const [name, months] of Object.entries(monthly)) {
-    const ytd = months.slice(0, d.cm).reduce((s,m)=>s+m.net, 0);
-    if (ytd <= 0) continue;
-    const recent = months.slice(recentStart, d.cm).reduce((s,m)=>s+m.net, 0);
-    const prior  = months.slice(priorStart, recentStart).reduce((s,m)=>s+m.net, 0);
-    const growth = prior > 0 ? (recent-prior)/prior*100 : (recent>0 ? 100 : 0);
-    entities.push({name, ytd, growth, recent, prior, hasGrowth: prior>0});
-  }
+  names.forEach(name => {
+    const months = monthly[name];
+    const rev2026 = months ? months.slice(0, cm).reduce((s,m)=>s+m.net, 0) : 0;
+    const h = hist[name] || {full:0, same:0};
+    const total = h.full + rev2026;                 // combined 2025 + 2026 → bubble size & share
+    if (total <= 0) return;
+    const growth = h.same > 0 ? (rev2026 - h.same)/h.same*100 : (rev2026>0 ? 100 : 0);
+    entities.push({name, ytd:total, total, rev2026, hist2025:h.full, hist2025same:h.same, growth, hasGrowth:h.same>0});
+  });
   if (!entities.length) return;
 
   // Market share
@@ -11305,8 +11313,9 @@ function _renderInsBCG() {
               const e = ctx.raw._e;
               return [
                 `Share: ${e.share.toFixed(1)}%`,
-                `Growth: ${e.growth>=0?'+':''}${e.growth.toFixed(1)}%`,
-                `YTD: ${fmtRp(e.ytd)}`,
+                `YoY Growth: ${e.growth>=0?'+':''}${e.growth.toFixed(1)}%`,
+                `Total (25+26): ${fmtRp(e.total)}`,
+                `2026 YTD: ${fmtRp(e.rev2026)} · 2025: ${fmtRp(e.hist2025)}`,
                 `Quadrant: ${QLBL[e.quadrant]}`,
               ];
             }
@@ -11330,7 +11339,7 @@ function _renderInsBCG() {
           },
         },
         y: {
-          title: {display:true, text:`Growth Rate — ${rLabel} vs ${pLabel} (%)`, font:{size:11}, color:'#888'},
+          title: {display:true, text:`YoY Growth — 2026 vs 2025 (${periodLabel}) (%)`, font:{size:11}, color:'#888'},
           grid: {display:false},
           suggestedMin: Math.min(...entities.map(e=>e.growth)) - 10,
           suggestedMax: Math.max(...entities.map(e=>e.growth)) + 10,
@@ -11352,14 +11361,15 @@ function _renderInsBCG() {
       Detail — ${mode==='ip'?'per IP':'per Brand'} · threshold share ${xThresh.toFixed(1)}%
     </div>
     <div class="table-wrap" style="margin:0"><table style="width:100%;table-layout:fixed">
-      <colgroup><col style="width:auto"><col style="width:130px"><col style="width:75px"><col style="width:80px"><col style="width:110px"><col style="width:110px"></colgroup>
+      <colgroup><col style="width:auto"><col style="width:120px"><col style="width:60px"><col style="width:75px"><col style="width:115px"><col style="width:100px"><col style="width:100px"></colgroup>
       <thead><tr>
         <th>${mode==='ip'?'IP':'Brand'}</th>
         <th style="text-align:center">Quadrant</th>
         <th style="text-align:right">Share</th>
-        <th style="text-align:right">Growth</th>
-        <th style="text-align:right">YTD Revenue</th>
-        <th style="text-align:right">Recent Rev</th>
+        <th style="text-align:right">YoY</th>
+        <th style="text-align:right">Total (25+26)</th>
+        <th style="text-align:right">2026 YTD</th>
+        <th style="text-align:right">2025</th>
       </tr></thead>
       <tbody>${sortedE.map(e=>`
         <tr>
@@ -11367,8 +11377,9 @@ function _renderInsBCG() {
           <td style="text-align:center;font-size:11px">${QLBL[e.quadrant]}</td>
           <td style="text-align:right;font-family:var(--mono);font-size:11px">${e.share.toFixed(1)}%</td>
           <td style="text-align:right;font-family:var(--mono);font-size:11px;font-weight:600;color:${e.growth>=0?'#27ae60':'#c0392b'}">${e.growth>=0?'+':''}${e.growth.toFixed(1)}%</td>
-          <td style="text-align:right;font-family:var(--mono);font-size:11px">${fmtRp(e.ytd)}</td>
-          <td style="text-align:right;font-family:var(--mono);font-size:11px;color:var(--g400)">${fmtRp(e.recent)}</td>
+          <td style="text-align:right;font-family:var(--mono);font-size:11px">${fmtRp(e.total)}</td>
+          <td style="text-align:right;font-family:var(--mono);font-size:11px;color:var(--g400)">${fmtRp(e.rev2026)}</td>
+          <td style="text-align:right;font-family:var(--mono);font-size:11px;color:var(--g400)">${fmtRp(e.hist2025)}</td>
         </tr>`).join('')}
       </tbody>
     </table></div>`;
