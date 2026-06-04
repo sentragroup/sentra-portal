@@ -10793,11 +10793,12 @@ function _spProdGoPage(page) {
 
 // ── INSIGHTS ──
 async function loadInsights() {
+  _insProdRows = null;   // force production-reco refetch
   const btn = document.getElementById('ins-run-btn');
   btn.disabled = true; btn.textContent = 'Memuat...';
   const emEl = document.getElementById('ins-empty');
   emEl.style.display = 'block'; emEl.textContent = 'Mengambil data order 2026...';
-  ['revenue','momentum','stock','geo','bcg','cat'].forEach(t => { const e=document.getElementById('instab-'+t); if(e) e.style.display='none'; });
+  ['revenue','momentum','stock','geo','bcg','cat','prod'].forEach(t => { const e=document.getElementById('instab-'+t); if(e) e.style.display='none'; });
 
   try {
     const VALID = ['COMPLETED','FINISH_PACK','FINISH_PICK','CLOSED','PAID','PENDING'];
@@ -10985,7 +10986,7 @@ async function loadInsights() {
 
 function switchInsTab(tab, btn) {
   _insTab=tab;
-  ['revenue','momentum','stock','geo','bcg','cat'].forEach(t=>{
+  ['revenue','momentum','stock','geo','bcg','cat','prod'].forEach(t=>{
     const tb=document.getElementById('ins-tab-'+t); if(tb) tb.classList.toggle('active',t===tab);
     const pg=document.getElementById('instab-'+t); if(pg) pg.style.display=(t===tab&&_insData)?'block':'none';
   });
@@ -10999,6 +11000,7 @@ function _renderInsTab(tab) {
   if (tab==='geo')      _renderInsGeo();
   if (tab==='bcg')      _renderInsBCG();
   if (tab==='cat')      _renderInsCat();
+  if (tab==='prod')     _renderInsProd();
 }
 
 function _renderInsRevenue() {
@@ -11582,6 +11584,101 @@ function _renderInsCat() {
       <tbody>${rows}</tbody>
       <tfoot>${tfoot}</tfoot>
     </table></div>`;
+}
+
+// ── INSIGHTS PRODUCTION RECO ──
+let _insProdRows = null;   // raw per-SKU rows from get_production_reco
+
+async function _renderInsProd() {
+  const wrap = document.getElementById('ins-prod-wrap');
+  if (!wrap) return;
+  if (_insProdRows === null) {
+    wrap.innerHTML = `<div style="padding:2rem;text-align:center;color:var(--g400);font-family:var(--mono);font-size:12px">Menghitung demand 12 bulan & stok…</div>`;
+    try {
+      const rows = [];
+      let from = 0;
+      while (true) {
+        const {data, error} = await sb.rpc('get_production_reco').range(from, from+999);
+        if (error) throw error;
+        if (!data || !data.length) break;
+        rows.push(...data);
+        if (data.length < 1000) break;
+        from += 1000;
+      }
+      _insProdRows = rows.map(r => ({
+        itemId: r.item_id, code: r.item_code||'', name: r.item_name||r.item_code||String(r.item_id),
+        ip: r.ip||'', brand: r.brand||'',
+        units: parseFloat(r.units_12mo||0)||0, stock: parseFloat(r.stock||0)||0,
+      }));
+    } catch(e) {
+      console.error('get_production_reco:', e);
+      wrap.innerHTML = `<div style="padding:1.5rem;color:#c0392b;font-size:12px">Gagal memuat: ${e.message||e}</div>`;
+      return;
+    }
+  }
+  _renderInsProdTable();
+}
+
+function _renderInsProdTable() {
+  const wrap = document.getElementById('ins-prod-wrap');
+  if (!wrap || !_insProdRows) return;
+  const fmtN = n => Math.round(n).toLocaleString('id-ID');
+  const coverage = Math.max(1, parseFloat(document.getElementById('ins-p-coverage')?.value || 3) || 3);
+  const search = (document.getElementById('ins-p-search')?.value || '').trim().toLowerCase();
+  const onlyNeed = document.getElementById('ins-p-onlyneed')?.checked;
+
+  // Compute recommendation per SKU
+  let rows = _insProdRows.map(r => {
+    const avgMonth = r.units / 12;
+    const avgDaily = r.units / 365;
+    const runway = avgDaily > 0 ? r.stock / avgDaily : (r.stock > 0 ? Infinity : 0);
+    const target = avgMonth * coverage;
+    const reco = Math.max(0, Math.round(target - r.stock));
+    return {...r, avgMonth, runway, reco};
+  });
+
+  // Stats (pre-filter, full set)
+  const needRows = rows.filter(r => r.reco > 0);
+  const urgent = rows.filter(r => r.runway < 30).length;
+  const totalReco = needRows.reduce((s,r)=>s+r.reco, 0);
+  document.getElementById('ins-p-need').textContent   = fmtN(needRows.length);
+  document.getElementById('ins-p-units').textContent  = fmtN(totalReco);
+  document.getElementById('ins-p-urgent').textContent = fmtN(urgent);
+  document.getElementById('ins-p-ok').textContent     = fmtN(rows.length - needRows.length);
+
+  // Filters
+  if (onlyNeed) rows = rows.filter(r => r.reco > 0);
+  if (search) rows = rows.filter(r => r.name.toLowerCase().includes(search) || r.ip.toLowerCase().includes(search) || r.code.toLowerCase().includes(search));
+  rows.sort((a,b) => b.reco - a.reco || a.runway - b.runway);
+
+  const runwayCell = rw => {
+    if (rw === Infinity) return `<span style="color:#2d7a2d">∞</span>`;
+    const c = rw < 30 ? '#c0392b' : rw < 60 ? '#e65100' : rw < 90 ? '#b8860b' : '#2d7a2d';
+    return `<span style="color:${c};font-weight:600">${Math.round(rw)}d</span>`;
+  };
+
+  const body = rows.slice(0, 800).map(r => `<tr style="border-bottom:1px solid var(--g100)">
+    <td style="padding:7px 10px;font-size:12px">${_esc(r.name)}${r.ip?` <span style="color:var(--g400);font-size:10px">· ${_esc(r.ip)}</span>`:''}</td>
+    <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px">${fmtN(r.units)}</td>
+    <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px">${r.avgMonth.toFixed(1)}</td>
+    <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px">${fmtN(r.stock)}</td>
+    <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px">${runwayCell(r.runway)}</td>
+    <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:13px;font-weight:700;color:${r.reco>0?'#3C3489':'var(--g300)'}">${r.reco>0?'+'+fmtN(r.reco):'—'}</td>
+  </tr>`).join('');
+
+  wrap.innerHTML = `<div class="table-wrap" style="margin:0;overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="background:#f7f8fa;border-bottom:2px solid var(--g200)">
+        <th style="padding:8px 10px;text-align:left;font-weight:600">SKU</th>
+        <th style="padding:8px 10px;text-align:right;font-weight:600;white-space:nowrap">Terjual 12bln</th>
+        <th style="padding:8px 10px;text-align:right;font-weight:600;white-space:nowrap">Avg/bln</th>
+        <th style="padding:8px 10px;text-align:right;font-weight:600">Stok</th>
+        <th style="padding:8px 10px;text-align:right;font-weight:600">Runway</th>
+        <th style="padding:8px 10px;text-align:right;font-weight:600;white-space:nowrap">Produksi</th>
+      </tr></thead>
+      <tbody>${body || `<tr><td colspan="6" style="padding:24px;text-align:center;color:var(--g400)">Tidak ada SKU cocok filter.</td></tr>`}</tbody>
+    </table></div>
+    ${rows.length>800?`<div style="font-size:11px;color:var(--g400);padding:8px 4px">Menampilkan 800 dari ${fmtN(rows.length)} SKU. Pakai search untuk mempersempit.</div>`:''}`;
 }
 
 // ── INSIGHTS GEO ──
