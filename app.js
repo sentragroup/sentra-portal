@@ -15262,6 +15262,20 @@ function exportPDForVendor(vendor) {
 // ── ROYALTY REPORT ──
 let _ryRows = [];        // computed [{ipId, ipName, category, royaltyType, percentage, termin, pphRate, qty, gross, royalty, pphAmount, net, ...}]
 let _ryPeriod = '';
+let _ryMode = 'month';   // 'month' (single-month view) | 'year' (12-month breakdown)
+
+function rySwitchTab(mode, el) {
+  _ryMode = mode;
+  document.querySelectorAll('#ry-tabs .tab-btn').forEach(b => b.classList.remove('active'));
+  if (el) el.classList.add('active');
+  document.getElementById('ry-sel-month').style.display = mode === 'month' ? 'flex' : 'none';
+  document.getElementById('ry-sel-year').style.display  = mode === 'year'  ? 'flex' : 'none';
+  // Hide previous results — data shape differs per mode, force a fresh Load
+  document.getElementById('ry-stats').style.display = 'none';
+  document.getElementById('ry-result-wrap').style.display = 'none';
+  const fb = document.getElementById('ry-feedback');
+  if (fb) { fb.textContent = ''; fb.className = 'feedback'; }
+}
 
 function ryNavPeriod(delta) {
   const inp = document.getElementById('ry-period');
@@ -15283,17 +15297,28 @@ function _ryEsc(s) {
 }
 
 async function loadRoyaltyReport() {
-  const year = parseInt(document.getElementById('ry-year').value, 10);
   const fb  = document.getElementById('ry-feedback');
   const btn = document.getElementById('ry-load-btn');
-  if (!year) { fb.textContent='Pilih tahun dulu.'; fb.className='feedback err'; return; }
 
-  _ryPeriod = String(year);
+  // Date range depends on the active tab (WIB boundaries)
+  let startISO, endISO;
+  if (_ryMode === 'year') {
+    const year = parseInt(document.getElementById('ry-year').value, 10);
+    if (!year) { fb.textContent='Pilih tahun dulu.'; fb.className='feedback err'; return; }
+    _ryPeriod = String(year);
+    startISO = `${year}-01-01T00:00:00+07:00`;
+    endISO   = `${year+1}-01-01T00:00:00+07:00`;
+  } else {
+    const period = document.getElementById('ry-period').value;
+    if (!period) { fb.textContent='Pilih periode dulu.'; fb.className='feedback err'; return; }
+    _ryPeriod = period;
+    const [y, m] = period.split('-').map(Number);
+    const next = new Date(y, m, 1);
+    startISO = `${period}-01T00:00:00+07:00`;
+    endISO   = `${next.getFullYear()}-${String(next.getMonth()+1).padStart(2,'0')}-01T00:00:00+07:00`;
+  }
+
   fb.textContent = ''; fb.className = 'feedback'; btn.textContent = 'Loading...'; btn.disabled = true;
-
-  // Whole year in WIB boundaries: Jan 1 00:00 WIB → next year Jan 1 00:00 WIB
-  const startISO = `${year}-01-01T00:00:00+07:00`;
-  const endISO   = `${year+1}-01-01T00:00:00+07:00`;
 
   try {
     // 1. Pull non-canceled sales orders for the whole year (keep transaction_date for month bucketing)
@@ -15450,29 +15475,34 @@ function openRyDetail(ipNameEnc) {
   const thStyle = 'text-align:right;padding:7px 10px;font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--g400);border-bottom:1px solid var(--g100)';
   const thLeft  = thStyle.replace('text-align:right','text-align:left');
 
-  document.getElementById('ry-d-body').innerHTML = `
-    <div style="display:grid;grid-template-columns:1fr 1.3fr;gap:24px;align-items:start">
-      <div>
-        <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--g400);margin-bottom:8px">📅 Breakdown per Bulan</div>
-        <table style="width:100%;border-collapse:collapse;font-size:12px">
-          <thead><tr><th style="${thLeft}">Bulan</th><th style="${thStyle}">Qty</th><th style="${thStyle}">Gross</th><th style="${thStyle}">Royalty</th></tr></thead>
-          <tbody>${monthRows}</tbody>
-          <tfoot><tr style="font-weight:700;background:var(--off)">
-            <td style="padding:7px 10px">Total</td>
-            <td class="mono" style="text-align:right;padding:7px 10px">${new Intl.NumberFormat('id-ID').format(Math.round(totQty))}</td>
-            <td class="mono" style="text-align:right;padding:7px 10px">${_ryRp(totGross)}</td>
-            <td class="mono" style="text-align:right;padding:7px 10px">${_ryRp(royaltyOf(totGross))}</td>
-          </tr></tfoot>
-        </table>
-      </div>
-      <div>
-        <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--g400);margin-bottom:8px">📦 Breakdown per Parent Item (${parents.length})</div>
-        <table style="width:100%;border-collapse:collapse;font-size:12px">
-          <thead><tr><th style="${thLeft}">Parent Item</th><th style="${thStyle}">Qty</th><th style="${thStyle}">Gross</th><th style="${thStyle}">Royalty</th></tr></thead>
-          <tbody>${parentRows || `<tr><td colspan="4" style="padding:16px;text-align:center;color:var(--g400)">—</td></tr>`}</tbody>
-        </table>
-      </div>
+  // Month breakdown only makes sense in year mode (single-month view = 1 row).
+  const monthBlock = (_ryMode === 'year') ? `
+    <div>
+      <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--g400);margin-bottom:8px">📅 Breakdown per Bulan</div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr><th style="${thLeft}">Bulan</th><th style="${thStyle}">Qty</th><th style="${thStyle}">Gross</th><th style="${thStyle}">Royalty</th></tr></thead>
+        <tbody>${monthRows}</tbody>
+        <tfoot><tr style="font-weight:700;background:var(--off)">
+          <td style="padding:7px 10px">Total</td>
+          <td class="mono" style="text-align:right;padding:7px 10px">${new Intl.NumberFormat('id-ID').format(Math.round(totQty))}</td>
+          <td class="mono" style="text-align:right;padding:7px 10px">${_ryRp(totGross)}</td>
+          <td class="mono" style="text-align:right;padding:7px 10px">${_ryRp(royaltyOf(totGross))}</td>
+        </tr></tfoot>
+      </table>
+    </div>` : '';
+
+  const parentBlock = `
+    <div>
+      <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--g400);margin-bottom:8px">📦 Breakdown per Parent Item (${parents.length})</div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr><th style="${thLeft}">Parent Item</th><th style="${thStyle}">Qty</th><th style="${thStyle}">Gross</th><th style="${thStyle}">Royalty</th></tr></thead>
+        <tbody>${parentRows || `<tr><td colspan="4" style="padding:16px;text-align:center;color:var(--g400)">—</td></tr>`}</tbody>
+      </table>
     </div>`;
+
+  document.getElementById('ry-d-body').innerHTML = (_ryMode === 'year')
+    ? `<div style="display:grid;grid-template-columns:1fr 1.3fr;gap:24px;align-items:start">${monthBlock}${parentBlock}</div>`
+    : parentBlock;
 
   document.getElementById('ry-detail-overlay').style.display = 'flex';
 }

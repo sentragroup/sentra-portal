@@ -2998,20 +2998,39 @@
       <!-- ROYALTY REPORT -->
       <div class="page" id="page-royalty">
         <div class="page-header">
-          <div><div class="page-title">Royalty Report</div><div class="page-sub">Per IP per tahun · gross sales, royalty, PPh, net payout — auto-mapped dari Product Mapping. Klik baris untuk breakdown per bulan & per parent item.</div></div>
+          <div><div class="page-title">Royalty Report</div><div class="page-sub">Gross sales, royalty, PPh, net payout per IP — auto-mapped dari Product Mapping.</div></div>
+          <div class="tab-bar" id="ry-tabs">
+            <button class="tab-btn active" onclick="rySwitchTab('month',this)">Per Bulan</button>
+            <button class="tab-btn" onclick="rySwitchTab('year',this)">Per Tahun · Breakdown</button>
+          </div>
         </div>
 
-        <!-- Year selector -->
+        <!-- Period selector -->
         <div class="form-card" style="margin-bottom:1.25rem">
           <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
-            <div class="fg" style="min-width:140px">
-              <label>Tahun</label>
-              <select id="ry-year">
-                <option value="2024">2024</option>
-                <option value="2025">2025</option>
-                <option value="2026" selected>2026</option>
-                <option value="2027">2027</option>
-              </select>
+            <!-- Month mode -->
+            <div id="ry-sel-month" style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
+              <div class="fg" style="min-width:180px">
+                <label>Periode (Bulan)</label>
+                <input type="month" id="ry-period">
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;padding-bottom:1px">
+                <button class="btn-ghost" style="font-size:12px;padding:6px 10px" onclick="ryNavPeriod(-1)">← Bulan Lalu</button>
+                <button class="btn-ghost" style="font-size:12px;padding:6px 10px" onclick="ryNavPeriod(0)">Bulan Ini</button>
+                <button class="btn-ghost" style="font-size:12px;padding:6px 10px" onclick="ryNavPeriod(1)">Bulan Depan →</button>
+              </div>
+            </div>
+            <!-- Year mode -->
+            <div id="ry-sel-year" style="display:none;align-items:flex-end;gap:12px;flex-wrap:wrap">
+              <div class="fg" style="min-width:140px">
+                <label>Tahun</label>
+                <select id="ry-year">
+                  <option value="2024">2024</option>
+                  <option value="2025">2025</option>
+                  <option value="2026" selected>2026</option>
+                  <option value="2027">2027</option>
+                </select>
+              </div>
             </div>
             <button class="btn-primary" id="ry-load-btn" onclick="loadRoyaltyReport()" style="padding:8px 20px">Load Data</button>
           </div>
@@ -3246,6 +3265,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260604b"></script>
+<script src="app.js?v=20260604c"></script>
 </body>
 </html>
