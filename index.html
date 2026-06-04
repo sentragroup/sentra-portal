@@ -180,7 +180,7 @@
         <div class="sb-label" style="margin-bottom:0.6rem">Legal &amp; Finance</div>
         <div class="home-grid" style="margin-bottom:1.5rem">
           <div class="tool-card" onclick="showPage('agreement',null)"><span class="tc-icon">📄</span><div class="tc-name">Agreement</div><div class="tc-desc">Submit dan pantau semua perjanjian, kontrak, dan kemitraan.</div></div>
-          <div class="tool-soon"><span class="tc-icon" style="opacity:0.3">💰</span><div class="tc-name" style="color:var(--g400)">Royalty Payment</div><div class="tc-desc">Coming soon</div></div>
+          <div class="tool-card" onclick="showPage('royalty',null)"><span class="tc-icon">💰</span><div class="tc-name">Royalty Report</div><div class="tc-desc">Laporan royalty per IP per periode — gross sales, % royalty, PPh, net payout. Auto-mapped dari Product Mapping.</div></div>
         </div>
 
         <div class="sb-label" style="margin-bottom:0.6rem">Account Management</div>
@@ -2994,6 +2994,74 @@
           </div>
         </div>
       </div><!-- /.page#page-martereport -->
+
+      <!-- ROYALTY REPORT -->
+      <div class="page" id="page-royalty">
+        <div class="page-header">
+          <div><div class="page-title">Royalty Report</div><div class="page-sub">Per IP per periode · gross sales, royalty, PPh, net payout — auto-mapped dari Product Mapping</div></div>
+        </div>
+
+        <!-- Period selector -->
+        <div class="form-card" style="margin-bottom:1.25rem">
+          <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
+            <div class="fg" style="min-width:180px">
+              <label>Periode</label>
+              <input type="month" id="ry-period">
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;padding-bottom:1px">
+              <button class="btn-ghost" style="font-size:12px;padding:6px 10px" onclick="ryNavPeriod(-1)">← Bulan Lalu</button>
+              <button class="btn-ghost" style="font-size:12px;padding:6px 10px" onclick="ryNavPeriod(0)">Bulan Ini</button>
+              <button class="btn-ghost" style="font-size:12px;padding:6px 10px" onclick="ryNavPeriod(1)">Bulan Depan →</button>
+            </div>
+            <button class="btn-primary" id="ry-load-btn" onclick="loadRoyaltyReport()" style="padding:8px 20px">Load Data</button>
+          </div>
+          <div class="feedback" id="ry-feedback"></div>
+        </div>
+
+        <!-- Stats row -->
+        <div class="stats-row" id="ry-stats" style="grid-template-columns:repeat(5,1fr);margin-bottom:1.25rem;display:none">
+          <div class="stat-card"><div class="stat-num" id="ry-s-ips">—</div><div class="stat-lbl">IPs with Sales</div></div>
+          <div class="stat-card"><div class="stat-num" id="ry-s-qty">—</div><div class="stat-lbl">Qty Terjual</div></div>
+          <div class="stat-card"><div class="stat-num" id="ry-s-gross">—</div><div class="stat-lbl">Gross Sales</div></div>
+          <div class="stat-card"><div class="stat-num" id="ry-s-royalty">—</div><div class="stat-lbl">Total Royalty</div></div>
+          <div class="stat-card"><div class="stat-num" id="ry-s-net">—</div><div class="stat-lbl">Net Royalty (after PPh)</div></div>
+        </div>
+
+        <!-- Table -->
+        <div id="ry-result-wrap" style="display:none">
+          <div class="table-toolbar" style="gap:8px">
+            <button class="btn-refresh" onclick="loadRoyaltyReport()">↻ Refresh</button>
+            <button class="btn-ghost" style="padding:5px 10px;font-size:12px" onclick="downloadRoyaltyCSV()">⬇ Download CSV</button>
+            <input type="text" id="ry-search" placeholder="Cari IP..." style="padding:5px 10px;font-size:12px;border:1px solid var(--g100);border-radius:6px;width:200px;outline:none" oninput="ryRenderTable()">
+            <select id="ry-fil-type" onchange="ryRenderTable()" style="padding:5px 10px;font-size:12px;border:1px solid var(--g100);border-radius:6px;outline:none;background:var(--white)">
+              <option value="">Semua Tipe</option>
+              <option value="Post-Sales">Post-Sales</option>
+              <option value="Advance">Advance</option>
+              <option value="Both">Both</option>
+            </select>
+            <div class="tcount" id="ry-tcount" style="margin-left:auto">—</div>
+          </div>
+          <div class="table-wrap" style="overflow-x:auto">
+            <table>
+              <thead><tr>
+                <th style="min-width:160px">IP Name</th>
+                <th style="min-width:110px">Category</th>
+                <th>Royalty Type</th>
+                <th style="text-align:right">% Royalty</th>
+                <th>Termin</th>
+                <th style="text-align:right;min-width:80px;border-left:2px solid var(--g100)">Qty</th>
+                <th style="text-align:right;min-width:120px">Gross Sales</th>
+                <th style="text-align:right;min-width:120px;border-left:2px solid var(--g100)">Royalty</th>
+                <th style="text-align:right">PPh %</th>
+                <th style="text-align:right;min-width:110px">PPh</th>
+                <th style="text-align:right;min-width:120px">Net Royalty</th>
+              </tr></thead>
+              <tbody id="ry-tbody"></tbody>
+              <tfoot id="ry-tfoot" style="font-weight:600;background:var(--off)"></tfoot>
+            </table>
+          </div>
+        </div>
+      </div><!-- /.page#page-royalty -->
 
       <!-- MARTE SKU CATEGORIES -->
       <div class="page" id="page-marteskucat">

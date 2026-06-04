@@ -138,7 +138,7 @@ function enterApp(user, freshLogin) {
   // Restore page: prefer URL hash, fall back to sessionStorage
   let _pg = location.hash.slice(1).split('/')[0];
   if (!_pg) _pg = sessionStorage.getItem('snt_page') || '';
-  const _pages = ['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','popupbooth','activitylog','jubsales','mesign','po','stockmovement','productmap','productdev','collections','designermaster','dsgworkflow','warehousekpi','stockadjmgmt','returnreason','tradorders','invcheck','salesperf','reminders','announcements','marte'];
+  const _pages = ['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','popupbooth','activitylog','jubsales','mesign','po','stockmovement','productmap','productdev','collections','designermaster','dsgworkflow','warehousekpi','stockadjmgmt','returnreason','tradorders','invcheck','salesperf','reminders','announcements','marte','royalty'];
   if (_pages.includes(_pg))
     showPage(_pg, document.getElementById('nav-'+_pg));
 }
@@ -226,7 +226,7 @@ function showPage(name, el) {
   document.getElementById("page-"+name).classList.add("active");
   if (el) el.classList.add("active");
   const _c = document.querySelector('.content'); if (_c) _c.scrollTop = 0;
-  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories"};
+  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -305,6 +305,7 @@ function showPage(name, el) {
   if (name==="announcements") loadAnnouncements();
   if (name==="marte") loadMarteSettlements();
   if (name==="martereport") { const inp=document.getElementById('mr-period'); if(!inp.value) inp.value=new Date().toISOString().slice(0,7); }
+  if (name==="royalty") { const inp=document.getElementById('ry-period'); if(inp && !inp.value) inp.value=new Date().toISOString().slice(0,7); }
   if (name==="marteskucat") loadMarteSKUCat();
   window.scrollTo(0, 0);
   closeMobileSidebar();
@@ -15256,6 +15257,234 @@ function exportPDForVendor(vendor) {
   w.document.write(html);
   w.document.close();
   w.addEventListener('load', () => setTimeout(()=>w.print(), 400));
+}
+
+// ── ROYALTY REPORT ──
+let _ryRows = [];        // computed [{ipId, ipName, category, royaltyType, percentage, termin, pphRate, qty, gross, royalty, pphAmount, net, ...}]
+let _ryPeriod = '';
+
+function ryNavPeriod(delta) {
+  const inp = document.getElementById('ry-period');
+  if (!inp) return;
+  const cur = inp.value || new Date().toISOString().slice(0,7);
+  if (delta === 0) { inp.value = new Date().toISOString().slice(0,7); return; }
+  const [y, m] = cur.split('-').map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  inp.value = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+}
+
+function _ryRp(n) {
+  if (!n) return 'Rp 0';
+  return 'Rp ' + new Intl.NumberFormat('id-ID').format(Math.round(Number(n)));
+}
+
+function _ryEsc(s) {
+  return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+async function loadRoyaltyReport() {
+  const period = document.getElementById('ry-period').value;
+  const fb  = document.getElementById('ry-feedback');
+  const btn = document.getElementById('ry-load-btn');
+  if (!period) { fb.textContent='Pilih periode dulu.'; fb.className='feedback err'; return; }
+
+  _ryPeriod = period;
+  fb.textContent = ''; btn.textContent = 'Loading...'; btn.disabled = true;
+
+  const [year, month] = period.split('-').map(Number);
+  // Use WIB date boundaries: period covers month 1st 00:00 WIB → next month 1st 00:00 WIB
+  const startISO = `${period}-01T00:00:00+07:00`;
+  const nextMonth = new Date(year, month, 1);
+  const endISO = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth()+1).padStart(2,'0')}-01T00:00:00+07:00`;
+
+  try {
+    // 1. Pull non-canceled sales orders in the period
+    const orders = await _fetchAllPages(
+      'jubelio_sales_orders',
+      'salesorder_id,transaction_date,wms_status,is_canceled,sub_total',
+      q => q.gte('transaction_date', startISO).lt('transaction_date', endISO).neq('wms_status','CANCELED')
+    );
+    const orderIds = orders.map(o => o.salesorder_id);
+    fb.textContent = `${orders.length.toLocaleString('id-ID')} orders → mengambil items...`;
+
+    // 2. Pull items for those orders, chunked
+    const items = [];
+    for (let i = 0; i < orderIds.length; i += 500) {
+      const chunk = orderIds.slice(i, i+500);
+      const rows = await _fetchAllPages(
+        'jubelio_sales_order_items',
+        'salesorder_id,item_name,qty,price,disc_amount,amount,is_canceled_item',
+        q => q.in('salesorder_id', chunk)
+      );
+      items.push(...rows);
+    }
+
+    // 3. Product mappings (item_name → IP)
+    fb.textContent = `${items.length.toLocaleString('id-ID')} items → mapping ke IP...`;
+    const mappings = await _fetchAllPages(
+      'product_mappings',
+      'item_name,ip',
+      q => q.not('ip','is',null)
+    );
+    const itemToIP = new Map();
+    mappings.forEach(m => { if (m.item_name && m.ip) itemToIP.set(m.item_name, m.ip); });
+
+    // 4. IP Master royalty config
+    const {data: ipRows, error: ipErr} = await sb.from('ip_master')
+      .select('id,name,category,royalty_type,percentage,fixed_amount,termin,pph_tax_rate,live_status');
+    if (ipErr) throw ipErr;
+    const ipByName = new Map();
+    (ipRows||[]).forEach(r => ipByName.set((r.name||'').trim(), r));
+
+    // 5. Aggregate per IP
+    const byIP = new Map();
+    items.forEach(it => {
+      if (it.is_canceled_item) return;
+      const ipName = itemToIP.get(it.item_name);
+      if (!ipName) return;  // unmapped item, ignore for royalty calc
+      const qty   = parseFloat(it.qty || 0) || 0;
+      // Gross = item.amount (already factors disc); fallback to qty*price - disc_amount
+      const gross = parseFloat(it.amount || 0) || (qty * (parseFloat(it.price||0)||0) - (parseFloat(it.disc_amount||0)||0));
+      if (!byIP.has(ipName)) byIP.set(ipName, { qty:0, gross:0 });
+      const a = byIP.get(ipName);
+      a.qty   += qty;
+      a.gross += gross;
+    });
+
+    // 6. Compose rows joining sales + ip_master config
+    _ryRows = [];
+    byIP.forEach((agg, ipName) => {
+      const ip = ipByName.get(ipName) || {};
+      const pct = parseFloat(ip.percentage||0) || 0;
+      const fixedAmt = parseFloat(ip.fixed_amount||0) || 0;
+      const royaltyType = (ip.royalty_type||'').trim() || (pct?'Post-Sales':(fixedAmt?'Advance':'—'));
+      const pphRate = parseFloat(ip.pph_tax_rate||0) || 0;
+      // Post-Sales / percentage based: royalty = gross × %
+      const royalty = (royaltyType === 'Advance') ? 0 : (agg.gross * pct / 100);
+      const pphAmount = royalty * pphRate / 100;
+      const net = royalty - pphAmount;
+      _ryRows.push({
+        ipId: ip.id || '',
+        ipName,
+        category: ip.category || '—',
+        royaltyType,
+        percentage: pct,
+        fixedAmount: fixedAmt,
+        termin: ip.termin || '—',
+        pphRate,
+        qty: agg.qty,
+        gross: agg.gross,
+        royalty,
+        pphAmount,
+        net,
+        liveStatus: ip.live_status || '',
+        inIpMaster: ipByName.has(ipName),
+      });
+    });
+    _ryRows.sort((a,b) => b.gross - a.gross);
+
+    ryRenderTable();
+    document.getElementById('ry-stats').style.display = 'grid';
+    document.getElementById('ry-result-wrap').style.display = 'block';
+    fb.textContent = '';
+  } catch(e) {
+    console.error('loadRoyaltyReport:', e);
+    fb.textContent = 'Error: ' + (e.message||e);
+    fb.className = 'feedback err';
+  } finally {
+    btn.textContent = 'Load Data'; btn.disabled = false;
+  }
+}
+
+function ryRenderTable() {
+  const search = (document.getElementById('ry-search')?.value || '').trim().toLowerCase();
+  const typeFil = document.getElementById('ry-fil-type')?.value || '';
+  const rows = _ryRows.filter(r => {
+    if (search && !r.ipName.toLowerCase().includes(search)) return false;
+    if (typeFil && r.royaltyType !== typeFil) return false;
+    return true;
+  });
+
+  // Aggregate stats from filtered rows (so filter reshapes the totals)
+  let totQty = 0, totGross = 0, totRoyalty = 0, totPph = 0, totNet = 0;
+  rows.forEach(r => { totQty+=r.qty; totGross+=r.gross; totRoyalty+=r.royalty; totPph+=r.pphAmount; totNet+=r.net; });
+
+  document.getElementById('ry-s-ips').textContent     = rows.length;
+  document.getElementById('ry-s-qty').textContent     = new Intl.NumberFormat('id-ID').format(Math.round(totQty));
+  document.getElementById('ry-s-gross').textContent   = _ryRp(totGross);
+  document.getElementById('ry-s-royalty').textContent = _ryRp(totRoyalty);
+  document.getElementById('ry-s-net').textContent     = _ryRp(totNet);
+  document.getElementById('ry-tcount').textContent    = `${rows.length} IP${typeFil?` · ${typeFil}`:''}`;
+
+  const tb = document.getElementById('ry-tbody');
+  if (!rows.length) {
+    tb.innerHTML = `<tr><td colspan="11" class="empty-td" style="padding:32px;text-align:center;color:var(--g400);font-size:12px">${_ryRows.length?'Tidak ada IP cocok filter.':'Tidak ada sales yang ter-mapping ke IP di periode ini.'}</td></tr>`;
+    document.getElementById('ry-tfoot').innerHTML = '';
+    return;
+  }
+
+  tb.innerHTML = rows.map(r => {
+    const typeClass = r.royaltyType==='Post-Sales'?'p-active':r.royaltyType==='Advance'?'p-signings':r.royaltyType==='Both'?'p-review':'p-inactive';
+    const missing = !r.inIpMaster
+      ? `<span style="color:#c0392b;font-size:10px;margin-left:6px" title="IP tidak ditemukan di IP Master">⚠</span>`
+      : '';
+    return `<tr>
+      <td style="font-weight:600">${_ryEsc(r.ipName)}${missing}</td>
+      <td><span class="pill p-draft" style="font-size:10px">${_ryEsc(r.category)}</span></td>
+      <td>${r.royaltyType?`<span class="pill ${typeClass}" style="font-size:10px">${_ryEsc(r.royaltyType)}</span>`:'—'}</td>
+      <td class="mono" style="text-align:right">${r.percentage?r.percentage.toFixed(2)+'%':'—'}</td>
+      <td style="font-size:11px;color:var(--g600)">${_ryEsc(r.termin)}</td>
+      <td class="mono" style="text-align:right;border-left:2px solid var(--g100)">${new Intl.NumberFormat('id-ID').format(Math.round(r.qty))}</td>
+      <td class="mono" style="text-align:right">${_ryRp(r.gross)}</td>
+      <td class="mono" style="text-align:right;border-left:2px solid var(--g100);font-weight:600">${r.royalty?_ryRp(r.royalty):'—'}</td>
+      <td class="mono" style="text-align:right">${r.pphRate?r.pphRate.toFixed(2)+'%':'—'}</td>
+      <td class="mono" style="text-align:right;color:#c0392b">${r.pphAmount?'-'+_ryRp(r.pphAmount):'—'}</td>
+      <td class="mono" style="text-align:right;font-weight:700">${r.net?_ryRp(r.net):'—'}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('ry-tfoot').innerHTML = `<tr>
+    <td colspan="5" style="padding:10px;font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--g600)">Total (${rows.length} IP)</td>
+    <td class="mono" style="text-align:right;border-left:2px solid var(--g100)">${new Intl.NumberFormat('id-ID').format(Math.round(totQty))}</td>
+    <td class="mono" style="text-align:right">${_ryRp(totGross)}</td>
+    <td class="mono" style="text-align:right;border-left:2px solid var(--g100)">${_ryRp(totRoyalty)}</td>
+    <td></td>
+    <td class="mono" style="text-align:right;color:#c0392b">${totPph?'-'+_ryRp(totPph):'—'}</td>
+    <td class="mono" style="text-align:right;font-weight:700">${_ryRp(totNet)}</td>
+  </tr>`;
+}
+
+function downloadRoyaltyCSV() {
+  if (!_ryRows.length) { alert('Load data dulu.'); return; }
+  const search = (document.getElementById('ry-search')?.value || '').trim().toLowerCase();
+  const typeFil = document.getElementById('ry-fil-type')?.value || '';
+  const rows = _ryRows.filter(r => {
+    if (search && !r.ipName.toLowerCase().includes(search)) return false;
+    if (typeFil && r.royaltyType !== typeFil) return false;
+    return true;
+  });
+  const esc = s => {
+    if (s===null||s===undefined) return '';
+    const t = String(s);
+    return /[",\n\r]/.test(t) ? '"'+t.replace(/"/g,'""')+'"' : t;
+  };
+  const headers = ['IP','Category','Royalty Type','% Royalty','Termin','Qty','Gross Sales (Rp)','Royalty (Rp)','PPh %','PPh (Rp)','Net Royalty (Rp)'];
+  const lines = [headers.map(esc).join(',')];
+  rows.forEach(r => {
+    lines.push([
+      r.ipName, r.category, r.royaltyType,
+      r.percentage||'', r.termin,
+      Math.round(r.qty), Math.round(r.gross),
+      Math.round(r.royalty), r.pphRate||'',
+      Math.round(r.pphAmount), Math.round(r.net)
+    ].map(esc).join(','));
+  });
+  const blob = new Blob([lines.join('\r\n')], {type:'text/csv;charset=utf-8;'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `royalty-report-${_ryPeriod}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
 
 // ── DUPLICATE CHECK ──
