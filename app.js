@@ -10952,7 +10952,14 @@ async function loadInsights() {
       });
     } catch(e){ console.warn('get_history_rev:',e); }
 
-    _insData={ID_MONTHS,cm,dayOfYear,daysLeft,monthlyTotals,projectedMonthly,ipMonthly,
+    // Annual revenue 2024 (orders) + 2025 (history) for the multi-year trend
+    const annualRev = {};
+    try {
+      const {data:annRows} = await sb.rpc('get_insights_annual_rev');
+      (annRows||[]).forEach(r=>{ annualRev[r.yr]=parseFloat(r.net||0)||0; });
+    } catch(e){ console.warn('get_insights_annual_rev:',e); }
+
+    _insData={ID_MONTHS,cm,dayOfYear,daysLeft,monthlyTotals,projectedMonthly,ipMonthly,annualRev,
       ytdNet,yearEndProj,projDailyNet,stockHorizon,ips:Object.keys(ipMonthly).sort(),
       geoProvinces,geoCities,geoTotal,geoIntl,geoRaw,ipToOrderIds,brandToOrderIds,brandMonthly,
       catData,histIP,histBrand};
@@ -10996,6 +11003,25 @@ function _renderInsRevenue() {
   _se('ins-r-projected',fmtRp(d.yearEndProj));
   _se('ins-r-best',(bestIdx>=0?d.ID_MONTHS[bestIdx]+' · ':'')+fmtRp(bestVal));
   _se('ins-r-avg',fmtRp(avgMonthly));
+
+  // Annual revenue trend 2024 · 2025 · 2026(YTD) · 2026(proyeksi)
+  const annEl=document.getElementById('ins-annual');
+  if (annEl) {
+    const a=d.annualRev||{};
+    const rev24=a[2024]||0, rev25=a[2025]||0, rev26=d.ytdNet, rev26p=d.yearEndProj;
+    const yoy=(cur,prev)=>prev>0?((cur-prev)/prev*100):null;
+    const yoyStr=p=>p===null?'':`<span style="font-size:11px;font-weight:600;color:${p>=0?'#2d7a2d':'#c0392b'}">${p>=0?'▲':'▼'} ${Math.abs(p).toFixed(0)}% YoY</span>`;
+    const card=(lbl,val,sub)=>`<div style="border:1px solid var(--g100);border-radius:8px;padding:12px 14px;background:var(--off)">
+      <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);letter-spacing:.05em">${lbl}</div>
+      <div style="font-size:18px;font-weight:700;font-family:var(--head);margin:4px 0 2px">${fmtRp(val)}</div>
+      <div>${sub||'&nbsp;'}</div>
+    </div>`;
+    annEl.innerHTML =
+      card('2024', rev24, '<span style="font-size:11px;color:var(--g400)">full year</span>') +
+      card('2025', rev25, yoyStr(yoy(rev25,rev24))) +
+      card('2026 YTD', rev26, yoyStr(yoy(rev26, (rev25 * (d.cm/12))))) +
+      card('2026 Proyeksi', rev26p, yoyStr(yoy(rev26p, rev25)));
+  }
 
   // Chart
   const canvas=document.getElementById('ins-chart');
