@@ -4120,8 +4120,8 @@ function renderColTable(rows) {
       : `<span style="color:var(--g400);font-size:11px">—</span>`;
     const mbCell=r.moodboardUrl?`<a href="${r.moodboardUrl}" target="_blank" onclick="event.stopPropagation()" style="color:#3C3489;font-size:12px;text-decoration:none">↗ Lihat</a>`:"—";
     return `<tr style="cursor:pointer" onclick="openCollectionDetail('${r.id}')">
-      <td><strong>${r.collectionName||"—"}</strong></td>
-      <td style="font-size:12px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.ipRelated||"—"}</td>
+      <td style="font-size:12px;font-weight:600;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.ipRelated||"—"}</td>
+      <td>${r.collectionName||"—"}</td>
       <td style="white-space:nowrap;font-size:12px">${fmtDate(r.releaseDate)}</td>
       <td>${r.priority?`<span class="pill ${prioColor[r.priority]||"p-draft"}" style="font-size:11px">${r.priority}</span>`:"—"}</td>
       <td style="white-space:nowrap">${skuBadge}</td>
