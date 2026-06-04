@@ -10952,17 +10952,29 @@ async function loadInsights() {
       });
     } catch(e){ console.warn('get_history_rev:',e); }
 
-    // Annual revenue 2024 (orders) + 2025 (history) for the multi-year trend
+    // Annual revenue 2024 + 2025 (history) for the multi-year trend
     const annualRev = {};
     try {
       const {data:annRows} = await sb.rpc('get_insights_annual_rev');
       (annRows||[]).forEach(r=>{ annualRev[r.yr]=parseFloat(r.net||0)||0; });
     } catch(e){ console.warn('get_insights_annual_rev:',e); }
 
+    // Per-IP yearly revenue (2024/2025) for Momentum + raw category history for Category tab
+    const ipYear={};   // ip → {2024,2025}
+    let catHist=[];
+    try {
+      const [{data:eyRows}, {data:chRows}] = await Promise.all([
+        sb.rpc('get_entity_year_rev'),
+        sb.rpc('get_cat_history'),
+      ]);
+      (eyRows||[]).forEach(r=>{ if(r.kind!=='ip') return; (ipYear[r.name]=ipYear[r.name]||{})[r.yr]=parseFloat(r.rev||0)||0; });
+      catHist = (chRows||[]).map(r=>({rawcat:r.rawcat||'', rev:parseFloat(r.rev||0)||0, qty:parseFloat(r.qty||0)||0, orders:parseInt(r.orders||0)||0}));
+    } catch(e){ console.warn('insights history aggregates:',e); }
+
     _insData={ID_MONTHS,cm,dayOfYear,daysLeft,monthlyTotals,projectedMonthly,ipMonthly,annualRev,
       ytdNet,yearEndProj,projDailyNet,stockHorizon,ips:Object.keys(ipMonthly).sort(),
       geoProvinces,geoCities,geoTotal,geoIntl,geoRaw,ipToOrderIds,brandToOrderIds,brandMonthly,
-      catData,histIP,histBrand};
+      catData,histIP,histBrand,ipYear,catHist};
 
     emEl.style.display='none';
     document.getElementById('instab-'+_insTab).style.display='block';
@@ -11115,9 +11127,11 @@ function _renderInsMomentum() {
   <table style="width:100%;border-collapse:collapse;font-size:12px">
     <thead><tr style="background:#f7f8fa;border-bottom:2px solid var(--g200)">
       <th style="padding:8px 10px;text-align:left;font-weight:600;white-space:nowrap">IP</th>
+      <th style="padding:8px 10px;text-align:right;font-weight:600;white-space:nowrap;color:var(--g400)">2024</th>
+      <th style="padding:8px 10px;text-align:right;font-weight:600;white-space:nowrap;color:var(--g400)">2025</th>
       ${visMo.map(mi=>`<th style="padding:8px 10px;text-align:right;font-weight:600;min-width:70px">${d.ID_MONTHS[mi]}</th>`).join('')}
       <th style="padding:8px 10px;text-align:right;font-weight:600;white-space:nowrap">MoM</th>
-      <th style="padding:8px 10px;text-align:right;font-weight:600;white-space:nowrap">YTD Net</th>
+      <th style="padding:8px 10px;text-align:right;font-weight:600;white-space:nowrap">2026 YTD</th>
       <th style="padding:8px 10px;text-align:center;font-weight:600">Trend</th>
     </tr></thead><tbody>`;
 
@@ -11126,8 +11140,11 @@ function _renderInsMomentum() {
     const momStr=bs.mom!==null?(bs.mom>=0?'+':'')+bs.mom.toFixed(1)+'%':'—';
     const momClr=bs.mom===null?'#aaa':bs.mom>0?'#2d7a2d':'#c0392b';
     const tClr=bs.trend==='↑'||bs.trend==='↗'?'#2d7a2d':bs.trend==='↓'||bs.trend==='↘'?'#c0392b':'#888';
+    const hy=(d.ipYear||{})[bs.ip]||{};
+    const cellY=v=>`<td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--g500)">${v>0?fmtRp(v):'—'}</td>`;
     html+=`<tr style="border-bottom:1px solid var(--g100)">
       <td style="padding:7px 10px;font-weight:500">${bs.ip}</td>
+      ${cellY(hy[2024]||0)}${cellY(hy[2025]||0)}
       ${visMo.map(mi=>{
         const net=bs.mo[mi].net;
         const bg=net>0?`rgba(60,52,137,${((net/maxNet)*0.25).toFixed(2)})`:'transparent';
@@ -11451,7 +11468,15 @@ function _renderInsCat() {
   const fmtRp = n => n>=1e9 ? 'Rp '+(n/1e9).toFixed(1)+'M' : n>=1e6 ? 'Rp '+(n/1e6).toFixed(1)+'jt' : 'Rp '+Math.round(n).toLocaleString('id-ID');
   const fmtN  = n => n.toLocaleString('id-ID');
 
-  const cats = d.catData;
+  // Combine 2026 category data with 2024–2025 history (category derived from raw 3rd segment)
+  const catMap = {};
+  const _add = (cat,rev,qty,ord)=>{ const m=catMap[cat]||(catMap[cat]={cat,revenue:0,qty:0,orders:0}); m.revenue+=rev; m.qty+=qty; m.orders+=ord; };
+  (d.catData||[]).forEach(c=>_add(c.cat, c.revenue||0, c.qty||0, c.orders||0));
+  (d.catHist||[]).forEach(h=>{
+    const cat = !h.rawcat ? '(Lainnya)' : (_CAT_NORM[h.rawcat] || h.rawcat.toLowerCase().replace(/\b\w/g,c=>c.toUpperCase()));
+    _add(cat, h.rev||0, h.qty||0, h.orders||0);
+  });
+  const cats = Object.values(catMap).sort((a,b)=>b.revenue-a.revenue);
   const totalRev = cats.reduce((s,c)=>s+c.revenue,0);
   const validCats = cats.filter(c=>c.cat!=='(Lainnya)');
 
