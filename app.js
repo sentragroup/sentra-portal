@@ -3789,12 +3789,21 @@ function mapCol(r) {
 function mapCI(r) {
   return {
     rowIndex:r.id, id:r.id, collectionId:r.collection_id,
-    skuName:r.sku_name||"", category:r.category||"", designer:r.designer||"",
+    skuName:r.sku_name||"", category:r.category||"", subCategory:r.sub_category||"",
+    designer:r.designer||"",
     deadline:r.deadline||"", designPreviewUrl:r.design_preview_url||"",
     approvalStatus:r.approval_status||"Pending", notes:r.notes||"",
     samplingStatus:r.sampling_status||"Not Started", samplingNotes:r.sampling_notes||"",
     productionStatus:r.production_status||"Not Started", productionNotes:r.production_notes||""
   };
+}
+
+// Compose the final display SKU name from its parts: {IP} - {core} - {kategori} - {sub-kategori}
+function composeSkuName(ipRelated, coreName, category, subCategory) {
+  return [ipRelated, coreName, category, subCategory]
+    .map(s => (s||'').trim())
+    .filter(Boolean)
+    .join(' - ');
 }
 
 let allColStages = [];
@@ -4194,7 +4203,8 @@ function cdSkuStatusSelect(itemId, colId, stageKey, currentVal) {
 function renderColDetail(col, items) {
   const prioColor={High:"p-expired",Medium:"p-near",Low:"p-draft"};
   const statusColor=col.status==="Done"?"p-active":col.status==="In Progress"?"p-signings":"p-draft";
-  const skuCats=[...new Set([...SKU_CATEGORIES_DEFAULT,...allColItems.map(i=>i.category).filter(Boolean)])];
+  const skuCats=[...new Set([...SKU_CATEGORIES_DEFAULT,...allColItems.map(i=>i.category).filter(Boolean)])].sort();
+  const skuSubCats=[...new Set(allColItems.map(i=>i.subCategory).filter(Boolean))].sort();
   // DW rows for this collection (for preview links + design card)
   const colDwRows=allDwRows.filter(r=>r.collectionId===col.id&&r.locked);
 
@@ -4325,12 +4335,19 @@ function renderColDetail(col, items) {
         </div>
         <!-- SKU Master List -->
         ${cdStageBox("📋","SKUs & Design",`<span style="font-size:11px;color:var(--g400);font-family:var(--mono);margin-left:auto">${items.length} items</span>`,`
-          <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;padding:12px;background:var(--off);border-radius:6px;margin-bottom:14px">
-            <div class="fg" style="min-width:160px;flex:2"><label style="font-size:11px">Nama SKU *</label><input type="text" id="ci-dp-name-${col.id}" placeholder="Nama item/SKU"></div>
-            <div class="fg" style="min-width:130px;flex:1.5;position:relative"><label style="font-size:11px">Kategori</label><input type="text" id="ci-dp-cat-${col.id}" placeholder="T-Shirt, Bag Charm..." autocomplete="off"><div class="ac-list" id="ac-ci-dp-cat-${col.id}"></div></div>
-            <div class="fg" style="min-width:140px;flex:1.5;position:relative"><label style="font-size:11px">Designer</label><input type="text" id="ci-dp-dsg-${col.id}" placeholder="Pilih dari designer master" autocomplete="off"><div class="ac-list" id="ac-ci-dp-${col.id}"></div></div>
-            <div class="fg" style="min-width:120px;flex:1"><label style="font-size:11px">Deadline</label><input type="date" id="ci-dp-deadline-${col.id}"></div>
-            <div style="padding-bottom:2px"><button class="btn-primary" style="padding:6px 14px;font-size:12px" onclick="addCollectionItem('${col.id}')">+ Tambah</button></div>
+          <div style="padding:12px;background:var(--off);border-radius:6px;margin-bottom:14px">
+            <div style="font-size:11px;color:var(--g600);font-family:var(--mono);margin-bottom:8px">
+              Final SKU: <b id="ci-dp-preview-${col.id}" style="color:var(--black)">${(col.ipRelated||'IP').replace(/</g,'&lt;')} - ...</b>
+              <span style="color:var(--g400);font-weight:400">· IP otomatis dari collection</span>
+            </div>
+            <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+              <div class="fg" style="min-width:160px;flex:2"><label style="font-size:11px">Nama SKU * <span style="color:var(--g400);font-weight:400">(core, tanpa IP)</span></label><input type="text" id="ci-dp-name-${col.id}" placeholder="cth: Artwork 1" oninput="updateCIDpPreview('${col.id}')"></div>
+              <div class="fg" style="min-width:120px;flex:1.2;position:relative"><label style="font-size:11px">Kategori</label><input type="text" id="ci-dp-cat-${col.id}" placeholder="T-Shirt, Cap..." autocomplete="off" oninput="updateCIDpPreview('${col.id}')"><div class="ac-list" id="ac-ci-dp-cat-${col.id}"></div></div>
+              <div class="fg" style="min-width:120px;flex:1.2;position:relative"><label style="font-size:11px">Sub-Kategori <span style="color:var(--g400);font-weight:400">(fitting)</span></label><input type="text" id="ci-dp-subcat-${col.id}" placeholder="Boxy Tee, Regular..." autocomplete="off" oninput="updateCIDpPreview('${col.id}')"><div class="ac-list" id="ac-ci-dp-subcat-${col.id}"></div></div>
+              <div class="fg" style="min-width:130px;flex:1.3;position:relative"><label style="font-size:11px">Designer</label><input type="text" id="ci-dp-dsg-${col.id}" placeholder="Pilih dari designer master" autocomplete="off"><div class="ac-list" id="ac-ci-dp-${col.id}"></div></div>
+              <div class="fg" style="min-width:120px;flex:0.9"><label style="font-size:11px">Deadline</label><input type="date" id="ci-dp-deadline-${col.id}"></div>
+              <div style="padding-bottom:2px"><button class="btn-primary" style="padding:6px 14px;font-size:12px" onclick="addCollectionItem('${col.id}')">+ Tambah</button></div>
+            </div>
           </div>
           ${items.length?`<div class="table-wrap" style="max-height:400px;overflow-y:auto"><table style="width:100%">
             <thead><tr style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">
@@ -4432,11 +4449,14 @@ function renderColDetail(col, items) {
   setupAC("col-dp-ip","ac-col-dp-ip",()=>allIPRows.map(x=>x.name).filter(Boolean));
   setupAC("col-dp-pic","ac-col-dp-pic",()=>acPics);
   setupAC(`ci-dp-cat-${col.id}`,`ac-ci-dp-cat-${col.id}`,()=>skuCats);
+  setupAC(`ci-dp-subcat-${col.id}`,`ac-ci-dp-subcat-${col.id}`,()=>skuSubCats);
   setupAC(`ci-dp-dsg-${col.id}`,`ac-ci-dp-${col.id}`,()=>allDsgRows.filter(d=>d.status==="Active").map(d=>d.name));
   items.forEach(i=>{
     setupAC(`cie-cat-${i.id}`,`ac-cie-cat-${i.id}`,()=>skuCats);
     setupAC(`cie-dsg-${i.id}`,`ac-cie-dsg-${i.id}`,()=>allDsgRows.filter(d=>d.status==="Active").map(d=>d.name));
   });
+  // Prime the SKU preview text
+  updateCIDpPreview(col.id);
   colDwRows.filter(dw=>dw.designer).forEach(dw=>{
     setupAC(`cd-dw-agr-${dw.id}`,`ac-cd-dw-agr-${dw.id}`,()=>acAgrOptions.map(o=>o.id),()=>acAgrOptions);
   });
@@ -5154,15 +5174,33 @@ async function handleRemoveCPLink(linkId, colId){
   }catch(e){alert("Gagal: "+(e.message||e));}
 }
 
+// Live preview of the composed SKU name in the add form
+function updateCIDpPreview(colId) {
+  const col = allColRows.find(r => r.id === colId);
+  const ip  = col?.ipRelated || 'IP';
+  const core = document.getElementById(`ci-dp-name-${colId}`)?.value.trim() || '';
+  const cat  = document.getElementById(`ci-dp-cat-${colId}`)?.value.trim() || '';
+  const sub  = document.getElementById(`ci-dp-subcat-${colId}`)?.value.trim() || '';
+  const preview = composeSkuName(ip, core || '…', cat, sub);
+  const el = document.getElementById(`ci-dp-preview-${colId}`);
+  if (el) el.textContent = preview;
+}
+
 async function addCollectionItem(colId) {
-  const nm=document.getElementById(`ci-dp-name-${colId}`)?.value.trim();
-  if(!nm){alert("Nama SKU wajib diisi.");return;}
+  const core = document.getElementById(`ci-dp-name-${colId}`)?.value.trim();
+  if(!core){alert("Nama SKU wajib diisi.");return;}
+  const cat = document.getElementById(`ci-dp-cat-${colId}`)?.value.trim() || '';
+  const sub = document.getElementById(`ci-dp-subcat-${colId}`)?.value.trim() || '';
+  const col = allColRows.find(r => r.id === colId);
+  const ip  = col?.ipRelated || '';
+  const composedName = composeSkuName(ip, core, cat, sub);
   try {
     const id=genId("CI");
     const {error}=await sb.from("collection_items").insert({
       id, collection_id:colId,
-      sku_name:nm,
-      category:document.getElementById(`ci-dp-cat-${colId}`)?.value.trim()||null,
+      sku_name: composedName,
+      category: cat || null,
+      sub_category: sub || null,
       designer:document.getElementById(`ci-dp-dsg-${colId}`)?.value.trim()||null,
       deadline:document.getElementById(`ci-dp-deadline-${colId}`)?.value||null,
       approval_status:"Pending",
@@ -5170,8 +5208,8 @@ async function addCollectionItem(colId) {
       last_updated:new Date().toISOString(), last_updated_by:currentUser
     });
     if(error)throw error;
-    [`ci-dp-name-${colId}`,`ci-dp-cat-${colId}`,`ci-dp-dsg-${colId}`,`ci-dp-deadline-${colId}`].forEach(eid=>{const el=document.getElementById(eid);if(el)el.value="";});
-    logActivity("Collections","create",id,`SKU: ${nm}`);
+    [`ci-dp-name-${colId}`,`ci-dp-cat-${colId}`,`ci-dp-subcat-${colId}`,`ci-dp-dsg-${colId}`,`ci-dp-deadline-${colId}`].forEach(eid=>{const el=document.getElementById(eid);if(el)el.value="";});
+    logActivity("Collections","create",id,`SKU: ${composedName}`);
     const {data}=await sb.from("collection_items").select("*").eq("collection_id",colId);
     allColItems=allColItems.filter(i=>i.collectionId!==colId).concat((data||[]).map(mapCI));
     const col=allColRows.find(r=>r.id===colId);
