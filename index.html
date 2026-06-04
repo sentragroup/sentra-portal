@@ -2397,6 +2397,7 @@
       <button class="tab-btn" id="ins-tab-geo" onclick="switchInsTab('geo',this)">Geo Map</button>
       <button class="tab-btn" id="ins-tab-bcg" onclick="switchInsTab('bcg',this)">BCG Matrix</button>
       <button class="tab-btn" id="ins-tab-cat" onclick="switchInsTab('cat',this)">Product Category</button>
+      <button class="tab-btn" id="ins-tab-prod" onclick="switchInsTab('prod',this)">Rekomendasi Produksi</button>
     </div>
     <div id="ins-empty" style="text-align:center;padding:3rem;color:var(--g400);font-family:var(--mono);font-size:12px">Klik "↻ Load Insights" untuk memuat data 2026.</div>
 
@@ -2537,6 +2538,25 @@
         <div style="position:relative"><canvas id="ins-cat-chart"></canvas></div>
       </div>
       <div id="ins-cat-table"></div>
+    </div>
+
+    <!-- Rekomendasi Produksi -->
+    <div id="instab-prod" style="display:none">
+      <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1rem">
+        <div class="stat-card danger"><div class="stat-num" id="ins-p-need">—</div><div class="stat-lbl">SKU Perlu Produksi</div></div>
+        <div class="stat-card"><div class="stat-num" id="ins-p-units">—</div><div class="stat-lbl">Total Unit Rekomendasi</div></div>
+        <div class="stat-card warn"><div class="stat-num" id="ins-p-urgent">—</div><div class="stat-lbl">Urgent (runway &lt;30 hari)</div></div>
+        <div class="stat-card success"><div class="stat-num" id="ins-p-ok">—</div><div class="stat-lbl">Stok Cukup</div></div>
+      </div>
+      <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:1rem">
+        <label style="font-size:13px;display:flex;align-items:center;gap:8px">Target coverage:
+          <input type="number" id="ins-p-coverage" value="3" min="1" max="24" step="1" oninput="_renderInsProdTable()" style="width:64px;padding:5px 8px;border:1px solid var(--g200);border-radius:6px;font-family:var(--mono)"> bulan
+        </label>
+        <input type="text" id="ins-p-search" placeholder="Cari produk / IP..." oninput="_renderInsProdTable()" style="padding:5px 10px;font-size:12px;border:1px solid var(--g200);border-radius:6px;width:240px">
+        <label style="font-size:12px;color:var(--g500);display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="ins-p-onlyneed" checked onchange="_renderInsProdTable()"> Hanya yang perlu produksi</label>
+        <span style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--g400)">Rekomendasi = (rata2 demand/bln × coverage) − stok · demand 12 bln terakhir</span>
+      </div>
+      <div id="ins-prod-wrap"></div>
     </div>
 
   </div><!-- /.page#page-insights -->
@@ -3331,6 +3351,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260604o"></script>
+<script src="app.js?v=20260604p"></script>
 </body>
 </html>
