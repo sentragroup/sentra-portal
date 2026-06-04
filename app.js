@@ -10793,7 +10793,7 @@ function _spProdGoPage(page) {
 
 // ── INSIGHTS ──
 async function loadInsights() {
-  _insProdRows = null;   // force production-reco refetch
+  _insProdRows = null; _plnGroups = null;   // force production-reco + planner refetch
   const btn = document.getElementById('ins-run-btn');
   btn.disabled = true; btn.textContent = 'Memuat...';
   const emEl = document.getElementById('ins-empty');
@@ -11588,8 +11588,124 @@ function _renderInsCat() {
 
 // ── INSIGHTS PRODUCTION RECO ──
 let _insProdRows = null;   // raw per-SKU rows from get_production_reco
+let _plnGroups = null;     // ip → { catLabel → [{name,units,variants}] }
+
+function _plnCatLabel(raw) {
+  if (!raw) return '(Lainnya)';
+  return _CAT_NORM[raw] || raw.toLowerCase().replace(/\b\w/g, c=>c.toUpperCase());
+}
+function _plnStripSize(name) {
+  const p = (name||'').split(' - ');
+  return p.length > 2 ? p.slice(0,-1).join(' - ') : (name||'');
+}
+
+async function _loadPlannerData() {
+  if (_plnGroups !== null) return;
+  const rows = [];
+  let from = 0;
+  while (true) {
+    const {data, error} = await sb.rpc('get_design_units').range(from, from+999);
+    if (error) throw error;
+    if (!data || !data.length) break;
+    rows.push(...data);
+    if (data.length < 1000) break;
+    from += 1000;
+  }
+  _plnGroups = {};
+  rows.forEach(r => {
+    const ip = (r.ip||'').trim();
+    if (!ip) return;
+    const cat = _plnCatLabel((r.rawcat||'').trim());
+    (_plnGroups[ip] = _plnGroups[ip] || {});
+    (_plnGroups[ip][cat] = _plnGroups[ip][cat] || []).push({
+      name: _plnStripSize(r.design_name), units: parseFloat(r.units||0)||0, variants: parseInt(r.variants||0)||0,
+    });
+  });
+}
+
+function _insPopulatePlanner() {
+  const ipSel = document.getElementById('ins-pl-ip');
+  if (!ipSel || !_plnGroups) return;
+  // IPs sorted by total designs desc
+  const ips = Object.keys(_plnGroups).sort((a,b)=>{
+    const na = Object.values(_plnGroups[a]).reduce((s,arr)=>s+arr.length,0);
+    const nb = Object.values(_plnGroups[b]).reduce((s,arr)=>s+arr.length,0);
+    return nb-na;
+  });
+  const cur = ipSel.value;
+  ipSel.innerHTML = ips.map(ip=>`<option value="${ip.replace(/"/g,'&quot;')}"${ip===cur?' selected':''}>${ip.replace(/</g,'&lt;')}</option>`).join('');
+  if (!ips.includes(cur) && ips.length) ipSel.value = ips[0];
+  _insPlannerIPChange();
+}
+
+function _insPlannerIPChange() {
+  const ip = document.getElementById('ins-pl-ip')?.value;
+  const catSel = document.getElementById('ins-pl-cat');
+  if (!ip || !catSel || !_plnGroups || !_plnGroups[ip]) return;
+  const cats = Object.keys(_plnGroups[ip]).sort((a,b)=>_plnGroups[ip][b].length - _plnGroups[ip][a].length);
+  const cur = catSel.value;
+  catSel.innerHTML = cats.map(c=>`<option value="${c.replace(/"/g,'&quot;')}"${c===cur?' selected':''}>${c.replace(/</g,'&lt;')} (${_plnGroups[ip][c].length})</option>`).join('');
+  if (!cats.includes(cur) && cats.length) catSel.value = cats[0];
+  _renderInsPlanner();
+}
+
+function _renderInsPlanner() {
+  const box = document.getElementById('ins-pl-result');
+  if (!box || !_plnGroups) return;
+  const ip = document.getElementById('ins-pl-ip')?.value;
+  const cat = document.getElementById('ins-pl-cat')?.value;
+  const designs = (_plnGroups[ip]||{})[cat] || [];
+  if (!designs.length) { box.innerHTML = `<div style="color:var(--g400);font-size:12px">Belum ada desain pembanding.</div>`; return; }
+
+  const fmtN = n => Math.round(n).toLocaleString('id-ID');
+  const units = designs.map(d=>d.units).sort((a,b)=>a-b);
+  const pct = p => { const i = Math.min(units.length-1, Math.floor(p*(units.length-1))); return units[i]; };
+  const median = units.length%2 ? units[(units.length-1)/2] : (units[units.length/2-1]+units[units.length/2])/2;
+  const avg = units.reduce((s,n)=>s+n,0)/units.length;
+  const p75 = pct(0.75);
+  const avgVar = designs.reduce((s,d)=>s+d.variants,0)/designs.length;
+
+  const card = (lbl,val,big,clr)=>`<div style="border:1px solid var(--g100);border-radius:8px;padding:12px 14px;background:var(--off);flex:1;min-width:120px">
+    <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);letter-spacing:.05em">${lbl}</div>
+    <div style="font-size:${big?'24px':'16px'};font-weight:700;font-family:var(--head);margin-top:3px;color:${clr||'var(--black)'}">${val}</div>
+  </div>`;
+
+  const top = [...designs].sort((a,b)=>b.units-a.units).slice(0,15);
+  box.innerHTML = `
+    <div style="background:#eef0fb;border:1px solid #c7cdf0;border-radius:8px;padding:14px 16px;margin-bottom:14px">
+      <div style="font-size:13px;color:var(--g600)">Kalau produksi <b>${ip.replace(/</g,'&lt;')} × ${cat.replace(/</g,'&lt;')}</b> baru, acuan produksi:</div>
+      <div style="font-size:30px;font-weight:800;font-family:var(--head);color:#3C3489;margin-top:4px">${fmtN(median)} unit <span style="font-size:13px;font-weight:500;color:var(--g500)">(median per desain)</span></div>
+      <div style="font-size:12px;color:var(--g500);margin-top:4px">≈ ${fmtN(median/Math.max(1,avgVar))} unit/varian · rata-rata ${avgVar.toFixed(1)} varian per desain</div>
+    </div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+      ${card('Median', fmtN(median)+' unit', true, '#3C3489')}
+      ${card('Rata-rata', fmtN(avg)+' unit')}
+      ${card('P75 (agresif)', fmtN(p75)+' unit')}
+      ${card('Desain pembanding', fmtN(designs.length))}
+    </div>
+    <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);letter-spacing:.05em;margin-bottom:6px">Desain pembanding (top 15 by units, lifetime)</div>
+    <div class="table-wrap" style="margin:0;max-height:280px;overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="background:#f7f8fa;border-bottom:1px solid var(--g200)">
+        <th style="padding:6px 10px;text-align:left;font-weight:600">Desain</th>
+        <th style="padding:6px 10px;text-align:right;font-weight:600">Varian</th>
+        <th style="padding:6px 10px;text-align:right;font-weight:600">Total Unit</th>
+      </tr></thead><tbody>
+      ${top.map(d=>`<tr style="border-bottom:1px solid var(--g100)">
+        <td style="padding:6px 10px">${_esc(d.name)}</td>
+        <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--g500)">${d.variants}</td>
+        <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:11px;font-weight:600">${fmtN(d.units)}</td>
+      </tr>`).join('')}
+      </tbody></table></div>`;
+}
 
 async function _renderInsProd() {
+  // Planner (new-product benchmark) — load once
+  if (_plnGroups === null) {
+    const plBox = document.getElementById('ins-pl-result');
+    if (plBox) plBox.innerHTML = `<div style="color:var(--g400);font-size:12px">Memuat pola desain…</div>`;
+    try { await _loadPlannerData(); _insPopulatePlanner(); }
+    catch(e){ console.error('planner:',e); if(plBox) plBox.innerHTML=`<div style="color:#c0392b;font-size:12px">Gagal memuat planner: ${e.message||e}</div>`; }
+  }
   const wrap = document.getElementById('ins-prod-wrap');
   if (!wrap) return;
   if (_insProdRows === null) {
