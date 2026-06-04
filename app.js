@@ -11314,8 +11314,8 @@ function _renderInsBCG() {
               return [
                 `Share: ${e.share.toFixed(1)}%`,
                 `YoY Growth: ${e.growth>=0?'+':''}${e.growth.toFixed(1)}%`,
-                `Total (25+26): ${fmtRp(e.total)}`,
-                `2026 YTD: ${fmtRp(e.rev2026)} · 2025: ${fmtRp(e.hist2025)}`,
+                `Total (24–26): ${fmtRp(e.total)}`,
+                `2026 YTD: ${fmtRp(e.rev2026)} · 2024–25: ${fmtRp(e.hist2025)}`,
                 `Quadrant: ${QLBL[e.quadrant]}`,
               ];
             }
@@ -11367,9 +11367,9 @@ function _renderInsBCG() {
         <th style="text-align:center">Quadrant</th>
         <th style="text-align:right">Share</th>
         <th style="text-align:right">YoY</th>
-        <th style="text-align:right">Total (25+26)</th>
+        <th style="text-align:right">Total (24–26)</th>
         <th style="text-align:right">2026 YTD</th>
-        <th style="text-align:right">2025</th>
+        <th style="text-align:right">2024–25</th>
       </tr></thead>
       <tbody>${sortedE.map(e=>`
         <tr>
