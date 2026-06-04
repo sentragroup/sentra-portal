@@ -15781,65 +15781,122 @@ async function loadIncomeStatement() {
     }
 
     // 3. Cost map (average_cost per item_id)
-    fb.textContent = `Menghitung COGS...`;
+    fb.textContent = `Memetakan revenue stream...`;
     const costRows = await _fetchAllPages('jubelio_items', 'item_id,average_cost');
     const costMap = new Map();
     costRows.forEach(r => costMap.set(String(r.item_id), parseFloat(r.average_cost)||0));
 
-    // 4. Aggregate
-    let revenue=0, cogs=0, qty=0, costedQty=0;
-    const orderSet = new Set();
+    // 3b. Mappings + IP/Brand config → per-item {stream, royaltyPct}
+    const [mappings, ipCfg, bmCfg] = await Promise.all([
+      _fetchAllPages('product_mappings','jubelio_item_id,item_name,ip,brand'),
+      sb.from('ip_master').select('name,revenue_stream,percentage,royalty_type'),
+      sb.from('brand_master').select('name,revenue_stream'),
+    ]);
+    const ipByName = new Map(); (ipCfg.data||[]).forEach(r=>ipByName.set((r.name||'').trim(), r));
+    const bmByName = new Map(); (bmCfg.data||[]).forEach(r=>bmByName.set((r.name||'').trim(), r));
+    const normStream = s => /mart/i.test(s||'') ? 'Marte' : (s||'').trim();
+    const resolveInfo = mp => {
+      let stream='Belum di-map', pct=0;
+      const ipRow = mp.ip && ipByName.get((mp.ip||'').trim());
+      if (ipRow && ipRow.revenue_stream) {
+        stream = normStream(ipRow.revenue_stream);
+        if ((ipRow.royalty_type||'') !== 'Advance') pct = parseFloat(ipRow.percentage||0)||0;
+      } else {
+        const bRow = mp.brand && bmByName.get((mp.brand||'').trim());
+        if (bRow && bRow.revenue_stream) stream = normStream(bRow.revenue_stream);
+      }
+      return { stream, pct };
+    };
+    const idInfo = new Map(), nameInfo = new Map();
+    mappings.forEach(mp => { const info = resolveInfo(mp);
+      if (mp.jubelio_item_id != null) idInfo.set(String(mp.jubelio_item_id), info);
+      if (mp.item_name) nameInfo.set(mp.item_name, info);
+    });
+
+    // 4. Aggregate own (non-consignment) sales per revenue stream
+    fb.textContent = `Menghitung...`;
+    const streams = {};                 // streamName -> {rev,cogs,qty,royalty}
+    let qty=0, costedQty=0; const orderSet = new Set();
     items.forEach(it => {
       if (it.is_canceled_item) return;
+      const info = (it.item_id != null && idInfo.get(String(it.item_id))) || nameInfo.get(it.item_name) || {stream:'Belum di-map', pct:0};
+      orderSet.add(it.salesorder_id);
+      if (info.stream === 'Marte') return;   // consignment → excluded; only fee counts (below)
       const q2 = parseFloat(it.qty||0)||0;
       const amt = parseFloat(it.amount||0)||0;
       const cost = costMap.get(String(it.item_id)) || 0;
-      revenue += amt; qty += q2;
-      cogs += q2 * cost;
-      if (cost > 0) costedQty += q2;
-      orderSet.add(it.salesorder_id);
+      qty += q2; if (cost > 0) costedQty += q2;
+      const s = streams[info.stream] || (streams[info.stream] = {rev:0,cogs:0,qty:0,royalty:0});
+      s.rev += amt; s.cogs += q2*cost; s.qty += q2; s.royalty += amt * info.pct/100;
     });
-    const gp = revenue - cogs;
-    const gm = revenue ? (gp / revenue * 100) : 0;
-    const coverage = qty ? (costedQty / qty * 100) : 0;
 
-    // 5. Render
+    // 4b. Consignment fee (Marte) = Σ total_fee from Consignment Report (exclude own brands SD&Y/Lagaa)
+    const marteRes = await sb.rpc('get_marte_sales_report', {p_start_date:startISO, p_end_date:endISO});
+    let consignFee = 0;
+    (marteRes.data||[]).forEach(r => { if (!['SD&Y','Lagaa'].includes((r.brand_name||'').trim())) consignFee += parseFloat(r.total_fee||0)||0; });
+
+    // 5. Totals
+    let ownRev=0, totCogs=0, totRoyalty=0;
+    Object.values(streams).forEach(s => { ownRev+=s.rev; totCogs+=s.cogs; totRoyalty+=s.royalty; });
+    const totRev = ownRev + consignFee;
+    const grossProfit = totRev - totCogs;
+    const gpAfterRoyalty = grossProfit - totRoyalty;
+    const gm = totRev ? (grossProfit/totRev*100) : 0;
+    const coverage = qty ? (costedQty/qty*100) : 0;
+
+    // 6. Render — headline cards
     const monthLabel = new Date(y, m-1, 1).toLocaleDateString('id-ID', {month:'long', year:'numeric'});
     document.getElementById('is-title').textContent = `Income Statement — ${monthLabel}`;
-    document.getElementById('is-s-rev').textContent  = _isRp(revenue);
-    document.getElementById('is-s-cogs').textContent = _isRp(cogs);
-    document.getElementById('is-s-gp').textContent   = _isRp(gp);
+    document.getElementById('is-s-rev').textContent  = _isRp(totRev);
+    document.getElementById('is-s-cogs').textContent = _isRp(totCogs);
+    document.getElementById('is-s-gp').textContent   = _isRp(grossProfit);
     document.getElementById('is-s-gm').textContent   = gm.toFixed(1) + '%';
 
     const tdL = 'padding:9px 4px';
     const tdR = 'padding:9px 4px;text-align:right;font-family:var(--mono)';
+    const sub = 'padding:4px 4px 4px 20px;color:var(--g500);font-size:12px';
+    const subR= 'padding:4px 4px;text-align:right;font-family:var(--mono);color:var(--g500);font-size:12px';
     document.getElementById('is-tbody').innerHTML = `
-      <tr style="border-bottom:1px solid var(--g100)">
-        <td style="${tdL}">Net Revenue <span style="color:var(--g400);font-size:11px">(net sales)</span></td>
-        <td style="${tdR};font-weight:600">${_isRp(revenue)}</td>
-      </tr>
-      <tr style="border-bottom:1px solid var(--g100)">
-        <td style="${tdL};color:#c0392b">(−) COGS <span style="color:var(--g400);font-size:11px">(qty × average cost)</span></td>
-        <td style="${tdR};color:#c0392b">(${_isRp(cogs)})</td>
-      </tr>
-      <tr style="border-bottom:2px solid var(--g200);background:var(--off)">
-        <td style="${tdL};font-weight:700">Gross Profit</td>
-        <td style="${tdR};font-weight:700">${_isRp(gp)}</td>
-      </tr>
-      <tr>
-        <td style="${tdL};font-weight:700">Gross Margin</td>
-        <td style="${tdR};font-weight:700;color:${gm>=0?'#1a5c25':'#c0392b'}">${gm.toFixed(1)}%</td>
-      </tr>
-      <tr><td colspan="2" style="padding-top:14px"></td></tr>
-      <tr style="color:var(--g500);font-size:12px">
-        <td style="${tdL}">Qty terjual</td><td style="${tdR}">${new Intl.NumberFormat('id-ID').format(Math.round(qty))}</td>
-      </tr>
-      <tr style="color:var(--g500);font-size:12px">
-        <td style="${tdL}">Jumlah order</td><td style="${tdR}">${new Intl.NumberFormat('id-ID').format(orderSet.size)}</td>
-      </tr>`;
+      <tr><td style="${tdL};font-weight:600">Net Revenue</td><td style="${tdR};font-weight:700">${_isRp(totRev)}</td></tr>
+      <tr><td style="${sub}">Penjualan sendiri (net sales)</td><td style="${subR}">${_isRp(ownRev)}</td></tr>
+      <tr style="border-bottom:1px solid var(--g100)"><td style="${sub}">Consignment fee (Marte)</td><td style="${subR}">${_isRp(consignFee)}</td></tr>
+      <tr style="border-bottom:1px solid var(--g100)"><td style="${tdL};color:#c0392b">(−) COGS <span style="color:var(--g400);font-size:11px">(penjualan sendiri)</span></td><td style="${tdR};color:#c0392b">(${_isRp(totCogs)})</td></tr>
+      <tr style="border-bottom:2px solid var(--g200);background:var(--off)"><td style="${tdL};font-weight:700">Gross Profit</td><td style="${tdR};font-weight:700">${_isRp(grossProfit)} · ${gm.toFixed(1)}%</td></tr>
+      <tr style="border-bottom:1px solid var(--g100)"><td style="${tdL};color:#c0392b">(−) Royalty Payout <span style="color:var(--g400);font-size:11px">(gross × % IP)</span></td><td style="${tdR};color:#c0392b">(${_isRp(totRoyalty)})</td></tr>
+      <tr style="background:var(--off)"><td style="${tdL};font-weight:700">Gross Profit after Royalty</td><td style="${tdR};font-weight:700;color:${gpAfterRoyalty>=0?'#1a5c25':'#c0392b'}">${_isRp(gpAfterRoyalty)}</td></tr>`;
+
+    // 6b. Breakdown per revenue stream
+    const orderPref = ['SD&Y','Lagaa'];
+    const streamNames = Object.keys(streams).sort((a,b)=>{
+      const ia=orderPref.indexOf(a), ib=orderPref.indexOf(b);
+      if (ia>=0 || ib>=0) { if (ia<0) return 1; if (ib<0) return -1; return ia-ib; }
+      return streams[b].rev - streams[a].rev;
+    });
+    const th = 'text-align:right;padding:7px 4px;font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)';
+    const thL = th.replace('text-align:right','text-align:left');
+    let bdRows = streamNames.map(name=>{
+      const s=streams[name]; const gpr = s.rev - s.cogs - s.royalty;
+      return `<tr style="border-bottom:1px solid var(--g100)">
+        <td style="${tdL}">${_esc(name)}</td>
+        <td style="${tdR}">${_isRp(s.rev)}</td>
+        <td style="${tdR};color:#c0392b">(${_isRp(s.cogs)})</td>
+        <td style="${tdR};color:#c0392b">${s.royalty?'('+_isRp(s.royalty)+')':'—'}</td>
+        <td style="${tdR};font-weight:600">${_isRp(gpr)}</td></tr>`;
+    }).join('');
+    bdRows += `<tr style="border-bottom:1px solid var(--g100)">
+      <td style="${tdL}">Marte <span style="color:var(--g400);font-size:11px">(consignment — fee only)</span></td>
+      <td style="${tdR}">${_isRp(consignFee)}</td>
+      <td style="${tdR};color:var(--g400)">—</td>
+      <td style="${tdR};color:var(--g400)">—</td>
+      <td style="${tdR};font-weight:600">${_isRp(consignFee)}</td></tr>`;
+    document.getElementById('is-breakdown').innerHTML =
+      `<table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="border-bottom:1px solid var(--g200)"><th style="${thL}">Revenue Stream</th><th style="${th}">Revenue</th><th style="${th}">COGS</th><th style="${th}">Royalty</th><th style="${th}">GP a/Royalty</th></tr></thead>
+        <tbody>${bdRows}</tbody>
+      </table>`;
 
     document.getElementById('is-note').innerHTML =
-      `⚠️ COGS dihitung dari <b>average_cost</b> Jubelio. Hanya <b>${coverage.toFixed(0)}%</b> dari qty terjual yang punya data cost — sisanya dianggap Rp 0, jadi COGS kemungkinan <b>understated</b> dan gross margin <b>terlihat lebih tinggi</b> dari aktual. Net sales sudah exclude order CANCELED & RETURNED.`;
+      `Net sales exclude order CANCELED & RETURNED. <b>Marte/consignment</b>: penjualan Gudang Marte dikeluarkan, yang diakui hanya consignment fee (sumber: Consignment Report). <b>Royalty payout</b> = gross × % IP (sumber: Royalty Report), dikurangkan setelah gross profit. ⚠️ COGS dari <b>average_cost</b> Jubelio — hanya <b>${coverage.toFixed(0)}%</b> qty terjual punya data cost (sisanya Rp 0 → COGS understated, margin terlihat lebih tinggi). ${orderSet.size.toLocaleString('id-ID')} order diproses.`;
 
     document.getElementById('is-result').style.display = 'block';
     fb.textContent = '';
