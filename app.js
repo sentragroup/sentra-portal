@@ -11017,8 +11017,8 @@ function _renderInsRevenue() {
       <div>${sub||'&nbsp;'}</div>
     </div>`;
     annEl.innerHTML =
-      card('2024', rev24, '<span style="font-size:11px;color:var(--g400)">full year</span>') +
-      card('2025', rev25, yoyStr(yoy(rev25,rev24))) +
+      card('2024', rev24, '<span style="font-size:11px;color:#c0392b">⚠ Jan saja (parsial)</span>') +
+      card('2025', rev25, '<span style="font-size:11px;color:var(--g400)">full year</span>') +
       card('2026 YTD', rev26, yoyStr(yoy(rev26, (rev25 * (d.cm/12))))) +
       card('2026 Proyeksi', rev26p, yoyStr(yoy(rev26p, rev25)));
   }
