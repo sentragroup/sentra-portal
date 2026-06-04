@@ -15313,21 +15313,29 @@ async function loadRoyaltyReport() {
       const chunk = orderIds.slice(i, i+500);
       const rows = await _fetchAllPages(
         'jubelio_sales_order_items',
-        'salesorder_id,item_name,qty,price,disc_amount,amount,is_canceled_item',
+        'salesorder_id,item_id,item_name,qty,price,disc_amount,amount,is_canceled_item',
         q => q.in('salesorder_id', chunk)
       );
       items.push(...rows);
     }
 
-    // 3. Product mappings (item_name → IP)
+    // 3. Product mappings → IP. Match primarily by jubelio_item_id (variant-level,
+    //    matches sales item_id) with item_name as a fallback. Matching by item_name
+    //    alone misses ~90% because product_mappings.item_name is parent-level while
+    //    sales rows are variant-level.
     fb.textContent = `${items.length.toLocaleString('id-ID')} items → mapping ke IP...`;
     const mappings = await _fetchAllPages(
       'product_mappings',
-      'item_name,ip',
+      'jubelio_item_id,item_name,ip',
       q => q.not('ip','is',null)
     );
-    const itemToIP = new Map();
-    mappings.forEach(m => { if (m.item_name && m.ip) itemToIP.set(m.item_name, m.ip); });
+    const itemIdToIP = new Map();   // jubelio_item_id → ip (primary)
+    const itemToIP   = new Map();   // item_name → ip (fallback)
+    mappings.forEach(m => {
+      if (!m.ip) return;
+      if (m.jubelio_item_id != null) itemIdToIP.set(String(m.jubelio_item_id), m.ip);
+      if (m.item_name) itemToIP.set(m.item_name, m.ip);
+    });
 
     // 4. IP Master royalty config
     const {data: ipRows, error: ipErr} = await sb.from('ip_master')
@@ -15340,7 +15348,7 @@ async function loadRoyaltyReport() {
     const byIP = new Map();
     items.forEach(it => {
       if (it.is_canceled_item) return;
-      const ipName = itemToIP.get(it.item_name);
+      const ipName = (it.item_id != null && itemIdToIP.get(String(it.item_id))) || itemToIP.get(it.item_name);
       if (!ipName) return;  // unmapped item, ignore for royalty calc
       const qty   = parseFloat(it.qty || 0) || 0;
       // Gross = item.amount (already factors disc); fallback to qty*price - disc_amount
