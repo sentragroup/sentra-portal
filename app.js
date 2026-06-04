@@ -4217,12 +4217,23 @@ function renderColDetail(col, items) {
     // Deadline coloring: red if past and not yet Approved
     const dlPast=i.deadline&&new Date(i.deadline+"T00:00:00")<_today&&i.approvalStatus!=="Approved";
     const dlStyle=`padding:8px 10px;white-space:nowrap;${dlPast?"color:#c0392b;font-weight:600":""}`;
+    const dlInputStyle = `font-size:11px;padding:3px 6px;border:1px solid var(--g100);border-radius:4px;background:var(--white);${dlPast?"color:#c0392b;font-weight:600":""}`;
+    const previewIcon = previewUrl
+      ? `<a href="${previewUrl}" target="_blank" title="Buka link" style="color:#3C3489;text-decoration:none;font-size:13px;padding:0 4px">↗</a>`
+      : '';
     return `<tr id="ci-row-${i.id}" style="border-top:1px solid var(--g100)">
     <td style="padding:8px 10px"><strong style="font-size:13px">${i.skuName}</strong></td>
     <td style="padding:8px 10px">${i.category?`<span class="pill p-signings" style="font-size:10px">${i.category}</span>`:`<span style="color:var(--g400);font-size:11px">—</span>`}</td>
     <td style="padding:8px 10px;color:var(--g600)">${i.designer||"—"}</td>
-    <td style="${dlStyle}">${dlPast?"⚠ ":""}${fmtDate(i.deadline)||"—"}</td>
-    <td style="padding:8px 10px">${previewUrl?`<a href="${previewUrl}" target="_blank" style="color:#3C3489;text-decoration:none">↗ Design</a>`:`<span style="color:var(--g400);font-size:11px">—</span>`}</td>
+    <td style="padding:8px 10px;white-space:nowrap">
+      ${dlPast?'<span title="Lewat deadline" style="color:#c0392b">⚠ </span>':''}<input type="date" value="${i.deadline||""}" style="${dlInputStyle}" onchange="saveSKUField('${i.id}','${col.id}','deadline',this.value)">
+    </td>
+    <td style="padding:8px 10px">
+      <div style="display:flex;align-items:center;gap:4px">
+        <input type="url" value="${(i.designPreviewUrl||"").replace(/"/g,"&quot;")}" placeholder="paste Drive link..." style="font-size:11px;padding:3px 6px;border:1px solid var(--g100);border-radius:4px;background:var(--white);width:130px;flex:1" onblur="saveSKUField('${i.id}','${col.id}','designPreviewUrl',this.value)" onkeydown="if(event.key==='Enter')this.blur()">
+        ${previewIcon}
+      </div>
+    </td>
     <td style="padding:8px 10px">
       <select onchange="updateSKUApproval('${i.id}','${col.id}',this.value)" style="font-size:11px;padding:2px 6px;border:1px solid var(--g100);border-radius:4px;background:var(--white)">
         <option${i.approvalStatus==="Pending"?" selected":""}>Pending</option>
@@ -5626,6 +5637,38 @@ async function updateSKUApproval(itemId, colId, status) {
     if(col) renderColDetail(col, allColItems.filter(i=>i.collectionId===colId));
     applyColFilters();
   } catch(e){alert("Gagal update status: "+(e.message||e));}
+}
+
+// Generic inline-edit save for a single collection_item field.
+// fieldKey: 'deadline' | 'designPreviewUrl' (extend as needed)
+// Optimistically updates allColItems and re-renders the detail.
+async function saveSKUField(itemId, colId, fieldKey, rawValue) {
+  const map = {
+    deadline:          { db: 'deadline',           parse: v => v || null },
+    designPreviewUrl:  { db: 'design_preview_url', parse: v => (v||'').trim() || null },
+  };
+  const m = map[fieldKey];
+  if (!m) { console.warn('saveSKUField: unknown field', fieldKey); return; }
+  const value = m.parse(rawValue);
+  // Optimistic local update so the re-render reflects the change without lag
+  const idx = allColItems.findIndex(i => i.id === itemId);
+  if (idx > -1) allColItems[idx][fieldKey] = value || '';
+  try {
+    const {error} = await sb.from('collection_items').update({
+      [m.db]: value,
+      last_updated: new Date().toISOString(), last_updated_by: currentUser
+    }).eq('id', itemId);
+    if (error) throw error;
+    const col = allColRows.find(r => r.id === colId);
+    if (col) renderColDetail(col, allColItems.filter(i => i.collectionId === colId));
+  } catch(e) {
+    alert('Gagal simpan: ' + (e.message||e));
+    // On failure, re-fetch to revert local state
+    const {data} = await sb.from('collection_items').select('*').eq('collection_id', colId);
+    allColItems = allColItems.filter(i => i.collectionId !== colId).concat((data||[]).map(mapCI));
+    const col = allColRows.find(r => r.id === colId);
+    if (col) renderColDetail(col, allColItems.filter(i => i.collectionId === colId));
+  }
 }
 
 async function deleteSKU(itemId, colId) {
