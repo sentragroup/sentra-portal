@@ -15273,6 +15273,7 @@ function rySwitchTab(mode, el) {
   // Hide previous results — data shape differs per mode, force a fresh Load
   document.getElementById('ry-stats').style.display = 'none';
   document.getElementById('ry-result-wrap').style.display = 'none';
+  document.getElementById('ry-result-ip').style.display = 'none';
   const fb = document.getElementById('ry-feedback');
   if (fb) { fb.textContent = ''; fb.className = 'feedback'; }
 }
@@ -15415,9 +15416,20 @@ async function loadRoyaltyReport() {
     });
     _ryRows.sort((a,b) => b.gross - a.gross);
 
-    ryRenderTable();
-    document.getElementById('ry-stats').style.display = 'grid';
-    document.getElementById('ry-result-wrap').style.display = 'block';
+    if (_ryMode === 'year') {
+      // Per-IP tab: dropdown of IPs + inline breakdown for the selected one
+      ryPopulateIPSelect();
+      ryRenderSelectedIP();
+      document.getElementById('ry-stats').style.display = 'none';
+      document.getElementById('ry-result-wrap').style.display = 'none';
+      document.getElementById('ry-result-ip').style.display = 'block';
+    } else {
+      // Per-bulan tab: all-IP table for the month
+      ryRenderTable();
+      document.getElementById('ry-stats').style.display = 'grid';
+      document.getElementById('ry-result-wrap').style.display = 'block';
+      document.getElementById('ry-result-ip').style.display = 'none';
+    }
     fb.textContent = '';
   } catch(e) {
     console.error('loadRoyaltyReport:', e);
@@ -15428,55 +15440,37 @@ async function loadRoyaltyReport() {
   }
 }
 
-// Drill-down: month + parent-item breakdown for one IP
+// Per-IP detail: month + parent-item breakdown
 let _ryDetail = {};
 
-function openRyDetail(ipNameEnc) {
-  const ipName = decodeURIComponent(ipNameEnc);
+// Shared builder: returns {body, totQty, totGross, royalty, pphAmount, net, pct, pphRate, royaltyType}
+function ryBuildBreakdown(ipName, withMonths) {
   const d = _ryDetail[ipName];
-  if (!d) return;
+  if (!d) return null;
   const isAdvance = d.royaltyType === 'Advance';
   const royaltyOf = gross => isAdvance ? 0 : (gross * d.pct / 100);
 
-  // Year totals
   let totQty=0, totGross=0;
   Object.values(d.parents).forEach(p => { totQty+=p.qty; totGross+=p.gross; });
+  const royalty = royaltyOf(totGross);
+  const pphAmount = royalty * d.pphRate / 100;
 
-  document.getElementById('ry-d-title').textContent = ipName;
-  document.getElementById('ry-d-sub').innerHTML =
-    `${_ryPeriod} · ${d.pct?d.pct.toFixed(2)+'% royalty':'—'}${d.pphRate?` · PPh ${d.pphRate.toFixed(2)}%`:''} · `
-    + `Gross ${_ryRp(totGross)} · Royalty ${_ryRp(royaltyOf(totGross))}`;
+  const thStyle = 'text-align:right;padding:7px 10px;font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--g400);border-bottom:1px solid var(--g100)';
+  const thLeft  = thStyle.replace('text-align:right','text-align:left');
 
-  // ── Monthly breakdown (Jan–Dec) ──
+  // Monthly breakdown (Jan–Dec)
   let monthRows = '';
   for (let m=1; m<=12; m++) {
-    const mm = d.months[m];
-    const g = mm ? mm.gross : 0;
-    const q = mm ? mm.qty : 0;
+    const mm = d.months[m]; const g = mm?mm.gross:0; const q = mm?mm.qty:0;
     const roy = royaltyOf(g);
-    const dim = g ? '' : 'opacity:.4';
-    monthRows += `<tr style="${dim}">
+    monthRows += `<tr style="${g?'':'opacity:.4'}">
       <td style="padding:6px 10px">${CAL_MONTH_NAMES[m-1]}</td>
       <td class="mono" style="text-align:right;padding:6px 10px">${new Intl.NumberFormat('id-ID').format(Math.round(q))}</td>
       <td class="mono" style="text-align:right;padding:6px 10px">${_ryRp(g)}</td>
       <td class="mono" style="text-align:right;padding:6px 10px;font-weight:600">${roy?_ryRp(roy):'—'}</td>
     </tr>`;
   }
-
-  // ── Parent-item breakdown (sorted by gross desc) ──
-  const parents = Object.entries(d.parents).map(([name,v]) => ({name, ...v})).sort((a,b)=>b.gross-a.gross);
-  const parentRows = parents.map(p => `<tr>
-      <td style="padding:6px 10px">${_ryEsc(p.name)}</td>
-      <td class="mono" style="text-align:right;padding:6px 10px">${new Intl.NumberFormat('id-ID').format(Math.round(p.qty))}</td>
-      <td class="mono" style="text-align:right;padding:6px 10px">${_ryRp(p.gross)}</td>
-      <td class="mono" style="text-align:right;padding:6px 10px;font-weight:600">${royaltyOf(p.gross)?_ryRp(royaltyOf(p.gross)):'—'}</td>
-    </tr>`).join('');
-
-  const thStyle = 'text-align:right;padding:7px 10px;font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--g400);border-bottom:1px solid var(--g100)';
-  const thLeft  = thStyle.replace('text-align:right','text-align:left');
-
-  // Month breakdown only makes sense in year mode (single-month view = 1 row).
-  const monthBlock = (_ryMode === 'year') ? `
+  const monthBlock = withMonths ? `
     <div>
       <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--g400);margin-bottom:8px">📅 Breakdown per Bulan</div>
       <table style="width:100%;border-collapse:collapse;font-size:12px">
@@ -15486,11 +15480,19 @@ function openRyDetail(ipNameEnc) {
           <td style="padding:7px 10px">Total</td>
           <td class="mono" style="text-align:right;padding:7px 10px">${new Intl.NumberFormat('id-ID').format(Math.round(totQty))}</td>
           <td class="mono" style="text-align:right;padding:7px 10px">${_ryRp(totGross)}</td>
-          <td class="mono" style="text-align:right;padding:7px 10px">${_ryRp(royaltyOf(totGross))}</td>
+          <td class="mono" style="text-align:right;padding:7px 10px">${_ryRp(royalty)}</td>
         </tr></tfoot>
       </table>
     </div>` : '';
 
+  // Parent-item breakdown (sorted by gross desc)
+  const parents = Object.entries(d.parents).map(([name,v]) => ({name, ...v})).sort((a,b)=>b.gross-a.gross);
+  const parentRows = parents.map(p => `<tr>
+      <td style="padding:6px 10px">${_ryEsc(p.name)}</td>
+      <td class="mono" style="text-align:right;padding:6px 10px">${new Intl.NumberFormat('id-ID').format(Math.round(p.qty))}</td>
+      <td class="mono" style="text-align:right;padding:6px 10px">${_ryRp(p.gross)}</td>
+      <td class="mono" style="text-align:right;padding:6px 10px;font-weight:600">${royaltyOf(p.gross)?_ryRp(royaltyOf(p.gross)):'—'}</td>
+    </tr>`).join('');
   const parentBlock = `
     <div>
       <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--g400);margin-bottom:8px">📦 Breakdown per Parent Item (${parents.length})</div>
@@ -15500,15 +15502,67 @@ function openRyDetail(ipNameEnc) {
       </table>
     </div>`;
 
-  document.getElementById('ry-d-body').innerHTML = (_ryMode === 'year')
+  const body = withMonths
     ? `<div style="display:grid;grid-template-columns:1fr 1.3fr;gap:24px;align-items:start">${monthBlock}${parentBlock}</div>`
     : parentBlock;
 
+  return { body, totQty, totGross, royalty, pphAmount, net: royalty-pphAmount, pct:d.pct, pphRate:d.pphRate };
+}
+
+// Month-tab: click an IP row → modal with parent breakdown for that month
+function openRyDetail(ipNameEnc) {
+  const ipName = decodeURIComponent(ipNameEnc);
+  const r = ryBuildBreakdown(ipName, false);
+  if (!r) return;
+  document.getElementById('ry-d-title').textContent = ipName;
+  document.getElementById('ry-d-sub').innerHTML =
+    `${_ryPeriod} · ${r.pct?r.pct.toFixed(2)+'% royalty':'—'}${r.pphRate?` · PPh ${r.pphRate.toFixed(2)}%`:''} · `
+    + `Gross ${_ryRp(r.totGross)} · Royalty ${_ryRp(r.royalty)}`;
+  document.getElementById('ry-d-body').innerHTML = r.body;
   document.getElementById('ry-detail-overlay').style.display = 'flex';
 }
 
 function closeRyDetail() {
   document.getElementById('ry-detail-overlay').style.display = 'none';
+}
+
+// Per-IP tab: populate IP dropdown (IPs with sales, sorted by gross) after a year load
+function ryPopulateIPSelect() {
+  const sel = document.getElementById('ry-ip-select');
+  if (!sel) return;
+  const grossOf = n => (_ryRows.find(r=>r.ipName===n)||{}).gross || 0;
+  const names = Object.keys(_ryDetail).sort((a,b) => grossOf(b)-grossOf(a));
+  const cur = sel.value;
+  sel.innerHTML = names.length
+    ? names.map(n => `<option value="${n.replace(/"/g,'&quot;')}"${n===cur?' selected':''}>${n.replace(/</g,'&lt;')}</option>`).join('')
+    : `<option value="">(tidak ada IP dengan sales)</option>`;
+  if (names.length && !names.includes(cur)) sel.value = names[0];
+}
+
+// Per-IP tab: render the selected IP's breakdown inline (with month table)
+function ryRenderSelectedIP() {
+  const box = document.getElementById('ry-result-ip');
+  const ipName = document.getElementById('ry-ip-select')?.value;
+  if (!ipName || !_ryDetail[ipName]) {
+    box.innerHTML = `<div class="empty-td" style="padding:32px;text-align:center;color:var(--g400);font-size:12px">Tidak ada data. Pilih tahun lalu klik Load Data.</div>`;
+    return;
+  }
+  const r = ryBuildBreakdown(ipName, true);
+  const ipRow = _ryRows.find(x => x.ipName === ipName) || {};
+  const stat = (label,val,extra='') => `<div class="stat-card" style="${extra}"><div class="stat-num">${val}</div><div class="stat-lbl">${label}</div></div>`;
+  box.innerHTML = `
+    <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+      <div style="font-family:var(--head);font-size:18px;font-weight:700">${_ryEsc(ipName)}</div>
+      <div style="font-size:12px;color:var(--g400)">${_ryPeriod} · ${ipRow.category||'—'} · ${r.pct?r.pct.toFixed(2)+'% royalty':'—'}${r.pphRate?` · PPh ${r.pphRate.toFixed(2)}%`:''}</div>
+    </div>
+    <div class="stats-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:1.25rem">
+      ${stat('Qty Terjual', new Intl.NumberFormat('id-ID').format(Math.round(r.totQty)))}
+      ${stat('Gross Sales', _ryRp(r.totGross))}
+      ${stat('Royalty', _ryRp(r.royalty))}
+      ${stat('PPh', r.pphAmount?'-'+_ryRp(r.pphAmount):'Rp 0')}
+      ${stat('Net Royalty', _ryRp(r.net))}
+    </div>
+    ${r.body}`;
 }
 
 function ryRenderTable() {

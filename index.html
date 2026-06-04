@@ -3001,7 +3001,7 @@
           <div><div class="page-title">Royalty Report</div><div class="page-sub">Gross sales, royalty, PPh, net payout per IP — auto-mapped dari Product Mapping.</div></div>
           <div class="tab-bar" id="ry-tabs">
             <button class="tab-btn active" onclick="rySwitchTab('month',this)">Per Bulan</button>
-            <button class="tab-btn" onclick="rySwitchTab('year',this)">Per Tahun · Breakdown</button>
+            <button class="tab-btn" onclick="rySwitchTab('year',this)">Per IP</button>
           </div>
         </div>
 
@@ -3020,9 +3020,9 @@
                 <button class="btn-ghost" style="font-size:12px;padding:6px 10px" onclick="ryNavPeriod(1)">Bulan Depan →</button>
               </div>
             </div>
-            <!-- Year mode -->
+            <!-- Per-IP mode -->
             <div id="ry-sel-year" style="display:none;align-items:flex-end;gap:12px;flex-wrap:wrap">
-              <div class="fg" style="min-width:140px">
+              <div class="fg" style="min-width:120px">
                 <label>Tahun</label>
                 <select id="ry-year">
                   <option value="2024">2024</option>
@@ -3030,6 +3030,10 @@
                   <option value="2026" selected>2026</option>
                   <option value="2027">2027</option>
                 </select>
+              </div>
+              <div class="fg" style="min-width:220px">
+                <label>IP</label>
+                <select id="ry-ip-select" onchange="ryRenderSelectedIP()"><option value="">— Load dulu —</option></select>
               </div>
             </div>
             <button class="btn-primary" id="ry-load-btn" onclick="loadRoyaltyReport()" style="padding:8px 20px">Load Data</button>
@@ -3081,7 +3085,10 @@
           </div>
         </div>
 
-        <!-- Drill-down detail modal: month + parent-item breakdown -->
+        <!-- Per-IP tab result: inline month + parent-item breakdown for the selected IP -->
+        <div id="ry-result-ip" style="display:none"></div>
+
+        <!-- Drill-down detail modal: month + parent-item breakdown (Per Bulan tab) -->
         <div id="ry-detail-overlay" onclick="if(event.target===this)closeRyDetail()" style="display:none;position:fixed;inset:0;z-index:600;background:rgba(0,0,0,.45);align-items:center;justify-content:center;padding:20px">
           <div style="background:var(--white);border-radius:14px;width:960px;max-width:96vw;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,.18)">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;padding:18px 22px;border-bottom:1px solid var(--g100)">
@@ -3265,6 +3272,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260604c"></script>
+<script src="app.js?v=20260604d"></script>
 </body>
 </html>
