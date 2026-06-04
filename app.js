@@ -11231,10 +11231,9 @@ function _renderInsBCG() {
   const totalYtd = entities.reduce((s,e)=>s+e.ytd, 0);
   entities.forEach(e => { e.share = totalYtd>0 ? e.ytd/totalYtd*100 : 0; });
 
-  // Thresholds: median share for X, 0% for Y
-  const sortedShares = [...entities].map(e=>e.share).sort((a,b)=>a-b);
-  const xThresh = sortedShares[Math.floor(sortedShares.length/2)] || 0;
-  const yThresh = 0;
+  // Thresholds: average share for X, average growth for Y (portfolio-relative)
+  const xThresh = entities.reduce((s,e)=>s+e.share,0)  / entities.length;
+  const yThresh = entities.reduce((s,e)=>s+e.growth,0) / entities.length;
 
   // Quadrant assignment
   const QLBL  = {star:'⭐ Star', question:'❓ Question Mark', cow:'🐄 Cash Cow', dog:'🐕 Dog'};
@@ -11358,7 +11357,7 @@ function _renderInsBCG() {
   const tableEl = document.getElementById('ins-bcg-table');
   if (tableEl) tableEl.innerHTML = `
     <div style="font-family:var(--mono);font-size:11px;text-transform:uppercase;color:var(--g400);margin-bottom:8px;letter-spacing:.05em">
-      Detail — ${mode==='ip'?'per IP':'per Brand'} · threshold share ${xThresh.toFixed(1)}%
+      Detail — ${mode==='ip'?'per IP':'per Brand'} · cutoff share ≥${xThresh.toFixed(2)}% (rata-rata) · growth ≥${yThresh>=0?'+':''}${yThresh.toFixed(1)}% (rata-rata)
     </div>
     <div class="table-wrap" style="margin:0"><table style="width:100%;table-layout:fixed">
       <colgroup><col style="width:auto"><col style="width:120px"><col style="width:60px"><col style="width:75px"><col style="width:115px"><col style="width:100px"><col style="width:100px"></colgroup>
