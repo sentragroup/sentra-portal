@@ -4103,7 +4103,83 @@ function applyColFilters() {
   if(priority) rows=rows.filter(r=>r.priority===priority);
   if(q) rows=rows.filter(r=>(r.collectionName||"").toLowerCase().includes(q)||(r.ipRelated||"").toLowerCase().includes(q));
   renderColStats(rows, allColItems.filter(i=>rows.some(r=>r.id===i.collectionId)));
-  renderColTable(rows);
+  _colFiltered = rows;
+  renderColView();
+}
+
+// ── Collection list: table vs calendar view toggle ──
+let _colView = 'table';
+let _colFiltered = [];
+let _colCalY = null, _colCalM = null;
+
+function toggleColView() {
+  _colView = (_colView === 'table') ? 'calendar' : 'table';
+  const btn = document.getElementById('col-view-toggle');
+  if (btn) btn.textContent = (_colView === 'table') ? '📅 Calendar' : '📋 Tabel';
+  renderColView();
+}
+
+function renderColView() {
+  const tw = document.getElementById('col-table-wrap');
+  const cw = document.getElementById('col-calendar-wrap');
+  if (_colView === 'calendar') {
+    if (tw) tw.style.display = 'none';
+    if (cw) cw.style.display = 'block';
+    renderColCalendar(_colFiltered);
+  } else {
+    if (cw) cw.style.display = 'none';
+    if (tw) tw.style.display = 'block';
+    renderColTable(_colFiltered);
+  }
+}
+
+function colCalChangeMonth(delta) {
+  if (_colCalY == null) { const t = new Date(); _colCalY = t.getFullYear(); _colCalM = t.getMonth(); }
+  _colCalM += delta;
+  if (_colCalM < 0)  { _colCalM = 11; _colCalY--; }
+  if (_colCalM > 11) { _colCalM = 0;  _colCalY++; }
+  renderColCalendar(_colFiltered);
+}
+
+function renderColCalendar(rows) {
+  const grid = document.getElementById('col-cal-grid');
+  const titleEl = document.getElementById('col-cal-title');
+  const tcount = document.getElementById('col-tcount');
+  if (!grid) return;
+  if (_colCalY == null) { const t = new Date(); _colCalY = t.getFullYear(); _colCalM = t.getMonth(); }
+  if (titleEl) titleEl.textContent = CAL_MONTH_NAMES[_colCalM] + ' ' + _colCalY;
+
+  const today = new Date(); today.setHours(0,0,0,0);
+  const firstDow   = new Date(_colCalY, _colCalM, 1).getDay();
+  const daysInMonth= new Date(_colCalY, _colCalM+1, 0).getDate();
+  const daysInPrev = new Date(_colCalY, _colCalM, 0).getDate();
+
+  // Bucket collections onto their release date
+  const byDate = {};
+  (rows||[]).forEach(r => { if (!r.releaseDate) return; const key = r.releaseDate.slice(0,10); (byDate[key] = byDate[key] || []).push(r); });
+
+  const stColor = { Done:'#1a5c25;background:#edf8ee', 'In Progress':'#1a4a8a;background:#e8f0fc', Draft:'#5a5850;background:#f0efe9' };
+  let html = CAL_DAY_NAMES.map(d => `<div class="cal-dow">${d}</div>`).join('');
+  for (let i=0; i<firstDow; i++) { const d = daysInPrev - firstDow + 1 + i; html += `<div class="cal-day other-month"><div class="cal-day-num">${d}</div></div>`; }
+  for (let d=1; d<=daysInMonth; d++) {
+    const dateStr = `${_colCalY}-${String(_colCalM+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const isToday = new Date(_colCalY, _colCalM, d).getTime() === today.getTime();
+    const evs = byDate[dateStr] || [];
+    const evHtml = evs.slice(0,4).map(r => {
+      const c = stColor[r.status] || stColor.Draft;
+      const label = (r.ipRelated ? r.ipRelated + ' · ' : '') + (r.collectionName||'—');
+      return `<div class="cal-event" onclick="event.stopPropagation();openCollectionDetail('${r.id}')" title="${_esc(label)}" style="color:${c};border:none;font-weight:600">${_esc(label)}</div>`;
+    }).join('');
+    const overflow = evs.length > 4 ? `<div class="cal-overflow">+${evs.length-4} lagi</div>` : '';
+    html += `<div class="cal-day${isToday?' today':''}"><div class="cal-day-num">${d}</div>${evHtml}${overflow}</div>`;
+  }
+  const total = firstDow + daysInMonth;
+  const rem = total % 7 === 0 ? 0 : 7 - (total % 7);
+  for (let i=1; i<=rem; i++) html += `<div class="cal-day other-month"><div class="cal-day-num">${i}</div></div>`;
+  grid.innerHTML = html;
+
+  const withDate = (rows||[]).filter(r=>r.releaseDate).length;
+  if (tcount) tcount.textContent = `${rows.length} entri · ${withDate} ada tanggal`;
 }
 
 function clearColFilters() {
