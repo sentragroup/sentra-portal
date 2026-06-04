@@ -1354,9 +1354,10 @@
           </div>
           <div class="table-toolbar">
             <button class="btn-refresh" onclick="loadCollections()">↻ Refresh</button>
+            <button class="btn-refresh" id="col-view-toggle" onclick="toggleColView()">📅 Calendar</button>
             <div class="tcount" id="col-tcount">— entri</div>
           </div>
-          <div class="table-wrap">
+          <div id="col-table-wrap" class="table-wrap">
             <table>
               <thead id="col-thead">
                 <tr>
@@ -1372,6 +1373,15 @@
               </thead>
               <tbody id="colTableBody"><tr><td class="empty-td" colspan="8">Klik "Semua" untuk memuat data.</td></tr></tbody>
             </table>
+          </div>
+          <!-- Calendar view (by release date) -->
+          <div id="col-calendar-wrap" style="display:none">
+            <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin:6px 0 14px">
+              <button class="cal-nav-btn" onclick="colCalChangeMonth(-1)">&#8249;</button>
+              <span id="col-cal-title" style="font-size:15px;font-weight:700;font-family:var(--head);color:var(--black);min-width:150px;text-align:center">—</span>
+              <button class="cal-nav-btn" onclick="colCalChangeMonth(1)">&#8250;</button>
+            </div>
+            <div class="cal-grid" id="col-cal-grid"></div>
           </div>
         </div>
       </div>
@@ -3272,6 +3282,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260604d"></script>
+<script src="app.js?v=20260604e"></script>
 </body>
 </html>
