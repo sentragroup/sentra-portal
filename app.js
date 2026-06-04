@@ -15774,7 +15774,7 @@ async function loadIncomeStatement() {
     for (let i = 0; i < validOrderIds.length; i += 500) {
       const chunk = validOrderIds.slice(i, i+500);
       const rows = await _fetchAllPages(
-        'jubelio_sales_order_items', 'salesorder_id,item_id,qty,amount,is_canceled_item',
+        'jubelio_sales_order_items', 'salesorder_id,item_id,qty,amount,disc_amount,is_canceled_item',
         q => q.in('salesorder_id', chunk)
       );
       items.push(...rows);
@@ -15815,8 +15815,8 @@ async function loadIncomeStatement() {
 
     // 4. Aggregate own (non-consignment) sales per revenue stream
     fb.textContent = `Menghitung...`;
-    const streams = {};                 // streamName -> {rev,cogs,qty,royalty}
-    let qty=0, costedQty=0; const orderSet = new Set();
+    const streams = {};                 // streamName -> {gmv,disc,rev,cogs,qty,royalty}
+    let qty=0, costedQty=0, ownGMV=0, ownDisc=0; const orderSet = new Set();
     items.forEach(it => {
       if (it.is_canceled_item) return;
       const info = (it.item_id != null && idInfo.get(String(it.item_id))) || nameInfo.get(it.item_name) || {stream:'Belum di-map', pct:0};
@@ -15824,21 +15824,32 @@ async function loadIncomeStatement() {
       if (info.stream === 'Marte') return;   // consignment → excluded; only fee counts (below)
       const q2 = parseFloat(it.qty||0)||0;
       const amt = parseFloat(it.amount||0)||0;
+      const disc = parseFloat(it.disc_amount||0)||0;
       const cost = costMap.get(String(it.item_id)) || 0;
       qty += q2; if (cost > 0) costedQty += q2;
-      const s = streams[info.stream] || (streams[info.stream] = {rev:0,cogs:0,qty:0,royalty:0});
-      s.rev += amt; s.cogs += q2*cost; s.qty += q2; s.royalty += amt * info.pct/100;
+      ownGMV += amt + disc; ownDisc += disc;
+      const s = streams[info.stream] || (streams[info.stream] = {gmv:0,disc:0,rev:0,cogs:0,qty:0,royalty:0});
+      s.gmv += amt+disc; s.disc += disc; s.rev += amt; s.cogs += q2*cost; s.qty += q2; s.royalty += amt * info.pct/100;
     });
 
-    // 4b. Consignment fee (Marte) = Σ total_fee from Consignment Report (exclude own brands SD&Y/Lagaa)
+    // 4b. Consignment (Marte) from Consignment Report (exclude own brands SD&Y/Lagaa)
+    //     total_sales = consignment net sales; net_payout = brand payout; total_fee = our revenue
     const marteRes = await sb.rpc('get_marte_sales_report', {p_start_date:startISO, p_end_date:endISO});
-    let consignFee = 0;
-    (marteRes.data||[]).forEach(r => { if (!['SD&Y','Lagaa'].includes((r.brand_name||'').trim())) consignFee += parseFloat(r.total_fee||0)||0; });
+    let consignFee=0, consNet=0, brandPayout=0;
+    (marteRes.data||[]).forEach(r => {
+      if (['SD&Y','Lagaa'].includes((r.brand_name||'').trim())) return;
+      consignFee  += parseFloat(r.total_fee||0)||0;
+      consNet     += parseFloat(r.total_sales||0)||0;
+      brandPayout += parseFloat(r.net_payout||0)||0;
+    });
 
-    // 5. Totals
+    // 5. Totals (waterfall)
     let ownRev=0, totCogs=0, totRoyalty=0;
     Object.values(streams).forEach(s => { ownRev+=s.rev; totCogs+=s.cogs; totRoyalty+=s.royalty; });
-    const totRev = ownRev + consignFee;
+    const totGMV      = ownGMV + consNet;         // consignment discount not separable → consNet treated as its GMV
+    const totDisc     = ownDisc;
+    const totNetSales = ownRev + consNet;          // = totGMV − totDisc
+    const totRev      = ownRev + consignFee;       // net sales − brand payout
     const grossProfit = totRev - totCogs;
     const gpAfterRoyalty = grossProfit - totRoyalty;
     const gm = totRev ? (grossProfit/totRev*100) : 0;
@@ -15847,6 +15858,7 @@ async function loadIncomeStatement() {
     // 6. Render — headline cards
     const monthLabel = new Date(y, m-1, 1).toLocaleDateString('id-ID', {month:'long', year:'numeric'});
     document.getElementById('is-title').textContent = `Income Statement — ${monthLabel}`;
+    document.getElementById('is-s-gmv').textContent  = _isRp(totGMV);
     document.getElementById('is-s-rev').textContent  = _isRp(totRev);
     document.getElementById('is-s-cogs').textContent = _isRp(totCogs);
     document.getElementById('is-s-gp').textContent   = _isRp(grossProfit);
@@ -15857,9 +15869,13 @@ async function loadIncomeStatement() {
     const sub = 'padding:4px 4px 4px 20px;color:var(--g500);font-size:12px';
     const subR= 'padding:4px 4px;text-align:right;font-family:var(--mono);color:var(--g500);font-size:12px';
     document.getElementById('is-tbody').innerHTML = `
-      <tr><td style="${tdL};font-weight:600">Net Revenue</td><td style="${tdR};font-weight:700">${_isRp(totRev)}</td></tr>
-      <tr><td style="${sub}">Penjualan sendiri (net sales)</td><td style="${subR}">${_isRp(ownRev)}</td></tr>
-      <tr style="border-bottom:1px solid var(--g100)"><td style="${sub}">Consignment fee (Marte)</td><td style="${subR}">${_isRp(consignFee)}</td></tr>
+      <tr><td style="${tdL};font-weight:600">GMV <span style="color:var(--g400);font-size:11px">(gross merchandise value)</span></td><td style="${tdR};font-weight:700">${_isRp(totGMV)}</td></tr>
+      <tr style="border-bottom:1px solid var(--g100)"><td style="${tdL};color:#c0392b">(−) Discount</td><td style="${tdR};color:#c0392b">(${_isRp(totDisc)})</td></tr>
+      <tr><td style="${tdL};font-weight:600">Net Sales</td><td style="${tdR};font-weight:600">${_isRp(totNetSales)}</td></tr>
+      <tr><td style="${sub}">Penjualan sendiri</td><td style="${subR}">${_isRp(ownRev)}</td></tr>
+      <tr style="border-bottom:1px solid var(--g100)"><td style="${sub}">Consignment (Marte) net</td><td style="${subR}">${_isRp(consNet)}</td></tr>
+      <tr style="border-bottom:1px solid var(--g100)"><td style="${tdL};color:#c0392b">(−) Brand Payout <span style="color:var(--g400);font-size:11px">(porsi brand consignment)</span></td><td style="${tdR};color:#c0392b">(${_isRp(brandPayout)})</td></tr>
+      <tr style="border-bottom:2px solid var(--g200);background:var(--off)"><td style="${tdL};font-weight:700">Net Revenue <span style="color:var(--g400);font-size:11px">(own net + consignment fee)</span></td><td style="${tdR};font-weight:700">${_isRp(totRev)}</td></tr>
       <tr style="border-bottom:1px solid var(--g100)"><td style="${tdL};color:#c0392b">(−) COGS <span style="color:var(--g400);font-size:11px">(penjualan sendiri)</span></td><td style="${tdR};color:#c0392b">(${_isRp(totCogs)})</td></tr>
       <tr style="border-bottom:2px solid var(--g200);background:var(--off)"><td style="${tdL};font-weight:700">Gross Profit</td><td style="${tdR};font-weight:700">${_isRp(grossProfit)} · ${gm.toFixed(1)}%</td></tr>
       <tr style="border-bottom:1px solid var(--g100)"><td style="${tdL};color:#c0392b">(−) Royalty Payout <span style="color:var(--g400);font-size:11px">(gross × % IP)</span></td><td style="${tdR};color:#c0392b">(${_isRp(totRoyalty)})</td></tr>
@@ -15896,7 +15912,7 @@ async function loadIncomeStatement() {
       </table>`;
 
     document.getElementById('is-note').innerHTML =
-      `Net sales exclude order CANCELED & RETURNED. <b>Marte/consignment</b>: penjualan Gudang Marte dikeluarkan, yang diakui hanya consignment fee (sumber: Consignment Report). <b>Royalty payout</b> = gross × % IP (sumber: Royalty Report), dikurangkan setelah gross profit. ⚠️ COGS dari <b>average_cost</b> Jubelio — hanya <b>${coverage.toFixed(0)}%</b> qty terjual punya data cost (sisanya Rp 0 → COGS understated, margin terlihat lebih tinggi). ${orderSet.size.toLocaleString('id-ID')} order diproses.`;
+      `<b>GMV</b> = nilai kotor sebelum diskon. <b>Discount</b> di-itemize untuk penjualan sendiri (diskon consignment belum terpisah, jadi GMV Marte = net sales-nya). <b>Brand Payout</b> = porsi yang dibayar ke brand consignment (net_payout). Net Sales − Brand Payout = Net Revenue (own net + consignment fee). Sumber consignment: Consignment Report; sudah exclude order CANCELED & RETURNED. <b>Royalty payout</b> = gross × % IP (Royalty Report), dikurangkan setelah gross profit. ⚠️ COGS dari <b>average_cost</b> Jubelio — hanya <b>${coverage.toFixed(0)}%</b> qty terjual punya data cost (sisanya Rp 0 → COGS understated). ${orderSet.size.toLocaleString('id-ID')} order diproses.`;
 
     document.getElementById('is-result').style.display = 'block';
     fb.textContent = '';
