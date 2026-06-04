@@ -15283,27 +15283,33 @@ function _ryEsc(s) {
 }
 
 async function loadRoyaltyReport() {
-  const period = document.getElementById('ry-period').value;
+  const year = parseInt(document.getElementById('ry-year').value, 10);
   const fb  = document.getElementById('ry-feedback');
   const btn = document.getElementById('ry-load-btn');
-  if (!period) { fb.textContent='Pilih periode dulu.'; fb.className='feedback err'; return; }
+  if (!year) { fb.textContent='Pilih tahun dulu.'; fb.className='feedback err'; return; }
 
-  _ryPeriod = period;
-  fb.textContent = ''; btn.textContent = 'Loading...'; btn.disabled = true;
+  _ryPeriod = String(year);
+  fb.textContent = ''; fb.className = 'feedback'; btn.textContent = 'Loading...'; btn.disabled = true;
 
-  const [year, month] = period.split('-').map(Number);
-  // Use WIB date boundaries: period covers month 1st 00:00 WIB → next month 1st 00:00 WIB
-  const startISO = `${period}-01T00:00:00+07:00`;
-  const nextMonth = new Date(year, month, 1);
-  const endISO = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth()+1).padStart(2,'0')}-01T00:00:00+07:00`;
+  // Whole year in WIB boundaries: Jan 1 00:00 WIB → next year Jan 1 00:00 WIB
+  const startISO = `${year}-01-01T00:00:00+07:00`;
+  const endISO   = `${year+1}-01-01T00:00:00+07:00`;
 
   try {
-    // 1. Pull non-canceled sales orders in the period
+    // 1. Pull non-canceled sales orders for the whole year (keep transaction_date for month bucketing)
     const orders = await _fetchAllPages(
       'jubelio_sales_orders',
       'salesorder_id,transaction_date,wms_status,is_canceled,sub_total',
       q => q.gte('transaction_date', startISO).lt('transaction_date', endISO).neq('wms_status','CANCELED')
     );
+    // Map each order → its WIB month (1..12)
+    const orderMonth = new Map();
+    orders.forEach(o => {
+      const d = new Date(o.transaction_date);
+      if (isNaN(d)) return;
+      const wib = new Date(d.getTime() + 7*3600000);   // shift to WIB, read in UTC
+      orderMonth.set(o.salesorder_id, wib.getUTCMonth()+1);
+    });
     const orderIds = orders.map(o => o.salesorder_id);
     fb.textContent = `${orders.length.toLocaleString('id-ID')} orders → mengambil items...`;
 
@@ -15317,24 +15323,25 @@ async function loadRoyaltyReport() {
         q => q.in('salesorder_id', chunk)
       );
       items.push(...rows);
+      fb.textContent = `${items.length.toLocaleString('id-ID')} items dimuat...`;
     }
 
-    // 3. Product mappings → IP. Match primarily by jubelio_item_id (variant-level,
-    //    matches sales item_id) with item_name as a fallback. Matching by item_name
-    //    alone misses ~90% because product_mappings.item_name is parent-level while
-    //    sales rows are variant-level.
+    // 3. Product mappings → IP + parent item. Match primarily by jubelio_item_id
+    //    (variant-level, matches sales item_id) with item_name as a fallback.
+    //    The mapping's item_name IS the parent-item name.
     fb.textContent = `${items.length.toLocaleString('id-ID')} items → mapping ke IP...`;
     const mappings = await _fetchAllPages(
       'product_mappings',
       'jubelio_item_id,item_name,ip',
       q => q.not('ip','is',null)
     );
-    const itemIdToIP = new Map();   // jubelio_item_id → ip (primary)
-    const itemToIP   = new Map();   // item_name → ip (fallback)
+    const itemIdMap = new Map();   // jubelio_item_id → {ip, parent}
+    const nameMap   = new Map();   // item_name → {ip, parent}
     mappings.forEach(m => {
       if (!m.ip) return;
-      if (m.jubelio_item_id != null) itemIdToIP.set(String(m.jubelio_item_id), m.ip);
-      if (m.item_name) itemToIP.set(m.item_name, m.ip);
+      const info = { ip: m.ip, parent: (m.item_name||'').trim() || m.ip };
+      if (m.jubelio_item_id != null) itemIdMap.set(String(m.jubelio_item_id), info);
+      if (m.item_name) nameMap.set(m.item_name, info);
     });
 
     // 4. IP Master royalty config
@@ -15344,50 +15351,42 @@ async function loadRoyaltyReport() {
     const ipByName = new Map();
     (ipRows||[]).forEach(r => ipByName.set((r.name||'').trim(), r));
 
-    // 5. Aggregate per IP
+    // 5. Aggregate per IP, tracking per-month and per-parent-item sub-totals
     const byIP = new Map();
     items.forEach(it => {
       if (it.is_canceled_item) return;
-      const ipName = (it.item_id != null && itemIdToIP.get(String(it.item_id))) || itemToIP.get(it.item_name);
-      if (!ipName) return;  // unmapped item, ignore for royalty calc
+      const info = (it.item_id != null && itemIdMap.get(String(it.item_id))) || nameMap.get(it.item_name);
+      if (!info) return;   // unmapped item, ignore for royalty calc
+      const ipName = info.ip;
+      const parent = info.parent || it.item_name || '—';
       const qty   = parseFloat(it.qty || 0) || 0;
-      // Gross = item.amount (already factors disc); fallback to qty*price - disc_amount
       const gross = parseFloat(it.amount || 0) || (qty * (parseFloat(it.price||0)||0) - (parseFloat(it.disc_amount||0)||0));
-      if (!byIP.has(ipName)) byIP.set(ipName, { qty:0, gross:0 });
+      const mo = orderMonth.get(it.salesorder_id) || 0;
+      if (!byIP.has(ipName)) byIP.set(ipName, { qty:0, gross:0, months:{}, parents:{} });
       const a = byIP.get(ipName);
-      a.qty   += qty;
-      a.gross += gross;
+      a.qty += qty; a.gross += gross;
+      if (mo) { (a.months[mo] = a.months[mo] || {qty:0,gross:0}); a.months[mo].qty += qty; a.months[mo].gross += gross; }
+      (a.parents[parent] = a.parents[parent] || {qty:0,gross:0}); a.parents[parent].qty += qty; a.parents[parent].gross += gross;
     });
 
-    // 6. Compose rows joining sales + ip_master config
-    _ryRows = [];
+    // 6. Compose rows + per-IP detail for drill-down
+    _ryRows = []; _ryDetail = {};
     byIP.forEach((agg, ipName) => {
       const ip = ipByName.get(ipName) || {};
       const pct = parseFloat(ip.percentage||0) || 0;
       const fixedAmt = parseFloat(ip.fixed_amount||0) || 0;
       const royaltyType = (ip.royalty_type||'').trim() || (pct?'Post-Sales':(fixedAmt?'Advance':'—'));
       const pphRate = parseFloat(ip.pph_tax_rate||0) || 0;
-      // Post-Sales / percentage based: royalty = gross × %
       const royalty = (royaltyType === 'Advance') ? 0 : (agg.gross * pct / 100);
       const pphAmount = royalty * pphRate / 100;
       const net = royalty - pphAmount;
       _ryRows.push({
-        ipId: ip.id || '',
-        ipName,
-        category: ip.category || '—',
-        royaltyType,
-        percentage: pct,
-        fixedAmount: fixedAmt,
-        termin: ip.termin || '—',
-        pphRate,
-        qty: agg.qty,
-        gross: agg.gross,
-        royalty,
-        pphAmount,
-        net,
-        liveStatus: ip.live_status || '',
-        inIpMaster: ipByName.has(ipName),
+        ipId: ip.id || '', ipName, category: ip.category || '—', royaltyType,
+        percentage: pct, fixedAmount: fixedAmt, termin: ip.termin || '—', pphRate,
+        qty: agg.qty, gross: agg.gross, royalty, pphAmount, net,
+        liveStatus: ip.live_status || '', inIpMaster: ipByName.has(ipName),
       });
+      _ryDetail[ipName] = { months: agg.months, parents: agg.parents, pct, pphRate, royaltyType };
     });
     _ryRows.sort((a,b) => b.gross - a.gross);
 
@@ -15402,6 +15401,84 @@ async function loadRoyaltyReport() {
   } finally {
     btn.textContent = 'Load Data'; btn.disabled = false;
   }
+}
+
+// Drill-down: month + parent-item breakdown for one IP
+let _ryDetail = {};
+
+function openRyDetail(ipNameEnc) {
+  const ipName = decodeURIComponent(ipNameEnc);
+  const d = _ryDetail[ipName];
+  if (!d) return;
+  const isAdvance = d.royaltyType === 'Advance';
+  const royaltyOf = gross => isAdvance ? 0 : (gross * d.pct / 100);
+
+  // Year totals
+  let totQty=0, totGross=0;
+  Object.values(d.parents).forEach(p => { totQty+=p.qty; totGross+=p.gross; });
+
+  document.getElementById('ry-d-title').textContent = ipName;
+  document.getElementById('ry-d-sub').innerHTML =
+    `${_ryPeriod} · ${d.pct?d.pct.toFixed(2)+'% royalty':'—'}${d.pphRate?` · PPh ${d.pphRate.toFixed(2)}%`:''} · `
+    + `Gross ${_ryRp(totGross)} · Royalty ${_ryRp(royaltyOf(totGross))}`;
+
+  // ── Monthly breakdown (Jan–Dec) ──
+  let monthRows = '';
+  for (let m=1; m<=12; m++) {
+    const mm = d.months[m];
+    const g = mm ? mm.gross : 0;
+    const q = mm ? mm.qty : 0;
+    const roy = royaltyOf(g);
+    const dim = g ? '' : 'opacity:.4';
+    monthRows += `<tr style="${dim}">
+      <td style="padding:6px 10px">${CAL_MONTH_NAMES[m-1]}</td>
+      <td class="mono" style="text-align:right;padding:6px 10px">${new Intl.NumberFormat('id-ID').format(Math.round(q))}</td>
+      <td class="mono" style="text-align:right;padding:6px 10px">${_ryRp(g)}</td>
+      <td class="mono" style="text-align:right;padding:6px 10px;font-weight:600">${roy?_ryRp(roy):'—'}</td>
+    </tr>`;
+  }
+
+  // ── Parent-item breakdown (sorted by gross desc) ──
+  const parents = Object.entries(d.parents).map(([name,v]) => ({name, ...v})).sort((a,b)=>b.gross-a.gross);
+  const parentRows = parents.map(p => `<tr>
+      <td style="padding:6px 10px">${_ryEsc(p.name)}</td>
+      <td class="mono" style="text-align:right;padding:6px 10px">${new Intl.NumberFormat('id-ID').format(Math.round(p.qty))}</td>
+      <td class="mono" style="text-align:right;padding:6px 10px">${_ryRp(p.gross)}</td>
+      <td class="mono" style="text-align:right;padding:6px 10px;font-weight:600">${royaltyOf(p.gross)?_ryRp(royaltyOf(p.gross)):'—'}</td>
+    </tr>`).join('');
+
+  const thStyle = 'text-align:right;padding:7px 10px;font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--g400);border-bottom:1px solid var(--g100)';
+  const thLeft  = thStyle.replace('text-align:right','text-align:left');
+
+  document.getElementById('ry-d-body').innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1.3fr;gap:24px;align-items:start">
+      <div>
+        <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--g400);margin-bottom:8px">📅 Breakdown per Bulan</div>
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr><th style="${thLeft}">Bulan</th><th style="${thStyle}">Qty</th><th style="${thStyle}">Gross</th><th style="${thStyle}">Royalty</th></tr></thead>
+          <tbody>${monthRows}</tbody>
+          <tfoot><tr style="font-weight:700;background:var(--off)">
+            <td style="padding:7px 10px">Total</td>
+            <td class="mono" style="text-align:right;padding:7px 10px">${new Intl.NumberFormat('id-ID').format(Math.round(totQty))}</td>
+            <td class="mono" style="text-align:right;padding:7px 10px">${_ryRp(totGross)}</td>
+            <td class="mono" style="text-align:right;padding:7px 10px">${_ryRp(royaltyOf(totGross))}</td>
+          </tr></tfoot>
+        </table>
+      </div>
+      <div>
+        <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--g400);margin-bottom:8px">📦 Breakdown per Parent Item (${parents.length})</div>
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr><th style="${thLeft}">Parent Item</th><th style="${thStyle}">Qty</th><th style="${thStyle}">Gross</th><th style="${thStyle}">Royalty</th></tr></thead>
+          <tbody>${parentRows || `<tr><td colspan="4" style="padding:16px;text-align:center;color:var(--g400)">—</td></tr>`}</tbody>
+        </table>
+      </div>
+    </div>`;
+
+  document.getElementById('ry-detail-overlay').style.display = 'flex';
+}
+
+function closeRyDetail() {
+  document.getElementById('ry-detail-overlay').style.display = 'none';
 }
 
 function ryRenderTable() {
@@ -15436,8 +15513,8 @@ function ryRenderTable() {
     const missing = !r.inIpMaster
       ? `<span style="color:#c0392b;font-size:10px;margin-left:6px" title="IP tidak ditemukan di IP Master">⚠</span>`
       : '';
-    return `<tr>
-      <td style="font-weight:600">${_ryEsc(r.ipName)}${missing}</td>
+    return `<tr onclick="openRyDetail('${encodeURIComponent(r.ipName)}')" style="cursor:pointer" onmouseover="this.style.background='var(--off)'" onmouseout="this.style.background=''" title="Klik untuk breakdown per bulan & parent item">
+      <td style="font-weight:600">${_ryEsc(r.ipName)}${missing} <span style="color:var(--g300);font-size:10px">▸</span></td>
       <td><span class="pill p-draft" style="font-size:10px">${_ryEsc(r.category)}</span></td>
       <td>${r.royaltyType?`<span class="pill ${typeClass}" style="font-size:10px">${_ryEsc(r.royaltyType)}</span>`:'—'}</td>
       <td class="mono" style="text-align:right">${r.percentage?r.percentage.toFixed(2)+'%':'—'}</td>
