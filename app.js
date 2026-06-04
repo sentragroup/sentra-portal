@@ -138,7 +138,7 @@ function enterApp(user, freshLogin) {
   // Restore page: prefer URL hash, fall back to sessionStorage
   let _pg = location.hash.slice(1).split('/')[0];
   if (!_pg) _pg = sessionStorage.getItem('snt_page') || '';
-  const _pages = ['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','popupbooth','activitylog','jubsales','mesign','po','stockmovement','productmap','productdev','collections','designermaster','dsgworkflow','warehousekpi','stockadjmgmt','returnreason','tradorders','invcheck','salesperf','reminders','announcements','marte','royalty'];
+  const _pages = ['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','popupbooth','activitylog','jubsales','mesign','po','stockmovement','productmap','productdev','collections','designermaster','dsgworkflow','warehousekpi','stockadjmgmt','returnreason','tradorders','invcheck','salesperf','reminders','announcements','marte','royalty','income'];
   if (_pages.includes(_pg))
     showPage(_pg, document.getElementById('nav-'+_pg));
 }
@@ -166,7 +166,7 @@ let _myAccess = null;   // null = all modules; array = allowed module keys
 const ACCESS_MODULES = [
   {key:'insights',label:'Insights'},{key:'salesperf',label:'Sales Performance'},
   {key:'project',label:'Project Board'},{key:'calendar',label:'Calendar'},
-  {key:'agreement',label:'Agreement'},{key:'ipmaster',label:'IP Master'},
+  {key:'agreement',label:'Agreement'},{key:'income',label:'Income Statement'},{key:'ipmaster',label:'IP Master'},
   {key:'recipients',label:'Collaborator Royalty'},{key:'brandmaster',label:'Brand Master'},
   {key:'distpartner',label:'Distribution Partner'},{key:'designermaster',label:'Designer Master'},
   {key:'productmap',label:'Product Mapping'},{key:'leads',label:'Leads Management'},
@@ -226,7 +226,7 @@ function showPage(name, el) {
   document.getElementById("page-"+name).classList.add("active");
   if (el) el.classList.add("active");
   const _c = document.querySelector('.content'); if (_c) _c.scrollTop = 0;
-  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report"};
+  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -306,6 +306,7 @@ function showPage(name, el) {
   if (name==="marte") loadMarteSettlements();
   if (name==="martereport") { const inp=document.getElementById('mr-period'); if(!inp.value) inp.value=new Date().toISOString().slice(0,7); }
   if (name==="royalty") { const inp=document.getElementById('ry-period'); if(inp && !inp.value) inp.value=new Date().toISOString().slice(0,7); }
+  if (name==="income")  { const inp=document.getElementById('is-period'); if(inp && !inp.value) inp.value=new Date().toISOString().slice(0,7); }
   if (name==="marteskucat") loadMarteSKUCat();
   window.scrollTo(0, 0);
   closeMobileSidebar();
@@ -15730,6 +15731,125 @@ function downloadRoyaltyCSV() {
   a.download = `royalty-report-${_ryPeriod}.csv`;
   a.click();
   URL.revokeObjectURL(a.href);
+}
+
+// ── INCOME STATEMENT ──
+// Net sales (gross − discount, excl. CANCELED/RETURNED orders & canceled items)
+// COGS = Σ(qty × jubelio_items.average_cost). Gross Profit & Gross Margin only.
+function _isRp(n) { return 'Rp ' + new Intl.NumberFormat('id-ID').format(Math.round(Number(n)||0)); }
+
+function isNavPeriod(delta) {
+  const inp = document.getElementById('is-period');
+  if (!inp) return;
+  const cur = inp.value || new Date().toISOString().slice(0,7);
+  if (delta === 0) { inp.value = new Date().toISOString().slice(0,7); return; }
+  const [y, m] = cur.split('-').map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  inp.value = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+}
+
+async function loadIncomeStatement() {
+  const period = document.getElementById('is-period').value;
+  const fb  = document.getElementById('is-feedback');
+  const btn = document.getElementById('is-load-btn');
+  if (!period) { fb.textContent='Pilih periode dulu.'; fb.className='feedback err'; return; }
+  fb.textContent=''; fb.className='feedback'; btn.textContent='Loading...'; btn.disabled=true;
+
+  const [y, m] = period.split('-').map(Number);
+  const startISO = `${period}-01T00:00:00+07:00`;
+  const next = new Date(y, m, 1);
+  const endISO = `${next.getFullYear()}-${String(next.getMonth()+1).padStart(2,'0')}-01T00:00:00+07:00`;
+
+  try {
+    // 1. Orders in period, exclude canceled (server) + returned (client)
+    const orders = await _fetchAllPages(
+      'jubelio_sales_orders', 'salesorder_id,wms_status',
+      q => q.gte('transaction_date', startISO).lt('transaction_date', endISO).neq('wms_status','CANCELED')
+    );
+    const validOrderIds = orders.filter(o => o.wms_status !== 'RETURNED').map(o => o.salesorder_id);
+    fb.textContent = `${validOrderIds.length.toLocaleString('id-ID')} orders → mengambil items...`;
+
+    // 2. Items for those orders
+    const items = [];
+    for (let i = 0; i < validOrderIds.length; i += 500) {
+      const chunk = validOrderIds.slice(i, i+500);
+      const rows = await _fetchAllPages(
+        'jubelio_sales_order_items', 'salesorder_id,item_id,qty,amount,is_canceled_item',
+        q => q.in('salesorder_id', chunk)
+      );
+      items.push(...rows);
+    }
+
+    // 3. Cost map (average_cost per item_id)
+    fb.textContent = `Menghitung COGS...`;
+    const costRows = await _fetchAllPages('jubelio_items', 'item_id,average_cost');
+    const costMap = new Map();
+    costRows.forEach(r => costMap.set(String(r.item_id), parseFloat(r.average_cost)||0));
+
+    // 4. Aggregate
+    let revenue=0, cogs=0, qty=0, costedQty=0;
+    const orderSet = new Set();
+    items.forEach(it => {
+      if (it.is_canceled_item) return;
+      const q2 = parseFloat(it.qty||0)||0;
+      const amt = parseFloat(it.amount||0)||0;
+      const cost = costMap.get(String(it.item_id)) || 0;
+      revenue += amt; qty += q2;
+      cogs += q2 * cost;
+      if (cost > 0) costedQty += q2;
+      orderSet.add(it.salesorder_id);
+    });
+    const gp = revenue - cogs;
+    const gm = revenue ? (gp / revenue * 100) : 0;
+    const coverage = qty ? (costedQty / qty * 100) : 0;
+
+    // 5. Render
+    const monthLabel = new Date(y, m-1, 1).toLocaleDateString('id-ID', {month:'long', year:'numeric'});
+    document.getElementById('is-title').textContent = `Income Statement — ${monthLabel}`;
+    document.getElementById('is-s-rev').textContent  = _isRp(revenue);
+    document.getElementById('is-s-cogs').textContent = _isRp(cogs);
+    document.getElementById('is-s-gp').textContent   = _isRp(gp);
+    document.getElementById('is-s-gm').textContent   = gm.toFixed(1) + '%';
+
+    const tdL = 'padding:9px 4px';
+    const tdR = 'padding:9px 4px;text-align:right;font-family:var(--mono)';
+    document.getElementById('is-tbody').innerHTML = `
+      <tr style="border-bottom:1px solid var(--g100)">
+        <td style="${tdL}">Net Revenue <span style="color:var(--g400);font-size:11px">(net sales)</span></td>
+        <td style="${tdR};font-weight:600">${_isRp(revenue)}</td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--g100)">
+        <td style="${tdL};color:#c0392b">(−) COGS <span style="color:var(--g400);font-size:11px">(qty × average cost)</span></td>
+        <td style="${tdR};color:#c0392b">(${_isRp(cogs)})</td>
+      </tr>
+      <tr style="border-bottom:2px solid var(--g200);background:var(--off)">
+        <td style="${tdL};font-weight:700">Gross Profit</td>
+        <td style="${tdR};font-weight:700">${_isRp(gp)}</td>
+      </tr>
+      <tr>
+        <td style="${tdL};font-weight:700">Gross Margin</td>
+        <td style="${tdR};font-weight:700;color:${gm>=0?'#1a5c25':'#c0392b'}">${gm.toFixed(1)}%</td>
+      </tr>
+      <tr><td colspan="2" style="padding-top:14px"></td></tr>
+      <tr style="color:var(--g500);font-size:12px">
+        <td style="${tdL}">Qty terjual</td><td style="${tdR}">${new Intl.NumberFormat('id-ID').format(Math.round(qty))}</td>
+      </tr>
+      <tr style="color:var(--g500);font-size:12px">
+        <td style="${tdL}">Jumlah order</td><td style="${tdR}">${new Intl.NumberFormat('id-ID').format(orderSet.size)}</td>
+      </tr>`;
+
+    document.getElementById('is-note').innerHTML =
+      `⚠️ COGS dihitung dari <b>average_cost</b> Jubelio. Hanya <b>${coverage.toFixed(0)}%</b> dari qty terjual yang punya data cost — sisanya dianggap Rp 0, jadi COGS kemungkinan <b>understated</b> dan gross margin <b>terlihat lebih tinggi</b> dari aktual. Net sales sudah exclude order CANCELED & RETURNED.`;
+
+    document.getElementById('is-result').style.display = 'block';
+    fb.textContent = '';
+  } catch(e) {
+    console.error('loadIncomeStatement:', e);
+    fb.textContent = 'Error: ' + (e.message||e);
+    fb.className = 'feedback err';
+  } finally {
+    btn.textContent = 'Load Data'; btn.disabled = false;
+  }
 }
 
 // ── DUPLICATE CHECK ──

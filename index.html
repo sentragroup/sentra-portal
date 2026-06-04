@@ -181,6 +181,7 @@
         <div class="home-grid" style="margin-bottom:1.5rem">
           <div class="tool-card" onclick="showPage('agreement',null)"><span class="tc-icon">📄</span><div class="tc-name">Agreement</div><div class="tc-desc">Submit dan pantau semua perjanjian, kontrak, dan kemitraan.</div></div>
           <div class="tool-card" onclick="showPage('royalty',null)"><span class="tc-icon">💰</span><div class="tc-name">Royalty Report</div><div class="tc-desc">Laporan royalty per IP per periode — gross sales, % royalty, PPh, net payout. Auto-mapped dari Product Mapping.</div></div>
+          <div class="tool-card" onclick="showPage('income',null)"><span class="tc-icon">📑</span><div class="tc-name">Income Statement</div><div class="tc-desc">Laporan laba-rugi per bulan — net sales, COGS, gross profit & gross margin.</div></div>
         </div>
 
         <div class="sb-label" style="margin-bottom:0.6rem">Account Management</div>
@@ -3110,6 +3111,42 @@
         </div>
       </div><!-- /.page#page-royalty -->
 
+      <!-- INCOME STATEMENT -->
+      <div class="page" id="page-income">
+        <div class="page-header">
+          <div><div class="page-title">Income Statement</div><div class="page-sub">Laba-rugi per bulan — net sales, COGS, gross profit & gross margin.</div></div>
+        </div>
+        <div class="form-card" style="margin-bottom:1.25rem">
+          <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
+            <div class="fg" style="min-width:180px">
+              <label>Periode (Bulan)</label>
+              <input type="month" id="is-period">
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;padding-bottom:1px">
+              <button class="btn-ghost" style="font-size:12px;padding:6px 10px" onclick="isNavPeriod(-1)">← Bulan Lalu</button>
+              <button class="btn-ghost" style="font-size:12px;padding:6px 10px" onclick="isNavPeriod(0)">Bulan Ini</button>
+              <button class="btn-ghost" style="font-size:12px;padding:6px 10px" onclick="isNavPeriod(1)">Bulan Depan →</button>
+            </div>
+            <button class="btn-primary" id="is-load-btn" onclick="loadIncomeStatement()" style="padding:8px 20px">Load Data</button>
+          </div>
+          <div class="feedback" id="is-feedback"></div>
+        </div>
+
+        <div id="is-result" style="display:none">
+          <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
+            <div class="stat-card"><div class="stat-num" id="is-s-rev">—</div><div class="stat-lbl">Net Revenue</div></div>
+            <div class="stat-card danger"><div class="stat-num" id="is-s-cogs">—</div><div class="stat-lbl">COGS</div></div>
+            <div class="stat-card success"><div class="stat-num" id="is-s-gp">—</div><div class="stat-lbl">Gross Profit</div></div>
+            <div class="stat-card info"><div class="stat-num" id="is-s-gm">—</div><div class="stat-lbl">Gross Margin</div></div>
+          </div>
+          <div class="form-card">
+            <div class="form-sec" id="is-title">Income Statement</div>
+            <table style="width:100%;border-collapse:collapse;font-size:13px"><tbody id="is-tbody"></tbody></table>
+            <div id="is-note" style="font-size:11px;color:var(--g400);margin-top:14px;line-height:1.5"></div>
+          </div>
+        </div>
+      </div><!-- /.page#page-income -->
+
       <!-- MARTE SKU CATEGORIES -->
       <div class="page" id="page-marteskucat">
         <div class="page-header">
@@ -3282,6 +3319,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260604e"></script>
+<script src="app.js?v=20260604f"></script>
 </body>
 </html>
