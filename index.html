@@ -2998,20 +2998,20 @@
       <!-- ROYALTY REPORT -->
       <div class="page" id="page-royalty">
         <div class="page-header">
-          <div><div class="page-title">Royalty Report</div><div class="page-sub">Per IP per periode · gross sales, royalty, PPh, net payout — auto-mapped dari Product Mapping</div></div>
+          <div><div class="page-title">Royalty Report</div><div class="page-sub">Per IP per tahun · gross sales, royalty, PPh, net payout — auto-mapped dari Product Mapping. Klik baris untuk breakdown per bulan & per parent item.</div></div>
         </div>
 
-        <!-- Period selector -->
+        <!-- Year selector -->
         <div class="form-card" style="margin-bottom:1.25rem">
           <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
-            <div class="fg" style="min-width:180px">
-              <label>Periode</label>
-              <input type="month" id="ry-period">
-            </div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;padding-bottom:1px">
-              <button class="btn-ghost" style="font-size:12px;padding:6px 10px" onclick="ryNavPeriod(-1)">← Bulan Lalu</button>
-              <button class="btn-ghost" style="font-size:12px;padding:6px 10px" onclick="ryNavPeriod(0)">Bulan Ini</button>
-              <button class="btn-ghost" style="font-size:12px;padding:6px 10px" onclick="ryNavPeriod(1)">Bulan Depan →</button>
+            <div class="fg" style="min-width:140px">
+              <label>Tahun</label>
+              <select id="ry-year">
+                <option value="2024">2024</option>
+                <option value="2025">2025</option>
+                <option value="2026" selected>2026</option>
+                <option value="2027">2027</option>
+              </select>
             </div>
             <button class="btn-primary" id="ry-load-btn" onclick="loadRoyaltyReport()" style="padding:8px 20px">Load Data</button>
           </div>
@@ -3059,6 +3059,17 @@
               <tbody id="ry-tbody"></tbody>
               <tfoot id="ry-tfoot" style="font-weight:600;background:var(--off)"></tfoot>
             </table>
+          </div>
+        </div>
+
+        <!-- Drill-down detail modal: month + parent-item breakdown -->
+        <div id="ry-detail-overlay" onclick="if(event.target===this)closeRyDetail()" style="display:none;position:fixed;inset:0;z-index:600;background:rgba(0,0,0,.45);align-items:center;justify-content:center;padding:20px">
+          <div style="background:var(--white);border-radius:14px;width:960px;max-width:96vw;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,.18)">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;padding:18px 22px;border-bottom:1px solid var(--g100)">
+              <div><div id="ry-d-title" style="font-family:var(--head);font-size:17px;font-weight:700;color:var(--black)">—</div><div id="ry-d-sub" style="font-size:12px;color:var(--g400);margin-top:3px"></div></div>
+              <button onclick="closeRyDetail()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--g400);line-height:1">✕</button>
+            </div>
+            <div style="padding:18px 22px;overflow-y:auto" id="ry-d-body"></div>
           </div>
         </div>
       </div><!-- /.page#page-royalty -->
@@ -3235,6 +3246,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260604a"></script>
+<script src="app.js?v=20260604b"></script>
 </body>
 </html>
