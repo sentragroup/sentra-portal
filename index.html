@@ -202,6 +202,7 @@
           <div class="tool-card" onclick="showPage('contentplan',null)"><span class="tc-icon">📝</span><div class="tc-name">Content Planning</div><div class="tc-desc">Plan content per piece — IG, TikTok, YouTube, blog. Owner, deadline, draft &amp; publish schedule.</div></div>
           <div class="tool-card" onclick="showPage('adsmgmt',null)"><span class="tc-icon">🎯</span><div class="tc-name">Ads Management</div><div class="tc-desc">Track campaigns paid ads — Meta, TikTok, Google. Budget vs spend, period, dan PIC.</div></div>
           <div class="tool-card" onclick="showPage('mktactivation',null)"><span class="tc-icon">🎪</span><div class="tc-name">Marketing Activation</div><div class="tc-desc">Manage events &amp; activations — pop-up, fan meet, launch party. Venue, budget, PIC.</div></div>
+          <div class="tool-card" onclick="showPage('kolmgmt',null)"><span class="tc-icon">🌟</span><div class="tc-name">KOL Management</div><div class="tc-desc">Track KOL placements — handle, tier, fee, deliverables, status. Brief &amp; post link per placement.</div></div>
           <div class="tool-card" onclick="showPage('publication',null)"><span class="tc-icon">📰</span><div class="tc-name">Publication</div><div class="tc-desc">Track PR &amp; press release — media outlet, publish/embargo date, link, status.</div></div>
         </div>
 
@@ -1820,6 +1821,86 @@
         <div class="table-wrap"><table>
           <thead><tr><th>Event</th><th>Type</th><th>Collection</th><th>Date</th><th>Venue</th><th style="text-align:right">Budget</th><th>PIC</th><th>Status</th><th>Aksi</th></tr></thead>
           <tbody id="maTableBody"><tr><td class="empty-td" colspan="9">Klik Refresh.</td></tr></tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <!-- KOL MANAGEMENT -->
+    <div class="page" id="page-kolmgmt">
+      <div class="page-header">
+        <div><div class="page-title">KOL Management</div><div class="page-sub">Track KOL placements — handle, tier, fee, deliverables, status. Brief &amp; post link per placement.</div></div>
+        <div class="tab-bar">
+          <button class="tab-btn active" onclick="switchKolTab('new',this)">Tambah</button>
+          <button class="tab-btn" onclick="switchKolTab('list',this)">Semua</button>
+        </div>
+      </div>
+      <div class="stats-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:1.25rem">
+        <div class="stat-card"><div class="stat-num" id="kol-s-total">—</div><div class="stat-lbl">Total</div></div>
+        <div class="stat-card"><div class="stat-num" id="kol-s-confirmed">—</div><div class="stat-lbl">Confirmed</div></div>
+        <div class="stat-card"><div class="stat-num" id="kol-s-posted">—</div><div class="stat-lbl">Posted</div></div>
+        <div class="stat-card"><div class="stat-num" id="kol-s-fee">—</div><div class="stat-lbl">Total Fee</div></div>
+        <div class="stat-card"><div class="stat-num" id="kol-s-paid">—</div><div class="stat-lbl">Paid</div></div>
+      </div>
+      <div id="koltab-new">
+        <div class="form-card">
+          <div class="form-sec">Tambah KOL Placement</div>
+          <div class="form-grid">
+            <div class="fg"><label>KOL Name <span class="req">*</span></label><input type="text" id="kol-name" placeholder="cth: Hindia"></div>
+            <div class="fg"><label>Handle</label><input type="text" id="kol-handle" placeholder="@username"></div>
+            <div class="fg"><label>Platform</label>
+              <select id="kol-platform">
+                <option value="">—</option><option>Instagram</option><option>TikTok</option><option>YouTube</option><option>X / Twitter</option><option>Spotify</option><option>Twitch</option><option>Multi</option><option>Other</option>
+              </select>
+            </div>
+            <div class="fg"><label>Tier</label>
+              <select id="kol-tier">
+                <option value="">—</option><option>Nano (&lt;10k)</option><option>Micro (10k-100k)</option><option>Mid (100k-500k)</option><option>Macro (500k-1M)</option><option>Mega (1M+)</option>
+              </select>
+            </div>
+            <div class="fg"><label>Followers</label><input type="number" id="kol-followers" min="0" placeholder="Snapshot di waktu placement"></div>
+            <div class="fg"><label>Collection</label><select id="kol-collection"><option value="">— Tidak terkait collection —</option></select></div>
+            <div class="fg"><label>Fee (Rp)</label><input type="number" id="kol-fee" min="0" placeholder="cth: 5000000"></div>
+            <div class="fg"><label>Payment Status</label>
+              <select id="kol-payment-status">
+                <option>Not Yet Paid</option><option>Pending Invoice</option><option>Paid</option><option>No Fee (Barter)</option>
+              </select>
+            </div>
+            <div class="fg"><label>Post Date</label><input type="date" id="kol-post-date"></div>
+            <div class="fg"><label>PIC</label><input type="text" id="kol-pic" placeholder="Nama PIC"></div>
+            <div class="fg"><label>Status</label>
+              <select id="kol-status">
+                <option>Outreach</option><option>Negotiating</option><option>Confirmed</option><option>Briefed</option><option>Posted</option><option>Completed</option><option>Cancelled</option>
+              </select>
+            </div>
+            <div class="fg full"><label>Deliverables</label><input type="text" id="kol-deliverables" placeholder="cth: 1× IG Post + 3× IG Story + 1× Reel"></div>
+            <div class="fg full"><label>Brief URL</label><input type="url" id="kol-brief" placeholder="https://drive.google.com/..."></div>
+            <div class="fg full"><label>Post URL <span style="color:var(--g400);font-weight:400">(setelah posted)</span></label><input type="url" id="kol-post-url" placeholder="https://instagram.com/p/..."></div>
+            <div class="fg full"><label>Notes</label><textarea id="kol-notes" rows="2" style="resize:vertical"></textarea></div>
+          </div>
+          <div class="btn-row" style="margin-top:1.25rem">
+            <button class="btn-primary" id="kolSubmitBtn" onclick="submitKol()">Simpan Placement</button>
+            <button class="btn-ghost" onclick="clearKolForm()">Bersihkan</button>
+          </div>
+          <div class="feedback" id="kol-feedback"></div>
+        </div>
+      </div>
+      <div id="koltab-list" style="display:none">
+        <div class="filter-panel">
+          <select id="kol-fil-status" onchange="loadKolMgmt()"><option value="">Semua Status</option><option>Outreach</option><option>Negotiating</option><option>Confirmed</option><option>Briefed</option><option>Posted</option><option>Completed</option><option>Cancelled</option></select>
+          <select id="kol-fil-platform" onchange="loadKolMgmt()"><option value="">Semua Platform</option></select>
+          <select id="kol-fil-tier" onchange="loadKolMgmt()"><option value="">Semua Tier</option></select>
+          <select id="kol-fil-collection" onchange="loadKolMgmt()"><option value="">Semua Collection</option></select>
+          <select id="kol-fil-payment" onchange="loadKolMgmt()"><option value="">Semua Payment</option><option>Not Yet Paid</option><option>Pending Invoice</option><option>Paid</option><option>No Fee (Barter)</option></select>
+          <input type="text" id="kol-search" placeholder="Cari KOL, handle..." style="padding:5px 10px;font-size:12px;border:1px solid var(--g100);border-radius:6px;width:220px;outline:none" oninput="loadKolMgmt()">
+          <button class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="clearKolFilters()">✕ Reset</button>
+        </div>
+        <div class="table-toolbar">
+          <button class="btn-refresh" onclick="loadKolMgmt()">↻ Refresh</button>
+          <div class="tcount" id="kol-tcount" style="margin-left:auto">— entri</div>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>KOL</th><th>Platform</th><th>Tier</th><th style="text-align:right">Followers</th><th>Collection</th><th>Deliverables</th><th style="text-align:right">Fee</th><th>Payment</th><th>Post Date</th><th>Status</th><th>Links</th><th>Aksi</th></tr></thead>
+          <tbody id="kolTableBody"><tr><td class="empty-td" colspan="12">Klik Refresh.</td></tr></tbody>
         </table></div>
       </div>
     </div>
