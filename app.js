@@ -4666,6 +4666,103 @@ function _fmtRupiah(n) {
   return new Intl.NumberFormat('id-ID').format(Math.round(Number(n)));
 }
 
+// ── Product Development section inside Collection Detail (Delivery tab) ──
+async function loadColPDSection(col) {
+  const body  = document.getElementById(`col-pd-body-${col.id}`);
+  const badge = document.getElementById(`col-pd-badge-${col.id}`);
+  if (!body) return;
+
+  // Lazy-load PD rows if not yet fetched (user might not have opened PD module)
+  try {
+    if (typeof allPDRows === 'undefined' || !Array.isArray(allPDRows) || !allPDRows.length) {
+      if (typeof fetchPDRows === 'function') await fetchPDRows();
+    }
+  } catch(e) { console.warn('PD rows fetch failed:', e); }
+
+  const parents = (typeof allPDRows !== 'undefined' ? allPDRows : []).filter(r => !r.parentId && r.collectionId === col.id);
+  const requestedSKUs = allColItems.filter(i => i.collectionId === col.id).length;
+
+  if (!parents.length) {
+    if (badge) badge.textContent = `0 / ${requestedSKUs} dev'd`;
+    body.innerHTML = `<div style="padding:24px;text-align:center;color:var(--g400);font-size:12px">
+      Belum ada produk yang di-dev untuk collection ini.
+      ${requestedSKUs ? `<br><span style="color:var(--g600)">${requestedSKUs} SKU sudah di-request brand manager. Buka Product Dev untuk mulai develop.</span>` : ''}
+      <br><a href="#productdev/${col.id}" onclick="openPDDetail('${col.id}');return false" style="display:inline-block;margin-top:10px;padding:6px 12px;border:1px solid var(--g100);border-radius:4px;background:var(--white);color:#3C3489;font-size:12px;text-decoration:none">↗ Buka Product Development</a>
+    </div>`;
+    return;
+  }
+
+  // Aggregate projection across all parent products
+  let totalUnits = 0, totalModal = 0, totalRevenue = 0;
+  parents.forEach(p => {
+    const children = (typeof allPDRows !== 'undefined' ? allPDRows : []).filter(r => r.parentId === p.id);
+    if (typeof pdComputeProjection === 'function') {
+      const proj = pdComputeProjection(p, children);
+      totalUnits   += proj.units || 0;
+      totalModal   += proj.modal || 0;
+      totalRevenue += proj.revenue100 || 0;
+    }
+  });
+
+  if (badge) badge.textContent = `${parents.length}${requestedSKUs?`/${requestedSKUs}`:''} dev'd · ${totalUnits.toLocaleString('id-ID')} unit · Modal Rp ${_fmtRupiah(totalModal)}`;
+
+  // Render product cards
+  body.innerHTML = parents.map(p => {
+    const children = (typeof allPDRows !== 'undefined' ? allPDRows : []).filter(r => r.parentId === p.id);
+    const proj = (typeof pdComputeProjection === 'function') ? pdComputeProjection(p, children) : {units:0,modal:0,unitCost:null};
+    const variants = children.filter(c => (typeof pdChildKind === 'function') ? pdChildKind(c) === 'variant' : true);
+    const bundleItems = children.filter(c => (typeof pdChildKind === 'function') ? pdChildKind(c) === 'bundle_item' : false);
+    const vendorSet = new Set(children.map(c => c.vendor).filter(Boolean));
+    const vendorTxt = vendorSet.size === 0 ? '—' : vendorSet.size === 1 ? [...vendorSet][0] : `${vendorSet.size} vendors`;
+    const pic = (p.pictures||[])[0];
+
+    // Status pill: 'Sourcing' if vendor not set, 'Ready for PO' if all variants have qty + hpp + vendor, else 'In progress'
+    let statusPill;
+    if (!children.length) {
+      statusPill = `<span class="pill p-draft" style="font-size:10px">No variants</span>`;
+    } else if (variants.every(v => v.qty && v.hpp && v.vendor)) {
+      statusPill = `<span class="pill p-active" style="font-size:10px">Ready for PO</span>`;
+    } else if (vendorSet.size === 0) {
+      statusPill = `<span class="pill p-draft" style="font-size:10px">Sourcing</span>`;
+    } else {
+      statusPill = `<span class="pill p-signings" style="font-size:10px">In progress</span>`;
+    }
+
+    const typeLabel = bundleItems.length && variants.length ? 'Bundle + variants'
+                    : bundleItems.length ? 'Bundle'
+                    : variants.length    ? `${variants.length} variants`
+                    : 'Product';
+
+    return `<div style="display:flex;gap:12px;padding:12px;background:var(--off);border:1px solid var(--g100);border-radius:6px;margin-bottom:8px">
+      <div style="flex:0 0 56px">
+        ${pic
+          ? `<img src="${pic}" style="width:56px;height:56px;object-fit:cover;border-radius:4px;border:1px solid var(--g100);background:var(--white);display:block">`
+          : `<div style="width:56px;height:56px;background:var(--white);border:1px dashed var(--g100);border-radius:4px;display:flex;align-items:center;justify-content:center;color:var(--g400);font-size:18px">📦</div>`}
+      </div>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:4px">
+          <div style="min-width:0">
+            <div style="font-family:var(--mono);font-size:10px;color:var(--g400);font-weight:600;letter-spacing:0.5px">${(p.displayCode||p.id).replace(/</g,'&lt;')}</div>
+            <div style="font-size:13px;font-weight:600;margin-top:1px">${(p.skuName||'').replace(/</g,'&lt;')}</div>
+            <div style="font-size:11px;color:var(--g400);margin-top:1px">${typeLabel}</div>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+            ${statusPill}
+            <a href="#productdev/${col.id}" onclick="openPDDetail('${col.id}');return false" style="font-size:10px;color:#3C3489;text-decoration:none;font-family:var(--mono)">Detail →</a>
+          </div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:14px;font-size:11px;color:var(--g600);margin-top:4px">
+          <span>Stock plan: <b class="mono" style="color:var(--black)">${(proj.units||0).toLocaleString('id-ID')} unit</b></span>
+          <span>HPP/unit: <b class="mono" style="color:var(--black)">${proj.unitCost?'Rp '+_fmtRupiah(Math.round(proj.unitCost)):'—'}</b></span>
+          <span>SRP: <b class="mono" style="color:var(--black)">${p.srp?'Rp '+_fmtRupiah(p.srp):'—'}</b></span>
+          <span>Modal: <b class="mono" style="color:var(--black)">${proj.modal?'Rp '+_fmtRupiah(proj.modal):'—'}</b></span>
+          <span>Vendor: <b style="color:var(--black)">${vendorTxt.replace(/</g,'&lt;')}</b></span>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
 async function saveColTarget(colId) {
   const fb = document.getElementById(`ct-feedback-${colId}`);
   const unRaw  = document.getElementById(`ct-un-${colId}`).value;
@@ -4853,7 +4950,7 @@ function renderColDetail(col, items) {
 
   // ── Pipeline bar ──
   const ps=getPipelineStatuses(col.id);
-  const pipeStages=[["design","Design"],["sampling","Sampling"],["production","Prod & Inbound"],["marketing","Marketing"]];
+  const pipeStages=[["design","Design"],["sampling","Sampling"],["production","Purchasing"],["marketing","Marketing"]];
   const pdot=s=>s==="done"?"●":s==="in-progress"?"◐":"○";
   const pclr=s=>s==="done"?"#1a5c25":s==="in-progress"?"#1a4a8a":"#aaa";
 
@@ -4981,7 +5078,12 @@ function renderColDetail(col, items) {
               onblur="saveSamplingLink('${col.id}',this.value)"
               onkeydown="if(event.key==='Enter')this.blur();if(event.key==='Escape'){document.getElementById('sl-edit-${col.id}').style.display='none';document.getElementById('sl-disp-${col.id}').style.display='inline-flex';}">
           </div>`,samplingContent)}
-        <!-- Production -->
+        <!-- Product Development (loops from PD module) -->
+        ${cdStageBox("🧪","Product Development",
+          `<span id="col-pd-badge-${col.id}" style="font-family:var(--mono);font-size:10px;color:var(--g400);margin-left:auto">Memuat...</span>
+           <a href="#productdev/${col.id}" onclick="openPDDetail('${col.id}');return false" style="font-family:var(--mono);font-size:11px;color:#3C3489;text-decoration:none;margin-left:10px">↗ Open in Product Dev</a>`,
+          `<div id="col-pd-body-${col.id}"><div style="padding:14px;color:var(--g400);font-size:12px;text-align:center">Memuat product development data...</div></div>`)}
+        <!-- Purchasing -->
         ${(()=>{
           const poLinks=colToPos[col.id]||[];
           let prodStatus="Not Started";
@@ -4990,7 +5092,7 @@ function renderColDetail(col, items) {
             const allPutaway=poLinks.every(({poId})=>allPOBills.some(b=>b.purchaseorder_id===poId&&b.is_putaway===true));
             prodStatus=allPutaway?"Done":"In Progress";
           }
-          return cdStageBox("🏭","Production & Inbound",cdStageBadge(prodStatus,`col-production-badge-${col.id}`),`
+          return cdStageBox("🏭","Purchasing & Inbound",cdStageBadge(prodStatus,`col-production-badge-${col.id}`),`
           <div id="col-production-body-${col.id}">
             ${productionContent}
           </div>`);
@@ -5062,6 +5164,8 @@ function renderColDetail(col, items) {
   // Prime the target calculator display + load monitoring
   updateColTargetCalc(col.id);
   loadColSalesMonitor(col);
+  // Load Product Development data for the Delivery tab
+  loadColPDSection(col);
 }
 
 const SIZE_ORDER = ['XS','S','M','L','XL','XXL','XXXL','XXXXL','4XL','5XL','FREE SIZE','FREE'];
@@ -5917,7 +6021,7 @@ async function updateSKUStageStatus(itemId, colId, stage, status) {
 }
 function renderPipelineBarHTML(colId) {
   const ps=getPipelineStatuses(colId);
-  const pipeStages=[["design","Design"],["sampling","Sampling"],["production","Prod & Inbound"],["marketing","Marketing"]];
+  const pipeStages=[["design","Design"],["sampling","Sampling"],["production","Purchasing"],["marketing","Marketing"]];
   const pdot=s=>s==="done"?"●":s==="in-progress"?"◐":"○";
   const pclr=s=>s==="done"?"#1a5c25":s==="in-progress"?"#1a4a8a":"#aaa";
   return pipeStages.map(([k,l],i)=>`${i>0?`<div style="width:32px;flex-shrink:0;height:1px;background:var(--g200)"></div>`:""}
