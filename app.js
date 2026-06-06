@@ -138,7 +138,7 @@ function enterApp(user, freshLogin) {
   // Restore page: prefer URL hash, fall back to sessionStorage
   let _pg = location.hash.slice(1).split('/')[0];
   if (!_pg) _pg = sessionStorage.getItem('snt_page') || '';
-  const _pages = ['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','popupbooth','activitylog','jubsales','mesign','po','stockmovement','productmap','productdev','collections','designermaster','dsgworkflow','warehousekpi','stockadjmgmt','returnreason','tradorders','invcheck','salesperf','reminders','announcements','marte','royalty','income'];
+  const _pages = ['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','popupbooth','activitylog','jubsales','mesign','po','stockmovement','productmap','productdev','collections','designermaster','dsgworkflow','warehousekpi','stockadjmgmt','returnreason','tradorders','invcheck','salesperf','reminders','announcements','marte','royalty','income','contentplan','adsmgmt','mktactivation','publication','photoshoot'];
   if (_pages.includes(_pg))
     showPage(_pg, document.getElementById('nav-'+_pg));
 }
@@ -226,7 +226,7 @@ function showPage(name, el) {
   document.getElementById("page-"+name).classList.add("active");
   if (el) el.classList.add("active");
   const _c = document.querySelector('.content'); if (_c) _c.scrollTop = 0;
-  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement"};
+  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -251,6 +251,11 @@ function showPage(name, el) {
   if (name==="stockmovement" && !_srcRows.length) loadStockMovement();
   if (name==="productmap") loadProductMap(0,'');
   if (name==="productdev") loadProductDev();
+  if (name==="contentplan") loadContentPlan();
+  if (name==="adsmgmt") loadAdsManagement();
+  if (name==="mktactivation") loadMktActivation();
+  if (name==="publication") loadPublication();
+  if (name==="photoshoot") loadPhotoshoot();
   if (name==="collections") {
     // If restoring a collection detail from URL, immediately switch to detail view
     // to prevent the "new collection" form from flashing before data loads
@@ -16810,6 +16815,558 @@ async function loadIncomeStatement() {
   } finally {
     btn.textContent = 'Load Data'; btn.disabled = false;
   }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// ── MARKETING OPS + PHOTOSHOOT modules ──
+// ══════════════════════════════════════════════════════════════════
+// Shared helpers
+async function _moLoadColOptions(selectId) {
+  const sel = document.getElementById(selectId);
+  if (!sel || sel.dataset.populated === '1') return;
+  try {
+    const {data} = await sb.from('collections').select('id,collection_name').order('collection_name');
+    const placeholder = sel.querySelector('option')?.outerHTML || '<option value="">— Pilih —</option>';
+    sel.innerHTML = placeholder + (data||[]).map(c =>
+      `<option value="${c.id}">${(c.collection_name||c.id).replace(/</g,'&lt;')}</option>`).join('');
+    sel.dataset.populated = '1';
+  } catch(e) { console.error('_moLoadColOptions:', e); }
+}
+function _moRp(n) { if (!n) return '—'; return 'Rp ' + new Intl.NumberFormat('id-ID').format(Math.round(Number(n))); }
+function _moDate(d) { if (!d) return '—'; const dt = new Date(d+'T00:00:00'); return isNaN(dt) ? d : dt.toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'numeric'}); }
+function _moEsc(s) { return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function _moStatusClass(s) {
+  const map = {
+    'Planning':'p-draft','Draft':'p-draft','Drafting':'p-draft','Booked':'p-signings','Active':'p-active',
+    'In Progress':'p-signings','Review':'p-review','Approved':'p-active','Embargoed':'p-review',
+    'Scheduled':'p-signings','Shot':'p-signings','Editing':'p-signings','Delivered':'p-active',
+    'Published':'p-active','Done':'p-active','Ended':'p-inactive','Paused':'p-inactive','Cancelled':'p-expired'
+  };
+  return map[s] || 'p-draft';
+}
+
+// ── 1. CONTENT PLANNING ──
+let _cpRows = [];
+function switchCPTab(tab, el) {
+  document.querySelectorAll('#page-contentplan .tab-btn').forEach(b=>b.classList.remove('active'));
+  if (el) el.classList.add('active');
+  document.getElementById('cptab-new').style.display  = tab==='new'  ? '' : 'none';
+  document.getElementById('cptab-list').style.display = tab==='list' ? '' : 'none';
+  if (tab==='list') loadContentPlan();
+}
+function mapCP(r) {
+  return {id:r.id, collectionId:r.collection_id, title:r.title||'', contentType:r.content_type||'',
+    owner:r.owner||'', deadline:r.deadline||'', assetUrl:r.asset_url||'', caption:r.caption||'',
+    publishDate:r.publish_date||'', channel:r.channel||'', status:r.status||'Planning'};
+}
+async function loadContentPlan() {
+  await _moLoadColOptions('cp-collection');
+  await _moLoadColOptions('cp-fil-collection');
+  const tbody = document.getElementById('cpTableBody');
+  if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="10">Memuat...</td></tr>`;
+  try {
+    const fStat = document.getElementById('cp-fil-status')?.value || '';
+    const fType = document.getElementById('cp-fil-type')?.value || '';
+    const fCol  = document.getElementById('cp-fil-collection')?.value || '';
+    const search = (document.getElementById('cp-search')?.value || '').trim().toLowerCase();
+    let q = sb.from('content_planning').select('*').order('deadline',{ascending:true,nullsFirst:false}).limit(5000);
+    if (fStat) q = q.eq('status', fStat);
+    if (fType) q = q.eq('content_type', fType);
+    if (fCol)  q = q.eq('collection_id', fCol);
+    const {data, error} = await q;
+    if (error) throw error;
+    _cpRows = (data||[]).map(mapCP);
+    // Populate Type filter
+    const typeSet = [...new Set(_cpRows.map(r=>r.contentType).filter(Boolean))].sort();
+    const tSel = document.getElementById('cp-fil-type');
+    if (tSel && tSel.options.length <= 1+typeSet.length) {
+      const cur = tSel.value;
+      tSel.innerHTML = `<option value="">Semua Type</option>` + typeSet.map(t=>`<option value="${t}"${t===cur?' selected':''}>${t}</option>`).join('');
+    }
+    let rows = _cpRows;
+    if (search) rows = rows.filter(r => `${r.title} ${r.owner} ${r.channel}`.toLowerCase().includes(search));
+    // Stats from unfiltered set
+    document.getElementById('cp-s-total').textContent     = _cpRows.length;
+    document.getElementById('cp-s-planning').textContent  = _cpRows.filter(r=>r.status==='Planning').length;
+    document.getElementById('cp-s-drafting').textContent  = _cpRows.filter(r=>r.status==='Drafting').length;
+    document.getElementById('cp-s-scheduled').textContent = _cpRows.filter(r=>r.status==='Scheduled').length;
+    document.getElementById('cp-s-published').textContent = _cpRows.filter(r=>r.status==='Published').length;
+    document.getElementById('cp-tcount').textContent = `${rows.length} entri`;
+    const colName = id => allColRows.find(c=>c.id===id)?.collectionName || '—';
+    if (!rows.length) { tbody.innerHTML = `<tr><td class="empty-td" colspan="10">Tidak ada data.</td></tr>`; return; }
+    tbody.innerHTML = rows.map(r => `<tr>
+      <td><strong>${_moEsc(r.title)}</strong>${r.caption?`<div style="font-size:11px;color:var(--g600);margin-top:2px">${_moEsc(r.caption).slice(0,80)}${r.caption.length>80?'…':''}</div>`:''}</td>
+      <td>${r.contentType?`<span class="pill p-signings" style="font-size:10px">${_moEsc(r.contentType)}</span>`:'—'}</td>
+      <td>${_moEsc(r.owner)||'—'}</td>
+      <td style="font-size:11px;color:var(--g600)">${_moEsc(colName(r.collectionId))}</td>
+      <td style="white-space:nowrap;font-size:11px">${_moDate(r.deadline)}</td>
+      <td style="white-space:nowrap;font-size:11px">${_moDate(r.publishDate)}</td>
+      <td style="font-size:11px">${_moEsc(r.channel)||'—'}</td>
+      <td><select onchange="updateCPStatus('${r.id}',this.value)" class="pill ${_moStatusClass(r.status)}" style="font-size:10px;padding:2px 6px;border:1px solid">${['Planning','Drafting','Review','Approved','Scheduled','Published','Cancelled'].map(s=>`<option${r.status===s?' selected':''}>${s}</option>`).join('')}</select></td>
+      <td>${r.assetUrl?`<a href="${r.assetUrl}" target="_blank" style="color:#3C3489;text-decoration:none;font-size:11px">↗ Drive</a>`:'—'}</td>
+      <td style="white-space:nowrap"><button class="btn-icon" style="font-size:10px;color:#c33" onclick="deleteCP('${r.id}')">Del</button></td>
+    </tr>`).join('');
+  } catch(e) { if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="10">Gagal: ${e.message||e}</td></tr>`; }
+}
+function clearCPFilters() {
+  ['cp-fil-status','cp-fil-type','cp-fil-collection','cp-search'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  loadContentPlan();
+}
+function clearCPForm() {
+  ['cp-title','cp-owner','cp-deadline','cp-asset-url','cp-caption','cp-publish-date','cp-channel'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  ['cp-type','cp-collection','cp-status'].forEach(id => { const el=document.getElementById(id); if(el) el.selectedIndex=0; });
+  const fb=document.getElementById('cp-feedback'); if(fb) fb.textContent='';
+}
+async function submitCP() {
+  const fb = document.getElementById('cp-feedback');
+  const title = document.getElementById('cp-title').value.trim();
+  if (!title) { fb.textContent='⚠️ Title wajib.'; return; }
+  try {
+    const id = genId('CP');
+    const {error} = await sb.from('content_planning').insert({
+      id,
+      title,
+      content_type: document.getElementById('cp-type').value || null,
+      collection_id: document.getElementById('cp-collection').value || null,
+      owner: document.getElementById('cp-owner').value.trim() || null,
+      deadline: document.getElementById('cp-deadline').value || null,
+      publish_date: document.getElementById('cp-publish-date').value || null,
+      channel: document.getElementById('cp-channel').value.trim() || null,
+      status: document.getElementById('cp-status').value || 'Planning',
+      asset_url: document.getElementById('cp-asset-url').value.trim() || null,
+      caption: document.getElementById('cp-caption').value.trim() || null,
+      added_by: currentUser, date_added: new Date().toISOString().slice(0,10),
+      last_updated: new Date().toISOString(), last_updated_by: currentUser
+    });
+    if (error) throw error;
+    logActivity('ContentPlanning','create',id,`Content: ${title}`);
+    fb.textContent = '✅ Content tersimpan.';
+    clearCPForm();
+    setTimeout(()=>{fb.textContent='';},2500);
+  } catch(e) { fb.textContent='❌ Gagal: '+(e.message||e); }
+}
+async function updateCPStatus(id, status) {
+  try {
+    await sb.from('content_planning').update({status, last_updated:new Date().toISOString(), last_updated_by:currentUser}).eq('id',id);
+    loadContentPlan();
+  } catch(e) { alert('Gagal: '+(e.message||e)); }
+}
+async function deleteCP(id) {
+  if (!confirm('Hapus content ini?')) return;
+  try { await sb.from('content_planning').delete().eq('id',id); loadContentPlan(); }
+  catch(e) { alert('Gagal: '+(e.message||e)); }
+}
+
+// ── 2. ADS MANAGEMENT ──
+let _adsRows = [];
+function switchAdsTab(tab, el) {
+  document.querySelectorAll('#page-adsmgmt .tab-btn').forEach(b=>b.classList.remove('active'));
+  if (el) el.classList.add('active');
+  document.getElementById('adstab-new').style.display  = tab==='new'  ? '' : 'none';
+  document.getElementById('adstab-list').style.display = tab==='list' ? '' : 'none';
+  if (tab==='list') loadAdsManagement();
+}
+function mapAds(r) {
+  return {id:r.id, collectionId:r.collection_id, name:r.campaign_name||'', channel:r.channel||'',
+    budget:r.budget, spend:r.spend, startDate:r.start_date||'', endDate:r.end_date||'',
+    briefUrl:r.brief_url||'', pic:r.pic||'', status:r.status||'Planning'};
+}
+async function loadAdsManagement() {
+  await _moLoadColOptions('ads-collection');
+  await _moLoadColOptions('ads-fil-collection');
+  const tbody = document.getElementById('adsTableBody');
+  if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="10">Memuat...</td></tr>`;
+  try {
+    const fStat = document.getElementById('ads-fil-status')?.value || '';
+    const fChan = document.getElementById('ads-fil-channel')?.value || '';
+    const fCol  = document.getElementById('ads-fil-collection')?.value || '';
+    const search = (document.getElementById('ads-search')?.value || '').trim().toLowerCase();
+    let q = sb.from('ads_campaigns').select('*').order('start_date',{ascending:false,nullsFirst:false}).limit(5000);
+    if (fStat) q = q.eq('status', fStat);
+    if (fChan) q = q.eq('channel', fChan);
+    if (fCol)  q = q.eq('collection_id', fCol);
+    const {data, error} = await q;
+    if (error) throw error;
+    _adsRows = (data||[]).map(mapAds);
+    const chanSet = [...new Set(_adsRows.map(r=>r.channel).filter(Boolean))].sort();
+    const cSel = document.getElementById('ads-fil-channel');
+    if (cSel) { const cur = cSel.value; cSel.innerHTML = `<option value="">Semua Channel</option>` + chanSet.map(c=>`<option value="${c}"${c===cur?' selected':''}>${c}</option>`).join(''); }
+    let rows = _adsRows;
+    if (search) rows = rows.filter(r => `${r.name} ${r.channel} ${r.pic}`.toLowerCase().includes(search));
+    document.getElementById('ads-s-total').textContent  = _adsRows.length;
+    document.getElementById('ads-s-active').textContent = _adsRows.filter(r=>r.status==='Active').length;
+    document.getElementById('ads-s-budget').textContent = _moRp(_adsRows.reduce((s,r)=>s+Number(r.budget||0),0));
+    document.getElementById('ads-s-spend').textContent  = _moRp(_adsRows.reduce((s,r)=>s+Number(r.spend||0),0));
+    document.getElementById('ads-tcount').textContent = `${rows.length} entri`;
+    const colName = id => allColRows.find(c=>c.id===id)?.collectionName || '—';
+    if (!rows.length) { tbody.innerHTML = `<tr><td class="empty-td" colspan="10">Tidak ada data.</td></tr>`; return; }
+    tbody.innerHTML = rows.map(r => {
+      const burn = r.budget>0 ? Math.round(r.spend/r.budget*100) : 0;
+      return `<tr>
+      <td><strong>${_moEsc(r.name)}</strong></td>
+      <td><span class="pill p-signings" style="font-size:10px">${_moEsc(r.channel)||'—'}</span></td>
+      <td style="font-size:11px;color:var(--g600)">${_moEsc(colName(r.collectionId))}</td>
+      <td style="white-space:nowrap;font-size:11px">${_moDate(r.startDate)}<br><span style="color:var(--g400)">→ ${_moDate(r.endDate)}</span></td>
+      <td class="mono" style="text-align:right;white-space:nowrap">${_moRp(r.budget)}</td>
+      <td class="mono" style="text-align:right;white-space:nowrap">${_moRp(r.spend)}${burn>0?` <span style="font-size:10px;color:${burn>100?'#c33':burn>90?'#a66800':'var(--g400)'}">(${burn}%)</span>`:''}</td>
+      <td style="font-size:11px">${_moEsc(r.pic)||'—'}</td>
+      <td><select onchange="updateAdsStatus('${r.id}',this.value)" class="pill ${_moStatusClass(r.status)}" style="font-size:10px;padding:2px 6px;border:1px solid">${['Planning','Active','Paused','Ended','Cancelled'].map(s=>`<option${r.status===s?' selected':''}>${s}</option>`).join('')}</select></td>
+      <td>${r.briefUrl?`<a href="${r.briefUrl}" target="_blank" style="color:#3C3489;text-decoration:none;font-size:11px">↗ Brief</a>`:'—'}</td>
+      <td style="white-space:nowrap"><button class="btn-icon" style="font-size:10px;color:#c33" onclick="deleteAds('${r.id}')">Del</button></td>
+    </tr>`;}).join('');
+  } catch(e) { if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="10">Gagal: ${e.message||e}</td></tr>`; }
+}
+function clearAdsFilters() {
+  ['ads-fil-status','ads-fil-channel','ads-fil-collection','ads-search'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  loadAdsManagement();
+}
+function clearAdsForm() {
+  ['ads-name','ads-pic','ads-budget','ads-spend','ads-start','ads-end','ads-brief','ads-notes'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  ['ads-channel','ads-collection','ads-status'].forEach(id => { const el=document.getElementById(id); if(el) el.selectedIndex=0; });
+  const fb=document.getElementById('ads-feedback'); if(fb) fb.textContent='';
+}
+async function submitAds() {
+  const fb = document.getElementById('ads-feedback');
+  const name = document.getElementById('ads-name').value.trim();
+  const channel = document.getElementById('ads-channel').value;
+  if (!name) { fb.textContent='⚠️ Campaign name wajib.'; return; }
+  if (!channel) { fb.textContent='⚠️ Channel wajib.'; return; }
+  try {
+    const id = genId('ADS');
+    const {error} = await sb.from('ads_campaigns').insert({
+      id, campaign_name:name, channel,
+      collection_id: document.getElementById('ads-collection').value || null,
+      pic: document.getElementById('ads-pic').value.trim() || null,
+      budget: parseFloat(document.getElementById('ads-budget').value)||null,
+      spend: parseFloat(document.getElementById('ads-spend').value)||null,
+      start_date: document.getElementById('ads-start').value || null,
+      end_date: document.getElementById('ads-end').value || null,
+      brief_url: document.getElementById('ads-brief').value.trim() || null,
+      notes: document.getElementById('ads-notes').value.trim() || null,
+      status: document.getElementById('ads-status').value || 'Planning',
+      added_by: currentUser, date_added: new Date().toISOString().slice(0,10),
+      last_updated: new Date().toISOString(), last_updated_by: currentUser
+    });
+    if (error) throw error;
+    logActivity('AdsManagement','create',id,`Campaign: ${name}`);
+    fb.textContent = '✅ Campaign tersimpan.';
+    clearAdsForm();
+    setTimeout(()=>{fb.textContent='';},2500);
+  } catch(e) { fb.textContent='❌ Gagal: '+(e.message||e); }
+}
+async function updateAdsStatus(id, status) {
+  try { await sb.from('ads_campaigns').update({status, last_updated:new Date().toISOString(), last_updated_by:currentUser}).eq('id',id); loadAdsManagement(); }
+  catch(e) { alert('Gagal: '+(e.message||e)); }
+}
+async function deleteAds(id) {
+  if (!confirm('Hapus campaign ini?')) return;
+  try { await sb.from('ads_campaigns').delete().eq('id',id); loadAdsManagement(); }
+  catch(e) { alert('Gagal: '+(e.message||e)); }
+}
+
+// ── 3. MARKETING ACTIVATION ──
+let _maRows = [];
+function switchMaTab(tab, el) {
+  document.querySelectorAll('#page-mktactivation .tab-btn').forEach(b=>b.classList.remove('active'));
+  if (el) el.classList.add('active');
+  document.getElementById('matab-new').style.display  = tab==='new'  ? '' : 'none';
+  document.getElementById('matab-list').style.display = tab==='list' ? '' : 'none';
+  if (tab==='list') loadMktActivation();
+}
+function mapMa(r) {
+  return {id:r.id, collectionId:r.collection_id, name:r.event_name||'', type:r.event_type||'',
+    date:r.event_date||'', venue:r.venue||'', budget:r.budget, pic:r.pic||'', status:r.status||'Planning'};
+}
+async function loadMktActivation() {
+  await _moLoadColOptions('ma-collection');
+  await _moLoadColOptions('ma-fil-collection');
+  const tbody = document.getElementById('maTableBody');
+  if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="9">Memuat...</td></tr>`;
+  try {
+    const fStat = document.getElementById('ma-fil-status')?.value || '';
+    const fType = document.getElementById('ma-fil-type')?.value || '';
+    const fCol  = document.getElementById('ma-fil-collection')?.value || '';
+    const search = (document.getElementById('ma-search')?.value || '').trim().toLowerCase();
+    let q = sb.from('marketing_events').select('*').order('event_date',{ascending:false,nullsFirst:false}).limit(5000);
+    if (fStat) q = q.eq('status', fStat);
+    if (fType) q = q.eq('event_type', fType);
+    if (fCol)  q = q.eq('collection_id', fCol);
+    const {data, error} = await q;
+    if (error) throw error;
+    _maRows = (data||[]).map(mapMa);
+    const tSet = [...new Set(_maRows.map(r=>r.type).filter(Boolean))].sort();
+    const tSel = document.getElementById('ma-fil-type');
+    if (tSel) { const cur = tSel.value; tSel.innerHTML = `<option value="">Semua Type</option>` + tSet.map(t=>`<option value="${t}"${t===cur?' selected':''}>${t}</option>`).join(''); }
+    let rows = _maRows;
+    if (search) rows = rows.filter(r => `${r.name} ${r.venue} ${r.pic}`.toLowerCase().includes(search));
+    const today = new Date().toISOString().slice(0,10);
+    document.getElementById('ma-s-total').textContent    = _maRows.length;
+    document.getElementById('ma-s-upcoming').textContent = _maRows.filter(r=>r.date && r.date >= today && r.status !== 'Cancelled' && r.status !== 'Done').length;
+    document.getElementById('ma-s-done').textContent     = _maRows.filter(r=>r.status==='Done').length;
+    document.getElementById('ma-s-budget').textContent   = _moRp(_maRows.reduce((s,r)=>s+Number(r.budget||0),0));
+    document.getElementById('ma-tcount').textContent = `${rows.length} entri`;
+    const colName = id => allColRows.find(c=>c.id===id)?.collectionName || '—';
+    if (!rows.length) { tbody.innerHTML = `<tr><td class="empty-td" colspan="9">Tidak ada data.</td></tr>`; return; }
+    tbody.innerHTML = rows.map(r => `<tr>
+      <td><strong>${_moEsc(r.name)}</strong></td>
+      <td>${r.type?`<span class="pill p-signings" style="font-size:10px">${_moEsc(r.type)}</span>`:'—'}</td>
+      <td style="font-size:11px;color:var(--g600)">${_moEsc(colName(r.collectionId))}</td>
+      <td style="white-space:nowrap;font-size:11px">${_moDate(r.date)}</td>
+      <td style="font-size:11px">${_moEsc(r.venue)||'—'}</td>
+      <td class="mono" style="text-align:right;white-space:nowrap">${_moRp(r.budget)}</td>
+      <td style="font-size:11px">${_moEsc(r.pic)||'—'}</td>
+      <td><select onchange="updateMaStatus('${r.id}',this.value)" class="pill ${_moStatusClass(r.status)}" style="font-size:10px;padding:2px 6px;border:1px solid">${['Planning','Booked','In Progress','Done','Cancelled'].map(s=>`<option${r.status===s?' selected':''}>${s}</option>`).join('')}</select></td>
+      <td style="white-space:nowrap"><button class="btn-icon" style="font-size:10px;color:#c33" onclick="deleteMa('${r.id}')">Del</button></td>
+    </tr>`).join('');
+  } catch(e) { if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="9">Gagal: ${e.message||e}</td></tr>`; }
+}
+function clearMaFilters() {
+  ['ma-fil-status','ma-fil-type','ma-fil-collection','ma-search'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  loadMktActivation();
+}
+function clearMaForm() {
+  ['ma-name','ma-date','ma-venue','ma-budget','ma-pic','ma-notes'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  ['ma-type','ma-collection','ma-status'].forEach(id => { const el=document.getElementById(id); if(el) el.selectedIndex=0; });
+  const fb=document.getElementById('ma-feedback'); if(fb) fb.textContent='';
+}
+async function submitMa() {
+  const fb = document.getElementById('ma-feedback');
+  const name = document.getElementById('ma-name').value.trim();
+  if (!name) { fb.textContent='⚠️ Event name wajib.'; return; }
+  try {
+    const id = genId('MA');
+    const {error} = await sb.from('marketing_events').insert({
+      id, event_name:name,
+      event_type: document.getElementById('ma-type').value || null,
+      collection_id: document.getElementById('ma-collection').value || null,
+      event_date: document.getElementById('ma-date').value || null,
+      venue: document.getElementById('ma-venue').value.trim() || null,
+      budget: parseFloat(document.getElementById('ma-budget').value)||null,
+      pic: document.getElementById('ma-pic').value.trim() || null,
+      notes: document.getElementById('ma-notes').value.trim() || null,
+      status: document.getElementById('ma-status').value || 'Planning',
+      added_by: currentUser, date_added: new Date().toISOString().slice(0,10),
+      last_updated: new Date().toISOString(), last_updated_by: currentUser
+    });
+    if (error) throw error;
+    logActivity('MarketingActivation','create',id,`Event: ${name}`);
+    fb.textContent = '✅ Event tersimpan.';
+    clearMaForm();
+    setTimeout(()=>{fb.textContent='';},2500);
+  } catch(e) { fb.textContent='❌ Gagal: '+(e.message||e); }
+}
+async function updateMaStatus(id, status) {
+  try { await sb.from('marketing_events').update({status, last_updated:new Date().toISOString(), last_updated_by:currentUser}).eq('id',id); loadMktActivation(); }
+  catch(e) { alert('Gagal: '+(e.message||e)); }
+}
+async function deleteMa(id) {
+  if (!confirm('Hapus event ini?')) return;
+  try { await sb.from('marketing_events').delete().eq('id',id); loadMktActivation(); }
+  catch(e) { alert('Gagal: '+(e.message||e)); }
+}
+
+// ── 4. PUBLICATION ──
+let _pubRows = [];
+function switchPubTab(tab, el) {
+  document.querySelectorAll('#page-publication .tab-btn').forEach(b=>b.classList.remove('active'));
+  if (el) el.classList.add('active');
+  document.getElementById('pubtab-new').style.display  = tab==='new'  ? '' : 'none';
+  document.getElementById('pubtab-list').style.display = tab==='list' ? '' : 'none';
+  if (tab==='list') loadPublication();
+}
+function mapPub(r) {
+  return {id:r.id, collectionId:r.collection_id, title:r.title||'', type:r.publication_type||'',
+    outlet:r.media_outlet||'', publishDate:r.publish_date||'', embargoDate:r.embargo_date||'',
+    link:r.link||'', pic:r.pic||'', status:r.status||'Planning'};
+}
+async function loadPublication() {
+  await _moLoadColOptions('pub-collection');
+  await _moLoadColOptions('pub-fil-collection');
+  const tbody = document.getElementById('pubTableBody');
+  if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="10">Memuat...</td></tr>`;
+  try {
+    const fStat = document.getElementById('pub-fil-status')?.value || '';
+    const fType = document.getElementById('pub-fil-type')?.value || '';
+    const fCol  = document.getElementById('pub-fil-collection')?.value || '';
+    const search = (document.getElementById('pub-search')?.value || '').trim().toLowerCase();
+    let q = sb.from('publications').select('*').order('publish_date',{ascending:false,nullsFirst:false}).limit(5000);
+    if (fStat) q = q.eq('status', fStat);
+    if (fType) q = q.eq('publication_type', fType);
+    if (fCol)  q = q.eq('collection_id', fCol);
+    const {data, error} = await q;
+    if (error) throw error;
+    _pubRows = (data||[]).map(mapPub);
+    const tSet = [...new Set(_pubRows.map(r=>r.type).filter(Boolean))].sort();
+    const tSel = document.getElementById('pub-fil-type');
+    if (tSel) { const cur = tSel.value; tSel.innerHTML = `<option value="">Semua Type</option>` + tSet.map(t=>`<option value="${t}"${t===cur?' selected':''}>${t}</option>`).join(''); }
+    let rows = _pubRows;
+    if (search) rows = rows.filter(r => `${r.title} ${r.outlet} ${r.pic}`.toLowerCase().includes(search));
+    document.getElementById('pub-s-total').textContent     = _pubRows.length;
+    document.getElementById('pub-s-draft').textContent     = _pubRows.filter(r=>r.status==='Draft').length;
+    document.getElementById('pub-s-embargo').textContent   = _pubRows.filter(r=>r.status==='Embargoed').length;
+    document.getElementById('pub-s-published').textContent = _pubRows.filter(r=>r.status==='Published').length;
+    document.getElementById('pub-tcount').textContent = `${rows.length} entri`;
+    const colName = id => allColRows.find(c=>c.id===id)?.collectionName || '—';
+    if (!rows.length) { tbody.innerHTML = `<tr><td class="empty-td" colspan="10">Tidak ada data.</td></tr>`; return; }
+    tbody.innerHTML = rows.map(r => `<tr>
+      <td><strong>${_moEsc(r.title)}</strong></td>
+      <td>${r.type?`<span class="pill p-signings" style="font-size:10px">${_moEsc(r.type)}</span>`:'—'}</td>
+      <td style="font-size:11px">${_moEsc(r.outlet)||'—'}</td>
+      <td style="font-size:11px;color:var(--g600)">${_moEsc(colName(r.collectionId))}</td>
+      <td style="white-space:nowrap;font-size:11px">${_moDate(r.publishDate)}</td>
+      <td style="white-space:nowrap;font-size:11px">${_moDate(r.embargoDate)}</td>
+      <td style="font-size:11px">${_moEsc(r.pic)||'—'}</td>
+      <td><select onchange="updatePubStatus('${r.id}',this.value)" class="pill ${_moStatusClass(r.status)}" style="font-size:10px;padding:2px 6px;border:1px solid">${['Planning','Draft','Approved','Embargoed','Published','Cancelled'].map(s=>`<option${r.status===s?' selected':''}>${s}</option>`).join('')}</select></td>
+      <td>${r.link?`<a href="${r.link}" target="_blank" style="color:#3C3489;text-decoration:none;font-size:11px">↗ Buka</a>`:'—'}</td>
+      <td style="white-space:nowrap"><button class="btn-icon" style="font-size:10px;color:#c33" onclick="deletePub('${r.id}')">Del</button></td>
+    </tr>`).join('');
+  } catch(e) { if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="10">Gagal: ${e.message||e}</td></tr>`; }
+}
+function clearPubFilters() {
+  ['pub-fil-status','pub-fil-type','pub-fil-collection','pub-search'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  loadPublication();
+}
+function clearPubForm() {
+  ['pub-title','pub-outlet','pub-publish-date','pub-embargo-date','pub-pic','pub-link','pub-notes'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  ['pub-type','pub-collection','pub-status'].forEach(id => { const el=document.getElementById(id); if(el) el.selectedIndex=0; });
+  const fb=document.getElementById('pub-feedback'); if(fb) fb.textContent='';
+}
+async function submitPub() {
+  const fb = document.getElementById('pub-feedback');
+  const title = document.getElementById('pub-title').value.trim();
+  if (!title) { fb.textContent='⚠️ Title wajib.'; return; }
+  try {
+    const id = genId('PUB');
+    const {error} = await sb.from('publications').insert({
+      id, title,
+      publication_type: document.getElementById('pub-type').value || null,
+      collection_id: document.getElementById('pub-collection').value || null,
+      media_outlet: document.getElementById('pub-outlet').value.trim() || null,
+      publish_date: document.getElementById('pub-publish-date').value || null,
+      embargo_date: document.getElementById('pub-embargo-date').value || null,
+      link: document.getElementById('pub-link').value.trim() || null,
+      pic: document.getElementById('pub-pic').value.trim() || null,
+      notes: document.getElementById('pub-notes').value.trim() || null,
+      status: document.getElementById('pub-status').value || 'Planning',
+      added_by: currentUser, date_added: new Date().toISOString().slice(0,10),
+      last_updated: new Date().toISOString(), last_updated_by: currentUser
+    });
+    if (error) throw error;
+    logActivity('Publication','create',id,`Publication: ${title}`);
+    fb.textContent = '✅ Publikasi tersimpan.';
+    clearPubForm();
+    setTimeout(()=>{fb.textContent='';},2500);
+  } catch(e) { fb.textContent='❌ Gagal: '+(e.message||e); }
+}
+async function updatePubStatus(id, status) {
+  try { await sb.from('publications').update({status, last_updated:new Date().toISOString(), last_updated_by:currentUser}).eq('id',id); loadPublication(); }
+  catch(e) { alert('Gagal: '+(e.message||e)); }
+}
+async function deletePub(id) {
+  if (!confirm('Hapus publikasi ini?')) return;
+  try { await sb.from('publications').delete().eq('id',id); loadPublication(); }
+  catch(e) { alert('Gagal: '+(e.message||e)); }
+}
+
+// ── 5. PHOTOSHOOT PLANNING ──
+let _psRows = [];
+function switchPsTab(tab, el) {
+  document.querySelectorAll('#page-photoshoot .tab-btn').forEach(b=>b.classList.remove('active'));
+  if (el) el.classList.add('active');
+  document.getElementById('pstab-new').style.display  = tab==='new'  ? '' : 'none';
+  document.getElementById('pstab-list').style.display = tab==='list' ? '' : 'none';
+  if (tab==='list') loadPhotoshoot();
+}
+function mapPs(r) {
+  return {id:r.id, collectionId:r.collection_id, name:r.shoot_name||'', shootDate:r.shoot_date||'',
+    location:r.location||'', deliveryDue:r.delivery_due||'', deliverablesUrl:r.deliverables_url||'',
+    budget:r.budget, pic:r.pic||'', status:r.status||'Planning'};
+}
+async function loadPhotoshoot() {
+  await _moLoadColOptions('ps-collection');
+  await _moLoadColOptions('ps-fil-collection');
+  const tbody = document.getElementById('psTableBody');
+  if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="10">Memuat...</td></tr>`;
+  try {
+    const fStat = document.getElementById('ps-fil-status')?.value || '';
+    const fCol  = document.getElementById('ps-fil-collection')?.value || '';
+    const search = (document.getElementById('ps-search')?.value || '').trim().toLowerCase();
+    let q = sb.from('photoshoots').select('*').order('shoot_date',{ascending:false,nullsFirst:false}).limit(5000);
+    if (fStat) q = q.eq('status', fStat);
+    if (fCol)  q = q.eq('collection_id', fCol);
+    const {data, error} = await q;
+    if (error) throw error;
+    _psRows = (data||[]).map(mapPs);
+    let rows = _psRows;
+    if (search) rows = rows.filter(r => `${r.name} ${r.location} ${r.pic}`.toLowerCase().includes(search));
+    const today = new Date().toISOString().slice(0,10);
+    document.getElementById('ps-s-total').textContent     = _psRows.length;
+    document.getElementById('ps-s-upcoming').textContent  = _psRows.filter(r=>r.shootDate && r.shootDate >= today && !['Delivered','Cancelled'].includes(r.status)).length;
+    document.getElementById('ps-s-delivered').textContent = _psRows.filter(r=>r.status==='Delivered').length;
+    document.getElementById('ps-s-budget').textContent    = _moRp(_psRows.reduce((s,r)=>s+Number(r.budget||0),0));
+    document.getElementById('ps-tcount').textContent = `${rows.length} entri`;
+    const colName = id => allColRows.find(c=>c.id===id)?.collectionName || '—';
+    if (!rows.length) { tbody.innerHTML = `<tr><td class="empty-td" colspan="10">Tidak ada data.</td></tr>`; return; }
+    tbody.innerHTML = rows.map(r => {
+      const dueOver = r.deliveryDue && r.deliveryDue < today && r.status !== 'Delivered' && r.status !== 'Cancelled';
+      return `<tr>
+      <td><strong>${_moEsc(r.name)}</strong></td>
+      <td style="font-size:11px;color:var(--g600)">${_moEsc(colName(r.collectionId))}</td>
+      <td style="white-space:nowrap;font-size:11px">${_moDate(r.shootDate)}</td>
+      <td style="white-space:nowrap;font-size:11px${dueOver?';color:#c33;font-weight:600':''}">${dueOver?'⚠ ':''}${_moDate(r.deliveryDue)}</td>
+      <td style="font-size:11px">${_moEsc(r.location)||'—'}</td>
+      <td style="font-size:11px">${_moEsc(r.pic)||'—'}</td>
+      <td class="mono" style="text-align:right;white-space:nowrap">${_moRp(r.budget)}</td>
+      <td><select onchange="updatePsStatus('${r.id}',this.value)" class="pill ${_moStatusClass(r.status)}" style="font-size:10px;padding:2px 6px;border:1px solid">${['Planning','Booked','Shot','Editing','Delivered','Cancelled'].map(s=>`<option${r.status===s?' selected':''}>${s}</option>`).join('')}</select></td>
+      <td>${r.deliverablesUrl?`<a href="${r.deliverablesUrl}" target="_blank" style="color:#3C3489;text-decoration:none;font-size:11px">↗ Drive</a>`:'—'}</td>
+      <td style="white-space:nowrap"><button class="btn-icon" style="font-size:10px;color:#c33" onclick="deletePs('${r.id}')">Del</button></td>
+    </tr>`;}).join('');
+  } catch(e) { if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="10">Gagal: ${e.message||e}</td></tr>`; }
+}
+function clearPsFilters() {
+  ['ps-fil-status','ps-fil-collection','ps-search'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  loadPhotoshoot();
+}
+function clearPsForm() {
+  ['ps-name','ps-shoot-date','ps-delivery','ps-location','ps-pic','ps-budget','ps-deliverables-url','ps-notes'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  ['ps-collection','ps-status'].forEach(id => { const el=document.getElementById(id); if(el) el.selectedIndex=0; });
+  const fb=document.getElementById('ps-feedback'); if(fb) fb.textContent='';
+}
+async function submitPs() {
+  const fb = document.getElementById('ps-feedback');
+  const name = document.getElementById('ps-name').value.trim();
+  if (!name) { fb.textContent='⚠️ Shoot name wajib.'; return; }
+  try {
+    const id = genId('PS');
+    const {error} = await sb.from('photoshoots').insert({
+      id, shoot_name:name,
+      collection_id: document.getElementById('ps-collection').value || null,
+      shoot_date: document.getElementById('ps-shoot-date').value || null,
+      delivery_due: document.getElementById('ps-delivery').value || null,
+      location: document.getElementById('ps-location').value.trim() || null,
+      pic: document.getElementById('ps-pic').value.trim() || null,
+      budget: parseFloat(document.getElementById('ps-budget').value)||null,
+      deliverables_url: document.getElementById('ps-deliverables-url').value.trim() || null,
+      notes: document.getElementById('ps-notes').value.trim() || null,
+      status: document.getElementById('ps-status').value || 'Planning',
+      added_by: currentUser, date_added: new Date().toISOString().slice(0,10),
+      last_updated: new Date().toISOString(), last_updated_by: currentUser
+    });
+    if (error) throw error;
+    logActivity('Photoshoot','create',id,`Shoot: ${name}`);
+    fb.textContent = '✅ Shoot tersimpan.';
+    clearPsForm();
+    setTimeout(()=>{fb.textContent='';},2500);
+  } catch(e) { fb.textContent='❌ Gagal: '+(e.message||e); }
+}
+async function updatePsStatus(id, status) {
+  try { await sb.from('photoshoots').update({status, last_updated:new Date().toISOString(), last_updated_by:currentUser}).eq('id',id); loadPhotoshoot(); }
+  catch(e) { alert('Gagal: '+(e.message||e)); }
+}
+async function deletePs(id) {
+  if (!confirm('Hapus shoot ini?')) return;
+  try { await sb.from('photoshoots').delete().eq('id',id); loadPhotoshoot(); }
+  catch(e) { alert('Gagal: '+(e.message||e)); }
 }
 
 // ── DUPLICATE CHECK ──
