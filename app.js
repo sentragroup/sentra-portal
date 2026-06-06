@@ -138,7 +138,7 @@ function enterApp(user, freshLogin) {
   // Restore page: prefer URL hash, fall back to sessionStorage
   let _pg = location.hash.slice(1).split('/')[0];
   if (!_pg) _pg = sessionStorage.getItem('snt_page') || '';
-  const _pages = ['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','popupbooth','activitylog','jubsales','mesign','po','stockmovement','productmap','productdev','collections','designermaster','dsgworkflow','warehousekpi','stockadjmgmt','returnreason','tradorders','invcheck','salesperf','reminders','announcements','marte','royalty','income','contentplan','adsmgmt','mktactivation','publication','photoshoot'];
+  const _pages = ['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','popupbooth','activitylog','jubsales','mesign','po','stockmovement','productmap','productdev','collections','designermaster','dsgworkflow','warehousekpi','stockadjmgmt','returnreason','tradorders','invcheck','salesperf','reminders','announcements','marte','royalty','income','contentplan','adsmgmt','mktactivation','publication','photoshoot','kolmgmt'];
   if (_pages.includes(_pg))
     showPage(_pg, document.getElementById('nav-'+_pg));
 }
@@ -226,7 +226,7 @@ function showPage(name, el) {
   document.getElementById("page-"+name).classList.add("active");
   if (el) el.classList.add("active");
   const _c = document.querySelector('.content'); if (_c) _c.scrollTop = 0;
-  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning"};
+  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -256,6 +256,7 @@ function showPage(name, el) {
   if (name==="mktactivation") loadMktActivation();
   if (name==="publication") loadPublication();
   if (name==="photoshoot") loadPhotoshoot();
+  if (name==="kolmgmt") loadKolMgmt();
   if (name==="collections") {
     // If restoring a collection detail from URL, immediately switch to detail view
     // to prevent the "new collection" form from flashing before data loads
@@ -17366,6 +17367,147 @@ async function updatePsStatus(id, status) {
 async function deletePs(id) {
   if (!confirm('Hapus shoot ini?')) return;
   try { await sb.from('photoshoots').delete().eq('id',id); loadPhotoshoot(); }
+  catch(e) { alert('Gagal: '+(e.message||e)); }
+}
+
+// ── 6. KOL MANAGEMENT ──
+let _kolRows = [];
+function switchKolTab(tab, el) {
+  document.querySelectorAll('#page-kolmgmt .tab-btn').forEach(b=>b.classList.remove('active'));
+  if (el) el.classList.add('active');
+  document.getElementById('koltab-new').style.display  = tab==='new'  ? '' : 'none';
+  document.getElementById('koltab-list').style.display = tab==='list' ? '' : 'none';
+  if (tab==='list') loadKolMgmt();
+}
+function mapKol(r) {
+  return {
+    id:r.id, collectionId:r.collection_id,
+    name:r.kol_name||'', handle:r.handle||'', platform:r.platform||'', tier:r.tier||'',
+    followers:r.followers, deliverables:r.deliverables||'',
+    fee:r.fee, paymentStatus:r.payment_status||'Not Yet Paid',
+    postDate:r.post_date||'', briefUrl:r.brief_url||'', postUrl:r.post_url||'',
+    reach:r.reach, engagement:r.engagement, attributableOrders:r.attributable_orders, attributableRevenue:r.attributable_revenue,
+    pic:r.pic||'', status:r.status||'Outreach', notes:r.notes||''
+  };
+}
+function _kolPaymentClass(s) {
+  return s === 'Paid' ? 'p-active'
+       : s === 'Pending Invoice' ? 'p-review'
+       : s === 'No Fee (Barter)' ? 'p-info'
+       : 'p-near';
+}
+async function loadKolMgmt() {
+  await _moLoadColOptions('kol-collection');
+  await _moLoadColOptions('kol-fil-collection');
+  const tbody = document.getElementById('kolTableBody');
+  if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="12">Memuat...</td></tr>`;
+  try {
+    const fStat = document.getElementById('kol-fil-status')?.value || '';
+    const fPlat = document.getElementById('kol-fil-platform')?.value || '';
+    const fTier = document.getElementById('kol-fil-tier')?.value || '';
+    const fCol  = document.getElementById('kol-fil-collection')?.value || '';
+    const fPay  = document.getElementById('kol-fil-payment')?.value || '';
+    const search = (document.getElementById('kol-search')?.value || '').trim().toLowerCase();
+    let q = sb.from('kol_placements').select('*').order('post_date',{ascending:false,nullsFirst:false}).limit(5000);
+    if (fStat) q = q.eq('status', fStat);
+    if (fPlat) q = q.eq('platform', fPlat);
+    if (fTier) q = q.eq('tier', fTier);
+    if (fCol)  q = q.eq('collection_id', fCol);
+    if (fPay)  q = q.eq('payment_status', fPay);
+    const {data, error} = await q;
+    if (error) throw error;
+    _kolRows = (data||[]).map(mapKol);
+    // Populate platform + tier filters from data
+    const platSet = [...new Set(_kolRows.map(r=>r.platform).filter(Boolean))].sort();
+    const pSel = document.getElementById('kol-fil-platform');
+    if (pSel) { const cur = pSel.value; pSel.innerHTML = `<option value="">Semua Platform</option>` + platSet.map(p=>`<option value="${p}"${p===cur?' selected':''}>${p}</option>`).join(''); }
+    const tierSet = [...new Set(_kolRows.map(r=>r.tier).filter(Boolean))].sort();
+    const tSel = document.getElementById('kol-fil-tier');
+    if (tSel) { const cur = tSel.value; tSel.innerHTML = `<option value="">Semua Tier</option>` + tierSet.map(t=>`<option value="${t}"${t===cur?' selected':''}>${t}</option>`).join(''); }
+    let rows = _kolRows;
+    if (search) rows = rows.filter(r => `${r.name} ${r.handle} ${r.pic} ${r.deliverables}`.toLowerCase().includes(search));
+    // Stats from unfiltered set
+    document.getElementById('kol-s-total').textContent     = _kolRows.length;
+    document.getElementById('kol-s-confirmed').textContent = _kolRows.filter(r=>['Confirmed','Briefed'].includes(r.status)).length;
+    document.getElementById('kol-s-posted').textContent    = _kolRows.filter(r=>['Posted','Completed'].includes(r.status)).length;
+    document.getElementById('kol-s-fee').textContent       = _moRp(_kolRows.reduce((s,r)=>s+Number(r.fee||0),0));
+    document.getElementById('kol-s-paid').textContent      = _moRp(_kolRows.filter(r=>r.paymentStatus==='Paid').reduce((s,r)=>s+Number(r.fee||0),0));
+    document.getElementById('kol-tcount').textContent = `${rows.length} entri`;
+    const colName = id => allColRows.find(c=>c.id===id)?.collectionName || '—';
+    if (!rows.length) { tbody.innerHTML = `<tr><td class="empty-td" colspan="12">Tidak ada data.</td></tr>`; return; }
+    tbody.innerHTML = rows.map(r => `<tr>
+      <td><strong>${_moEsc(r.name)}</strong>${r.handle?`<div style="font-size:11px;color:var(--g600);margin-top:1px">${_moEsc(r.handle)}</div>`:''}</td>
+      <td>${r.platform?`<span class="pill p-signings" style="font-size:10px">${_moEsc(r.platform)}</span>`:'—'}</td>
+      <td style="font-size:11px;white-space:nowrap">${_moEsc(r.tier)||'—'}</td>
+      <td class="mono" style="text-align:right">${r.followers?Number(r.followers).toLocaleString('id-ID'):'—'}</td>
+      <td style="font-size:11px;color:var(--g600)">${_moEsc(colName(r.collectionId))}</td>
+      <td style="font-size:11px;max-width:200px">${_moEsc(r.deliverables)||'—'}</td>
+      <td class="mono" style="text-align:right;white-space:nowrap">${_moRp(r.fee)}</td>
+      <td><select onchange="updateKolPayment('${r.id}',this.value)" class="pill ${_kolPaymentClass(r.paymentStatus)}" style="font-size:10px;padding:2px 6px;border:1px solid">${['Not Yet Paid','Pending Invoice','Paid','No Fee (Barter)'].map(s=>`<option${r.paymentStatus===s?' selected':''}>${s}</option>`).join('')}</select></td>
+      <td style="white-space:nowrap;font-size:11px">${_moDate(r.postDate)}</td>
+      <td><select onchange="updateKolStatus('${r.id}',this.value)" class="pill ${_moStatusClass(r.status)}" style="font-size:10px;padding:2px 6px;border:1px solid">${['Outreach','Negotiating','Confirmed','Briefed','Posted','Completed','Cancelled'].map(s=>`<option${r.status===s?' selected':''}>${s}</option>`).join('')}</select></td>
+      <td style="white-space:nowrap;font-size:11px">
+        ${r.briefUrl?`<a href="${r.briefUrl}" target="_blank" style="color:#3C3489;text-decoration:none">↗ Brief</a>`:''}
+        ${r.briefUrl && r.postUrl?' · ':''}
+        ${r.postUrl?`<a href="${r.postUrl}" target="_blank" style="color:#3C3489;text-decoration:none">↗ Post</a>`:''}
+        ${!r.briefUrl && !r.postUrl?'—':''}
+      </td>
+      <td style="white-space:nowrap"><button class="btn-icon" style="font-size:10px;color:#c33" onclick="deleteKol('${r.id}')">Del</button></td>
+    </tr>`).join('');
+  } catch(e) { if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="12">Gagal: ${e.message||e}</td></tr>`; }
+}
+function clearKolFilters() {
+  ['kol-fil-status','kol-fil-platform','kol-fil-tier','kol-fil-collection','kol-fil-payment','kol-search'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  loadKolMgmt();
+}
+function clearKolForm() {
+  ['kol-name','kol-handle','kol-followers','kol-fee','kol-post-date','kol-pic','kol-deliverables','kol-brief','kol-post-url','kol-notes'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  ['kol-platform','kol-tier','kol-collection','kol-payment-status','kol-status'].forEach(id => { const el=document.getElementById(id); if(el) el.selectedIndex=0; });
+  const fb=document.getElementById('kol-feedback'); if(fb) fb.textContent='';
+}
+async function submitKol() {
+  const fb = document.getElementById('kol-feedback');
+  const name = document.getElementById('kol-name').value.trim();
+  if (!name) { fb.textContent='⚠️ KOL name wajib.'; return; }
+  try {
+    const id = genId('KOL');
+    const {error} = await sb.from('kol_placements').insert({
+      id, kol_name:name,
+      handle: document.getElementById('kol-handle').value.trim() || null,
+      platform: document.getElementById('kol-platform').value || null,
+      tier: document.getElementById('kol-tier').value || null,
+      followers: parseInt(document.getElementById('kol-followers').value)||null,
+      collection_id: document.getElementById('kol-collection').value || null,
+      fee: parseFloat(document.getElementById('kol-fee').value)||null,
+      payment_status: document.getElementById('kol-payment-status').value || 'Not Yet Paid',
+      post_date: document.getElementById('kol-post-date').value || null,
+      pic: document.getElementById('kol-pic').value.trim() || null,
+      deliverables: document.getElementById('kol-deliverables').value.trim() || null,
+      brief_url: document.getElementById('kol-brief').value.trim() || null,
+      post_url: document.getElementById('kol-post-url').value.trim() || null,
+      status: document.getElementById('kol-status').value || 'Outreach',
+      notes: document.getElementById('kol-notes').value.trim() || null,
+      added_by: currentUser, date_added: new Date().toISOString().slice(0,10),
+      last_updated: new Date().toISOString(), last_updated_by: currentUser
+    });
+    if (error) throw error;
+    logActivity('KolManagement','create',id,`KOL: ${name}`);
+    fb.textContent = '✅ KOL placement tersimpan.';
+    clearKolForm();
+    setTimeout(()=>{fb.textContent='';},2500);
+  } catch(e) { fb.textContent='❌ Gagal: '+(e.message||e); }
+}
+async function updateKolStatus(id, status) {
+  try { await sb.from('kol_placements').update({status, last_updated:new Date().toISOString(), last_updated_by:currentUser}).eq('id',id); loadKolMgmt(); }
+  catch(e) { alert('Gagal: '+(e.message||e)); }
+}
+async function updateKolPayment(id, payment_status) {
+  try { await sb.from('kol_placements').update({payment_status, last_updated:new Date().toISOString(), last_updated_by:currentUser}).eq('id',id); loadKolMgmt(); }
+  catch(e) { alert('Gagal: '+(e.message||e)); }
+}
+async function deleteKol(id) {
+  if (!confirm('Hapus KOL placement ini?')) return;
+  try { await sb.from('kol_placements').delete().eq('id',id); loadKolMgmt(); }
   catch(e) { alert('Gagal: '+(e.message||e)); }
 }
 
