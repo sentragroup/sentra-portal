@@ -4353,18 +4353,25 @@ function renderColTargetSection(col, items) {
   // Form OR display
   const setInfo = col.targetSetAt ? `Set ${col.targetSetBy?`oleh ${(col.targetSetBy||'').replace(/</g,'&lt;')}`:''} · ${(col.targetSetAt||'').slice(0,10)}` : '';
 
+  // Derive existing avg SRP for the form (revenue / units)
+  const existingAvgSRP = (col.targetRevenue && col.targetUnits) ? Math.round(col.targetRevenue/col.targetUnits) : '';
   const formHTML = `<div style="background:linear-gradient(135deg,#fffef0 0%,#fefad0 100%);border:1px solid #f1cf7a;border-radius:8px;padding:16px">
     <div style="font-family:var(--syne);font-size:15px;font-weight:700;margin-bottom:4px">${hasTarget?'Target Aktif':'Set Sales Target'}</div>
-    <div style="font-size:11px;color:var(--g600);margin-bottom:12px">${hasTarget?setInfo:'Set target supaya Product Dev punya angka commitment, dan kita bisa ukur progress post-launch.'}</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1.4fr;gap:10px;margin-bottom:10px">
-      <div class="fg"><label style="font-size:11px">Target Revenue (Rp)</label><input type="number" id="ct-rev-${cid}" min="0" value="${col.targetRevenue==null?'':col.targetRevenue}" placeholder="cth: 100000000"></div>
-      <div class="fg"><label style="font-size:11px">Target Units</label><input type="number" id="ct-un-${cid}" min="0" value="${col.targetUnits==null?'':col.targetUnits}" placeholder="cth: 1000"></div>
-      <div class="fg"><label style="font-size:11px">Window (hari sejak launch)</label>
+    <div style="font-size:11px;color:var(--g600);margin-bottom:12px">${hasTarget?setInfo:'Set target dari pcs × avg SRP — biar PD punya angka commitment, dan kita bisa ukur progress.'}</div>
+
+    <!-- Calculator: pcs × avg SRP → revenue -->
+    <div style="display:grid;grid-template-columns:1fr 1fr auto 1fr 1.2fr;gap:10px;align-items:end;margin-bottom:10px">
+      <div class="fg" style="margin:0"><label style="font-size:11px">Target Units (pcs) <span class="req">*</span></label><input type="number" id="ct-un-${cid}" min="0" value="${col.targetUnits==null?'':col.targetUnits}" placeholder="cth: 1000" oninput="updateColTargetCalc('${cid}')"></div>
+      <div class="fg" style="margin:0"><label style="font-size:11px">Avg SRP / unit (Rp) <span class="req">*</span></label><input type="number" id="ct-srp-${cid}" min="0" value="${existingAvgSRP}" placeholder="cth: 100000" oninput="updateColTargetCalc('${cid}')"></div>
+      <div style="font-family:var(--mono);font-size:18px;color:var(--g400);padding-bottom:8px;text-align:center">=</div>
+      <div class="fg" style="margin:0"><label style="font-size:11px">Target Revenue <span style="color:var(--g400);font-weight:400">(auto)</span></label><input type="text" id="ct-rev-display-${cid}" readonly style="background:var(--off);font-weight:700" placeholder="—"></div>
+      <div class="fg" style="margin:0"><label style="font-size:11px">Window (hari sejak launch)</label>
         <select id="ct-win-${cid}" style="width:100%;padding:7px 8px;font-size:13px;border:1px solid var(--g100);border-radius:4px;background:var(--white)">
           ${[30,60,90,120,180].map(d => `<option value="${d}"${(col.targetWindowDays||90)===d?' selected':''}>${d} hari</option>`).join('')}
         </select>
       </div>
     </div>
+    <input type="hidden" id="ct-rev-${cid}" value="${col.targetRevenue==null?'':col.targetRevenue}">
     <div class="fg" style="margin-bottom:10px"><label style="font-size:11px">Catatan</label><input type="text" id="ct-notes-${cid}" value="${(col.targetNotes||'').replace(/"/g,'&quot;')}" placeholder="Asumsi, strategi, atau referensi historical"></div>
     <div style="display:flex;gap:8px">
       <button class="btn-primary" style="padding:7px 14px;font-size:12px" onclick="saveColTarget('${cid}')">${hasTarget?'💾 Simpan Revisi':'🎯 Save Target'}</button>
@@ -4372,6 +4379,13 @@ function renderColTargetSection(col, items) {
     </div>
     <div class="feedback" id="ct-feedback-${cid}" style="margin-top:8px"></div>
   </div>`;
+
+  // Monitor panel — placeholder, will be populated by loadColSalesMonitor
+  const monitorPanel = hasTarget ? `<div id="ct-monitor-${cid}" style="margin-top:14px">
+    <div style="padding:14px;background:var(--off);border:1px dashed var(--g200);border-radius:6px;font-size:12px;color:var(--g400);text-align:center">
+      📊 Loading target monitoring...
+    </div>
+  </div>` : '';
 
   // Viability panel — only shown if target is set AND PD has data
   let viability = '';
@@ -4403,22 +4417,274 @@ function renderColTargetSection(col, items) {
     ? `<span class="pill ${(pdUnits&&pdRevenue&&!revGap&&!unitGap)||(targetRev&&pdRevenue>=targetRev&&targetUn&&pdUnits>=targetUn)?'p-active':(pdUnits||pdRevenue)?'p-near':'p-draft'}" style="font-size:10px;margin-left:auto">${days!=null?(days>0?`T-${days}d`:days===0?'Launches today':`${-days}d ago`):'No date'}</span>`
     : `<span class="pill p-draft" style="font-size:10px;margin-left:auto">Target belum di-set</span>`;
 
-  return cdStageBox("🎯","Sales Target", headerBadge, formHTML + viability);
+  return cdStageBox("🎯","Sales Target", headerBadge, formHTML + viability + monitorPanel);
+}
+
+// Live update of target revenue display as user types units × srp
+function updateColTargetCalc(cid) {
+  const un  = parseFloat(document.getElementById(`ct-un-${cid}`).value || 0);
+  const srp = parseFloat(document.getElementById(`ct-srp-${cid}`).value || 0);
+  const rev = un * srp;
+  const display = document.getElementById(`ct-rev-display-${cid}`);
+  const hidden  = document.getElementById(`ct-rev-${cid}`);
+  if (display) display.value = rev > 0 ? 'Rp ' + new Intl.NumberFormat('id-ID').format(Math.round(rev)) : '';
+  if (hidden)  hidden.value  = rev > 0 ? Math.round(rev) : '';
+}
+
+// ── Sales Target Monitoring (Live tracker) ──
+async function loadColSalesMonitor(col) {
+  if (!col.targetRevenue && !col.targetUnits) return; // no target → no monitor
+  const cid = col.id;
+  const panel = document.getElementById(`ct-monitor-${cid}`);
+  if (!panel) return;
+
+  const releaseDate = col.releaseDate;
+  if (!releaseDate) {
+    panel.innerHTML = `<div style="padding:14px;background:var(--off);border:1px dashed var(--g200);border-radius:6px;font-size:12px;color:var(--g600);text-align:center">
+      📊 Set release date di Edit Collection untuk aktifkan monitoring.
+    </div>`;
+    return;
+  }
+
+  const release = new Date(releaseDate + 'T00:00:00+07:00');
+  const today = new Date(); today.setHours(0,0,0,0);
+  const windowDays = col.targetWindowDays || 90;
+  const windowEnd = new Date(release); windowEnd.setDate(release.getDate() + windowDays);
+  const daysFromRelease = Math.round((today - release) / 86400000);
+
+  const targetRev = Number(col.targetRevenue || 0);
+  const targetUn  = Number(col.targetUnits   || 0);
+
+  // Pre-launch state: empty bars + countdown
+  if (daysFromRelease < 0) {
+    const daysToLaunch = -daysFromRelease;
+    panel.innerHTML = renderColMonitorContent(col, {
+      mode: 'pre',
+      daysToLaunch, windowDays, targetRev, targetUn,
+      actualQty: 0, actualRev: 0, dailyMap: {}
+    });
+    return;
+  }
+
+  // Post-launch: pull actual sales
+  panel.innerHTML = `<div style="padding:14px;background:var(--off);border-radius:6px;font-size:12px;color:var(--g400);text-align:center">📊 Memuat sales actual...</div>`;
+  try {
+    const startISO = release.toISOString();
+    const queryEnd = (today < windowEnd) ? today : windowEnd;
+    const endISO   = new Date(queryEnd.getTime() + 86400000).toISOString();
+
+    // Find items mapped to this collection
+    const {data: mappings} = await sb.from('product_mappings').select('item_name')
+      .ilike('collection', col.collectionName).limit(5000);
+    const matchedSet = new Set((mappings||[]).map(m => (m.item_name||'').toLowerCase()));
+    if (!matchedSet.size) {
+      panel.innerHTML = `<div style="padding:14px;background:var(--off);border:1px dashed var(--g200);border-radius:6px;font-size:12px;color:var(--g600)">
+        📊 Belum ada item di Product Mapping yang link ke collection "${(col.collectionName||'').replace(/</g,'&lt;')}".
+        <br><span style="font-size:11px">Map dulu di <b>Product Mapping</b> module untuk aktifkan live tracking.</span>
+      </div>`;
+      return;
+    }
+
+    // Fetch orders in window (non-canceled)
+    const orders = await _fetchAllPages('jubelio_sales_orders',
+      'salesorder_id,transaction_date,wms_status',
+      q => q.gte('transaction_date', startISO).lt('transaction_date', endISO).neq('wms_status','CANCELED'));
+    const orderIds = orders.map(o=>o.salesorder_id);
+    const orderDate = new Map(orders.map(o => [o.salesorder_id, o.transaction_date]));
+
+    // Fetch items for those orders, chunked
+    const itemRows = [];
+    for (let i = 0; i < orderIds.length; i += 500) {
+      const chunk = orderIds.slice(i, i+500);
+      const rows = await _fetchAllPages('jubelio_sales_order_items',
+        'salesorder_id,item_name,qty,amount,is_canceled_item',
+        q => q.in('salesorder_id', chunk));
+      itemRows.push(...rows);
+    }
+
+    // Aggregate
+    let actualQty = 0, actualRev = 0;
+    const dailyMap = {};
+    itemRows.forEach(it => {
+      if (it.is_canceled_item) return;
+      if (!matchedSet.has((it.item_name||'').toLowerCase())) return;
+      const qty = parseFloat(it.qty || 0) || 0;
+      const amt = parseFloat(it.amount || 0) || 0;
+      actualQty += qty;
+      actualRev += amt;
+      const txd = orderDate.get(it.salesorder_id);
+      if (txd) {
+        const day = txd.slice(0,10);
+        dailyMap[day] = (dailyMap[day]||0) + amt;
+      }
+    });
+
+    const dayInWindow = Math.min(windowDays, daysFromRelease + 1);
+    const isPostWindow = today > windowEnd;
+    panel.innerHTML = renderColMonitorContent(col, {
+      mode: isPostWindow ? 'post-window' : 'live',
+      daysToLaunch: 0, windowDays, targetRev, targetUn,
+      actualQty, actualRev, dailyMap, dayInWindow
+    });
+  } catch (e) {
+    console.error('loadColSalesMonitor:', e);
+    panel.innerHTML = `<div style="padding:14px;background:#fde0e0;border-radius:6px;font-size:12px;color:#7a1414">
+      ⚠ Gagal load monitoring: ${(e.message||e)}
+    </div>`;
+  }
+}
+
+function renderColMonitorContent(col, m) {
+  const cid = col.id;
+  const {mode, daysToLaunch, windowDays, targetRev, targetUn, actualQty, actualRev, dailyMap, dayInWindow} = m;
+
+  // Helpers
+  const pct = (a,b) => b > 0 ? Math.round(a/b*100) : 0;
+  const revPct  = pct(actualRev, targetRev);
+  const unitPct = pct(actualQty, targetUn);
+  // Expected pace at this point in time
+  const pacePct = mode === 'live' ? Math.round(dayInWindow/windowDays*100) : 100;
+
+  // PD-derived stock (for sell-through)
+  let stockProduced = 0;
+  try {
+    if (typeof allPDRows !== 'undefined' && Array.isArray(allPDRows)) {
+      const parents = allPDRows.filter(r => !r.parentId && r.collectionId === cid);
+      parents.forEach(p => {
+        const children = allPDRows.filter(r => r.parentId === p.id);
+        if (typeof pdComputeProjection === 'function') {
+          const proj = pdComputeProjection(p, children);
+          stockProduced += proj.units || 0;
+        }
+      });
+    }
+  } catch(e) {}
+  const sellThroughPct = stockProduced > 0 ? Math.round(actualQty/stockProduced*100) : null;
+
+  // Header pill
+  let headerPill, headerSub;
+  if (mode === 'pre') {
+    headerPill = `<span class="pill p-signings" style="font-size:11px">⏳ Pre-launch</span>`;
+    headerSub  = `T-${daysToLaunch}d to launch · window starts at release`;
+  } else if (mode === 'post-window') {
+    const hitRev = targetRev && actualRev >= targetRev;
+    const hitUn  = targetUn  && actualQty >= targetUn;
+    const hit = (hitRev || !targetRev) && (hitUn || !targetUn);
+    headerPill = `<span class="pill ${hit?'p-active':'p-near'}" style="font-size:11px">${hit?'✅ Closed · Target hit':'⚠ Closed · Below target'}</span>`;
+    headerSub  = `Window selesai · final scorecard`;
+  } else {
+    // live mode: compare pace
+    const onTrackRev = revPct >= pacePct - 10;
+    headerPill = `<span class="pill ${onTrackRev?'p-active':'p-near'}" style="font-size:11px">${onTrackRev?'✅ On track':'⚠ Behind pace'}</span>`;
+    headerSub  = `Day ${dayInWindow} / ${windowDays} (${windowDays - dayInWindow} hari lagi)`;
+  }
+
+  // Bars
+  const renderBar = (label, actual, target, valueText, color, showPace) => {
+    const widthPct = Math.min(100, Math.max(0, pct(actual, target)));
+    const paceMarker = (showPace && mode === 'live') ? `<span style="position:absolute;top:-2px;bottom:-2px;left:${Math.min(100,pacePct)}%;width:2px;background:var(--black);" title="Pace marker · day ${dayInWindow}/${windowDays}"></span>` : '';
+    return `<div style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">
+        <span style="font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--g600)">${label}</span>
+        <span style="font-family:var(--mono);font-size:12px;font-weight:600">${valueText}</span>
+      </div>
+      <div style="height:10px;background:var(--g100);border-radius:99px;overflow:hidden;position:relative">
+        <span style="display:block;height:100%;width:${widthPct}%;background:${color};border-radius:99px;transition:width 0.3s"></span>
+        ${paceMarker}
+      </div>
+    </div>`;
+  };
+
+  const revBar = targetRev ? renderBar(
+    'Revenue', actualRev, targetRev,
+    `Rp ${_fmtRupiah(actualRev)} / Rp ${_fmtRupiah(targetRev)} <span style="color:var(--g400)">(${revPct}%)</span>`,
+    revPct >= pacePct - 10 ? '#0a7d3a' : '#c33',
+    true
+  ) : '';
+  const unBar = targetUn ? renderBar(
+    'Units', actualQty, targetUn,
+    `${actualQty.toLocaleString('id-ID')} / ${targetUn.toLocaleString('id-ID')} unit <span style="color:var(--g400)">(${unitPct}%)</span>`,
+    unitPct >= pacePct - 10 ? '#a66800' : '#c33',
+    true
+  ) : '';
+  const stBar = stockProduced > 0 ? renderBar(
+    'Sell-through',
+    actualQty, stockProduced,
+    `${sellThroughPct}% of stock (${stockProduced.toLocaleString('id-ID')} produced)`,
+    '#3C3489',
+    false
+  ) : '';
+
+  // Run-rate forecast (live mode)
+  let forecastHTML = '';
+  if (mode === 'live' && dayInWindow > 0) {
+    const runRateRev = actualRev / dayInWindow;
+    const runRateUn  = actualQty / dayInWindow;
+    const fcRev = Math.round(runRateRev * windowDays);
+    const fcUn  = Math.round(runRateUn  * windowDays);
+    const revVar = targetRev ? Math.round((fcRev - targetRev) / targetRev * 100) : 0;
+    const unVar  = targetUn  ? Math.round((fcUn  - targetUn)  / targetUn  * 100) : 0;
+
+    // Sparkline
+    const last14 = [];
+    for (let i = 13; i >= 0; i--) {
+      const d = new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate() - i);
+      const key = d.toISOString().slice(0,10);
+      last14.push(dailyMap[key] || 0);
+    }
+    const maxDaily = Math.max(...last14, 1);
+    const sparkBars = last14.map(v => `<span style="flex:1;background:var(--g600);border-radius:2px 2px 0 0;height:${Math.max(2, v/maxDaily*100)}%"></span>`).join('');
+
+    forecastHTML = `<div style="margin-top:14px;padding:10px 12px;background:var(--off);border-radius:6px;font-size:12px;color:var(--g600)">
+      🏃 <b>Run-rate:</b> Rp ${_fmtRupiah(runRateRev)}/day · ${runRateUn.toFixed(1)} unit/day
+      <br>→ Forecast end of period (day ${windowDays}): <b style="color:var(--black)">Rp ${_fmtRupiah(fcRev)} · ${fcUn.toLocaleString('id-ID')} unit</b>
+      ${targetRev?` <span style="color:${revVar>=0?'#0a7d3a':'#c33'}">(revenue ${revVar>=0?'✅ +':'⚠ '}${revVar}% ${revVar>=0?'above':'under'} target)</span>`:''}
+      ${targetUn?` <span style="color:${unVar>=0?'#0a7d3a':'#c33'}">· unit ${unVar>=0?'✅ +':'⚠ '}${unVar}%</span>`:''}
+      <div style="margin-top:10px;display:flex;align-items:flex-end;gap:2px;height:34px">${sparkBars}</div>
+      <div style="font-size:10px;color:var(--g400);margin-top:4px;font-family:var(--mono)">Daily revenue · 14 hari terakhir</div>
+    </div>`;
+  } else if (mode === 'pre') {
+    forecastHTML = `<div style="margin-top:14px;padding:10px 12px;background:var(--off);border-radius:6px;font-size:12px;color:var(--g600)">
+      ℹ Sales tracking dimulai dari release date (${col.releaseDate}). Sekarang baru menunggu launch.
+    </div>`;
+  }
+
+  return `<div style="border:1px solid var(--g100);border-radius:8px;padding:14px 16px;background:var(--white)">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+      <span style="font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--g600);font-weight:600">📊 Target Monitoring</span>
+      <span style="margin-left:auto"></span>
+      ${headerPill}
+      <span style="font-family:var(--mono);font-size:11px;color:var(--g600)">${headerSub}</span>
+    </div>
+    ${revBar}${unBar}${stBar}
+    ${forecastHTML}
+  </div>`;
+}
+
+function _fmtRupiah(n) {
+  if (!n || isNaN(n)) return '0';
+  return new Intl.NumberFormat('id-ID').format(Math.round(Number(n)));
 }
 
 async function saveColTarget(colId) {
   const fb = document.getElementById(`ct-feedback-${colId}`);
-  const revRaw = document.getElementById(`ct-rev-${colId}`).value;
   const unRaw  = document.getElementById(`ct-un-${colId}`).value;
+  const srpRaw = document.getElementById(`ct-srp-${colId}`).value;
   const win    = parseInt(document.getElementById(`ct-win-${colId}`).value || '90', 10);
   const notes  = document.getElementById(`ct-notes-${colId}`).value.trim();
-  const rev = revRaw === '' ? null : parseFloat(revRaw);
   const un  = unRaw  === '' ? null : parseInt(unRaw, 10);
-  if (rev == null && un == null) {
-    fb.textContent = '⚠ Isi minimal salah satu (revenue atau units).';
+  const srp = srpRaw === '' ? null : parseFloat(srpRaw);
+  if (!un || un <= 0) {
+    fb.textContent = '⚠ Target Units (pcs) wajib diisi.';
     fb.className = 'feedback err';
     return;
   }
+  if (!srp || srp <= 0) {
+    fb.textContent = '⚠ Avg SRP per unit wajib diisi.';
+    fb.className = 'feedback err';
+    return;
+  }
+  const rev = un * srp;
   fb.textContent = 'Menyimpan...';
   fb.className = 'feedback';
   try {
@@ -4793,6 +5059,9 @@ function renderColDetail(col, items) {
   // Activate the persisted tab (Business by default)
   const _lastTab = sessionStorage.getItem(`cd-tab-${col.id}`) || 'business';
   cdSwitchTab(col.id, _lastTab);
+  // Prime the target calculator display + load monitoring
+  updateColTargetCalc(col.id);
+  loadColSalesMonitor(col);
 }
 
 const SIZE_ORDER = ['XS','S','M','L','XL','XXL','XXXL','XXXXL','4XL','5XL','FREE SIZE','FREE'];
