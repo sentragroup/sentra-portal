@@ -1361,12 +1361,229 @@
 </div>
 
 
+<!-- ════════════════════════════════════════════════════════════════ -->
+<!-- SCENARIO 5: POST-MORTEM (Business — day 90 complete)             -->
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="scenario">
+  <div class="scenario-label">
+    Scenario 5 <span class="tag">📋 Business · post-mortem (day 90 selesai)</span>
+  </div>
+
+  <div class="page-header-mock">
+    <a class="back-link" href="#">← Kembali</a>
+    <div class="ph-main">
+      <div class="ip-label">IDGITAF</div>
+      <div class="col-name">Album Collection</div>
+      <div class="ph-meta">
+        <span class="pill pill-active">Done · Window Closed</span>
+        <span>📅 Released 26 Aug 2026</span>
+        <span>📊 Window ended 24 Nov 2026</span>
+      </div>
+      <div class="target-strip">
+        <span class="lbl">🎯 Final:</span>
+        <span class="val">Rp 119M / Rp 100M target</span>
+        <span style="font-family:var(--mono);font-size:11px;color:var(--green);font-weight:600">+19% over target ✅</span>
+        <div class="bar"><span style="width:100%;background:#0a7d3a"></span></div>
+        <span class="pill pill-active">✅ Hit Day 75</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active"><span class="tname">📊 Business</span><span class="tstatus">Post-mortem · ready to archive</span></button>
+    <button class="tab"><span class="tname">🎨 Creative</span><span class="tstatus">Archived</span></button>
+    <button class="tab"><span class="tname">🛠 Delivery</span><span class="tstatus">Restock decision pending</span></button>
+  </div>
+
+  <div class="tab-content">
+
+    <!-- Sales Target (locked + history) -->
+    <div class="sec">
+      <div class="sec-head">
+        <span class="icon">🎯</span>
+        <span class="title">Sales Target · Locked</span>
+        <span class="right">
+          <span class="pill pill-info">Closed</span>
+          <button class="btn-ghost" style="padding:4px 10px;font-size:11px">View history (2 revisions)</button>
+        </span>
+      </div>
+      <div class="sec-body" style="background:var(--off);padding:14px 16px">
+        <div style="display:flex;gap:24px;flex-wrap:wrap;font-size:13px">
+          <div><span style="font-family:var(--mono);font-size:10px;color:var(--g400);text-transform:uppercase">Final Target</span><br><b>Rp 100M · 1.000 unit · 90d</b></div>
+          <div><span style="font-family:var(--mono);font-size:10px;color:var(--g400);text-transform:uppercase">Set By</span><br>Luthfi · 12 Mei 2026</div>
+          <div><span style="font-family:var(--mono);font-size:10px;color:var(--g400);text-transform:uppercase">Hit Date</span><br><b style="color:var(--green)">9 Nov (Day 75)</b></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 📋 POST-MORTEM — Final Scorecard -->
+    <div class="sec">
+      <div class="sec-head">
+        <span class="icon">📋</span>
+        <span class="title">Post-Mortem · Final Scorecard</span>
+        <span class="right">
+          <button class="btn-ghost" style="padding:4px 10px;font-size:11px">⬇ Export</button>
+        </span>
+      </div>
+      <div class="sec-body">
+
+        <!-- Top headline metrics -->
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px">
+          <div class="ref-card" style="text-align:center;background:#daf3e0;border-color:#a7dab4">
+            <div class="meta">Revenue</div>
+            <div class="v" style="font-size:22px;color:#0a7d3a">Rp 119M</div>
+            <div class="meta" style="margin-top:2px;color:#0a7d3a">+19% vs target ✅</div>
+          </div>
+          <div class="ref-card" style="text-align:center;background:#fef0d0;border-color:#f1cf7a">
+            <div class="meta">Units</div>
+            <div class="v" style="font-size:22px;color:#a66800">837</div>
+            <div class="meta" style="margin-top:2px;color:#a66800">-16% vs 1.000 ⚠</div>
+          </div>
+          <div class="ref-card" style="text-align:center;background:#daf3e0;border-color:#a7dab4">
+            <div class="meta">Sell-through</div>
+            <div class="v" style="font-size:22px;color:#0a7d3a">116%</div>
+            <div class="meta" style="margin-top:2px;color:#0a7d3a">restock'd Day 60</div>
+          </div>
+          <div class="ref-card" style="text-align:center;background:#daf3e0;border-color:#a7dab4">
+            <div class="meta">ROI Marketing</div>
+            <div class="v" style="font-size:22px;color:#0a7d3a">4.25×</div>
+            <div class="meta" style="margin-top:2px">Spend Rp 28M → Rp 119M</div>
+          </div>
+        </div>
+
+        <!-- Variance analysis -->
+        <h4 style="margin:0 0 10px;font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--g600)">🔍 Variance Analysis</h4>
+        <table class="ct" style="margin-bottom:20px">
+          <thead><tr><th>Metric</th><th class="r">Target</th><th class="r">Actual</th><th class="r">Variance</th><th>Driver</th></tr></thead>
+          <tbody>
+            <tr><td>Revenue</td><td class="r mono">Rp 100M</td><td class="r mono">Rp 119M</td><td class="r mono" style="color:#0a7d3a">+19%</td><td style="font-size:11px;color:var(--g600)">Higher ASP outweighs lower volume</td></tr>
+            <tr><td>Units sold</td><td class="r mono">1.000</td><td class="r mono">837</td><td class="r mono" style="color:#a66800">-16%</td><td style="font-size:11px;color:var(--g600)">Sized-out lower tier SKU (M/S sold first)</td></tr>
+            <tr><td>Avg Selling Price</td><td class="r mono">Rp 100k</td><td class="r mono">Rp 142k</td><td class="r mono" style="color:#0a7d3a">+42%</td><td style="font-size:11px;color:var(--g600)">Premium SKU (LS, Jacket) outperformed</td></tr>
+            <tr><td>Days to hit target</td><td class="r mono">90d</td><td class="r mono">75d</td><td class="r mono" style="color:#0a7d3a">-15d</td><td style="font-size:11px;color:var(--g600)">KOL push Sep boosted conversion</td></tr>
+          </tbody>
+        </table>
+
+        <!-- Channel performance -->
+        <h4 style="margin:0 0 10px;font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--g600)">📺 Channel Performance</h4>
+        <table class="ct" style="margin-bottom:20px">
+          <thead><tr><th>Channel</th><th class="r">Revenue</th><th class="r">% Share</th><th class="r">Units</th><th class="r">AOV</th></tr></thead>
+          <tbody>
+            <tr><td>Tokopedia + Shopee</td><td class="r mono">Rp 78M</td><td class="r mono">66%</td><td class="r mono">540</td><td class="r mono">Rp 144k</td></tr>
+            <tr><td>Marte (offline)</td><td class="r mono">Rp 28M</td><td class="r mono">24%</td><td class="r mono">220</td><td class="r mono">Rp 127k</td></tr>
+            <tr><td>Pop-up Senayan</td><td class="r mono">Rp 13M</td><td class="r mono">10%</td><td class="r mono">77</td><td class="r mono">Rp 169k</td></tr>
+          </tbody>
+        </table>
+
+        <!-- Marketing ROI -->
+        <h4 style="margin:0 0 10px;font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--g600)">💰 Marketing Spend &amp; ROI</h4>
+        <table class="ct" style="margin-bottom:20px">
+          <thead><tr><th>Stream</th><th class="r">Spend</th><th class="r">Attributable Rev</th><th class="r">ROI</th><th>Verdict</th></tr></thead>
+          <tbody>
+            <tr><td>🌟 KOL (5 placements)</td><td class="r mono">Rp 8M</td><td class="r mono">Rp 48M</td><td class="r mono" style="color:#0a7d3a">6.0×</td><td><span class="pill pill-active" style="font-size:10px">Best</span></td></tr>
+            <tr><td>🎯 Meta Ads</td><td class="r mono">Rp 12M</td><td class="r mono">Rp 38M</td><td class="r mono" style="color:#0a7d3a">3.2×</td><td><span class="pill pill-active" style="font-size:10px">Good</span></td></tr>
+            <tr><td>🎪 Pop-up Event</td><td class="r mono">Rp 5M</td><td class="r mono">Rp 13M</td><td class="r mono" style="color:#0a7d3a">2.6×</td><td><span class="pill pill-active" style="font-size:10px">Good</span></td></tr>
+            <tr><td>📰 Press / PR</td><td class="r mono">Rp 2M</td><td class="r mono">organic</td><td class="r mono">—</td><td><span class="pill pill-info" style="font-size:10px">Awareness</span></td></tr>
+            <tr><td>🎵 TikTok Ads (paused day 30)</td><td class="r mono">Rp 1M</td><td class="r mono">Rp 0.9M</td><td class="r mono" style="color:#c33">0.9×</td><td><span class="pill pill-urgent" style="font-size:10px">Cut</span></td></tr>
+          </tbody>
+        </table>
+
+        <!-- Comparison to historical -->
+        <h4 style="margin:0 0 10px;font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--g600)">📊 Bandingin Sama IDGITAF Sebelumnya</h4>
+        <div class="ref-grid" style="margin-bottom:20px">
+          <div class="ref-card">
+            <div class="nm">Album Collection (current)</div>
+            <div class="meta">90 hari · just closed</div>
+            <div class="v" style="color:#0a7d3a">Rp 119M</div>
+            <div class="meta" style="margin-top:2px">837 unit · ASP Rp 142k</div>
+          </div>
+          <div class="ref-card">
+            <div class="nm">Album Collection 2 · Sep '25</div>
+            <div class="meta">90 hari window</div>
+            <div class="v">Rp 78M</div>
+            <div class="meta" style="margin-top:2px;color:#0a7d3a">+52% vs sebelumnya</div>
+          </div>
+          <div class="ref-card">
+            <div class="nm">EP Drop · Mei '25</div>
+            <div class="meta">90 hari window</div>
+            <div class="v">Rp 42M</div>
+            <div class="meta" style="margin-top:2px;color:#0a7d3a">+183% vs sebelumnya</div>
+          </div>
+        </div>
+
+        <!-- Top + Bottom SKU -->
+        <h4 style="margin:0 0 10px;font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--g600)">🏆 Top &amp; Bottom Performers</h4>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px">
+          <div class="mkt-big" style="background:#daf3e0;border-color:#a7dab4">
+            <div class="mh"><span class="icon">🏆</span><span class="nm" style="color:#0a7d3a">Top 3 SKU</span></div>
+            <div class="mrow"><span class="l">Fun Shortsleeve L</span><span class="v">Rp 42M · 211 unit</span></div>
+            <div class="mrow"><span class="l">Sedia Aku LS Brown L</span><span class="v">Rp 28M · 112 unit</span></div>
+            <div class="mrow"><span class="l">Logo Cap OS</span><span class="v">Rp 19M · 127 unit</span></div>
+          </div>
+          <div class="mkt-big" style="background:#fde0e0;border-color:#f3a8a8">
+            <div class="mh"><span class="icon">📉</span><span class="nm" style="color:#b81d1d">Bottom 3 SKU</span></div>
+            <div class="mrow"><span class="l">Sedia Aku Bundle</span><span class="v">Rp 5M · 20 unit (20%)</span></div>
+            <div class="mrow"><span class="l">Fun Shortsleeve XXXL</span><span class="v">Rp 1.4M · 7 unit (35%)</span></div>
+            <div class="mrow"><span class="l">Smock Jacket</span><span class="v">Rp 4.2M · 14 unit (28%)</span></div>
+          </div>
+        </div>
+
+        <!-- Learnings / Notes -->
+        <h4 style="margin:0 0 10px;font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--g600)">📝 Learnings · jadi reference buat collection berikutnya</h4>
+        <div style="background:var(--off);border:1px solid var(--g100);border-radius:6px;padding:12px;font-size:12px;line-height:1.7;color:var(--g600)">
+          <div style="margin-bottom:6px"><b style="color:var(--black)">What worked:</b></div>
+          <ul style="margin:0 0 12px;padding-left:20px">
+            <li>KOL Hindia + Voldemort generated 32 attributable orders on launch week — book early next time</li>
+            <li>Pop-up event di Senayan AOV-nya 17% lebih tinggi dari online — consider repeat formula</li>
+            <li>Premium SKU (LS Brown, Smock Jacket) drove ASP up — fans willing to spend</li>
+          </ul>
+          <div style="margin-bottom:6px"><b style="color:var(--black)">What didn't:</b></div>
+          <ul style="margin:0 0 12px;padding-left:20px">
+            <li>TikTok Ads ROI 0.9× — algorithm gak nyangkut untuk IDGITAF audience</li>
+            <li>Bundle Sedia Aku terlalu mahal di Rp 250k — convert rendah; consider unbundle next time</li>
+            <li>Size XXXL & S over-produced (15% sell-through avg) — tighten size distribution</li>
+          </ul>
+          <div style="margin-bottom:6px"><b style="color:var(--black)">For next collection:</b></div>
+          <ul style="margin:0;padding-left:20px">
+            <li>Target Rp 130-150M reasonable based on +52% growth trajectory</li>
+            <li>Focus production: 50% M/L, 30% XL, 10% XXL, 5% S/XXXL each</li>
+            <li>Allocate 30% marketing budget ke KOL (proven), 40% ke Meta Ads, 25% offline event, 5% PR</li>
+          </ul>
+        </div>
+
+        <!-- Next steps checklist -->
+        <h4 style="margin:18px 0 10px;font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--g600)">✅ Next Steps</h4>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <label style="display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid var(--g100);border-radius:4px;font-size:12px">
+            <input type="checkbox" checked> <span style="text-decoration:line-through;color:var(--g400)">Restock decision: +200 Cap, +150 Fun Shortsleeve L/M (eksekusi Day 60)</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid var(--g100);border-radius:4px;font-size:12px">
+            <input type="checkbox"> Royalty report → kirim ke IDGITAF (target tanggal 5 Des)
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid var(--g100);border-radius:4px;font-size:12px">
+            <input type="checkbox"> Discount stale SKU (XXXL, Bundle, Smock Jacket) — clear out
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid var(--g100);border-radius:4px;font-size:12px">
+            <input type="checkbox"> Plan next IDGITAF collection (kick-off meeting)
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid var(--g100);border-radius:4px;font-size:12px">
+            <input type="checkbox"> Archive collection → set status "Done"
+          </label>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+</div>
+
+
 <div class="notice" style="margin-top:40px">
   ✏ <b>Mockup v2 — key changes:</b><br>
   · 3 tabs (Business / Creative / Delivery), masing-masing kasih <b>status indicator inline</b> di tab label<br>
   · <b>Business tab</b>: Target → Target Monitoring (pre-launch readiness scorecard + post-launch live tracker) → Marketing → Performance<br>
   · <b>Pre-launch Target Monitoring</b>: countdown cards, readiness scorecard 5 dimensi, critical blockers alert, T-minus timeline ke launch date<br>
   · <b>Post-launch Target Monitoring</b>: revenue/units/sell-through bars dengan pace markers, run-rate forecast, daily sparkline<br>
+  · <b>Post-mortem</b>: setelah window selesai — final scorecard, variance analysis, channel performance, marketing ROI per stream, comparison to historical, top &amp; bottom SKU performers, learnings text area, next steps checklist. Becomes the "historical reference" untuk collection berikutnya<br>
   · <b>Marketing</b> dipisah 4 kategori detail (Ads, KOL, Event, Publikasi) — bukan cuma status pill<br>
   · <b>Creative tab</b>: Design (SKU list inline-editable) + Photoshoot (simplified — cuma delivery + budget) + Content (kanban per piece)<br>
   · <b>Delivery tab</b>: Sampling → Production (loop dari Product Dev) → PO/Inbound<br>
