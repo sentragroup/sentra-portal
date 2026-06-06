@@ -17526,10 +17526,76 @@ async function deleteKol(id) {
 // Supports bulk-edit: select multiple rows, set category + project ref once.
 
 const TX_EXCLUDE_LOCATIONS = ['Gudang Bintaro', 'Gudang Marte'];
+const TX_CATEGORIES = ['Wholesale', 'Consignment', 'Pop Up Booth'];
 let _txRows = [];               // current page rows with mapping merged in
 let _txTotalCount = 0;
 let _txPage = 0;
 let _txSelected = new Set();    // selected salesorder_ids
+let _txDistPartners = [];       // [{id, name}] — for Wholesale/Consignment ref
+let _txPopupBooths = [];        // [{id, name, date}] — for Pop Up Booth ref
+
+async function _txLoadLookups() {
+  if (_txDistPartners.length && _txPopupBooths.length) return;
+  try {
+    const [dpRes, pbRes] = await Promise.all([
+      sb.from('dist_partners').select('id,partner_name').order('partner_name'),
+      sb.from('popup_booths').select('id,event_name,event_date').order('event_date',{ascending:false})
+    ]);
+    _txDistPartners = (dpRes.data||[]).filter(r=>r.partner_name).map(r => ({id:r.id, name:r.partner_name}));
+    _txPopupBooths  = (pbRes.data||[]).filter(r=>r.event_name).map(r => ({id:r.id, name:r.event_name, date:r.event_date}));
+  } catch(e) { console.error('_txLoadLookups:', e); }
+}
+
+// Build {value,label} options for the Project Ref dropdown based on category.
+function _txRefOptions(category) {
+  if (category === 'Wholesale' || category === 'Consignment') {
+    return _txDistPartners.map(p => ({value:p.name, label:p.name}));
+  }
+  if (category === 'Pop Up Booth') {
+    return _txPopupBooths.map(p => {
+      const dateLbl = p.date ? ` (${new Date(p.date).toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'2-digit'})})` : '';
+      return {value:p.name, label:p.name + dateLbl};
+    });
+  }
+  return [];
+}
+
+function _txRefSelectHTML(rowId, category, currentValue) {
+  const opts = _txRefOptions(category);
+  if (!category) {
+    return `<select disabled style="width:100%;padding:4px 6px;font-size:11px;border:1px solid var(--g100);border-radius:3px;background:var(--off);color:var(--g400)"><option>— pilih category dulu —</option></select>`;
+  }
+  if (!opts.length) {
+    return `<select disabled style="width:100%;padding:4px 6px;font-size:11px;border:1px solid var(--g100);border-radius:3px;background:var(--off);color:var(--g400)"><option>${category==='Pop Up Booth'?'Tidak ada event di Pop Up Booth':'Tidak ada partner di Distribution Master'}</option></select>`;
+  }
+  // Include current value as an extra option if it doesn't match any lookup (e.g., legacy free-text)
+  const hasCurrent = !currentValue || opts.some(o => o.value === currentValue);
+  const extra = hasCurrent ? '' : `<option value="${_txEsc(currentValue)}" selected>${_txEsc(currentValue)} (legacy)</option>`;
+  return `<select onchange="updateTxField(${rowId},'project_ref',this.value)" style="width:100%;padding:4px 6px;font-size:11px;border:1px solid var(--g100);border-radius:3px;background:var(--white)">
+    <option value="">— pilih ref —</option>
+    ${extra}
+    ${opts.map(o => `<option value="${_txEsc(o.value)}"${o.value===currentValue?' selected':''}>${_txEsc(o.label)}</option>`).join('')}
+  </select>`;
+}
+
+// Triggered when bulk category dropdown changes — repopulate the bulk Ref select.
+function _txUpdateBulkRefOptions() {
+  const cat = document.getElementById('tx-bulk-category').value;
+  const sel = document.getElementById('tx-bulk-project-ref');
+  if (!sel) return;
+  if (!cat) {
+    sel.innerHTML = `<option value="">— pilih category dulu —</option>`;
+    sel.disabled = true;
+    return;
+  }
+  const opts = _txRefOptions(cat);
+  sel.disabled = false;
+  if (!opts.length) {
+    sel.innerHTML = `<option value="">${cat==='Pop Up Booth'?'Tidak ada event di Pop Up Booth':'Tidak ada partner di Distribution Master'}</option>`;
+    return;
+  }
+  sel.innerHTML = `<option value="">— pilih ref (opsional) —</option>` + opts.map(o => `<option value="${_txEsc(o.value)}">${_txEsc(o.label)}</option>`).join('');
+}
 
 function _txEsc(s) { return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function _txRp(n) {
@@ -17544,6 +17610,8 @@ function _txDate(d) {
 async function loadTxMap() {
   const tbody = document.getElementById('txTableBody');
   if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="12">Memuat...</td></tr>`;
+  // Lookups must be ready before render (category-dependent ref dropdown).
+  await _txLoadLookups();
   // Reset selection on reload
   _txSelected.clear();
   _txUpdateBulkBar();
@@ -17668,7 +17736,7 @@ function _renderTxTable() {
   }
   document.getElementById('tx-tcount').textContent = `${_txRows.length} di page ini · ${_txTotalCount.toLocaleString('id-ID')} total`;
 
-  const catOpts = ['','Pop-up Event','Wholesale','Trade Order','Sample Out','Internal Use','Marketing Activation','Brand Activation','Manual Sales','Return-Refund','Other'];
+  const catOpts = ['', ...TX_CATEGORIES];
 
   tbody.innerHTML = _txRows.map(r => {
     const cat = r._mapping?.category || '';
@@ -17688,7 +17756,7 @@ function _renderTxTable() {
       <td class="mono" style="text-align:right;font-size:11px;white-space:nowrap">${_txRp(r.sub_total)}</td>
       <td><span class="pill ${isCanceled ? 'p-expired' : 'p-info'}" style="font-size:10px">${_txEsc(r.wms_status || '—')}</span></td>
       <td><select onchange="updateTxField(${r.salesorder_id},'category',this.value)" class="pill ${isMapped ? 'p-active' : 'p-draft'}" style="font-size:10px;padding:2px 6px;border:1px solid;width:100%">${catOpts.map(o => `<option value="${o}"${o===cat?' selected':''}>${o || '— Unmapped —'}</option>`).join('')}</select></td>
-      <td><input type="text" value="${_txEsc(proj)}" placeholder="cth: Senayan Pop-up Aug" style="width:100%;padding:4px 6px;font-size:11px;border:1px solid var(--g100);border-radius:3px;background:var(--white)" onblur="updateTxField(${r.salesorder_id},'project_ref',this.value)"></td>
+      <td>${_txRefSelectHTML(r.salesorder_id, cat, proj)}</td>
       <td><input type="text" value="${_txEsc(notes)}" placeholder="Catatan" style="width:100%;padding:4px 6px;font-size:11px;border:1px solid var(--g100);border-radius:3px;background:var(--white)" onblur="updateTxField(${r.salesorder_id},'notes',this.value)"></td>
       <td style="text-align:center">${isMapped ? `<button class="btn-icon" style="font-size:10px;color:#c33" onclick="unmapTx(${r.salesorder_id})">✕</button>` : '—'}</td>
     </tr>`;
