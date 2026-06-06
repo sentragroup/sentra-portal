@@ -3784,7 +3784,13 @@ function mapCol(r) {
     releaseDate:r.release_date||"", priority:r.priority||"",
     moodboardUrl:r.moodboard_url||"", status:r.status||"Draft",
     pic:r.pic||"", notes:r.notes||"", dateAdded:r.date_added||"", addedBy:r.added_by||"",
-    samplingDriveUrl:r.sampling_drive_url||"", revenueStream:r.revenue_stream||""
+    samplingDriveUrl:r.sampling_drive_url||"", revenueStream:r.revenue_stream||"",
+    targetRevenue: r.target_revenue!=null ? Number(r.target_revenue) : null,
+    targetUnits:   r.target_units!=null ? Number(r.target_units) : null,
+    targetWindowDays: r.target_window_days!=null ? Number(r.target_window_days) : 90,
+    targetNotes:   r.target_notes||"",
+    targetSetBy:   r.target_set_by||"",
+    targetSetAt:   r.target_set_at||""
   };
 }
 
@@ -4257,6 +4263,223 @@ function cdStageBadge(status, id="") {
   const c=status==="Done"?"p-active":status==="In Progress"?"p-signings":"p-draft";
   return `<span class="pill ${c}" style="font-size:9px;margin-left:auto"${id?` id="${id}"`:""}>${status}</span>`;
 }
+
+// ── Collection Detail TABS (Business / Creative / Delivery) ──
+function renderColTabBar(col, items) {
+  // Build small status descriptors per tab
+  const targetSet  = col.targetRevenue != null || col.targetUnits != null;
+  const bizStatus  = targetSet ? `Target Rp ${cdFmtIDR(col.targetRevenue)}` : `Belum set target`;
+  const approved   = items.filter(i=>i.approvalStatus==="Approved").length;
+  const creStatus  = items.length ? `${approved}/${items.length} approved` : `Belum ada SKU`;
+  const samplDone  = items.filter(i=>i.samplingStatus==="Done").length;
+  const delStatus  = items.length ? `Sampling ${samplDone}/${items.length} done` : `—`;
+  const cid = col.id;
+  // Default tab: persist via sessionStorage so user returns to same tab on reload
+  const lastTab = sessionStorage.getItem(`cd-tab-${cid}`) || 'business';
+
+  return `<div class="cd-tab-bar" id="cd-tab-bar-${cid}" style="display:flex;gap:0;margin:0 0 16px;border-bottom:1px solid var(--g100);background:var(--off);border-radius:8px 8px 0 0;overflow:hidden">
+    ${[
+      ['business','📊','Business', bizStatus],
+      ['creative','🎨','Creative', creStatus],
+      ['delivery','🛠','Delivery', delStatus],
+    ].map(([k,ic,label,sub]) => {
+      const active = k === lastTab;
+      return `<button class="cd-tab-btn${active?' active':''}" data-tab="${k}" onclick="cdSwitchTab('${cid}','${k}')" style="flex:1;display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:12px 16px;border:0;border-bottom:2px solid ${active?'var(--black)':'transparent'};background:${active?'var(--white)':'transparent'};color:${active?'var(--black)':'var(--g600)'};cursor:pointer;text-align:left">
+        <span style="font-size:13px;font-weight:600">${ic} ${label}</span>
+        <span style="font-family:var(--mono);font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px">${sub.replace(/</g,'&lt;')}</span>
+      </button>`;
+    }).join('')}
+  </div>`;
+}
+
+function cdSwitchTab(colId, tab) {
+  ['business','creative','delivery'].forEach(t => {
+    const pane = document.getElementById(`cd-tab-${t}-${colId}`);
+    if (pane) pane.style.display = (t === tab) ? '' : 'none';
+  });
+  // Update tab button styling
+  const bar = document.getElementById(`cd-tab-bar-${colId}`);
+  if (bar) {
+    bar.querySelectorAll('.cd-tab-btn').forEach(btn => {
+      const active = btn.getAttribute('data-tab') === tab;
+      btn.classList.toggle('active', active);
+      btn.style.borderBottomColor = active ? 'var(--black)' : 'transparent';
+      btn.style.background = active ? 'var(--white)' : 'transparent';
+      btn.style.color = active ? 'var(--black)' : 'var(--g600)';
+    });
+  }
+  sessionStorage.setItem(`cd-tab-${colId}`, tab);
+}
+
+function cdFmtIDR(n) {
+  if (n==null || n==='' || isNaN(Number(n))) return '—';
+  const num = Number(n);
+  if (num >= 1e9) return (num/1e9).toFixed(1).replace(/\.0$/,'') + 'M';
+  if (num >= 1e6) return (num/1e6).toFixed(1).replace(/\.0$/,'') + 'jt';
+  if (num >= 1e3) return (num/1e3).toFixed(0) + 'k';
+  return String(num);
+}
+
+// ── Sales Target section (Business tab) ──
+function renderColTargetSection(col, items) {
+  const cid = col.id;
+  const hasTarget = col.targetRevenue != null || col.targetUnits != null;
+  const releaseDate = col.releaseDate;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const days = releaseDate ? Math.round((new Date(releaseDate+'T00:00:00') - today) / 86400000) : null;
+  const isPostLaunch = days != null && days <= 0;
+
+  // Pull product_dev projection for viability check (synchronous from cached allPDRows if available)
+  let pdUnits = 0, pdRevenue = 0;
+  try {
+    if (typeof allPDRows !== 'undefined' && Array.isArray(allPDRows)) {
+      const parents = allPDRows.filter(r => !r.parentId && r.collectionId === cid);
+      parents.forEach(p => {
+        const children = allPDRows.filter(r => r.parentId === p.id);
+        if (typeof pdComputeProjection === 'function') {
+          const proj = pdComputeProjection(p, children);
+          pdUnits   += proj.units || 0;
+          pdRevenue += proj.revenue100 || 0;
+        }
+      });
+    }
+  } catch(e) { console.warn('PD projection unavailable:', e); }
+
+  const targetRev = Number(col.targetRevenue||0);
+  const targetUn  = Number(col.targetUnits||0);
+  const revGap  = targetRev ? (pdRevenue - targetRev) : 0;
+  const unitGap = targetUn  ? (pdUnits   - targetUn)  : 0;
+
+  // Form OR display
+  const setInfo = col.targetSetAt ? `Set ${col.targetSetBy?`oleh ${(col.targetSetBy||'').replace(/</g,'&lt;')}`:''} · ${(col.targetSetAt||'').slice(0,10)}` : '';
+
+  const formHTML = `<div style="background:linear-gradient(135deg,#fffef0 0%,#fefad0 100%);border:1px solid #f1cf7a;border-radius:8px;padding:16px">
+    <div style="font-family:var(--syne);font-size:15px;font-weight:700;margin-bottom:4px">${hasTarget?'Target Aktif':'Set Sales Target'}</div>
+    <div style="font-size:11px;color:var(--g600);margin-bottom:12px">${hasTarget?setInfo:'Set target supaya Product Dev punya angka commitment, dan kita bisa ukur progress post-launch.'}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1.4fr;gap:10px;margin-bottom:10px">
+      <div class="fg"><label style="font-size:11px">Target Revenue (Rp)</label><input type="number" id="ct-rev-${cid}" min="0" value="${col.targetRevenue==null?'':col.targetRevenue}" placeholder="cth: 100000000"></div>
+      <div class="fg"><label style="font-size:11px">Target Units</label><input type="number" id="ct-un-${cid}" min="0" value="${col.targetUnits==null?'':col.targetUnits}" placeholder="cth: 1000"></div>
+      <div class="fg"><label style="font-size:11px">Window (hari sejak launch)</label>
+        <select id="ct-win-${cid}" style="width:100%;padding:7px 8px;font-size:13px;border:1px solid var(--g100);border-radius:4px;background:var(--white)">
+          ${[30,60,90,120,180].map(d => `<option value="${d}"${(col.targetWindowDays||90)===d?' selected':''}>${d} hari</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="fg" style="margin-bottom:10px"><label style="font-size:11px">Catatan</label><input type="text" id="ct-notes-${cid}" value="${(col.targetNotes||'').replace(/"/g,'&quot;')}" placeholder="Asumsi, strategi, atau referensi historical"></div>
+    <div style="display:flex;gap:8px">
+      <button class="btn-primary" style="padding:7px 14px;font-size:12px" onclick="saveColTarget('${cid}')">${hasTarget?'💾 Simpan Revisi':'🎯 Save Target'}</button>
+      ${hasTarget?`<button class="btn-ghost" style="padding:7px 12px;font-size:12px" onclick="clearColTarget('${cid}')">✕ Clear</button>`:''}
+    </div>
+    <div class="feedback" id="ct-feedback-${cid}" style="margin-top:8px"></div>
+  </div>`;
+
+  // Viability panel — only shown if target is set AND PD has data
+  let viability = '';
+  if (hasTarget && (pdUnits || pdRevenue)) {
+    const isTight = (targetRev && pdRevenue < targetRev) || (targetUn && pdUnits < targetUn);
+    const tone = isTight
+      ? {bg:'#fef5e0', border:'#f3cf7a', label:'⚠ Tight', textColor:'#a66800'}
+      : {bg:'#e8f7ec', border:'#a7dab4', label:'✅ Viable', textColor:'#0a7d3a'};
+    viability = `<div style="margin-top:14px;padding:14px;background:${tone.bg};border:1px solid ${tone.border};border-radius:6px">
+      <div style="font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--g600);margin-bottom:8px">🔍 Viability Check · vs Product Dev projection</div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <tr><td style="padding:4px 0;color:var(--g600);width:200px">PD projection @ 100% sold:</td><td class="mono" style="padding:4px 0;font-weight:600">Rp ${cdFmtIDR(pdRevenue)} · ${pdUnits.toLocaleString('id-ID')} unit</td></tr>
+        <tr><td style="padding:4px 0;color:var(--g600)">Target requirement:</td><td class="mono" style="padding:4px 0;font-weight:600">${targetRev?'Rp '+cdFmtIDR(targetRev):'—'} · ${targetUn?targetUn.toLocaleString('id-ID')+' unit':'—'}</td></tr>
+        ${targetRev?`<tr><td style="padding:4px 0;color:var(--g600)">Revenue gap:</td><td class="mono" style="padding:4px 0;font-weight:700;color:${revGap>=0?'#0a7d3a':'#a66800'}">${revGap>=0?'+':''}Rp ${cdFmtIDR(Math.abs(revGap))}</td></tr>`:''}
+        ${targetUn?`<tr><td style="padding:4px 0;color:var(--g600)">Unit gap:</td><td class="mono" style="padding:4px 0;font-weight:700;color:${unitGap>=0?'#0a7d3a':'#a66800'}">${unitGap>=0?'+':''}${Math.abs(unitGap).toLocaleString('id-ID')} unit</td></tr>`:''}
+      </table>
+      <div style="margin-top:8px;font-size:11px;color:var(--g600);font-style:italic">
+        ${isTight?'💡 Pertimbangkan tambah SKU di Product Dev, naikin SRP, atau revise target.':'✅ Current supply enough untuk hit target di 100% sell-through. Realistic sell-through 60-70% — boleh aim higher.'}
+      </div>
+    </div>`;
+  } else if (hasTarget) {
+    viability = `<div style="margin-top:14px;padding:12px 14px;background:var(--off);border:1px dashed var(--g200);border-radius:6px;font-size:12px;color:var(--g600)">
+      🔍 <b>Viability Check:</b> PD belum mulai develop produk untuk collection ini. Begitu ada produk masuk Product Dev module, viability check akan auto-update.
+    </div>`;
+  }
+
+  // Status pill in section header
+  const headerBadge = hasTarget
+    ? `<span class="pill ${(pdUnits&&pdRevenue&&!revGap&&!unitGap)||(targetRev&&pdRevenue>=targetRev&&targetUn&&pdUnits>=targetUn)?'p-active':(pdUnits||pdRevenue)?'p-near':'p-draft'}" style="font-size:10px;margin-left:auto">${days!=null?(days>0?`T-${days}d`:days===0?'Launches today':`${-days}d ago`):'No date'}</span>`
+    : `<span class="pill p-draft" style="font-size:10px;margin-left:auto">Target belum di-set</span>`;
+
+  return cdStageBox("🎯","Sales Target", headerBadge, formHTML + viability);
+}
+
+async function saveColTarget(colId) {
+  const fb = document.getElementById(`ct-feedback-${colId}`);
+  const revRaw = document.getElementById(`ct-rev-${colId}`).value;
+  const unRaw  = document.getElementById(`ct-un-${colId}`).value;
+  const win    = parseInt(document.getElementById(`ct-win-${colId}`).value || '90', 10);
+  const notes  = document.getElementById(`ct-notes-${colId}`).value.trim();
+  const rev = revRaw === '' ? null : parseFloat(revRaw);
+  const un  = unRaw  === '' ? null : parseInt(unRaw, 10);
+  if (rev == null && un == null) {
+    fb.textContent = '⚠ Isi minimal salah satu (revenue atau units).';
+    fb.className = 'feedback err';
+    return;
+  }
+  fb.textContent = 'Menyimpan...';
+  fb.className = 'feedback';
+  try {
+    const {error} = await sb.from('collections').update({
+      target_revenue: rev,
+      target_units:   un,
+      target_window_days: win,
+      target_notes:   notes || null,
+      target_set_by:  currentUser,
+      target_set_at:  new Date().toISOString(),
+      last_updated:   new Date().toISOString(),
+      last_updated_by: currentUser
+    }).eq('id', colId);
+    if (error) throw error;
+    // Optimistic local update
+    const idx = allColRows.findIndex(r => r.id === colId);
+    if (idx > -1) {
+      allColRows[idx].targetRevenue = rev;
+      allColRows[idx].targetUnits = un;
+      allColRows[idx].targetWindowDays = win;
+      allColRows[idx].targetNotes = notes;
+      allColRows[idx].targetSetBy = currentUser;
+      allColRows[idx].targetSetAt = new Date().toISOString();
+    }
+    logActivity('Collections','update', colId, `Target: Rp ${rev||0} · ${un||0} unit · ${win}d`);
+    fb.textContent = '✅ Target tersimpan';
+    fb.className = 'feedback ok';
+    // Re-render detail (keeps user on Business tab via sessionStorage)
+    const col = allColRows.find(r => r.id === colId);
+    if (col) renderColDetail(col, allColItems.filter(i => i.collectionId === colId));
+  } catch (e) {
+    fb.textContent = '❌ Gagal: ' + (e.message || e);
+    fb.className = 'feedback err';
+  }
+}
+
+async function clearColTarget(colId) {
+  if (!confirm('Hapus target ini? Bisa di-set ulang kapan saja.')) return;
+  try {
+    const {error} = await sb.from('collections').update({
+      target_revenue: null, target_units: null,
+      target_window_days: 90, target_notes: null,
+      target_set_by: null, target_set_at: null,
+      last_updated: new Date().toISOString(), last_updated_by: currentUser
+    }).eq('id', colId);
+    if (error) throw error;
+    const idx = allColRows.findIndex(r => r.id === colId);
+    if (idx > -1) {
+      allColRows[idx].targetRevenue = null;
+      allColRows[idx].targetUnits = null;
+      allColRows[idx].targetWindowDays = 90;
+      allColRows[idx].targetNotes = '';
+      allColRows[idx].targetSetBy = '';
+      allColRows[idx].targetSetAt = '';
+    }
+    logActivity('Collections','update', colId, 'Target cleared');
+    const col = allColRows.find(r => r.id === colId);
+    if (col) renderColDetail(col, allColItems.filter(i => i.collectionId === colId));
+  } catch (e) { alert('Gagal: ' + (e.message || e)); }
+}
+
 function refreshStageHeaderBadge(colId, stage) {
   const el=document.getElementById(`col-${stage}-badge-${colId}`);
   if(!el) return;
@@ -4422,6 +4645,10 @@ function renderColDetail(col, items) {
             <span style="font-size:9px;font-family:var(--mono);text-transform:uppercase;color:${pclr(ps[k])};white-space:nowrap">${l}</span>
           </div>`).join("")}
         </div>
+        ${renderColTabBar(col, items)}
+
+        <!-- ─────────── 🎨 CREATIVE TAB ─────────── -->
+        <div id="cd-tab-creative-${col.id}" class="cd-tab-content" style="display:none">
         <!-- SKU Master List -->
         ${cdStageBox("📋","SKUs & Design",`<span style="font-size:11px;color:var(--g400);font-family:var(--mono);margin-left:auto">${items.length} items</span>`,`
           <div style="padding:12px;background:var(--off);border-radius:6px;margin-bottom:14px">
@@ -4468,6 +4695,10 @@ function renderColDetail(col, items) {
             </div>
           </div>`:""}
           `)}
+        </div><!-- /Creative tab -->
+
+        <!-- ─────────── 🛠 DELIVERY TAB ─────────── -->
+        <div id="cd-tab-delivery-${col.id}" class="cd-tab-content" style="display:none">
         <!-- Sampling -->
         ${cdStageBox("🧵","Sampling",`
           ${cdStageBadge(items.length?items.every(i=>i.samplingStatus==="Done")?"Done":items.some(i=>i.samplingStatus!=="Not Started")?"In Progress":"Not Started":"Not Started",`col-sampling-badge-${col.id}`)}
@@ -4498,12 +4729,18 @@ function renderColDetail(col, items) {
             ${productionContent}
           </div>`);
         })()}
+        </div><!-- /Delivery tab -->
+
+        <!-- ─────────── 📊 BUSINESS TAB ─────────── -->
+        <div id="cd-tab-business-${col.id}" class="cd-tab-content">
+        ${renderColTargetSection(col, items)}
         <!-- Marketing -->
         ${cdStageBox("📣","Marketing",cdStageBadge(ps.marketing==="done"?"Done":ps.marketing==="in-progress"?"In Progress":"Not Started",`col-marketing-badge-${col.id}`),`
           <div id="col-mkt-body-${col.id}">${renderMktBodyHTML(col.id)}</div>`)}
         <!-- Product Performance -->
         ${cdStageBox("📊","Product Performance","",`<div id="col-perf-${col.id}" style="color:var(--g400);font-size:12px">Memuat...</div>`)}
         ${cdStageBox("📦","Stock Rekonsiliasi","",`<div id="col-stock-${col.id}" style="color:var(--g400);font-size:12px">Memuat...</div>`)}
+        </div><!-- /Business tab -->
       </div>
       <!-- Right sidebar: Notes + Activity -->
       <div style="width:280px;flex-shrink:0;position:sticky;top:20px;max-height:calc(100vh - 80px);overflow-y:auto;display:flex;flex-direction:column;gap:12px">
@@ -4553,6 +4790,9 @@ function renderColDetail(col, items) {
   setupNoteAC(col.id);
   loadColProductPerf(col.id, col.collectionName, col.revenueStream||"", col.ipRelated||"");
   loadColStockRecon(col.id, col.collectionName);
+  // Activate the persisted tab (Business by default)
+  const _lastTab = sessionStorage.getItem(`cd-tab-${col.id}`) || 'business';
+  cdSwitchTab(col.id, _lastTab);
 }
 
 const SIZE_ORDER = ['XS','S','M','L','XL','XXL','XXXL','XXXXL','4XL','5XL','FREE SIZE','FREE'];
