@@ -138,7 +138,7 @@ function enterApp(user, freshLogin) {
   // Restore page: prefer URL hash, fall back to sessionStorage
   let _pg = location.hash.slice(1).split('/')[0];
   if (!_pg) _pg = sessionStorage.getItem('snt_page') || '';
-  const _pages = ['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','popupbooth','activitylog','jubsales','mesign','po','stockmovement','productmap','productdev','collections','designermaster','dsgworkflow','warehousekpi','stockadjmgmt','returnreason','tradorders','invcheck','salesperf','reminders','announcements','marte','royalty','income','contentplan','adsmgmt','mktactivation','publication','photoshoot','kolmgmt'];
+  const _pages = ['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','popupbooth','activitylog','jubsales','mesign','po','stockmovement','productmap','productdev','collections','designermaster','dsgworkflow','warehousekpi','stockadjmgmt','returnreason','tradorders','invcheck','salesperf','reminders','announcements','marte','royalty','income','contentplan','adsmgmt','mktactivation','publication','photoshoot','kolmgmt','txmap'];
   if (_pages.includes(_pg))
     showPage(_pg, document.getElementById('nav-'+_pg));
 }
@@ -226,7 +226,7 @@ function showPage(name, el) {
   document.getElementById("page-"+name).classList.add("active");
   if (el) el.classList.add("active");
   const _c = document.querySelector('.content'); if (_c) _c.scrollTop = 0;
-  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management"};
+  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",txmap:"Transaction Mapping"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -257,6 +257,15 @@ function showPage(name, el) {
   if (name==="publication") loadPublication();
   if (name==="photoshoot") loadPhotoshoot();
   if (name==="kolmgmt") loadKolMgmt();
+  if (name==="txmap") {
+    // Default date range: last 30 days
+    const _now=new Date(), _to=_now.toISOString().slice(0,10);
+    const _fr=new Date(_now-30*864e5).toISOString().slice(0,10);
+    const _fe=document.getElementById('tx-from'), _te=document.getElementById('tx-to');
+    if(_fe && !_fe.value) _fe.value=_fr;
+    if(_te && !_te.value) _te.value=_to;
+    loadTxMap();
+  }
   if (name==="collections") {
     // If restoring a collection detail from URL, immediately switch to detail view
     // to prevent the "new collection" form from flashing before data loads
@@ -17509,6 +17518,325 @@ async function deleteKol(id) {
   if (!confirm('Hapus KOL placement ini?')) return;
   try { await sb.from('kol_placements').delete().eq('id',id); loadKolMgmt(); }
   catch(e) { alert('Gagal: '+(e.message||e)); }
+}
+
+// ── 7. TRANSACTION MAPPING ──
+// Maps jubelio_sales_orders rows (excluding Gudang Bintaro & Gudang Marte)
+// to categories + project refs via a separate transaction_mappings table.
+// Supports bulk-edit: select multiple rows, set category + project ref once.
+
+const TX_EXCLUDE_LOCATIONS = ['Gudang Bintaro', 'Gudang Marte'];
+let _txRows = [];               // current page rows with mapping merged in
+let _txTotalCount = 0;
+let _txPage = 0;
+let _txSelected = new Set();    // selected salesorder_ids
+
+function _txEsc(s) { return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function _txRp(n) {
+  if (n==null || isNaN(Number(n))) return '—';
+  return 'Rp ' + new Intl.NumberFormat('id-ID').format(Math.round(Number(n)));
+}
+function _txDate(d) {
+  if (!d) return '—';
+  return new Date(d).toLocaleDateString('id-ID', {day:'2-digit',month:'short',year:'2-digit'});
+}
+
+async function loadTxMap() {
+  const tbody = document.getElementById('txTableBody');
+  if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="12">Memuat...</td></tr>`;
+  // Reset selection on reload
+  _txSelected.clear();
+  _txUpdateBulkBar();
+  // Read filters
+  const from = document.getElementById('tx-from').value;
+  const to   = document.getElementById('tx-to').value;
+  const loc  = document.getElementById('tx-fil-location').value || '';
+  const chan = document.getElementById('tx-fil-channel').value || '';
+  const mapStatus = document.getElementById('tx-fil-mapstatus').value || '';
+  const cat  = document.getElementById('tx-fil-category').value || '';
+  const search = (document.getElementById('tx-search').value || '').trim();
+  const pageSize = parseInt(document.getElementById('tx-page-size').value, 10) || 100;
+
+  try {
+    // Base sales orders query (excluding Bintaro & Marte)
+    const baseFilter = q => {
+      let qq = q
+        .not('location_name', 'in', `("${TX_EXCLUDE_LOCATIONS.join('","')}")`);
+      if (from) qq = qq.gte('transaction_date', from);
+      if (to)   qq = qq.lte('transaction_date', to + 'T23:59:59');
+      if (loc)  qq = qq.eq('location_name', loc);
+      if (chan) qq = qq.eq('channel_name', chan);
+      if (search) {
+        // OR across SO no, customer name, ref
+        qq = qq.or(`salesorder_no.ilike.%${search}%,customer_name.ilike.%${search}%,shipping_full_name.ilike.%${search}%`);
+      }
+      return qq;
+    };
+
+    // Total count + dropdown filter population happen in parallel
+    const orderCols = 'salesorder_id,salesorder_no,transaction_date,location_name,channel_name,store_name,customer_name,shipping_full_name,wms_status,sub_total,is_canceled';
+    const from_n = _txPage * pageSize;
+    const to_n   = from_n + pageSize - 1;
+
+    const [
+      {data: orderRows, error: ordErr, count},
+      {data: locRows},
+      {data: chanRows}
+    ] = await Promise.all([
+      baseFilter(sb.from('jubelio_sales_orders').select(orderCols, {count:'exact'}))
+        .order('transaction_date', {ascending:false})
+        .range(from_n, to_n),
+      sb.from('jubelio_sales_orders').select('location_name')
+        .not('location_name','in',`("${TX_EXCLUDE_LOCATIONS.join('","')}")`)
+        .not('location_name','is',null).limit(5000),
+      sb.from('jubelio_sales_orders').select('channel_name')
+        .not('channel_name','is',null).limit(5000)
+    ]);
+    if (ordErr) throw ordErr;
+    _txTotalCount = count || 0;
+
+    // Populate location + channel filter dropdowns once
+    const lSel = document.getElementById('tx-fil-location');
+    if (lSel && lSel.options.length <= 1) {
+      const locs = [...new Set((locRows||[]).map(r=>r.location_name).filter(Boolean))].sort();
+      lSel.innerHTML = `<option value="">Semua location</option>` +
+        locs.map(l => `<option value="${_txEsc(l)}">${_txEsc(l)}</option>`).join('');
+      lSel.onchange = loadTxMap;
+    }
+    const cSel = document.getElementById('tx-fil-channel');
+    if (cSel && cSel.options.length <= 1) {
+      const chans = [...new Set((chanRows||[]).map(r=>r.channel_name).filter(Boolean))].sort();
+      cSel.innerHTML = `<option value="">Semua channel</option>` +
+        chans.map(c => `<option value="${_txEsc(c)}">${_txEsc(c)}</option>`).join('');
+      cSel.onchange = loadTxMap;
+    }
+
+    // Fetch mappings for these orders (chunked if many)
+    const orderIds = (orderRows||[]).map(o => o.salesorder_id);
+    const mapByOrderId = new Map();
+    if (orderIds.length) {
+      for (let i = 0; i < orderIds.length; i += 500) {
+        const chunk = orderIds.slice(i, i + 500);
+        const {data: maps} = await sb.from('transaction_mappings').select('*').in('salesorder_id', chunk);
+        (maps||[]).forEach(m => mapByOrderId.set(m.salesorder_id, m));
+      }
+    }
+
+    // Apply mapping-status + category filter (post-fetch since these are on the joined table)
+    let merged = (orderRows||[]).map(o => ({
+      ...o,
+      _mapping: mapByOrderId.get(o.salesorder_id) || null
+    }));
+    if (mapStatus === 'mapped') {
+      merged = merged.filter(r => r._mapping && (r._mapping.category || r._mapping.project_ref));
+    } else if (mapStatus === 'unmapped') {
+      merged = merged.filter(r => !r._mapping || !(r._mapping.category || r._mapping.project_ref));
+    }
+    if (cat) {
+      merged = merged.filter(r => r._mapping?.category === cat);
+    }
+    _txRows = merged;
+
+    _renderTxTable();
+    _renderTxStats();
+    _renderTxPagination(pageSize);
+  } catch (e) {
+    console.error('loadTxMap:', e);
+    if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="12">Gagal: ${e.message||e}</td></tr>`;
+  }
+}
+
+function _renderTxStats() {
+  // Stats computed from the current visible page (since post-filter happens client-side)
+  const total = _txRows.length;
+  const mapped = _txRows.filter(r => r._mapping && (r._mapping.category || r._mapping.project_ref)).length;
+  const grossSum = _txRows.reduce((s,r) => s + Number(r.sub_total || 0), 0);
+  const tEl = document.getElementById('tx-s-total');     if (tEl) tEl.textContent = _txTotalCount.toLocaleString('id-ID') + ' tx';
+  const uEl = document.getElementById('tx-s-unmapped');  if (uEl) uEl.textContent = (total - mapped).toLocaleString('id-ID') + ' (page)';
+  const mEl = document.getElementById('tx-s-mapped');    if (mEl) mEl.textContent = mapped.toLocaleString('id-ID') + ' (page)';
+  const aEl = document.getElementById('tx-s-amount');    if (aEl) aEl.textContent = _txRp(grossSum) + ' (page)';
+  const pEl = document.getElementById('tx-s-mapped-pct');if (pEl) pEl.textContent = total ? Math.round(mapped/total*100) + '%' : '—';
+}
+
+function _renderTxTable() {
+  const tbody = document.getElementById('txTableBody');
+  if (!tbody) return;
+  if (!_txRows.length) {
+    tbody.innerHTML = `<tr><td class="empty-td" colspan="12">Tidak ada data sesuai filter.</td></tr>`;
+    document.getElementById('tx-tcount').textContent = '0 entri';
+    return;
+  }
+  document.getElementById('tx-tcount').textContent = `${_txRows.length} di page ini · ${_txTotalCount.toLocaleString('id-ID')} total`;
+
+  const catOpts = ['','Pop-up Event','Wholesale','Trade Order','Sample Out','Internal Use','Marketing Activation','Brand Activation','Manual Sales','Return-Refund','Other'];
+
+  tbody.innerHTML = _txRows.map(r => {
+    const cat = r._mapping?.category || '';
+    const proj = r._mapping?.project_ref || '';
+    const notes = r._mapping?.notes || '';
+    const isMapped = !!cat || !!proj;
+    const rowBg = isMapped ? 'background:#fafdf6' : '';
+    const isCanceled = r.is_canceled || (r.wms_status === 'CANCELED');
+    const checked = _txSelected.has(r.salesorder_id) ? ' checked' : '';
+    return `<tr style="${rowBg}">
+      <td style="text-align:center"><input type="checkbox" data-tx-id="${r.salesorder_id}" onclick="toggleTxSelect(${r.salesorder_id},this.checked)"${checked}></td>
+      <td class="mono" style="font-size:11px;font-weight:600">${_txEsc(r.salesorder_no || ('#'+r.salesorder_id))}</td>
+      <td class="mono" style="font-size:11px;white-space:nowrap">${_txDate(r.transaction_date)}</td>
+      <td style="font-size:11px">${_txEsc(r.location_name || '—')}</td>
+      <td style="font-size:11px">${_txEsc([r.channel_name, r.store_name].filter(Boolean).join(' / ')) || '—'}</td>
+      <td style="font-size:11px">${_txEsc(r.customer_name || r.shipping_full_name || '—')}</td>
+      <td class="mono" style="text-align:right;font-size:11px;white-space:nowrap">${_txRp(r.sub_total)}</td>
+      <td><span class="pill ${isCanceled ? 'p-expired' : 'p-info'}" style="font-size:10px">${_txEsc(r.wms_status || '—')}</span></td>
+      <td><select onchange="updateTxField(${r.salesorder_id},'category',this.value)" class="pill ${isMapped ? 'p-active' : 'p-draft'}" style="font-size:10px;padding:2px 6px;border:1px solid;width:100%">${catOpts.map(o => `<option value="${o}"${o===cat?' selected':''}>${o || '— Unmapped —'}</option>`).join('')}</select></td>
+      <td><input type="text" value="${_txEsc(proj)}" placeholder="cth: Senayan Pop-up Aug" style="width:100%;padding:4px 6px;font-size:11px;border:1px solid var(--g100);border-radius:3px;background:var(--white)" onblur="updateTxField(${r.salesorder_id},'project_ref',this.value)"></td>
+      <td><input type="text" value="${_txEsc(notes)}" placeholder="Catatan" style="width:100%;padding:4px 6px;font-size:11px;border:1px solid var(--g100);border-radius:3px;background:var(--white)" onblur="updateTxField(${r.salesorder_id},'notes',this.value)"></td>
+      <td style="text-align:center">${isMapped ? `<button class="btn-icon" style="font-size:10px;color:#c33" onclick="unmapTx(${r.salesorder_id})">✕</button>` : '—'}</td>
+    </tr>`;
+  }).join('');
+}
+
+function _renderTxPagination(pageSize) {
+  const el = document.getElementById('tx-pagination');
+  if (!el) return;
+  const totalPages = Math.ceil(_txTotalCount / pageSize);
+  if (totalPages <= 1) { el.innerHTML = ''; return; }
+  const cur = _txPage;
+  el.innerHTML = `
+    <button class="btn-ghost" style="padding:4px 12px;font-size:12px" onclick="txGoToPage(${cur-1})" ${cur===0?'disabled':''}>← Prev</button>
+    <span style="font-size:12px;color:var(--g400);font-family:var(--mono)">${cur+1} / ${totalPages}</span>
+    <button class="btn-ghost" style="padding:4px 12px;font-size:12px" onclick="txGoToPage(${cur+1})" ${cur>=totalPages-1?'disabled':''}>Next →</button>
+  `;
+}
+
+function txGoToPage(p) {
+  _txPage = Math.max(0, p);
+  loadTxMap();
+}
+
+function clearTxFilters() {
+  ['tx-fil-location','tx-fil-channel','tx-search'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  document.getElementById('tx-fil-mapstatus').value = 'unmapped';
+  document.getElementById('tx-fil-category').value = '';
+  _txPage = 0;
+  loadTxMap();
+}
+
+// ── Single-row inline edits (upsert mapping) ──
+async function updateTxField(salesorderId, field, value) {
+  const valueClean = (value || '').trim() || null;
+  // Existing mapping in current rows?
+  const row = _txRows.find(r => r.salesorder_id === salesorderId);
+  const existing = row?._mapping || {salesorder_id: salesorderId};
+  const next = {...existing, [field]: valueClean, last_updated: new Date().toISOString(), last_updated_by: currentUser};
+  if (!existing.mapped_by) { next.mapped_by = currentUser; next.mapped_at = new Date().toISOString(); }
+  try {
+    const {error} = await sb.from('transaction_mappings').upsert(next, {onConflict: 'salesorder_id'});
+    if (error) throw error;
+    if (row) row._mapping = next;
+    _renderTxTable();
+    _renderTxStats();
+  } catch(e) { alert('Gagal: '+(e.message||e)); }
+}
+
+async function unmapTx(salesorderId) {
+  if (!confirm('Hapus mapping untuk transaksi ini?')) return;
+  try {
+    await sb.from('transaction_mappings').delete().eq('salesorder_id', salesorderId);
+    const row = _txRows.find(r => r.salesorder_id === salesorderId);
+    if (row) row._mapping = null;
+    _renderTxTable();
+    _renderTxStats();
+  } catch(e) { alert('Gagal: '+(e.message||e)); }
+}
+
+// ── Selection + Bulk edit ──
+function toggleTxSelect(salesorderId, checked) {
+  if (checked) _txSelected.add(salesorderId); else _txSelected.delete(salesorderId);
+  _txUpdateBulkBar();
+}
+
+function toggleTxSelectAll(masterCheckbox) {
+  const want = masterCheckbox.checked;
+  _txRows.forEach(r => want ? _txSelected.add(r.salesorder_id) : _txSelected.delete(r.salesorder_id));
+  // Reflect in row checkboxes
+  document.querySelectorAll('#txTableBody input[type="checkbox"][data-tx-id]').forEach(cb => { cb.checked = want; });
+  _txUpdateBulkBar();
+}
+
+function clearTxSelection() {
+  _txSelected.clear();
+  document.querySelectorAll('#txTableBody input[type="checkbox"][data-tx-id]').forEach(cb => { cb.checked = false; });
+  document.getElementById('tx-select-all').checked = false;
+  _txUpdateBulkBar();
+}
+
+function _txUpdateBulkBar() {
+  const bar = document.getElementById('tx-bulk-bar');
+  const cnt = document.getElementById('tx-bulk-count');
+  if (cnt) cnt.textContent = _txSelected.size;
+  if (bar) bar.style.display = _txSelected.size > 0 ? 'flex' : 'none';
+}
+
+async function applyTxBulk() {
+  const cat = document.getElementById('tx-bulk-category').value;
+  const projRef = document.getElementById('tx-bulk-project-ref').value.trim();
+  if (!cat && !projRef) { alert('Pilih category atau isi project ref dulu.'); return; }
+  if (!_txSelected.size) { alert('Tidak ada baris dipilih.'); return; }
+  if (!confirm(`Apply mapping ke ${_txSelected.size} transaksi?`)) return;
+  const ids = [..._txSelected];
+  const now = new Date().toISOString();
+  // Upsert one row per selected ID
+  // Preserve existing fields if not being changed
+  const existingMap = new Map();
+  try {
+    // Chunk fetch
+    for (let i = 0; i < ids.length; i += 500) {
+      const chunk = ids.slice(i, i+500);
+      const {data} = await sb.from('transaction_mappings').select('*').in('salesorder_id', chunk);
+      (data||[]).forEach(m => existingMap.set(m.salesorder_id, m));
+    }
+    const rows = ids.map(id => {
+      const ex = existingMap.get(id) || {};
+      return {
+        salesorder_id: id,
+        category: cat || ex.category || null,
+        project_ref: projRef || ex.project_ref || null,
+        notes: ex.notes || null,
+        mapped_by: ex.mapped_by || currentUser,
+        mapped_at: ex.mapped_at || now,
+        last_updated: now,
+        last_updated_by: currentUser
+      };
+    });
+    // Upsert in chunks
+    for (let i = 0; i < rows.length; i += 500) {
+      const chunk = rows.slice(i, i+500);
+      const {error} = await sb.from('transaction_mappings').upsert(chunk, {onConflict: 'salesorder_id'});
+      if (error) throw error;
+    }
+    logActivity('TransactionMapping','bulk',`${ids.length}`, `Bulk mapped ${ids.length} tx → ${cat||''} / ${projRef||''}`);
+    // Reload to reflect
+    clearTxSelection();
+    document.getElementById('tx-bulk-category').value = '';
+    document.getElementById('tx-bulk-project-ref').value = '';
+    loadTxMap();
+  } catch(e) { alert('Gagal: '+(e.message||e)); }
+}
+
+async function clearTxBulkClear() {
+  if (!_txSelected.size) { alert('Tidak ada baris dipilih.'); return; }
+  if (!confirm(`Hapus mapping dari ${_txSelected.size} transaksi?`)) return;
+  const ids = [..._txSelected];
+  try {
+    // Delete in chunks
+    for (let i = 0; i < ids.length; i += 500) {
+      const chunk = ids.slice(i, i+500);
+      await sb.from('transaction_mappings').delete().in('salesorder_id', chunk);
+    }
+    logActivity('TransactionMapping','bulk_unmap',`${ids.length}`, `Bulk unmapped ${ids.length} tx`);
+    clearTxSelection();
+    loadTxMap();
+  } catch(e) { alert('Gagal: '+(e.message||e)); }
 }
 
 // ── DUPLICATE CHECK ──
