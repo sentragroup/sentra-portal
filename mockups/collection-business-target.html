@@ -1,0 +1,1110 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<title>Mockup — Collection Detail (Business + Delivery tabs)</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Sans:wght@300;400;500;700&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --black: #0c0c0c;
+    --white: #f8f7f4;
+    --off: #f0efe9;
+    --g100: #e5e3da;
+    --g200: #d4d3cb;
+    --g400: #8a8980;
+    --g600: #4a4a40;
+    --mono: 'DM Mono', monospace;
+    --sans: 'DM Sans', sans-serif;
+    --syne: 'Syne', serif;
+    --green: #0a7d3a;
+    --red: #c33;
+    --orange: #a66800;
+    --blue: #3C3489;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px;
+    background: var(--white);
+    font-family: var(--sans);
+    color: var(--black);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  /* Notice banner at very top */
+  .notice {
+    max-width: 1240px;
+    margin: 0 auto 28px;
+    padding: 12px 16px;
+    background: #fef0d0;
+    border: 1px solid #f1cf7a;
+    border-radius: 6px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: #6a4a00;
+  }
+  .notice b { font-weight: 600; }
+  /* Scenario wrapper */
+  .scenario {
+    max-width: 1240px;
+    margin: 0 auto 40px;
+    background: var(--white);
+    border: 1px solid var(--g100);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .scenario-label {
+    background: var(--black);
+    color: var(--white);
+    padding: 8px 16px;
+    font-family: var(--mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .scenario-label .tag {
+    background: var(--white);
+    color: var(--black);
+    padding: 1px 8px;
+    border-radius: 3px;
+    margin-left: 8px;
+    font-size: 10px;
+  }
+  /* Page header (shared between both tabs) */
+  .page-header-mock {
+    padding: 18px 22px;
+    background: var(--off);
+    border-bottom: 1px solid var(--g100);
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    flex-wrap: wrap;
+  }
+  .back-link {
+    color: var(--g600);
+    font-size: 12px;
+    text-decoration: none;
+    font-family: var(--mono);
+    padding: 4px 10px;
+    border: 1px solid var(--g100);
+    border-radius: 4px;
+    background: var(--white);
+  }
+  .ph-main { flex: 1; min-width: 280px; }
+  .ip-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--g400);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 3px;
+  }
+  .col-name {
+    font-family: var(--syne);
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+  }
+  .ph-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--g600);
+  }
+  /* Pills */
+  .pill {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 99px;
+    font-size: 11px;
+    font-weight: 500;
+    border: 1px solid;
+  }
+  .pill-active   { background: #daf3e0; color: #0a7d3a; border-color: #a7dab4; }
+  .pill-progress { background: #e8f0fc; color: #1a4a8a; border-color: #a8c4f0; }
+  .pill-draft    { background: var(--off); color: var(--g600); border-color: var(--g100); }
+  .pill-warn     { background: #fef0d0; color: #a66800; border-color: #f1cf7a; }
+  .pill-urgent   { background: #fde0e0; color: #b81d1d; border-color: #f3a8a8; }
+  .pill-info     { background: var(--white); color: var(--g600); border-color: var(--g100); }
+  /* Pipeline dots */
+  .pipeline {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--g600);
+    padding: 4px 10px;
+    background: var(--white);
+    border: 1px solid var(--g100);
+    border-radius: 99px;
+  }
+  .pipeline .dot { margin: 0 6px 0 12px; font-size: 12px; }
+  .pipeline .dot:first-of-type { margin-left: 0; }
+  .dot-done    { color: #0a7d3a; }
+  .dot-active  { color: #1a4a8a; }
+  .dot-pending { color: #c5c4bc; }
+  /* Target hero strip in header */
+  .target-strip {
+    width: 100%;
+    margin-top: 14px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: var(--white);
+    border: 1px solid var(--g100);
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .target-strip .lbl {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--g400);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .target-strip .val {
+    font-family: var(--mono);
+    font-weight: 600;
+    color: var(--black);
+  }
+  .target-strip .bar {
+    flex: 1;
+    height: 6px;
+    background: var(--g100);
+    border-radius: 99px;
+    overflow: hidden;
+    min-width: 140px;
+  }
+  .target-strip .bar > span {
+    display: block;
+    height: 100%;
+    border-radius: 99px;
+  }
+  /* Tabs */
+  .tabs {
+    background: var(--off);
+    padding: 0 22px;
+    border-bottom: 1px solid var(--g100);
+    display: flex;
+    gap: 4px;
+  }
+  .tab {
+    padding: 12px 18px;
+    margin-bottom: -1px;
+    border-bottom: 2px solid transparent;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--g600);
+    cursor: pointer;
+    background: transparent;
+    border-left: 0;
+    border-right: 0;
+    border-top: 0;
+  }
+  .tab.active {
+    color: var(--black);
+    border-bottom-color: var(--black);
+    background: var(--white);
+  }
+  /* Content area */
+  .tab-content {
+    padding: 22px;
+    background: var(--white);
+  }
+  /* Section card */
+  .sec {
+    margin-bottom: 18px;
+    border: 1px solid var(--g100);
+    border-radius: 8px;
+    background: var(--white);
+    overflow: hidden;
+  }
+  .sec-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    background: var(--off);
+    border-bottom: 1px solid var(--g100);
+  }
+  .sec-head .icon { font-size: 16px; }
+  .sec-head .title {
+    font-family: var(--syne);
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--black);
+  }
+  .sec-head .right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  .sec-body { padding: 16px; }
+  /* Target hero — main pre-launch form */
+  .target-hero {
+    background: linear-gradient(135deg, #fffef0 0%, #fefad0 100%);
+    border: 1px solid #f1cf7a;
+    padding: 20px;
+    border-radius: 8px;
+  }
+  .target-hero.empty {
+    background: var(--off);
+    border: 1px dashed var(--g200);
+    text-align: center;
+    padding: 32px 20px;
+  }
+  .target-hero .h {
+    font-family: var(--syne);
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .target-hero .sub {
+    color: var(--g600);
+    font-size: 12px;
+    margin-bottom: 16px;
+  }
+  /* Historical reference cards */
+  .ref-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .ref-card {
+    background: var(--white);
+    border: 1px solid var(--g100);
+    border-radius: 6px;
+    padding: 10px 12px;
+  }
+  .ref-card .nm {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--black);
+    margin-bottom: 2px;
+  }
+  .ref-card .meta { font-size: 10px; color: var(--g400); font-family: var(--mono); margin-bottom: 6px; }
+  .ref-card .v { font-family: var(--mono); font-size: 13px; font-weight: 700; color: var(--black); }
+  /* Form fields */
+  .form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1.5fr;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .fg label {
+    display: block;
+    font-family: var(--mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--g600);
+    margin-bottom: 4px;
+  }
+  .fg input, .fg select, .fg textarea {
+    width: 100%;
+    padding: 8px 10px;
+    font-family: var(--mono);
+    font-size: 13px;
+    border: 1px solid var(--g100);
+    border-radius: 4px;
+    background: var(--white);
+    color: var(--black);
+  }
+  .radio-group {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
+  .radio-pill {
+    padding: 6px 12px;
+    background: var(--white);
+    border: 1px solid var(--g100);
+    border-radius: 99px;
+    font-family: var(--mono);
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .radio-pill.active {
+    background: var(--black);
+    color: var(--white);
+    border-color: var(--black);
+  }
+  .btn-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 6px;
+  }
+  .btn-primary {
+    background: var(--black);
+    color: var(--white);
+    border: 1px solid var(--black);
+    border-radius: 4px;
+    padding: 8px 16px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .btn-ghost {
+    background: var(--white);
+    color: var(--black);
+    border: 1px solid var(--g100);
+    border-radius: 4px;
+    padding: 8px 14px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  /* Viability check panel */
+  .viability {
+    margin-top: 18px;
+    padding: 14px 16px;
+    border-radius: 6px;
+    background: var(--white);
+    border: 1px solid var(--g100);
+  }
+  .viability.tight {
+    background: #fef5e0;
+    border-color: #f3cf7a;
+  }
+  .viability.good {
+    background: #e8f7ec;
+    border-color: #a7dab4;
+  }
+  .viability h4 {
+    margin: 0 0 8px;
+    font-family: var(--mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--g600);
+  }
+  .viability table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  .viability td {
+    padding: 5px 0;
+    vertical-align: top;
+  }
+  .viability td:first-child { color: var(--g600); width: 200px; }
+  .viability td:nth-child(2) { font-family: var(--mono); font-weight: 600; }
+  .viability .gap {
+    margin-top: 10px;
+    padding: 8px 10px;
+    border-radius: 4px;
+    background: rgba(0,0,0,0.04);
+    font-size: 12px;
+  }
+  .viability .saran {
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--g600);
+    font-style: italic;
+  }
+  /* Post-launch progress bars */
+  .pl-track { margin-bottom: 14px; }
+  .pl-track .top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 5px;
+  }
+  .pl-track .top .lbl {
+    font-family: var(--mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    color: var(--g600);
+    letter-spacing: 0.5px;
+  }
+  .pl-track .top .val {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .pl-bar {
+    height: 10px;
+    background: var(--g100);
+    border-radius: 99px;
+    overflow: hidden;
+    position: relative;
+  }
+  .pl-bar > span {
+    display: block;
+    height: 100%;
+    border-radius: 99px;
+    transition: width 0.3s;
+  }
+  .pl-bar .marker {
+    position: absolute;
+    top: -2px;
+    bottom: -2px;
+    width: 2px;
+    background: var(--black);
+  }
+  .runrate {
+    margin-top: 14px;
+    padding: 10px 12px;
+    border-radius: 6px;
+    background: var(--off);
+    font-size: 12px;
+    color: var(--g600);
+  }
+  .runrate .ok { color: var(--green); font-weight: 600; }
+  .runrate .behind { color: var(--red); font-weight: 600; }
+  /* Sparkline */
+  .spark {
+    margin-top: 10px;
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 30px;
+  }
+  .spark span {
+    flex: 1;
+    background: var(--g600);
+    border-radius: 2px 2px 0 0;
+  }
+  /* Section grid */
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  /* Compact table */
+  .ct {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  .ct th {
+    text-align: left;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--g100);
+    font-family: var(--mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--g400);
+  }
+  .ct td {
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--g100);
+    vertical-align: middle;
+  }
+  .ct td.mono { font-family: var(--mono); }
+  .ct td.r { text-align: right; }
+  /* Marketing config grid */
+  .mkt-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 10px;
+  }
+  .mkt-tile {
+    padding: 12px;
+    background: var(--off);
+    border: 1px solid var(--g100);
+    border-radius: 6px;
+  }
+  .mkt-tile .mh {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .mkt-tile .mh .ic { font-size: 14px; }
+  .mkt-tile .mh .nm {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--g600);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  /* Edit-inline cells */
+  .inline-input {
+    padding: 4px 6px;
+    border: 1px solid var(--g100);
+    border-radius: 3px;
+    font-family: var(--mono);
+    font-size: 11px;
+    background: var(--white);
+  }
+  .h2 {
+    font-family: var(--syne);
+    font-size: 14px;
+    font-weight: 700;
+    margin: 24px 0 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--g600);
+  }
+</style>
+</head>
+<body>
+
+<div class="notice">
+  📍 <b>MOCKUP — bukan halaman live.</b> Tujuannya buat lihat layout split Business / Delivery + Target setting. Konten data dummy.
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<!-- SCENARIO 1: PRE-LAUNCH, NO TARGET SET                            -->
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="scenario">
+  <div class="scenario-label">
+    Scenario 1 <span class="tag">Pre-launch · belum ada target</span>
+  </div>
+
+  <!-- Header (shared) -->
+  <div class="page-header-mock">
+    <a class="back-link" href="#">← Kembali</a>
+    <div class="ph-main">
+      <div class="ip-label">IDGITAF</div>
+      <div class="col-name">Album Collection</div>
+      <div class="ph-meta">
+        <span class="pill pill-progress">In Progress</span>
+        <span>📅 Release 26 Aug 2026</span>
+        <span class="pill pill-warn">⏳ 84 hari lagi</span>
+        <span class="pipeline">
+          <span class="dot dot-done">●</span>Design
+          <span class="dot dot-pending">○</span>Sampling
+          <span class="dot dot-pending">○</span>Prod
+          <span class="dot dot-pending">○</span>Marketing
+        </span>
+      </div>
+      <div class="target-strip">
+        <span class="lbl">🎯 Target:</span>
+        <span style="color:var(--g400);font-style:italic">Belum di-set</span>
+        <span style="flex:1"></span>
+        <a href="#" style="font-size:11px;color:var(--blue);text-decoration:none;font-family:var(--mono);font-weight:600">↓ Set target dulu di Business tab</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab active">📊 Business</button>
+    <button class="tab">🛠 Delivery</button>
+  </div>
+
+  <!-- Business tab content -->
+  <div class="tab-content">
+    <!-- Sales Target (empty state) -->
+    <div class="sec">
+      <div class="sec-head">
+        <span class="icon">🎯</span>
+        <span class="title">Sales Target</span>
+      </div>
+      <div class="sec-body">
+        <div class="target-hero empty">
+          <div style="font-size:32px;margin-bottom:8px">🎯</div>
+          <div class="h">Belum ada target</div>
+          <div class="sub">Set target dulu supaya PD punya angka commitment buat di-deliver, dan kita bisa ukur post-launch.</div>
+          <button class="btn-primary">+ Set Sales Target</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Marketing config (shorter version since Business owns this) -->
+    <div class="sec">
+      <div class="sec-head">
+        <span class="icon">📣</span>
+        <span class="title">Marketing Config</span>
+        <span class="right"><span class="pill pill-draft">Not Started</span></span>
+      </div>
+      <div class="sec-body">
+        <div class="mkt-grid">
+          <div class="mkt-tile"><div class="mh"><span class="ic">📢</span><span class="nm">Announce</span></div><span class="pill pill-draft">Not Started</span></div>
+          <div class="mkt-tile"><div class="mh"><span class="ic">📸</span><span class="nm">Photoshoot</span></div><span class="pill pill-draft">Not Started</span></div>
+          <div class="mkt-tile"><div class="mh"><span class="ic">📝</span><span class="nm">Content</span></div><span class="pill pill-draft">Not Started</span></div>
+          <div class="mkt-tile"><div class="mh"><span class="ic">🎯</span><span class="nm">Ads</span></div><span class="pill pill-draft">Not Started</span></div>
+          <div class="mkt-tile"><div class="mh"><span class="ic">🌟</span><span class="nm">KOL</span></div><span class="pill pill-draft">Not Started</span></div>
+          <div class="mkt-tile"><div class="mh"><span class="ic">🎪</span><span class="nm">Offline Activation</span></div><span class="pill pill-draft">Not Started</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Product Performance (placeholder pre-launch) -->
+    <div class="sec">
+      <div class="sec-head">
+        <span class="icon">📊</span>
+        <span class="title">Product Performance</span>
+      </div>
+      <div class="sec-body" style="text-align:center;color:var(--g400);padding:24px;font-size:12px">
+        Belum ada sales data — collection belum launch.<br>
+        Akan tampil chart revenue, top-sellers, dan margin breakdown setelah launch.
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<!-- SCENARIO 2: PRE-LAUNCH, TARGET SET, VIABILITY CHECK (THE BRIDGE) -->
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="scenario">
+  <div class="scenario-label">
+    Scenario 2 <span class="tag">Pre-launch · target set, PD baru mulai (viability check)</span>
+  </div>
+
+  <!-- Header -->
+  <div class="page-header-mock">
+    <a class="back-link" href="#">← Kembali</a>
+    <div class="ph-main">
+      <div class="ip-label">IDGITAF</div>
+      <div class="col-name">Album Collection</div>
+      <div class="ph-meta">
+        <span class="pill pill-progress">In Progress</span>
+        <span>📅 Release 26 Aug 2026</span>
+        <span class="pill pill-warn">⏳ 84 hari lagi</span>
+        <span class="pipeline">
+          <span class="dot dot-done">●</span>Design
+          <span class="dot dot-active">◐</span>Sampling
+          <span class="dot dot-pending">○</span>Prod
+          <span class="dot dot-pending">○</span>Marketing
+        </span>
+      </div>
+      <div class="target-strip">
+        <span class="lbl">🎯 Target:</span>
+        <span class="val">Rp 100.000.000 · 1.000 unit · 90 hari</span>
+        <span style="margin-left:auto;color:var(--orange);font-size:11px;font-family:var(--mono);font-weight:600">⚠ Viability gap: -Rp 20M</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab active">📊 Business</button>
+    <button class="tab">🛠 Delivery</button>
+  </div>
+
+  <div class="tab-content">
+    <!-- Sales Target (set + viability) -->
+    <div class="sec">
+      <div class="sec-head">
+        <span class="icon">🎯</span>
+        <span class="title">Sales Target</span>
+        <span class="right">
+          <span class="pill pill-warn">⚠ Tight viability</span>
+          <button class="btn-ghost" style="padding:4px 10px;font-size:11px">✎ Revise</button>
+        </span>
+      </div>
+      <div class="sec-body">
+
+        <!-- Historical reference -->
+        <div style="margin-bottom:18px">
+          <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:var(--g400);margin-bottom:8px">Riwayat IDGITAF (3 collection terakhir)</div>
+          <div class="ref-grid">
+            <div class="ref-card">
+              <div class="nm">Album Collection 2 · Sep '25</div>
+              <div class="meta">90 hari window</div>
+              <div class="v">Rp 78M</div>
+              <div class="meta" style="margin-top:2px">580 unit · 65% sell-through</div>
+            </div>
+            <div class="ref-card">
+              <div class="nm">EP Drop · Mei '25</div>
+              <div class="meta">90 hari window</div>
+              <div class="v">Rp 42M</div>
+              <div class="meta" style="margin-top:2px">320 unit · 53% sell-through</div>
+            </div>
+            <div class="ref-card" style="background:var(--off)">
+              <div class="nm">Average</div>
+              <div class="meta">2 collection · 90 hari</div>
+              <div class="v">Rp 60M / 450 unit</div>
+              <div class="meta" style="margin-top:2px">59% avg sell-through</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Target form (read mode + edit) -->
+        <div class="target-hero">
+          <div class="h">Target Aktif</div>
+          <div class="sub">Set oleh Luthfi · 12 Mei 2026 · belum di-revisi</div>
+          <div class="form-row">
+            <div class="fg">
+              <label>Target Revenue</label>
+              <input value="100.000.000" readonly style="background:var(--off)">
+            </div>
+            <div class="fg">
+              <label>Target Units</label>
+              <input value="1.000" readonly style="background:var(--off)">
+            </div>
+            <div class="fg">
+              <label>Window</label>
+              <div class="radio-group">
+                <span class="radio-pill">30d</span>
+                <span class="radio-pill">60d</span>
+                <span class="radio-pill active">90d</span>
+                <span class="radio-pill">Custom</span>
+              </div>
+            </div>
+          </div>
+          <div class="fg" style="margin-bottom:0">
+            <label>Catatan</label>
+            <input value="Push lewat KOL placement Juni-Juli. Target stretch dari avg historis Rp 60M." readonly style="background:var(--off)">
+          </div>
+        </div>
+
+        <!-- Viability Check — THE BRIDGE -->
+        <div class="viability tight">
+          <h4>🔍 Viability Check · PD progress</h4>
+          <table>
+            <tr>
+              <td>PD progress:</td>
+              <td>3 dari 8 SKU mapped <span class="pill pill-warn" style="font-size:9px">⚠ 38%</span></td>
+            </tr>
+            <tr>
+              <td>Current projection @ 100% sold:</td>
+              <td>Rp 80.000.000 · 720 unit · avg SRP Rp 111k</td>
+            </tr>
+            <tr>
+              <td>Target requirement:</td>
+              <td>Rp 100.000.000 · 1.000 unit</td>
+            </tr>
+          </table>
+          <div class="gap">
+            <b style="color:#a66800">⚠ Gap: -Rp 20M / -280 unit untuk hit target di 100% sell-through</b>
+          </div>
+          <div class="saran">
+            💡 Saran ke PD: <b>tambah ~280 unit lagi</b> (cth: extra 2 SKU @ 140 unit), <b>atau naikin avg SRP dari Rp 111k → Rp 138k.</b>
+            <br>Catatan: rata-rata historis sell-through 59%, jadi 100% sold ideal — actual realistic mungkin 60-70%.
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Marketing (compact) -->
+    <div class="sec">
+      <div class="sec-head">
+        <span class="icon">📣</span>
+        <span class="title">Marketing Config</span>
+        <span class="right"><span class="pill pill-progress">In Progress</span></span>
+      </div>
+      <div class="sec-body">
+        <div class="mkt-grid">
+          <div class="mkt-tile"><div class="mh"><span class="ic">📢</span><span class="nm">Announce</span></div><span class="pill pill-active">Done</span></div>
+          <div class="mkt-tile"><div class="mh"><span class="ic">📸</span><span class="nm">Photoshoot</span></div><span class="pill pill-progress">In Progress</span></div>
+          <div class="mkt-tile"><div class="mh"><span class="ic">📝</span><span class="nm">Content</span></div><span class="pill pill-draft">Not Started</span></div>
+          <div class="mkt-tile"><div class="mh"><span class="ic">🎯</span><span class="nm">Ads</span></div><span class="pill pill-draft">Not Started</span></div>
+          <div class="mkt-tile"><div class="mh"><span class="ic">🌟</span><span class="nm">KOL</span></div><span class="pill pill-warn">Planning</span></div>
+          <div class="mkt-tile"><div class="mh"><span class="ic">🎪</span><span class="nm">Offline Activation</span></div><span class="pill pill-draft">Not Started</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-head"><span class="icon">📊</span><span class="title">Product Performance</span></div>
+      <div class="sec-body" style="text-align:center;color:var(--g400);padding:24px;font-size:12px">
+        Tunggu release · sparkline akan muncul setelah launch
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<!-- SCENARIO 3: POST-LAUNCH, PROGRESS TRACKER                        -->
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="scenario">
+  <div class="scenario-label">
+    Scenario 3 <span class="tag">Post-launch · day 14 of 90 (running)</span>
+  </div>
+
+  <!-- Header -->
+  <div class="page-header-mock">
+    <a class="back-link" href="#">← Kembali</a>
+    <div class="ph-main">
+      <div class="ip-label">IDGITAF</div>
+      <div class="col-name">Album Collection</div>
+      <div class="ph-meta">
+        <span class="pill pill-active">Launched</span>
+        <span>📅 Released 26 Aug 2026</span>
+        <span class="pill pill-info">Day 14 / 90</span>
+        <span class="pipeline">
+          <span class="dot dot-done">●</span>Design
+          <span class="dot dot-done">●</span>Sampling
+          <span class="dot dot-done">●</span>Prod
+          <span class="dot dot-active">◐</span>Marketing
+        </span>
+      </div>
+      <div class="target-strip">
+        <span class="lbl">🎯 Target:</span>
+        <span class="val">Rp 18.5M / Rp 100M</span>
+        <span style="font-family:var(--mono);font-size:11px;color:var(--g600)">18% achieved</span>
+        <div class="bar"><span style="width:18%;background:#0a7d3a"></span></div>
+        <span class="pill pill-active">✅ On track</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active">📊 Business</button>
+    <button class="tab">🛠 Delivery</button>
+  </div>
+
+  <div class="tab-content">
+    <!-- Sales Target — post-launch tracker -->
+    <div class="sec">
+      <div class="sec-head">
+        <span class="icon">🎯</span>
+        <span class="title">Sales Target</span>
+        <span class="right">
+          <span class="pill pill-active">✅ On track</span>
+          <span style="font-family:var(--mono);font-size:11px;color:var(--g400)">Day 14 / 90 (76 hari lagi)</span>
+        </span>
+      </div>
+      <div class="sec-body">
+
+        <div class="pl-track">
+          <div class="top">
+            <span class="lbl">Revenue</span>
+            <span class="val">Rp 18.500.000 / Rp 100.000.000 <span style="color:var(--g400)">(18%)</span></span>
+          </div>
+          <div class="pl-bar">
+            <span style="width:18%;background:var(--green)"></span>
+            <span class="marker" style="left:15.5%" title="Pace marker: 15.5% expected at day 14"></span>
+          </div>
+        </div>
+
+        <div class="pl-track">
+          <div class="top">
+            <span class="lbl">Units</span>
+            <span class="val">130 / 1.000 unit <span style="color:var(--g400)">(13%)</span></span>
+          </div>
+          <div class="pl-bar">
+            <span style="width:13%;background:#a66800"></span>
+            <span class="marker" style="left:15.5%"></span>
+          </div>
+        </div>
+
+        <div class="pl-track">
+          <div class="top">
+            <span class="lbl">Sell-through</span>
+            <span class="val">21.7% of stock (720 produced)</span>
+          </div>
+          <div class="pl-bar">
+            <span style="width:21.7%;background:var(--blue)"></span>
+          </div>
+        </div>
+
+        <div class="runrate">
+          🏃 <b>Run-rate:</b> Rp 1.32M/day · 9.3 unit/day
+          <br>→ Forecast end of period (day 90): <span class="ok">Rp 119M · 837 unit</span>
+          (revenue ✅ +19% above target, unit ⚠ -16% under target)
+          <br><span style="color:var(--g600);font-style:italic">Catatan: unit di bawah karena avg ASP lebih tinggi dari plan (Rp 142k vs Rp 100k plan). Margin bagus.</span>
+
+          <div class="spark">
+            <span style="height:30%"></span><span style="height:45%"></span><span style="height:38%"></span>
+            <span style="height:60%"></span><span style="height:52%"></span><span style="height:75%"></span>
+            <span style="height:70%"></span><span style="height:60%"></span><span style="height:55%"></span>
+            <span style="height:80%"></span><span style="height:90%"></span><span style="height:72%"></span>
+            <span style="height:68%"></span><span style="height:85%"></span>
+          </div>
+          <div style="font-size:10px;color:var(--g400);margin-top:4px;font-family:var(--mono)">Daily revenue · 14 hari terakhir</div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Product Performance (now live) -->
+    <div class="sec">
+      <div class="sec-head">
+        <span class="icon">📊</span>
+        <span class="title">Product Performance</span>
+        <span class="right" style="font-family:var(--mono);font-size:11px;color:var(--g400)">Top 3 SKU</span>
+      </div>
+      <div class="sec-body">
+        <table class="ct">
+          <thead>
+            <tr><th>SKU</th><th>Size</th><th class="r">Qty Sold</th><th class="r">Revenue</th><th class="r">Sell-through</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>IDGITAF — Fun — Shortsleeve Black</td><td>L</td><td class="r mono">48</td><td class="r mono">Rp 9.552.000</td><td class="r mono">24%</td></tr>
+            <tr><td>IDGITAF — Fun — Shortsleeve Black</td><td>M</td><td class="r mono">42</td><td class="r mono">Rp 8.358.000</td><td class="r mono">21%</td></tr>
+            <tr><td>IDGITAF — Sedia Aku — Longsleeve Brown</td><td>L</td><td class="r mono">22</td><td class="r mono">Rp 5.500.000</td><td class="r mono">11%</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-head"><span class="icon">📣</span><span class="title">Marketing Config</span>
+        <span class="right"><span class="pill pill-progress">In Progress</span></span>
+      </div>
+      <div class="sec-body">
+        <div class="mkt-grid">
+          <div class="mkt-tile"><div class="mh"><span class="ic">📢</span><span class="nm">Announce</span></div><span class="pill pill-active">Done</span></div>
+          <div class="mkt-tile"><div class="mh"><span class="ic">📸</span><span class="nm">Photoshoot</span></div><span class="pill pill-active">Done</span></div>
+          <div class="mkt-tile"><div class="mh"><span class="ic">📝</span><span class="nm">Content</span></div><span class="pill pill-progress">In Progress</span></div>
+          <div class="mkt-tile"><div class="mh"><span class="ic">🎯</span><span class="nm">Ads</span></div><span class="pill pill-progress">Running</span></div>
+          <div class="mkt-tile"><div class="mh"><span class="ic">🌟</span><span class="nm">KOL</span></div><span class="pill pill-active">Done (4/4)</span></div>
+          <div class="mkt-tile"><div class="mh"><span class="ic">🎪</span><span class="nm">Offline Activation</span></div><span class="pill pill-draft">Not Started</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<!-- SCENARIO 4: DELIVERY TAB (untuk perbandingan)                    -->
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="scenario">
+  <div class="scenario-label">
+    Scenario 4 <span class="tag">Delivery tab · same collection, fokus operasional</span>
+  </div>
+
+  <div class="page-header-mock">
+    <a class="back-link" href="#">← Kembali</a>
+    <div class="ph-main">
+      <div class="ip-label">IDGITAF</div>
+      <div class="col-name">Album Collection</div>
+      <div class="ph-meta">
+        <span class="pill pill-progress">In Progress</span>
+        <span>📅 Release 26 Aug 2026</span>
+        <span class="pill pill-warn">⏳ 84 hari lagi</span>
+        <span class="pipeline">
+          <span class="dot dot-done">●</span>Design
+          <span class="dot dot-active">◐</span>Sampling
+          <span class="dot dot-pending">○</span>Prod
+          <span class="dot dot-pending">○</span>Marketing
+        </span>
+      </div>
+      <div class="target-strip">
+        <span class="lbl">🎯 Target:</span>
+        <span class="val">Rp 100M · 1.000 unit · 90d</span>
+        <span style="font-family:var(--mono);font-size:11px;color:var(--orange);margin-left:auto">⚠ Current projection short Rp 20M — perlu +280 unit atau higher SRP</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab">📊 Business</button>
+    <button class="tab active">🛠 Delivery</button>
+  </div>
+
+  <div class="tab-content">
+    <!-- SKUs & Design — full editable -->
+    <div class="sec">
+      <div class="sec-head">
+        <span class="icon">📋</span>
+        <span class="title">SKUs &amp; Design</span>
+        <span class="right" style="font-family:var(--mono);font-size:11px;color:var(--g400)">3 / 8 items dari brand</span>
+      </div>
+      <div class="sec-body">
+        <!-- Add form -->
+        <div style="background:var(--off);padding:10px;border-radius:6px;margin-bottom:12px">
+          <div style="font-size:11px;color:var(--g600);font-family:var(--mono);margin-bottom:8px">Final SKU: <b>IDGITAF - Artwork 1 - T-Shirt - Boxy Tee</b></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <input class="inline-input" value="Artwork 1" style="flex:1.5;min-width:120px" placeholder="SKU Name">
+            <input class="inline-input" value="T-Shirt" style="flex:1;min-width:100px" placeholder="Kategori">
+            <input class="inline-input" value="Boxy Tee" style="flex:1;min-width:100px" placeholder="Sub-Kategori">
+            <input class="inline-input" value="Amru" style="flex:1;min-width:100px" placeholder="Designer">
+            <input class="inline-input" type="date" value="2026-06-19" style="flex:1;min-width:120px">
+            <button class="btn-primary" style="padding:6px 12px;font-size:11px">+ Tambah</button>
+          </div>
+        </div>
+
+        <table class="ct">
+          <thead><tr><th>SKU</th><th>Kategori</th><th>Designer</th><th>Deadline</th><th>Design File</th><th>Approval</th><th></th></tr></thead>
+          <tbody>
+            <tr>
+              <td><strong>IDGITAF - Artwork 1 - Cap - 6 Panel</strong></td>
+              <td><span class="pill pill-info">Cap</span></td>
+              <td>Amru</td>
+              <td><input type="date" value="2026-06-19" class="inline-input"></td>
+              <td><input value="" placeholder="paste Drive..." class="inline-input" style="width:130px"></td>
+              <td><select class="inline-input"><option>Pending</option><option>Revision</option><option selected>Approved</option></select></td>
+              <td><button class="btn-ghost" style="padding:3px 8px;font-size:10px">Edit</button></td>
+            </tr>
+            <tr>
+              <td><strong>IDGITAF - Artwork 1 - Shortsleeve - Boxy Tee</strong></td>
+              <td><span class="pill pill-info">T-Shirt</span></td>
+              <td>Amru</td>
+              <td><input type="date" value="2026-06-19" class="inline-input"></td>
+              <td>
+                <input value="https://drive.google.com/file/..." class="inline-input" style="width:130px">
+                <a href="#" style="color:var(--blue);text-decoration:none;font-size:11px">↗</a>
+              </td>
+              <td><select class="inline-input"><option>Pending</option><option selected>Revision</option><option>Approved</option></select></td>
+              <td><button class="btn-ghost" style="padding:3px 8px;font-size:10px">Edit</button></td>
+            </tr>
+            <tr>
+              <td><strong>IDGITAF - Artwork 2 - Shortsleeve - Regular Tee</strong></td>
+              <td><span class="pill pill-info">T-Shirt</span></td>
+              <td>Amru</td>
+              <td><input type="date" value="2026-06-19" class="inline-input"></td>
+              <td><input value="" placeholder="paste Drive..." class="inline-input" style="width:130px"></td>
+              <td><select class="inline-input"><option selected>Pending</option><option>Revision</option><option>Approved</option></select></td>
+              <td><button class="btn-ghost" style="padding:3px 8px;font-size:10px">Edit</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Sampling -->
+    <div class="sec">
+      <div class="sec-head">
+        <span class="icon">🧵</span>
+        <span class="title">Sampling</span>
+        <span class="right">
+          <span class="pill pill-progress">In Progress</span>
+          <a href="#" style="font-size:11px;color:var(--blue);text-decoration:none;font-family:var(--mono)">↗ Drive</a>
+        </span>
+      </div>
+      <div class="sec-body">
+        <table class="ct">
+          <thead><tr><th>SKU</th><th>Status</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Artwork 1 - Cap</strong></td><td><span class="pill pill-active">Done</span></td><td>Sample landed, ready for production</td></tr>
+            <tr><td><strong>Artwork 1 - Boxy Tee</strong></td><td><span class="pill pill-progress">In Progress</span></td><td>Revision fit waist</td></tr>
+            <tr><td><strong>Artwork 2 - Regular Tee</strong></td><td><span class="pill pill-draft">Not Started</span></td><td>—</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Production -->
+    <div class="sec">
+      <div class="sec-head">
+        <span class="icon">🏭</span>
+        <span class="title">Production &amp; Inbound</span>
+        <span class="right"><span class="pill pill-draft">Not Started</span></span>
+      </div>
+      <div class="sec-body" style="color:var(--g400);font-size:12px;padding:18px;text-align:center">
+        Belum ada PO. Setelah Sampling selesai, link PO ke collection ini dari Purchase Order.
+      </div>
+    </div>
+
+    <!-- Designer Payment -->
+    <div class="sec">
+      <div class="sec-head">
+        <span class="icon">💸</span>
+        <span class="title">Designer Payment</span>
+      </div>
+      <div class="sec-body">
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;border:1px solid var(--g100);border-radius:6px;background:var(--off)">
+          <span style="font-size:13px;font-weight:600">Amru</span>
+          <select class="inline-input" style="font-size:11px"><option selected>Not Yet Paid</option><option>Paid</option></select>
+          <input class="inline-input" placeholder="PKS / Kontrak" style="width:160px" value="AGR-20260512-7821">
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<div class="notice" style="margin-top:40px">
+  ✏ <b>Catatan layout:</b><br>
+  · Sidebar Notes + Activity Log diasumsikan tetap <b>shared</b> (mocked di luar scope). Bisa di-tag <code>[BIZ]</code> / <code>[DEL]</code> kalau perlu filter.<br>
+  · Target strip di header selalu muncul di kedua tab — biar PD juga lihat angka commitment, dan BM lihat viability gap dari Delivery side.<br>
+  · Status badge pill warna di header sama persis seperti existing portal — gak bikin design language baru.
+</div>
+
+</body>
+</html>
