@@ -194,6 +194,15 @@
         <div class="home-grid" style="margin-bottom:1.5rem">
           <div class="tool-card" onclick="showPage('collections',null)"><span class="tc-icon">🎨</span><div class="tc-name">Collection Development</div><div class="tc-desc">Manajemen collection merchandise — dari ideation hingga approval design.</div></div>
           <div class="tool-card" onclick="showPage('dsgworkflow',null)"><span class="tc-icon">✏️</span><div class="tc-name">Designer Workflow</div><div class="tc-desc">Track deliverables, approval status, dan payment designer per collection.</div></div>
+          <div class="tool-card" onclick="showPage('photoshoot',null)"><span class="tc-icon">📸</span><div class="tc-name">Photoshoot Planning</div><div class="tc-desc">Rencanakan & track sesi photoshoot — jadwal, lokasi, delivery, dan budget per shoot.</div></div>
+        </div>
+
+        <div class="sb-label" style="margin-bottom:0.6rem">Marketing Ops</div>
+        <div class="home-grid" style="margin-bottom:1.5rem">
+          <div class="tool-card" onclick="showPage('contentplan',null)"><span class="tc-icon">📝</span><div class="tc-name">Content Planning</div><div class="tc-desc">Plan content per piece — IG, TikTok, YouTube, blog. Owner, deadline, draft &amp; publish schedule.</div></div>
+          <div class="tool-card" onclick="showPage('adsmgmt',null)"><span class="tc-icon">🎯</span><div class="tc-name">Ads Management</div><div class="tc-desc">Track campaigns paid ads — Meta, TikTok, Google. Budget vs spend, period, dan PIC.</div></div>
+          <div class="tool-card" onclick="showPage('mktactivation',null)"><span class="tc-icon">🎪</span><div class="tc-name">Marketing Activation</div><div class="tc-desc">Manage events &amp; activations — pop-up, fan meet, launch party. Venue, budget, PIC.</div></div>
+          <div class="tool-card" onclick="showPage('publication',null)"><span class="tc-icon">📰</span><div class="tc-name">Publication</div><div class="tc-desc">Track PR &amp; press release — media outlet, publish/embargo date, link, status.</div></div>
         </div>
 
         <div class="sb-label" style="margin-bottom:0.6rem">Marte Operations</div>
@@ -1628,6 +1637,308 @@
         <div id="pdListBody" style="margin-top:1rem"><div class="empty-td" style="padding:32px;text-align:center;color:var(--g400);font-size:12px">Belum ada SKU. Tambah pakai form di atas.</div></div>
       </div>
 
+    </div>
+
+    <!-- CONTENT PLANNING -->
+    <div class="page" id="page-contentplan">
+      <div class="page-header">
+        <div><div class="page-title">Content Planning</div><div class="page-sub">Plan content per piece — social media, blog, video. Owner, deadline, channel, status.</div></div>
+        <div class="tab-bar">
+          <button class="tab-btn active" onclick="switchCPTab('new',this)">Tambah</button>
+          <button class="tab-btn" onclick="switchCPTab('list',this)">Semua</button>
+        </div>
+      </div>
+      <div class="stats-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:1.25rem">
+        <div class="stat-card"><div class="stat-num" id="cp-s-total">—</div><div class="stat-lbl">Total</div></div>
+        <div class="stat-card"><div class="stat-num" id="cp-s-planning">—</div><div class="stat-lbl">Planning</div></div>
+        <div class="stat-card"><div class="stat-num" id="cp-s-drafting">—</div><div class="stat-lbl">Drafting</div></div>
+        <div class="stat-card"><div class="stat-num" id="cp-s-scheduled">—</div><div class="stat-lbl">Scheduled</div></div>
+        <div class="stat-card"><div class="stat-num" id="cp-s-published">—</div><div class="stat-lbl">Published</div></div>
+      </div>
+      <div id="cptab-new">
+        <div class="form-card">
+          <div class="form-sec">Tambah Content</div>
+          <div class="form-grid">
+            <div class="fg"><label>Title <span class="req">*</span></label><input type="text" id="cp-title" placeholder="cth: Lookbook IG carousel"></div>
+            <div class="fg"><label>Type</label>
+              <select id="cp-type">
+                <option value="">—</option><option>IG Post</option><option>IG Reel</option><option>IG Carousel</option><option>IG Story</option><option>TikTok</option><option>YT Short</option><option>YT Long</option><option>X / Twitter</option><option>Blog Post</option><option>Spotify Asset</option><option>Other</option>
+              </select>
+            </div>
+            <div class="fg"><label>Collection</label><select id="cp-collection"><option value="">— Tidak terkait collection —</option></select></div>
+            <div class="fg"><label>Owner / Creator</label><input type="text" id="cp-owner" placeholder="Nama PIC"></div>
+            <div class="fg"><label>Deadline</label><input type="date" id="cp-deadline"></div>
+            <div class="fg"><label>Publish Date</label><input type="date" id="cp-publish-date"></div>
+            <div class="fg"><label>Channel</label><input type="text" id="cp-channel" placeholder="cth: IG, TikTok"></div>
+            <div class="fg"><label>Status</label>
+              <select id="cp-status">
+                <option>Planning</option><option>Drafting</option><option>Review</option><option>Approved</option><option>Scheduled</option><option>Published</option><option>Cancelled</option>
+              </select>
+            </div>
+            <div class="fg full"><label>Asset URL (Drive)</label><input type="url" id="cp-asset-url" placeholder="https://drive.google.com/..."></div>
+            <div class="fg full"><label>Caption / Notes</label><textarea id="cp-caption" rows="3" style="resize:vertical" placeholder="Draft caption atau catatan"></textarea></div>
+          </div>
+          <div class="btn-row" style="margin-top:1.25rem">
+            <button class="btn-primary" id="cpSubmitBtn" onclick="submitCP()">Simpan Content</button>
+            <button class="btn-ghost" onclick="clearCPForm()">Bersihkan</button>
+          </div>
+          <div class="feedback" id="cp-feedback"></div>
+        </div>
+      </div>
+      <div id="cptab-list" style="display:none">
+        <div class="filter-panel">
+          <select id="cp-fil-status" onchange="loadContentPlan()"><option value="">Semua Status</option><option>Planning</option><option>Drafting</option><option>Review</option><option>Approved</option><option>Scheduled</option><option>Published</option><option>Cancelled</option></select>
+          <select id="cp-fil-type" onchange="loadContentPlan()"><option value="">Semua Type</option></select>
+          <select id="cp-fil-collection" onchange="loadContentPlan()"><option value="">Semua Collection</option></select>
+          <input type="text" id="cp-search" placeholder="Cari title, owner..." style="padding:5px 10px;font-size:12px;border:1px solid var(--g100);border-radius:6px;width:220px;outline:none" oninput="loadContentPlan()">
+          <button class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="clearCPFilters()">✕ Reset</button>
+        </div>
+        <div class="table-toolbar">
+          <button class="btn-refresh" onclick="loadContentPlan()">↻ Refresh</button>
+          <div class="tcount" id="cp-tcount" style="margin-left:auto">— entri</div>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Title</th><th>Type</th><th>Owner</th><th>Collection</th><th>Deadline</th><th>Publish</th><th>Channel</th><th>Status</th><th>Asset</th><th>Aksi</th></tr></thead>
+          <tbody id="cpTableBody"><tr><td class="empty-td" colspan="10">Klik Refresh.</td></tr></tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <!-- ADS MANAGEMENT -->
+    <div class="page" id="page-adsmgmt">
+      <div class="page-header">
+        <div><div class="page-title">Ads Management</div><div class="page-sub">Track campaign paid ads — Meta, TikTok, Google. Budget vs spend, period, PIC.</div></div>
+        <div class="tab-bar">
+          <button class="tab-btn active" onclick="switchAdsTab('new',this)">Tambah</button>
+          <button class="tab-btn" onclick="switchAdsTab('list',this)">Semua</button>
+        </div>
+      </div>
+      <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
+        <div class="stat-card"><div class="stat-num" id="ads-s-total">—</div><div class="stat-lbl">Total Campaign</div></div>
+        <div class="stat-card"><div class="stat-num" id="ads-s-active">—</div><div class="stat-lbl">Active</div></div>
+        <div class="stat-card"><div class="stat-num" id="ads-s-budget">—</div><div class="stat-lbl">Total Budget</div></div>
+        <div class="stat-card"><div class="stat-num" id="ads-s-spend">—</div><div class="stat-lbl">Total Spend</div></div>
+      </div>
+      <div id="adstab-new">
+        <div class="form-card">
+          <div class="form-sec">Tambah Campaign</div>
+          <div class="form-grid">
+            <div class="fg"><label>Campaign Name <span class="req">*</span></label><input type="text" id="ads-name" placeholder="cth: Album Drop Awareness Q3"></div>
+            <div class="fg"><label>Channel <span class="req">*</span></label>
+              <select id="ads-channel"><option value="">—</option><option>Meta (FB/IG)</option><option>TikTok</option><option>Google Ads</option><option>YouTube</option><option>Spotify</option><option>X / Twitter</option><option>Other</option></select>
+            </div>
+            <div class="fg"><label>Collection</label><select id="ads-collection"><option value="">— Tidak terkait collection —</option></select></div>
+            <div class="fg"><label>PIC</label><input type="text" id="ads-pic" placeholder="Nama PIC"></div>
+            <div class="fg"><label>Budget (Rp)</label><input type="number" id="ads-budget" min="0" placeholder="cth: 15000000"></div>
+            <div class="fg"><label>Spend (Rp)</label><input type="number" id="ads-spend" min="0" placeholder="Total spend sampai sekarang"></div>
+            <div class="fg"><label>Start Date</label><input type="date" id="ads-start"></div>
+            <div class="fg"><label>End Date</label><input type="date" id="ads-end"></div>
+            <div class="fg"><label>Status</label>
+              <select id="ads-status"><option>Planning</option><option>Active</option><option>Paused</option><option>Ended</option><option>Cancelled</option></select>
+            </div>
+            <div class="fg full"><label>Brief URL</label><input type="url" id="ads-brief" placeholder="https://docs.google.com/..."></div>
+            <div class="fg full"><label>Notes</label><textarea id="ads-notes" rows="2" style="resize:vertical" placeholder="Catatan / hasil"></textarea></div>
+          </div>
+          <div class="btn-row" style="margin-top:1.25rem">
+            <button class="btn-primary" id="adsSubmitBtn" onclick="submitAds()">Simpan Campaign</button>
+            <button class="btn-ghost" onclick="clearAdsForm()">Bersihkan</button>
+          </div>
+          <div class="feedback" id="ads-feedback"></div>
+        </div>
+      </div>
+      <div id="adstab-list" style="display:none">
+        <div class="filter-panel">
+          <select id="ads-fil-status" onchange="loadAdsManagement()"><option value="">Semua Status</option><option>Planning</option><option>Active</option><option>Paused</option><option>Ended</option><option>Cancelled</option></select>
+          <select id="ads-fil-channel" onchange="loadAdsManagement()"><option value="">Semua Channel</option></select>
+          <select id="ads-fil-collection" onchange="loadAdsManagement()"><option value="">Semua Collection</option></select>
+          <input type="text" id="ads-search" placeholder="Cari campaign..." style="padding:5px 10px;font-size:12px;border:1px solid var(--g100);border-radius:6px;width:220px;outline:none" oninput="loadAdsManagement()">
+          <button class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="clearAdsFilters()">✕ Reset</button>
+        </div>
+        <div class="table-toolbar">
+          <button class="btn-refresh" onclick="loadAdsManagement()">↻ Refresh</button>
+          <div class="tcount" id="ads-tcount" style="margin-left:auto">— entri</div>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Campaign</th><th>Channel</th><th>Collection</th><th>Period</th><th style="text-align:right">Budget</th><th style="text-align:right">Spend</th><th>PIC</th><th>Status</th><th>Brief</th><th>Aksi</th></tr></thead>
+          <tbody id="adsTableBody"><tr><td class="empty-td" colspan="10">Klik Refresh.</td></tr></tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <!-- MARKETING ACTIVATION -->
+    <div class="page" id="page-mktactivation">
+      <div class="page-header">
+        <div><div class="page-title">Marketing Activation</div><div class="page-sub">Manage events &amp; activations — pop-up, fan meet, launch party. Venue, budget, PIC.</div></div>
+        <div class="tab-bar">
+          <button class="tab-btn active" onclick="switchMaTab('new',this)">Tambah</button>
+          <button class="tab-btn" onclick="switchMaTab('list',this)">Semua</button>
+        </div>
+      </div>
+      <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
+        <div class="stat-card"><div class="stat-num" id="ma-s-total">—</div><div class="stat-lbl">Total Event</div></div>
+        <div class="stat-card"><div class="stat-num" id="ma-s-upcoming">—</div><div class="stat-lbl">Upcoming</div></div>
+        <div class="stat-card"><div class="stat-num" id="ma-s-done">—</div><div class="stat-lbl">Done</div></div>
+        <div class="stat-card"><div class="stat-num" id="ma-s-budget">—</div><div class="stat-lbl">Total Budget</div></div>
+      </div>
+      <div id="matab-new">
+        <div class="form-card">
+          <div class="form-sec">Tambah Event</div>
+          <div class="form-grid">
+            <div class="fg"><label>Event Name <span class="req">*</span></label><input type="text" id="ma-name" placeholder="cth: Album Launch Pop-up Senayan"></div>
+            <div class="fg"><label>Type</label>
+              <select id="ma-type"><option value="">—</option><option>Pop-up</option><option>Fan Meet</option><option>Launch Party</option><option>Concert</option><option>Listening Session</option><option>Workshop</option><option>Booth</option><option>Other</option></select>
+            </div>
+            <div class="fg"><label>Collection</label><select id="ma-collection"><option value="">— Tidak terkait collection —</option></select></div>
+            <div class="fg"><label>Event Date</label><input type="date" id="ma-date"></div>
+            <div class="fg"><label>Venue</label><input type="text" id="ma-venue" placeholder="Lokasi event"></div>
+            <div class="fg"><label>Budget (Rp)</label><input type="number" id="ma-budget" min="0"></div>
+            <div class="fg"><label>PIC</label><input type="text" id="ma-pic" placeholder="Nama PIC"></div>
+            <div class="fg"><label>Status</label>
+              <select id="ma-status"><option>Planning</option><option>Booked</option><option>In Progress</option><option>Done</option><option>Cancelled</option></select>
+            </div>
+            <div class="fg full"><label>Notes</label><textarea id="ma-notes" rows="3" style="resize:vertical"></textarea></div>
+          </div>
+          <div class="btn-row" style="margin-top:1.25rem">
+            <button class="btn-primary" id="maSubmitBtn" onclick="submitMa()">Simpan Event</button>
+            <button class="btn-ghost" onclick="clearMaForm()">Bersihkan</button>
+          </div>
+          <div class="feedback" id="ma-feedback"></div>
+        </div>
+      </div>
+      <div id="matab-list" style="display:none">
+        <div class="filter-panel">
+          <select id="ma-fil-status" onchange="loadMktActivation()"><option value="">Semua Status</option><option>Planning</option><option>Booked</option><option>In Progress</option><option>Done</option><option>Cancelled</option></select>
+          <select id="ma-fil-type" onchange="loadMktActivation()"><option value="">Semua Type</option></select>
+          <select id="ma-fil-collection" onchange="loadMktActivation()"><option value="">Semua Collection</option></select>
+          <input type="text" id="ma-search" placeholder="Cari event, venue..." style="padding:5px 10px;font-size:12px;border:1px solid var(--g100);border-radius:6px;width:220px;outline:none" oninput="loadMktActivation()">
+          <button class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="clearMaFilters()">✕ Reset</button>
+        </div>
+        <div class="table-toolbar">
+          <button class="btn-refresh" onclick="loadMktActivation()">↻ Refresh</button>
+          <div class="tcount" id="ma-tcount" style="margin-left:auto">— entri</div>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Event</th><th>Type</th><th>Collection</th><th>Date</th><th>Venue</th><th style="text-align:right">Budget</th><th>PIC</th><th>Status</th><th>Aksi</th></tr></thead>
+          <tbody id="maTableBody"><tr><td class="empty-td" colspan="9">Klik Refresh.</td></tr></tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <!-- PUBLICATION -->
+    <div class="page" id="page-publication">
+      <div class="page-header">
+        <div><div class="page-title">Publication</div><div class="page-sub">Track PR &amp; press release — media outlet, publish/embargo date, link, status.</div></div>
+        <div class="tab-bar">
+          <button class="tab-btn active" onclick="switchPubTab('new',this)">Tambah</button>
+          <button class="tab-btn" onclick="switchPubTab('list',this)">Semua</button>
+        </div>
+      </div>
+      <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
+        <div class="stat-card"><div class="stat-num" id="pub-s-total">—</div><div class="stat-lbl">Total</div></div>
+        <div class="stat-card"><div class="stat-num" id="pub-s-draft">—</div><div class="stat-lbl">Draft</div></div>
+        <div class="stat-card"><div class="stat-num" id="pub-s-embargo">—</div><div class="stat-lbl">Under Embargo</div></div>
+        <div class="stat-card"><div class="stat-num" id="pub-s-published">—</div><div class="stat-lbl">Published</div></div>
+      </div>
+      <div id="pubtab-new">
+        <div class="form-card">
+          <div class="form-sec">Tambah Publikasi</div>
+          <div class="form-grid">
+            <div class="fg"><label>Title <span class="req">*</span></label><input type="text" id="pub-title" placeholder="cth: Album Drop Announcement"></div>
+            <div class="fg"><label>Type</label>
+              <select id="pub-type"><option value="">—</option><option>Press Release</option><option>Article</option><option>Interview</option><option>Podcast</option><option>Newsletter</option><option>Other</option></select>
+            </div>
+            <div class="fg"><label>Collection</label><select id="pub-collection"><option value="">— Tidak terkait collection —</option></select></div>
+            <div class="fg"><label>Media Outlet</label><input type="text" id="pub-outlet" placeholder="Tempo, Provoke, Pop Hari Ini..."></div>
+            <div class="fg"><label>Publish Date</label><input type="date" id="pub-publish-date"></div>
+            <div class="fg"><label>Embargo Date</label><input type="date" id="pub-embargo-date"></div>
+            <div class="fg"><label>PIC</label><input type="text" id="pub-pic" placeholder="Nama PIC"></div>
+            <div class="fg"><label>Status</label>
+              <select id="pub-status"><option>Planning</option><option>Draft</option><option>Approved</option><option>Embargoed</option><option>Published</option><option>Cancelled</option></select>
+            </div>
+            <div class="fg full"><label>Link</label><input type="url" id="pub-link" placeholder="https://..."></div>
+            <div class="fg full"><label>Notes</label><textarea id="pub-notes" rows="2" style="resize:vertical"></textarea></div>
+          </div>
+          <div class="btn-row" style="margin-top:1.25rem">
+            <button class="btn-primary" id="pubSubmitBtn" onclick="submitPub()">Simpan Publikasi</button>
+            <button class="btn-ghost" onclick="clearPubForm()">Bersihkan</button>
+          </div>
+          <div class="feedback" id="pub-feedback"></div>
+        </div>
+      </div>
+      <div id="pubtab-list" style="display:none">
+        <div class="filter-panel">
+          <select id="pub-fil-status" onchange="loadPublication()"><option value="">Semua Status</option><option>Planning</option><option>Draft</option><option>Approved</option><option>Embargoed</option><option>Published</option><option>Cancelled</option></select>
+          <select id="pub-fil-type" onchange="loadPublication()"><option value="">Semua Type</option></select>
+          <select id="pub-fil-collection" onchange="loadPublication()"><option value="">Semua Collection</option></select>
+          <input type="text" id="pub-search" placeholder="Cari title, media..." style="padding:5px 10px;font-size:12px;border:1px solid var(--g100);border-radius:6px;width:220px;outline:none" oninput="loadPublication()">
+          <button class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="clearPubFilters()">✕ Reset</button>
+        </div>
+        <div class="table-toolbar">
+          <button class="btn-refresh" onclick="loadPublication()">↻ Refresh</button>
+          <div class="tcount" id="pub-tcount" style="margin-left:auto">— entri</div>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Title</th><th>Type</th><th>Media</th><th>Collection</th><th>Publish</th><th>Embargo</th><th>PIC</th><th>Status</th><th>Link</th><th>Aksi</th></tr></thead>
+          <tbody id="pubTableBody"><tr><td class="empty-td" colspan="10">Klik Refresh.</td></tr></tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <!-- PHOTOSHOOT PLANNING -->
+    <div class="page" id="page-photoshoot">
+      <div class="page-header">
+        <div><div class="page-title">Photoshoot Planning</div><div class="page-sub">Plan &amp; track sesi photoshoot — jadwal, lokasi, delivery, budget per shoot.</div></div>
+        <div class="tab-bar">
+          <button class="tab-btn active" onclick="switchPsTab('new',this)">Tambah</button>
+          <button class="tab-btn" onclick="switchPsTab('list',this)">Semua</button>
+        </div>
+      </div>
+      <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
+        <div class="stat-card"><div class="stat-num" id="ps-s-total">—</div><div class="stat-lbl">Total Shoot</div></div>
+        <div class="stat-card"><div class="stat-num" id="ps-s-upcoming">—</div><div class="stat-lbl">Upcoming</div></div>
+        <div class="stat-card"><div class="stat-num" id="ps-s-delivered">—</div><div class="stat-lbl">Delivered</div></div>
+        <div class="stat-card"><div class="stat-num" id="ps-s-budget">—</div><div class="stat-lbl">Total Budget</div></div>
+      </div>
+      <div id="pstab-new">
+        <div class="form-card">
+          <div class="form-sec">Tambah Photoshoot</div>
+          <div class="form-grid">
+            <div class="fg"><label>Shoot Name <span class="req">*</span></label><input type="text" id="ps-name" placeholder="cth: Album Drop Lookbook"></div>
+            <div class="fg"><label>Collection</label><select id="ps-collection"><option value="">— Tidak terkait collection —</option></select></div>
+            <div class="fg"><label>Shoot Date</label><input type="date" id="ps-shoot-date"></div>
+            <div class="fg"><label>Delivery Due</label><input type="date" id="ps-delivery"></div>
+            <div class="fg"><label>Location</label><input type="text" id="ps-location" placeholder="Studio / lokasi"></div>
+            <div class="fg"><label>PIC</label><input type="text" id="ps-pic" placeholder="Nama PIC"></div>
+            <div class="fg"><label>Budget (Rp)</label><input type="number" id="ps-budget" min="0"></div>
+            <div class="fg"><label>Status</label>
+              <select id="ps-status"><option>Planning</option><option>Booked</option><option>Shot</option><option>Editing</option><option>Delivered</option><option>Cancelled</option></select>
+            </div>
+            <div class="fg full"><label>Deliverables URL (Drive)</label><input type="url" id="ps-deliverables-url" placeholder="https://drive.google.com/..."></div>
+            <div class="fg full"><label>Notes</label><textarea id="ps-notes" rows="3" style="resize:vertical"></textarea></div>
+          </div>
+          <div class="btn-row" style="margin-top:1.25rem">
+            <button class="btn-primary" id="psSubmitBtn" onclick="submitPs()">Simpan Shoot</button>
+            <button class="btn-ghost" onclick="clearPsForm()">Bersihkan</button>
+          </div>
+          <div class="feedback" id="ps-feedback"></div>
+        </div>
+      </div>
+      <div id="pstab-list" style="display:none">
+        <div class="filter-panel">
+          <select id="ps-fil-status" onchange="loadPhotoshoot()"><option value="">Semua Status</option><option>Planning</option><option>Booked</option><option>Shot</option><option>Editing</option><option>Delivered</option><option>Cancelled</option></select>
+          <select id="ps-fil-collection" onchange="loadPhotoshoot()"><option value="">Semua Collection</option></select>
+          <input type="text" id="ps-search" placeholder="Cari shoot, lokasi..." style="padding:5px 10px;font-size:12px;border:1px solid var(--g100);border-radius:6px;width:220px;outline:none" oninput="loadPhotoshoot()">
+          <button class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="clearPsFilters()">✕ Reset</button>
+        </div>
+        <div class="table-toolbar">
+          <button class="btn-refresh" onclick="loadPhotoshoot()">↻ Refresh</button>
+          <div class="tcount" id="ps-tcount" style="margin-left:auto">— entri</div>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Shoot</th><th>Collection</th><th>Shoot Date</th><th>Delivery Due</th><th>Location</th><th>PIC</th><th style="text-align:right">Budget</th><th>Status</th><th>Drive</th><th>Aksi</th></tr></thead>
+          <tbody id="psTableBody"><tr><td class="empty-td" colspan="10">Klik Refresh.</td></tr></tbody>
+        </table></div>
+      </div>
     </div>
 
     <!-- DESIGNER MASTER -->
