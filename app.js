@@ -20,8 +20,14 @@ async function insertNotif(recipient, module, recordId, message) {
 }
 function sortBy(rows, col, dir) {
   if (!col) return rows;
+  // ISO date strings ("2026-06-06") look numeric to parseFloat — it returns the
+  // year. Detect date-like values first so they sort lexically (correct order).
+  const isDateLike = (v) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}/.test(v);
   return [...rows].sort((a, b) => {
     let av = a[col] ?? "", bv = b[col] ?? "";
+    if (isDateLike(av) || isDateLike(bv)) {
+      return dir==='asc' ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av));
+    }
     const na = parseFloat(av), nb = parseFloat(bv);
     if (!isNaN(na) && !isNaN(nb) && String(av) !== "" && String(bv) !== "") return dir==='asc'?na-nb:nb-na;
     return dir==='asc' ? String(av).localeCompare(String(bv),'id') : String(bv).localeCompare(String(av),'id');
@@ -2458,7 +2464,6 @@ async function loadPopupBooth() {
     // Compute per-event aggregates (Stock In/Out · Sales · COGS · Margin)
     window._pbEventAggregates = await _pbComputeEventAggregates(allPBRows.map(r => r.eventName).filter(Boolean));
 
-    renderPBStats(allPBRows);
     populatePBIPFilter();
     applyPBFilters();
   } catch(e) {
@@ -2466,46 +2471,53 @@ async function loadPopupBooth() {
   }
 }
 
-// Returns Map<event_name, {qty_in, qty_out, sales_rev, sales_cogs, margin}>.
+// Returns Map<event_name, {qty_in, qty_out, qty_sold, qty_adj, sales_rev, sales_cogs, margin, current_stock}>.
 // Same classification logic as the detail view's event zone.
 async function _pbComputeEventAggregates(eventNames) {
-  const out = new Map(eventNames.map(n => [n, {qty_in:0, qty_out:0, sales_rev:0, sales_cogs:0, margin:0}]));
+  const out = new Map(eventNames.map(n => [n, {qty_in:0, qty_out:0, qty_sold:0, qty_adj:0, sales_rev:0, sales_cogs:0, margin:0, current_stock:0}]));
   if (!eventNames.length) return out;
 
-  const [trfMapsRes, txMapsRes] = await Promise.all([
+  const [trfMapsRes, txMapsRes, adjMapsRes] = await Promise.all([
     sb.from('inventory_transfer_mappings').select('item_transfer_id,ref_label')
       .eq('category','Event').in('ref_label', eventNames),
     sb.from('transaction_mappings').select('salesorder_id,project_ref')
       .eq('category','Pop Up Booth').in('project_ref', eventNames),
+    sb.from('adjustment_categories').select('item_adj_id,event_ref')
+      .in('event_ref', eventNames),
   ]);
   const trfMaps = trfMapsRes.data || [];
   const txMaps  = txMapsRes.data  || [];
+  const adjMaps = adjMapsRes.data || [];
 
   const trfIds = trfMaps.map(m => m.item_transfer_id).filter(Boolean);
   const soIds  = txMaps.map(m => m.salesorder_id).filter(Boolean);
+  const adjIds = adjMaps.map(m => m.item_adj_id).filter(Boolean);
 
-  // Fetch headers + items in chunks
-  let trfHeaders = [], trfItems = [], soHeaders = [], soItems = [];
-  const fetchChunked = async (ids, table, cols) => {
+  // Fetch headers + items in chunks. fkCol = the FK column to chunk on.
+  const fetchChunked = async (ids, table, cols, fkCol) => {
     const acc = [];
     for (let i = 0; i < ids.length; i += 200) {
       const chunk = ids.slice(i, i + 200);
-      const {data} = await sb.from(table).select(cols).in(table === 'jubelio_transfer_outs' || table === 'jubelio_transfer_out_items' ? 'item_transfer_id' : 'salesorder_id', chunk);
+      const {data} = await sb.from(table).select(cols).in(fkCol, chunk);
       acc.push(...(data || []));
     }
     return acc;
   };
+  let trfHeaders = [], trfItems = [], soHeaders = [], soItems = [], adjItems = [];
   if (trfIds.length) {
     [trfHeaders, trfItems] = await Promise.all([
-      fetchChunked(trfIds, 'jubelio_transfer_outs', 'item_transfer_id,source,destination'),
-      fetchChunked(trfIds, 'jubelio_transfer_out_items', 'item_transfer_id,item_id,qty_in_base'),
+      fetchChunked(trfIds, 'jubelio_transfer_outs', 'item_transfer_id,source,destination', 'item_transfer_id'),
+      fetchChunked(trfIds, 'jubelio_transfer_out_items', 'item_transfer_id,item_id,qty_in_base', 'item_transfer_id'),
     ]);
   }
   if (soIds.length) {
     [soHeaders, soItems] = await Promise.all([
-      fetchChunked(soIds, 'jubelio_sales_orders', 'salesorder_id,is_canceled,wms_status'),
-      fetchChunked(soIds, 'jubelio_sales_order_items', 'salesorder_id,item_id,qty,price,disc_amount'),
+      fetchChunked(soIds, 'jubelio_sales_orders', 'salesorder_id,is_canceled,wms_status', 'salesorder_id'),
+      fetchChunked(soIds, 'jubelio_sales_order_items', 'salesorder_id,item_id,qty,price,disc_amount', 'salesorder_id'),
     ]);
+  }
+  if (adjIds.length) {
+    adjItems = await fetchChunked(adjIds, 'jubelio_inventory_adjustment_items', 'item_adj_id,item_id,qty', 'item_adj_id');
   }
 
   // COGS map
@@ -2530,6 +2542,16 @@ async function _pbComputeEventAggregates(eventNames) {
   txMaps.forEach(m => {
     if (!eventSoIds.has(m.project_ref)) eventSoIds.set(m.project_ref, []);
     eventSoIds.get(m.project_ref).push(m.salesorder_id);
+  });
+  const eventAdjIds = new Map();
+  adjMaps.forEach(m => {
+    if (!eventAdjIds.has(m.event_ref)) eventAdjIds.set(m.event_ref, []);
+    eventAdjIds.get(m.event_ref).push(m.item_adj_id);
+  });
+  const adjItemsBy = new Map();
+  adjItems.forEach(it => {
+    if (!adjItemsBy.has(it.item_adj_id)) adjItemsBy.set(it.item_adj_id, []);
+    adjItemsBy.get(it.item_adj_id).push(it);
   });
   const trfHeaderMap = new Map(trfHeaders.map(h => [h.item_transfer_id, h]));
   const soHeaderMap  = new Map(soHeaders.map(h => [h.salesorder_id, h]));
@@ -2574,26 +2596,45 @@ async function _pbComputeEventAggregates(eventNames) {
       if (!h || isCanceled(h)) continue;
       const items = soItemsBy.get(soId) || [];
       for (const it of items) {
-        r.sales_rev  += Number(it.price || 0) * Number(it.qty || 0) - Number(it.disc_amount || 0);
-        r.sales_cogs += Number(it.qty || 0) * (costMap.get(it.item_id) || 0);
+        const q = Number(it.qty || 0);
+        r.qty_sold   += q;
+        r.sales_rev  += Number(it.price || 0) * q - Number(it.disc_amount || 0);
+        r.sales_cogs += q * (costMap.get(it.item_id) || 0);
       }
     }
     r.margin = r.sales_rev - r.sales_cogs;
+
+    // Adjustments (sum of abs qty)
+    const aIds = eventAdjIds.get(evName) || [];
+    for (const aId of aIds) {
+      const items = adjItemsBy.get(aId) || [];
+      for (const it of items) r.qty_adj += Math.abs(Number(it.qty || 0));
+    }
+
+    r.current_stock = r.qty_in - r.qty_sold - r.qty_out - r.qty_adj;
   }
   return out;
 }
 
 function renderPBStats(rows) {
   const today = new Date(); today.setHours(0,0,0,0);
-  const overdue = rows.filter(r=>{ if(!r.srDeadline||r.eventStatus==="Done"||r.eventStatus==="Cancelled") return false; return new Date(r.srDeadline+"T00:00:00") < today; });
-  // Grand Total now comes from aggregated confirmed sales across all events.
   const agg = window._pbEventAggregates;
+  // Upcoming = future event date AND status is Planned/empty (Reconcile/Done/Cancelled already past).
+  const isPlanned = (s) => !s || s === "Planned";
+  const upcoming = rows.filter(r => {
+    if (!r.eventDate) return false;
+    const d = new Date(r.eventDate + "T00:00:00");
+    return d >= today && isPlanned(r.eventStatus);
+  }).length;
+  const reconcile = rows.filter(r => r.eventStatus === "Reconcile").length;
+  const done      = rows.filter(r => r.eventStatus === "Done").length;
+  const cancelled = rows.filter(r => r.eventStatus === "Cancelled").length;
   const totalSales = agg ? rows.reduce((a,r) => a + (agg.get(r.eventName)?.sales_rev || 0), 0) : 0;
-  document.getElementById("pb-s-total").textContent = rows.length;
-  document.getElementById("pb-s-upcoming").textContent = rows.filter(r=>{ if(!r.eventDate)return false; const d=new Date(r.eventDate+"T00:00:00"); return d>=today&&r.eventStatus!=="Done"&&r.eventStatus!=="Cancelled"; }).length;
-  document.getElementById("pb-s-done").textContent = rows.filter(r=>r.eventStatus==="Done").length;
-  document.getElementById("pb-s-cancelled").textContent = rows.filter(r=>r.eventStatus==="Cancelled").length;
-  document.getElementById("pb-s-overdue").textContent = overdue.length;
+  document.getElementById("pb-s-total").textContent     = rows.length;
+  document.getElementById("pb-s-upcoming").textContent  = upcoming;
+  document.getElementById("pb-s-reconcile").textContent = reconcile;
+  document.getElementById("pb-s-done").textContent      = done;
+  document.getElementById("pb-s-cancelled").textContent = cancelled;
   document.getElementById("pb-s-grandtotal").textContent = totalSales ? "Rp "+totalSales.toLocaleString("id-ID") : "—";
 }
 
@@ -2609,8 +2650,118 @@ function applyPBFilters() {
   } else if (status) rows = rows.filter(r=>r.eventStatus===status);
   if (ip) rows = rows.filter(r=>(r.ipRelated||"").toLowerCase().includes(ip.toLowerCase()));
   if (q) rows = rows.filter(r=>(r.eventName||"").toLowerCase().includes(q)||(r.location||"").toLowerCase().includes(q)||(r.ipRelated||"").toLowerCase().includes(q)||(r.manpower||"").toLowerCase().includes(q));
-  renderPBTable(rows);
+  renderPBStats(rows);
+  // Render either table or calendar based on current view mode
+  if (pbViewMode === 'calendar') renderPBCalendar(rows);
+  else renderPBTable(rows);
 }
+let pbViewMode = 'list';      // 'list' | 'calendar'
+let pbCalMonth = null;        // YYYY-MM string anchoring the calendar grid
+
+function switchPBView(mode) {
+  pbViewMode = mode === 'calendar' ? 'calendar' : 'list';
+  const listWrap = document.getElementById('pb-view-list');
+  const calWrap  = document.getElementById('pb-view-cal');
+  const lBtn = document.getElementById('pb-view-list-btn');
+  const cBtn = document.getElementById('pb-view-cal-btn');
+  if (listWrap) listWrap.style.display = pbViewMode === 'list' ? 'block' : 'none';
+  if (calWrap)  calWrap.style.display  = pbViewMode === 'calendar' ? 'block' : 'none';
+  // Toggle button styling
+  if (lBtn) { lBtn.style.background = pbViewMode === 'list' ? 'var(--black)' : 'transparent'; lBtn.style.color = pbViewMode === 'list' ? 'var(--white)' : 'var(--g600)'; }
+  if (cBtn) { cBtn.style.background = pbViewMode === 'calendar' ? 'var(--black)' : 'transparent'; cBtn.style.color = pbViewMode === 'calendar' ? 'var(--white)' : 'var(--g600)'; }
+  applyPBFilters();
+}
+
+function _pbCalShift(months) {
+  if (!pbCalMonth) { const d = new Date(); pbCalMonth = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; }
+  const [y,m] = pbCalMonth.split('-').map(Number);
+  const d = new Date(y, m - 1 + months, 1);
+  pbCalMonth = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  applyPBFilters();
+}
+
+function renderPBCalendar(rows) {
+  const cont = document.getElementById('pb-calendar');
+  if (!cont) return;
+  // Default anchor = latest event in filtered rows, or current month
+  if (!pbCalMonth) {
+    const latest = rows.map(r => r.eventDate).filter(Boolean).sort().pop();
+    if (latest) pbCalMonth = latest.slice(0, 7);
+    else { const d = new Date(); pbCalMonth = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; }
+  }
+  const [year, month] = pbCalMonth.split('-').map(Number);
+  const firstDay = new Date(year, month - 1, 1);
+  const lastDay  = new Date(year, month, 0);
+  const daysInMonth = lastDay.getDate();
+  // Sunday = 0; we want Monday as start
+  const offset = (firstDay.getDay() + 6) % 7;
+  const totalCells = Math.ceil((offset + daysInMonth) / 7) * 7;
+  const monthLabel = firstDay.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
+
+  // Group events by date (YYYY-MM-DD)
+  const byDate = new Map();
+  for (const r of rows) {
+    if (!r.eventDate) continue;
+    const k = r.eventDate.slice(0, 10);
+    if (!byDate.has(k)) byDate.set(k, []);
+    byDate.get(k).push(r);
+  }
+
+  const agg = window._pbEventAggregates;
+  const statusBg = (s) => s === 'Done' ? '#e6f4ea' : s === 'Cancelled' ? '#fdecea' : s === 'Reconcile' ? '#fdf6e3' : '#eef0f8';
+  const statusFg = (s) => s === 'Done' ? '#1c7a3b' : s === 'Cancelled' ? '#c0392b' : s === 'Reconcile' ? '#a37800' : '#3C3489';
+
+  const todayStr = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })();
+
+  let cellsHTML = '';
+  const weekdays = ['Sen','Sel','Rab','Kam','Jum','Sab','Min'];
+  for (const wd of weekdays) {
+    cellsHTML += `<div style="font-family:var(--label);text-transform:uppercase;font-size:10px;color:var(--g600);padding:6px 8px;letter-spacing:0.05em">${wd}</div>`;
+  }
+  for (let i = 0; i < totalCells; i++) {
+    const dayNum = i - offset + 1;
+    const inMonth = dayNum >= 1 && dayNum <= daysInMonth;
+    const dateKey = inMonth ? `${year}-${String(month).padStart(2,'0')}-${String(dayNum).padStart(2,'0')}` : '';
+    const isToday = dateKey === todayStr;
+    const events = inMonth ? (byDate.get(dateKey) || []) : [];
+    const dayHeader = inMonth
+      ? `<div style="font-family:var(--mono);font-size:11px;color:${isToday?'#3C3489':'var(--g600)'};font-weight:${isToday?'600':'400'};margin-bottom:4px">${dayNum}${isToday?' • today':''}</div>`
+      : '';
+    const eventPills = events.map(e => {
+      const safeName = String(e.eventName||'').replace(/'/g,"\\'").replace(/"/g,'&quot;');
+      const a = agg?.get(e.eventName);
+      const totalSales = a ? Math.round(a.sales_rev) : 0;
+      const stockWarn = a && a.current_stock !== 0 ? ' ⚠' : '';
+      return `<div onclick="openPBDetail('${e.rowIndex}')" title="${_pbEsc(e.eventName||'')}${totalSales?` · Rp ${totalSales.toLocaleString('id-ID')}`:''}${stockWarn?` · current stock ${a.current_stock}`:''}" style="cursor:pointer;background:${statusBg(e.eventStatus)};color:${statusFg(e.eventStatus)};font-size:10px;padding:3px 6px;border-radius:3px;margin-bottom:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500">${_pbEsc(e.eventName||'(Tanpa nama)')}${stockWarn}</div>`;
+    }).join('');
+    cellsHTML += `<div style="border:1px solid var(--g100);border-radius:4px;padding:6px 8px;min-height:80px;background:${inMonth?(isToday?'#f5f3ff':'var(--white)'):'transparent'};${!inMonth?'border-color:transparent':''}">${dayHeader}${eventPills}</div>`;
+  }
+
+  cont.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <button onclick="_pbCalShift(-1)" style="padding:4px 10px;font-size:12px;border:1px solid var(--g100);border-radius:6px;background:var(--white);cursor:pointer">‹</button>
+        <div style="font-family:var(--label);font-size:13px;font-weight:600;min-width:140px;text-align:center;text-transform:capitalize">${monthLabel}</div>
+        <button onclick="_pbCalShift(1)" style="padding:4px 10px;font-size:12px;border:1px solid var(--g100);border-radius:6px;background:var(--white);cursor:pointer">›</button>
+        <button onclick="pbCalMonth=null;applyPBFilters()" style="padding:4px 10px;font-size:11px;border:1px solid var(--g100);border-radius:6px;background:var(--white);cursor:pointer;margin-left:6px;color:var(--g600)">Today</button>
+      </div>
+      <div style="font-size:11px;color:var(--g400);font-family:var(--mono)">${rows.length} event di filter</div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px">
+      ${cellsHTML}
+    </div>
+    <div style="font-size:10px;color:var(--g400);margin-top:10px;display:flex;gap:14px;flex-wrap:wrap">
+      <span><span style="display:inline-block;width:10px;height:10px;background:#eef0f8;vertical-align:middle"></span> Planned</span>
+      <span><span style="display:inline-block;width:10px;height:10px;background:#fdf6e3;vertical-align:middle"></span> Reconcile</span>
+      <span><span style="display:inline-block;width:10px;height:10px;background:#e6f4ea;vertical-align:middle"></span> Done</span>
+      <span><span style="display:inline-block;width:10px;height:10px;background:#fdecea;vertical-align:middle"></span> Cancelled</span>
+      <span style="color:var(--g600)">⚠ = current stock belum 0</span>
+    </div>
+  `;
+  // Update entry counter
+  const tc = document.getElementById('pb-tcount'); if (tc) tc.textContent = `${rows.length} entri`;
+}
+
 function populatePBIPFilter() {
   const sel = document.getElementById("pb-fil-ip");
   if (!sel) return;
@@ -2625,7 +2776,7 @@ function renderPBTable(rows) {
   updateSortTh("pb-thead", pbSort.col, pbSort.dir);
   const tbody = document.getElementById("pbTableBody");
   document.getElementById("pb-tcount").textContent = rows.length+" entri";
-  if (!rows.length) { tbody.innerHTML=`<tr><td class="empty-td" colspan="13">Tidak ada data.</td></tr>`; return; }
+  if (!rows.length) { tbody.innerHTML=`<tr><td class="empty-td" colspan="14">Tidak ada data.</td></tr>`; return; }
   const _today = new Date(); _today.setHours(0,0,0,0);
   const agg = window._pbEventAggregates;
   const fmtRp = (n) => n ? "Rp "+Math.round(n).toLocaleString("id-ID") : "—";
@@ -2635,8 +2786,12 @@ function renderPBTable(rows) {
     const esPill = `<span class="pill ${statusPillCls(r.eventStatus)}" style="font-size:11px">${r.eventStatus||"Planned"}</span>`;
     const pm = r.paymentMethod ? r.paymentMethod.split(",").map(p=>`<span class="pill p-signings" style="font-size:10px;margin-right:2px">${p.trim()}</span>`).join("") : "—";
     const isOverdue = r.srDeadline && r.eventStatus!=="Done" && r.eventStatus!=="Cancelled" && new Date(r.srDeadline+"T00:00:00") < _today;
-    const a = agg?.get(r.eventName) || {qty_in:0, qty_out:0, sales_rev:0, sales_cogs:0, margin:0};
+    const a = agg?.get(r.eventName) || {qty_in:0, qty_out:0, qty_sold:0, qty_adj:0, sales_rev:0, sales_cogs:0, margin:0, current_stock:0};
     const marginColor = a.margin > 0 ? '#1c7a3b' : a.margin < 0 ? '#c33' : 'var(--g600)';
+    const cs = a.current_stock || 0;
+    // Highlight Current Stock red if non-zero (reconcile incomplete).
+    const csColor = cs !== 0 ? '#c33' : 'var(--g600)';
+    const csBg    = cs !== 0 ? '#fdecea' : 'transparent';
     return `<tr>
       <td style="white-space:nowrap;font-size:12px">${fmtDate(r.eventDate)}</td>
       <td><a href="#" onclick="event.preventDefault();openPBDetail('${r.rowIndex}')" style="color:#3C3489;text-decoration:none;font-weight:600">${r.eventName||"—"}</a></td>
@@ -2645,6 +2800,7 @@ function renderPBTable(rows) {
       <td>${esPill}</td>
       <td class="mono" style="text-align:right;font-size:12px">${fmtQty(a.qty_in)}</td>
       <td class="mono" style="text-align:right;font-size:12px">${fmtQty(a.qty_out)}</td>
+      <td class="mono" style="text-align:right;font-size:12px;font-weight:600;color:${csColor};background:${csBg}">${cs.toLocaleString("id-ID")}</td>
       <td class="mono" style="text-align:right;font-size:12px;white-space:nowrap">${fmtRp(a.sales_rev)}</td>
       <td class="mono" style="text-align:right;font-size:12px;color:var(--g600);white-space:nowrap">${fmtRp(a.sales_cogs)}</td>
       <td class="mono" style="text-align:right;font-size:12px;white-space:nowrap;color:${marginColor};font-weight:600">${fmtRp(a.margin)}</td>
@@ -2653,7 +2809,7 @@ function renderPBTable(rows) {
       <td><button class="btn-icon" onclick="openPBEdit('${r.rowIndex}')">Edit</button> <button class="btn-icon" style="color:#c0392b" onclick="deletePB('${r.rowIndex}')">Del</button></td>
     </tr>
     <tr id="pb-edit-row-${r.rowIndex}" style="display:none">
-      <td colspan="13" style="padding:0 12px 12px">
+      <td colspan="14" style="padding:0 12px 12px">
         <div class="edit-row-form">
           <div class="edit-row-grid">
             <div class="fg"><label>Tanggal Event</label><input type="date" id="pbe-eventdate-${r.rowIndex}" value="${r.eventDate}"></div>
