@@ -229,7 +229,8 @@
 
         <div class="sb-label" style="margin-bottom:0.6rem">Warehouse</div>
         <div class="home-grid">
-          <div class="tool-card" onclick="showPage('invtransfer',null)"><span class="tc-icon">🔁</span><div class="tc-name">Inventory Transfer</div><div class="tc-desc">List inventory transfers (TRFO) dari Jubelio — status delivery + putaway, mapping ke Wholesale, Consignment, Event, atau Partner. Bulk-edit.</div></div>
+          <div class="tool-card" onclick="showPage('invtransferout',null)"><span class="tc-icon">📤</span><div class="tc-name">Transfer Out (TRFO)</div><div class="tc-desc">Barang keluar antar gudang — status delivery + putaway, mapping ke Wholesale, Consignment, Event, atau Partner. Bulk-edit.</div></div>
+          <div class="tool-card" onclick="showPage('invtransferin',null)"><span class="tc-icon">📥</span><div class="tc-name">Transfer In (TRFI)</div><div class="tc-desc">Barang masuk ke gudang — penerimaan transfer dari source location lain, status putaway, mapping ke ref terkait.</div></div>
           <div class="tool-card" onclick="showPage('invcheck',null)"><span class="tc-icon">📦</span><div class="tc-name">Inventory Check</div><div class="tc-desc">Cek stok per parent item di setiap kategori gudang — Inbound, Online, Offline, Event, Consignment.</div></div>
           <div class="tool-card" onclick="showPage('warehousekpi',null)"><span class="tc-icon">🏭</span><div class="tc-name">Warehouse KPI</div><div class="tc-desc">Monitor putaway performance, receiving accuracy, dan stock adjustment per gudang.</div></div>
           <div class="tool-card" onclick="showPage('stockadjmgmt',null)"><span class="tc-icon">📋</span><div class="tc-name">Stock Adjustment</div><div class="tc-desc">Kategorisasi dan monitoring alasan adjustment stok 2026.</div></div>
@@ -2010,10 +2011,14 @@
       <div id="tx-pagination" style="display:flex;align-items:center;gap:10px;padding:12px 0;justify-content:center"></div>
     </div>
 
-    <!-- INVENTORY TRANSFER -->
+    <!-- INVENTORY TRANSFER (shared page for TRFO + TRFI) -->
     <div class="page" id="page-invtransfer">
       <div class="page-header">
-        <div><div class="page-title">Inventory Transfer</div><div class="page-sub">Daftar transfer antar gudang (TRFO) dari Jubelio — status delivery &amp; putaway, plus mapping ke Wholesale / Consignment / Event / Partner.</div></div>
+        <div><div class="page-title" id="it-page-title">Transfer Out (TRFO)</div><div class="page-sub" id="it-page-sub">Barang keluar antar gudang — status delivery &amp; putaway, plus mapping ke Wholesale / Consignment / Event / Partner.</div></div>
+        <div class="tab-bar">
+          <button class="tab-btn" id="it-tab-out" onclick="switchInvTransferMode('out',this)">📤 Transfer Out</button>
+          <button class="tab-btn" id="it-tab-in"  onclick="switchInvTransferMode('in',this)">📥 Transfer In</button>
+        </div>
       </div>
 
       <div class="stats-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:1.25rem">
