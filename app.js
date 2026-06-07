@@ -53,6 +53,24 @@ async function _fetchAllPages(table, select="*", extraQ){
   }
   return all;
 }
+
+// Same as _fetchAllPages but chunks an `.in(idColumn, ids)` filter to avoid
+// PostgREST URL-length limits when `ids` gets large (>~500). Each chunk is
+// fetched separately and results concatenated.
+async function _fetchAllPagesIn(table, select, idColumn, ids, extraQ, chunkSize=500){
+  if(!ids || !ids.length) return [];
+  const out = [];
+  for(let i=0; i<ids.length; i+=chunkSize){
+    const slice = ids.slice(i, i+chunkSize);
+    const rows = await _fetchAllPages(table, select, q => {
+      q = q.in(idColumn, slice);
+      if (extraQ) q = extraQ(q);
+      return q;
+    });
+    out.push(...rows);
+  }
+  return out;
+}
 // Sort state per module
 let agrSort={col:null,dir:'asc'}, ipSort={col:null,dir:'asc'}, rrSort={col:null,dir:'asc'};
 let bmSort={col:null,dir:'asc'}, ldSort={col:null,dir:'asc'}, dpSort={col:null,dir:'asc'}, logSort={col:'ts',dir:'desc'};
@@ -21654,17 +21672,13 @@ async function loadRestock() {
     const orderIds = orders.map(o => o.salesorder_id);
 
     // 3-5. Parallel: sold items (filter by item only — orderIdSet applied client-side),
-    //      stock, item info
+    //      stock, item info. Chunk .in() to avoid URL-length limits when
+    //      allItemIds is large (currently 2000+ for SDY/Lagaa/Marte).
     const orderIdSet = new Set(orderIds);
     const [soldItemsRaw, stockRows, itemInfoRows] = await Promise.all([
-      allItemIds.length
-        ? _fetchAllPages('jubelio_sales_order_items','salesorder_id,item_id,qty',
-            q => q.in('item_id', allItemIds))
-        : Promise.resolve([]),
-      _fetchAllPages('jubelio_inventory_stocks','item_id,on_hand',
-        q => q.in('item_id', allItemIds)),
-      _fetchAllPages('jubelio_items','item_id,item_code,item_name,thumbnail',
-        q => q.in('item_id', allItemIds)),
+      _fetchAllPagesIn('jubelio_sales_order_items','salesorder_id,item_id,qty','item_id', allItemIds),
+      _fetchAllPagesIn('jubelio_inventory_stocks','item_id,on_hand','item_id', allItemIds),
+      _fetchAllPagesIn('jubelio_items','item_id,item_code,item_name,thumbnail','item_id', allItemIds),
     ]);
     // Client-side: only count qty from orders in the selected period
     const soldItems = soldItemsRaw.filter(it => orderIdSet.has(it.salesorder_id));
