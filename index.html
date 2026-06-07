@@ -946,8 +946,12 @@
             <div class="form-sec" style="margin-top:.5rem">Status &amp; Dokumen</div>
             <div class="form-grid">
               <div class="fg">
-                <label>Event Status <span style="font-size:10px;color:var(--g400);font-weight:400">(auto kecuali Cancelled)</span></label>
-                <select id="pb-eventstatus"><option value="">Auto (derived dari tanggal + stock)</option><option value="Cancelled">Cancelled</option></select>
+                <label>Event Status <span style="font-size:10px;color:var(--g400);font-weight:400">(auto kecuali override)</span></label>
+                <select id="pb-eventstatus">
+                  <option value="">Auto (derived dari tanggal + stock + sales)</option>
+                  <option value="No Sales">No Sales (event tanpa transaksi — auto Done jika stock 0)</option>
+                  <option value="Cancelled">Cancelled</option>
+                </select>
               </div>
               <div class="fg full">
                 <label>Payment Method</label>
