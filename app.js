@@ -15790,7 +15790,10 @@ function generateNextVariantCode(collection_id, size) {
 }
 
 // Standard size options for the variant form
-const PD_SIZE_OPTIONS = ['S','M','L','XL','XXL','XXXL'];
+const PD_SIZE_OPTIONS = ['OS','S','M','L','XL','XXL','XXXL'];
+// "OS" = One Size — for products without size variations (CD, sticker, pin,
+// keychain, accessories, etc). Treated as no size_variant at Jubelio export.
+const PD_NO_SIZE_TOKENS = new Set(['OS','ONE SIZE','FREE SIZE','FREE','NO SIZE']);
 
 function updatePDCodePreview() {
   const el = document.getElementById('pd-code-preview');
@@ -17415,8 +17418,14 @@ async function exportPDJubelioXlsx() {
         sellPrice,
         // L: color_variant
         (variant?.color || p.color) || '',
-        // M: size_variant
-        (variant?.size || p.size) || '',
+        // M: size_variant — emptied when the variant marks itself as "no size"
+        // (OS / One Size / Free Size). This lets a solo SKU still flow through
+        // the variant table for qty/HPP/vendor tracking without sending a
+        // bogus size to Jubelio.
+        (() => {
+          const sz = (variant?.size || p.size || '').toUpperCase();
+          return PD_NO_SIZE_TOKENS.has(sz) ? '' : (variant?.size || p.size || '');
+        })(),
         // N: capacity_variant
         '',
         // O: material_variant
@@ -17430,7 +17439,7 @@ async function exportPDJubelioXlsx() {
 
     if (subs.length) {
       // Sort variants by size for predictable order
-      const sizeOrder = ['XS','S','SM','M','L','XL','XXL','XXXL'];
+      const sizeOrder = ['OS','XS','S','SM','M','L','XL','XXL','XXXL'];
       const subsSorted = [...subs].sort((a,b) => {
         const ai = sizeOrder.indexOf(a.size||''); const bi = sizeOrder.indexOf(b.size||'');
         if (ai >= 0 && bi >= 0) return ai - bi;
