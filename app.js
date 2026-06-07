@@ -16233,17 +16233,13 @@ async function submitPD() {
   const pkgWidth     = parseFloat(document.getElementById('pd-pkg-width')?.value);
   const pkgHeight    = parseFloat(document.getElementById('pd-pkg-height')?.value);
 
+  // Only Nama Produk is hard-required at save. Jubelio config fields are
+  // checked when user hits "Excel Jubelio" — that way user can save parent SKU
+  // now and fill the Jubelio details later (or never, if they don't plan to
+  // export). If category was typed, try to resolve its id (silently null if
+  // not recognized — export will warn at that point).
   if (!skuName) { fb.textContent='⚠️ Nama produk wajib.'; return; }
-  if (isNaN(srp)) { fb.textContent='⚠️ SRP wajib diisi.'; return; }
-  if (!jubCategory) { fb.textContent='⚠️ Category Jubelio wajib (pilih dari dropdown).'; return; }
-  if (!brand)        { fb.textContent='⚠️ Brand wajib.'; return; }
-  if (!description)  { fb.textContent='⚠️ Description wajib (untuk import Jubelio).'; return; }
-  if (isNaN(pkgWeight) || pkgWeight <= 0) { fb.textContent='⚠️ Package weight wajib (gram).'; return; }
   const jubCategoryId = _pdResolveJubCategoryId(jubCategory);
-  if (!jubCategoryId) {
-    fb.textContent='⚠️ Category Jubelio gak ke-recognize. Pastikan persis match dari dropdown.';
-    return;
-  }
 
   // Auto-generate parent product code: {IP}-{COL}-{NN}
   const displayCode = generateNextParentCode(cid);
@@ -16265,12 +16261,12 @@ async function submitPD() {
       vendor: null, hpp: null, qty: null,
       notes: notes || null,
       picture_urls: [],
-      // Jubelio import config (parent-level)
-      jubelio_category: jubCategory,
+      // Jubelio import config (parent-level) — all nullable, validated at export
+      jubelio_category: jubCategory || null,
       jubelio_category_id: jubCategoryId,
-      brand: brand,
-      description: description,
-      package_weight: pkgWeight,
+      brand: brand || null,
+      description: description || null,
+      package_weight: isNaN(pkgWeight) ? null : pkgWeight,
       package_length: isNaN(pkgLength) ? null : pkgLength,
       package_width:  isNaN(pkgWidth)  ? null : pkgWidth,
       package_height: isNaN(pkgHeight) ? null : pkgHeight,
@@ -16657,17 +16653,17 @@ function renderPDParentEditCard(p) {
         <div class="fg full"><label style="font-size:11px">Notes (internal)</label><input id="pde-notes-${p.id}" type="text" value="${(p.notes||'').replace(/"/g,'&quot;')}" style="font-size:12px;padding:5px 8px"></div>
       </div>
 
-      <div style="font-family:var(--label);font-size:10px;color:var(--g600);text-transform:uppercase;letter-spacing:0.05em;margin:14px 0 6px">Konfigurasi Import Jubelio</div>
+      <div style="font-family:var(--label);font-size:10px;color:var(--g600);text-transform:uppercase;letter-spacing:0.05em;margin:14px 0 6px">Konfigurasi Import Jubelio <span style="color:var(--g400);font-weight:400;text-transform:none;letter-spacing:0">— opsional di sini, wajib lengkap pas export</span></div>
       <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr;gap:8px">
-        <div class="fg full"><label style="font-size:11px">Category Jubelio *</label>
+        <div class="fg full"><label style="font-size:11px">Category Jubelio</label>
           <input id="pde-jub-category-${p.id}" type="text" list="pd-jub-cat-datalist-${p.id}" value="${(p.jubelioCategory||'').replace(/"/g,'&quot;')}" style="font-size:12px;padding:5px 8px" placeholder="Mulai ketik untuk cari...">
           <datalist id="pd-jub-cat-datalist-${p.id}"></datalist>
           <div id="pd-jub-cat-hint-${p.id}" style="font-size:11px;color:var(--g400);margin-top:3px">—</div>
         </div>
-        <div class="fg"><label style="font-size:11px">Brand *</label><input id="pde-brand-${p.id}" type="text" value="${(p.brand||'').replace(/"/g,'&quot;')}" style="font-size:12px;padding:5px 8px"></div>
+        <div class="fg"><label style="font-size:11px">Brand</label><input id="pde-brand-${p.id}" type="text" value="${(p.brand||'').replace(/"/g,'&quot;')}" style="font-size:12px;padding:5px 8px"></div>
         <div class="fg"><label style="font-size:11px">Barcode</label><input id="pde-barcode-${p.id}" type="text" value="${(p.barcode||'').replace(/"/g,'&quot;')}" style="font-size:12px;padding:5px 8px"></div>
-        <div class="fg full"><label style="font-size:11px">Description *</label><textarea id="pde-description-${p.id}" rows="2" style="font-size:12px;padding:5px 8px;resize:vertical;width:100%;border:1px solid var(--g100);border-radius:4px">${(p.description||'').replace(/</g,'&lt;')}</textarea></div>
-        <div class="fg"><label style="font-size:11px">Weight (g) *</label><input id="pde-pkg-weight-${p.id}" type="number" min="0" value="${p.packageWeight==null?100:p.packageWeight}" style="font-size:12px;padding:5px 8px"></div>
+        <div class="fg full"><label style="font-size:11px">Description</label><textarea id="pde-description-${p.id}" rows="2" style="font-size:12px;padding:5px 8px;resize:vertical;width:100%;border:1px solid var(--g100);border-radius:4px">${(p.description||'').replace(/</g,'&lt;')}</textarea></div>
+        <div class="fg"><label style="font-size:11px">Weight (g)</label><input id="pde-pkg-weight-${p.id}" type="number" min="0" value="${p.packageWeight==null?100:p.packageWeight}" style="font-size:12px;padding:5px 8px"></div>
         <div class="fg"><label style="font-size:11px">Length (cm)</label><input id="pde-pkg-length-${p.id}" type="number" min="0" value="${p.packageLength==null?'':p.packageLength}" style="font-size:12px;padding:5px 8px"></div>
         <div class="fg"><label style="font-size:11px">Width (cm)</label><input id="pde-pkg-width-${p.id}" type="number" min="0" value="${p.packageWidth==null?'':p.packageWidth}" style="font-size:12px;padding:5px 8px"></div>
         <div class="fg"><label style="font-size:11px">Height (cm)</label><input id="pde-pkg-height-${p.id}" type="number" min="0" value="${p.packageHeight==null?'':p.packageHeight}" style="font-size:12px;padding:5px 8px"></div>
@@ -16878,26 +16874,19 @@ async function savePDParentEdit(id) {
   const pkgWd= parseFloat(document.getElementById(`pde-pkg-width-${id}`)?.value);
   const pkgH = parseFloat(document.getElementById(`pde-pkg-height-${id}`)?.value);
 
+  // Only Nama Produk is hard-required at edit. Jubelio config is optional in
+  // the form; export will validate completeness when user hits Excel Jubelio.
   if (!name) { alert('Nama produk wajib.'); return; }
-  if (!jubCategory) { alert('Category Jubelio wajib (pilih dari dropdown).'); return; }
-  if (!brand)       { alert('Brand wajib.'); return; }
-  if (!description) { alert('Description wajib (untuk import Jubelio).'); return; }
-  if (isNaN(pkgW) || pkgW <= 0) { alert('Package weight wajib (gram).'); return; }
-  if (srpS === '' || isNaN(parseFloat(srpS))) { alert('SRP wajib.'); return; }
   const jubCategoryId = _pdResolveJubCategoryId(jubCategory);
-  if (!jubCategoryId) {
-    alert('Category Jubelio gak ke-recognize. Pastikan persis match dari dropdown.');
-    return;
-  }
   const upd = {
     sku_name: name,
-    srp: parseFloat(srpS),
+    srp: srpS===''?null:parseFloat(srpS),
     notes: notes || null,
-    jubelio_category: jubCategory,
+    jubelio_category: jubCategory || null,
     jubelio_category_id: jubCategoryId,
-    brand: brand,
-    description: description,
-    package_weight: pkgW,
+    brand: brand || null,
+    description: description || null,
+    package_weight: isNaN(pkgW) ? null : pkgW,
     package_length: isNaN(pkgL) ? null : pkgL,
     package_width:  isNaN(pkgWd)? null : pkgWd,
     package_height: isNaN(pkgH) ? null : pkgH,
