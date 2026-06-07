@@ -229,6 +229,7 @@
 
         <div class="sb-label" style="margin-bottom:0.6rem">Warehouse</div>
         <div class="home-grid">
+          <div class="tool-card" onclick="showPage('invtransfer',null)"><span class="tc-icon">🔁</span><div class="tc-name">Inventory Transfer</div><div class="tc-desc">List inventory transfers (TRFO) dari Jubelio — status delivery + putaway, mapping ke Wholesale, Consignment, Event, atau Partner. Bulk-edit.</div></div>
           <div class="tool-card" onclick="showPage('invcheck',null)"><span class="tc-icon">📦</span><div class="tc-name">Inventory Check</div><div class="tc-desc">Cek stok per parent item di setiap kategori gudang — Inbound, Online, Offline, Event, Consignment.</div></div>
           <div class="tool-card" onclick="showPage('warehousekpi',null)"><span class="tc-icon">🏭</span><div class="tc-name">Warehouse KPI</div><div class="tc-desc">Monitor putaway performance, receiving accuracy, dan stock adjustment per gudang.</div></div>
           <div class="tool-card" onclick="showPage('stockadjmgmt',null)"><span class="tc-icon">📋</span><div class="tc-name">Stock Adjustment</div><div class="tc-desc">Kategorisasi dan monitoring alasan adjustment stok 2026.</div></div>
@@ -2007,6 +2008,118 @@
       </div>
 
       <div id="tx-pagination" style="display:flex;align-items:center;gap:10px;padding:12px 0;justify-content:center"></div>
+    </div>
+
+    <!-- INVENTORY TRANSFER -->
+    <div class="page" id="page-invtransfer">
+      <div class="page-header">
+        <div><div class="page-title">Inventory Transfer</div><div class="page-sub">Daftar transfer antar gudang (TRFO) dari Jubelio — status delivery &amp; putaway, plus mapping ke Wholesale / Consignment / Event / Partner.</div></div>
+      </div>
+
+      <div class="stats-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:1.25rem">
+        <div class="stat-card"><div class="stat-num" id="it-s-total">—</div><div class="stat-lbl">Total Transfer</div></div>
+        <div class="stat-card"><div class="stat-num" id="it-s-unmapped">—</div><div class="stat-lbl">Unmapped</div></div>
+        <div class="stat-card"><div class="stat-num" id="it-s-mapped">—</div><div class="stat-lbl">Mapped</div></div>
+        <div class="stat-card"><div class="stat-num" id="it-s-putaway">—</div><div class="stat-lbl">Putaway Done</div></div>
+        <div class="stat-card"><div class="stat-num" id="it-s-mapped-pct">—</div><div class="stat-lbl">% Mapped</div></div>
+      </div>
+
+      <div class="form-card" style="margin-bottom:1.25rem;padding:14px 16px">
+        <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+          <div class="fg" style="min-width:140px;margin:0"><label style="font-size:11px">Dari</label><input type="date" id="it-from"></div>
+          <div class="fg" style="min-width:140px;margin:0"><label style="font-size:11px">Sampai</label><input type="date" id="it-to"></div>
+          <div class="fg" style="min-width:170px;margin:0"><label style="font-size:11px">Source Location</label>
+            <select id="it-fil-source"><option value="">Semua source</option></select>
+          </div>
+          <div class="fg" style="min-width:170px;margin:0"><label style="font-size:11px">Destination</label>
+            <select id="it-fil-destination"><option value="">Semua destination</option></select>
+          </div>
+          <div class="fg" style="min-width:140px;margin:0"><label style="font-size:11px">Mapping</label>
+            <select id="it-fil-mapstatus" onchange="loadInvTransfer()">
+              <option value="unmapped">Unmapped only</option>
+              <option value="">Semua</option>
+              <option value="mapped">Mapped only</option>
+            </select>
+          </div>
+          <div class="fg" style="min-width:140px;margin:0"><label style="font-size:11px">Category</label>
+            <select id="it-fil-category" onchange="loadInvTransfer()">
+              <option value="">Semua category</option>
+              <option>Wholesale</option>
+              <option>Consignment</option>
+              <option>Event</option>
+              <option>Partner</option>
+            </select>
+          </div>
+          <div class="fg" style="min-width:140px;margin:0"><label style="font-size:11px">Putaway</label>
+            <select id="it-fil-putaway" onchange="loadInvTransfer()">
+              <option value="">Semua</option>
+              <option value="done">Putaway Done</option>
+              <option value="pending">Belum Putaway</option>
+            </select>
+          </div>
+          <div class="fg" style="min-width:200px;flex:1;margin:0"><label style="font-size:11px">Cari (TRFO no, note, ref...)</label>
+            <input type="text" id="it-search" placeholder="TRFO-XXX / note / ref" oninput="loadInvTransfer()">
+          </div>
+          <button class="btn-primary" style="padding:7px 16px;font-size:12px" onclick="loadInvTransfer()">Apply</button>
+          <button class="btn-ghost" style="padding:7px 12px;font-size:12px" onclick="clearInvTransferFilters()">✕ Reset</button>
+        </div>
+      </div>
+
+      <!-- Bulk action bar -->
+      <div id="it-bulk-bar" style="display:none;position:sticky;top:0;z-index:10;background:#fef0d0;border:1px solid #f1cf7a;border-radius:6px;padding:10px 14px;margin-bottom:10px;align-items:center;gap:10px;flex-wrap:wrap">
+        <span style="font-family:var(--mono);font-size:12px;font-weight:600;color:#6a4a00"><span id="it-bulk-count">0</span> dipilih</span>
+        <span style="color:var(--g400)">→</span>
+        <label style="font-size:11px;color:var(--g600);margin-left:4px">Set Category:</label>
+        <select id="it-bulk-category" onchange="_itUpdateBulkRefOptions()" style="padding:5px 10px;font-size:12px;border:1px solid var(--g100);border-radius:4px;background:var(--white)">
+          <option value="">— pilih —</option>
+          <option>Wholesale</option>
+          <option>Consignment</option>
+          <option>Event</option>
+          <option>Partner</option>
+        </select>
+        <label style="font-size:11px;color:var(--g600);margin-left:6px">Ref:</label>
+        <select id="it-bulk-ref" style="padding:5px 10px;font-size:12px;border:1px solid var(--g100);border-radius:4px;background:var(--white);min-width:220px">
+          <option value="">— pilih category dulu —</option>
+        </select>
+        <button class="btn-primary" style="padding:6px 14px;font-size:12px" onclick="applyInvTransferBulk()">Apply ke yang dipilih</button>
+        <button class="btn-ghost" style="padding:6px 12px;font-size:12px" onclick="clearInvTransferBulkClear()">✕ Clear unmap</button>
+        <button class="btn-ghost" style="padding:6px 10px;font-size:12px;margin-left:auto" onclick="clearInvTransferSelection()">Clear selection</button>
+      </div>
+
+      <div class="table-toolbar" style="gap:8px;align-items:center">
+        <button class="btn-refresh" onclick="loadInvTransfer()">↻ Refresh</button>
+        <button class="btn-ghost" style="padding:5px 12px;font-size:12px" onclick="syncInvTransfer()" title="Sync TRFO terbaru dari Jubelio">⟳ Sync Jubelio</button>
+        <select id="it-page-size" onchange="loadInvTransfer()" style="padding:5px 10px;font-size:12px;border:1px solid var(--g100);border-radius:6px;background:var(--white)">
+          <option value="50">50 / page</option>
+          <option value="100" selected>100 / page</option>
+          <option value="200">200 / page</option>
+        </select>
+        <div id="it-tcount" style="margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--g400)">— entri</div>
+      </div>
+
+      <div class="table-wrap" style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:36px;text-align:center"><input type="checkbox" id="it-select-all" onclick="toggleInvTransferSelectAll(this)"></th>
+              <th style="min-width:130px">TRFO No</th>
+              <th style="white-space:nowrap">Tx Date</th>
+              <th>Source → Destination</th>
+              <th style="text-align:right">Items</th>
+              <th style="text-align:right">Total Qty</th>
+              <th style="white-space:nowrap">Received Date</th>
+              <th>Putaway</th>
+              <th style="min-width:140px">Category</th>
+              <th style="min-width:180px">Ref</th>
+              <th style="min-width:140px">Notes</th>
+              <th style="width:60px">Aksi</th>
+            </tr>
+          </thead>
+          <tbody id="invTransferTableBody"><tr><td class="empty-td" colspan="12">Memuat...</td></tr></tbody>
+        </table>
+      </div>
+
+      <div id="it-pagination" style="display:flex;align-items:center;gap:10px;padding:12px 0;justify-content:center"></div>
     </div>
 
     <!-- PUBLICATION -->

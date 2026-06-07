@@ -226,7 +226,7 @@ function showPage(name, el) {
   document.getElementById("page-"+name).classList.add("active");
   if (el) el.classList.add("active");
   const _c = document.querySelector('.content'); if (_c) _c.scrollTop = 0;
-  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",txmap:"Transaction Mapping"};
+  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",txmap:"Transaction Mapping",invtransfer:"Inventory Transfer"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -265,6 +265,15 @@ function showPage(name, el) {
     if(_fe && !_fe.value) _fe.value=_fr;
     if(_te && !_te.value) _te.value=_to;
     loadTxMap();
+  }
+  if (name==="invtransfer") {
+    // Default: last 90 days (TRFO are lower-volume than sales)
+    const _now=new Date(), _to=_now.toISOString().slice(0,10);
+    const _fr=new Date(_now-90*864e5).toISOString().slice(0,10);
+    const _fe=document.getElementById('it-from'), _te=document.getElementById('it-to');
+    if(_fe && !_fe.value) _fe.value=_fr;
+    if(_te && !_te.value) _te.value=_to;
+    loadInvTransfer();
   }
   if (name==="collections") {
     // If restoring a collection detail from URL, immediately switch to detail view
@@ -17905,6 +17914,408 @@ async function clearTxBulkClear() {
     clearTxSelection();
     loadTxMap();
   } catch(e) { alert('Gagal: '+(e.message||e)); }
+}
+
+// ── 8. INVENTORY TRANSFER ──
+// Lists jubelio_transfer_outs (TRFO) with item count + total qty derived from
+// jubelio_transfer_out_items. Mapping table = inventory_transfer_mappings.
+// Categories: Wholesale | Consignment → dist_partners, Event → popup_booths,
+// Partner → ip_master.
+
+const IT_CATEGORIES = ['Wholesale', 'Consignment', 'Event', 'Partner'];
+let _itRows = [];
+let _itTotalCount = 0;
+let _itPage = 0;
+let _itSelected = new Set();
+let _itDistWholesale = [];   // [{id, name}]
+let _itDistConsign   = [];
+let _itPopupBooths   = [];   // [{id, name, date}]
+let _itIPMaster      = [];   // [{id, name}]
+
+async function _itLoadLookups() {
+  if (_itDistWholesale.length || _itDistConsign.length || _itPopupBooths.length || _itIPMaster.length) return;
+  try {
+    const [dpRes, pbRes, ipRes] = await Promise.all([
+      sb.from('dist_partners').select('id,partner_name,type').order('partner_name'),
+      sb.from('popup_booths').select('id,event_name,event_date').order('event_date',{ascending:false}),
+      sb.from('ip_master').select('id,name').order('name')
+    ]);
+    // dist_partners.type is comma-separated multi-value: "Wholesale, Bulk Purchase" etc.
+    const allDP = (dpRes.data||[]).filter(r=>r.partner_name);
+    _itDistWholesale = allDP.filter(r => (r.type||'').toLowerCase().includes('wholesale')).map(r => ({id:r.id, name:r.partner_name}));
+    _itDistConsign   = allDP.filter(r => (r.type||'').toLowerCase().includes('consignment')).map(r => ({id:r.id, name:r.partner_name}));
+    // Fallback: if filter yields nothing (e.g., no type set), show all partners
+    if (!_itDistWholesale.length) _itDistWholesale = allDP.map(r => ({id:r.id, name:r.partner_name}));
+    if (!_itDistConsign.length)   _itDistConsign   = allDP.map(r => ({id:r.id, name:r.partner_name}));
+    _itPopupBooths = (pbRes.data||[]).filter(r=>r.event_name).map(r => ({id:r.id, name:r.event_name, date:r.event_date}));
+    _itIPMaster    = (ipRes.data||[]).filter(r=>r.name).map(r => ({id:r.id, name:r.name}));
+  } catch(e) { console.error('_itLoadLookups:', e); }
+}
+
+function _itRefOptions(category) {
+  if (category === 'Wholesale')   return _itDistWholesale.map(p => ({value:p.name, label:p.name}));
+  if (category === 'Consignment') return _itDistConsign.map(p => ({value:p.name, label:p.name}));
+  if (category === 'Event') {
+    return _itPopupBooths.map(p => {
+      const dateLbl = p.date ? ` (${new Date(p.date).toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'2-digit'})})` : '';
+      return {value:p.name, label:p.name + dateLbl};
+    });
+  }
+  if (category === 'Partner')     return _itIPMaster.map(p => ({value:p.name, label:p.name}));
+  return [];
+}
+
+function _itRefSelectHTML(rowId, category, currentValue) {
+  if (!category) {
+    return `<select disabled style="width:100%;padding:4px 6px;font-size:11px;border:1px solid var(--g100);border-radius:3px;background:var(--off);color:var(--g400)"><option>— pilih category dulu —</option></select>`;
+  }
+  const opts = _itRefOptions(category);
+  if (!opts.length) {
+    const msg = category === 'Event' ? 'Tidak ada event di Pop Up Booth'
+              : category === 'Partner' ? 'Tidak ada IP di IP Master'
+              : 'Tidak ada partner di Distribution Master';
+    return `<select disabled style="width:100%;padding:4px 6px;font-size:11px;border:1px solid var(--g100);border-radius:3px;background:var(--off);color:var(--g400)"><option>${msg}</option></select>`;
+  }
+  const hasCurrent = !currentValue || opts.some(o => o.value === currentValue);
+  const extra = hasCurrent ? '' : `<option value="${_itEsc(currentValue)}" selected>${_itEsc(currentValue)} (legacy)</option>`;
+  return `<select onchange="updateInvTransferField(${rowId},'ref_label',this.value)" style="width:100%;padding:4px 6px;font-size:11px;border:1px solid var(--g100);border-radius:3px;background:var(--white)">
+    <option value="">— pilih ref —</option>
+    ${extra}
+    ${opts.map(o => `<option value="${_itEsc(o.value)}"${o.value===currentValue?' selected':''}>${_itEsc(o.label)}</option>`).join('')}
+  </select>`;
+}
+
+function _itUpdateBulkRefOptions() {
+  const cat = document.getElementById('it-bulk-category').value;
+  const sel = document.getElementById('it-bulk-ref');
+  if (!sel) return;
+  if (!cat) {
+    sel.innerHTML = `<option value="">— pilih category dulu —</option>`;
+    sel.disabled = true;
+    return;
+  }
+  const opts = _itRefOptions(cat);
+  sel.disabled = false;
+  if (!opts.length) {
+    const msg = cat === 'Event' ? 'Tidak ada event' : cat === 'Partner' ? 'Tidak ada IP' : 'Tidak ada partner';
+    sel.innerHTML = `<option value="">${msg}</option>`;
+    return;
+  }
+  sel.innerHTML = `<option value="">— pilih ref (opsional) —</option>` + opts.map(o => `<option value="${_itEsc(o.value)}">${_itEsc(o.label)}</option>`).join('');
+}
+
+function _itEsc(s) { return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function _itDate(d) {
+  if (!d) return '—';
+  return new Date(d).toLocaleDateString('id-ID', {day:'2-digit',month:'short',year:'2-digit'});
+}
+
+async function loadInvTransfer() {
+  const tbody = document.getElementById('invTransferTableBody');
+  if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="12">Memuat...</td></tr>`;
+  await _itLoadLookups();
+  _itSelected.clear();
+  _itUpdateBulkBar();
+
+  const from = document.getElementById('it-from').value;
+  const to   = document.getElementById('it-to').value;
+  const src  = document.getElementById('it-fil-source').value || '';
+  const dst  = document.getElementById('it-fil-destination').value || '';
+  const mapStatus = document.getElementById('it-fil-mapstatus').value || '';
+  const cat  = document.getElementById('it-fil-category').value || '';
+  const putawayFil = document.getElementById('it-fil-putaway').value || '';
+  const search = (document.getElementById('it-search').value || '').trim();
+  const pageSize = parseInt(document.getElementById('it-page-size').value, 10) || 100;
+
+  try {
+    const baseFilter = q => {
+      let qq = q;
+      if (from) qq = qq.gte('transaction_date', from);
+      if (to)   qq = qq.lte('transaction_date', to + 'T23:59:59');
+      if (src)  qq = qq.eq('source', src);
+      if (dst)  qq = qq.eq('destination', dst);
+      if (putawayFil === 'done')    qq = qq.eq('is_putaway', true);
+      if (putawayFil === 'pending') qq = qq.or('is_putaway.is.null,is_putaway.eq.false');
+      if (search) qq = qq.or(`item_transfer_no.ilike.%${search}%,note.ilike.%${search}%`);
+      return qq;
+    };
+
+    const cols = 'item_transfer_id,item_transfer_no,transaction_date,received_date,source,destination,source_location_id,destination_location_id,is_putaway,note,transfer_type';
+    const from_n = _itPage * pageSize;
+    const to_n   = from_n + pageSize - 1;
+
+    const [
+      {data: trfRows, error: trfErr, count},
+      {data: srcRows},
+      {data: dstRows}
+    ] = await Promise.all([
+      baseFilter(sb.from('jubelio_transfer_outs').select(cols, {count:'exact'}))
+        .order('transaction_date', {ascending:false})
+        .range(from_n, to_n),
+      sb.from('jubelio_transfer_outs').select('source').not('source','is',null).limit(5000),
+      sb.from('jubelio_transfer_outs').select('destination').not('destination','is',null).limit(5000)
+    ]);
+    if (trfErr) throw trfErr;
+    _itTotalCount = count || 0;
+
+    // Populate source/destination filter dropdowns once
+    const sSel = document.getElementById('it-fil-source');
+    if (sSel && sSel.options.length <= 1) {
+      const srcs = [...new Set((srcRows||[]).map(r=>r.source).filter(Boolean))].sort();
+      sSel.innerHTML = `<option value="">Semua source</option>` + srcs.map(s => `<option value="${_itEsc(s)}">${_itEsc(s)}</option>`).join('');
+      sSel.onchange = loadInvTransfer;
+    }
+    const dSel = document.getElementById('it-fil-destination');
+    if (dSel && dSel.options.length <= 1) {
+      const dsts = [...new Set((dstRows||[]).map(r=>r.destination).filter(Boolean))].sort();
+      dSel.innerHTML = `<option value="">Semua destination</option>` + dsts.map(s => `<option value="${_itEsc(s)}">${_itEsc(s)}</option>`).join('');
+      dSel.onchange = loadInvTransfer;
+    }
+
+    // Item count + total qty per transfer (single round-trip)
+    const xferIds = (trfRows||[]).map(r => r.item_transfer_id);
+    const summary = new Map();
+    if (xferIds.length) {
+      for (let i = 0; i < xferIds.length; i += 500) {
+        const chunk = xferIds.slice(i, i + 500);
+        const {data: items} = await sb.from('jubelio_transfer_out_items')
+          .select('item_transfer_id,qty_in_base').in('item_transfer_id', chunk);
+        (items||[]).forEach(it => {
+          const cur = summary.get(it.item_transfer_id) || {count:0, qty:0};
+          cur.count += 1;
+          cur.qty   += Number(it.qty_in_base || 0);
+          summary.set(it.item_transfer_id, cur);
+        });
+      }
+    }
+
+    // Mappings
+    const mapByXferId = new Map();
+    if (xferIds.length) {
+      for (let i = 0; i < xferIds.length; i += 500) {
+        const chunk = xferIds.slice(i, i + 500);
+        const {data: maps} = await sb.from('inventory_transfer_mappings').select('*').in('item_transfer_id', chunk);
+        (maps||[]).forEach(m => mapByXferId.set(m.item_transfer_id, m));
+      }
+    }
+
+    let merged = (trfRows||[]).map(r => ({
+      ...r,
+      _summary: summary.get(r.item_transfer_id) || {count:0, qty:0},
+      _mapping: mapByXferId.get(r.item_transfer_id) || null
+    }));
+    if (mapStatus === 'mapped')   merged = merged.filter(r => r._mapping && (r._mapping.category || r._mapping.ref_label));
+    if (mapStatus === 'unmapped') merged = merged.filter(r => !r._mapping || !(r._mapping.category || r._mapping.ref_label));
+    if (cat) merged = merged.filter(r => r._mapping?.category === cat);
+    _itRows = merged;
+
+    _renderInvTransferTable();
+    _renderInvTransferStats();
+    _renderInvTransferPagination(pageSize);
+  } catch (e) {
+    console.error('loadInvTransfer:', e);
+    if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="12">Gagal: ${e.message||e}</td></tr>`;
+  }
+}
+
+function _renderInvTransferStats() {
+  const total = _itRows.length;
+  const mapped = _itRows.filter(r => r._mapping && (r._mapping.category || r._mapping.ref_label)).length;
+  const putawayDone = _itRows.filter(r => r.is_putaway).length;
+  const tEl = document.getElementById('it-s-total');     if (tEl) tEl.textContent = _itTotalCount.toLocaleString('id-ID') + ' TRFO';
+  const uEl = document.getElementById('it-s-unmapped');  if (uEl) uEl.textContent = (total - mapped).toLocaleString('id-ID') + ' (page)';
+  const mEl = document.getElementById('it-s-mapped');    if (mEl) mEl.textContent = mapped.toLocaleString('id-ID') + ' (page)';
+  const pEl = document.getElementById('it-s-putaway');   if (pEl) pEl.textContent = putawayDone.toLocaleString('id-ID') + ' / ' + total;
+  const pcEl= document.getElementById('it-s-mapped-pct');if (pcEl) pcEl.textContent = total ? Math.round(mapped/total*100) + '%' : '—';
+}
+
+function _renderInvTransferTable() {
+  const tbody = document.getElementById('invTransferTableBody');
+  if (!tbody) return;
+  if (!_itRows.length) {
+    tbody.innerHTML = `<tr><td class="empty-td" colspan="12">Tidak ada data sesuai filter.</td></tr>`;
+    document.getElementById('it-tcount').textContent = '0 entri';
+    return;
+  }
+  document.getElementById('it-tcount').textContent = `${_itRows.length} di page ini · ${_itTotalCount.toLocaleString('id-ID')} total`;
+
+  const catOpts = ['', ...IT_CATEGORIES];
+  tbody.innerHTML = _itRows.map(r => {
+    const cat = r._mapping?.category || '';
+    const ref = r._mapping?.ref_label || '';
+    const notes = r._mapping?.notes || '';
+    const isMapped = !!cat || !!ref;
+    const rowBg = isMapped ? 'background:#fafdf6' : '';
+    const checked = _itSelected.has(r.item_transfer_id) ? ' checked' : '';
+    const route = `${_itEsc(r.source || '—')} → ${_itEsc(r.destination || '—')}`;
+    const putawayPill = r.is_putaway
+      ? `<span class="pill p-active" style="font-size:10px">Done</span>`
+      : `<span class="pill p-draft" style="font-size:10px">Pending</span>`;
+    return `<tr style="${rowBg}">
+      <td style="text-align:center"><input type="checkbox" data-it-id="${r.item_transfer_id}" onclick="toggleInvTransferSelect(${r.item_transfer_id},this.checked)"${checked}></td>
+      <td class="mono" style="font-size:11px;font-weight:600">${_itEsc(r.item_transfer_no || ('#'+r.item_transfer_id))}</td>
+      <td class="mono" style="font-size:11px;white-space:nowrap">${_itDate(r.transaction_date)}</td>
+      <td style="font-size:11px">${route}</td>
+      <td class="mono" style="text-align:right;font-size:11px">${r._summary.count}</td>
+      <td class="mono" style="text-align:right;font-size:11px">${r._summary.qty.toLocaleString('id-ID')}</td>
+      <td class="mono" style="font-size:11px;white-space:nowrap">${_itDate(r.received_date)}</td>
+      <td>${putawayPill}</td>
+      <td><select onchange="updateInvTransferField(${r.item_transfer_id},'category',this.value)" class="pill ${isMapped ? 'p-active' : 'p-draft'}" style="font-size:10px;padding:2px 6px;border:1px solid;width:100%">${catOpts.map(o => `<option value="${o}"${o===cat?' selected':''}>${o || '— Unmapped —'}</option>`).join('')}</select></td>
+      <td>${_itRefSelectHTML(r.item_transfer_id, cat, ref)}</td>
+      <td><input type="text" value="${_itEsc(notes)}" placeholder="Catatan" style="width:100%;padding:4px 6px;font-size:11px;border:1px solid var(--g100);border-radius:3px;background:var(--white)" onblur="updateInvTransferField(${r.item_transfer_id},'notes',this.value)"></td>
+      <td style="text-align:center">${isMapped ? `<button class="btn-icon" style="font-size:10px;color:#c33" onclick="unmapInvTransfer(${r.item_transfer_id})">✕</button>` : '—'}</td>
+    </tr>`;
+  }).join('');
+}
+
+function _renderInvTransferPagination(pageSize) {
+  const el = document.getElementById('it-pagination');
+  if (!el) return;
+  const totalPages = Math.ceil(_itTotalCount / pageSize);
+  if (totalPages <= 1) { el.innerHTML = ''; return; }
+  const cur = _itPage;
+  el.innerHTML = `
+    <button class="btn-ghost" style="padding:4px 12px;font-size:12px" onclick="invTransferGoToPage(${cur-1})" ${cur===0?'disabled':''}>← Prev</button>
+    <span style="font-size:12px;color:var(--g400);font-family:var(--mono)">${cur+1} / ${totalPages}</span>
+    <button class="btn-ghost" style="padding:4px 12px;font-size:12px" onclick="invTransferGoToPage(${cur+1})" ${cur>=totalPages-1?'disabled':''}>Next →</button>
+  `;
+}
+
+function invTransferGoToPage(p) { _itPage = Math.max(0, p); loadInvTransfer(); }
+
+function clearInvTransferFilters() {
+  ['it-fil-source','it-fil-destination','it-search'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  document.getElementById('it-fil-mapstatus').value = 'unmapped';
+  document.getElementById('it-fil-category').value = '';
+  document.getElementById('it-fil-putaway').value = '';
+  _itPage = 0;
+  loadInvTransfer();
+}
+
+// ── Inline mapping upsert ──
+async function updateInvTransferField(xferId, field, value) {
+  const valueClean = (value || '').trim() || null;
+  const row = _itRows.find(r => r.item_transfer_id === xferId);
+  const existing = row?._mapping || {item_transfer_id: xferId};
+  const next = {...existing, [field]: valueClean, last_updated: new Date().toISOString(), last_updated_by: currentUser};
+  // Setting category to null should also clear ref_label.
+  if (field === 'category' && !valueClean) next.ref_label = null;
+  if (!existing.mapped_by) { next.mapped_by = currentUser; next.mapped_at = new Date().toISOString(); }
+  try {
+    const {error} = await sb.from('inventory_transfer_mappings').upsert(next, {onConflict: 'item_transfer_id'});
+    if (error) throw error;
+    if (row) row._mapping = next;
+    // Re-render only if category changed (ref dropdown needs new options)
+    if (field === 'category') _renderInvTransferTable();
+    _renderInvTransferStats();
+  } catch (e) {
+    console.error('updateInvTransferField:', e);
+    alert('Gagal simpan: ' + (e.message || e));
+  }
+}
+
+async function unmapInvTransfer(xferId) {
+  if (!confirm('Hapus mapping untuk transfer ini?')) return;
+  try {
+    const {error} = await sb.from('inventory_transfer_mappings').delete().eq('item_transfer_id', xferId);
+    if (error) throw error;
+    const row = _itRows.find(r => r.item_transfer_id === xferId);
+    if (row) row._mapping = null;
+    _renderInvTransferTable();
+    _renderInvTransferStats();
+  } catch (e) {
+    console.error('unmapInvTransfer:', e);
+    alert('Gagal: ' + (e.message || e));
+  }
+}
+
+// ── Bulk selection + bulk apply ──
+function toggleInvTransferSelect(xferId, checked) {
+  if (checked) _itSelected.add(xferId); else _itSelected.delete(xferId);
+  _itUpdateBulkBar();
+}
+function toggleInvTransferSelectAll(cb) {
+  document.querySelectorAll('#invTransferTableBody input[data-it-id]').forEach(el => {
+    el.checked = cb.checked;
+    const id = parseInt(el.dataset.itId, 10);
+    if (cb.checked) _itSelected.add(id); else _itSelected.delete(id);
+  });
+  _itUpdateBulkBar();
+}
+function clearInvTransferSelection() {
+  _itSelected.clear();
+  document.querySelectorAll('#invTransferTableBody input[data-it-id]').forEach(el => el.checked = false);
+  const sel = document.getElementById('it-select-all'); if (sel) sel.checked = false;
+  _itUpdateBulkBar();
+}
+function _itUpdateBulkBar() {
+  const bar = document.getElementById('it-bulk-bar');
+  if (!bar) return;
+  const n = _itSelected.size;
+  document.getElementById('it-bulk-count').textContent = n;
+  bar.style.display = n > 0 ? 'flex' : 'none';
+}
+
+async function applyInvTransferBulk() {
+  const cat = document.getElementById('it-bulk-category').value;
+  const ref = document.getElementById('it-bulk-ref').value;
+  if (!cat) { alert('Pilih category dulu.'); return; }
+  if (!_itSelected.size) { alert('Tidak ada baris dipilih.'); return; }
+  if (!confirm(`Apply category="${cat}"${ref?` + ref="${ref}"`:''} ke ${_itSelected.size} transfer?`)) return;
+  const now = new Date().toISOString();
+  const rows = [..._itSelected].map(id => ({
+    item_transfer_id: id,
+    category: cat,
+    ref_label: ref || null,
+    mapped_by: currentUser, mapped_at: now,
+    last_updated: now, last_updated_by: currentUser
+  }));
+  try {
+    const {error} = await sb.from('inventory_transfer_mappings').upsert(rows, {onConflict: 'item_transfer_id'});
+    if (error) throw error;
+    _itSelected.clear();
+    await loadInvTransfer();
+  } catch (e) {
+    console.error('applyInvTransferBulk:', e);
+    alert('Gagal: ' + (e.message || e));
+  }
+}
+
+async function clearInvTransferBulkClear() {
+  if (!_itSelected.size) { alert('Tidak ada baris dipilih.'); return; }
+  if (!confirm(`Unmap ${_itSelected.size} transfer?`)) return;
+  try {
+    const ids = [..._itSelected];
+    for (let i = 0; i < ids.length; i += 100) {
+      const chunk = ids.slice(i, i + 100);
+      const {error} = await sb.from('inventory_transfer_mappings').delete().in('item_transfer_id', chunk);
+      if (error) throw error;
+    }
+    _itSelected.clear();
+    await loadInvTransfer();
+  } catch (e) {
+    console.error('clearInvTransferBulkClear:', e);
+    alert('Gagal: ' + (e.message || e));
+  }
+}
+
+// ── Manual Jubelio sync trigger ──
+async function syncInvTransfer() {
+  if (!confirm('Trigger sync TRFO terbaru dari Jubelio? (incremental, ~5-15 detik)')) return;
+  const btn = event?.target;
+  const oldTxt = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Syncing...'; }
+  try {
+    const {data, error} = await sb.functions.invoke('sync-jubelio-transfer-outs', { body: {} });
+    if (error) throw error;
+    alert(`Sync selesai. fetched=${data.fetched}, missing=${data.missing}, headers=${data.headersUpserted}, items=${data.itemsInserted}`);
+    await loadInvTransfer();
+  } catch (e) {
+    console.error('syncInvTransfer:', e);
+    alert('Gagal: ' + (e.message || e));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = oldTxt; }
+  }
 }
 
 // ── DUPLICATE CHECK ──
