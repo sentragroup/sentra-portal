@@ -17094,14 +17094,11 @@ async function exportPDJubelioXlsx() {
 
   // Ask once for the brand + category path (applied to all rows).
   // User can leave both blank and fill in their copy of the template afterward.
-  const colName = (() => {
-    const c = allCollRows && allCollRows.find(x => x.id === pdCurrentCollectionId);
-    return c?.name || '';
-  })();
-  const ipName = (() => {
-    const c = allCollRows && allCollRows.find(x => x.id === pdCurrentCollectionId);
-    return c?.ip || c?.relatedIp || '';
-  })();
+  const _col = (typeof allColRows !== 'undefined' && Array.isArray(allColRows))
+    ? allColRows.find(x => x.id === pdCurrentCollectionId)
+    : null;
+  const colName = _col?.collectionName || '';
+  const ipName  = _col?.ipRelated || '';
 
   const brand = prompt(
     'Brand untuk semua produk?\n(kosongkan kalau gak perlu)',
