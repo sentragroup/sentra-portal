@@ -223,10 +223,12 @@ function showPage(name, el) {
   }
   document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
   document.querySelectorAll(".sb-item").forEach(i=>i.classList.remove("active"));
-  document.getElementById("page-"+name).classList.add("active");
+  // TRFO + TRFI share one page DOM (page-invtransfer) with mode swap
+  const _pageId = (name === "invtransferout" || name === "invtransferin") ? "invtransfer" : name;
+  document.getElementById("page-"+_pageId).classList.add("active");
   if (el) el.classList.add("active");
   const _c = document.querySelector('.content'); if (_c) _c.scrollTop = 0;
-  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",txmap:"Transaction Mapping",invtransfer:"Inventory Transfer"};
+  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",txmap:"Transaction Mapping",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -266,14 +268,16 @@ function showPage(name, el) {
     if(_te && !_te.value) _te.value=_to;
     loadTxMap();
   }
-  if (name==="invtransfer") {
-    // Default: last 90 days (TRFO are lower-volume than sales)
+  if (name==="invtransferout" || name==="invtransferin" || name==="invtransfer") {
+    // Default: last 90 days (transfers are lower-volume than sales)
     const _now=new Date(), _to=_now.toISOString().slice(0,10);
     const _fr=new Date(_now-90*864e5).toISOString().slice(0,10);
     const _fe=document.getElementById('it-from'), _te=document.getElementById('it-to');
     if(_fe && !_fe.value) _fe.value=_fr;
     if(_te && !_te.value) _te.value=_to;
-    loadInvTransfer();
+    // Legacy 'invtransfer' defaults to Out
+    const _mode = name === "invtransferin" ? "in" : "out";
+    switchInvTransferMode(_mode, null);
   }
   if (name==="collections") {
     // If restoring a collection detail from URL, immediately switch to detail view
@@ -17923,6 +17927,10 @@ async function clearTxBulkClear() {
 // Partner → ip_master.
 
 const IT_CATEGORIES = ['Wholesale', 'Consignment', 'Event', 'Partner'];
+// Jubelio convention: transfer_type "0" = OUT, "1" = IN (verified by item_transfer_no prefix).
+const IT_TYPE_OUT = '0';
+const IT_TYPE_IN  = '1';
+let _itMode = 'out';            // 'out' | 'in' — drives filter + title
 let _itRows = [];
 let _itTotalCount = 0;
 let _itPage = 0;
@@ -18010,6 +18018,43 @@ function _itDate(d) {
   return new Date(d).toLocaleDateString('id-ID', {day:'2-digit',month:'short',year:'2-digit'});
 }
 
+// Switch between Transfer Out / Transfer In modes. Resets pagination + filter
+// dropdowns so they get repopulated with the new mode's distinct locations.
+function switchInvTransferMode(mode, btn) {
+  _itMode = mode === 'in' ? 'in' : 'out';
+  _itPage = 0;
+  _itSelected.clear();
+
+  // Title + subtitle swap
+  const tEl = document.getElementById('it-page-title');
+  const sEl = document.getElementById('it-page-sub');
+  if (tEl) tEl.textContent = _itMode === 'in' ? 'Transfer In (TRFI)' : 'Transfer Out (TRFO)';
+  if (sEl) sEl.textContent = _itMode === 'in'
+    ? 'Barang masuk antar gudang — TRFI dari Jubelio, status delivery & putaway, plus mapping ke Wholesale / Consignment / Event / Partner.'
+    : 'Barang keluar antar gudang — TRFO dari Jubelio, status delivery & putaway, plus mapping ke Wholesale / Consignment / Event / Partner.';
+
+  // Topbar title also swaps
+  const tb = document.getElementById('topbarPage');
+  if (tb) tb.textContent = _itMode === 'in' ? 'Transfer In (TRFI)' : 'Transfer Out (TRFO)';
+
+  // Tab active state
+  document.getElementById('it-tab-out')?.classList.toggle('active', _itMode === 'out');
+  document.getElementById('it-tab-in') ?.classList.toggle('active', _itMode === 'in');
+
+  // URL hash so refresh restores the right mode (without polluting back stack)
+  const wantedHash = '#invtransfer' + (_itMode === 'in' ? 'in' : 'out');
+  if (location.hash !== wantedHash) history.replaceState(null, '', wantedHash);
+  sessionStorage.setItem('snt_page', _itMode === 'in' ? 'invtransferin' : 'invtransferout');
+
+  // Reset source/destination dropdowns — distinct values differ between TRFI/TRFO.
+  const sSel = document.getElementById('it-fil-source');
+  const dSel = document.getElementById('it-fil-destination');
+  if (sSel) { sSel.innerHTML = '<option value="">Semua source</option>'; sSel.value = ''; }
+  if (dSel) { dSel.innerHTML = '<option value="">Semua destination</option>'; dSel.value = ''; }
+
+  loadInvTransfer();
+}
+
 async function loadInvTransfer() {
   const tbody = document.getElementById('invTransferTableBody');
   if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="12">Memuat...</td></tr>`;
@@ -18028,8 +18073,9 @@ async function loadInvTransfer() {
   const pageSize = parseInt(document.getElementById('it-page-size').value, 10) || 100;
 
   try {
+    const typeWanted = _itMode === 'in' ? IT_TYPE_IN : IT_TYPE_OUT;
     const baseFilter = q => {
-      let qq = q;
+      let qq = q.eq('transfer_type', typeWanted);
       if (from) qq = qq.gte('transaction_date', from);
       if (to)   qq = qq.lte('transaction_date', to + 'T23:59:59');
       if (src)  qq = qq.eq('source', src);
@@ -18052,8 +18098,8 @@ async function loadInvTransfer() {
       baseFilter(sb.from('jubelio_transfer_outs').select(cols, {count:'exact'}))
         .order('transaction_date', {ascending:false})
         .range(from_n, to_n),
-      sb.from('jubelio_transfer_outs').select('source').not('source','is',null).limit(5000),
-      sb.from('jubelio_transfer_outs').select('destination').not('destination','is',null).limit(5000)
+      sb.from('jubelio_transfer_outs').select('source').eq('transfer_type', typeWanted).not('source','is',null).limit(5000),
+      sb.from('jubelio_transfer_outs').select('destination').eq('transfer_type', typeWanted).not('destination','is',null).limit(5000)
     ]);
     if (trfErr) throw trfErr;
     _itTotalCount = count || 0;
