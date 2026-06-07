@@ -334,6 +334,7 @@ function showPage(name, el) {
     const _fe=document.getElementById('rst-from'), _te=document.getElementById('rst-to');
     if(_fe && !_fe.value) _fe.value=_fr;
     if(_te && !_te.value) _te.value=_to;
+    loadRestockSupplierOptions();
     loadRestock();
   }
   if (name==="project") loadProjects();
@@ -21671,6 +21672,27 @@ function _rstParseSize(itemCode) {
   const SIZES = ['XS','S','M','L','XL','XXL','XXXL','4XL','5XL'];
   if (SIZES.includes(raw)) return raw;
   return raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
+}
+
+async function loadRestockSupplierOptions() {
+  const sel = document.getElementById('rst-supplier');
+  if (!sel) return;
+  try {
+    const suppliers = await loadJubSuppliers();
+    const cur = sel.value;
+    if (!suppliers.length) {
+      sel.innerHTML = '<option value="">Tidak ada supplier — sync dulu di Vendor Master</option>';
+      return;
+    }
+    sel.innerHTML = '<option value="">Pilih supplier...</option>' +
+      suppliers.map(s => {
+        const id = String(s.contact_id);
+        const name = (s.contact_name||'').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+        return `<option value="${id}"${cur===id?' selected':''}>${name}</option>`;
+      }).join('');
+  } catch (e) {
+    sel.innerHTML = `<option value="">Gagal muat supplier: ${(e.message||e).toString().slice(0,60)}</option>`;
+  }
 }
 
 async function loadRestock() {
