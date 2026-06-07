@@ -153,9 +153,6 @@
         <div class="sb-item" onclick="showPage('activitylog',this)" id="nav-activitylog">
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="12" rx="2"/><line x1="5" y1="6" x2="11" y2="6"/><line x1="5" y1="9" x2="11" y2="9"/><line x1="5" y1="12" x2="8" y2="12"/></svg>Activity Log
         </div>
-        <div class="sb-item" onclick="showPage('jubsales',this)" id="nav-jubsales">
-          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="4" width="12" height="9" rx="1"/><path d="M5 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1"/><line x1="8" y1="8" x2="8" y2="10"/><line x1="6" y1="9" x2="10" y2="9"/></svg>Offline Sales Log
-        </div>
         <div class="sb-item" onclick="showPage('team',this)" id="nav-team">
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="5" r="2.5"/><path d="M1 13c0-2.761 2.239-4 5-4s5 1.239 5 4"/><circle cx="12" cy="5" r="1.8"/><path d="M14.5 13c0-1.933-1.119-3-2.5-3"/></svg>Tim
         </div>
@@ -1085,61 +1082,6 @@
               <span style="font-size:11px;color:var(--g400);font-weight:normal" id="pbd-remaining-summary">—</span>
             </div>
             <div id="pbd-remaining" style="margin-top:10px">Memuat…</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- JUBELIO OFFLINE SALES -->
-      <div class="page" id="page-jubsales">
-        <div class="page-header">
-          <div><div class="page-title">Jubelio Offline Sales</div><div class="page-sub">Data sales order offline dari Jubelio, dengan status pemetaan ke Pop Up Booth.</div></div>
-        </div>
-        <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
-          <div class="stat-card"><div class="stat-num" id="jub-s-total">—</div><div class="stat-lbl">Total Orders</div></div>
-          <div class="stat-card"><div class="stat-num" id="jub-s-mapped">—</div><div class="stat-lbl">Mapped</div></div>
-          <div class="stat-card danger"><div class="stat-num" id="jub-s-unmapped">—</div><div class="stat-lbl">Unmapped</div></div>
-          <div class="stat-card"><div class="stat-num" id="jub-s-total-sales">—</div><div class="stat-lbl">Grand Total</div></div>
-        </div>
-        <div id="jubtab-list">
-          <div class="filter-panel">
-            <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="clearJubFilters()">✕ Reset</button></div>
-            <div class="filter-grid">
-              <select class="f-select" id="jub-fil-location" onchange="loadJubSales()">
-                <option value="">Semua Gudang</option>
-              </select>
-              <select class="f-select" id="jub-fil-status" onchange="loadJubSales()">
-                <option value="">Semua Status Transaksi</option>
-              </select>
-              <input class="f-select" type="date" id="jub-fil-from" onchange="loadJubSales()" title="Dari tanggal">
-              <input class="f-select" type="date" id="jub-fil-to" onchange="loadJubSales()" title="Sampai tanggal">
-              <select class="f-select" id="jub-fil-mapped" onchange="applyJubFilters()">
-                <option value="">Semua Mapped Status</option>
-                <option value="mapped">Mapped</option>
-                <option value="unmapped">Unmapped</option>
-              </select>
-              <input class="search-box" type="text" id="jubSearch" placeholder="Cari order ID, nama..." oninput="applyJubFilters()" style="width:100%">
-            </div>
-          </div>
-          <div class="table-toolbar">
-            <button class="btn-refresh" onclick="loadJubSales()">↻ Refresh</button>
-            <div class="tcount" id="jub-tcount">— entri</div>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead id="jub-thead">
-                <tr>
-                  <th class="sortable" data-col="salesorderId" onclick="sortJubBy('salesorderId')">Sales Order ID</th>
-                  <th class="sortable" data-col="shippingFullName" onclick="sortJubBy('shippingFullName')">Nama Penerima</th>
-                  <th class="sortable" data-col="transactionDate" onclick="sortJubBy('transactionDate')">Tgl Transaksi</th>
-                  <th class="sortable" data-col="locationName" onclick="sortJubBy('locationName')">Gudang</th>
-                  <th class="sortable" data-col="internalStatus" onclick="sortJubBy('internalStatus')">Status</th>
-                  <th class="sortable" data-col="grandTotal" onclick="sortJubBy('grandTotal')">Grand Total</th>
-                  <th>Note</th>
-                  <th>Mapped</th>
-                </tr>
-              </thead>
-              <tbody id="jubTableBody"><tr><td class="empty-td" colspan="8">Klik "Semua" untuk memuat data.</td></tr></tbody>
-            </table>
           </div>
         </div>
       </div>

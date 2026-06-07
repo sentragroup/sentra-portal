@@ -138,7 +138,7 @@ function enterApp(user, freshLogin) {
   // Restore page: prefer URL hash, fall back to sessionStorage
   let _pg = location.hash.slice(1).split('/')[0];
   if (!_pg) _pg = sessionStorage.getItem('snt_page') || '';
-  const _pages = ['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','popupbooth','activitylog','jubsales','mesign','po','stockmovement','productmap','productdev','collections','designermaster','dsgworkflow','warehousekpi','stockadjmgmt','returnreason','tradorders','invcheck','salesperf','reminders','announcements','marte','royalty','income','contentplan','adsmgmt','mktactivation','publication','photoshoot','kolmgmt','txmap'];
+  const _pages = ['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','popupbooth','activitylog','mesign','po','stockmovement','productmap','productdev','collections','designermaster','dsgworkflow','warehousekpi','stockadjmgmt','returnreason','tradorders','invcheck','salesperf','reminders','announcements','marte','royalty','income','contentplan','adsmgmt','mktactivation','publication','photoshoot','kolmgmt','txmap'];
   if (_pages.includes(_pg))
     showPage(_pg, document.getElementById('nav-'+_pg));
 }
@@ -172,7 +172,7 @@ const ACCESS_MODULES = [
   {key:'productmap',label:'Product Mapping'},{key:'leads',label:'Leads Management'},
   {key:'collections',label:'Collection Development'},{key:'dsgworkflow',label:'Designer Workflow'},
   {key:'salesreport',label:'Account Report'},{key:'popupbooth',label:'Pop Up Booth'},
-  {key:'jubsales',label:'Offline Sales Log'},{key:'mesign',label:'Mekari Sign'},
+  {key:'mesign',label:'Mekari Sign'},
   {key:'productdev',label:'Product Development'},{key:'restock',label:'Create PO Restock'},
   {key:'po',label:'Purchase Orders'},{key:'stockmovement',label:'Stock Reconcile'},
   {key:'warehousekpi',label:'Warehouse KPI'},{key:'stockadjmgmt',label:'Stock Adjustment'},
@@ -228,7 +228,7 @@ function showPage(name, el) {
   document.getElementById("page-"+_pageId).classList.add("active");
   if (el) el.classList.add("active");
   const _c = document.querySelector('.content'); if (_c) _c.scrollTop = 0;
-  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",jubsales:"Offline Sales Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",txmap:"Transaction Mapping",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)"};
+  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",txmap:"Transaction Mapping",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -247,7 +247,6 @@ function showPage(name, el) {
   if (name==="distpartner") loadDistPartner();
   if (name==="popupbooth") loadPopupBooth();
   if (name==="activitylog") loadActivityLog();
-  if (name==="jubsales") loadJubSales();
   if (name==="mesign") loadMekariEsign();
   if (name==="po") loadPO();
   if (name==="stockmovement" && !_srcRows.length) loadStockMovement();
@@ -3011,7 +3010,7 @@ function renderNotifDropdown(items) {
 async function handleNotif(id, module, recordId) {
   await sb.from("notifications").update({is_read:true}).eq("id",id);
   document.getElementById("notif-dropdown").style.display = "none";
-  const pageMap = {"Agreement":"agreement","IP Master":"ipmaster","Royalty Recipients":"recipients","Brand Master":"brandmaster","Sales Report":"salesreport","Account Report":"salesreport","Leads Tracker":"leads","Leads Management":"leads","Distribution Partner":"distpartner","Pop Up Booth":"popupbooth","Jubelio Offline Sales":"jubsales","reminders":"reminders","announcements":"announcements"};
+  const pageMap = {"Agreement":"agreement","IP Master":"ipmaster","Royalty Recipients":"recipients","Brand Master":"brandmaster","Sales Report":"salesreport","Account Report":"salesreport","Leads Tracker":"leads","Leads Management":"leads","Distribution Partner":"distpartner","Pop Up Booth":"popupbooth","reminders":"reminders","announcements":"announcements"};
   const page = pageMap[module];
   if (page) {
     showPage(page, document.getElementById("nav-"+page));
@@ -3101,165 +3100,6 @@ function renderLogTable(rows) {
     </tr>`;
   }).join("");
 }
-
-// ── JUBELIO OFFLINE SALES ──
-let allJubRows = [];
-let jubSort = {col:null,dir:'asc'};
-function sortJubBy(c){jubSort.dir=jubSort.col===c?(jubSort.dir==='asc'?'desc':'asc'):'asc';jubSort.col=c;applyJubFilters();}
-
-function mapJub(r) {
-  return {
-    rowIndex:r.salesorder_id, id:r.salesorder_id,
-    salesorderId:r.salesorder_id!=null?String(r.salesorder_id):"",
-    shippingFullName:r.shipping_full_name||"",
-    transactionDate:r.transaction_date||"",
-    internalStatus:r.internal_status||"",
-    grandTotal:r.grand_total!=null?r.grand_total:"",
-    locationName:r.location_name||"",
-    note:r.note||""
-  };
-}
-
-// Gudang yang di-exclude dari "offline sales" (online & event warehouse)
-const JUB_EXCLUDE_LOCATIONS = ["Gudang Bintaro","Gudang Marte"];
-const JUB_PAGE = 1000;
-
-// Fetch all pages from jubelio_sales_orders with server-side filters applied
-async function fetchJubPages(filters={}){
-  const cols = "salesorder_id,salesorder_no,shipping_full_name,transaction_date,internal_status,grand_total,location_name,note";
-  const excl = `(${JUB_EXCLUDE_LOCATIONS.map(l=>`"${l}"`).join(",")})`;
-  let all=[], from=0;
-  while(true){
-    let q = sb.from("jubelio_sales_orders").select(cols)
-      .not("location_name","in",excl)
-      .order("transaction_date",{ascending:false})
-      .range(from, from+JUB_PAGE-1);
-    if(filters.location) q=q.eq("location_name",filters.location);
-    if(filters.status)   q=q.eq("internal_status",filters.status);
-    if(filters.from)     q=q.gte("transaction_date",filters.from);
-    if(filters.to)       q=q.lte("transaction_date",filters.to+"T23:59:59");
-    const {data,error}=await q;
-    if(error) throw error;
-    all=all.concat(data||[]);
-    if(!data||data.length<JUB_PAGE) break;
-    from+=JUB_PAGE;
-  }
-  return all;
-}
-
-async function loadJubSales() {
-  const tbody = document.getElementById("jubTableBody");
-  tbody.innerHTML = `<tr><td class="empty-td" colspan="7">Memuat...</td></tr>`;
-  try {
-    const filters = {
-      location: document.getElementById("jub-fil-location")?.value||"",
-      status:   document.getElementById("jub-fil-status")?.value||"",
-      from:     document.getElementById("jub-fil-from")?.value||"",
-      to:       document.getElementById("jub-fil-to")?.value||""
-    };
-    const [jubRows, {data:pbData}] = await Promise.all([
-      fetchJubPages(filters),
-      sb.from("popup_booths").select("id_pesanan_jubelio,event_name")
-    ]);
-    allJubRows = jubRows.map(mapJub);
-    // Build map: salesorder_id → event_name
-    window._jubMappedToMap = {};
-    (pbData||[]).forEach(r=>{
-      if (r.id_pesanan_jubelio!=null && String(r.id_pesanan_jubelio).trim())
-        window._jubMappedToMap[String(r.id_pesanan_jubelio).trim()] = r.event_name||"";
-    });
-    // Populate location + status dropdowns from loaded data (preserve selection)
-    _populateJubDropdown("jub-fil-location", allJubRows.map(r=>r.locationName), "Semua Gudang");
-    _populateJubDropdown("jub-fil-status",   allJubRows.map(r=>r.internalStatus), "Semua Status Transaksi");
-    renderJubStats(allJubRows);
-    applyJubFilters();
-  } catch(e) {
-    tbody.innerHTML = `<tr><td class="empty-td" colspan="7">Gagal memuat: ${e.message||e}</td></tr>`;
-  }
-}
-
-function _populateJubDropdown(id, values, placeholder){
-  const sel = document.getElementById(id);
-  if(!sel) return;
-  const prev = sel.value;
-  const opts = [...new Set(values.filter(Boolean))].sort();
-  sel.innerHTML = `<option value="">${placeholder}</option>`
-    + opts.map(v=>`<option value="${v}"${v===prev?" selected":""}>${v}</option>`).join("");
-}
-
-function getJubMappedTo(row) {
-  const sid = row.salesorderId!=null ? String(row.salesorderId).trim() : "";
-  if (!sid) return null;
-  const m = window._jubMappedToMap||{};
-  return sid in m ? (m[sid]||"(Event)") : null;
-}
-
-function renderJubStats(rows) {
-  const mapped = rows.filter(r=>getJubMappedTo(r)!==null).length;
-  const unmapped = rows.length - mapped;
-  const totalSales = rows.reduce((a,r)=>a+(r.grandTotal!==""&&r.grandTotal!=null?Number(r.grandTotal):0),0);
-  document.getElementById("jub-s-total").textContent = rows.length;
-  document.getElementById("jub-s-mapped").textContent = mapped;
-  document.getElementById("jub-s-unmapped").textContent = unmapped;
-  document.getElementById("jub-s-total-sales").textContent = totalSales ? "Rp "+totalSales.toLocaleString("id-ID") : "—";
-}
-
-// Client-side only: mapped filter + text search on already-loaded rows
-function applyJubFilters() {
-  const mapFil = document.getElementById("jub-fil-mapped")?.value||"";
-  const q = (document.getElementById("jubSearch")?.value||"").toLowerCase();
-  let rows = allJubRows;
-  if (mapFil==="mapped")   rows = rows.filter(r=>getJubMappedTo(r)!==null);
-  else if (mapFil==="unmapped") rows = rows.filter(r=>getJubMappedTo(r)===null);
-  if (q) rows = rows.filter(r=>
-    (r.salesorderId||"").toLowerCase().includes(q)||
-    (r.shippingFullName||"").toLowerCase().includes(q)||
-    (r.internalStatus||"").toLowerCase().includes(q)||
-    (r.locationName||"").toLowerCase().includes(q)
-  );
-  renderJubStats(rows);
-  renderJubTable(rows);
-}
-
-function clearJubFilters() {
-  ["jub-fil-location","jub-fil-status","jub-fil-from","jub-fil-to","jub-fil-mapped"].forEach(id=>{
-    const el=document.getElementById(id); if(el) el.value="";
-  });
-  const s=document.getElementById("jubSearch"); if(s) s.value="";
-  loadJubSales();
-}
-
-function renderJubTable(rows) {
-  rows = sortBy(rows, jubSort.col, jubSort.dir);
-  updateSortTh("jub-thead", jubSort.col, jubSort.dir);
-  const tbody = document.getElementById("jubTableBody");
-  document.getElementById("jub-tcount").textContent = rows.length+" entri";
-  if (!rows.length) { tbody.innerHTML=`<tr><td class="empty-td" colspan="8">Tidak ada data.</td></tr>`; return; }
-  tbody.innerHTML = rows.map(r => {
-    const mappedTo = getJubMappedTo(r);
-    const mappedCell = mappedTo !== null
-      ? `<span class="pill p-active" style="font-size:11px">Mapped to ${(mappedTo).replace(/</g,"&lt;")}</span>`
-      : `<span style="color:#c0392b;font-size:11px;font-weight:500">Unmapped</span>`;
-    const gt = (r.grandTotal!==""&&r.grandTotal!=null) ? `Rp ${Number(r.grandTotal).toLocaleString("id-ID")}` : "—";
-    const sidCell = r.salesorderId
-      ? `<a href="https://v2.jubelio.com/sales/transactions/orders/detail/${r.salesorderId}" target="_blank" style="font-family:var(--mono);font-size:12px;color:#3C3489;text-decoration:none">${r.salesorderId}</a>`
-      : "—";
-    const locPill = r.locationName
-      ? `<span class="pill ${r.locationName==="Gudang Marte"?"p-signings":"p-draft"}" style="font-size:11px">${r.locationName}</span>`
-      : "—";
-    return `<tr>
-      <td>${sidCell}</td>
-      <td>${r.shippingFullName||"—"}</td>
-      <td style="white-space:nowrap;font-size:12px">${fmtDate(r.transactionDate)}</td>
-      <td>${locPill}</td>
-      <td><span class="pill p-draft" style="font-size:11px">${r.internalStatus||"—"}</span></td>
-      <td style="white-space:nowrap;font-size:12px">${gt}</td>
-      <td style="font-size:12px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(r.note||'').replace(/"/g,'&quot;')}">${r.note||"—"}</td>
-      <td>${mappedCell}</td>
-    </tr>`;
-  }).join("");
-}
-
 
 // ── MEKARI ESIGN ──
 let allMekariRows = [];
