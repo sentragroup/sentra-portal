@@ -15873,17 +15873,22 @@ function pdComputeRatio(parent, subs) {
 
 async function loadPDVendorList() {
   try {
-    const [{data:poData},{data:pdData},{data:vmData}] = await Promise.all([
+    const [{data:poData},{data:pdData},{data:vmData},{data:jubData}] = await Promise.all([
       sb.from('jubelio_purchase_orders').select('supplier_name').not('supplier_name','is',null).limit(5000),
       sb.from('product_dev').select('vendor').not('vendor','is',null).limit(5000),
-      sb.from('vendor_master').select('vendor_name').limit(5000)
+      sb.from('vendor_master').select('vendor_name,jubelio_contact_id').limit(5000),
+      sb.from('jubelio_contacts').select('contact_id,contact_name').eq('contact_type', 1).limit(5000),
     ]);
+    const jubById = new Map((jubData||[]).map(j => [j.contact_id, j.contact_name]));
     const set = new Set();
     (poData||[]).forEach(r => { if (r.supplier_name) set.add(r.supplier_name.trim()); });
     (pdData||[]).forEach(r => { if (r.vendor) set.add(r.vendor.trim()); });
-    // Vendors with full master data sort first (prefixed * for visual)
-    const masterSet = new Set((vmData||[]).map(r => r.vendor_name.trim()));
-    (vmData||[]).forEach(r => { if (r.vendor_name) set.add(r.vendor_name.trim()); });
+    // Master vendors: use Jubelio-synced name when linked, else stored name
+    const masterSet = new Set();
+    (vmData||[]).forEach(r => {
+      const name = (r.jubelio_contact_id && jubById.get(r.jubelio_contact_id)) || r.vendor_name;
+      if (name) { set.add(name.trim()); masterSet.add(name.trim()); }
+    });
     pdAllVendors = [...set].filter(Boolean).sort((a,b) => {
       const am = masterSet.has(a), bm = masterSet.has(b);
       if (am && !bm) return -1; if (!am && bm) return 1;
@@ -17513,12 +17518,33 @@ async function exportPDPurchaseOrderCsv() {
     return;
   }
 
-  // Load vendor master once
-  if (!allVMRows.length) {
-    try { const {data} = await sb.from('vendor_master').select('*'); allVMRows = (data||[]).map(mapVM); }
-    catch (e) { console.error('vendor master load:', e); }
-  }
-  const vmByName = new Map(allVMRows.map(v => [v.vendorName.toLowerCase(), v]));
+  // Load vendor master + Jubelio supplier mirror in parallel
+  if (!allVMRows.length) await loadVendorMaster();
+  if (!allJubSuppliers.length) await loadJubSuppliers();
+  const jubById = new Map(allJubSuppliers.map(s => [s.contact_id, s]));
+
+  // Build vendor lookup: vendor_name (case-insensitive) → resolved vendor data
+  // Prefer Jubelio-synced data when linked
+  const vendorResolve = (lookupName) => {
+    const k = (lookupName||'').toLowerCase().trim();
+    if (!k) return null;
+    const vm = allVMRows.find(v => {
+      const synced = v.jubelioContactId ? (jubById.get(v.jubelioContactId)?.contact_name||'') : '';
+      return (synced.toLowerCase() === k) || (v.vendorName.toLowerCase() === k);
+    });
+    if (!vm) return null;
+    const j = vm.jubelioContactId ? jubById.get(vm.jubelioContactId) : null;
+    return {
+      vm,
+      jubelioContactId: vm.jubelioContactId,
+      vendorName: j?.contact_name || vm.vendorName,
+      email: j?.email || vm.email || '',
+      phone: j?.phone || j?.mobile || vm.phone || '',
+      defaultLocation: vm.defaultLocation || 'Pusat',
+      defaultTax: vm.defaultTax || 'PPN',
+      defaultTaxIncluded: vm.defaultTaxIncluded === true,
+    };
+  };
 
   // Group variants by vendor name
   const byVendor = new Map();
@@ -17528,16 +17554,16 @@ async function exportPDPurchaseOrderCsv() {
     byVendor.get(key).push(v);
   }
 
-  // Check that every vendor exists in vendor master with phone + location
+  // Validate every vendor — relaxed: name must be resolvable, defaultLocation must be set.
+  // Phone is no longer hard-required (Jubelio supplier records often lack phone).
   const missingVendors = [];
   for (const vendorName of byVendor.keys()) {
-    const vm = vmByName.get(vendorName.toLowerCase());
-    if (!vm) { missingVendors.push(`• ${vendorName}: belum ada di Vendor Master`); continue; }
-    if (!vm.phone) { missingVendors.push(`• ${vendorName}: No. Telp kosong di Vendor Master`); continue; }
-    if (!vm.defaultLocation) { missingVendors.push(`• ${vendorName}: Default Lokasi kosong`); continue; }
+    const res = vendorResolve(vendorName);
+    if (!res) { missingVendors.push(`• ${vendorName}: belum ada di Vendor Master`); continue; }
+    if (!res.defaultLocation) { missingVendors.push(`• ${vendorName}: Default Lokasi kosong`); continue; }
   }
   if (missingVendors.length) {
-    alert(`Ada vendor yang belum lengkap di Vendor Master:\n\n${missingVendors.join('\n')}\n\nLengkapi dulu di modul Vendor Master.`);
+    alert(`Ada vendor yang belum lengkap di Vendor Master:\n\n${missingVendors.join('\n')}\n\nLengkapi dulu di modul Vendor Master (Database → Vendor Master).`);
     return;
   }
 
@@ -17553,19 +17579,21 @@ async function exportPDPurchaseOrderCsv() {
   const colName = _col?.collectionName || '';
 
   const rows = [HEADERS];
+  let syncedCount = 0, manualCount = 0;
   for (const [vendorName, items] of byVendor) {
-    const vm = vmByName.get(vendorName.toLowerCase());
+    const r = vendorResolve(vendorName);
+    if (r.jubelioContactId) syncedCount++; else manualCount++;
     // Header fields (first item only)
     const headerCells = [
       '[auto]',                                  // No. Pesanan
       '',                                        // No. Ref Pemasok
       today,                                     // Tanggal
       'WIB',                                     // Zona Waktu
-      vm.vendorName,                             // Nama Pemasok
-      vm.email || '',                            // Email
-      vm.phone,                                  // No. Telp
-      vm.defaultTaxIncluded ? 'TRUE' : 'FALSE',  // Harga Termasuk Pajak
-      vm.defaultLocation,                        // Lokasi
+      r.vendorName,                              // Nama Pemasok (from Jubelio if linked)
+      r.email || '',                             // Email
+      r.phone || '',                             // No. Telp (may be empty)
+      r.defaultTaxIncluded ? 'TRUE' : 'FALSE',   // Harga Termasuk Pajak
+      r.defaultLocation,                         // Lokasi
       colName ? `Production order — ${colName}` : 'Production order',  // Keterangan
     ];
     items.forEach((v, idx) => {
@@ -17603,7 +17631,10 @@ async function exportPDPurchaseOrderCsv() {
   document.body.appendChild(a); a.click();
   setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 100);
 
-  alert(`✓ ${byVendor.size} PO di-export (${liveVariants.length} item lines) ke ${fname}.\n\nNext: buka Jubelio → Pesanan Pembelian → Import → upload file ini.`);
+  const srcSummary = [];
+  if (syncedCount) srcSummary.push(`${syncedCount} vendor synced dari Jubelio`);
+  if (manualCount) srcSummary.push(`${manualCount} manual`);
+  alert(`✓ ${byVendor.size} PO di-export (${liveVariants.length} item lines) ke ${fname}.\n${srcSummary.join(', ')}\n\nNext: buka Jubelio → Pesanan Pembelian → Import → upload file ini.`);
 }
 
 // ── ROYALTY REPORT ──
@@ -19850,10 +19881,15 @@ async function syncInvTransfer() {
 
 // ── VENDOR MASTER ──
 let allVMRows = [];
+let allJubSuppliers = [];   // jubelio_contacts where contact_type=1
+let vmDetailCurrentId = null;
+let vmCurrentMode = 'jubelio'; // 'jubelio' | 'manual'
+
 function mapVM(r) {
   return {
     id: r.id, rowIndex: r.id,
     vendorName: r.vendor_name || '',
+    jubelioContactId: r.jubelio_contact_id || null,
     contactPerson: r.contact_person || '',
     email: r.email || '',
     phone: r.phone || '',
@@ -19865,7 +19901,33 @@ function mapVM(r) {
     notes: r.notes || '',
     dateAdded: r.date_added, addedBy: r.added_by,
     lastUpdated: r.last_updated, lastUpdatedBy: r.last_updated_by,
+    // synced fields filled in loadVendorMaster() from jubelio_contacts join
+    syncedName: null, syncedContact: null, syncedEmail: null, syncedPhone: null,
+    syncedNpwp: null, syncedCity: null, syncedPaymentTerm: null,
   };
+}
+
+function vmSyncedField(r, field) {
+  // Returns synced value if linked to Jubelio, else falls back to manual field
+  if (r.jubelioContactId) {
+    switch (field) {
+      case 'name': return r.syncedName || r.vendorName;
+      case 'contact': return r.syncedContact || r.contactPerson;
+      case 'email': return r.syncedEmail || r.email;
+      case 'phone': return r.syncedPhone || r.phone;
+      case 'npwp': return r.syncedNpwp || r.npwp;
+      case 'address': return r.syncedCity || r.address;
+    }
+  }
+  switch (field) {
+    case 'name': return r.vendorName;
+    case 'contact': return r.contactPerson;
+    case 'email': return r.email;
+    case 'phone': return r.phone;
+    case 'npwp': return r.npwp;
+    case 'address': return r.address;
+  }
+  return '';
 }
 
 function switchVMTab(name, el) {
@@ -19874,15 +19936,60 @@ function switchVMTab(name, el) {
   document.getElementById('vmtab-new').style.display = name === 'new' ? 'block' : 'none';
   document.getElementById('vmtab-list').style.display = name === 'list' ? 'block' : 'none';
   if (name === 'list') loadVendorMaster();
+  if (name === 'new') loadJubSuppliers(); // preload picker
+}
+
+async function loadJubSuppliers() {
+  if (allJubSuppliers.length) return allJubSuppliers;
+  try {
+    const {data, error} = await sb.from('jubelio_contacts')
+      .select('contact_id,contact_name,primary_contact,email,phone,mobile,npwp,billing_city,billing_address,payment_term')
+      .eq('contact_type', 1)
+      .order('contact_name');
+    if (error) throw error;
+    allJubSuppliers = data || [];
+    return allJubSuppliers;
+  } catch (e) {
+    console.error('loadJubSuppliers:', e);
+    allJubSuppliers = [];
+    return [];
+  }
 }
 
 async function loadVendorMaster() {
   const tbody = document.getElementById('vmTableBody');
   if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="7">Memuat...</td></tr>`;
   try {
-    const {data, error} = await sb.from('vendor_master').select('*').order('vendor_name');
-    if (error) throw error;
-    allVMRows = (data||[]).map(mapVM);
+    // Load vendors + supplier mirror + variant counts (for "SKU diorder" column) in parallel
+    const [vmRes, jubRes, pdRes] = await Promise.all([
+      sb.from('vendor_master').select('*').order('vendor_name'),
+      loadJubSuppliers(),
+      sb.from('product_dev').select('vendor').not('vendor','is',null).limit(20000),
+    ]);
+    if (vmRes.error) throw vmRes.error;
+    const jubById = new Map((jubRes||[]).map(s => [s.contact_id, s]));
+    allVMRows = (vmRes.data||[]).map(mapVM).map(r => {
+      if (r.jubelioContactId) {
+        const j = jubById.get(r.jubelioContactId);
+        if (j) {
+          r.syncedName = j.contact_name; r.syncedContact = j.primary_contact;
+          r.syncedEmail = j.email; r.syncedPhone = j.phone || j.mobile;
+          r.syncedNpwp = j.npwp; r.syncedCity = j.billing_city;
+          r.syncedPaymentTerm = j.payment_term;
+        }
+      }
+      return r;
+    });
+    // SKU counts per vendor name (use synced name first, fall back to vendor_name)
+    const pdCounts = new Map();
+    (pdRes.data||[]).forEach(p => {
+      const k = (p.vendor||'').trim().toLowerCase();
+      if (k) pdCounts.set(k, (pdCounts.get(k)||0) + 1);
+    });
+    allVMRows.forEach(r => {
+      const name = vmSyncedField(r, 'name');
+      r.skuCount = pdCounts.get((name||'').toLowerCase()) || 0;
+    });
     renderVMStats();
     applyVMFilters();
   } catch (e) {
@@ -19892,21 +19999,23 @@ async function loadVendorMaster() {
 
 function renderVMStats() {
   const total = allVMRows.length;
-  const withContact = allVMRows.filter(r => r.phone && r.email).length;
-  const incomplete = allVMRows.filter(r => !r.phone || !r.defaultLocation).length;
+  const synced = allVMRows.filter(r => r.jubelioContactId).length;
+  const withSku = allVMRows.filter(r => (r.skuCount||0) > 0).length;
   document.getElementById('vm-s-total').textContent = total;
-  document.getElementById('vm-s-with-contact').textContent = withContact;
-  document.getElementById('vm-s-incomplete').textContent = incomplete;
+  const el2 = document.getElementById('vm-s-with-contact');
+  if (el2) { el2.textContent = synced; el2.parentElement.querySelector('.stat-lbl').textContent = 'Synced dari Jubelio'; }
+  const el3 = document.getElementById('vm-s-incomplete');
+  if (el3) { el3.textContent = withSku; el3.parentElement.querySelector('.stat-lbl').textContent = 'Punya SKU di Product Dev'; }
 }
 
 function applyVMFilters() {
   const q = (document.getElementById('vmSearch')?.value || '').toLowerCase();
   let rows = allVMRows;
   if (q) rows = rows.filter(r =>
-    (r.vendorName||'').toLowerCase().includes(q) ||
-    (r.contactPerson||'').toLowerCase().includes(q) ||
-    (r.email||'').toLowerCase().includes(q) ||
-    (r.phone||'').toLowerCase().includes(q)
+    (vmSyncedField(r,'name')||'').toLowerCase().includes(q) ||
+    (vmSyncedField(r,'contact')||'').toLowerCase().includes(q) ||
+    (vmSyncedField(r,'email')||'').toLowerCase().includes(q) ||
+    (vmSyncedField(r,'phone')||'').toLowerCase().includes(q)
   );
   renderVMTable(rows);
 }
@@ -19916,64 +20025,132 @@ function renderVMTable(rows) {
   const tc = document.getElementById('vm-tcount');
   if (tc) tc.textContent = `${rows.length} entri`;
   if (!rows.length) {
-    tbody.innerHTML = `<tr><td class="empty-td" colspan="7">Tidak ada vendor.</td></tr>`;
+    tbody.innerHTML = `<tr><td class="empty-td" colspan="7">Tidak ada vendor. Klik tab "Tambah" untuk pilih dari Jubelio.</td></tr>`;
     return;
   }
   tbody.innerHTML = rows.map(r => {
+    const name = vmSyncedField(r, 'name');
+    const contact = vmSyncedField(r, 'contact');
+    const phone = vmSyncedField(r, 'phone');
     const taxPill = `<span class="pill ${r.defaultTax==='PPN'?'p-signings':'p-draft'}" style="font-size:11px">${r.defaultTax}${r.defaultTaxIncluded?' (incl)':''}</span>`;
+    const srcPill = r.jubelioContactId
+      ? `<span class="pill p-active" style="font-size:10px" title="Jubelio contact_id: ${r.jubelioContactId}">✓ Jubelio</span>`
+      : `<span class="pill p-draft" style="font-size:10px">Manual</span>`;
+    const skuCell = r.skuCount > 0
+      ? `<strong style="color:var(--black)">${r.skuCount}</strong> <span style="font-size:10px;color:var(--g400)">SKU</span>`
+      : `<span style="color:var(--g400);font-size:11px">—</span>`;
     return `<tr>
-      <td><strong>${(r.vendorName||'').replace(/</g,'&lt;')}</strong></td>
-      <td style="font-size:12px">${(r.contactPerson||'—').replace(/</g,'&lt;')}</td>
-      <td class="mono" style="font-size:11px">${(r.email||'—').replace(/</g,'&lt;')}</td>
-      <td class="mono" style="font-size:11px">${(r.phone||'—').replace(/</g,'&lt;')}</td>
+      <td><a href="#" onclick="openVMDetail('${r.id}');return false" style="color:var(--black);text-decoration:none;font-weight:600">${(name||'(belum diset)').replace(/</g,'&lt;')}</a></td>
+      <td>${srcPill}</td>
+      <td style="font-size:12px">
+        <div>${(contact||'—').replace(/</g,'&lt;')}</div>
+        <div class="mono" style="font-size:11px;color:var(--g600)">${(phone||'—').replace(/</g,'&lt;')}</div>
+      </td>
       <td style="font-size:11px">${(r.defaultLocation||'—').replace(/</g,'&lt;')}</td>
       <td>${taxPill}</td>
+      <td style="font-size:12px">${skuCell}</td>
       <td>
-        <button class="btn-icon" onclick="openVMEdit('${r.id}')">Edit</button>
+        <button class="btn-icon" onclick="openVMDetail('${r.id}')">Detail</button>
         <button class="btn-icon" style="color:#c0392b" onclick="deleteVM('${r.id}')">Del</button>
-      </td>
-    </tr>
-    <tr id="vm-edit-row-${r.id}" style="display:none">
-      <td colspan="7" style="padding:0 12px 12px">
-        <div class="edit-row-form">
-          <div class="edit-row-grid">
-            <div class="fg"><label>Nama Vendor *</label><input id="vme-name-${r.id}" type="text" value="${(r.vendorName||'').replace(/"/g,'&quot;')}"></div>
-            <div class="fg"><label>Contact Person</label><input id="vme-contact-${r.id}" type="text" value="${(r.contactPerson||'').replace(/"/g,'&quot;')}"></div>
-            <div class="fg"><label>Email</label><input id="vme-email-${r.id}" type="email" value="${(r.email||'').replace(/"/g,'&quot;')}"></div>
-            <div class="fg"><label>No. Telp *</label><input id="vme-phone-${r.id}" type="text" value="${(r.phone||'').replace(/"/g,'&quot;')}"></div>
-            <div class="fg full"><label>Alamat</label><input id="vme-address-${r.id}" type="text" value="${(r.address||'').replace(/"/g,'&quot;')}"></div>
-            <div class="fg"><label>NPWP</label><input id="vme-npwp-${r.id}" type="text" value="${(r.npwp||'').replace(/"/g,'&quot;')}"></div>
-            <div class="fg"><label>Default Lokasi</label>
-              <select id="vme-loc-${r.id}">
-                ${['Pusat','Gudang Bintaro','Gudang Penerimaan Barang','Gudang Offline','Gudang Marte'].map(l =>
-                  `<option value="${l}"${r.defaultLocation===l?' selected':''}>${l==='Pusat'?'Gudang Pusat':l}</option>`).join('')}
-              </select>
-            </div>
-            <div class="fg"><label>Default Pajak</label>
-              <select id="vme-tax-${r.id}">
-                <option value="PPN"${r.defaultTax==='PPN'?' selected':''}>PPN (11%)</option>
-                <option value="No Tax"${r.defaultTax==='No Tax'?' selected':''}>No Tax</option>
-              </select>
-            </div>
-            <div class="fg"><label>Harga Termasuk Pajak?</label>
-              <select id="vme-tax-incl-${r.id}">
-                <option value="false"${!r.defaultTaxIncluded?' selected':''}>FALSE</option>
-                <option value="true"${r.defaultTaxIncluded?' selected':''}>TRUE</option>
-              </select>
-            </div>
-            <div class="fg full"><label>Notes</label><input id="vme-notes-${r.id}" type="text" value="${(r.notes||'').replace(/"/g,'&quot;')}"></div>
-          </div>
-          <div class="edit-row-btns">
-            <button class="btn-save" onclick="saveVMEdit('${r.id}')">Simpan</button>
-            <button class="btn-cancel" onclick="closeVMEdit('${r.id}')">Batal</button>
-          </div>
-        </div>
       </td>
     </tr>`;
   }).join('');
 }
 
+// ── VENDOR MASTER — form mode + picker ──
+function vmSwitchMode(mode) {
+  vmCurrentMode = mode;
+  document.getElementById('vm-mode-jubelio').style.display = mode === 'jubelio' ? 'block' : 'none';
+  document.getElementById('vm-mode-manual').style.display = mode === 'manual' ? 'block' : 'none';
+  if (mode === 'jubelio') { vmClearJubSelection(); }
+  if (mode === 'manual') { document.getElementById('vm-jub-contact-id').value = ''; }
+}
+
+async function openVMJubPicker(scope) {
+  const modal = document.getElementById('vmJubPickerModal');
+  modal.dataset.scope = scope || '';
+  modal.style.display = 'flex';
+  await loadJubSuppliers();
+  document.getElementById('vm-jub-picker-count').textContent = allJubSuppliers.length;
+  document.getElementById('vm-jub-picker-search').value = '';
+  renderVMJubPickerList();
+}
+
+function closeVMJubPicker() {
+  document.getElementById('vmJubPickerModal').style.display = 'none';
+}
+
+function renderVMJubPickerList() {
+  const q = (document.getElementById('vm-jub-picker-search').value || '').toLowerCase().trim();
+  const list = document.getElementById('vm-jub-picker-list');
+  // Build lookup of already-linked contact_ids so user can't double-link
+  const linkedIds = new Set(allVMRows.map(r => r.jubelioContactId).filter(Boolean));
+  let rows = allJubSuppliers;
+  if (q) rows = rows.filter(s => (s.contact_name||'').toLowerCase().includes(q) || (s.primary_contact||'').toLowerCase().includes(q));
+  if (!rows.length) {
+    list.innerHTML = `<div style="padding:20px;text-align:center;color:var(--g400);font-size:12px">Tidak ada match.</div>`;
+    return;
+  }
+  list.innerHTML = rows.map(s => {
+    const linked = linkedIds.has(s.contact_id);
+    const name = (s.contact_name||'').replace(/</g,'&lt;');
+    const pc = (s.primary_contact||'—').replace(/</g,'&lt;');
+    const ph = (s.phone || s.mobile || '—').replace(/</g,'&lt;');
+    const city = (s.billing_city||'').replace(/</g,'&lt;');
+    return `<div style="border-bottom:1px solid var(--g100);padding:10px 0;display:flex;justify-content:space-between;align-items:center;gap:12px">
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600;font-size:13px">${name}${linked?' <span class="pill p-active" style="font-size:9px;margin-left:6px">linked</span>':''}</div>
+        <div style="font-size:11px;color:var(--g600);margin-top:2px">PIC: ${pc} · Telp: ${ph}${city?` · ${city}`:''}</div>
+      </div>
+      <button class="btn-icon" onclick="vmSelectJubSupplier(${s.contact_id})" ${linked?'disabled style="opacity:0.4"':''}>Pilih</button>
+    </div>`;
+  }).join('');
+}
+
+function vmSelectJubSupplier(contactId) {
+  const s = allJubSuppliers.find(x => x.contact_id === contactId);
+  if (!s) return;
+  const modal = document.getElementById('vmJubPickerModal');
+  const scope = modal.dataset.scope || '';
+  closeVMJubPicker();
+  if (scope === '') {
+    // Picking for the new-vendor form
+    document.getElementById('vm-jub-contact-id').value = contactId;
+    const display = document.getElementById('vm-jub-selected');
+    display.style.display = 'block';
+    display.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:start;gap:12px">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:11px;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px">Synced from Jubelio</div>
+          <div style="font-weight:700;font-size:15px;margin-top:2px">${(s.contact_name||'').replace(/</g,'&lt;')}</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;margin-top:8px;font-size:12px">
+            <div><span style="color:var(--g400)">PIC:</span> ${(s.primary_contact||'—').replace(/</g,'&lt;')}</div>
+            <div><span style="color:var(--g400)">Telp:</span> <span class="mono">${(s.phone||s.mobile||'—').replace(/</g,'&lt;')}</span></div>
+            <div><span style="color:var(--g400)">Email:</span> <span class="mono">${(s.email||'—').replace(/</g,'&lt;')}</span></div>
+            <div><span style="color:var(--g400)">NPWP:</span> <span class="mono">${(s.npwp||'—').replace(/</g,'&lt;')}</span></div>
+            <div style="grid-column:span 2"><span style="color:var(--g400)">Kota:</span> ${(s.billing_city||'—').replace(/</g,'&lt;')}</div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <button class="btn-icon" onclick="openVMJubPicker('')">Ubah</button>
+          <button class="btn-icon" style="color:#c0392b" onclick="vmClearJubSelection()">Lepas</button>
+        </div>
+      </div>`;
+  } else {
+    // Re-link an existing vendor (from detail modal)
+    vmRelinkExisting(scope, contactId);
+  }
+}
+
+function vmClearJubSelection() {
+  document.getElementById('vm-jub-contact-id').value = '';
+  const d = document.getElementById('vm-jub-selected');
+  d.style.display = 'none'; d.innerHTML = '';
+}
+
 function clearVMForm() {
+  vmSwitchMode('jubelio');
+  vmClearJubSelection();
   ['vm-name','vm-contact-person','vm-email','vm-phone','vm-address','vm-npwp','vm-notes'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '';
   });
@@ -19986,20 +20163,46 @@ function clearVMForm() {
 async function submitVM() {
   const fb = document.getElementById('vm-feedback');
   const btn = document.getElementById('vmSubmitBtn');
-  const name = document.getElementById('vm-name').value.trim();
-  const phone = document.getElementById('vm-phone').value.trim();
-  if (!name)  { fb.textContent = '⚠️ Nama vendor wajib.'; return; }
-  if (!phone) { fb.textContent = '⚠️ No. Telp wajib (untuk PO ke Jubelio).'; return; }
+  const jubContactId = parseInt(document.getElementById('vm-jub-contact-id').value, 10) || null;
+  let vendorName = '', phone = '', contactPerson = '', email = '', address = '', npwp = '';
+
+  if (vmCurrentMode === 'jubelio') {
+    if (!jubContactId) { fb.textContent = '⚠️ Pilih pemasok dari Jubelio dulu.'; return; }
+    const s = allJubSuppliers.find(x => x.contact_id === jubContactId);
+    if (!s) { fb.textContent = '⚠️ Pemasok tidak ditemukan.'; return; }
+    vendorName = s.contact_name;
+    contactPerson = s.primary_contact || '';
+    email = s.email || '';
+    phone = s.phone || s.mobile || '';
+    address = s.billing_address || s.billing_city || '';
+    npwp = s.npwp || '';
+    // Check duplicate link
+    if (allVMRows.some(r => r.jubelioContactId === jubContactId)) {
+      fb.textContent = '⚠️ Pemasok ini sudah ada di Vendor Master.'; return;
+    }
+  } else {
+    vendorName = document.getElementById('vm-name').value.trim();
+    phone = document.getElementById('vm-phone').value.trim();
+    contactPerson = document.getElementById('vm-contact-person').value.trim();
+    email = document.getElementById('vm-email').value.trim();
+    address = document.getElementById('vm-address').value.trim();
+    npwp = document.getElementById('vm-npwp').value.trim();
+    if (!vendorName) { fb.textContent = '⚠️ Nama vendor wajib.'; return; }
+    if (!phone) { fb.textContent = '⚠️ No. Telp wajib (untuk PO ke Jubelio).'; return; }
+  }
+
   btn.disabled = true; fb.textContent = 'Menyimpan...';
   try {
     const id = genId('VM');
     const row = {
-      id, vendor_name: name,
-      contact_person: document.getElementById('vm-contact-person').value.trim() || null,
-      email: document.getElementById('vm-email').value.trim() || null,
-      phone, // wajib
-      address: document.getElementById('vm-address').value.trim() || null,
-      npwp: document.getElementById('vm-npwp').value.trim() || null,
+      id,
+      vendor_name: vendorName,
+      jubelio_contact_id: jubContactId,
+      contact_person: contactPerson || null,
+      email: email || null,
+      phone: phone || null,
+      address: address || null,
+      npwp: npwp || null,
       default_location: document.getElementById('vm-default-location').value,
       default_tax: document.getElementById('vm-default-tax').value,
       default_tax_included: document.getElementById('vm-default-tax-included').value === 'true',
@@ -20008,7 +20211,7 @@ async function submitVM() {
     };
     const {error} = await sb.from('vendor_master').insert(row);
     if (error) throw error;
-    fb.innerHTML = `<span class="fb-ok">✓ Vendor "${name}" tersimpan</span>`;
+    fb.innerHTML = `<span class="fb-ok">✓ Vendor "${vendorName}" tersimpan</span>`;
     clearVMForm();
     await loadVendorMaster();
   } catch (e) {
@@ -20018,45 +20221,9 @@ async function submitVM() {
   }
 }
 
-function openVMEdit(id) {
-  document.querySelectorAll('[id^=vm-edit-row-]').forEach(el => { if (el.id !== `vm-edit-row-${id}`) el.style.display = 'none'; });
-  const row = document.getElementById(`vm-edit-row-${id}`);
-  if (row) row.style.display = row.style.display === 'table-row' ? 'none' : 'table-row';
-}
-function closeVMEdit(id) {
-  const row = document.getElementById(`vm-edit-row-${id}`);
-  if (row) row.style.display = 'none';
-}
-
-async function saveVMEdit(id) {
-  const name  = document.getElementById(`vme-name-${id}`).value.trim();
-  const phone = document.getElementById(`vme-phone-${id}`).value.trim();
-  if (!name)  { alert('Nama vendor wajib.'); return; }
-  if (!phone) { alert('No. Telp wajib.'); return; }
-  try {
-    const {error} = await sb.from('vendor_master').update({
-      vendor_name: name,
-      contact_person: document.getElementById(`vme-contact-${id}`).value.trim() || null,
-      email: document.getElementById(`vme-email-${id}`).value.trim() || null,
-      phone,
-      address: document.getElementById(`vme-address-${id}`).value.trim() || null,
-      npwp: document.getElementById(`vme-npwp-${id}`).value.trim() || null,
-      default_location: document.getElementById(`vme-loc-${id}`).value,
-      default_tax: document.getElementById(`vme-tax-${id}`).value,
-      default_tax_included: document.getElementById(`vme-tax-incl-${id}`).value === 'true',
-      notes: document.getElementById(`vme-notes-${id}`).value.trim() || null,
-      last_updated: new Date().toISOString(), last_updated_by: currentUser,
-    }).eq('id', id);
-    if (error) throw error;
-    await loadVendorMaster();
-  } catch (e) {
-    alert('Gagal: ' + (e.message || e));
-  }
-}
-
 async function deleteVM(id) {
   const row = allVMRows.find(r => r.id === id);
-  if (!confirm(`Hapus vendor "${row?.vendorName || id}"?`)) return;
+  if (!confirm(`Hapus vendor "${vmSyncedField(row,'name') || id}"?\n\nIni juga akan menghapus semua capabilities yang dilampirkan ke vendor ini.`)) return;
   try {
     const {error} = await sb.from('vendor_master').delete().eq('id', id);
     if (error) throw error;
@@ -20064,6 +20231,348 @@ async function deleteVM(id) {
   } catch (e) {
     alert('Gagal: ' + (e.message || e));
   }
+}
+
+// ── VENDOR MASTER — detail modal (Identity / Catalog / PO / Capabilities) ──
+async function openVMDetail(id) {
+  const row = allVMRows.find(r => r.id === id);
+  if (!row) return;
+  vmDetailCurrentId = id;
+  document.getElementById('vmDetailModal').style.display = 'flex';
+  document.getElementById('vm-detail-name').textContent = vmSyncedField(row, 'name') || '(belum diset)';
+  const meta = [];
+  if (row.jubelioContactId) meta.push(`Jubelio contact_id: ${row.jubelioContactId}`);
+  else meta.push('Manual');
+  if (row.dateAdded) meta.push(`Ditambah ${row.dateAdded.slice(0,10)}`);
+  document.getElementById('vm-detail-meta').textContent = meta.join(' · ');
+  // Reset tabs
+  document.querySelectorAll('#vmDetailModal .tab-btn').forEach((b,i) => b.classList.toggle('active', i===0));
+  ['identity','catalog','po','capabilities'].forEach((t,i) => {
+    document.getElementById(`vm-detail-tab-${t}`).style.display = i===0 ? 'block':'none';
+  });
+  _vmRenderIdentityTab(row);
+}
+
+function closeVMDetail() {
+  document.getElementById('vmDetailModal').style.display = 'none';
+  vmDetailCurrentId = null;
+}
+
+function vmSwitchDetailTab(name, el) {
+  document.querySelectorAll('#vmDetailModal .tab-btn').forEach(b => b.classList.remove('active'));
+  if (el) el.classList.add('active');
+  ['identity','catalog','po','capabilities'].forEach(t => {
+    document.getElementById(`vm-detail-tab-${t}`).style.display = t===name ? 'block':'none';
+  });
+  const row = allVMRows.find(r => r.id === vmDetailCurrentId);
+  if (!row) return;
+  if (name === 'catalog') _vmRenderCatalogTab(row);
+  else if (name === 'po') _vmRenderPoTab(row);
+  else if (name === 'capabilities') _vmRenderCapabilitiesTab(row);
+}
+
+function _vmRenderIdentityTab(r) {
+  const linked = !!r.jubelioContactId;
+  const cont = document.getElementById('vm-detail-tab-identity');
+  const fields = [
+    ['Nama Vendor', vmSyncedField(r,'name')],
+    ['Contact Person', vmSyncedField(r,'contact')],
+    ['Email', vmSyncedField(r,'email')],
+    ['Telp/Mobile', vmSyncedField(r,'phone')],
+    ['NPWP', vmSyncedField(r,'npwp')],
+    ['Alamat / Kota', vmSyncedField(r,'address')],
+  ];
+  const idCells = fields.map(([k,v]) => `<div><div style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px">${k}</div><div style="font-size:13px;margin-top:2px">${(v||'—').toString().replace(/</g,'&lt;')}</div></div>`).join('');
+  cont.innerHTML = `
+    <div style="background:var(--off);border-radius:6px;padding:14px;margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Identity ${linked?'<span class="pill p-active" style="font-size:10px;margin-left:8px">Synced from Jubelio</span>':'<span class="pill p-draft" style="font-size:10px;margin-left:8px">Manual</span>'}</div>
+        ${linked
+          ? `<button class="btn-icon" onclick="openVMJubPicker('${r.id}')">Re-link ke Jubelio</button>`
+          : `<button class="btn-icon" onclick="openVMJubPicker('${r.id}')">Tautkan ke Jubelio</button>`}
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">${idCells}</div>
+    </div>
+
+    <div style="background:var(--off);border-radius:6px;padding:14px">
+      <div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px">Default PO ke Jubelio</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        <div class="fg"><label>Default Lokasi</label>
+          <select id="vmd-loc">
+            ${['Pusat','Gudang Bintaro','Gudang Penerimaan Barang','Gudang Offline','Gudang Marte'].map(l =>
+              `<option value="${l}"${r.defaultLocation===l?' selected':''}>${l==='Pusat'?'Gudang Pusat':l}</option>`).join('')}
+          </select>
+        </div>
+        <div class="fg"><label>Default Pajak</label>
+          <select id="vmd-tax">
+            <option value="PPN"${r.defaultTax==='PPN'?' selected':''}>PPN (11%)</option>
+            <option value="No Tax"${r.defaultTax==='No Tax'?' selected':''}>No Tax</option>
+          </select>
+        </div>
+        <div class="fg"><label>Harga Termasuk Pajak?</label>
+          <select id="vmd-tax-incl">
+            <option value="false"${!r.defaultTaxIncluded?' selected':''}>FALSE</option>
+            <option value="true"${r.defaultTaxIncluded?' selected':''}>TRUE</option>
+          </select>
+        </div>
+        <div class="fg"><label>Notes Internal</label><input id="vmd-notes" type="text" value="${(r.notes||'').replace(/"/g,'&quot;')}"></div>
+      </div>
+      <div style="margin-top:12px;text-align:right">
+        <button class="btn-save" onclick="saveVMDetailDefaults('${r.id}')">Simpan</button>
+      </div>
+    </div>`;
+}
+
+async function saveVMDetailDefaults(id) {
+  try {
+    const {error} = await sb.from('vendor_master').update({
+      default_location: document.getElementById('vmd-loc').value,
+      default_tax: document.getElementById('vmd-tax').value,
+      default_tax_included: document.getElementById('vmd-tax-incl').value === 'true',
+      notes: document.getElementById('vmd-notes').value.trim() || null,
+      last_updated: new Date().toISOString(), last_updated_by: currentUser,
+    }).eq('id', id);
+    if (error) throw error;
+    await loadVendorMaster();
+    const row = allVMRows.find(r => r.id === id);
+    if (row) _vmRenderIdentityTab(row);
+    alert('✓ Tersimpan');
+  } catch (e) { alert('Gagal: ' + (e.message || e)); }
+}
+
+async function vmRelinkExisting(vmId, jubContactId) {
+  const existing = allVMRows.find(r => r.jubelioContactId === jubContactId && r.id !== vmId);
+  if (existing) {
+    alert(`Pemasok ini sudah terhubung ke vendor "${vmSyncedField(existing,'name')}". Lepas dulu di sana.`);
+    return;
+  }
+  try {
+    const {error} = await sb.from('vendor_master').update({
+      jubelio_contact_id: jubContactId,
+      last_updated: new Date().toISOString(), last_updated_by: currentUser,
+    }).eq('id', vmId);
+    if (error) throw error;
+    await loadVendorMaster();
+    const row = allVMRows.find(r => r.id === vmId);
+    if (row) _vmRenderIdentityTab(row);
+  } catch (e) { alert('Gagal: ' + (e.message || e)); }
+}
+
+async function _vmRenderCatalogTab(r) {
+  const cont = document.getElementById('vm-detail-tab-catalog');
+  cont.innerHTML = `<div style="padding:20px;text-align:center;color:var(--g400);font-size:12px">Memuat catalog...</div>`;
+  const name = vmSyncedField(r, 'name');
+  try {
+    // Pull all variants where vendor matches this vendor name (case-insensitive)
+    const {data, error} = await sb.from('product_dev').select('*').eq('sku_type','variant').limit(20000);
+    if (error) throw error;
+    const variants = (data||[]).filter(v => (v.vendor||'').toLowerCase().trim() === (name||'').toLowerCase().trim());
+    if (!variants.length) {
+      cont.innerHTML = `
+        <div style="background:var(--off);border-radius:6px;padding:20px;text-align:center;color:var(--g600);font-size:13px">
+          Belum ada SKU di Product Dev yang diassign ke vendor ini.<br>
+          <span style="font-size:11px;color:var(--g400)">Vendor di-match berdasarkan nama yang sama persis (case-insensitive).</span>
+        </div>`;
+      return;
+    }
+    // Group by parent_id (collection variant parent)
+    const parentIds = [...new Set(variants.map(v => v.parent_id).filter(Boolean))];
+    const {data: parents} = await sb.from('product_dev').select('id,sku_name,collection_id').in('id', parentIds);
+    const parentById = new Map((parents||[]).map(p => [p.id, p]));
+    const collectionIds = [...new Set((parents||[]).map(p => p.collection_id).filter(Boolean))];
+    const {data: collections} = await sb.from('collections').select('id,collection_name,ip_related,status').in('id', collectionIds);
+    const colById = new Map((collections||[]).map(c => [c.id, c]));
+
+    // Aggregate by collection
+    const byCol = new Map();
+    let totalQty = 0, totalHpp = 0;
+    variants.forEach(v => {
+      const parent = parentById.get(v.parent_id);
+      const col = parent ? colById.get(parent.collection_id) : null;
+      const colKey = col?.id || '__no_collection__';
+      if (!byCol.has(colKey)) byCol.set(colKey, { col, parents: new Map() });
+      const colEntry = byCol.get(colKey);
+      const pKey = v.parent_id || '__no_parent__';
+      if (!colEntry.parents.has(pKey)) colEntry.parents.set(pKey, { parent: parentById.get(v.parent_id), variants: [] });
+      colEntry.parents.get(pKey).variants.push(v);
+      totalQty += v.qty || 0;
+      totalHpp += (v.qty || 0) * (v.hpp || 0);
+    });
+
+    const colsArr = [...byCol.values()].sort((a,b) => (b.col?.name||'').localeCompare(a.col?.name||''));
+    const totalSku = variants.length;
+
+    cont.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
+        <div class="stat-card"><div class="stat-num">${totalSku}</div><div class="stat-lbl">Total SKU</div></div>
+        <div class="stat-card"><div class="stat-num">${totalQty.toLocaleString('id-ID')}</div><div class="stat-lbl">Total Qty</div></div>
+        <div class="stat-card"><div class="stat-num">${(totalHpp/1000000).toFixed(1)}M</div><div class="stat-lbl">Total HPP</div></div>
+        <div class="stat-card"><div class="stat-num">${totalQty?Math.round(totalHpp/totalQty).toLocaleString('id-ID'):'—'}</div><div class="stat-lbl">Avg HPP/pc</div></div>
+      </div>
+      ${colsArr.map(({col,parents:pMap}) => {
+        const colName = col?.collection_name || '(no collection)';
+        const ip = col?.ip_related || '';
+        const status = col?.status || '';
+        let cQty = 0, cHpp = 0, cSku = 0;
+        pMap.forEach(({variants:vs}) => { vs.forEach(v => { cQty += v.qty||0; cHpp += (v.qty||0)*(v.hpp||0); cSku++; }); });
+        return `
+          <details style="background:var(--off);border-radius:6px;margin-bottom:8px" open>
+            <summary style="padding:12px 14px;cursor:pointer;font-size:13px;display:flex;justify-content:space-between;align-items:center;gap:12px">
+              <div>
+                <strong>${colName.replace(/</g,'&lt;')}</strong>
+                ${ip?`<span style="font-size:11px;color:var(--g600);margin-left:8px">${ip.replace(/</g,'&lt;')}</span>`:''}
+                ${status?`<span class="pill p-${status==='Active'?'active':'draft'}" style="font-size:10px;margin-left:6px">${status}</span>`:''}
+              </div>
+              <div style="font-size:11px;color:var(--g600);font-family:'DM Mono',monospace">
+                ${cSku} SKU · ${cQty} pcs · Rp ${cHpp.toLocaleString('id-ID')}
+              </div>
+            </summary>
+            <div style="padding:0 14px 12px">
+              <table style="width:100%;font-size:11px">
+                <thead>
+                  <tr style="background:var(--white)"><th style="text-align:left">SKU Code</th><th style="text-align:left">Parent</th><th style="text-align:left">Size</th><th style="text-align:right">Qty</th><th style="text-align:right">HPP/pc</th><th style="text-align:right">Subtotal</th></tr>
+                </thead>
+                <tbody>
+                  ${[...pMap.values()].flatMap(({parent,variants:vs}) =>
+                    vs.map(v => `<tr>
+                      <td class="mono">${(v.display_code||v.id||'').replace(/</g,'&lt;')}</td>
+                      <td>${(parent?.sku_name||'—').replace(/</g,'&lt;')}</td>
+                      <td>${(v.size||'—').replace(/</g,'&lt;')}</td>
+                      <td style="text-align:right">${v.qty||0}</td>
+                      <td style="text-align:right">Rp ${(v.hpp||0).toLocaleString('id-ID')}</td>
+                      <td style="text-align:right">Rp ${((v.qty||0)*(v.hpp||0)).toLocaleString('id-ID')}</td>
+                    </tr>`)
+                  ).join('')}
+                </tbody>
+              </table>
+            </div>
+          </details>`;
+      }).join('')}`;
+  } catch (e) {
+    cont.innerHTML = `<div style="padding:20px;color:#c0392b;font-size:12px">Gagal: ${e.message||e}</div>`;
+  }
+}
+
+async function _vmRenderPoTab(r) {
+  const cont = document.getElementById('vm-detail-tab-po');
+  cont.innerHTML = `<div style="padding:20px;text-align:center;color:var(--g400);font-size:12px">Memuat PO history...</div>`;
+  try {
+    let q = sb.from('jubelio_purchase_orders').select('*').order('transaction_date', {ascending:false}).limit(500);
+    // If linked to Jubelio, match by contact_id (reliable); else fuzzy on supplier_name
+    if (r.jubelioContactId) {
+      q = q.eq('contact_id', r.jubelioContactId);
+    } else {
+      const name = vmSyncedField(r, 'name');
+      q = q.ilike('supplier_name', name || '__none__');
+    }
+    const {data, error} = await q;
+    if (error) throw error;
+    if (!data || !data.length) {
+      cont.innerHTML = `<div style="background:var(--off);border-radius:6px;padding:20px;text-align:center;color:var(--g600);font-size:13px">Belum ada PO di Jubelio untuk vendor ini.</div>`;
+      return;
+    }
+    let totalAmt = 0, openCount = 0;
+    data.forEach(po => { totalAmt += parseFloat(po.grand_total||0); if (!po.is_closed) openCount++; });
+    cont.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
+        <div class="stat-card"><div class="stat-num">${data.length}</div><div class="stat-lbl">Total PO</div></div>
+        <div class="stat-card"><div class="stat-num">${openCount}</div><div class="stat-lbl">Open</div></div>
+        <div class="stat-card"><div class="stat-num">${(totalAmt/1000000).toFixed(1)}M</div><div class="stat-lbl">Total Nilai</div></div>
+      </div>
+      <table style="width:100%;font-size:11px">
+        <thead><tr><th>No.</th><th>Tanggal</th><th>Lokasi</th><th>Status</th><th style="text-align:right">Nilai</th></tr></thead>
+        <tbody>
+          ${data.map(po => `<tr>
+            <td class="mono">${(po.purchaseorder_no||po.purchaseorder_id||'').toString().replace(/</g,'&lt;')}</td>
+            <td>${(po.transaction_date||'').toString().slice(0,10)}</td>
+            <td style="font-size:11px">${(po.location_name||'—').toString().replace(/</g,'&lt;')}</td>
+            <td><span class="pill p-${po.is_closed?'active':'draft'}" style="font-size:10px">${po.is_closed?'Closed':(po.status||'Open')}</span></td>
+            <td style="text-align:right">Rp ${parseFloat(po.grand_total||0).toLocaleString('id-ID')}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>`;
+  } catch (e) {
+    cont.innerHTML = `<div style="padding:20px;color:#c0392b;font-size:12px">Gagal: ${e.message||e}</div>`;
+  }
+}
+
+async function _vmRenderCapabilitiesTab(r) {
+  const cont = document.getElementById('vm-detail-tab-capabilities');
+  cont.innerHTML = `<div style="padding:20px;text-align:center;color:var(--g400);font-size:12px">Memuat capabilities...</div>`;
+  try {
+    const {data, error} = await sb.from('vendor_capabilities').select('*').eq('vendor_master_id', r.id).order('category').order('product_type');
+    if (error) throw error;
+    const caps = data || [];
+    cont.innerHTML = `
+      <div style="background:var(--off);border-radius:6px;padding:14px;margin-bottom:14px">
+        <div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px">Tambah Capability</div>
+        <div style="font-size:11px;color:var(--g600);margin-bottom:10px">Kategori produk yang vendor ini sanggup bikin — termasuk yang belum pernah kita order. Buat referensi pas brief atau cari vendor.</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:8px">
+          <div class="fg"><label>Kategori *</label><input id="vmc-cat" type="text" placeholder="Apparel, Enamel Pin, Tote..."></div>
+          <div class="fg"><label>Tipe Produk</label><input id="vmc-type" type="text" placeholder="T-Shirt, Hoodie..."></div>
+          <div class="fg"><label>MOQ</label><input id="vmc-moq" type="number" placeholder="100"></div>
+          <div class="fg"><label>Lead Time (hari)</label><input id="vmc-lead" type="number" placeholder="14"></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div class="fg"><label>Est. Unit Cost (Rp)</label><input id="vmc-cost" type="number" placeholder="opsional"></div>
+          <div class="fg"><label>Sample Image URL</label><input id="vmc-img" type="text" placeholder="opsional"></div>
+        </div>
+        <div class="fg" style="margin-top:8px"><label>Deskripsi / Material / Catatan</label><textarea id="vmc-desc" rows="2" style="width:100%" placeholder="Material, range ukuran, catatan kualitas..."></textarea></div>
+        <div style="text-align:right;margin-top:8px">
+          <button class="btn-save" onclick="addVMCapability('${r.id}')">+ Tambah</button>
+        </div>
+      </div>
+
+      ${caps.length === 0
+        ? `<div style="background:var(--off);border-radius:6px;padding:20px;text-align:center;color:var(--g600);font-size:13px">Belum ada capability terdaftar.</div>`
+        : `<table style="width:100%;font-size:12px">
+            <thead><tr><th style="text-align:left">Kategori</th><th style="text-align:left">Tipe</th><th style="text-align:right">MOQ</th><th style="text-align:right">Lead</th><th style="text-align:right">Est. Cost</th><th style="text-align:left">Catatan</th><th></th></tr></thead>
+            <tbody>
+              ${caps.map(c => `<tr>
+                <td><strong>${(c.category||'').replace(/</g,'&lt;')}</strong></td>
+                <td>${(c.product_type||'—').replace(/</g,'&lt;')}</td>
+                <td style="text-align:right">${c.moq||'—'}</td>
+                <td style="text-align:right">${c.lead_time_days?c.lead_time_days+'d':'—'}</td>
+                <td style="text-align:right">${c.unit_cost_estimate?'Rp '+parseFloat(c.unit_cost_estimate).toLocaleString('id-ID'):'—'}</td>
+                <td style="font-size:11px;color:var(--g600);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(c.description||'').replace(/"/g,'&quot;')}">${(c.description||'—').replace(/</g,'&lt;')}</td>
+                <td><button class="btn-icon" style="color:#c0392b" onclick="deleteVMCapability(${c.id},'${r.id}')">Del</button></td>
+              </tr>`).join('')}
+            </tbody>
+          </table>`}`;
+  } catch (e) {
+    cont.innerHTML = `<div style="padding:20px;color:#c0392b;font-size:12px">Gagal: ${e.message||e}</div>`;
+  }
+}
+
+async function addVMCapability(vmId) {
+  const cat = document.getElementById('vmc-cat').value.trim();
+  if (!cat) { alert('Kategori wajib.'); return; }
+  try {
+    const {error} = await sb.from('vendor_capabilities').insert({
+      vendor_master_id: vmId,
+      category: cat,
+      product_type: document.getElementById('vmc-type').value.trim() || null,
+      moq: parseInt(document.getElementById('vmc-moq').value, 10) || null,
+      lead_time_days: parseInt(document.getElementById('vmc-lead').value, 10) || null,
+      unit_cost_estimate: parseFloat(document.getElementById('vmc-cost').value) || null,
+      sample_image_url: document.getElementById('vmc-img').value.trim() || null,
+      description: document.getElementById('vmc-desc').value.trim() || null,
+      added_by: currentUser,
+    });
+    if (error) throw error;
+    const row = allVMRows.find(r => r.id === vmId);
+    if (row) _vmRenderCapabilitiesTab(row);
+  } catch (e) { alert('Gagal: ' + (e.message || e)); }
+}
+
+async function deleteVMCapability(capId, vmId) {
+  if (!confirm('Hapus capability ini?')) return;
+  try {
+    const {error} = await sb.from('vendor_capabilities').delete().eq('id', capId);
+    if (error) throw error;
+    const row = allVMRows.find(r => r.id === vmId);
+    if (row) _vmRenderCapabilitiesTab(row);
+  } catch (e) { alert('Gagal: ' + (e.message || e)); }
 }
 
 // ── DUPLICATE CHECK ──
