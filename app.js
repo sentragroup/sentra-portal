@@ -2604,37 +2604,51 @@ async function _pbComputeEventAggregates(eventNames) {
     }
     r.margin = r.sales_rev - r.sales_cogs;
 
-    // Adjustments (sum of abs qty)
+    // Adjustments — SIGNED net (negative = stock decrease, positive = stock increase).
     const aIds = eventAdjIds.get(evName) || [];
     for (const aId of aIds) {
       const items = adjItemsBy.get(aId) || [];
-      for (const it of items) r.qty_adj += Math.abs(Number(it.qty || 0));
+      for (const it of items) r.qty_adj += Number(it.qty || 0);
     }
 
-    r.current_stock = r.qty_in - r.qty_sold - r.qty_out - r.qty_adj;
+    // Net adjustment is signed: + adds to stock, − subtracts.
+    r.current_stock = r.qty_in - r.qty_sold - r.qty_out + r.qty_adj;
   }
   return out;
 }
 
-function renderPBStats(rows) {
+// Auto-derive event status from date + current_stock.
+// Manual "Cancelled" is the only override that wins over the auto rule.
+//   eventDate in future → Planned
+//   past + current_stock != 0 → Reconcile  (stok belum tally)
+//   past + current_stock == 0 → Done
+// If currentStock is undefined (aggregator not loaded yet), treat past as Reconcile.
+function computePBAutoStatus(eventDate, currentStock, manualStatus) {
+  if (manualStatus === 'Cancelled') return 'Cancelled';
+  if (!eventDate) return 'Planned';
   const today = new Date(); today.setHours(0,0,0,0);
+  const d = new Date(eventDate + 'T00:00:00');
+  if (d >= today) return 'Planned';
+  if (currentStock == null) return 'Reconcile';
+  return currentStock === 0 ? 'Done' : 'Reconcile';
+}
+
+function renderPBStats(rows) {
   const agg = window._pbEventAggregates;
-  // Upcoming = future event date AND status is Planned/empty (Reconcile/Done/Cancelled already past).
-  const isPlanned = (s) => !s || s === "Planned";
-  const upcoming = rows.filter(r => {
-    if (!r.eventDate) return false;
-    const d = new Date(r.eventDate + "T00:00:00");
-    return d >= today && isPlanned(r.eventStatus);
-  }).length;
-  const reconcile = rows.filter(r => r.eventStatus === "Reconcile").length;
-  const done      = rows.filter(r => r.eventStatus === "Done").length;
-  const cancelled = rows.filter(r => r.eventStatus === "Cancelled").length;
+  // Stats use auto-derived status so counts always match what's shown in the
+  // table — same source of truth (computePBAutoStatus).
+  const counts = { Planned: 0, Reconcile: 0, Done: 0, Cancelled: 0 };
+  for (const r of rows) {
+    const cs = agg?.get(r.eventName)?.current_stock;
+    const st = computePBAutoStatus(r.eventDate, cs, r.eventStatus);
+    if (counts[st] != null) counts[st]++;
+  }
   const totalSales = agg ? rows.reduce((a,r) => a + (agg.get(r.eventName)?.sales_rev || 0), 0) : 0;
   document.getElementById("pb-s-total").textContent     = rows.length;
-  document.getElementById("pb-s-upcoming").textContent  = upcoming;
-  document.getElementById("pb-s-reconcile").textContent = reconcile;
-  document.getElementById("pb-s-done").textContent      = done;
-  document.getElementById("pb-s-cancelled").textContent = cancelled;
+  document.getElementById("pb-s-upcoming").textContent  = counts.Planned;
+  document.getElementById("pb-s-reconcile").textContent = counts.Reconcile;
+  document.getElementById("pb-s-done").textContent      = counts.Done;
+  document.getElementById("pb-s-cancelled").textContent = counts.Cancelled;
   document.getElementById("pb-s-grandtotal").textContent = totalSales ? "Rp "+totalSales.toLocaleString("id-ID") : "—";
 }
 
@@ -2642,12 +2656,14 @@ function applyPBFilters() {
   const status   = (document.getElementById("pb-fil-status")?.value)||"";
   const ip       = (document.getElementById("pb-fil-ip")?.value)||"";
   const q        = ((document.getElementById("pbSearch")?.value)||"").toLowerCase();
+  const agg = window._pbEventAggregates;
   let rows = allPBRows;
-  if (status==="Planned") rows = rows.filter(r=>!r.eventStatus||r.eventStatus==="Planned");
-  else if (status==="Overdue") {
-    const today=new Date(); today.setHours(0,0,0,0);
-    rows = rows.filter(r=>r.srDeadline&&r.eventStatus!=="Done"&&r.eventStatus!=="Cancelled"&&new Date(r.srDeadline+"T00:00:00")<today);
-  } else if (status) rows = rows.filter(r=>r.eventStatus===status);
+  if (status) {
+    rows = rows.filter(r => {
+      const cs = agg?.get(r.eventName)?.current_stock;
+      return computePBAutoStatus(r.eventDate, cs, r.eventStatus) === status;
+    });
+  }
   if (ip) rows = rows.filter(r=>(r.ipRelated||"").toLowerCase().includes(ip.toLowerCase()));
   if (q) rows = rows.filter(r=>(r.eventName||"").toLowerCase().includes(q)||(r.location||"").toLowerCase().includes(q)||(r.ipRelated||"").toLowerCase().includes(q)||(r.manpower||"").toLowerCase().includes(q));
   renderPBStats(rows);
@@ -2732,7 +2748,8 @@ function renderPBCalendar(rows) {
       const a = agg?.get(e.eventName);
       const totalSales = a ? Math.round(a.sales_rev) : 0;
       const stockWarn = a && a.current_stock !== 0 ? ' ⚠' : '';
-      return `<div onclick="openPBDetail('${e.rowIndex}')" title="${_pbEsc(e.eventName||'')}${totalSales?` · Rp ${totalSales.toLocaleString('id-ID')}`:''}${stockWarn?` · current stock ${a.current_stock}`:''}" style="cursor:pointer;background:${statusBg(e.eventStatus)};color:${statusFg(e.eventStatus)};font-size:10px;padding:3px 6px;border-radius:3px;margin-bottom:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500">${_pbEsc(e.eventName||'(Tanpa nama)')}${stockWarn}</div>`;
+      const autoSt = computePBAutoStatus(e.eventDate, a?.current_stock, e.eventStatus);
+      return `<div onclick="openPBDetail('${e.rowIndex}')" title="${_pbEsc(e.eventName||'')}${totalSales?` · Rp ${totalSales.toLocaleString('id-ID')}`:''}${stockWarn?` · current stock ${a.current_stock}`:''}" style="cursor:pointer;background:${statusBg(autoSt)};color:${statusFg(autoSt)};font-size:10px;padding:3px 6px;border-radius:3px;margin-bottom:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500">${_pbEsc(e.eventName||'(Tanpa nama)')}${stockWarn}</div>`;
     }).join('');
     cellsHTML += `<div style="border:1px solid var(--g100);border-radius:4px;padding:6px 8px;min-height:80px;background:${inMonth?(isToday?'#f5f3ff':'var(--white)'):'transparent'};${!inMonth?'border-color:transparent':''}">${dayHeader}${eventPills}</div>`;
   }
@@ -2776,22 +2793,26 @@ function renderPBTable(rows) {
   updateSortTh("pb-thead", pbSort.col, pbSort.dir);
   const tbody = document.getElementById("pbTableBody");
   document.getElementById("pb-tcount").textContent = rows.length+" entri";
-  if (!rows.length) { tbody.innerHTML=`<tr><td class="empty-td" colspan="14">Tidak ada data.</td></tr>`; return; }
+  if (!rows.length) { tbody.innerHTML=`<tr><td class="empty-td" colspan="16">Tidak ada data.</td></tr>`; return; }
   const _today = new Date(); _today.setHours(0,0,0,0);
   const agg = window._pbEventAggregates;
   const fmtRp = (n) => n ? "Rp "+Math.round(n).toLocaleString("id-ID") : "—";
   const fmtQty = (n) => n ? Number(n).toLocaleString("id-ID") : "—";
   const statusPillCls = (s) => s==="Done"?"p-active":s==="Cancelled"?"p-expired":s==="Reconcile"?"p-near":"p-draft";
   tbody.innerHTML = rows.map(r => {
-    const esPill = `<span class="pill ${statusPillCls(r.eventStatus)}" style="font-size:11px">${r.eventStatus||"Planned"}</span>`;
-    const pm = r.paymentMethod ? r.paymentMethod.split(",").map(p=>`<span class="pill p-signings" style="font-size:10px;margin-right:2px">${p.trim()}</span>`).join("") : "—";
-    const isOverdue = r.srDeadline && r.eventStatus!=="Done" && r.eventStatus!=="Cancelled" && new Date(r.srDeadline+"T00:00:00") < _today;
     const a = agg?.get(r.eventName) || {qty_in:0, qty_out:0, qty_sold:0, qty_adj:0, sales_rev:0, sales_cogs:0, margin:0, current_stock:0};
+    const autoStatus = computePBAutoStatus(r.eventDate, a.current_stock, r.eventStatus);
+    const autoBadge = (r.eventStatus !== 'Cancelled') ? `<span style="font-size:9px;color:var(--g400);margin-left:4px" title="Derived dari tanggal + current stock">auto</span>` : '';
+    const esPill = `<span class="pill ${statusPillCls(autoStatus)}" style="font-size:11px">${autoStatus}</span>${autoBadge}`;
+    const pm = r.paymentMethod ? r.paymentMethod.split(",").map(p=>`<span class="pill p-signings" style="font-size:10px;margin-right:2px">${p.trim()}</span>`).join("") : "—";
+    const isOverdue = r.srDeadline && autoStatus!=="Done" && autoStatus!=="Cancelled" && new Date(r.srDeadline+"T00:00:00") < _today;
     const marginColor = a.margin > 0 ? '#1c7a3b' : a.margin < 0 ? '#c33' : 'var(--g600)';
     const cs = a.current_stock || 0;
     // Highlight Current Stock red if non-zero (reconcile incomplete).
     const csColor = cs !== 0 ? '#c33' : 'var(--g600)';
     const csBg    = cs !== 0 ? '#fdecea' : 'transparent';
+    // Net adjustment color: negative = red, positive = blue, zero = gray
+    const naColor = a.qty_adj < 0 ? '#c33' : a.qty_adj > 0 ? '#0077b6' : 'var(--g600)';
     return `<tr>
       <td style="white-space:nowrap;font-size:12px">${fmtDate(r.eventDate)}</td>
       <td><a href="#" onclick="event.preventDefault();openPBDetail('${r.rowIndex}')" style="color:#3C3489;text-decoration:none;font-weight:600">${r.eventName||"—"}</a></td>
@@ -2799,7 +2820,9 @@ function renderPBTable(rows) {
       <td style="font-size:12px;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.ipRelated||""}">${r.ipRelated||"—"}</td>
       <td>${esPill}</td>
       <td class="mono" style="text-align:right;font-size:12px">${fmtQty(a.qty_in)}</td>
+      <td class="mono" style="text-align:right;font-size:12px">${fmtQty(a.qty_sold)}</td>
       <td class="mono" style="text-align:right;font-size:12px">${fmtQty(a.qty_out)}</td>
+      <td class="mono" style="text-align:right;font-size:12px;color:${naColor}">${a.qty_adj===0?'—':(a.qty_adj>0?'+':'')+a.qty_adj.toLocaleString("id-ID")}</td>
       <td class="mono" style="text-align:right;font-size:12px;font-weight:600;color:${csColor};background:${csBg}">${cs.toLocaleString("id-ID")}</td>
       <td class="mono" style="text-align:right;font-size:12px;white-space:nowrap">${fmtRp(a.sales_rev)}</td>
       <td class="mono" style="text-align:right;font-size:12px;color:var(--g600);white-space:nowrap">${fmtRp(a.sales_cogs)}</td>
@@ -2809,14 +2832,14 @@ function renderPBTable(rows) {
       <td><button class="btn-icon" onclick="openPBEdit('${r.rowIndex}')">Edit</button> <button class="btn-icon" style="color:#c0392b" onclick="deletePB('${r.rowIndex}')">Del</button></td>
     </tr>
     <tr id="pb-edit-row-${r.rowIndex}" style="display:none">
-      <td colspan="14" style="padding:0 12px 12px">
+      <td colspan="16" style="padding:0 12px 12px">
         <div class="edit-row-form">
           <div class="edit-row-grid">
             <div class="fg"><label>Tanggal Event</label><input type="date" id="pbe-eventdate-${r.rowIndex}" value="${r.eventDate}"></div>
             <div class="fg"><label>Nama Event</label><input type="text" id="pbe-eventname-${r.rowIndex}" value="${(r.eventName||'').replace(/"/g,'&quot;')}"></div>
             <div class="fg"><label>Lokasi</label><input type="text" id="pbe-location-${r.rowIndex}" value="${(r.location||'').replace(/"/g,'&quot;')}"></div>
             <div class="fg"><label>IP Related</label><input type="text" id="pbe-iprelated-${r.rowIndex}" value="${(r.ipRelated||'').replace(/"/g,'&quot;')}" placeholder="Pisahkan dengan koma"></div>
-            <div class="fg"><label>Event Status</label><select id="pbe-eventstatus-${r.rowIndex}"><option value="" ${(!r.eventStatus||r.eventStatus==="Planned")?"selected":""}>Planned</option><option ${r.eventStatus==="Reconcile"?"selected":""}>Reconcile</option><option ${r.eventStatus==="Done"?"selected":""}>Done</option><option ${r.eventStatus==="Cancelled"?"selected":""}>Cancelled</option></select></div>
+            <div class="fg"><label>Event Status <span style="font-size:10px;color:var(--g400);font-weight:400">(auto kecuali Cancelled)</span></label><select id="pbe-eventstatus-${r.rowIndex}"><option value="" ${r.eventStatus!=="Cancelled"?"selected":""}>Auto (derived dari tanggal + stock)</option><option value="Cancelled" ${r.eventStatus==="Cancelled"?"selected":""}>Cancelled</option></select></div>
             <div class="fg full"><label>Payment Method</label><div style="display:flex;gap:16px;flex-wrap:wrap;padding:8px 0"><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-jpos-${r.rowIndex}" ${(r.paymentMethod||"").includes("Jubelio POS")?"checked":""}> Jubelio POS</label><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-qris-${r.rowIndex}" ${(r.paymentMethod||"").includes("QRIS Xendit")?"checked":""}> QRIS Xendit</label><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-cons-${r.rowIndex}" ${(r.paymentMethod||"").includes("Consignment")?"checked":""}> Consignment</label><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-pickup-${r.rowIndex}" ${(r.paymentMethod||"").includes("Pick Up in Location")?"checked":""}> Pick Up in Location</label><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-3rd-${r.rowIndex}" ${(r.paymentMethod||"").includes("3rd Party Providers")?"checked":""}> 3rd Party Providers</label><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-other-${r.rowIndex}" ${(r.paymentMethod||"").includes("Other")?"checked":""}> Other</label></div></div>
             <div class="fg" style="position:relative"><label>Manpower</label><input type="text" id="pbe-manpower-${r.rowIndex}" value="${(r.manpower||'').replace(/"/g,'&quot;')}" placeholder="Ketik nama, pisahkan dengan koma" autocomplete="off"><div class="ac-list" id="ac-pbe-manpower-${r.rowIndex}"></div></div>
             <div class="fg full"><label>Notes</label><textarea id="pbe-notes-${r.rowIndex}" rows="2" style="resize:vertical">${(r.notes||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea></div>
@@ -3510,13 +3533,12 @@ function _pbRenderRemainingSection(inItems, salesItems, outItems, adjItems, cost
   inItems.forEach(it => bump(it.item_id || it.item_code, it, 'qty_in', Number(it.qty_in_base||0)));
   salesItems.forEach(it => bump(it.item_id || it.item_code, it, 'qty_sold', Number(it.qty||0)));
   outItems.forEach(it => bump(it.item_id || it.item_code, it, 'qty_out', Number(it.qty_in_base||0)));
-  // Adjustment qty is signed (negative for decrease). For Sisa formula we use abs
-  // for the "outflow" interpretation; this is consistent with all categories
-  // (freebies / defect / opname loss / penjualan offline) representing stock decrease.
-  (adjItems||[]).forEach(it => bump(it.item_id, it, 'qty_adj', Math.abs(Number(it.qty||0))));
+  // Adjustment qty is SIGNED (negative = stock decrease, positive = increase).
+  // Net is what we add to the formula directly.
+  (adjItems||[]).forEach(it => bump(it.item_id, it, 'qty_adj', Number(it.qty||0)));
 
   const rows = Array.from(agg.values()).map(r => {
-    const remaining = r.qty_in - r.qty_sold - r.qty_out - r.qty_adj;
+    const remaining = r.qty_in - r.qty_sold - r.qty_out + r.qty_adj;
     const avgCost   = costMap?.get(r.item_id) || 0;
     return { ...r, remaining, value: remaining * avgCost };
   });
@@ -3526,7 +3548,7 @@ function _pbRenderRemainingSection(inItems, salesItems, outItems, adjItems, cost
   const totSold = rows.reduce((a,r)=>a+r.qty_sold,0);
   const totOut  = rows.reduce((a,r)=>a+r.qty_out,0);
   const totAdj  = rows.reduce((a,r)=>a+r.qty_adj,0);
-  const totRem  = totIn - totSold - totOut - totAdj;
+  const totRem  = totIn - totSold - totOut + totAdj;
   const totValue = rows.reduce((a,r)=>a+r.value,0);
   const mismatchCount = rows.filter(r => r.remaining !== 0).length;
   sum.textContent = `${rows.length} SKU · sisa ${totRem.toLocaleString('id-ID')} (${_pbRpShort(totValue)}) · ${mismatchCount} SKU belum 0`;
@@ -3539,7 +3561,7 @@ function _pbRenderRemainingSection(inItems, salesItems, outItems, adjItems, cost
       <th style="text-align:right;padding:6px 10px;background:var(--off);font-weight:600">Stock IN</th>
       <th style="text-align:right;padding:6px 10px;background:var(--off);font-weight:600">Sold</th>
       <th style="text-align:right;padding:6px 10px;background:var(--off);font-weight:600">Reinbound</th>
-      <th style="text-align:right;padding:6px 10px;background:var(--off);font-weight:600">Adjustment</th>
+      <th style="text-align:right;padding:6px 10px;background:var(--off);font-weight:600">Net Adj</th>
       <th style="text-align:right;padding:6px 10px;background:var(--off);font-weight:600">Sisa</th>
       <th style="text-align:right;padding:6px 10px;background:var(--off);font-weight:600">Value</th>
     </tr></thead>
@@ -3570,7 +3592,7 @@ function _pbRenderRemainingSection(inItems, salesItems, outItems, adjItems, cost
       <td class="mono" style="padding:6px 10px;text-align:right">${_pbRp(totValue)}</td>
     </tr></tfoot>
   </table></div>
-  <div style="font-size:10px;color:var(--g400);margin-top:8px">Sisa = IN − Sold − Reinbound − Adjustment. Value = sisa × avg_cost. Adjustment = freebies/defect/opname loss/dst yang dilink ke event ini di modul Stock Adjustment. Nol → reconcile complete; positif → masih ada; negatif → ada sales/movement unrecorded.</div>`;
+  <div style="font-size:10px;color:var(--g400);margin-top:8px">Sisa = IN − Sold − Reinbound + Net Adj. Net Adj = sum signed dari qty Stock Adjustment (negatif = stok berkurang, positif = nambah). Value = sisa × avg_cost. Nol → reconcile complete; positif → masih ada; negatif → ada sales/movement unrecorded.</div>`;
 }
 
 // ── NOTIFICATIONS ──

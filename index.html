@@ -946,8 +946,8 @@
             <div class="form-sec" style="margin-top:.5rem">Status &amp; Dokumen</div>
             <div class="form-grid">
               <div class="fg">
-                <label>Event Status</label>
-                <select id="pb-eventstatus"><option value="">Planned</option><option>Reconcile</option><option>Done</option><option>Cancelled</option></select>
+                <label>Event Status <span style="font-size:10px;color:var(--g400);font-weight:400">(auto kecuali Cancelled)</span></label>
+                <select id="pb-eventstatus"><option value="">Auto (derived dari tanggal + stock)</option><option value="Cancelled">Cancelled</option></select>
               </div>
               <div class="fg full">
                 <label>Payment Method</label>
@@ -979,9 +979,9 @@
               <select class="f-select" id="pb-fil-status" onchange="applyPBFilters()">
                 <option value="">Semua Status</option>
                 <option value="Planned">Planned</option>
+                <option value="Reconcile">Reconcile</option>
                 <option value="Done">Done</option>
                 <option value="Cancelled">Cancelled</option>
-                <option value="Overdue">Overdue</option>
               </select>
               <select class="f-select" id="pb-fil-ip" onchange="applyPBFilters()">
                 <option value="">Semua IP</option>
@@ -1008,8 +1008,10 @@
                   <th>IP Related</th>
                   <th class="sortable" data-col="eventStatus" onclick="sortPBBy('eventStatus')">Status</th>
                   <th style="text-align:right">Stock In</th>
+                  <th style="text-align:right">Sold</th>
                   <th style="text-align:right">Stock Out</th>
-                  <th style="text-align:right" title="Current Stock = Stock In − Sold − Reinbound − Adjustment. Merah kalau belum 0 (reconcile belum kelar).">Current Stock</th>
+                  <th style="text-align:right" title="Sum signed adjustment qty. Negatif = stock berkurang (freebies/defect/loss), positif = stock nambah.">Net Adjustment</th>
+                  <th style="text-align:right" title="Current Stock = Stock In − Sold − Stock Out + Net Adjustment. Merah kalau belum 0 (reconcile belum kelar).">Current Stock</th>
                   <th style="text-align:right">Total Sales</th>
                   <th style="text-align:right">Total COGS</th>
                   <th style="text-align:right">Gross Margin</th>
@@ -1018,7 +1020,7 @@
                   <th>Aksi</th>
                 </tr>
               </thead>
-              <tbody id="pbTableBody"><tr><td class="empty-td" colspan="14">Klik "Semua" untuk memuat data.</td></tr></tbody>
+              <tbody id="pbTableBody"><tr><td class="empty-td" colspan="16">Klik "Semua" untuk memuat data.</td></tr></tbody>
             </table>
           </div>
           </div>
