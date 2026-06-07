@@ -2617,20 +2617,27 @@ async function _pbComputeEventAggregates(eventNames) {
   return out;
 }
 
-// Auto-derive event status from date + current_stock.
-// Manual "Cancelled" is the only override that wins over the auto rule.
-//   eventDate in future → Planned
-//   past + current_stock != 0 → Reconcile  (stok belum tally)
-//   past + current_stock == 0 → Done
+// Auto-derive event status from date + current_stock + qty_sold.
+// Manual overrides (event_status field): 'Cancelled' or 'No Sales' (= confirm
+// event had no sales, so qty_sold=0 won't block Done).
+//   eventDate in future                           → Planned
+//   past + current_stock != 0                     → Reconcile  (stok belum tally)
+//   past + current_stock == 0 + (qty_sold > 0
+//        OR manual = No Sales)                    → Done
+//   past + current_stock == 0 + qty_sold == 0
+//        AND no "No Sales" override               → Reconcile (sales belum di-map)
 // If currentStock is undefined (aggregator not loaded yet), treat past as Reconcile.
-function computePBAutoStatus(eventDate, currentStock, manualStatus) {
+function computePBAutoStatus(eventDate, currentStock, qtySold, manualStatus) {
   if (manualStatus === 'Cancelled') return 'Cancelled';
   if (!eventDate) return 'Planned';
   const today = new Date(); today.setHours(0,0,0,0);
   const d = new Date(eventDate + 'T00:00:00');
   if (d >= today) return 'Planned';
   if (currentStock == null) return 'Reconcile';
-  return currentStock === 0 ? 'Done' : 'Reconcile';
+  if (currentStock !== 0) return 'Reconcile';
+  // current_stock = 0 — done only if sales mapped OR user marked No Sales.
+  if (qtySold > 0 || manualStatus === 'No Sales') return 'Done';
+  return 'Reconcile';
 }
 
 function renderPBStats(rows) {
@@ -2639,8 +2646,8 @@ function renderPBStats(rows) {
   // table — same source of truth (computePBAutoStatus).
   const counts = { Planned: 0, Reconcile: 0, Done: 0, Cancelled: 0 };
   for (const r of rows) {
-    const cs = agg?.get(r.eventName)?.current_stock;
-    const st = computePBAutoStatus(r.eventDate, cs, r.eventStatus);
+    const aa = agg?.get(r.eventName);
+    const st = computePBAutoStatus(r.eventDate, aa?.current_stock, aa?.qty_sold, r.eventStatus);
     if (counts[st] != null) counts[st]++;
   }
   const totalSales = agg ? rows.reduce((a,r) => a + (agg.get(r.eventName)?.sales_rev || 0), 0) : 0;
@@ -2660,8 +2667,8 @@ function applyPBFilters() {
   let rows = allPBRows;
   if (status) {
     rows = rows.filter(r => {
-      const cs = agg?.get(r.eventName)?.current_stock;
-      return computePBAutoStatus(r.eventDate, cs, r.eventStatus) === status;
+      const aa = agg?.get(r.eventName);
+      return computePBAutoStatus(r.eventDate, aa?.current_stock, aa?.qty_sold, r.eventStatus) === status;
     });
   }
   if (ip) rows = rows.filter(r=>(r.ipRelated||"").toLowerCase().includes(ip.toLowerCase()));
@@ -2748,7 +2755,7 @@ function renderPBCalendar(rows) {
       const a = agg?.get(e.eventName);
       const totalSales = a ? Math.round(a.sales_rev) : 0;
       const stockWarn = a && a.current_stock !== 0 ? ' ⚠' : '';
-      const autoSt = computePBAutoStatus(e.eventDate, a?.current_stock, e.eventStatus);
+      const autoSt = computePBAutoStatus(e.eventDate, a?.current_stock, a?.qty_sold, e.eventStatus);
       return `<div onclick="openPBDetail('${e.rowIndex}')" title="${_pbEsc(e.eventName||'')}${totalSales?` · Rp ${totalSales.toLocaleString('id-ID')}`:''}${stockWarn?` · current stock ${a.current_stock}`:''}" style="cursor:pointer;background:${statusBg(autoSt)};color:${statusFg(autoSt)};font-size:10px;padding:3px 6px;border-radius:3px;margin-bottom:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500">${_pbEsc(e.eventName||'(Tanpa nama)')}${stockWarn}</div>`;
     }).join('');
     cellsHTML += `<div style="border:1px solid var(--g100);border-radius:4px;padding:6px 8px;min-height:80px;background:${inMonth?(isToday?'#f5f3ff':'var(--white)'):'transparent'};${!inMonth?'border-color:transparent':''}">${dayHeader}${eventPills}</div>`;
@@ -2801,9 +2808,8 @@ function renderPBTable(rows) {
   const statusPillCls = (s) => s==="Done"?"p-active":s==="Cancelled"?"p-expired":s==="Reconcile"?"p-near":"p-draft";
   tbody.innerHTML = rows.map(r => {
     const a = agg?.get(r.eventName) || {qty_in:0, qty_out:0, qty_sold:0, qty_adj:0, sales_rev:0, sales_cogs:0, margin:0, current_stock:0};
-    const autoStatus = computePBAutoStatus(r.eventDate, a.current_stock, r.eventStatus);
-    const autoBadge = (r.eventStatus !== 'Cancelled') ? `<span style="font-size:9px;color:var(--g400);margin-left:4px" title="Derived dari tanggal + current stock">auto</span>` : '';
-    const esPill = `<span class="pill ${statusPillCls(autoStatus)}" style="font-size:11px">${autoStatus}</span>${autoBadge}`;
+    const autoStatus = computePBAutoStatus(r.eventDate, a.current_stock, a.qty_sold, r.eventStatus);
+    const esPill = `<span class="pill ${statusPillCls(autoStatus)}" style="font-size:11px">${autoStatus}</span>`;
     const pm = r.paymentMethod ? r.paymentMethod.split(",").map(p=>`<span class="pill p-signings" style="font-size:10px;margin-right:2px">${p.trim()}</span>`).join("") : "—";
     const isOverdue = r.srDeadline && autoStatus!=="Done" && autoStatus!=="Cancelled" && new Date(r.srDeadline+"T00:00:00") < _today;
     const marginColor = a.margin > 0 ? '#1c7a3b' : a.margin < 0 ? '#c33' : 'var(--g600)';
@@ -2839,7 +2845,7 @@ function renderPBTable(rows) {
             <div class="fg"><label>Nama Event</label><input type="text" id="pbe-eventname-${r.rowIndex}" value="${(r.eventName||'').replace(/"/g,'&quot;')}"></div>
             <div class="fg"><label>Lokasi</label><input type="text" id="pbe-location-${r.rowIndex}" value="${(r.location||'').replace(/"/g,'&quot;')}"></div>
             <div class="fg"><label>IP Related</label><input type="text" id="pbe-iprelated-${r.rowIndex}" value="${(r.ipRelated||'').replace(/"/g,'&quot;')}" placeholder="Pisahkan dengan koma"></div>
-            <div class="fg"><label>Event Status <span style="font-size:10px;color:var(--g400);font-weight:400">(auto kecuali Cancelled)</span></label><select id="pbe-eventstatus-${r.rowIndex}"><option value="" ${r.eventStatus!=="Cancelled"?"selected":""}>Auto (derived dari tanggal + stock)</option><option value="Cancelled" ${r.eventStatus==="Cancelled"?"selected":""}>Cancelled</option></select></div>
+            <div class="fg"><label>Event Status <span style="font-size:10px;color:var(--g400);font-weight:400">(auto kecuali override)</span></label><select id="pbe-eventstatus-${r.rowIndex}"><option value="" ${(r.eventStatus!=="Cancelled"&&r.eventStatus!=="No Sales")?"selected":""}>Auto (derived dari tanggal + stock + sales)</option><option value="No Sales" ${r.eventStatus==="No Sales"?"selected":""}>No Sales (auto Done jika stock 0)</option><option value="Cancelled" ${r.eventStatus==="Cancelled"?"selected":""}>Cancelled</option></select></div>
             <div class="fg full"><label>Payment Method</label><div style="display:flex;gap:16px;flex-wrap:wrap;padding:8px 0"><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-jpos-${r.rowIndex}" ${(r.paymentMethod||"").includes("Jubelio POS")?"checked":""}> Jubelio POS</label><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-qris-${r.rowIndex}" ${(r.paymentMethod||"").includes("QRIS Xendit")?"checked":""}> QRIS Xendit</label><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-cons-${r.rowIndex}" ${(r.paymentMethod||"").includes("Consignment")?"checked":""}> Consignment</label><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-pickup-${r.rowIndex}" ${(r.paymentMethod||"").includes("Pick Up in Location")?"checked":""}> Pick Up in Location</label><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-3rd-${r.rowIndex}" ${(r.paymentMethod||"").includes("3rd Party Providers")?"checked":""}> 3rd Party Providers</label><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-other-${r.rowIndex}" ${(r.paymentMethod||"").includes("Other")?"checked":""}> Other</label></div></div>
             <div class="fg" style="position:relative"><label>Manpower</label><input type="text" id="pbe-manpower-${r.rowIndex}" value="${(r.manpower||'').replace(/"/g,'&quot;')}" placeholder="Ketik nama, pisahkan dengan koma" autocomplete="off"><div class="ac-list" id="ac-pbe-manpower-${r.rowIndex}"></div></div>
             <div class="fg full"><label>Notes</label><textarea id="pbe-notes-${r.rowIndex}" rows="2" style="resize:vertical">${(r.notes||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea></div>
