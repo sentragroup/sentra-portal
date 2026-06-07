@@ -17935,6 +17935,8 @@ let _itRows = [];
 let _itTotalCount = 0;
 let _itPage = 0;
 let _itSelected = new Set();
+const _itExpanded = new Set();  // xferIds whose item rows are expanded
+const _itItemsCache = new Map();// xferId → items[]
 let _itDistWholesale = [];   // [{id, name}]
 let _itDistConsign   = [];
 let _itPopupBooths   = [];   // [{id, name, date}]
@@ -18024,6 +18026,10 @@ function switchInvTransferMode(mode, btn) {
   _itMode = mode === 'in' ? 'in' : 'out';
   _itPage = 0;
   _itSelected.clear();
+  _itExpanded.clear();
+  // Disable select-all checkbox in TRFI (bulk apply doesn't apply — mapping is synced)
+  const sa = document.getElementById('it-select-all');
+  if (sa) { sa.checked = false; sa.disabled = _itMode === 'in'; }
 
   // Title + subtitle swap
   const tEl = document.getElementById('it-page-title');
@@ -18057,7 +18063,7 @@ function switchInvTransferMode(mode, btn) {
 
 async function loadInvTransfer() {
   const tbody = document.getElementById('invTransferTableBody');
-  if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="12">Memuat...</td></tr>`;
+  if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="13">Memuat...</td></tr>`;
   await _itLoadLookups();
   _itSelected.clear();
   _itUpdateBulkBar();
@@ -18086,7 +18092,7 @@ async function loadInvTransfer() {
       return qq;
     };
 
-    const cols = 'item_transfer_id,item_transfer_no,transaction_date,received_date,source,destination,source_location_id,destination_location_id,is_putaway,note,transfer_type';
+    const cols = 'item_transfer_id,item_transfer_no,transaction_date,received_date,source,destination,source_location_id,destination_location_id,is_putaway,note,transfer_type,source_transfer_id,source_transfer_no';
     const from_n = _itPage * pageSize;
     const to_n   = from_n + pageSize - 1;
 
@@ -18135,21 +18141,30 @@ async function loadInvTransfer() {
       }
     }
 
-    // Mappings
+    // Mappings — TRFO maps by own item_transfer_id; TRFI mirrors its source TRFO's mapping.
     const mapByXferId = new Map();
-    if (xferIds.length) {
-      for (let i = 0; i < xferIds.length; i += 500) {
-        const chunk = xferIds.slice(i, i + 500);
+    // Build the set of IDs we need to look up: own IDs for TRFO, source_transfer_id for TRFI.
+    const mappingIds = _itMode === 'in'
+      ? (trfRows||[]).map(r => r.source_transfer_id).filter(Boolean)
+      : xferIds;
+    if (mappingIds.length) {
+      for (let i = 0; i < mappingIds.length; i += 500) {
+        const chunk = mappingIds.slice(i, i + 500);
         const {data: maps} = await sb.from('inventory_transfer_mappings').select('*').in('item_transfer_id', chunk);
         (maps||[]).forEach(m => mapByXferId.set(m.item_transfer_id, m));
       }
     }
 
-    let merged = (trfRows||[]).map(r => ({
-      ...r,
-      _summary: summary.get(r.item_transfer_id) || {count:0, qty:0},
-      _mapping: mapByXferId.get(r.item_transfer_id) || null
-    }));
+    let merged = (trfRows||[]).map(r => {
+      // TRFI: mapping is INHERITED from the source TRFO (read-only mirror).
+      const mappingKey = _itMode === 'in' ? r.source_transfer_id : r.item_transfer_id;
+      return {
+        ...r,
+        _summary: summary.get(r.item_transfer_id) || {count:0, qty:0},
+        _mapping: (mappingKey != null) ? (mapByXferId.get(mappingKey) || null) : null,
+        _mappingFromSource: _itMode === 'in' && mappingKey != null
+      };
+    });
     if (mapStatus === 'mapped')   merged = merged.filter(r => r._mapping && (r._mapping.category || r._mapping.ref_label));
     if (mapStatus === 'unmapped') merged = merged.filter(r => !r._mapping || !(r._mapping.category || r._mapping.ref_label));
     if (cat) merged = merged.filter(r => r._mapping?.category === cat);
@@ -18160,7 +18175,7 @@ async function loadInvTransfer() {
     _renderInvTransferPagination(pageSize);
   } catch (e) {
     console.error('loadInvTransfer:', e);
-    if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="12">Gagal: ${e.message||e}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="13">Gagal: ${e.message||e}</td></tr>`;
   }
 }
 
@@ -18178,18 +18193,23 @@ function _renderInvTransferStats() {
 function _renderInvTransferTable() {
   const tbody = document.getElementById('invTransferTableBody');
   if (!tbody) return;
+  // Header label swap (TRFO mode shows "TRFO No", TRFI shows "TRFI No (← Source TRFO)")
+  const thNo = document.getElementById('it-th-trfono');
+  if (thNo) thNo.textContent = _itMode === 'in' ? 'TRFI No (Source)' : 'TRFO No';
+
   if (!_itRows.length) {
-    tbody.innerHTML = `<tr><td class="empty-td" colspan="12">Tidak ada data sesuai filter.</td></tr>`;
+    tbody.innerHTML = `<tr><td class="empty-td" colspan="13">Tidak ada data sesuai filter.</td></tr>`;
     document.getElementById('it-tcount').textContent = '0 entri';
     return;
   }
   document.getElementById('it-tcount').textContent = `${_itRows.length} di page ini · ${_itTotalCount.toLocaleString('id-ID')} total`;
 
   const catOpts = ['', ...IT_CATEGORIES];
+  const isTRFI = _itMode === 'in';
+
   tbody.innerHTML = _itRows.map(r => {
     const cat = r._mapping?.category || '';
     const ref = r._mapping?.ref_label || '';
-    const notes = r._mapping?.notes || '';
     const isMapped = !!cat || !!ref;
     const rowBg = isMapped ? 'background:#fafdf6' : '';
     const checked = _itSelected.has(r.item_transfer_id) ? ' checked' : '';
@@ -18197,21 +18217,128 @@ function _renderInvTransferTable() {
     const putawayPill = r.is_putaway
       ? `<span class="pill p-active" style="font-size:10px">Done</span>`
       : `<span class="pill p-draft" style="font-size:10px">Pending</span>`;
-    return `<tr style="${rowBg}">
-      <td style="text-align:center"><input type="checkbox" data-it-id="${r.item_transfer_id}" onclick="toggleInvTransferSelect(${r.item_transfer_id},this.checked)"${checked}></td>
-      <td class="mono" style="font-size:11px;font-weight:600">${_itEsc(r.item_transfer_no || ('#'+r.item_transfer_id))}</td>
+
+    // Doc no cell: TRFO mode shows just its own no; TRFI mode shows TRFI no + source TRFO chip
+    const docNoCell = isTRFI
+      ? `<div class="mono" style="font-size:11px;font-weight:600">${_itEsc(r.item_transfer_no || ('#'+r.item_transfer_id))}</div>
+         ${r.source_transfer_no
+            ? `<div class="mono" style="font-size:10px;color:var(--g600);margin-top:2px">↳ ${_itEsc(r.source_transfer_no)}</div>`
+            : `<div class="mono" style="font-size:10px;color:#c33;margin-top:2px">↳ no source</div>`}`
+      : `<div class="mono" style="font-size:11px;font-weight:600">${_itEsc(r.item_transfer_no || ('#'+r.item_transfer_id))}</div>`;
+
+    // Mapping cells: editable in TRFO mode, read-only mirror in TRFI mode
+    let catCell, refCell, aksiCell;
+    if (isTRFI) {
+      // TRFI mirrors source TRFO's mapping (or shows "no source" / "source unmapped")
+      const sourceMissing = !r.source_transfer_id;
+      const sourceUnmapped = r.source_transfer_id && !isMapped;
+      if (sourceMissing) {
+        catCell = `<span class="pill p-draft" style="font-size:10px" title="TRFI tidak punya source_transfer_id">No source</span>`;
+        refCell = `<span style="font-size:11px;color:var(--g400)">—</span>`;
+      } else if (sourceUnmapped) {
+        catCell = `<span class="pill p-draft" style="font-size:10px" title="Source TRFO belum di-mapping">— Unmapped —</span>`;
+        refCell = `<span style="font-size:11px;color:var(--g400)" title="Map source TRFO dulu untuk auto-isi ini">map source dulu</span>`;
+      } else {
+        catCell = `<span class="pill p-active" style="font-size:10px" title="Synced dari ${_itEsc(r.source_transfer_no||'')}">${_itEsc(cat)}</span>`;
+        refCell = `<span style="font-size:11px;font-weight:500" title="Synced dari ${_itEsc(r.source_transfer_no||'')}">${_itEsc(ref || '—')}</span>`;
+      }
+      aksiCell = `<span style="font-size:10px;color:var(--g400)" title="Mapping hanya bisa diedit di tab Transfer Out">🔗 sync</span>`;
+    } else {
+      catCell = `<select onchange="updateInvTransferField(${r.item_transfer_id},'category',this.value)" class="pill ${isMapped ? 'p-active' : 'p-draft'}" style="font-size:10px;padding:2px 6px;border:1px solid;width:100%">${catOpts.map(o => `<option value="${o}"${o===cat?' selected':''}>${o || '— Unmapped —'}</option>`).join('')}</select>`;
+      refCell = _itRefSelectHTML(r.item_transfer_id, cat, ref);
+      aksiCell = isMapped ? `<button class="btn-icon" style="font-size:10px;color:#c33" onclick="unmapInvTransfer(${r.item_transfer_id})">✕</button>` : '—';
+    }
+
+    // Checkbox disabled in TRFI mode (bulk edit irrelevant)
+    const checkboxCell = isTRFI
+      ? `<span style="color:var(--g100);font-size:14px" title="Mapping di-sync dari source TRFO">—</span>`
+      : `<input type="checkbox" data-it-id="${r.item_transfer_id}" onclick="toggleInvTransferSelect(${r.item_transfer_id},this.checked)"${checked}>`;
+
+    const isExpanded = _itExpanded.has(r.item_transfer_id);
+    const chevron = isExpanded ? '▾' : '▸';
+    const jubNote = r.note || '';
+
+    const mainRow = `<tr style="${rowBg};cursor:pointer" onclick="toggleInvTransferItems(${r.item_transfer_id})">
+      <td style="text-align:center;font-size:13px;color:var(--g600);font-family:var(--mono)">${chevron}</td>
+      <td style="text-align:center" onclick="event.stopPropagation()">${checkboxCell}</td>
+      <td>${docNoCell}</td>
       <td class="mono" style="font-size:11px;white-space:nowrap">${_itDate(r.transaction_date)}</td>
       <td style="font-size:11px">${route}</td>
       <td class="mono" style="text-align:right;font-size:11px">${r._summary.count}</td>
       <td class="mono" style="text-align:right;font-size:11px">${r._summary.qty.toLocaleString('id-ID')}</td>
       <td class="mono" style="font-size:11px;white-space:nowrap">${_itDate(r.received_date)}</td>
       <td>${putawayPill}</td>
-      <td><select onchange="updateInvTransferField(${r.item_transfer_id},'category',this.value)" class="pill ${isMapped ? 'p-active' : 'p-draft'}" style="font-size:10px;padding:2px 6px;border:1px solid;width:100%">${catOpts.map(o => `<option value="${o}"${o===cat?' selected':''}>${o || '— Unmapped —'}</option>`).join('')}</select></td>
-      <td>${_itRefSelectHTML(r.item_transfer_id, cat, ref)}</td>
-      <td><input type="text" value="${_itEsc(notes)}" placeholder="Catatan" style="width:100%;padding:4px 6px;font-size:11px;border:1px solid var(--g100);border-radius:3px;background:var(--white)" onblur="updateInvTransferField(${r.item_transfer_id},'notes',this.value)"></td>
-      <td style="text-align:center">${isMapped ? `<button class="btn-icon" style="font-size:10px;color:#c33" onclick="unmapInvTransfer(${r.item_transfer_id})">✕</button>` : '—'}</td>
+      <td onclick="event.stopPropagation()">${catCell}</td>
+      <td onclick="event.stopPropagation()">${refCell}</td>
+      <td style="font-size:11px;color:var(--g600);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_itEsc(jubNote)}">${_itEsc(jubNote) || '<span style="color:var(--g400)">—</span>'}</td>
+      <td style="text-align:center" onclick="event.stopPropagation()">${aksiCell}</td>
     </tr>`;
+
+    // Expand row: lazy-rendered, shows item lines for this transfer
+    const expandRow = isExpanded
+      ? `<tr id="it-items-${r.item_transfer_id}"><td colspan="13" style="padding:0;background:var(--off)">${_itRenderItemsBlock(r.item_transfer_id)}</td></tr>`
+      : '';
+
+    return mainRow + expandRow;
   }).join('');
+}
+
+// ── Item lines expand block ──
+function _itRenderItemsBlock(xferId) {
+  const items = _itItemsCache.get(xferId);
+  if (items === undefined) {
+    // Fetch on demand
+    _itFetchItems(xferId);
+    return `<div style="padding:14px 16px;font-size:11px;color:var(--g400)">Memuat items…</div>`;
+  }
+  if (!items.length) {
+    return `<div style="padding:14px 16px;font-size:11px;color:var(--g400)">Tidak ada items.</div>`;
+  }
+  return `<div style="padding:8px 12px 12px 50px">
+    <table style="width:auto;min-width:760px;background:var(--white);border:1px solid var(--g100);border-radius:4px">
+      <thead>
+        <tr style="background:var(--off)">
+          <th style="font-size:10px;text-align:left;padding:6px 10px">SKU</th>
+          <th style="font-size:10px;text-align:left;padding:6px 10px">Item</th>
+          <th style="font-size:10px;text-align:left;padding:6px 10px">Variant</th>
+          <th style="font-size:10px;text-align:right;padding:6px 10px">Qty</th>
+          <th style="font-size:10px;text-align:left;padding:6px 10px">Bin</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${items.map(it => `<tr>
+          <td class="mono" style="font-size:10px;padding:5px 10px;color:var(--g600)">${_itEsc(it.item_code || '—')}</td>
+          <td style="font-size:11px;padding:5px 10px">${_itEsc(it.item_name || '—')}</td>
+          <td style="font-size:11px;padding:5px 10px">${_itEsc(it.variant || '—')}</td>
+          <td class="mono" style="font-size:11px;padding:5px 10px;text-align:right">${Number(it.qty_in_base||0).toLocaleString('id-ID')}</td>
+          <td class="mono" style="font-size:10px;padding:5px 10px;color:var(--g600)">${_itEsc(it.bin_final_code || '—')}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>`;
+}
+
+async function _itFetchItems(xferId) {
+  try {
+    const {data, error} = await sb.from('jubelio_transfer_out_items')
+      .select('item_code,item_name,variant,qty_in_base,bin_final_code')
+      .eq('item_transfer_id', xferId)
+      .order('item_transfer_detail_id');
+    if (error) throw error;
+    _itItemsCache.set(xferId, data || []);
+    // Re-render only the items block for this row (without rebuilding the whole table)
+    const cell = document.querySelector(`#it-items-${xferId} td`);
+    if (cell) cell.innerHTML = _itRenderItemsBlock(xferId);
+  } catch (e) {
+    console.error('_itFetchItems:', e);
+    _itItemsCache.set(xferId, []);
+  }
+}
+
+function toggleInvTransferItems(xferId) {
+  if (_itExpanded.has(xferId)) _itExpanded.delete(xferId);
+  else _itExpanded.add(xferId);
+  _renderInvTransferTable();
 }
 
 function _renderInvTransferPagination(pageSize) {
@@ -18297,6 +18424,8 @@ function clearInvTransferSelection() {
 function _itUpdateBulkBar() {
   const bar = document.getElementById('it-bulk-bar');
   if (!bar) return;
+  // TRFI mode: mapping is derived from source TRFO — no bulk apply.
+  if (_itMode === 'in') { bar.style.display = 'none'; return; }
   const n = _itSelected.size;
   document.getElementById('it-bulk-count').textContent = n;
   bar.style.display = n > 0 ? 'flex' : 'none';
