@@ -15566,9 +15566,28 @@ function _pdInitJubCategoryAC(prefix /* '' for create form, 'edit-...' for inlin
   const refreshHint = () => {
     const v = inp.value.trim();
     if (!v) { if (hint) hint.innerHTML = '<span style="color:var(--g400)">—</span>'; return; }
-    const id = byPath.get(v);
-    if (id) hint.innerHTML = `<span style="color:#1c7a3b">✓ item_category_id = <span style="font-family:var(--mono)">${id}</span></span>`;
-    else    hint.innerHTML = `<span style="color:#c33">⚠ category gak ke-recognize — pastikan persis match dari dropdown</span>`;
+    // Try resolver (case-insensitive exact)
+    const id = _pdResolveJubCategoryId(v);
+    if (id) {
+      hint.innerHTML = `<span style="color:#1c7a3b">✓ item_category_id = <span style="font-family:var(--mono)">${id}</span></span>`;
+      return;
+    }
+    // No exact match — show top suggestions, clickable to fill the input.
+    const sugg = _pdSuggestJubCategories(v, 5);
+    if (!sugg.length) {
+      hint.innerHTML = `<span style="color:#c33">⚠ gak ada kategori yang match "${v.replace(/</g,'&lt;')}". Coba kata kunci lain.</span>`;
+      return;
+    }
+    const pickerId = `_pick_${Math.random().toString(36).slice(2,8)}`;
+    hint.innerHTML = `<span style="color:#c33">⚠ belum exact — klik salah satu di bawah:</span>` +
+      sugg.map(([p,id]) => `<div style="cursor:pointer;font-size:11px;padding:3px 6px;margin-top:3px;border:1px solid var(--g100);border-radius:3px;background:var(--white)" data-cat-pick="${p.replace(/"/g,'&quot;')}">${p.replace(/</g,'&lt;')} <span style="color:var(--g400);font-family:var(--mono);float:right">${id}</span></div>`).join('');
+    // Wire click → set input value to the picked path
+    hint.querySelectorAll('[data-cat-pick]').forEach(el => {
+      el.addEventListener('click', () => {
+        inp.value = el.getAttribute('data-cat-pick');
+        refreshHint();
+      });
+    });
   };
   inp.addEventListener('input', refreshHint);
   inp.addEventListener('change', refreshHint);
@@ -15576,12 +15595,32 @@ function _pdInitJubCategoryAC(prefix /* '' for create form, 'edit-...' for inlin
 }
 
 // Resolve category path → id from the bundled catalog.
+// Accepts exact match OR case-insensitive exact match. Returns null otherwise
+// so the form can show suggestions and refuse to save invalid input.
 function _pdResolveJubCategoryId(path) {
   if (!path) return null;
   const cats = window.JUBELIO_CATEGORIES;
   if (!cats) return null;
-  const hit = cats.find(([p]) => p === path);
+  const trimmed = path.trim();
+  let hit = cats.find(([p]) => p === trimmed);
+  if (hit) return hit[1];
+  const lower = trimmed.toLowerCase();
+  hit = cats.find(([p]) => p.toLowerCase() === lower);
   return hit ? hit[1] : null;
+}
+
+// Return top-N category paths that contain ALL of the user's tokens
+// (case-insensitive). Used to suggest matches when the typed value isn't exact.
+function _pdSuggestJubCategories(input, max = 6) {
+  if (!input) return [];
+  const cats = window.JUBELIO_CATEGORIES;
+  if (!cats) return [];
+  const tokens = input.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (!tokens.length) return [];
+  return cats.filter(([p]) => {
+    const pLower = p.toLowerCase();
+    return tokens.every(t => pLower.includes(t));
+  }).slice(0, max);
 }
 
 // Build the variant token used inside the SKU code: SIZE[-COLOR][-OTHER]
@@ -16126,7 +16165,7 @@ function clearPDFilters() {
 
 function clearPDForm() {
   ['pd-sku-name','pd-srp','pd-notes',
-   'pd-jub-category','pd-brand','pd-barcode','pd-description',
+   'pd-jub-category','pd-brand','pd-barcode',
    'pd-pkg-length','pd-pkg-width','pd-pkg-height'
   ].forEach(id=>{
     const el = document.getElementById(id); if (el) el.value='';
@@ -16227,7 +16266,6 @@ async function submitPD() {
   const jubCategory  = document.getElementById('pd-jub-category')?.value.trim() || '';
   const brand        = document.getElementById('pd-brand')?.value.trim() || '';
   const barcode      = document.getElementById('pd-barcode')?.value.trim() || '';
-  const description  = document.getElementById('pd-description')?.value.trim() || '';
   const pkgWeight    = parseFloat(document.getElementById('pd-pkg-weight')?.value);
   const pkgLength    = parseFloat(document.getElementById('pd-pkg-length')?.value);
   const pkgWidth     = parseFloat(document.getElementById('pd-pkg-width')?.value);
@@ -16265,7 +16303,8 @@ async function submitPD() {
       jubelio_category: jubCategory || null,
       jubelio_category_id: jubCategoryId,
       brand: brand || null,
-      description: description || null,
+      // Description is auto-built at export — no manual field anymore.
+      description: null,
       package_weight: isNaN(pkgWeight) ? null : pkgWeight,
       package_length: isNaN(pkgLength) ? null : pkgLength,
       package_width:  isNaN(pkgWidth)  ? null : pkgWidth,
@@ -16662,7 +16701,6 @@ function renderPDParentEditCard(p) {
         </div>
         <div class="fg"><label style="font-size:11px">Brand</label><input id="pde-brand-${p.id}" type="text" value="${(p.brand||'').replace(/"/g,'&quot;')}" style="font-size:12px;padding:5px 8px"></div>
         <div class="fg"><label style="font-size:11px">Barcode</label><input id="pde-barcode-${p.id}" type="text" value="${(p.barcode||'').replace(/"/g,'&quot;')}" style="font-size:12px;padding:5px 8px"></div>
-        <div class="fg full"><label style="font-size:11px">Description</label><textarea id="pde-description-${p.id}" rows="2" style="font-size:12px;padding:5px 8px;resize:vertical;width:100%;border:1px solid var(--g100);border-radius:4px">${(p.description||'').replace(/</g,'&lt;')}</textarea></div>
         <div class="fg"><label style="font-size:11px">Weight (g)</label><input id="pde-pkg-weight-${p.id}" type="number" min="0" value="${p.packageWeight==null?100:p.packageWeight}" style="font-size:12px;padding:5px 8px"></div>
         <div class="fg"><label style="font-size:11px">Length (cm)</label><input id="pde-pkg-length-${p.id}" type="number" min="0" value="${p.packageLength==null?'':p.packageLength}" style="font-size:12px;padding:5px 8px"></div>
         <div class="fg"><label style="font-size:11px">Width (cm)</label><input id="pde-pkg-width-${p.id}" type="number" min="0" value="${p.packageWidth==null?'':p.packageWidth}" style="font-size:12px;padding:5px 8px"></div>
@@ -16868,7 +16906,6 @@ async function savePDParentEdit(id) {
   const jubCategory = (document.getElementById(`pde-jub-category-${id}`)?.value||'').trim();
   const brand       = (document.getElementById(`pde-brand-${id}`)?.value||'').trim();
   const barcode     = (document.getElementById(`pde-barcode-${id}`)?.value||'').trim();
-  const description = (document.getElementById(`pde-description-${id}`)?.value||'').trim();
   const pkgW = parseFloat(document.getElementById(`pde-pkg-weight-${id}`)?.value);
   const pkgL = parseFloat(document.getElementById(`pde-pkg-length-${id}`)?.value);
   const pkgWd= parseFloat(document.getElementById(`pde-pkg-width-${id}`)?.value);
@@ -16885,7 +16922,7 @@ async function savePDParentEdit(id) {
     jubelio_category: jubCategory || null,
     jubelio_category_id: jubCategoryId,
     brand: brand || null,
-    description: description || null,
+    description: null,  // auto-built at export
     package_weight: isNaN(pkgW) ? null : pkgW,
     package_length: isNaN(pkgL) ? null : pkgL,
     package_width:  isNaN(pkgWd)? null : pkgWd,
@@ -17217,6 +17254,29 @@ function exportPDForVendor(vendor) {
 // Columns A (item_category_id) + B (category) left blank intentionally —
 // user pastes their category once into B, the original template's VLOOKUP
 // will fill A. (Same effect: paste the rows into the official template.)
+// Build a Jubelio description automatically from product metadata. Keeps it
+// HTML-light so Jubelio's marketplace-side rendering is consistent.
+//   <p><strong>{skuName}</strong></p>
+//   <p>{brand} — official merchandise dari {ip}.</p>
+//   <p>Bagian dari koleksi <em>{collectionName}</em>.</p>
+function _pdBuildDescription(p, colName, ipName) {
+  const lines = [];
+  if (p.skuName)  lines.push(`<p><strong>${_pdEscHtml(p.skuName)}</strong></p>`);
+  const brand = p.brand || ipName || '';
+  if (brand && ipName && brand !== ipName) {
+    lines.push(`<p>${_pdEscHtml(brand)} — official merchandise dari ${_pdEscHtml(ipName)}.</p>`);
+  } else if (brand) {
+    lines.push(`<p>Official merchandise ${_pdEscHtml(brand)}.</p>`);
+  }
+  if (colName) lines.push(`<p>Bagian dari koleksi <em>${_pdEscHtml(colName)}</em>.</p>`);
+  return lines.join('') || `<p>${_pdEscHtml(p.skuName || '')}</p>`;
+}
+function _pdEscHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
 async function exportPDJubelioXlsx() {
   // Writes a CSV (Jubelio's import endpoint accepts CSV only — see Jubelio's
   // "Import Produk" page). Filename kept .csv to match what user uploads.
@@ -17226,17 +17286,25 @@ async function exportPDJubelioXlsx() {
   // All required Jubelio config now lives on each parent SKU. No prompts —
   // just validate that the parents have it. If any parent missing required
   // config, list them and bail.
+  // Re-resolve category id from the cached path in case it was added back when
+  // the catalog hadn't loaded yet, or was created before the resolver was
+  // smart enough. Fail loudly if any path still won't resolve.
+  const resolvedIds = new Map();
+  for (const p of parents) {
+    const id = p.jubelioCategoryId || _pdResolveJubCategoryId(p.jubelioCategory);
+    resolvedIds.set(p.id, id || null);
+  }
   const missing = parents.filter(p =>
-    !p.jubelioCategory || !p.brand || !p.description ||
+    !p.jubelioCategory || !resolvedIds.get(p.id) || !p.brand ||
     !p.packageWeight || p.srp == null
   );
   if (missing.length) {
     const list = missing.map(p => `• ${p.skuName} (${p.displayCode}): ${[
-      !p.jubelioCategory && 'category',
-      !p.brand           && 'brand',
-      !p.description     && 'description',
-      !p.packageWeight   && 'package_weight',
-      p.srp == null      && 'SRP',
+      !p.jubelioCategory  && 'category',
+      !!p.jubelioCategory && !resolvedIds.get(p.id) && `category "${p.jubelioCategory}" gak ke-recognize`,
+      !p.brand            && 'brand',
+      !p.packageWeight    && 'package_weight',
+      p.srp == null       && 'SRP',
     ].filter(Boolean).join(', ')}`).join('\n');
     alert(`Ada ${missing.length} produk yang belum lengkap konfigurasi import-nya:\n\n${list}\n\nEdit produk dan lengkapi field "Konfigurasi Import Jubelio" dulu.`);
     return;
@@ -17246,6 +17314,7 @@ async function exportPDJubelioXlsx() {
     ? allColRows.find(x => x.id === pdCurrentCollectionId)
     : null;
   const colName = _col?.collectionName || '';
+  const ipName  = _col?.ipRelated || '';
 
   // Columns per Jubelio template (Sheet "Pengisian Import Produk" header row).
   const HEADERS = [
@@ -17265,15 +17334,17 @@ async function exportPDJubelioXlsx() {
   for (const p of parents) {
     const subs = allPDRows.filter(s => s.parentId === p.id && s.skuType === 'variant');
     const pics = Array.isArray(p.pictures) ? p.pictures.slice(0, 5) : [];
-    const descTxt = (p.description || '').trim();
+    // Auto-build description from metadata. User-supplied description (if any
+    // still in DB from older builds) wins as an override.
+    const descTxt = (p.description && p.description.trim()) || _pdBuildDescription(p, colName, ipName);
     const sellPrice = p.srp != null && p.srp !== '' ? Number(p.srp) : '';
     const baseRow = (variant) => {
       const itemCode = variant ? variant.displayCode : p.displayCode;
       if (!itemCode) { skipped++; return null; }
       const isMainImg = pics.length > 0 ? 'Yes' : '';
       return [
-        // A: item_category_id — resolved from category path
-        p.jubelioCategoryId || _pdResolveJubCategoryId(p.jubelioCategory) || '',
+        // A: item_category_id — resolved (validated above)
+        resolvedIds.get(p.id) || '',
         // B: category path
         p.jubelioCategory || '',
         // C: item_group_name — parent product name
