@@ -2443,40 +2443,158 @@ async function loadPopupBooth() {
       const {data} = await sb.from("ip_master").select("*");
       if (data) allIPRows = data.map(mapIP);
     }
-    const [{data,error},jubData,mekData] = await Promise.all([
+    const [{data,error},mekData] = await Promise.all([
       sb.from("popup_booths").select("*").order("event_date",{ascending:false}),
-      _fetchAllPages("jubelio_sales_orders","salesorder_id,grand_total,note"),
       _fetchAllPages("mekari_esign_completions","message_id,subject,email_date",q=>q.order("email_date",{ascending:false}))
     ]);
     if (error) throw error;
     allPBRows = (data||[]).map(mapPB);
-    window._jubOrderMap = {};
-    (jubData||[]).forEach(r=>{ if(r.salesorder_id!=null) window._jubOrderMap[String(r.salesorder_id).trim()] = {grand_total:r.grand_total,note:r.note||""}; });
     window._mekariMap = {};
     allMekariRows = (mekData||[]).map(mapMekari);
     allMekariRows.forEach(r=>{ window._mekariMap[r.id] = {subject:r.subject,email_date:r.emailDate}; });
     setupACMulti("pb-iprelated","ac-pb-iprelated",()=>allIPRows.filter(r=>r.liveStatus==="Active").map(r=>r.name).filter(Boolean));
     setupACMulti("pb-manpower","ac-pb-manpower",()=>getManpowerOptions());
-    setupAC("pb-id-pesanan","ac-pb-idpesanan",()=>Object.keys(window._jubOrderMap||{}));
-    setupAC("pb-sj","ac-pb-sj",()=>allMekariRows.map(r=>r.id),()=>allMekariRows.map(r=>({id:r.id,label:`${r.subject} (${fmtDate(r.emailDate)})`})));
+
+    // Compute per-event aggregates (Stock In/Out · Sales · COGS · Margin)
+    window._pbEventAggregates = await _pbComputeEventAggregates(allPBRows.map(r => r.eventName).filter(Boolean));
+
     renderPBStats(allPBRows);
     populatePBIPFilter();
     applyPBFilters();
   } catch(e) {
-    tbody.innerHTML = `<tr><td class="empty-td" colspan="14">Gagal memuat: ${e.message||e}</td></tr>`;
+    tbody.innerHTML = `<tr><td class="empty-td" colspan="13">Gagal memuat: ${e.message||e}</td></tr>`;
   }
+}
+
+// Returns Map<event_name, {qty_in, qty_out, sales_rev, sales_cogs, margin}>.
+// Same classification logic as the detail view's event zone.
+async function _pbComputeEventAggregates(eventNames) {
+  const out = new Map(eventNames.map(n => [n, {qty_in:0, qty_out:0, sales_rev:0, sales_cogs:0, margin:0}]));
+  if (!eventNames.length) return out;
+
+  const [trfMapsRes, txMapsRes] = await Promise.all([
+    sb.from('inventory_transfer_mappings').select('item_transfer_id,ref_label')
+      .eq('category','Event').in('ref_label', eventNames),
+    sb.from('transaction_mappings').select('salesorder_id,project_ref')
+      .eq('category','Pop Up Booth').in('project_ref', eventNames),
+  ]);
+  const trfMaps = trfMapsRes.data || [];
+  const txMaps  = txMapsRes.data  || [];
+
+  const trfIds = trfMaps.map(m => m.item_transfer_id).filter(Boolean);
+  const soIds  = txMaps.map(m => m.salesorder_id).filter(Boolean);
+
+  // Fetch headers + items in chunks
+  let trfHeaders = [], trfItems = [], soHeaders = [], soItems = [];
+  const fetchChunked = async (ids, table, cols) => {
+    const acc = [];
+    for (let i = 0; i < ids.length; i += 200) {
+      const chunk = ids.slice(i, i + 200);
+      const {data} = await sb.from(table).select(cols).in(table === 'jubelio_transfer_outs' || table === 'jubelio_transfer_out_items' ? 'item_transfer_id' : 'salesorder_id', chunk);
+      acc.push(...(data || []));
+    }
+    return acc;
+  };
+  if (trfIds.length) {
+    [trfHeaders, trfItems] = await Promise.all([
+      fetchChunked(trfIds, 'jubelio_transfer_outs', 'item_transfer_id,source,destination'),
+      fetchChunked(trfIds, 'jubelio_transfer_out_items', 'item_transfer_id,item_id,qty_in_base'),
+    ]);
+  }
+  if (soIds.length) {
+    [soHeaders, soItems] = await Promise.all([
+      fetchChunked(soIds, 'jubelio_sales_orders', 'salesorder_id,is_canceled,wms_status'),
+      fetchChunked(soIds, 'jubelio_sales_order_items', 'salesorder_id,item_id,qty,price,disc_amount'),
+    ]);
+  }
+
+  // COGS map
+  const allItemIds = new Set();
+  trfItems.forEach(it => { if (it.item_id != null) allItemIds.add(it.item_id); });
+  soItems.forEach(it => { if (it.item_id != null) allItemIds.add(it.item_id); });
+  const costMap = new Map();
+  const idArr = [...allItemIds];
+  for (let i = 0; i < idArr.length; i += 500) {
+    const chunk = idArr.slice(i, i + 500);
+    const {data} = await sb.from('jubelio_items').select('item_id,average_cost').in('item_id', chunk);
+    (data||[]).forEach(r => costMap.set(r.item_id, Number(r.average_cost) || 0));
+  }
+
+  // Group lookups
+  const eventTrfIds = new Map();
+  trfMaps.forEach(m => {
+    if (!eventTrfIds.has(m.ref_label)) eventTrfIds.set(m.ref_label, []);
+    eventTrfIds.get(m.ref_label).push(m.item_transfer_id);
+  });
+  const eventSoIds = new Map();
+  txMaps.forEach(m => {
+    if (!eventSoIds.has(m.project_ref)) eventSoIds.set(m.project_ref, []);
+    eventSoIds.get(m.project_ref).push(m.salesorder_id);
+  });
+  const trfHeaderMap = new Map(trfHeaders.map(h => [h.item_transfer_id, h]));
+  const soHeaderMap  = new Map(soHeaders.map(h => [h.salesorder_id, h]));
+  const trfItemsBy = new Map();
+  trfItems.forEach(it => {
+    if (!trfItemsBy.has(it.item_transfer_id)) trfItemsBy.set(it.item_transfer_id, []);
+    trfItemsBy.get(it.item_transfer_id).push(it);
+  });
+  const soItemsBy = new Map();
+  soItems.forEach(it => {
+    if (!soItemsBy.has(it.salesorder_id)) soItemsBy.set(it.salesorder_id, []);
+    soItemsBy.get(it.salesorder_id).push(it);
+  });
+
+  const isSupply = (loc) => PB_SUPPLY_WAREHOUSES.includes(loc);
+  const isCanceled = (h) => !!(h && (h.is_canceled || h.wms_status === 'CANCELED' || h.wms_status === 'CANCEL'));
+
+  for (const evName of eventNames) {
+    const r = out.get(evName);
+
+    // Same event-zone classification as detail view
+    const ids = eventTrfIds.get(evName) || [];
+    const headers = ids.map(id => trfHeaderMap.get(id)).filter(Boolean);
+    const eventZone = new Set([
+      ...PB_EVENT_WAREHOUSES,
+      ...headers.filter(h => isSupply(h.source) && h.destination).map(h => h.destination),
+    ]);
+    const inZone = (loc) => eventZone.has(loc);
+    for (const h of headers) {
+      const sIn = inZone(h.source), dIn = inZone(h.destination);
+      const items = trfItemsBy.get(h.item_transfer_id) || [];
+      const qty = items.reduce((a,it) => a + Number(it.qty_in_base||0), 0);
+      if (sIn && dIn) continue;         // internal — don't count
+      if (sIn && !dIn) r.qty_out += qty; // reinbound
+      else r.qty_in += qty;              // delivery
+    }
+
+    // Sales (confirmed only)
+    const sIds = eventSoIds.get(evName) || [];
+    for (const soId of sIds) {
+      const h = soHeaderMap.get(soId);
+      if (!h || isCanceled(h)) continue;
+      const items = soItemsBy.get(soId) || [];
+      for (const it of items) {
+        r.sales_rev  += Number(it.price || 0) * Number(it.qty || 0) - Number(it.disc_amount || 0);
+        r.sales_cogs += Number(it.qty || 0) * (costMap.get(it.item_id) || 0);
+      }
+    }
+    r.margin = r.sales_rev - r.sales_cogs;
+  }
+  return out;
 }
 
 function renderPBStats(rows) {
   const today = new Date(); today.setHours(0,0,0,0);
   const overdue = rows.filter(r=>{ if(!r.srDeadline||r.eventStatus==="Done"||r.eventStatus==="Cancelled") return false; return new Date(r.srDeadline+"T00:00:00") < today; });
-  const totalGT = rows.reduce((a,r)=>{ const info = r.idPesananJubelio?(window._jubOrderMap||{})[r.idPesananJubelio.trim()]:null; return a+(info?.grand_total!=null?Number(info.grand_total):0); },0);
+  // Grand Total now comes from aggregated confirmed sales across all events.
+  const agg = window._pbEventAggregates;
+  const totalSales = agg ? rows.reduce((a,r) => a + (agg.get(r.eventName)?.sales_rev || 0), 0) : 0;
   document.getElementById("pb-s-total").textContent = rows.length;
   document.getElementById("pb-s-upcoming").textContent = rows.filter(r=>{ if(!r.eventDate)return false; const d=new Date(r.eventDate+"T00:00:00"); return d>=today&&r.eventStatus!=="Done"&&r.eventStatus!=="Cancelled"; }).length;
   document.getElementById("pb-s-done").textContent = rows.filter(r=>r.eventStatus==="Done").length;
   document.getElementById("pb-s-cancelled").textContent = rows.filter(r=>r.eventStatus==="Cancelled").length;
   document.getElementById("pb-s-overdue").textContent = overdue.length;
-  document.getElementById("pb-s-grandtotal").textContent = totalGT ? "Rp "+totalGT.toLocaleString("id-ID") : "—";
+  document.getElementById("pb-s-grandtotal").textContent = totalSales ? "Rp "+totalSales.toLocaleString("id-ID") : "—";
 }
 
 function applyPBFilters() {
@@ -2507,27 +2625,30 @@ function renderPBTable(rows) {
   updateSortTh("pb-thead", pbSort.col, pbSort.dir);
   const tbody = document.getElementById("pbTableBody");
   document.getElementById("pb-tcount").textContent = rows.length+" entri";
-  if (!rows.length) { tbody.innerHTML=`<tr><td class="empty-td" colspan="11">Tidak ada data.</td></tr>`; return; }
+  if (!rows.length) { tbody.innerHTML=`<tr><td class="empty-td" colspan="13">Tidak ada data.</td></tr>`; return; }
   const _today = new Date(); _today.setHours(0,0,0,0);
+  const agg = window._pbEventAggregates;
+  const fmtRp = (n) => n ? "Rp "+Math.round(n).toLocaleString("id-ID") : "—";
+  const fmtQty = (n) => n ? Number(n).toLocaleString("id-ID") : "—";
+  const statusPillCls = (s) => s==="Done"?"p-active":s==="Cancelled"?"p-expired":s==="Reconcile"?"p-near":"p-draft";
   tbody.innerHTML = rows.map(r => {
-    const esPill = `<span class="pill ${r.eventStatus==="Done"?"p-active":r.eventStatus==="Cancelled"?"p-expired":"p-draft"}" style="font-size:11px">${r.eventStatus||"Planned"}</span>`;
-    const jubInfo = r.idPesananJubelio ? (window._jubOrderMap||{})[r.idPesananJubelio.trim()] : null;
-    const grandTotal = jubInfo?.grand_total!=null ? `Rp ${Number(jubInfo.grand_total).toLocaleString("id-ID")}` : "—";
-    const mekInfo = r.suratJalanUrl ? (window._mekariMap||{})[r.suratJalanUrl.trim()] : null;
-    const sjCell = mekInfo ? `<span style="font-size:11px;display:block;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(mekInfo.subject||"").replace(/"/g,"&quot;")}">${mekInfo.subject||r.suratJalanUrl}</span>` : (r.suratJalanUrl?"<span style='font-size:10px;color:var(--g400)'>"+r.suratJalanUrl.slice(0,18)+"…</span>":"—");
+    const esPill = `<span class="pill ${statusPillCls(r.eventStatus)}" style="font-size:11px">${r.eventStatus||"Planned"}</span>`;
     const pm = r.paymentMethod ? r.paymentMethod.split(",").map(p=>`<span class="pill p-signings" style="font-size:10px;margin-right:2px">${p.trim()}</span>`).join("") : "—";
     const isOverdue = r.srDeadline && r.eventStatus!=="Done" && r.eventStatus!=="Cancelled" && new Date(r.srDeadline+"T00:00:00") < _today;
-    const safeName = String(r.eventName||"").replace(/'/g,"\\'");
+    const a = agg?.get(r.eventName) || {qty_in:0, qty_out:0, sales_rev:0, sales_cogs:0, margin:0};
+    const marginColor = a.margin > 0 ? '#1c7a3b' : a.margin < 0 ? '#c33' : 'var(--g600)';
     return `<tr>
       <td style="white-space:nowrap;font-size:12px">${fmtDate(r.eventDate)}</td>
       <td><a href="#" onclick="event.preventDefault();openPBDetail('${r.rowIndex}')" style="color:#3C3489;text-decoration:none;font-weight:600">${r.eventName||"—"}</a></td>
       <td style="font-size:12px">${r.location||"—"}</td>
       <td style="font-size:12px;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.ipRelated||""}">${r.ipRelated||"—"}</td>
-      <td style="font-size:11px;max-width:160px;color:var(--g600)">${r.manpower||"—"}</td>
-      <td>${sjCell}</td>
       <td>${esPill}</td>
+      <td class="mono" style="text-align:right;font-size:12px">${fmtQty(a.qty_in)}</td>
+      <td class="mono" style="text-align:right;font-size:12px">${fmtQty(a.qty_out)}</td>
+      <td class="mono" style="text-align:right;font-size:12px;white-space:nowrap">${fmtRp(a.sales_rev)}</td>
+      <td class="mono" style="text-align:right;font-size:12px;color:var(--g600);white-space:nowrap">${fmtRp(a.sales_cogs)}</td>
+      <td class="mono" style="text-align:right;font-size:12px;white-space:nowrap;color:${marginColor};font-weight:600">${fmtRp(a.margin)}</td>
       <td style="white-space:nowrap;font-size:12px${isOverdue?";background:#fdecea;color:#c0392b;font-weight:500":""}">${r.srDeadline?fmtDate(r.srDeadline):"—"}</td>
-      <td style="white-space:nowrap;font-size:12px">${grandTotal}</td>
       <td style="font-size:11px">${pm}</td>
       <td><button class="btn-icon" onclick="openPBEdit('${r.rowIndex}')">Edit</button> <button class="btn-icon" style="color:#c0392b" onclick="deletePB('${r.rowIndex}')">Del</button></td>
     </tr>
@@ -2539,13 +2660,9 @@ function renderPBTable(rows) {
             <div class="fg"><label>Nama Event</label><input type="text" id="pbe-eventname-${r.rowIndex}" value="${(r.eventName||'').replace(/"/g,'&quot;')}"></div>
             <div class="fg"><label>Lokasi</label><input type="text" id="pbe-location-${r.rowIndex}" value="${(r.location||'').replace(/"/g,'&quot;')}"></div>
             <div class="fg"><label>IP Related</label><input type="text" id="pbe-iprelated-${r.rowIndex}" value="${(r.ipRelated||'').replace(/"/g,'&quot;')}" placeholder="Pisahkan dengan koma"></div>
-            <div class="fg"><label>Event Status</label><select id="pbe-eventstatus-${r.rowIndex}"><option value="">Planned</option><option ${r.eventStatus==="Done"?"selected":""}>Done</option><option ${r.eventStatus==="Cancelled"?"selected":""}>Cancelled</option></select></div>
-            <div class="fg"><label>Reinbound Status</label><select id="pbe-reinbound-${r.rowIndex}"><option value="">—</option><option ${r.reinboundStatus==="Done"?"selected":""}>Done</option><option ${r.reinboundStatus==="Not Yet"?"selected":""}>Not Yet</option><option ${r.reinboundStatus==="Sold Out"?"selected":""}>Sold Out</option></select></div>
-            <div class="fg"><label>Reinbound Qty</label><input type="number" id="pbe-reinboundqty-${r.rowIndex}" value="${r.reinboundQty!=null?r.reinboundQty:''}" min="0"></div>
+            <div class="fg"><label>Event Status</label><select id="pbe-eventstatus-${r.rowIndex}"><option value="" ${(!r.eventStatus||r.eventStatus==="Planned")?"selected":""}>Planned</option><option ${r.eventStatus==="Reconcile"?"selected":""}>Reconcile</option><option ${r.eventStatus==="Done"?"selected":""}>Done</option><option ${r.eventStatus==="Cancelled"?"selected":""}>Cancelled</option></select></div>
             <div class="fg full"><label>Payment Method</label><div style="display:flex;gap:16px;flex-wrap:wrap;padding:8px 0"><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-jpos-${r.rowIndex}" ${(r.paymentMethod||"").includes("Jubelio POS")?"checked":""}> Jubelio POS</label><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-qris-${r.rowIndex}" ${(r.paymentMethod||"").includes("QRIS Xendit")?"checked":""}> QRIS Xendit</label><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-cons-${r.rowIndex}" ${(r.paymentMethod||"").includes("Consignment")?"checked":""}> Consignment</label></div></div>
             <div class="fg" style="position:relative"><label>Manpower</label><input type="text" id="pbe-manpower-${r.rowIndex}" value="${(r.manpower||'').replace(/"/g,'&quot;')}" placeholder="Ketik nama, pisahkan dengan koma" autocomplete="off"><div class="ac-list" id="ac-pbe-manpower-${r.rowIndex}"></div></div>
-            <div class="fg" style="position:relative"><label>Surat Jalan</label><input type="text" id="pbe-sj-${r.rowIndex}" value="${(r.suratJalanUrl||'').replace(/"/g,'&quot;')}" placeholder="Pilih dari Mekari Sign" autocomplete="off" oninput="showPBSJInfo('pbe-sj-${r.rowIndex}','pbe-sj-hint-${r.rowIndex}')"><div class="ac-list" id="ac-pbe-sj-${r.rowIndex}"></div><div id="pbe-sj-hint-${r.rowIndex}"></div></div>
-            <div class="fg" style="position:relative"><label>ID Pesanan Jubelio</label><input type="text" id="pbe-idpesanan-${r.rowIndex}" value="${(r.idPesananJubelio||'').replace(/"/g,'&quot;')}" placeholder="Pilih dari Jubelio Offline Sales" autocomplete="off" oninput="showPBJubelioInfo('pbe-idpesanan-${r.rowIndex}','pbe-jubelio-hint-${r.rowIndex}')"><div class="ac-list" id="ac-pbe-idpesanan-${r.rowIndex}"></div><div id="pbe-jubelio-hint-${r.rowIndex}"></div></div>
             <div class="fg full"><label>Notes</label><textarea id="pbe-notes-${r.rowIndex}" rows="2" style="resize:vertical">${(r.notes||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea></div>
           </div>
           <div class="edit-row-btns">
@@ -2567,11 +2684,6 @@ function openPBEdit(rowIdx) {
   row.style.display = shown ? "none" : "table-row";
   if (!shown) {
     setupACMulti("pbe-manpower-"+rowIdx,"ac-pbe-manpower-"+rowIdx,()=>getManpowerOptions());
-    setupAC("pbe-idpesanan-"+rowIdx,"ac-pbe-idpesanan-"+rowIdx,()=>Object.keys(window._jubOrderMap||{}));
-    setupAC("pbe-sj-"+rowIdx,"ac-pbe-sj-"+rowIdx,()=>allMekariRows.map(r=>r.id),()=>allMekariRows.map(r=>({id:r.id,label:`${r.subject} (${fmtDate(r.emailDate)})`})));
-    const orig = allPBRows.find(r=>r.rowIndex===rowIdx);
-    if (orig?.idPesananJubelio) showPBJubelioInfo("pbe-idpesanan-"+rowIdx,"pbe-jubelio-hint-"+rowIdx);
-    if (orig?.suratJalanUrl) showPBSJInfo("pbe-sj-"+rowIdx,"pbe-sj-hint-"+rowIdx);
   }
 }
 function closePBEdit(rowIdx) { const r=document.getElementById("pb-edit-row-"+rowIdx); if(r) r.style.display="none"; }
@@ -2581,7 +2693,6 @@ async function savePBEdit(rowIdx) {
   if (btn) { btn.disabled=true; btn.textContent="Menyimpan..."; }
   try {
     const orig = allPBRows.find(r=>r.rowIndex===rowIdx);
-    const sjUrl = document.getElementById(`pbe-sj-${rowIdx}`)?.value.trim()||null;
     const pm = [
       document.getElementById(`pbe-pm-jpos-${rowIdx}`)?.checked?"Jubelio POS":"",
       document.getElementById(`pbe-pm-qris-${rowIdx}`)?.checked?"QRIS Xendit":"",
@@ -2592,18 +2703,14 @@ async function savePBEdit(rowIdx) {
     const srDeadline = calcPBSRDeadline(eventDate);
     const nm = document.getElementById(`pbe-eventname-${rowIdx}`).value.trim();
     if (!nm) { if(btn){btn.disabled=false;btn.textContent="Simpan";} alert("Nama Event wajib diisi."); return; }
-    const rqVal  = document.getElementById(`pbe-reinboundqty-${rowIdx}`).value;
     const {error} = await sb.from("popup_booths").update({
       event_name:nm, event_date:eventDate||null,
       location:document.getElementById(`pbe-location-${rowIdx}`).value.trim()||null,
       ip_related:document.getElementById(`pbe-iprelated-${rowIdx}`).value.trim()||null,
       manpower,
-      surat_jalan_url:sjUrl, delivery_status:sjUrl?"Delivered":null,
       event_status:document.getElementById(`pbe-eventstatus-${rowIdx}`).value||null,
-      reinbound_status:document.getElementById(`pbe-reinbound-${rowIdx}`).value||null,
-      reinbound_qty:rqVal?parseInt(rqVal):null, sr_deadline:srDeadline||null,
+      sr_deadline:srDeadline||null,
       payment_method:pm||null,
-      id_pesanan_jubelio:document.getElementById(`pbe-idpesanan-${rowIdx}`)?.value.trim()||null,
       notes:document.getElementById(`pbe-notes-${rowIdx}`).value.trim()||null,
       last_updated:new Date().toISOString(), last_updated_by:currentUser
     }).eq("id",rowIdx);
@@ -2629,12 +2736,10 @@ async function deletePB(rowIdx) {
 }
 
 function clearPBForm() {
-  ["pb-eventdate","pb-eventname","pb-location","pb-iprelated","pb-notes","pb-reinboundqty","pb-sj","pb-id-pesanan"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
-  ["pb-eventstatus","pb-reinbound"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
+  ["pb-eventdate","pb-eventname","pb-location","pb-iprelated","pb-notes"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
+  ["pb-eventstatus"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
   ["pb-pm-jpos","pb-pm-qris","pb-pm-cons"].forEach(id=>{const el=document.getElementById(id);if(el)el.checked=false;});
-  const sjHint=document.getElementById("pb-sj-hint");if(sjHint)sjHint.textContent="";
   const mptxt=document.getElementById("pb-manpower"); if(mptxt) mptxt.value="";
-  const jubHint=document.getElementById("pb-jubelio-hint"); if(jubHint) jubHint.textContent="";
   const fb=document.getElementById("pb-feedback"); if(fb) fb.textContent="";
 }
 
@@ -2647,7 +2752,6 @@ async function submitPB() {
   btn.disabled=true; btn.textContent="Menyimpan...";
   try {
     const id = genId("PB");
-    const sjUrl = document.getElementById("pb-sj")?.value.trim()||null;
     const pm = [
       document.getElementById("pb-pm-jpos")?.checked?"Jubelio POS":"",
       document.getElementById("pb-pm-qris")?.checked?"QRIS Xendit":"",
@@ -2655,20 +2759,14 @@ async function submitPB() {
     ].filter(Boolean).join(", ");
     const manpower = document.getElementById("pb-manpower")?.value.trim()||null;
     const srDeadline = calcPBSRDeadline(eventDate);
-    const rqVal  = document.getElementById("pb-reinboundqty").value;
     const row = {
       id, event_name:eventName, event_date:eventDate,
       location:document.getElementById("pb-location").value.trim()||null,
       ip_related:document.getElementById("pb-iprelated").value.trim()||null,
       manpower,
-      surat_jalan_url:sjUrl,
-      delivery_status:sjUrl?"Delivered":null,
       event_status:document.getElementById("pb-eventstatus").value||null,
-      reinbound_status:document.getElementById("pb-reinbound").value||null,
-      reinbound_qty:rqVal?parseInt(rqVal):null,
       sr_deadline:srDeadline||null,
       payment_method:pm||null,
-      id_pesanan_jubelio:document.getElementById("pb-id-pesanan")?.value.trim()||null,
       notes:document.getElementById("pb-notes").value.trim()||null,
       date_added:new Date().toISOString().slice(0,10),
       added_by:currentUser,
