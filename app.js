@@ -2661,7 +2661,7 @@ function renderPBTable(rows) {
             <div class="fg"><label>Lokasi</label><input type="text" id="pbe-location-${r.rowIndex}" value="${(r.location||'').replace(/"/g,'&quot;')}"></div>
             <div class="fg"><label>IP Related</label><input type="text" id="pbe-iprelated-${r.rowIndex}" value="${(r.ipRelated||'').replace(/"/g,'&quot;')}" placeholder="Pisahkan dengan koma"></div>
             <div class="fg"><label>Event Status</label><select id="pbe-eventstatus-${r.rowIndex}"><option value="" ${(!r.eventStatus||r.eventStatus==="Planned")?"selected":""}>Planned</option><option ${r.eventStatus==="Reconcile"?"selected":""}>Reconcile</option><option ${r.eventStatus==="Done"?"selected":""}>Done</option><option ${r.eventStatus==="Cancelled"?"selected":""}>Cancelled</option></select></div>
-            <div class="fg full"><label>Payment Method</label><div style="display:flex;gap:16px;flex-wrap:wrap;padding:8px 0"><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-jpos-${r.rowIndex}" ${(r.paymentMethod||"").includes("Jubelio POS")?"checked":""}> Jubelio POS</label><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-qris-${r.rowIndex}" ${(r.paymentMethod||"").includes("QRIS Xendit")?"checked":""}> QRIS Xendit</label><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-cons-${r.rowIndex}" ${(r.paymentMethod||"").includes("Consignment")?"checked":""}> Consignment</label></div></div>
+            <div class="fg full"><label>Payment Method</label><div style="display:flex;gap:16px;flex-wrap:wrap;padding:8px 0"><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-jpos-${r.rowIndex}" ${(r.paymentMethod||"").includes("Jubelio POS")?"checked":""}> Jubelio POS</label><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-qris-${r.rowIndex}" ${(r.paymentMethod||"").includes("QRIS Xendit")?"checked":""}> QRIS Xendit</label><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-cons-${r.rowIndex}" ${(r.paymentMethod||"").includes("Consignment")?"checked":""}> Consignment</label><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-pickup-${r.rowIndex}" ${(r.paymentMethod||"").includes("Pick Up in Location")?"checked":""}> Pick Up in Location</label><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-3rd-${r.rowIndex}" ${(r.paymentMethod||"").includes("3rd Party Providers")?"checked":""}> 3rd Party Providers</label><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-other-${r.rowIndex}" ${(r.paymentMethod||"").includes("Other")?"checked":""}> Other</label></div></div>
             <div class="fg" style="position:relative"><label>Manpower</label><input type="text" id="pbe-manpower-${r.rowIndex}" value="${(r.manpower||'').replace(/"/g,'&quot;')}" placeholder="Ketik nama, pisahkan dengan koma" autocomplete="off"><div class="ac-list" id="ac-pbe-manpower-${r.rowIndex}"></div></div>
             <div class="fg full"><label>Notes</label><textarea id="pbe-notes-${r.rowIndex}" rows="2" style="resize:vertical">${(r.notes||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea></div>
           </div>
@@ -2696,7 +2696,10 @@ async function savePBEdit(rowIdx) {
     const pm = [
       document.getElementById(`pbe-pm-jpos-${rowIdx}`)?.checked?"Jubelio POS":"",
       document.getElementById(`pbe-pm-qris-${rowIdx}`)?.checked?"QRIS Xendit":"",
-      document.getElementById(`pbe-pm-cons-${rowIdx}`)?.checked?"Consignment":""
+      document.getElementById(`pbe-pm-cons-${rowIdx}`)?.checked?"Consignment":"",
+      document.getElementById(`pbe-pm-pickup-${rowIdx}`)?.checked?"Pick Up in Location":"",
+      document.getElementById(`pbe-pm-3rd-${rowIdx}`)?.checked?"3rd Party Providers":"",
+      document.getElementById(`pbe-pm-other-${rowIdx}`)?.checked?"Other":""
     ].filter(Boolean).join(", ");
     const manpower = document.getElementById(`pbe-manpower-${rowIdx}`)?.value.trim()||null;
     const eventDate = document.getElementById(`pbe-eventdate-${rowIdx}`).value;
@@ -2738,7 +2741,7 @@ async function deletePB(rowIdx) {
 function clearPBForm() {
   ["pb-eventdate","pb-eventname","pb-location","pb-iprelated","pb-notes"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
   ["pb-eventstatus"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
-  ["pb-pm-jpos","pb-pm-qris","pb-pm-cons"].forEach(id=>{const el=document.getElementById(id);if(el)el.checked=false;});
+  ["pb-pm-jpos","pb-pm-qris","pb-pm-cons","pb-pm-pickup","pb-pm-3rd","pb-pm-other"].forEach(id=>{const el=document.getElementById(id);if(el)el.checked=false;});
   const mptxt=document.getElementById("pb-manpower"); if(mptxt) mptxt.value="";
   const fb=document.getElementById("pb-feedback"); if(fb) fb.textContent="";
 }
@@ -2755,7 +2758,10 @@ async function submitPB() {
     const pm = [
       document.getElementById("pb-pm-jpos")?.checked?"Jubelio POS":"",
       document.getElementById("pb-pm-qris")?.checked?"QRIS Xendit":"",
-      document.getElementById("pb-pm-cons")?.checked?"Consignment":""
+      document.getElementById("pb-pm-cons")?.checked?"Consignment":"",
+      document.getElementById("pb-pm-pickup")?.checked?"Pick Up in Location":"",
+      document.getElementById("pb-pm-3rd")?.checked?"3rd Party Providers":"",
+      document.getElementById("pb-pm-other")?.checked?"Other":""
     ].filter(Boolean).join(", ");
     const manpower = document.getElementById("pb-manpower")?.value.trim()||null;
     const srDeadline = calcPBSRDeadline(eventDate);
