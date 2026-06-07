@@ -17218,7 +17218,8 @@ function exportPDForVendor(vendor) {
 // user pastes their category once into B, the original template's VLOOKUP
 // will fill A. (Same effect: paste the rows into the official template.)
 async function exportPDJubelioXlsx() {
-  if (typeof XLSX === 'undefined') { alert('SheetJS belum ke-load. Refresh halaman.'); return; }
+  // Writes a CSV (Jubelio's import endpoint accepts CSV only — see Jubelio's
+  // "Import Produk" page). Filename kept .csv to match what user uploads.
   const {parents} = getPDDetailFilteredParents();
   if (!parents.length) { alert('Tidak ada SKU sesuai filter.'); return; }
 
@@ -17333,28 +17334,31 @@ async function exportPDJubelioXlsx() {
 
   if (rows.length <= 1) { alert('Tidak ada SKU dengan item_code untuk di-export.'); return; }
 
-  // Build workbook
-  const ws = XLSX.utils.aoa_to_sheet(rows);
-  // Column widths to make it readable
-  ws['!cols'] = [
-    {wch:18},{wch:36},{wch:42},{wch:50},
-    {wch:10},{wch:10},{wch:10},{wch:10},
-    {wch:14},{wch:24},{wch:12},
-    {wch:14},{wch:12},{wch:14},{wch:14},{wch:12},
-    {wch:14},{wch:30},{wch:30},{wch:30},{wch:30},{wch:30},
-    {wch:14}
-  ];
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Pengisian Import Produk');
+  // Jubelio's import accepts CSV. Convert rows → CSV with UTF-8 BOM so Excel
+  // and Jubelio both read Indonesian characters correctly.
+  const csvEscape = (v) => {
+    if (v == null) return '';
+    const s = String(v);
+    // Wrap in quotes if contains comma, quote, newline, or HTML tags
+    if (/[",\r\n<]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+    return s;
+  };
+  const csv = rows.map(r => r.map(csvEscape).join(',')).join('\r\n');
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
 
   // Filename uses collection name + date
   const safeName = (colName || pdCurrentCollectionId || 'collection').replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 80);
   const dateStr = new Date().toISOString().slice(0,10);
-  const fname = `jubelio-import-${safeName}-${dateStr}.xlsx`;
-  XLSX.writeFile(wb, fname);
+  const fname = `jubelio-import-${safeName}-${dateStr}.csv`;
+
+  // Trigger download
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = fname;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 100);
 
   const msgExtra = skipped ? ` (${skipped} SKU di-skip karena display_code kosong)` : '';
-  // Brief toast-style alert (not modal-blocking)
   console.log(`Exported ${rows.length-1} SKU rows to ${fname}${msgExtra}`);
 }
 
