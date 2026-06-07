@@ -9203,6 +9203,10 @@ async function saveSACategory(adjId, category) {
   const cell = document.getElementById(`sa-cat-cell-${adjId}`);
   if (cell) cell.innerHTML = saCatSelectHTML(adjId, category);
 
+  // Event Ref cell depends on category presence — re-render so it un-disables.
+  const refCell = document.getElementById(`sa-ref-cell-${adjId}`);
+  if (refCell) refCell.innerHTML = saEventRefSelectHTML(adjId, saCategories[adjId].event_ref || "");
+
   // Refresh stats (counts change) — pass current filtered set
   renderSAStats(saGetFiltered());
 }
@@ -9255,6 +9259,11 @@ function renderSATable() {
 function saEventRefSelectHTML(adjId, currentRef) {
   if (!saEvents.length) {
     return `<select disabled style="font-size:12px;padding:3px 8px;border:1px solid var(--g100);border-radius:4px;width:100%;background:var(--off);color:var(--g400);max-width:200px"><option>— belum ada event —</option></select>`;
+  }
+  // Block setting event ref without a category first (DB requires it).
+  const hasCategory = !!saCategories[adjId]?.category;
+  if (!hasCategory && !currentRef) {
+    return `<select disabled title="Set Kategori dulu sebelum link ke event" style="font-size:12px;padding:3px 8px;border:1px solid var(--g100);border-radius:4px;width:100%;background:var(--off);color:var(--g400);max-width:200px"><option>— set kategori dulu —</option></select>`;
   }
   // Include legacy ref if it doesn't match any current event (e.g., event deleted)
   const hasCurrent = !currentRef || saEvents.some(e => e.event_name === currentRef);
