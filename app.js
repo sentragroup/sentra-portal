@@ -2689,10 +2689,13 @@ async function submitPB() {
 
 // ── POP UP BOOTH — Detail View (per-event stock + sales + remaining) ──
 // Heuristic for classifying mapped TRFOs:
-//  - source ∈ main warehouses  → delivery (Stock IN to event)
-//  - destination ∈ main warehouses → reinbound (Stock OUT, returning)
-//  - otherwise → assume delivery
-const PB_MAIN_WAREHOUSES = ['Gudang Bintaro','Gudang Pusat','Gudang Penerimaan Barang','Gudang Marte'];
+//  - source ∈ event warehouses → reinbound (Stock OUT, leaving the event)
+//  - else → delivery (Stock IN, coming to event / event-themed channel)
+// Event warehouse is whatever Jubelio location physically hosts the booth/event
+// stock. Other locations like Gudang Offline can be "event-IP stock sold at the
+// retail store" — those map to IN. This classification is based on inventory
+// flow only, not on event mapping intent.
+const PB_EVENT_WAREHOUSES = ['Gudang Pick Up in Concert','Gudang Event 1','Gudang Event 2'];
 let _pbCurrentDetail = null;  // currently open event row
 
 function _pbEsc(s) { return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
@@ -2781,13 +2784,11 @@ async function _pbLoadDetailData(eventName) {
         xferItems.push(...(it||[]));
       }
     }
-    // Mapping only stores TRFO ids; classify direction by source/dest location
-    const isMain = (loc) => PB_MAIN_WAREHOUSES.includes(loc);
-    const inHeaders = xferHeaders.filter(h => isMain(h.source) && !isMain(h.destination));
-    const outHeaders = xferHeaders.filter(h => isMain(h.destination) && !isMain(h.source));
-    // Anything not clearly direction: default to delivery if neither matches
-    const ambigHeaders = xferHeaders.filter(h => !inHeaders.includes(h) && !outHeaders.includes(h));
-    inHeaders.push(...ambigHeaders);
+    // Classify: reinbound = source is an event warehouse, everything else = IN.
+    const isEventLoc = (loc) => PB_EVENT_WAREHOUSES.includes(loc);
+    const outHeaders = xferHeaders.filter(h => isEventLoc(h.source));
+    const outSet    = new Set(outHeaders.map(h => h.item_transfer_id));
+    const inHeaders = xferHeaders.filter(h => !outSet.has(h.item_transfer_id));
 
     const inIds  = new Set(inHeaders.map(h => h.item_transfer_id));
     const outIds = new Set(outHeaders.map(h => h.item_transfer_id));
