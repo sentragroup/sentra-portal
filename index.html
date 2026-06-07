@@ -1049,48 +1049,63 @@
           </div>
 
           <!-- Section 1: Stock IN -->
-          <div class="form-card" style="margin-bottom:1.25rem">
-            <div class="form-sec" style="display:flex;justify-content:space-between;align-items:center">
-              <span title="Semua TRFO yang di-map ke event ini KECUALI yang source-nya event warehouse. Termasuk: ke Gudang Pick Up in Concert, ke Gudang Offline, dll.">📦 Stock IN — Transfer ke event <span style="font-size:11px;color:var(--g400);font-weight:normal">ⓘ</span></span>
-              <span style="font-size:11px;color:var(--g400);font-weight:normal" id="pbd-in-summary">—</span>
+          <div class="form-card" style="margin-bottom:1rem;padding:14px 18px">
+            <div onclick="togglePBSection('stock-in')" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px">
+              <span style="font-size:12px;font-weight:600;color:var(--black);font-family:var(--label);letter-spacing:0.04em;text-transform:uppercase" title="Semua TRFO yang di-map ke event ini KECUALI yang source-nya event warehouse.">
+                <span id="pbd-chev-stock-in" style="display:inline-block;width:14px;color:var(--g400)">▸</span>
+                📦 Stock IN
+              </span>
+              <span style="font-size:12px;color:var(--g600);font-family:var(--mono);text-align:right" id="pbd-in-summary">—</span>
             </div>
-            <div id="pbd-stock-in" style="margin-top:10px">Memuat…</div>
+            <div id="pbd-stock-in" style="margin-top:12px;display:none">Memuat…</div>
           </div>
 
           <!-- Section 2: Sales Performance -->
-          <div class="form-card" style="margin-bottom:1.25rem">
-            <div class="form-sec" style="display:flex;justify-content:space-between;align-items:center">
-              <span>💰 Sales Performance — Penjualan di event</span>
-              <span style="font-size:11px;color:var(--g400);font-weight:normal" id="pbd-sales-summary">—</span>
+          <div class="form-card" style="margin-bottom:1rem;padding:14px 18px">
+            <div onclick="togglePBSection('sales')" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px">
+              <span style="font-size:12px;font-weight:600;color:var(--black);font-family:var(--label);letter-spacing:0.04em;text-transform:uppercase">
+                <span id="pbd-chev-sales" style="display:inline-block;width:14px;color:var(--g400)">▸</span>
+                💰 Sales Performance
+              </span>
+              <span style="font-size:12px;color:var(--g600);font-family:var(--mono);text-align:right" id="pbd-sales-summary">—</span>
             </div>
-            <div id="pbd-sales" style="margin-top:10px">Memuat…</div>
+            <div id="pbd-sales" style="margin-top:12px;display:none">Memuat…</div>
           </div>
 
-          <!-- Section 3: Reinbound (if any) -->
-          <div class="form-card" style="margin-bottom:1.25rem">
-            <div class="form-sec" style="display:flex;justify-content:space-between;align-items:center">
-              <span title="TRFO dimap ke event ini yang source-nya di event sales zone DAN destination-nya KELUAR dari event zone (mis. balik ke Bintaro/Pusat).">↩️ Reinbound — Transfer balik dari event <span style="font-size:11px;color:var(--g400);font-weight:normal">ⓘ</span></span>
-              <span style="font-size:11px;color:var(--g400);font-weight:normal" id="pbd-reinbound-summary">—</span>
+          <!-- Section 3: Reinbound -->
+          <div class="form-card" style="margin-bottom:1rem;padding:14px 18px">
+            <div onclick="togglePBSection('reinbound')" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px">
+              <span style="font-size:12px;font-weight:600;color:var(--black);font-family:var(--label);letter-spacing:0.04em;text-transform:uppercase" title="TRFO source ∈ event zone DAN destination KELUAR dari zone.">
+                <span id="pbd-chev-reinbound" style="display:inline-block;width:14px;color:var(--g400)">▸</span>
+                ↩️ Reinbound
+              </span>
+              <span style="font-size:12px;color:var(--g600);font-family:var(--mono);text-align:right" id="pbd-reinbound-summary">—</span>
             </div>
-            <div id="pbd-reinbound" style="margin-top:10px">Memuat…</div>
+            <div id="pbd-reinbound" style="margin-top:12px;display:none">Memuat…</div>
           </div>
 
-          <!-- Section 3b: Internal Moves (intra-event-zone, not counted) -->
-          <div class="form-card" style="margin-bottom:1.25rem">
-            <div class="form-sec" style="display:flex;justify-content:space-between;align-items:center">
-              <span title="Perpindahan stok antar lokasi yang sama-sama jualan event ini (mis. Pick Up in Concert → Gudang Offline). Net stok tidak berubah, jadi TIDAK dimasukkan ke kalkulasi Stock Remaining — biar tidak double-count.">🔄 Internal Moves — Antar lokasi event (tidak dihitung) <span style="font-size:11px;color:var(--g400);font-weight:normal">ⓘ</span></span>
-              <span style="font-size:11px;color:var(--g400);font-weight:normal" id="pbd-internal-summary">—</span>
+          <!-- Section 3b: Internal Moves -->
+          <div class="form-card" style="margin-bottom:1rem;padding:14px 18px">
+            <div onclick="togglePBSection('internal')" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px">
+              <span style="font-size:12px;font-weight:600;color:var(--black);font-family:var(--label);letter-spacing:0.04em;text-transform:uppercase" title="Perpindahan antar lokasi event zone. Net nol, gak masuk Stock Remaining.">
+                <span id="pbd-chev-internal" style="display:inline-block;width:14px;color:var(--g400)">▸</span>
+                🔄 Internal Moves
+              </span>
+              <span style="font-size:12px;color:var(--g600);font-family:var(--mono);text-align:right" id="pbd-internal-summary">—</span>
             </div>
-            <div id="pbd-internal" style="margin-top:10px">Memuat…</div>
+            <div id="pbd-internal" style="margin-top:12px;display:none">Memuat…</div>
           </div>
 
-          <!-- Section 4: Stock Remaining -->
-          <div class="form-card" style="margin-bottom:1.25rem">
-            <div class="form-sec" style="display:flex;justify-content:space-between;align-items:center">
-              <span>📊 Stock Remaining per SKU</span>
-              <span style="font-size:11px;color:var(--g400);font-weight:normal" id="pbd-remaining-summary">—</span>
+          <!-- Section 4: Stock Remaining (expanded by default — bottom line) -->
+          <div class="form-card" style="margin-bottom:1rem;padding:14px 18px">
+            <div onclick="togglePBSection('remaining')" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px">
+              <span style="font-size:12px;font-weight:600;color:var(--black);font-family:var(--label);letter-spacing:0.04em;text-transform:uppercase">
+                <span id="pbd-chev-remaining" style="display:inline-block;width:14px;color:var(--g400)">▾</span>
+                📊 Stock Remaining
+              </span>
+              <span style="font-size:12px;color:var(--g600);font-family:var(--mono);text-align:right" id="pbd-remaining-summary">—</span>
             </div>
-            <div id="pbd-remaining" style="margin-top:10px">Memuat…</div>
+            <div id="pbd-remaining" style="margin-top:12px">Memuat…</div>
           </div>
         </div>
       </div>

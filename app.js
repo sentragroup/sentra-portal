@@ -2705,6 +2705,37 @@ let _pbCurrentDetail = null;  // currently open event row
 
 function _pbEsc(s) { return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function _pbRp(n) { if (n==null||isNaN(Number(n))) return '—'; return 'Rp ' + new Intl.NumberFormat('id-ID').format(Math.round(Number(n))); }
+function _pbRpShort(n) {
+  if (n==null||isNaN(Number(n))) return '—';
+  const v = Number(n);
+  if (Math.abs(v) >= 1e9) return 'Rp ' + (v/1e9).toFixed(1) + 'M';
+  if (Math.abs(v) >= 1e6) return 'Rp ' + (v/1e6).toFixed(1) + 'jt';
+  if (Math.abs(v) >= 1e3) return 'Rp ' + (v/1e3).toFixed(0) + 'rb';
+  return 'Rp ' + Math.round(v);
+}
+
+// Per-event toggle state — sections start collapsed except `remaining`.
+const _pbSectionState = { 'stock-in':false, 'sales':false, 'reinbound':false, 'internal':false, 'remaining':true };
+function togglePBSection(key) {
+  const open = !_pbSectionState[key];
+  _pbSectionState[key] = open;
+  const id = key === 'stock-in' ? 'pbd-stock-in' : 'pbd-' + key;
+  const body = document.getElementById(id);
+  const chev = document.getElementById('pbd-chev-' + key);
+  if (body) body.style.display = open ? 'block' : 'none';
+  if (chev) chev.textContent = open ? '▾' : '▸';
+}
+function _pbApplyCollapsedState() {
+  // Sync chevrons + body display with state (called after openPBDetail re-renders).
+  for (const key of Object.keys(_pbSectionState)) {
+    const open = _pbSectionState[key];
+    const id = key === 'stock-in' ? 'pbd-stock-in' : 'pbd-' + key;
+    const body = document.getElementById(id);
+    const chev = document.getElementById('pbd-chev-' + key);
+    if (body) body.style.display = open ? 'block' : 'none';
+    if (chev) chev.textContent = open ? '▾' : '▸';
+  }
+}
 
 async function openPBDetail(rowIndex) {
   const r = allPBRows.find(x => String(x.rowIndex) === String(rowIndex));
@@ -2818,30 +2849,51 @@ async function _pbLoadDetailData(eventName) {
     const outItems      = xferItems.filter(it => outIds.has(it.item_transfer_id));
     const internalItems = xferItems.filter(it => internalIds.has(it.item_transfer_id));
 
-    // Sales items
+    // Sales items + order headers (for channel/status breakdown) in parallel
     let salesItems = [];
+    const orderHeaderMap = new Map(); // salesorder_id → {channel, store, status, canceled, grand_total}
     if (salesOrderIds.length) {
       for (let i = 0; i < salesOrderIds.length; i += 200) {
         const chunk = salesOrderIds.slice(i, i + 200);
-        const {data} = await sb.from('jubelio_sales_order_items')
-          .select('salesorder_id,item_id,item_code,item_name,variant,qty,price,disc_amount,tax_amount,sell_price,original_price')
-          .in('salesorder_id', chunk);
-        salesItems.push(...(data||[]));
+        const [itemsRes, headersRes] = await Promise.all([
+          sb.from('jubelio_sales_order_items')
+            .select('salesorder_id,item_id,item_code,item_name,variant,qty,price,disc_amount,tax_amount,sell_price,original_price')
+            .in('salesorder_id', chunk),
+          sb.from('jubelio_sales_orders')
+            .select('salesorder_id,channel_name,store_name,wms_status,is_canceled,grand_total')
+            .in('salesorder_id', chunk)
+        ]);
+        salesItems.push(...(itemsRes.data||[]));
+        for (const h of (headersRes.data||[])) orderHeaderMap.set(h.salesorder_id, h);
       }
     }
 
-    _pbRenderStockSection('pbd-stock-in', 'pbd-in-summary', inHeaders, inItems, 'Belum ada Transfer IN — map TRFO ke event ini di modul Inventory Transfer.');
-    _pbRenderStockSection('pbd-reinbound', 'pbd-reinbound-summary', outHeaders, outItems, 'Belum ada reinbound TRFO ke event ini.');
-    _pbRenderStockSection('pbd-internal', 'pbd-internal-summary', internalHeaders, internalItems, 'Tidak ada perpindahan antar lokasi event.');
-    _pbRenderSalesSection(salesItems);
-    _pbRenderRemainingSection(inItems, salesItems, outItems);
+    // Item avg_cost (for COGS) — covers BOTH sold items AND stock-IN items so we
+    // can value remaining stock too.
+    const allItemIds = new Set();
+    for (const it of salesItems) if (it.item_id != null) allItemIds.add(it.item_id);
+    for (const it of inItems)    if (it.item_id != null) allItemIds.add(it.item_id);
+    const costMap = new Map(); // item_id → average_cost
+    const idArr = [...allItemIds];
+    for (let i = 0; i < idArr.length; i += 500) {
+      const chunk = idArr.slice(i, i + 500);
+      const {data} = await sb.from('jubelio_items').select('item_id,average_cost').in('item_id', chunk);
+      for (const r of (data||[])) costMap.set(r.item_id, Number(r.average_cost) || 0);
+    }
+
+    _pbRenderStockSection('pbd-stock-in', 'pbd-in-summary', inHeaders, inItems, 'Belum ada Transfer IN — map TRFO ke event ini di modul Inventory Transfer.', costMap);
+    _pbRenderStockSection('pbd-reinbound', 'pbd-reinbound-summary', outHeaders, outItems, 'Belum ada reinbound TRFO ke event ini.', costMap);
+    _pbRenderStockSection('pbd-internal', 'pbd-internal-summary', internalHeaders, internalItems, 'Tidak ada perpindahan antar lokasi event.', costMap);
+    _pbRenderSalesSection(salesItems, orderHeaderMap, costMap);
+    _pbRenderRemainingSection(inItems, salesItems, outItems, costMap);
+    _pbApplyCollapsedState();
   } catch (e) {
     console.error('_pbLoadDetailData:', e);
     document.getElementById('pbd-stock-in').innerHTML = `<div style="font-size:11px;color:#c33">Gagal: ${_pbEsc(e.message||String(e))}</div>`;
   }
 }
 
-function _pbRenderStockSection(containerId, summaryId, headers, items, emptyMsg) {
+function _pbRenderStockSection(containerId, summaryId, headers, items, emptyMsg, costMap) {
   const cont = document.getElementById(containerId);
   const sum  = document.getElementById(summaryId);
   if (!headers.length) {
@@ -2849,8 +2901,9 @@ function _pbRenderStockSection(containerId, summaryId, headers, items, emptyMsg)
     sum.textContent = '0 transfer';
     return;
   }
-  const totalQty = items.reduce((a,it) => a + Number(it.qty_in_base||0), 0);
-  sum.textContent = `${headers.length} transfer · ${totalQty.toLocaleString('id-ID')} pcs`;
+  const totalQty  = items.reduce((a,it) => a + Number(it.qty_in_base||0), 0);
+  const totalCOGS = items.reduce((a,it) => a + (Number(it.qty_in_base||0) * (costMap?.get(it.item_id) || 0)), 0);
+  sum.textContent = `${headers.length} transfer · ${totalQty.toLocaleString('id-ID')} pcs · ${_pbRpShort(totalCOGS)} COGS`;
 
   // Group items by transfer
   const itemsByXfer = new Map();
@@ -2863,26 +2916,40 @@ function _pbRenderStockSection(containerId, summaryId, headers, items, emptyMsg)
   cont.innerHTML = headers.sort((a,b) => (b.transaction_date||'').localeCompare(a.transaction_date||'')).map(h => {
     const itArr = itemsByXfer.get(h.item_transfer_id) || [];
     const hQty  = itArr.reduce((a,it) => a + Number(it.qty_in_base||0), 0);
+    const hCogs = itArr.reduce((a,it) => a + (Number(it.qty_in_base||0) * (costMap?.get(it.item_id) || 0)), 0);
     return `<div style="border:1px solid var(--g100);border-radius:6px;padding:10px 14px;margin-bottom:8px;background:var(--white)">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:6px">
         <div style="font-family:var(--mono);font-size:12px;font-weight:600">${_pbEsc(h.item_transfer_no||'—')}</div>
-        <div style="font-size:11px;color:var(--g600)">${_pbEsc(h.source||'?')} → ${_pbEsc(h.destination||'?')} · ${fmtDate(h.transaction_date)} · ${hQty.toLocaleString('id-ID')} pcs</div>
+        <div style="font-size:11px;color:var(--g600)">${_pbEsc(h.source||'?')} → ${_pbEsc(h.destination||'?')} · ${fmtDate(h.transaction_date)} · ${hQty.toLocaleString('id-ID')} pcs · ${_pbRpShort(hCogs)}</div>
       </div>
       ${itArr.length ? `<div style="overflow-x:auto"><table style="width:100%;font-size:11px">
-        <thead><tr><th style="text-align:left;padding:4px 8px;background:var(--off);font-weight:600">SKU</th><th style="text-align:left;padding:4px 8px;background:var(--off);font-weight:600">Item</th><th style="text-align:left;padding:4px 8px;background:var(--off);font-weight:600">Variant</th><th style="text-align:right;padding:4px 8px;background:var(--off);font-weight:600">Qty</th></tr></thead>
+        <thead><tr>
+          <th style="text-align:left;padding:4px 8px;background:var(--off);font-weight:600">SKU</th>
+          <th style="text-align:left;padding:4px 8px;background:var(--off);font-weight:600">Item</th>
+          <th style="text-align:left;padding:4px 8px;background:var(--off);font-weight:600">Variant</th>
+          <th style="text-align:right;padding:4px 8px;background:var(--off);font-weight:600">Qty</th>
+          <th style="text-align:right;padding:4px 8px;background:var(--off);font-weight:600">Avg Cost</th>
+          <th style="text-align:right;padding:4px 8px;background:var(--off);font-weight:600">COGS</th>
+        </tr></thead>
         <tbody>
-          ${itArr.map(it => `<tr>
-            <td class="mono" style="padding:4px 8px;color:var(--g600);font-size:10px">${_pbEsc(it.item_code||'—')}</td>
-            <td style="padding:4px 8px">${_pbEsc(it.item_name||'—')}</td>
-            <td style="padding:4px 8px">${_pbEsc(it.variant||'—')}</td>
-            <td class="mono" style="padding:4px 8px;text-align:right">${Number(it.qty_in_base||0).toLocaleString('id-ID')}</td>
-          </tr>`).join('')}
+          ${itArr.map(it => {
+            const ac = costMap?.get(it.item_id) || 0;
+            const q  = Number(it.qty_in_base||0);
+            return `<tr>
+              <td class="mono" style="padding:4px 8px;color:var(--g600);font-size:10px">${_pbEsc(it.item_code||'—')}</td>
+              <td style="padding:4px 8px">${_pbEsc(it.item_name||'—')}</td>
+              <td style="padding:4px 8px">${_pbEsc(it.variant||'—')}</td>
+              <td class="mono" style="padding:4px 8px;text-align:right">${q.toLocaleString('id-ID')}</td>
+              <td class="mono" style="padding:4px 8px;text-align:right;color:var(--g600)">${ac?_pbRp(ac):'—'}</td>
+              <td class="mono" style="padding:4px 8px;text-align:right">${_pbRpShort(q*ac)}</td>
+            </tr>`;
+          }).join('')}
         </tbody></table></div>` : ''}
     </div>`;
   }).join('');
 }
 
-function _pbRenderSalesSection(salesItems) {
+function _pbRenderSalesSection(salesItems, orderHeaderMap, costMap) {
   const cont = document.getElementById('pbd-sales');
   const sum  = document.getElementById('pbd-sales-summary');
   if (!salesItems.length) {
@@ -2890,51 +2957,147 @@ function _pbRenderSalesSection(salesItems) {
     sum.textContent = '0 items';
     return;
   }
-  // Aggregate per item_id
+
+  // Aggregate per item_id (SKU-level) — for the bottom table
   const byItem = new Map();
   for (const it of salesItems) {
     const key = it.item_id || it.item_code;
     if (!key) continue;
-    const cur = byItem.get(key) || { item_code: it.item_code, item_name: it.item_name, variant: it.variant, qty: 0, revenue: 0, orders: new Set() };
+    const cur = byItem.get(key) || { item_id: it.item_id, item_code: it.item_code, item_name: it.item_name, variant: it.variant, qty: 0, revenue: 0, orders: new Set() };
     cur.qty += Number(it.qty || 0);
-    const lineRev = Number(it.price || 0) * Number(it.qty || 0) - Number(it.disc_amount || 0);
-    cur.revenue += lineRev;
+    cur.revenue += Number(it.price || 0) * Number(it.qty || 0) - Number(it.disc_amount || 0);
     cur.orders.add(it.salesorder_id);
     byItem.set(key, cur);
   }
   const rows = Array.from(byItem.values()).sort((a,b) => b.qty - a.qty);
   const totalQty = rows.reduce((a,r) => a + r.qty, 0);
   const totalRev = rows.reduce((a,r) => a + r.revenue, 0);
-  const totalOrders = new Set();
-  salesItems.forEach(it => totalOrders.add(it.salesorder_id));
-  sum.textContent = `${totalOrders.size} order · ${rows.length} SKU · ${totalQty.toLocaleString('id-ID')} pcs · ${_pbRp(totalRev)}`;
+  const totalCOGS = rows.reduce((a,r) => a + r.qty * (costMap?.get(r.item_id) || 0), 0);
+  const totalProfit = totalRev - totalCOGS;
+  const totalOrders = new Set(salesItems.map(it => it.salesorder_id));
 
-  cont.innerHTML = `<div style="overflow-x:auto"><table style="width:100%;font-size:11px">
-    <thead><tr>
-      <th style="text-align:left;padding:6px 10px;background:var(--off);font-weight:600">SKU</th>
-      <th style="text-align:left;padding:6px 10px;background:var(--off);font-weight:600">Item</th>
-      <th style="text-align:left;padding:6px 10px;background:var(--off);font-weight:600">Variant</th>
-      <th style="text-align:right;padding:6px 10px;background:var(--off);font-weight:600">Qty Sold</th>
-      <th style="text-align:right;padding:6px 10px;background:var(--off);font-weight:600">Revenue</th>
-    </tr></thead>
-    <tbody>
-      ${rows.map(r => `<tr>
-        <td class="mono" style="padding:5px 10px;color:var(--g600);font-size:10px">${_pbEsc(r.item_code||'—')}</td>
-        <td style="padding:5px 10px">${_pbEsc(r.item_name||'—')}</td>
-        <td style="padding:5px 10px">${_pbEsc(r.variant||'—')}</td>
-        <td class="mono" style="padding:5px 10px;text-align:right;font-weight:600">${r.qty.toLocaleString('id-ID')}</td>
-        <td class="mono" style="padding:5px 10px;text-align:right">${_pbRp(r.revenue)}</td>
-      </tr>`).join('')}
-    </tbody>
-    <tfoot><tr style="border-top:2px solid var(--g100)">
-      <td colspan="3" style="padding:6px 10px;font-weight:600">Total</td>
-      <td class="mono" style="padding:6px 10px;text-align:right;font-weight:600">${totalQty.toLocaleString('id-ID')}</td>
-      <td class="mono" style="padding:6px 10px;text-align:right;font-weight:600">${_pbRp(totalRev)}</td>
-    </tr></tfoot>
-  </table></div>`;
+  // Per-channel breakdown (revenue + order count) — derived from header map
+  const channelMap = new Map();  // channel_name → {orders:Set, revenue, qty}
+  const statusMap  = new Map();  // wms_status (or "CANCELED" if is_canceled) → {orders:Set, revenue}
+  // First index items by order to assign revenue per order
+  const orderRev = new Map();
+  const orderQty = new Map();
+  for (const it of salesItems) {
+    const r = Number(it.price || 0) * Number(it.qty || 0) - Number(it.disc_amount || 0);
+    orderRev.set(it.salesorder_id, (orderRev.get(it.salesorder_id) || 0) + r);
+    orderQty.set(it.salesorder_id, (orderQty.get(it.salesorder_id) || 0) + Number(it.qty || 0));
+  }
+  for (const [soId, rev] of orderRev) {
+    const h = orderHeaderMap?.get(soId) || {};
+    const ch = h.channel_name || '(unknown)';
+    const cur = channelMap.get(ch) || { orders: new Set(), revenue: 0, qty: 0 };
+    cur.orders.add(soId);
+    cur.revenue += rev;
+    cur.qty += orderQty.get(soId) || 0;
+    channelMap.set(ch, cur);
+
+    const st = h.is_canceled ? 'CANCELED' : (h.wms_status || '(unknown)');
+    const sc = statusMap.get(st) || { orders: new Set(), revenue: 0 };
+    sc.orders.add(soId);
+    sc.revenue += rev;
+    statusMap.set(st, sc);
+  }
+
+  sum.textContent = `${totalOrders.size} order · ${rows.length} SKU · ${totalQty.toLocaleString('id-ID')} pcs · ${_pbRpShort(totalRev)} rev · ${_pbRpShort(totalProfit)} margin`;
+
+  // Pills for channel + status (compact, scannable)
+  const channelRows = [...channelMap.entries()].sort((a,b) => b[1].revenue - a[1].revenue);
+  const statusRows  = [...statusMap.entries()].sort((a,b) => b[1].orders.size - a[1].orders.size);
+  const statusColor = (st) => {
+    if (st === 'COMPLETED') return 'p-active';
+    if (st === 'PAID')      return 'p-signings';
+    if (st === 'CANCELED' || st === 'CANCEL') return 'p-expired';
+    if (st === 'PENDING' || st === 'NEW' || st === 'READY') return 'p-near';
+    return 'p-draft';
+  };
+
+  cont.innerHTML = `
+    <!-- KPI tiles -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px">
+      <div style="background:var(--off);border-radius:6px;padding:10px 12px">
+        <div style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.05em;font-family:var(--label)">Revenue</div>
+        <div style="font-size:14px;font-weight:600;font-family:var(--mono);margin-top:2px">${_pbRp(totalRev)}</div>
+      </div>
+      <div style="background:var(--off);border-radius:6px;padding:10px 12px">
+        <div style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.05em;font-family:var(--label)">COGS</div>
+        <div style="font-size:14px;font-weight:600;font-family:var(--mono);margin-top:2px">${_pbRp(totalCOGS)}</div>
+      </div>
+      <div style="background:var(--off);border-radius:6px;padding:10px 12px">
+        <div style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.05em;font-family:var(--label)">Margin</div>
+        <div style="font-size:14px;font-weight:600;font-family:var(--mono);margin-top:2px;color:${totalProfit>0?'#1c7a3b':'#c33'}">${_pbRp(totalProfit)} <span style="font-size:11px;color:var(--g600);font-weight:500">(${totalRev?Math.round(totalProfit/totalRev*100):0}%)</span></div>
+      </div>
+      <div style="background:var(--off);border-radius:6px;padding:10px 12px">
+        <div style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.05em;font-family:var(--label)">Avg / Order</div>
+        <div style="font-size:14px;font-weight:600;font-family:var(--mono);margin-top:2px">${_pbRp(totalOrders.size ? totalRev/totalOrders.size : 0)}</div>
+      </div>
+    </div>
+
+    <!-- Breakdown by channel + status, side by side -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:12px">
+      <div>
+        <div style="font-size:10px;color:var(--g600);text-transform:uppercase;letter-spacing:0.05em;font-family:var(--label);margin-bottom:6px">By channel</div>
+        ${channelRows.map(([ch, v]) => `<div style="display:flex;justify-content:space-between;gap:8px;font-size:11px;padding:5px 0;border-bottom:1px solid var(--g100)">
+          <span style="font-weight:500">${_pbEsc(ch)}</span>
+          <span style="color:var(--g600);font-family:var(--mono)">${v.orders.size} order · ${v.qty} pcs · ${_pbRpShort(v.revenue)}</span>
+        </div>`).join('') || `<div style="font-size:11px;color:var(--g400)">—</div>`}
+      </div>
+      <div>
+        <div style="font-size:10px;color:var(--g600);text-transform:uppercase;letter-spacing:0.05em;font-family:var(--label);margin-bottom:6px">By status</div>
+        ${statusRows.map(([st, v]) => `<div style="display:flex;justify-content:space-between;gap:8px;font-size:11px;padding:5px 0;border-bottom:1px solid var(--g100);align-items:center">
+          <span class="pill ${statusColor(st)}" style="font-size:10px">${_pbEsc(st)}</span>
+          <span style="color:var(--g600);font-family:var(--mono)">${v.orders.size} order · ${_pbRpShort(v.revenue)}</span>
+        </div>`).join('') || `<div style="font-size:11px;color:var(--g400)">—</div>`}
+      </div>
+    </div>
+
+    <!-- Per-SKU detail -->
+    <div style="font-size:10px;color:var(--g600);text-transform:uppercase;letter-spacing:0.05em;font-family:var(--label);margin-bottom:6px">Per SKU</div>
+    <div style="overflow-x:auto"><table style="width:100%;font-size:11px">
+      <thead><tr>
+        <th style="text-align:left;padding:6px 10px;background:var(--off);font-weight:600">SKU</th>
+        <th style="text-align:left;padding:6px 10px;background:var(--off);font-weight:600">Item</th>
+        <th style="text-align:left;padding:6px 10px;background:var(--off);font-weight:600">Variant</th>
+        <th style="text-align:right;padding:6px 10px;background:var(--off);font-weight:600">Sold</th>
+        <th style="text-align:right;padding:6px 10px;background:var(--off);font-weight:600">Avg SRP</th>
+        <th style="text-align:right;padding:6px 10px;background:var(--off);font-weight:600">Revenue</th>
+        <th style="text-align:right;padding:6px 10px;background:var(--off);font-weight:600">COGS</th>
+        <th style="text-align:right;padding:6px 10px;background:var(--off);font-weight:600">Margin</th>
+      </tr></thead>
+      <tbody>
+        ${rows.map(r => {
+          const avgSRP = r.qty ? r.revenue / r.qty : 0;
+          const cost   = r.qty * (costMap?.get(r.item_id) || 0);
+          const margin = r.revenue - cost;
+          return `<tr>
+            <td class="mono" style="padding:5px 10px;color:var(--g600);font-size:10px">${_pbEsc(r.item_code||'—')}</td>
+            <td style="padding:5px 10px">${_pbEsc(r.item_name||'—')}</td>
+            <td style="padding:5px 10px">${_pbEsc(r.variant||'—')}</td>
+            <td class="mono" style="padding:5px 10px;text-align:right;font-weight:600">${r.qty.toLocaleString('id-ID')}</td>
+            <td class="mono" style="padding:5px 10px;text-align:right">${_pbRpShort(avgSRP)}</td>
+            <td class="mono" style="padding:5px 10px;text-align:right">${_pbRpShort(r.revenue)}</td>
+            <td class="mono" style="padding:5px 10px;text-align:right;color:var(--g600)">${_pbRpShort(cost)}</td>
+            <td class="mono" style="padding:5px 10px;text-align:right;color:${margin>=0?'#1c7a3b':'#c33'}">${_pbRpShort(margin)}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+      <tfoot><tr style="border-top:2px solid var(--g100);font-weight:600">
+        <td colspan="3" style="padding:6px 10px">Total</td>
+        <td class="mono" style="padding:6px 10px;text-align:right">${totalQty.toLocaleString('id-ID')}</td>
+        <td></td>
+        <td class="mono" style="padding:6px 10px;text-align:right">${_pbRp(totalRev)}</td>
+        <td class="mono" style="padding:6px 10px;text-align:right;color:var(--g600)">${_pbRp(totalCOGS)}</td>
+        <td class="mono" style="padding:6px 10px;text-align:right;color:${totalProfit>=0?'#1c7a3b':'#c33'}">${_pbRp(totalProfit)}</td>
+      </tr></tfoot>
+    </table></div>
+  `;
 }
 
-function _pbRenderRemainingSection(inItems, salesItems, outItems) {
+function _pbRenderRemainingSection(inItems, salesItems, outItems, costMap) {
   const cont = document.getElementById('pbd-remaining');
   const sum  = document.getElementById('pbd-remaining-summary');
   if (!inItems.length && !salesItems.length && !outItems.length) {
@@ -2943,30 +3106,35 @@ function _pbRenderRemainingSection(inItems, salesItems, outItems) {
     return;
   }
   // Aggregate per item_id (fallback to item_code)
-  const agg = new Map();  // key → {item_code, item_name, variant, qty_in, qty_sold, qty_out}
+  const agg = new Map();
   const bump = (key, src, field, delta) => {
     if (!key) return;
-    const cur = agg.get(key) || { item_code: src.item_code, item_name: src.item_name, variant: src.variant, qty_in:0, qty_sold:0, qty_out:0 };
+    const cur = agg.get(key) || { item_id: src.item_id, item_code: src.item_code, item_name: src.item_name, variant: src.variant, qty_in:0, qty_sold:0, qty_out:0 };
     cur[field] += delta;
-    // Prefer first-seen labels (likely from IN)
     if (!cur.item_name && src.item_name) cur.item_name = src.item_name;
     if (!cur.variant && src.variant) cur.variant = src.variant;
     if (!cur.item_code && src.item_code) cur.item_code = src.item_code;
+    if (cur.item_id == null && src.item_id != null) cur.item_id = src.item_id;
     agg.set(key, cur);
   };
   inItems.forEach(it => bump(it.item_id || it.item_code, it, 'qty_in', Number(it.qty_in_base||0)));
   salesItems.forEach(it => bump(it.item_id || it.item_code, it, 'qty_sold', Number(it.qty||0)));
   outItems.forEach(it => bump(it.item_id || it.item_code, it, 'qty_out', Number(it.qty_in_base||0)));
 
-  const rows = Array.from(agg.values()).map(r => ({ ...r, remaining: r.qty_in - r.qty_sold - r.qty_out }));
+  const rows = Array.from(agg.values()).map(r => {
+    const remaining = r.qty_in - r.qty_sold - r.qty_out;
+    const avgCost   = costMap?.get(r.item_id) || 0;
+    return { ...r, remaining, value: remaining * avgCost };
+  });
   rows.sort((a,b) => Math.abs(b.remaining) - Math.abs(a.remaining));
 
   const totIn = rows.reduce((a,r)=>a+r.qty_in,0);
   const totSold = rows.reduce((a,r)=>a+r.qty_sold,0);
   const totOut = rows.reduce((a,r)=>a+r.qty_out,0);
   const totRem = totIn - totSold - totOut;
+  const totValue = rows.reduce((a,r)=>a+r.value,0);
   const mismatchCount = rows.filter(r => r.remaining !== 0).length;
-  sum.textContent = `${rows.length} SKU · sisa ${totRem.toLocaleString('id-ID')} (${mismatchCount} SKU belum 0)`;
+  sum.textContent = `${rows.length} SKU · sisa ${totRem.toLocaleString('id-ID')} (${_pbRpShort(totValue)}) · ${mismatchCount} SKU belum 0`;
 
   cont.innerHTML = `<div style="overflow-x:auto"><table style="width:100%;font-size:11px">
     <thead><tr>
@@ -2977,6 +3145,7 @@ function _pbRenderRemainingSection(inItems, salesItems, outItems) {
       <th style="text-align:right;padding:6px 10px;background:var(--off);font-weight:600">Sold</th>
       <th style="text-align:right;padding:6px 10px;background:var(--off);font-weight:600">Reinbound</th>
       <th style="text-align:right;padding:6px 10px;background:var(--off);font-weight:600">Sisa</th>
+      <th style="text-align:right;padding:6px 10px;background:var(--off);font-weight:600">Value</th>
     </tr></thead>
     <tbody>
       ${rows.map(r => {
@@ -2990,6 +3159,7 @@ function _pbRenderRemainingSection(inItems, salesItems, outItems) {
           <td class="mono" style="padding:5px 10px;text-align:right">${r.qty_sold.toLocaleString('id-ID')}</td>
           <td class="mono" style="padding:5px 10px;text-align:right">${r.qty_out.toLocaleString('id-ID')}</td>
           <td class="mono" style="padding:5px 10px;text-align:right;font-weight:600;color:${remColor};background:${remBg}">${r.remaining.toLocaleString('id-ID')}</td>
+          <td class="mono" style="padding:5px 10px;text-align:right;color:var(--g600)">${_pbRpShort(r.value)}</td>
         </tr>`;
       }).join('')}
     </tbody>
@@ -2999,9 +3169,10 @@ function _pbRenderRemainingSection(inItems, salesItems, outItems) {
       <td class="mono" style="padding:6px 10px;text-align:right">${totSold.toLocaleString('id-ID')}</td>
       <td class="mono" style="padding:6px 10px;text-align:right">${totOut.toLocaleString('id-ID')}</td>
       <td class="mono" style="padding:6px 10px;text-align:right;color:${totRem===0?'var(--g600)':totRem>0?'#a37800':'#c33'}">${totRem.toLocaleString('id-ID')}</td>
+      <td class="mono" style="padding:6px 10px;text-align:right">${_pbRp(totValue)}</td>
     </tr></tfoot>
   </table></div>
-  <div style="font-size:10px;color:var(--g400);margin-top:8px">Sisa = IN − Sold − Reinbound. Nol → reconcile complete; positif → masih ada di event/balik; negatif → kemungkinan ada sales unrecorded atau mapping miss.</div>`;
+  <div style="font-size:10px;color:var(--g400);margin-top:8px">Sisa = IN − Sold − Reinbound. Value = sisa × avg_cost. Nol → reconcile complete; positif → masih ada di event/balik; negatif → kemungkinan ada sales unrecorded atau mapping miss.</div>`;
 }
 
 // ── NOTIFICATIONS ──
