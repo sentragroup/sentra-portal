@@ -20528,37 +20528,64 @@ async function _vmRenderCapabilitiesTab(r) {
     const caps = data || [];
     cont.innerHTML = `
       <div style="background:var(--off);border-radius:6px;padding:14px;margin-bottom:14px">
-        <div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px">Tambah Capability</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px" id="vmc-form-title">Tambah Capability</div>
+          <button class="btn-icon" id="vmc-form-cancel" style="display:none" onclick="cancelEditVMCapability('${r.id}')">✕ Batal Edit</button>
+        </div>
         <div style="font-size:11px;color:var(--g600);margin-bottom:10px">Kategori produk yang vendor ini sanggup bikin — termasuk yang belum pernah kita order. Buat referensi pas brief atau cari vendor.</div>
+        <input type="hidden" id="vmc-edit-id" value="">
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:8px">
           <div class="fg"><label>Kategori *</label><input id="vmc-cat" type="text" placeholder="Apparel, Enamel Pin, Tote..."></div>
           <div class="fg"><label>Tipe Produk</label><input id="vmc-type" type="text" placeholder="T-Shirt, Hoodie..."></div>
           <div class="fg"><label>MOQ</label><input id="vmc-moq" type="number" placeholder="100"></div>
           <div class="fg"><label>Lead Time (hari)</label><input id="vmc-lead" type="number" placeholder="14"></div>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-          <div class="fg"><label>Est. Unit Cost (Rp)</label><input id="vmc-cost" type="number" placeholder="opsional"></div>
-          <div class="fg"><label>Sample Image URL</label><input id="vmc-img" type="text" placeholder="opsional"></div>
+        <div class="fg"><label>Est. Unit Cost (Rp)</label><input id="vmc-cost" type="number" placeholder="opsional"></div>
+
+        <div class="fg" style="margin-top:8px"><label>Sample Image (opsional, max 5MB)</label>
+          <div style="display:flex;gap:6px;align-items:center;margin-top:4px">
+            <input type="file" id="vmc-img-file" accept="image/jpeg,image/png,image/webp,image/gif" onchange="uploadVMCapabilityImage(this,'${r.id}')" style="display:none">
+            <button class="btn-icon" type="button" onclick="document.getElementById('vmc-img-file').click()">📤 Upload</button>
+            <input type="url" id="vmc-img" placeholder="atau paste URL gambar..." style="flex:1" oninput="previewVMCapabilityImage()">
+            <button class="btn-icon" type="button" id="vmc-img-clear" style="display:none;color:#c0392b" onclick="clearVMCapabilityImage()">✕</button>
+          </div>
+          <div id="vmc-img-preview" style="margin-top:8px"></div>
         </div>
+
         <div class="fg" style="margin-top:8px"><label>Deskripsi / Material / Catatan</label><textarea id="vmc-desc" rows="2" style="width:100%" placeholder="Material, range ukuran, catatan kualitas..."></textarea></div>
         <div style="text-align:right;margin-top:8px">
-          <button class="btn-save" onclick="addVMCapability('${r.id}')">+ Tambah</button>
+          <button class="btn-save" id="vmc-submit-btn" onclick="addVMCapability('${r.id}')">+ Tambah</button>
         </div>
       </div>
 
       ${caps.length === 0
         ? `<div style="background:var(--off);border-radius:6px;padding:20px;text-align:center;color:var(--g600);font-size:13px">Belum ada capability terdaftar.</div>`
         : `<table style="width:100%;font-size:12px">
-            <thead><tr><th style="text-align:left">Kategori</th><th style="text-align:left">Tipe</th><th style="text-align:right">MOQ</th><th style="text-align:right">Lead</th><th style="text-align:right">Est. Cost</th><th style="text-align:left">Catatan</th><th></th></tr></thead>
+            <thead><tr>
+              <th style="width:60px"></th>
+              <th style="text-align:left">Kategori</th>
+              <th style="text-align:left">Tipe</th>
+              <th style="text-align:right">MOQ</th>
+              <th style="text-align:right">Lead</th>
+              <th style="text-align:right">Est. Cost</th>
+              <th style="text-align:left">Catatan</th>
+              <th></th>
+            </tr></thead>
             <tbody>
               ${caps.map(c => `<tr>
+                <td>${c.sample_image_url
+                  ? `<a href="${c.sample_image_url}" target="_blank"><img src="${c.sample_image_url}" style="width:48px;height:48px;object-fit:cover;border:1px solid var(--g100);border-radius:4px"></a>`
+                  : '<div style="width:48px;height:48px;background:var(--g100);border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--g400)">no img</div>'}</td>
                 <td><strong>${(c.category||'').replace(/</g,'&lt;')}</strong></td>
                 <td>${(c.product_type||'—').replace(/</g,'&lt;')}</td>
                 <td style="text-align:right">${c.moq||'—'}</td>
                 <td style="text-align:right">${c.lead_time_days?c.lead_time_days+'d':'—'}</td>
                 <td style="text-align:right">${c.unit_cost_estimate?'Rp '+parseFloat(c.unit_cost_estimate).toLocaleString('id-ID'):'—'}</td>
                 <td style="font-size:11px;color:var(--g600);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(c.description||'').replace(/"/g,'&quot;')}">${(c.description||'—').replace(/</g,'&lt;')}</td>
-                <td><button class="btn-icon" style="color:#c0392b" onclick="deleteVMCapability(${c.id},'${r.id}')">Del</button></td>
+                <td style="white-space:nowrap">
+                  <button class="btn-icon" onclick='editVMCapability(${c.id},"${r.id}")'>Edit</button>
+                  <button class="btn-icon" style="color:#c0392b" onclick="deleteVMCapability(${c.id},'${r.id}')">Del</button>
+                </td>
               </tr>`).join('')}
             </tbody>
           </table>`}`;
@@ -20567,22 +20594,100 @@ async function _vmRenderCapabilitiesTab(r) {
   }
 }
 
-async function addVMCapability(vmId) {
-  const cat = document.getElementById('vmc-cat').value.trim();
-  if (!cat) { alert('Kategori wajib.'); return; }
+async function uploadVMCapabilityImage(input, vmId) {
+  const file = input.files?.[0];
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) { alert('File terlalu besar (max 5MB).'); input.value = ''; return; }
+  // Show loading state
+  const btn = input.previousElementSibling || null;
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const path = `${vmId}/${Date.now()}-${safeName}`;
   try {
-    const {error} = await sb.from('vendor_capabilities').insert({
-      vendor_master_id: vmId,
-      category: cat,
-      product_type: document.getElementById('vmc-type').value.trim() || null,
-      moq: parseInt(document.getElementById('vmc-moq').value, 10) || null,
-      lead_time_days: parseInt(document.getElementById('vmc-lead').value, 10) || null,
-      unit_cost_estimate: parseFloat(document.getElementById('vmc-cost').value) || null,
-      sample_image_url: document.getElementById('vmc-img').value.trim() || null,
-      description: document.getElementById('vmc-desc').value.trim() || null,
-      added_by: currentUser,
+    const {error} = await sb.storage.from('vendor-capability-samples').upload(path, file, {
+      cacheControl: '3600', upsert: false,
     });
     if (error) throw error;
+    const {data: {publicUrl}} = sb.storage.from('vendor-capability-samples').getPublicUrl(path);
+    document.getElementById('vmc-img').value = publicUrl;
+    previewVMCapabilityImage();
+  } catch (e) {
+    alert('Upload gagal: ' + (e.message || e));
+  } finally {
+    input.value = ''; // reset so same file can be re-picked
+  }
+}
+
+function previewVMCapabilityImage() {
+  const url = document.getElementById('vmc-img').value.trim();
+  const preview = document.getElementById('vmc-img-preview');
+  const clearBtn = document.getElementById('vmc-img-clear');
+  if (url) {
+    preview.innerHTML = `<img src="${url}" style="max-width:140px;max-height:140px;object-fit:contain;border:1px solid var(--g100);border-radius:4px;background:var(--white);padding:4px" onerror="this.style.opacity='0.3';this.title='Gagal load gambar'">`;
+    clearBtn.style.display = 'inline-block';
+  } else {
+    preview.innerHTML = '';
+    clearBtn.style.display = 'none';
+  }
+}
+
+function clearVMCapabilityImage() {
+  document.getElementById('vmc-img').value = '';
+  previewVMCapabilityImage();
+}
+
+function editVMCapability(capId, vmId) {
+  // Pull the row from DB (fresher than what we rendered) and populate form
+  sb.from('vendor_capabilities').select('*').eq('id', capId).single().then(({data: c, error}) => {
+    if (error) { alert('Gagal: ' + error.message); return; }
+    document.getElementById('vmc-edit-id').value = c.id;
+    document.getElementById('vmc-cat').value = c.category || '';
+    document.getElementById('vmc-type').value = c.product_type || '';
+    document.getElementById('vmc-moq').value = c.moq || '';
+    document.getElementById('vmc-lead').value = c.lead_time_days || '';
+    document.getElementById('vmc-cost').value = c.unit_cost_estimate || '';
+    document.getElementById('vmc-img').value = c.sample_image_url || '';
+    document.getElementById('vmc-desc').value = c.description || '';
+    previewVMCapabilityImage();
+    document.getElementById('vmc-form-title').textContent = 'Edit Capability';
+    document.getElementById('vmc-form-cancel').style.display = 'inline-block';
+    document.getElementById('vmc-submit-btn').textContent = '💾 Simpan Perubahan';
+    // Scroll form into view smoothly
+    document.getElementById('vmc-cat').focus();
+    document.getElementById('vmc-cat').scrollIntoView({behavior:'smooth', block:'center'});
+  });
+}
+
+function cancelEditVMCapability(vmId) {
+  // Just re-render the tab to reset form
+  const row = allVMRows.find(r => r.id === vmId);
+  if (row) _vmRenderCapabilitiesTab(row);
+}
+
+async function addVMCapability(vmId) {
+  const editId = document.getElementById('vmc-edit-id').value;
+  const cat = document.getElementById('vmc-cat').value.trim();
+  if (!cat) { alert('Kategori wajib.'); return; }
+  const payload = {
+    category: cat,
+    product_type: document.getElementById('vmc-type').value.trim() || null,
+    moq: parseInt(document.getElementById('vmc-moq').value, 10) || null,
+    lead_time_days: parseInt(document.getElementById('vmc-lead').value, 10) || null,
+    unit_cost_estimate: parseFloat(document.getElementById('vmc-cost').value) || null,
+    sample_image_url: document.getElementById('vmc-img').value.trim() || null,
+    description: document.getElementById('vmc-desc').value.trim() || null,
+  };
+  try {
+    if (editId) {
+      payload.last_updated = new Date().toISOString();
+      payload.last_updated_by = currentUser;
+      const {error} = await sb.from('vendor_capabilities').update(payload).eq('id', editId);
+      if (error) throw error;
+    } else {
+      payload.vendor_master_id = vmId;
+      payload.added_by = currentUser;
+      const {error} = await sb.from('vendor_capabilities').insert(payload);
+      if (error) throw error;
+    }
     const row = allVMRows.find(r => r.id === vmId);
     if (row) _vmRenderCapabilitiesTab(row);
   } catch (e) { alert('Gagal: ' + (e.message || e)); }
@@ -20591,6 +20696,16 @@ async function addVMCapability(vmId) {
 async function deleteVMCapability(capId, vmId) {
   if (!confirm('Hapus capability ini?')) return;
   try {
+    // Best-effort: also delete the storage object if we own one
+    const {data: cap} = await sb.from('vendor_capabilities').select('sample_image_url').eq('id', capId).single();
+    if (cap?.sample_image_url) {
+      const url = cap.sample_image_url;
+      // Extract path after the bucket-name segment
+      const m = url.match(/vendor-capability-samples\/(.+)$/);
+      if (m) {
+        await sb.storage.from('vendor-capability-samples').remove([m[1]]);
+      }
+    }
     const {error} = await sb.from('vendor_capabilities').delete().eq('id', capId);
     if (error) throw error;
     const row = allVMRows.find(r => r.id === vmId);
@@ -20686,7 +20801,7 @@ function renderVMCapabilities() {
   if (tc) tc.textContent = `${rows.length} entri`;
 
   if (!rows.length) {
-    tbody.innerHTML = `<tr><td class="empty-td" colspan="7">${allVMCapabilitiesMatrix.length === 0
+    tbody.innerHTML = `<tr><td class="empty-td" colspan="8">${allVMCapabilitiesMatrix.length === 0
       ? 'Belum ada capability terdaftar. Tambah lewat tab "Semua" → klik vendor → tab "Capabilities".'
       : 'Tidak ada match untuk filter ini.'}</td></tr>`;
     return;
@@ -20696,7 +20811,11 @@ function renderVMCapabilities() {
     const cost = c.unit_cost_estimate ? parseFloat(c.unit_cost_estimate) : null;
     const jubelioChip = c.vendorRow?.jubelioContactId
       ? '<span class="pill p-active" style="font-size:9px;margin-left:4px">🔗 Jubelio</span>' : '';
+    const sampleCell = c.sample_image_url
+      ? `<a href="${c.sample_image_url}" target="_blank"><img src="${c.sample_image_url}" style="width:48px;height:48px;object-fit:cover;border:1px solid var(--g100);border-radius:4px"></a>`
+      : `<div style="width:48px;height:48px;background:var(--g100);border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--g400)">no img</div>`;
     return `<tr>
+      <td>${sampleCell}</td>
       <td><strong>${(c.product_type||'—').replace(/</g,'&lt;')}</strong></td>
       <td style="font-size:12px">${(c.category||'—').replace(/</g,'&lt;')}</td>
       <td><a href="#" onclick="openVMDetail('${c.vendor_master_id}');return false" style="color:var(--black);text-decoration:none;font-weight:600">${(c.vendorName||'').replace(/</g,'&lt;')}</a>${jubelioChip}</td>
