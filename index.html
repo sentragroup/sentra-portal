@@ -140,6 +140,9 @@
         <div class="sb-item" onclick="showPage('distpartner',this)" id="nav-distpartner">
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="6" width="5" height="5" rx="1"/><rect x="10" y="6" width="5" height="5" rx="1"/><rect x="5.5" y="1" width="5" height="5" rx="1"/><line x1="8" y1="6" x2="8" y2="11"/><line x1="3.5" y1="6" x2="8" y2="3.5"/><line x1="12.5" y1="6" x2="8" y2="3.5"/></svg>Distribution Partner
         </div>
+        <div class="sb-item" onclick="showPage('vendormaster',this)" id="nav-vendormaster">
+          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="10" rx="1"/><path d="M2 7h12M6 3v10M10 3v10"/></svg>Vendor Master
+        </div>
         <div class="sb-item" onclick="showPage('designermaster',this)" id="nav-designermaster">
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="5" r="2.5"/><path d="M1 13c0-2.8 2.2-5 5-5"/><path d="M11 9l1.5 1.5L15 8"/><circle cx="12" cy="12" r="3"/></svg>Designer Master
         </div>
@@ -901,6 +904,96 @@
         </div>
       </div>
 
+      <!-- VENDOR MASTER -->
+      <div class="page" id="page-vendormaster">
+        <div class="page-header">
+          <div><div class="page-title">Vendor Master</div><div class="page-sub">Database vendor / pemasok produksi — contact, default lokasi & pajak. Dipakai pas export PO ke Jubelio.</div></div>
+          <div class="tab-bar">
+            <button class="tab-btn active" onclick="switchVMTab('new',this)">Tambah</button>
+            <button class="tab-btn" onclick="switchVMTab('list',this)">Semua</button>
+          </div>
+        </div>
+
+        <div class="stats-row" style="grid-template-columns:repeat(3,1fr);margin-bottom:1.25rem">
+          <div class="stat-card"><div class="stat-num" id="vm-s-total">—</div><div class="stat-lbl">Total Vendor</div></div>
+          <div class="stat-card"><div class="stat-num" id="vm-s-with-contact">—</div><div class="stat-lbl">Punya Contact</div></div>
+          <div class="stat-card"><div class="stat-num" id="vm-s-incomplete">—</div><div class="stat-lbl">Belum Lengkap</div></div>
+        </div>
+
+        <div id="vmtab-new">
+          <div class="form-card">
+            <div class="form-sec">Identitas Vendor</div>
+            <div class="form-grid">
+              <div class="fg"><label>Nama Vendor <span class="req">*</span></label><input type="text" id="vm-name" placeholder="cth: PT Konveksi Jaya"></div>
+              <div class="fg"><label>Contact Person</label><input type="text" id="vm-contact-person" placeholder="cth: Pak Budi"></div>
+              <div class="fg"><label>Email</label><input type="email" id="vm-email" placeholder="vendor@email.com"></div>
+              <div class="fg"><label>No. Telp <span class="req">*</span></label><input type="text" id="vm-phone" placeholder="081234567890 (tanpa spasi)"></div>
+              <div class="fg full"><label>Alamat</label><input type="text" id="vm-address" placeholder="opsional"></div>
+              <div class="fg"><label>NPWP</label><input type="text" id="vm-npwp" placeholder="opsional"></div>
+            </div>
+
+            <div class="form-sec" style="margin-top:1.25rem">Default PO ke Jubelio</div>
+            <div class="form-grid">
+              <div class="fg"><label>Default Lokasi <span class="req">*</span></label>
+                <select id="vm-default-location">
+                  <option value="Pusat">Gudang Pusat</option>
+                  <option value="Gudang Bintaro">Gudang Bintaro</option>
+                  <option value="Gudang Penerimaan Barang">Gudang Penerimaan Barang</option>
+                  <option value="Gudang Offline">Gudang Offline</option>
+                  <option value="Gudang Marte">Gudang Marte</option>
+                </select>
+              </div>
+              <div class="fg"><label>Default Pajak <span class="req">*</span></label>
+                <select id="vm-default-tax">
+                  <option value="PPN">PPN (11%)</option>
+                  <option value="No Tax">No Tax</option>
+                </select>
+              </div>
+              <div class="fg"><label>Harga Termasuk Pajak?</label>
+                <select id="vm-default-tax-included">
+                  <option value="false">FALSE (harga + pajak)</option>
+                  <option value="true">TRUE (harga sudah termasuk)</option>
+                </select>
+              </div>
+              <div class="fg full"><label>Notes</label><input type="text" id="vm-notes" placeholder="catatan opsional"></div>
+            </div>
+
+            <div class="btn-row">
+              <button class="btn-primary" id="vmSubmitBtn" onclick="submitVM()">Simpan</button>
+              <button class="btn-ghost" onclick="clearVMForm()">Bersihkan</button>
+            </div>
+            <div class="feedback" id="vm-feedback"></div>
+          </div>
+        </div>
+
+        <div id="vmtab-list" style="display:none">
+          <div class="filter-panel">
+            <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="document.getElementById('vmSearch').value='';applyVMFilters()">✕ Reset</button></div>
+            <div class="filter-grid">
+              <input class="search-box" type="text" id="vmSearch" placeholder="Cari nama vendor, contact..." oninput="applyVMFilters()" style="width:100%">
+            </div>
+          </div>
+          <div class="table-toolbar">
+            <button class="btn-refresh" onclick="loadVendorMaster()">↻ Refresh</button>
+            <div class="tcount" id="vm-tcount">— entri</div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Nama Vendor</th>
+                <th>Contact</th>
+                <th>Email</th>
+                <th>No. Telp</th>
+                <th>Default Lokasi</th>
+                <th>Tax</th>
+                <th>Aksi</th>
+              </tr></thead>
+              <tbody id="vmTableBody"><tr><td class="empty-td" colspan="7">Klik "Semua" untuk memuat data.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
       <!-- POP UP BOOTH -->
       <div class="page" id="page-popupbooth">
         <div class="page-header">
@@ -1578,7 +1671,8 @@
             <button class="btn-ghost" style="font-size:12px;padding:5px 10px" onclick="exportPDPDF('internal')">📄 Internal PDF</button>
             <button class="btn-ghost" style="font-size:12px;padding:5px 10px" onclick="exportPDPDF('external')">📄 External PDF</button>
             <button class="btn-ghost" style="font-size:12px;padding:5px 10px" onclick="exportPDVendorPrompt(event)">📄 Vendor PDF</button>
-            <button class="btn-ghost" style="font-size:12px;padding:5px 10px;background:#e8f4ea;border-color:#1c7a3b;color:#1c7a3b" onclick="exportPDJubelioXlsx()" title="CSV siap import ke Jubelio (Inventory → Item → Import via Excel/CSV)">📥 Import ke Jubelio (CSV)</button>
+            <button class="btn-ghost" style="font-size:12px;padding:5px 10px;background:#e8f4ea;border-color:#1c7a3b;color:#1c7a3b" onclick="exportPDJubelioXlsx()" title="CSV siap import produk ke Jubelio">📥 Import Product (CSV)</button>
+            <button class="btn-ghost" style="font-size:12px;padding:5px 10px;background:#eef0f8;border-color:#3C3489;color:#3C3489" onclick="exportPDPurchaseOrderCsv()" title="CSV Purchase Order ke Jubelio — satu PO per vendor">📤 Export PO (CSV)</button>
           </div>
         </div>
 

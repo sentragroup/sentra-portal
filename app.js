@@ -144,7 +144,7 @@ function enterApp(user, freshLogin) {
   // Restore page: prefer URL hash, fall back to sessionStorage
   let _pg = location.hash.slice(1).split('/')[0];
   if (!_pg) _pg = sessionStorage.getItem('snt_page') || '';
-  const _pages = ['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','popupbooth','activitylog','mesign','po','stockmovement','productmap','productdev','collections','designermaster','dsgworkflow','warehousekpi','stockadjmgmt','returnreason','tradorders','invcheck','salesperf','reminders','announcements','marte','royalty','income','contentplan','adsmgmt','mktactivation','publication','photoshoot','kolmgmt','txmap'];
+  const _pages = ['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','vendormaster','popupbooth','activitylog','mesign','po','stockmovement','productmap','productdev','collections','designermaster','dsgworkflow','warehousekpi','stockadjmgmt','returnreason','tradorders','invcheck','salesperf','reminders','announcements','marte','royalty','income','contentplan','adsmgmt','mktactivation','publication','photoshoot','kolmgmt','txmap'];
   if (_pages.includes(_pg))
     showPage(_pg, document.getElementById('nav-'+_pg));
 }
@@ -178,6 +178,7 @@ const ACCESS_MODULES = [
   {key:'productmap',label:'Product Mapping'},{key:'leads',label:'Leads Management'},
   {key:'collections',label:'Collection Development'},{key:'dsgworkflow',label:'Designer Workflow'},
   {key:'salesreport',label:'Account Report'},{key:'popupbooth',label:'Pop Up Booth'},
+  {key:'vendormaster',label:'Vendor Master'},
   {key:'mesign',label:'Mekari Sign'},
   {key:'productdev',label:'Product Development'},{key:'restock',label:'Create PO Restock'},
   {key:'po',label:'Purchase Orders'},{key:'stockmovement',label:'Stock Reconcile'},
@@ -234,7 +235,7 @@ function showPage(name, el) {
   document.getElementById("page-"+_pageId).classList.add("active");
   if (el) el.classList.add("active");
   const _c = document.querySelector('.content'); if (_c) _c.scrollTop = 0;
-  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",txmap:"Transaction Mapping",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)"};
+  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",txmap:"Transaction Mapping",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)",vendormaster:"Vendor Master"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -251,6 +252,7 @@ function showPage(name, el) {
   if (name==="salesreport") loadSalesReport();
   if (name==="leads") loadLeads();
   if (name==="distpartner") loadDistPartner();
+  if (name==="vendormaster") loadVendorMaster();
   if (name==="popupbooth") loadPopupBooth();
   if (name==="activitylog") loadActivityLog();
   if (name==="mesign") loadMekariEsign();
@@ -15871,14 +15873,22 @@ function pdComputeRatio(parent, subs) {
 
 async function loadPDVendorList() {
   try {
-    const [{data:poData},{data:pdData}] = await Promise.all([
+    const [{data:poData},{data:pdData},{data:vmData}] = await Promise.all([
       sb.from('jubelio_purchase_orders').select('supplier_name').not('supplier_name','is',null).limit(5000),
-      sb.from('product_dev').select('vendor').not('vendor','is',null).limit(5000)
+      sb.from('product_dev').select('vendor').not('vendor','is',null).limit(5000),
+      sb.from('vendor_master').select('vendor_name').limit(5000)
     ]);
     const set = new Set();
     (poData||[]).forEach(r => { if (r.supplier_name) set.add(r.supplier_name.trim()); });
     (pdData||[]).forEach(r => { if (r.vendor) set.add(r.vendor.trim()); });
-    pdAllVendors = [...set].filter(Boolean).sort();
+    // Vendors with full master data sort first (prefixed * for visual)
+    const masterSet = new Set((vmData||[]).map(r => r.vendor_name.trim()));
+    (vmData||[]).forEach(r => { if (r.vendor_name) set.add(r.vendor_name.trim()); });
+    pdAllVendors = [...set].filter(Boolean).sort((a,b) => {
+      const am = masterSet.has(a), bm = masterSet.has(b);
+      if (am && !bm) return -1; if (!am && bm) return 1;
+      return a.localeCompare(b, 'id');
+    });
   } catch(e) { console.error('loadPDVendorList:',e); pdAllVendors=[]; }
 }
 
@@ -17484,6 +17494,116 @@ async function exportPDJubelioXlsx() {
 
   const msgExtra = skipped ? ` (${skipped} SKU di-skip karena display_code kosong)` : '';
   console.log(`Exported ${rows.length-1} SKU rows to ${fname}${msgExtra}`);
+}
+
+// ── PURCHASE ORDER CSV EXPORT (Jubelio Import Pesanan Pembelian) ──
+// One CSV with multiple POs (one per vendor). Matches columns from Jubelio's
+// "Pengisian Data Pembelian" sheet: header fields populate only the first row
+// of a PO; subsequent item rows in the same PO leave header cols blank.
+async function exportPDPurchaseOrderCsv() {
+  const {parents} = getPDDetailFilteredParents();
+  if (!parents.length) { alert('Tidak ada SKU di collection / filter ini.'); return; }
+
+  // Collect all variants under these parents (with vendor + qty + hpp)
+  const parentIds = new Set(parents.map(p => p.id));
+  const variants = allPDRows.filter(s => s.skuType === 'variant' && parentIds.has(s.parentId));
+  const liveVariants = variants.filter(v => v.displayCode && v.vendor && (v.qty || 0) > 0);
+  if (!liveVariants.length) {
+    alert('Tidak ada variant dengan vendor + qty > 0. Cek bahwa variant SKU sudah punya display_code, vendor, dan qty.');
+    return;
+  }
+
+  // Load vendor master once
+  if (!allVMRows.length) {
+    try { const {data} = await sb.from('vendor_master').select('*'); allVMRows = (data||[]).map(mapVM); }
+    catch (e) { console.error('vendor master load:', e); }
+  }
+  const vmByName = new Map(allVMRows.map(v => [v.vendorName.toLowerCase(), v]));
+
+  // Group variants by vendor name
+  const byVendor = new Map();
+  for (const v of liveVariants) {
+    const key = v.vendor;
+    if (!byVendor.has(key)) byVendor.set(key, []);
+    byVendor.get(key).push(v);
+  }
+
+  // Check that every vendor exists in vendor master with phone + location
+  const missingVendors = [];
+  for (const vendorName of byVendor.keys()) {
+    const vm = vmByName.get(vendorName.toLowerCase());
+    if (!vm) { missingVendors.push(`• ${vendorName}: belum ada di Vendor Master`); continue; }
+    if (!vm.phone) { missingVendors.push(`• ${vendorName}: No. Telp kosong di Vendor Master`); continue; }
+    if (!vm.defaultLocation) { missingVendors.push(`• ${vendorName}: Default Lokasi kosong`); continue; }
+  }
+  if (missingVendors.length) {
+    alert(`Ada vendor yang belum lengkap di Vendor Master:\n\n${missingVendors.join('\n')}\n\nLengkapi dulu di modul Vendor Master.`);
+    return;
+  }
+
+  // Build rows. Header columns are present only on the FIRST row of each PO.
+  const HEADERS = [
+    'No. Pesanan','No. Ref Pemasok','Tanggal','Zona Waktu','Nama Pemasok',
+    'Email Pemasok','No Telp. Pemasok','Harga Termasuk Pajak','Lokasi',
+    'Keterangan','SKU','Harga','Qty','Nilai Diskon','Pajak'
+  ];
+  const today = new Date().toISOString().slice(0,10);
+  const _col = (typeof allColRows !== 'undefined' && Array.isArray(allColRows))
+    ? allColRows.find(x => x.id === pdCurrentCollectionId) : null;
+  const colName = _col?.collectionName || '';
+
+  const rows = [HEADERS];
+  for (const [vendorName, items] of byVendor) {
+    const vm = vmByName.get(vendorName.toLowerCase());
+    // Header fields (first item only)
+    const headerCells = [
+      '[auto]',                                  // No. Pesanan
+      '',                                        // No. Ref Pemasok
+      today,                                     // Tanggal
+      'WIB',                                     // Zona Waktu
+      vm.vendorName,                             // Nama Pemasok
+      vm.email || '',                            // Email
+      vm.phone,                                  // No. Telp
+      vm.defaultTaxIncluded ? 'TRUE' : 'FALSE',  // Harga Termasuk Pajak
+      vm.defaultLocation,                        // Lokasi
+      colName ? `Production order — ${colName}` : 'Production order',  // Keterangan
+    ];
+    items.forEach((v, idx) => {
+      const itemCells = [
+        v.displayCode,                           // SKU
+        Number(v.hpp) || 0,                      // Harga
+        Number(v.qty) || 0,                      // Qty
+        0,                                       // Nilai Diskon
+        vm.defaultTax,                           // Pajak
+      ];
+      if (idx === 0) {
+        rows.push([...headerCells, ...itemCells]);
+      } else {
+        // Continuation rows have empty header cells
+        rows.push([...headerCells.map(() => ''), ...itemCells]);
+      }
+    });
+  }
+
+  // CSV with UTF-8 BOM
+  const csvEscape = (v) => {
+    if (v == null) return '';
+    const s = String(v);
+    if (/[",\r\n<]/.test(s)) return '"' + s.replace(/"/g,'""') + '"';
+    return s;
+  };
+  const csv = rows.map(r => r.map(csvEscape).join(',')).join('\r\n');
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+
+  const safeName = (colName || pdCurrentCollectionId || 'collection').replace(/[^a-zA-Z0-9._-]+/g,'_').slice(0,80);
+  const fname = `jubelio-po-${safeName}-${today}.csv`;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = fname;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 100);
+
+  alert(`✓ ${byVendor.size} PO di-export (${liveVariants.length} item lines) ke ${fname}.\n\nNext: buka Jubelio → Pesanan Pembelian → Import → upload file ini.`);
 }
 
 // ── ROYALTY REPORT ──
@@ -19725,6 +19845,224 @@ async function syncInvTransfer() {
     alert('Gagal: ' + (e.message || e));
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = oldTxt; }
+  }
+}
+
+// ── VENDOR MASTER ──
+let allVMRows = [];
+function mapVM(r) {
+  return {
+    id: r.id, rowIndex: r.id,
+    vendorName: r.vendor_name || '',
+    contactPerson: r.contact_person || '',
+    email: r.email || '',
+    phone: r.phone || '',
+    address: r.address || '',
+    npwp: r.npwp || '',
+    defaultLocation: r.default_location || 'Pusat',
+    defaultTax: r.default_tax || 'PPN',
+    defaultTaxIncluded: r.default_tax_included === true,
+    notes: r.notes || '',
+    dateAdded: r.date_added, addedBy: r.added_by,
+    lastUpdated: r.last_updated, lastUpdatedBy: r.last_updated_by,
+  };
+}
+
+function switchVMTab(name, el) {
+  document.querySelectorAll('#page-vendormaster .tab-btn').forEach(b => b.classList.remove('active'));
+  if (el) el.classList.add('active');
+  document.getElementById('vmtab-new').style.display = name === 'new' ? 'block' : 'none';
+  document.getElementById('vmtab-list').style.display = name === 'list' ? 'block' : 'none';
+  if (name === 'list') loadVendorMaster();
+}
+
+async function loadVendorMaster() {
+  const tbody = document.getElementById('vmTableBody');
+  if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="7">Memuat...</td></tr>`;
+  try {
+    const {data, error} = await sb.from('vendor_master').select('*').order('vendor_name');
+    if (error) throw error;
+    allVMRows = (data||[]).map(mapVM);
+    renderVMStats();
+    applyVMFilters();
+  } catch (e) {
+    if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="7">Gagal: ${e.message||e}</td></tr>`;
+  }
+}
+
+function renderVMStats() {
+  const total = allVMRows.length;
+  const withContact = allVMRows.filter(r => r.phone && r.email).length;
+  const incomplete = allVMRows.filter(r => !r.phone || !r.defaultLocation).length;
+  document.getElementById('vm-s-total').textContent = total;
+  document.getElementById('vm-s-with-contact').textContent = withContact;
+  document.getElementById('vm-s-incomplete').textContent = incomplete;
+}
+
+function applyVMFilters() {
+  const q = (document.getElementById('vmSearch')?.value || '').toLowerCase();
+  let rows = allVMRows;
+  if (q) rows = rows.filter(r =>
+    (r.vendorName||'').toLowerCase().includes(q) ||
+    (r.contactPerson||'').toLowerCase().includes(q) ||
+    (r.email||'').toLowerCase().includes(q) ||
+    (r.phone||'').toLowerCase().includes(q)
+  );
+  renderVMTable(rows);
+}
+
+function renderVMTable(rows) {
+  const tbody = document.getElementById('vmTableBody');
+  const tc = document.getElementById('vm-tcount');
+  if (tc) tc.textContent = `${rows.length} entri`;
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td class="empty-td" colspan="7">Tidak ada vendor.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = rows.map(r => {
+    const taxPill = `<span class="pill ${r.defaultTax==='PPN'?'p-signings':'p-draft'}" style="font-size:11px">${r.defaultTax}${r.defaultTaxIncluded?' (incl)':''}</span>`;
+    return `<tr>
+      <td><strong>${(r.vendorName||'').replace(/</g,'&lt;')}</strong></td>
+      <td style="font-size:12px">${(r.contactPerson||'—').replace(/</g,'&lt;')}</td>
+      <td class="mono" style="font-size:11px">${(r.email||'—').replace(/</g,'&lt;')}</td>
+      <td class="mono" style="font-size:11px">${(r.phone||'—').replace(/</g,'&lt;')}</td>
+      <td style="font-size:11px">${(r.defaultLocation||'—').replace(/</g,'&lt;')}</td>
+      <td>${taxPill}</td>
+      <td>
+        <button class="btn-icon" onclick="openVMEdit('${r.id}')">Edit</button>
+        <button class="btn-icon" style="color:#c0392b" onclick="deleteVM('${r.id}')">Del</button>
+      </td>
+    </tr>
+    <tr id="vm-edit-row-${r.id}" style="display:none">
+      <td colspan="7" style="padding:0 12px 12px">
+        <div class="edit-row-form">
+          <div class="edit-row-grid">
+            <div class="fg"><label>Nama Vendor *</label><input id="vme-name-${r.id}" type="text" value="${(r.vendorName||'').replace(/"/g,'&quot;')}"></div>
+            <div class="fg"><label>Contact Person</label><input id="vme-contact-${r.id}" type="text" value="${(r.contactPerson||'').replace(/"/g,'&quot;')}"></div>
+            <div class="fg"><label>Email</label><input id="vme-email-${r.id}" type="email" value="${(r.email||'').replace(/"/g,'&quot;')}"></div>
+            <div class="fg"><label>No. Telp *</label><input id="vme-phone-${r.id}" type="text" value="${(r.phone||'').replace(/"/g,'&quot;')}"></div>
+            <div class="fg full"><label>Alamat</label><input id="vme-address-${r.id}" type="text" value="${(r.address||'').replace(/"/g,'&quot;')}"></div>
+            <div class="fg"><label>NPWP</label><input id="vme-npwp-${r.id}" type="text" value="${(r.npwp||'').replace(/"/g,'&quot;')}"></div>
+            <div class="fg"><label>Default Lokasi</label>
+              <select id="vme-loc-${r.id}">
+                ${['Pusat','Gudang Bintaro','Gudang Penerimaan Barang','Gudang Offline','Gudang Marte'].map(l =>
+                  `<option value="${l}"${r.defaultLocation===l?' selected':''}>${l==='Pusat'?'Gudang Pusat':l}</option>`).join('')}
+              </select>
+            </div>
+            <div class="fg"><label>Default Pajak</label>
+              <select id="vme-tax-${r.id}">
+                <option value="PPN"${r.defaultTax==='PPN'?' selected':''}>PPN (11%)</option>
+                <option value="No Tax"${r.defaultTax==='No Tax'?' selected':''}>No Tax</option>
+              </select>
+            </div>
+            <div class="fg"><label>Harga Termasuk Pajak?</label>
+              <select id="vme-tax-incl-${r.id}">
+                <option value="false"${!r.defaultTaxIncluded?' selected':''}>FALSE</option>
+                <option value="true"${r.defaultTaxIncluded?' selected':''}>TRUE</option>
+              </select>
+            </div>
+            <div class="fg full"><label>Notes</label><input id="vme-notes-${r.id}" type="text" value="${(r.notes||'').replace(/"/g,'&quot;')}"></div>
+          </div>
+          <div class="edit-row-btns">
+            <button class="btn-save" onclick="saveVMEdit('${r.id}')">Simpan</button>
+            <button class="btn-cancel" onclick="closeVMEdit('${r.id}')">Batal</button>
+          </div>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function clearVMForm() {
+  ['vm-name','vm-contact-person','vm-email','vm-phone','vm-address','vm-npwp','vm-notes'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
+  document.getElementById('vm-default-location').value = 'Pusat';
+  document.getElementById('vm-default-tax').value = 'PPN';
+  document.getElementById('vm-default-tax-included').value = 'false';
+  document.getElementById('vm-feedback').textContent = '';
+}
+
+async function submitVM() {
+  const fb = document.getElementById('vm-feedback');
+  const btn = document.getElementById('vmSubmitBtn');
+  const name = document.getElementById('vm-name').value.trim();
+  const phone = document.getElementById('vm-phone').value.trim();
+  if (!name)  { fb.textContent = '⚠️ Nama vendor wajib.'; return; }
+  if (!phone) { fb.textContent = '⚠️ No. Telp wajib (untuk PO ke Jubelio).'; return; }
+  btn.disabled = true; fb.textContent = 'Menyimpan...';
+  try {
+    const id = genId('VM');
+    const row = {
+      id, vendor_name: name,
+      contact_person: document.getElementById('vm-contact-person').value.trim() || null,
+      email: document.getElementById('vm-email').value.trim() || null,
+      phone, // wajib
+      address: document.getElementById('vm-address').value.trim() || null,
+      npwp: document.getElementById('vm-npwp').value.trim() || null,
+      default_location: document.getElementById('vm-default-location').value,
+      default_tax: document.getElementById('vm-default-tax').value,
+      default_tax_included: document.getElementById('vm-default-tax-included').value === 'true',
+      notes: document.getElementById('vm-notes').value.trim() || null,
+      added_by: currentUser, date_added: new Date().toISOString(),
+    };
+    const {error} = await sb.from('vendor_master').insert(row);
+    if (error) throw error;
+    fb.innerHTML = `<span class="fb-ok">✓ Vendor "${name}" tersimpan</span>`;
+    clearVMForm();
+    await loadVendorMaster();
+  } catch (e) {
+    fb.innerHTML = `<span class="fb-err">Gagal: ${e.message || e}</span>`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function openVMEdit(id) {
+  document.querySelectorAll('[id^=vm-edit-row-]').forEach(el => { if (el.id !== `vm-edit-row-${id}`) el.style.display = 'none'; });
+  const row = document.getElementById(`vm-edit-row-${id}`);
+  if (row) row.style.display = row.style.display === 'table-row' ? 'none' : 'table-row';
+}
+function closeVMEdit(id) {
+  const row = document.getElementById(`vm-edit-row-${id}`);
+  if (row) row.style.display = 'none';
+}
+
+async function saveVMEdit(id) {
+  const name  = document.getElementById(`vme-name-${id}`).value.trim();
+  const phone = document.getElementById(`vme-phone-${id}`).value.trim();
+  if (!name)  { alert('Nama vendor wajib.'); return; }
+  if (!phone) { alert('No. Telp wajib.'); return; }
+  try {
+    const {error} = await sb.from('vendor_master').update({
+      vendor_name: name,
+      contact_person: document.getElementById(`vme-contact-${id}`).value.trim() || null,
+      email: document.getElementById(`vme-email-${id}`).value.trim() || null,
+      phone,
+      address: document.getElementById(`vme-address-${id}`).value.trim() || null,
+      npwp: document.getElementById(`vme-npwp-${id}`).value.trim() || null,
+      default_location: document.getElementById(`vme-loc-${id}`).value,
+      default_tax: document.getElementById(`vme-tax-${id}`).value,
+      default_tax_included: document.getElementById(`vme-tax-incl-${id}`).value === 'true',
+      notes: document.getElementById(`vme-notes-${id}`).value.trim() || null,
+      last_updated: new Date().toISOString(), last_updated_by: currentUser,
+    }).eq('id', id);
+    if (error) throw error;
+    await loadVendorMaster();
+  } catch (e) {
+    alert('Gagal: ' + (e.message || e));
+  }
+}
+
+async function deleteVM(id) {
+  const row = allVMRows.find(r => r.id === id);
+  if (!confirm(`Hapus vendor "${row?.vendorName || id}"?`)) return;
+  try {
+    const {error} = await sb.from('vendor_master').delete().eq('id', id);
+    if (error) throw error;
+    await loadVendorMaster();
+  } catch (e) {
+    alert('Gagal: ' + (e.message || e));
   }
 }
 
