@@ -911,10 +911,10 @@
         <div class="stats-row" style="grid-template-columns:repeat(6,1fr);margin-bottom:1.25rem">
           <div class="stat-card"><div class="stat-num" id="pb-s-total">—</div><div class="stat-lbl">Total Events</div></div>
           <div class="stat-card"><div class="stat-num" id="pb-s-upcoming">—</div><div class="stat-lbl">Upcoming</div></div>
+          <div class="stat-card"><div class="stat-num" id="pb-s-reconcile" style="color:#a37800">—</div><div class="stat-lbl">Reconcile</div></div>
           <div class="stat-card"><div class="stat-num" id="pb-s-done">—</div><div class="stat-lbl">Done</div></div>
           <div class="stat-card"><div class="stat-num" id="pb-s-cancelled">—</div><div class="stat-lbl">Cancelled</div></div>
-          <div class="stat-card"><div class="stat-num" id="pb-s-overdue" style="color:#c0392b">—</div><div class="stat-lbl">Overdue</div></div>
-          <div class="stat-card"><div class="stat-num" id="pb-s-grandtotal" style="font-size:14px">—</div><div class="stat-lbl">Grand Total</div></div>
+          <div class="stat-card"><div class="stat-num" id="pb-s-grandtotal" style="font-size:14px">—</div><div class="stat-lbl">Grand Total (filter)</div></div>
         </div>
         <div id="pbtab-new">
           <div class="form-card">
@@ -989,10 +989,15 @@
               <input class="search-box" type="text" id="pbSearch" placeholder="Cari event, lokasi, IP..." oninput="applyPBFilters()" style="width:100%">
             </div>
           </div>
-          <div class="table-toolbar">
+          <div class="table-toolbar" style="display:flex;align-items:center;gap:10px">
             <button class="btn-refresh" onclick="loadPopupBooth()">↻ Refresh</button>
-            <div class="tcount" id="pb-tcount">— entri</div>
+            <div style="display:flex;border:1px solid var(--g100);border-radius:6px;overflow:hidden;background:var(--white)">
+              <button id="pb-view-list-btn" onclick="switchPBView('list')" style="padding:5px 12px;font-size:11px;border:none;background:var(--black);color:var(--white);cursor:pointer;font-family:var(--label)">☷ List</button>
+              <button id="pb-view-cal-btn" onclick="switchPBView('calendar')" style="padding:5px 12px;font-size:11px;border:none;background:transparent;color:var(--g600);cursor:pointer;font-family:var(--label)">📅 Calendar</button>
+            </div>
+            <div class="tcount" id="pb-tcount" style="margin-left:auto">— entri</div>
           </div>
+          <div id="pb-view-list">
           <div class="table-wrap">
             <table>
               <thead id="pb-thead">
@@ -1004,6 +1009,7 @@
                   <th class="sortable" data-col="eventStatus" onclick="sortPBBy('eventStatus')">Status</th>
                   <th style="text-align:right">Stock In</th>
                   <th style="text-align:right">Stock Out</th>
+                  <th style="text-align:right" title="Current Stock = Stock In − Sold − Reinbound − Adjustment. Merah kalau belum 0 (reconcile belum kelar).">Current Stock</th>
                   <th style="text-align:right">Total Sales</th>
                   <th style="text-align:right">Total COGS</th>
                   <th style="text-align:right">Gross Margin</th>
@@ -1012,8 +1018,14 @@
                   <th>Aksi</th>
                 </tr>
               </thead>
-              <tbody id="pbTableBody"><tr><td class="empty-td" colspan="13">Klik "Semua" untuk memuat data.</td></tr></tbody>
+              <tbody id="pbTableBody"><tr><td class="empty-td" colspan="14">Klik "Semua" untuk memuat data.</td></tr></tbody>
             </table>
+          </div>
+          </div>
+
+          <!-- Calendar view container -->
+          <div id="pb-view-cal" style="display:none">
+            <div id="pb-calendar"></div>
           </div>
         </div>
 
