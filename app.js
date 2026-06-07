@@ -2688,14 +2688,19 @@ async function submitPB() {
 }
 
 // ── POP UP BOOTH — Detail View (per-event stock + sales + remaining) ──
-// Heuristic for classifying mapped TRFOs:
-//  - source ∈ event warehouses → reinbound (Stock OUT, leaving the event)
-//  - else → delivery (Stock IN, coming to event / event-themed channel)
-// Event warehouse is whatever Jubelio location physically hosts the booth/event
-// stock. Other locations like Gudang Offline can be "event-IP stock sold at the
-// retail store" — those map to IN. This classification is based on inventory
-// flow only, not on event mapping intent.
-const PB_EVENT_WAREHOUSES = ['Gudang Pick Up in Concert','Gudang Event 1','Gudang Event 2'];
+// Data-driven classification with two warehouse roles:
+//   * SUPPLY = where stock comes from (Bintaro, Pusat, Penerimaan Barang, Marte)
+//   * EVENT ZONE = sales locations for THIS event, computed from mapped TRFOs:
+//     hardcoded event warehouses ∪ destinations of supply→X mapped TRFOs.
+// Classification for each mapped TRFO:
+//   IN       — source ∈ supply (and dest ∈ event zone)
+//   OUT      — source ∈ event zone, dest ∉ event zone   (reinbound back out)
+//   Internal — source ∈ event zone, dest ∈ event zone   (rearrangement, doesn't change net)
+// Internal moves are tracked but excluded from IN/OUT counts in the
+// Stock Remaining formula (IN − Sold − OUT). Prevents double-counting when an
+// event uses multiple sales locations (e.g. pop-up + offline retail store).
+const PB_SUPPLY_WAREHOUSES = ['Gudang Bintaro','Gudang Pusat','Gudang Penerimaan Barang','Gudang Marte'];
+const PB_EVENT_WAREHOUSES  = ['Gudang Pick Up in Concert','Gudang Event 1','Gudang Event 2'];
 let _pbCurrentDetail = null;  // currently open event row
 
 function _pbEsc(s) { return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
@@ -2731,11 +2736,11 @@ async function openPBDetail(rowIndex) {
   if (r.notes) { tagEl.style.display='block'; tagEl.textContent = r.notes; } else { tagEl.style.display='none'; }
 
   // Reset section placeholders
-  ['pbd-stock-in','pbd-sales','pbd-reinbound','pbd-remaining'].forEach(id => {
-    document.getElementById(id).innerHTML = '<div style="font-size:11px;color:var(--g400)">Memuat…</div>';
+  ['pbd-stock-in','pbd-sales','pbd-reinbound','pbd-internal','pbd-remaining'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.innerHTML = '<div style="font-size:11px;color:var(--g400)">Memuat…</div>';
   });
-  ['pbd-in-summary','pbd-sales-summary','pbd-reinbound-summary','pbd-remaining-summary'].forEach(id => {
-    document.getElementById(id).textContent = '—';
+  ['pbd-in-summary','pbd-sales-summary','pbd-reinbound-summary','pbd-internal-summary','pbd-remaining-summary'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.textContent = '—';
   });
 
   await _pbLoadDetailData(r.eventName || '');
@@ -2784,16 +2789,34 @@ async function _pbLoadDetailData(eventName) {
         xferItems.push(...(it||[]));
       }
     }
-    // Classify: reinbound = source is an event warehouse, everything else = IN.
-    const isEventLoc = (loc) => PB_EVENT_WAREHOUSES.includes(loc);
-    const outHeaders = xferHeaders.filter(h => isEventLoc(h.source));
-    const outSet    = new Set(outHeaders.map(h => h.item_transfer_id));
-    const inHeaders = xferHeaders.filter(h => !outSet.has(h.item_transfer_id));
+    // Build the event "sales zone": hardcoded event warehouses + every
+    // destination of mapped TRFOs whose source is a supply warehouse (these are
+    // proven sales locations for this event, even if not in the hardcoded list).
+    const isSupply   = (loc) => PB_SUPPLY_WAREHOUSES.includes(loc);
+    const eventZone  = new Set([
+      ...PB_EVENT_WAREHOUSES,
+      ...xferHeaders.filter(h => isSupply(h.source) && h.destination).map(h => h.destination),
+    ]);
+    const inZone = (loc) => eventZone.has(loc);
 
-    const inIds  = new Set(inHeaders.map(h => h.item_transfer_id));
-    const outIds = new Set(outHeaders.map(h => h.item_transfer_id));
-    const inItems  = xferItems.filter(it => inIds.has(it.item_transfer_id));
-    const outItems = xferItems.filter(it => outIds.has(it.item_transfer_id));
+    // Classify each TRFO header into IN / OUT / Internal.
+    const inHeaders       = [];
+    const outHeaders      = [];
+    const internalHeaders = [];
+    for (const h of xferHeaders) {
+      const sIn = inZone(h.source);
+      const dIn = inZone(h.destination);
+      if (sIn && dIn)       internalHeaders.push(h);    // intra-zone shuffle
+      else if (sIn && !dIn) outHeaders.push(h);         // reinbound: leaving the zone
+      else                  inHeaders.push(h);          // entering zone (or ambiguous → default IN)
+    }
+
+    const inIds       = new Set(inHeaders.map(h => h.item_transfer_id));
+    const outIds      = new Set(outHeaders.map(h => h.item_transfer_id));
+    const internalIds = new Set(internalHeaders.map(h => h.item_transfer_id));
+    const inItems       = xferItems.filter(it => inIds.has(it.item_transfer_id));
+    const outItems      = xferItems.filter(it => outIds.has(it.item_transfer_id));
+    const internalItems = xferItems.filter(it => internalIds.has(it.item_transfer_id));
 
     // Sales items
     let salesItems = [];
@@ -2809,6 +2832,7 @@ async function _pbLoadDetailData(eventName) {
 
     _pbRenderStockSection('pbd-stock-in', 'pbd-in-summary', inHeaders, inItems, 'Belum ada Transfer IN — map TRFO ke event ini di modul Inventory Transfer.');
     _pbRenderStockSection('pbd-reinbound', 'pbd-reinbound-summary', outHeaders, outItems, 'Belum ada reinbound TRFO ke event ini.');
+    _pbRenderStockSection('pbd-internal', 'pbd-internal-summary', internalHeaders, internalItems, 'Tidak ada perpindahan antar lokasi event.');
     _pbRenderSalesSection(salesItems);
     _pbRenderRemainingSection(inItems, salesItems, outItems);
   } catch (e) {
