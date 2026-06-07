@@ -1096,6 +1096,18 @@
             <div id="pbd-internal" style="margin-top:12px;display:none">Memuat…</div>
           </div>
 
+          <!-- Section 3c: Stock Adjustment -->
+          <div class="form-card" style="margin-bottom:1rem;padding:14px 18px">
+            <div onclick="togglePBSection('adjustment')" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px">
+              <span style="font-size:12px;font-weight:600;color:var(--black);font-family:var(--label);letter-spacing:0.04em;text-transform:uppercase" title="Stock adjustment yang di-link ke event ini di modul Stock Adjustment (kolom Event Ref). Freebies / Defect / Stock Opname / dst. mengurangi Stock Remaining.">
+                <span id="pbd-chev-adjustment" style="display:inline-block;width:14px;color:var(--g400)">▸</span>
+                🧾 Stock Adjustment
+              </span>
+              <span style="font-size:12px;color:var(--g600);font-family:var(--mono);text-align:right" id="pbd-adjustment-summary">—</span>
+            </div>
+            <div id="pbd-adjustment" style="margin-top:12px;display:none">Memuat…</div>
+          </div>
+
           <!-- Section 4: Stock Remaining (expanded by default — bottom line) -->
           <div class="form-card" style="margin-bottom:1rem;padding:14px 18px">
             <div onclick="togglePBSection('remaining')" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px">
@@ -2675,6 +2687,7 @@
                 <th style="text-align:right">Net Qty</th>
                 <th>Note</th>
                 <th style="min-width:190px">Kategori</th>
+                <th style="min-width:170px">Event Ref</th>
               </tr>
             </thead>
             <tbody id="sa-tbody"><tr><td class="empty-td" colspan="7">Klik "↻ Refresh" untuk memuat data.</td></tr></tbody>

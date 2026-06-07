@@ -2715,7 +2715,7 @@ function _pbRpShort(n) {
 }
 
 // Per-event toggle state — sections start collapsed except `remaining`.
-const _pbSectionState = { 'stock-in':false, 'sales':false, 'reinbound':false, 'internal':false, 'remaining':true };
+const _pbSectionState = { 'stock-in':false, 'sales':false, 'reinbound':false, 'internal':false, 'adjustment':false, 'remaining':true };
 function togglePBSection(key) {
   const open = !_pbSectionState[key];
   _pbSectionState[key] = open;
@@ -2767,10 +2767,10 @@ async function openPBDetail(rowIndex) {
   if (r.notes) { tagEl.style.display='block'; tagEl.textContent = r.notes; } else { tagEl.style.display='none'; }
 
   // Reset section placeholders
-  ['pbd-stock-in','pbd-sales','pbd-reinbound','pbd-internal','pbd-remaining'].forEach(id => {
+  ['pbd-stock-in','pbd-sales','pbd-reinbound','pbd-internal','pbd-adjustment','pbd-remaining'].forEach(id => {
     const el = document.getElementById(id); if (el) el.innerHTML = '<div style="font-size:11px;color:var(--g400)">Memuat…</div>';
   });
-  ['pbd-in-summary','pbd-sales-summary','pbd-reinbound-summary','pbd-internal-summary','pbd-remaining-summary'].forEach(id => {
+  ['pbd-in-summary','pbd-sales-summary','pbd-reinbound-summary','pbd-internal-summary','pbd-adjustment-summary','pbd-remaining-summary'].forEach(id => {
     const el = document.getElementById(id); if (el) el.textContent = '—';
   });
 
@@ -2881,6 +2881,31 @@ async function _pbLoadDetailData(eventName) {
       for (const r of (data||[])) costMap.set(r.item_id, Number(r.average_cost) || 0);
     }
 
+    // Stock adjustments mapped to this event (via adjustment_categories.event_ref)
+    const {data: adjRows} = await sb.from('adjustment_categories')
+      .select('item_adj_id,category,event_ref')
+      .eq('event_ref', eventName);
+    const adjIds = (adjRows || []).map(r => r.item_adj_id).filter(Boolean);
+    let adjHeaders = [], adjItems = [];
+    if (adjIds.length) {
+      for (let i = 0; i < adjIds.length; i += 200) {
+        const chunk = adjIds.slice(i, i + 200);
+        const [hRes, iRes] = await Promise.all([
+          sb.from('jubelio_inventory_adjustments')
+            .select('item_adj_id,item_adj_no,transaction_date,location_name,note,net_qty,item_count')
+            .in('item_adj_id', chunk),
+          sb.from('jubelio_inventory_adjustment_items')
+            .select('item_adj_id,item_id,item_full_name,unit,cost,qty')
+            .in('item_adj_id', chunk)
+        ]);
+        adjHeaders.push(...(hRes.data || []));
+        adjItems.push(...(iRes.data || []));
+      }
+      // Attach category to each header for breakdown
+      const catMap = new Map((adjRows || []).map(r => [r.item_adj_id, r.category]));
+      adjHeaders.forEach(h => { h._category = catMap.get(h.item_adj_id) || '(Uncategorized)'; });
+    }
+
     // For Stock Remaining: canceled orders never actually shipped — exclude
     // their qty from the "Sold" column so the reconcile reflects physical flow.
     const confirmedSalesItems = salesItems.filter(it => {
@@ -2892,7 +2917,8 @@ async function _pbLoadDetailData(eventName) {
     _pbRenderStockSection('pbd-reinbound', 'pbd-reinbound-summary', outHeaders, outItems, 'Belum ada reinbound TRFO ke event ini.', costMap);
     _pbRenderStockSection('pbd-internal', 'pbd-internal-summary', internalHeaders, internalItems, 'Tidak ada perpindahan antar lokasi event.', costMap);
     _pbRenderSalesSection(salesItems, orderHeaderMap, costMap);
-    _pbRenderRemainingSection(inItems, confirmedSalesItems, outItems, costMap);
+    _pbRenderAdjustmentSection(adjHeaders, adjItems, costMap);
+    _pbRenderRemainingSection(inItems, confirmedSalesItems, outItems, adjItems, costMap);
     _pbApplyCollapsedState();
   } catch (e) {
     console.error('_pbLoadDetailData:', e);
@@ -3128,10 +3154,83 @@ function _pbRenderSalesSection(salesItems, orderHeaderMap, costMap) {
   `;
 }
 
-function _pbRenderRemainingSection(inItems, salesItems, outItems, costMap) {
+function _pbRenderAdjustmentSection(headers, items, costMap) {
+  const cont = document.getElementById('pbd-adjustment');
+  const sum  = document.getElementById('pbd-adjustment-summary');
+  if (!headers.length) {
+    cont.innerHTML = `<div style="font-size:11px;color:var(--g400);padding:8px 0">Belum ada adjustment terkait event ini — set Event Ref di modul Stock Adjustment kalau ada freebies / defect / opname loss.</div>`;
+    sum.textContent = '0 adjustment';
+    return;
+  }
+  // Adjustment items use `qty` (signed: negative = stock decrease) and `cost`
+  const totalQtyAbs = items.reduce((a,it) => a + Math.abs(Number(it.qty||0)), 0);
+  const totalValue  = items.reduce((a,it) => a + Math.abs(Number(it.qty||0)) * (costMap?.get(it.item_id) || Number(it.cost||0)), 0);
+  sum.textContent = `${headers.length} adjustment · ${totalQtyAbs.toLocaleString('id-ID')} pcs · ${_pbRpShort(totalValue)}`;
+
+  // Group by category
+  const itemsByAdj = new Map();
+  for (const it of items) {
+    const arr = itemsByAdj.get(it.item_adj_id) || [];
+    arr.push(it); itemsByAdj.set(it.item_adj_id, arr);
+  }
+  const byCategory = new Map();
+  for (const h of headers) {
+    const cat = h._category || '(Uncategorized)';
+    const cur = byCategory.get(cat) || { count: 0, qty: 0, value: 0 };
+    const hItems = itemsByAdj.get(h.item_adj_id) || [];
+    cur.count += 1;
+    cur.qty   += hItems.reduce((a,it) => a + Math.abs(Number(it.qty||0)), 0);
+    cur.value += hItems.reduce((a,it) => a + Math.abs(Number(it.qty||0)) * (costMap?.get(it.item_id) || Number(it.cost||0)), 0);
+    byCategory.set(cat, cur);
+  }
+  const catRows = [...byCategory.entries()].sort((a,b) => b[1].qty - a[1].qty);
+
+  cont.innerHTML = `
+    <div style="font-size:10px;color:var(--g600);text-transform:uppercase;letter-spacing:0.05em;font-family:var(--label);margin-bottom:6px">By category</div>
+    <div style="margin-bottom:12px">
+      ${catRows.map(([cat,v]) => `<div style="display:flex;justify-content:space-between;gap:8px;font-size:11px;padding:5px 0;border-bottom:1px solid var(--g100)">
+        <span style="font-weight:500">${_pbEsc(cat)}</span>
+        <span style="color:var(--g600);font-family:var(--mono)">${v.count} adj · ${v.qty.toLocaleString('id-ID')} pcs · ${_pbRpShort(v.value)}</span>
+      </div>`).join('')}
+    </div>
+    <div style="font-size:10px;color:var(--g600);text-transform:uppercase;letter-spacing:0.05em;font-family:var(--label);margin-bottom:6px">Detail per adjustment</div>
+    ${headers.sort((a,b) => (b.transaction_date||'').localeCompare(a.transaction_date||'')).map(h => {
+      const hItems = itemsByAdj.get(h.item_adj_id) || [];
+      const hQty   = hItems.reduce((a,it) => a + Math.abs(Number(it.qty||0)), 0);
+      const hVal   = hItems.reduce((a,it) => a + Math.abs(Number(it.qty||0)) * (costMap?.get(it.item_id) || Number(it.cost||0)), 0);
+      return `<div style="border:1px solid var(--g100);border-radius:6px;padding:10px 14px;margin-bottom:8px;background:var(--white)">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:6px">
+          <div style="font-family:var(--mono);font-size:12px;font-weight:600">${_pbEsc(h.item_adj_no||'—')} <span class="pill p-draft" style="font-size:10px;margin-left:6px">${_pbEsc(h._category||'—')}</span></div>
+          <div style="font-size:11px;color:var(--g600)">${_pbEsc(h.location_name||'?')} · ${fmtDate(h.transaction_date)} · ${hQty.toLocaleString('id-ID')} pcs · ${_pbRpShort(hVal)}</div>
+        </div>
+        ${h.note ? `<div style="font-size:11px;color:var(--g600);font-style:italic;margin-bottom:6px">${_pbEsc(h.note)}</div>` : ''}
+        ${hItems.length ? `<div style="overflow-x:auto"><table style="width:100%;font-size:11px">
+          <thead><tr>
+            <th style="text-align:left;padding:4px 8px;background:var(--off);font-weight:600">Item</th>
+            <th style="text-align:right;padding:4px 8px;background:var(--off);font-weight:600">Qty</th>
+            <th style="text-align:right;padding:4px 8px;background:var(--off);font-weight:600">Cost</th>
+            <th style="text-align:right;padding:4px 8px;background:var(--off);font-weight:600">Value</th>
+          </tr></thead>
+          <tbody>${hItems.map(it => {
+            const q = Math.abs(Number(it.qty||0));
+            const c = costMap?.get(it.item_id) || Number(it.cost||0);
+            return `<tr>
+              <td style="padding:4px 8px">${_pbEsc(it.item_full_name||'—')}</td>
+              <td class="mono" style="padding:4px 8px;text-align:right">${q.toLocaleString('id-ID')}</td>
+              <td class="mono" style="padding:4px 8px;text-align:right;color:var(--g600)">${c?_pbRp(c):'—'}</td>
+              <td class="mono" style="padding:4px 8px;text-align:right">${_pbRpShort(q*c)}</td>
+            </tr>`;
+          }).join('')}</tbody>
+        </table></div>` : ''}
+      </div>`;
+    }).join('')}
+  `;
+}
+
+function _pbRenderRemainingSection(inItems, salesItems, outItems, adjItems, costMap) {
   const cont = document.getElementById('pbd-remaining');
   const sum  = document.getElementById('pbd-remaining-summary');
-  if (!inItems.length && !salesItems.length && !outItems.length) {
+  if (!inItems.length && !salesItems.length && !outItems.length && !(adjItems||[]).length) {
     cont.innerHTML = `<div style="font-size:11px;color:var(--g400);padding:8px 0">Belum ada data untuk dihitung.</div>`;
     sum.textContent = '0 SKU';
     return;
@@ -3140,9 +3239,9 @@ function _pbRenderRemainingSection(inItems, salesItems, outItems, costMap) {
   const agg = new Map();
   const bump = (key, src, field, delta) => {
     if (!key) return;
-    const cur = agg.get(key) || { item_id: src.item_id, item_code: src.item_code, item_name: src.item_name, variant: src.variant, qty_in:0, qty_sold:0, qty_out:0 };
+    const cur = agg.get(key) || { item_id: src.item_id, item_code: src.item_code, item_name: src.item_name || src.item_full_name, variant: src.variant, qty_in:0, qty_sold:0, qty_out:0, qty_adj:0 };
     cur[field] += delta;
-    if (!cur.item_name && src.item_name) cur.item_name = src.item_name;
+    if (!cur.item_name && (src.item_name || src.item_full_name)) cur.item_name = src.item_name || src.item_full_name;
     if (!cur.variant && src.variant) cur.variant = src.variant;
     if (!cur.item_code && src.item_code) cur.item_code = src.item_code;
     if (cur.item_id == null && src.item_id != null) cur.item_id = src.item_id;
@@ -3151,18 +3250,23 @@ function _pbRenderRemainingSection(inItems, salesItems, outItems, costMap) {
   inItems.forEach(it => bump(it.item_id || it.item_code, it, 'qty_in', Number(it.qty_in_base||0)));
   salesItems.forEach(it => bump(it.item_id || it.item_code, it, 'qty_sold', Number(it.qty||0)));
   outItems.forEach(it => bump(it.item_id || it.item_code, it, 'qty_out', Number(it.qty_in_base||0)));
+  // Adjustment qty is signed (negative for decrease). For Sisa formula we use abs
+  // for the "outflow" interpretation; this is consistent with all categories
+  // (freebies / defect / opname loss / penjualan offline) representing stock decrease.
+  (adjItems||[]).forEach(it => bump(it.item_id, it, 'qty_adj', Math.abs(Number(it.qty||0))));
 
   const rows = Array.from(agg.values()).map(r => {
-    const remaining = r.qty_in - r.qty_sold - r.qty_out;
+    const remaining = r.qty_in - r.qty_sold - r.qty_out - r.qty_adj;
     const avgCost   = costMap?.get(r.item_id) || 0;
     return { ...r, remaining, value: remaining * avgCost };
   });
   rows.sort((a,b) => Math.abs(b.remaining) - Math.abs(a.remaining));
 
-  const totIn = rows.reduce((a,r)=>a+r.qty_in,0);
+  const totIn   = rows.reduce((a,r)=>a+r.qty_in,0);
   const totSold = rows.reduce((a,r)=>a+r.qty_sold,0);
-  const totOut = rows.reduce((a,r)=>a+r.qty_out,0);
-  const totRem = totIn - totSold - totOut;
+  const totOut  = rows.reduce((a,r)=>a+r.qty_out,0);
+  const totAdj  = rows.reduce((a,r)=>a+r.qty_adj,0);
+  const totRem  = totIn - totSold - totOut - totAdj;
   const totValue = rows.reduce((a,r)=>a+r.value,0);
   const mismatchCount = rows.filter(r => r.remaining !== 0).length;
   sum.textContent = `${rows.length} SKU · sisa ${totRem.toLocaleString('id-ID')} (${_pbRpShort(totValue)}) · ${mismatchCount} SKU belum 0`;
@@ -3175,6 +3279,7 @@ function _pbRenderRemainingSection(inItems, salesItems, outItems, costMap) {
       <th style="text-align:right;padding:6px 10px;background:var(--off);font-weight:600">Stock IN</th>
       <th style="text-align:right;padding:6px 10px;background:var(--off);font-weight:600">Sold</th>
       <th style="text-align:right;padding:6px 10px;background:var(--off);font-weight:600">Reinbound</th>
+      <th style="text-align:right;padding:6px 10px;background:var(--off);font-weight:600">Adjustment</th>
       <th style="text-align:right;padding:6px 10px;background:var(--off);font-weight:600">Sisa</th>
       <th style="text-align:right;padding:6px 10px;background:var(--off);font-weight:600">Value</th>
     </tr></thead>
@@ -3189,6 +3294,7 @@ function _pbRenderRemainingSection(inItems, salesItems, outItems, costMap) {
           <td class="mono" style="padding:5px 10px;text-align:right">${r.qty_in.toLocaleString('id-ID')}</td>
           <td class="mono" style="padding:5px 10px;text-align:right">${r.qty_sold.toLocaleString('id-ID')}</td>
           <td class="mono" style="padding:5px 10px;text-align:right">${r.qty_out.toLocaleString('id-ID')}</td>
+          <td class="mono" style="padding:5px 10px;text-align:right">${r.qty_adj.toLocaleString('id-ID')}</td>
           <td class="mono" style="padding:5px 10px;text-align:right;font-weight:600;color:${remColor};background:${remBg}">${r.remaining.toLocaleString('id-ID')}</td>
           <td class="mono" style="padding:5px 10px;text-align:right;color:var(--g600)">${_pbRpShort(r.value)}</td>
         </tr>`;
@@ -3199,11 +3305,12 @@ function _pbRenderRemainingSection(inItems, salesItems, outItems, costMap) {
       <td class="mono" style="padding:6px 10px;text-align:right">${totIn.toLocaleString('id-ID')}</td>
       <td class="mono" style="padding:6px 10px;text-align:right">${totSold.toLocaleString('id-ID')}</td>
       <td class="mono" style="padding:6px 10px;text-align:right">${totOut.toLocaleString('id-ID')}</td>
+      <td class="mono" style="padding:6px 10px;text-align:right">${totAdj.toLocaleString('id-ID')}</td>
       <td class="mono" style="padding:6px 10px;text-align:right;color:${totRem===0?'var(--g600)':totRem>0?'#a37800':'#c33'}">${totRem.toLocaleString('id-ID')}</td>
       <td class="mono" style="padding:6px 10px;text-align:right">${_pbRp(totValue)}</td>
     </tr></tfoot>
   </table></div>
-  <div style="font-size:10px;color:var(--g400);margin-top:8px">Sisa = IN − Sold − Reinbound. Value = sisa × avg_cost. Nol → reconcile complete; positif → masih ada di event/balik; negatif → kemungkinan ada sales unrecorded atau mapping miss.</div>`;
+  <div style="font-size:10px;color:var(--g400);margin-top:8px">Sisa = IN − Sold − Reinbound − Adjustment. Value = sisa × avg_cost. Adjustment = freebies/defect/opname loss/dst yang dilink ke event ini di modul Stock Adjustment. Nol → reconcile complete; positif → masih ada; negatif → ada sales/movement unrecorded.</div>`;
 }
 
 // ── NOTIFICATIONS ──
@@ -8543,24 +8650,27 @@ const SA_GROUP_COLORS = {
 };
 
 let saAdjustments = [];   // jubelio_inventory_adjustments WHERE 2026
-let saCategories  = {};   // { item_adj_id → { category, categorized_by } }
+let saCategories  = {};   // { item_adj_id → { category, categorized_by, event_ref } }
 let saUserCats    = [];   // user-added category strings (collected from DB)
 let saPage        = 0;
+let saEvents      = [];   // popup_booths events for Event Ref dropdown
 
 async function loadSAData() {
   const tbody = document.getElementById("sa-tbody");
-  if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="7">Memuat...</td></tr>`;
+  if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="8">Memuat...</td></tr>`;
 
-  let adjs, cats;
+  let adjs, cats, events;
   try {
-    [adjs, cats] = await Promise.all([
+    [adjs, cats, events] = await Promise.all([
       _fetchAllPages("jubelio_inventory_adjustments","item_adj_id,item_adj_no,transaction_date,location_name,net_qty,item_count,note",q=>q.gte("transaction_date","2026-01-01").order("transaction_date",{ascending:false})),
-      _fetchAllPages("adjustment_categories","item_adj_id,category,categorized_by,updated_at"),
+      _fetchAllPages("adjustment_categories","item_adj_id,category,categorized_by,event_ref,updated_at"),
+      sb.from("popup_booths").select("id,event_name,event_date").order("event_date",{ascending:false}).then(r => r.data || []),
     ]);
   } catch (e) {
-    if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="7">Error: ${e.message||e}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="8">Error: ${e.message||e}</td></tr>`;
     return;
   }
+  saEvents = (events || []).filter(e => e.event_name);
 
   saAdjustments = adjs || [];
   saCategories  = {};
@@ -8785,9 +8895,12 @@ function saCancelNewCat(adjId, prev) {
 }
 
 async function saveSACategory(adjId, category) {
+  // Preserve any existing event_ref so changing category doesn't wipe the link.
+  const existingRef = saCategories[adjId]?.event_ref ?? null;
   const { error } = await sb.from("adjustment_categories").upsert({
     item_adj_id:     adjId,
     category,
+    event_ref:       existingRef,
     categorized_by:  currentUser,
     updated_at:      new Date().toISOString(),
   }, { onConflict: "item_adj_id" });
@@ -8831,7 +8944,7 @@ function renderSATable() {
   }
 
   if (!total) {
-    tbody.innerHTML = `<tr><td class="empty-td" colspan="7">Tidak ada data untuk filter ini.</td></tr>`;
+    tbody.innerHTML = `<tr><td class="empty-td" colspan="8">Tidak ada data untuk filter ini.</td></tr>`;
     return;
   }
 
@@ -8843,6 +8956,7 @@ function renderSATable() {
       : qty < 0 ? `<span style="color:#c0392b">${Math.round(qty)}</span>` : "0";
     const adjLink = `<a href="https://v2.jubelio.com/inventory/stock_transaction/adjustment_qty/view/${a.item_adj_id}" target="_blank" style="color:inherit;text-decoration:underline dotted">${a.item_adj_no || a.item_adj_id}</a>`;
     const curCat  = saCategories[a.item_adj_id]?.category || "";
+    const curRef  = saCategories[a.item_adj_id]?.event_ref || "";
     return `<tr>
       <td style="font-family:'DM Mono',monospace;font-size:11px">${adjLink}</td>
       <td>${tgl}</td>
@@ -8851,8 +8965,48 @@ function renderSATable() {
       <td style="text-align:right;font-family:'DM Mono',monospace">${qStr}</td>
       <td style="font-size:11px;color:var(--g600);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(a.note||"").replace(/"/g,"&quot;")}">${a.note || "—"}</td>
       <td id="sa-cat-cell-${a.item_adj_id}">${saCatSelectHTML(a.item_adj_id, curCat)}</td>
+      <td id="sa-ref-cell-${a.item_adj_id}">${saEventRefSelectHTML(a.item_adj_id, curRef)}</td>
     </tr>`;
   }).join("");
+}
+
+function saEventRefSelectHTML(adjId, currentRef) {
+  if (!saEvents.length) {
+    return `<select disabled style="font-size:12px;padding:3px 8px;border:1px solid var(--g100);border-radius:4px;width:100%;background:var(--off);color:var(--g400);max-width:200px"><option>— belum ada event —</option></select>`;
+  }
+  // Include legacy ref if it doesn't match any current event (e.g., event deleted)
+  const hasCurrent = !currentRef || saEvents.some(e => e.event_name === currentRef);
+  const extra = hasCurrent ? '' : `<option value="${currentRef.replace(/"/g,'&quot;')}" selected>${currentRef} (legacy)</option>`;
+  const opts = saEvents.map(e => {
+    const dt = e.event_date ? ` (${new Date(e.event_date).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"2-digit"})})` : '';
+    return `<option value="${e.event_name.replace(/"/g,'&quot;')}"${e.event_name===currentRef?" selected":""}>${e.event_name}${dt}</option>`;
+  }).join("");
+  return `<select onchange="saveSAEventRef(${adjId},this.value)" style="font-size:12px;padding:3px 8px;border:1px solid var(--g200);border-radius:4px;width:100%;background:var(--white);max-width:200px">
+    <option value="">— tidak terkait event —</option>
+    ${extra}
+    ${opts}
+  </select>`;
+}
+
+async function saveSAEventRef(adjId, eventRef) {
+  const ref = (eventRef || '').trim() || null;
+  const existing = saCategories[adjId] || { item_adj_id: adjId };
+  const payload = {
+    item_adj_id:    adjId,
+    category:       existing.category || null,
+    event_ref:      ref,
+    categorized_by: existing.categorized_by || currentUser,
+    updated_at:     new Date().toISOString(),
+  };
+  const { error } = await sb.from("adjustment_categories").upsert(payload, { onConflict: "item_adj_id" });
+  if (error) {
+    alert("Gagal simpan event ref: " + error.message);
+    const cell = document.getElementById(`sa-ref-cell-${adjId}`);
+    if (cell) cell.innerHTML = saEventRefSelectHTML(adjId, existing.event_ref || "");
+    return;
+  }
+  if (!saCategories[adjId]) saCategories[adjId] = { item_adj_id: adjId };
+  saCategories[adjId].event_ref = ref;
 }
 
 // ── SYNC ALL JUBELIO ──
