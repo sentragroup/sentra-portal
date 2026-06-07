@@ -9,6 +9,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2/dist/chartjs-plugin-datalabels.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <link rel="stylesheet" href="style.css">
@@ -1576,6 +1577,7 @@
             <button class="btn-ghost" style="font-size:12px;padding:5px 10px" onclick="exportPDPDF('internal')">📄 Internal PDF</button>
             <button class="btn-ghost" style="font-size:12px;padding:5px 10px" onclick="exportPDPDF('external')">📄 External PDF</button>
             <button class="btn-ghost" style="font-size:12px;padding:5px 10px" onclick="exportPDVendorPrompt(event)">📄 Vendor PDF</button>
+            <button class="btn-ghost" style="font-size:12px;padding:5px 10px;background:#e8f4ea;border-color:#1c7a3b;color:#1c7a3b" onclick="exportPDJubelioXlsx()" title="Excel siap import ke Jubelio Product Import">📊 Excel Jubelio</button>
           </div>
         </div>
 

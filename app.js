@@ -17081,6 +17081,152 @@ function exportPDForVendor(vendor) {
   w.addEventListener('load', () => setTimeout(()=>w.print(), 400));
 }
 
+// ── EXCEL EXPORT FOR JUBELIO PRODUCT IMPORT ──
+// Generates an xlsx matching the official Jubelio template structure:
+// sheet "Pengisian Import Produk" with header row + one row per SKU.
+// Columns A (item_category_id) + B (category) left blank intentionally —
+// user pastes their category once into B, the original template's VLOOKUP
+// will fill A. (Same effect: paste the rows into the official template.)
+async function exportPDJubelioXlsx() {
+  if (typeof XLSX === 'undefined') { alert('SheetJS belum ke-load. Refresh halaman.'); return; }
+  const {parents} = getPDDetailFilteredParents();
+  if (!parents.length) { alert('Tidak ada SKU sesuai filter.'); return; }
+
+  // Ask once for the brand + category path (applied to all rows).
+  // User can leave both blank and fill in their copy of the template afterward.
+  const colName = (() => {
+    const c = allCollRows && allCollRows.find(x => x.id === pdCurrentCollectionId);
+    return c?.name || '';
+  })();
+  const ipName = (() => {
+    const c = allCollRows && allCollRows.find(x => x.id === pdCurrentCollectionId);
+    return c?.ip || c?.relatedIp || '';
+  })();
+
+  const brand = prompt(
+    'Brand untuk semua produk?\n(kosongkan kalau gak perlu)',
+    ipName || ''
+  );
+  if (brand === null) return;  // cancel
+
+  const categoryPath = prompt(
+    'Path kategori Jubelio? (paste persis dari kolom "category" di template, mis. "Pakaian Pria -> Atasan -> Kaos")\n\nKalau kosong, kamu isi manual nanti di Excel-nya. VLOOKUP item_category_id akan auto-fill begitu kategori-nya di-set.',
+    ''
+  );
+  if (categoryPath === null) return;
+
+  // Columns per Jubelio template (Sheet "Pengisian Import Produk" header row).
+  const HEADERS = [
+    'item_category_id','category','item_group_name','description',
+    'package_weight','package_length','package_width','package_height',
+    'brand','item_code','sell_price',
+    'color_variant','size_variant','capacity_variant','material_variant','uom_variant',
+    'barcode','image_url1','image_url2','image_url3','image_url4','image_url5',
+    'default_images'
+  ];
+
+  const rows = [HEADERS];
+
+  // Build one row per variant. If a parent has NO variants, emit the parent itself
+  // as a single-SKU row (no size/color variant).
+  let skipped = 0;
+  for (const p of parents) {
+    const subs = allPDRows.filter(s => s.parentId === p.id && s.skuType === 'variant');
+    const pics = Array.isArray(p.pictures) ? p.pictures.slice(0, 5) : [];
+    const descTxt = (p.notes || '').replace(/\r?\n/g, '<br>');
+    const sellPrice = p.srp != null && p.srp !== '' ? Number(p.srp) : '';
+    const baseRow = (variant) => {
+      const itemCode = variant ? variant.displayCode : p.displayCode;
+      if (!itemCode) { skipped++; return null; }
+      const isMainImg = pics.length > 0 ? 'Yes' : '';
+      return [
+        // A: item_category_id — leave blank; VLOOKUP in template fills it from B
+        '',
+        // B: category path
+        categoryPath || '',
+        // C: item_group_name — parent product name
+        p.skuName || '',
+        // D: description (HTML allowed)
+        descTxt ? `<p>${descTxt}</p>` : '',
+        // E: package_weight (g) — default 100 since Jubelio requires it
+        100,
+        // F-H: dimensions — empty
+        '', '', '',
+        // I: brand
+        brand || '',
+        // J: item_code
+        itemCode,
+        // K: sell_price (parent's SRP)
+        sellPrice,
+        // L: color_variant
+        (variant?.color || p.color) || '',
+        // M: size_variant
+        (variant?.size || p.size) || '',
+        // N: capacity_variant
+        '',
+        // O: material_variant
+        '',
+        // P: uom_variant
+        '',
+        // Q: barcode
+        '',
+        // R-V: image_url1..5
+        pics[0] || '', pics[1] || '', pics[2] || '', pics[3] || '', pics[4] || '',
+        // W: default_images — 'Yes' on first variant only
+        isMainImg
+      ];
+    };
+
+    if (subs.length) {
+      // Sort variants by size for predictable order
+      const sizeOrder = ['XS','S','SM','M','L','XL','XXL','XXXL'];
+      const subsSorted = [...subs].sort((a,b) => {
+        const ai = sizeOrder.indexOf(a.size||''); const bi = sizeOrder.indexOf(b.size||'');
+        if (ai >= 0 && bi >= 0) return ai - bi;
+        return (a.displayCode||'').localeCompare(b.displayCode||'');
+      });
+      let firstRow = true;
+      for (const v of subsSorted) {
+        const r = baseRow(v);
+        if (!r) continue;
+        // Only first variant gets default_images='Yes'
+        if (!firstRow) r[22] = '';
+        firstRow = false;
+        rows.push(r);
+      }
+    } else {
+      const r = baseRow(null);
+      if (r) rows.push(r);
+    }
+  }
+
+  if (rows.length <= 1) { alert('Tidak ada SKU dengan item_code untuk di-export.'); return; }
+
+  // Build workbook
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  // Column widths to make it readable
+  ws['!cols'] = [
+    {wch:18},{wch:36},{wch:42},{wch:50},
+    {wch:10},{wch:10},{wch:10},{wch:10},
+    {wch:14},{wch:24},{wch:12},
+    {wch:14},{wch:12},{wch:14},{wch:14},{wch:12},
+    {wch:14},{wch:30},{wch:30},{wch:30},{wch:30},{wch:30},
+    {wch:14}
+  ];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Pengisian Import Produk');
+
+  // Filename uses collection name + date
+  const safeName = (colName || pdCurrentCollectionId || 'collection').replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 80);
+  const dateStr = new Date().toISOString().slice(0,10);
+  const fname = `jubelio-import-${safeName}-${dateStr}.xlsx`;
+  XLSX.writeFile(wb, fname);
+
+  const msgExtra = skipped ? ` (${skipped} SKU di-skip karena display_code kosong)` : '';
+  // Brief toast-style alert (not modal-blocking)
+  console.log(`Exported ${rows.length-1} SKU rows to ${fname}${msgExtra}`);
+}
+
 // ── ROYALTY REPORT ──
 let _ryRows = [];        // computed [{ipId, ipName, category, royaltyType, percentage, termin, pphRate, qty, gross, royalty, pphAmount, net, ...}]
 let _ryPeriod = '';
