@@ -15526,9 +15526,62 @@ function mapPD(r) {
     variant: r.variant||'', size: r.size||'', color: r.color||'',
     vendor: r.vendor||'', hpp: r.hpp, qty: r.qty, srp: r.srp,
     pictures: r.picture_urls||[], notes: r.notes||'',
+    // Jubelio import config (parent-level)
+    jubelioCategory:   r.jubelio_category   || '',
+    jubelioCategoryId: r.jubelio_category_id || null,
+    brand:             r.brand              || '',
+    description:       r.description        || '',
+    packageWeight:     r.package_weight     != null ? Number(r.package_weight) : null,
+    packageLength:     r.package_length     != null ? Number(r.package_length) : null,
+    packageWidth:      r.package_width      != null ? Number(r.package_width)  : null,
+    packageHeight:     r.package_height     != null ? Number(r.package_height) : null,
+    barcode:           r.barcode            || '',
     dateAdded: r.date_added, addedBy: r.added_by,
     lastUpdated: r.last_updated, lastUpdatedBy: r.last_updated_by
   };
+}
+
+// Wire the Jubelio category datalist + the "Found id" hint under the input.
+function _pdInitJubCategoryAC(prefix /* '' for create form, 'edit-...' for inline edit */) {
+  const cats = window.JUBELIO_CATEGORIES;
+  if (!cats || !Array.isArray(cats)) {
+    // Catalog (loaded via defer) may not be ready yet. Retry shortly.
+    setTimeout(() => _pdInitJubCategoryAC(prefix), 200);
+    return;
+  }
+  const inputId  = prefix ? `pd-jub-category-${prefix}` : 'pd-jub-category';
+  const dlId     = prefix ? `pd-jub-cat-datalist-${prefix}` : 'pd-jub-cat-datalist';
+  const hintId   = prefix ? `pd-jub-cat-hint-${prefix}` : 'pd-jub-cat-hint';
+  const dl    = document.getElementById(dlId);
+  const inp   = document.getElementById(inputId);
+  const hint  = document.getElementById(hintId);
+  if (!dl || !inp) return;
+  // Populate datalist once
+  if (!dl.dataset._populated) {
+    dl.innerHTML = cats.map(([path]) => `<option value="${path.replace(/"/g,'&quot;')}"></option>`).join('');
+    dl.dataset._populated = '1';
+  }
+  // Build lookup map
+  const byPath = new Map(cats.map(([p, id]) => [p, id]));
+  const refreshHint = () => {
+    const v = inp.value.trim();
+    if (!v) { if (hint) hint.innerHTML = '<span style="color:var(--g400)">—</span>'; return; }
+    const id = byPath.get(v);
+    if (id) hint.innerHTML = `<span style="color:#1c7a3b">✓ item_category_id = <span style="font-family:var(--mono)">${id}</span></span>`;
+    else    hint.innerHTML = `<span style="color:#c33">⚠ category gak ke-recognize — pastikan persis match dari dropdown</span>`;
+  };
+  inp.addEventListener('input', refreshHint);
+  inp.addEventListener('change', refreshHint);
+  refreshHint();
+}
+
+// Resolve category path → id from the bundled catalog.
+function _pdResolveJubCategoryId(path) {
+  if (!path) return null;
+  const cats = window.JUBELIO_CATEGORIES;
+  if (!cats) return null;
+  const hit = cats.find(([p]) => p === path);
+  return hit ? hit[1] : null;
 }
 
 // Build the variant token used inside the SKU code: SIZE[-COLOR][-OTHER]
@@ -16072,9 +16125,19 @@ function clearPDFilters() {
 }
 
 function clearPDForm() {
-  ['pd-sku-name','pd-srp','pd-notes'].forEach(id=>{
+  ['pd-sku-name','pd-srp','pd-notes',
+   'pd-jub-category','pd-brand','pd-barcode','pd-description',
+   'pd-pkg-length','pd-pkg-width','pd-pkg-height'
+  ].forEach(id=>{
     const el = document.getElementById(id); if (el) el.value='';
   });
+  // package_weight default 100
+  const pw = document.getElementById('pd-pkg-weight'); if (pw) pw.value = '100';
+  // Pre-fill brand with collection's ipRelated (saves typing)
+  const _col = (typeof allColRows !== 'undefined' && Array.isArray(allColRows))
+    ? allColRows.find(x => x.id === pdCurrentCollectionId) : null;
+  const brEl = document.getElementById('pd-brand');
+  if (brEl && _col?.ipRelated) brEl.value = _col.ipRelated;
   const pics = document.getElementById('pd-pics');
   if (pics) pics.value = '';
   const prev = document.getElementById('pd-pics-preview');
@@ -16082,6 +16145,8 @@ function clearPDForm() {
   pdPicsToUpload = [];
   const fb = document.getElementById('pd-feedback');
   if (fb) fb.textContent = '';
+  // Init the category autocomplete (after JUBELIO_CATEGORIES loads)
+  _pdInitJubCategoryAC('');
   updatePDCodePreview();
 }
 
@@ -16158,8 +16223,27 @@ async function submitPD() {
   const skuName = document.getElementById('pd-sku-name').value.trim();
   const srp = parseFloat(document.getElementById('pd-srp').value);
   const notes = document.getElementById('pd-notes').value.trim();
+  // Jubelio config
+  const jubCategory  = document.getElementById('pd-jub-category')?.value.trim() || '';
+  const brand        = document.getElementById('pd-brand')?.value.trim() || '';
+  const barcode      = document.getElementById('pd-barcode')?.value.trim() || '';
+  const description  = document.getElementById('pd-description')?.value.trim() || '';
+  const pkgWeight    = parseFloat(document.getElementById('pd-pkg-weight')?.value);
+  const pkgLength    = parseFloat(document.getElementById('pd-pkg-length')?.value);
+  const pkgWidth     = parseFloat(document.getElementById('pd-pkg-width')?.value);
+  const pkgHeight    = parseFloat(document.getElementById('pd-pkg-height')?.value);
 
   if (!skuName) { fb.textContent='⚠️ Nama produk wajib.'; return; }
+  if (isNaN(srp)) { fb.textContent='⚠️ SRP wajib diisi.'; return; }
+  if (!jubCategory) { fb.textContent='⚠️ Category Jubelio wajib (pilih dari dropdown).'; return; }
+  if (!brand)        { fb.textContent='⚠️ Brand wajib.'; return; }
+  if (!description)  { fb.textContent='⚠️ Description wajib (untuk import Jubelio).'; return; }
+  if (isNaN(pkgWeight) || pkgWeight <= 0) { fb.textContent='⚠️ Package weight wajib (gram).'; return; }
+  const jubCategoryId = _pdResolveJubCategoryId(jubCategory);
+  if (!jubCategoryId) {
+    fb.textContent='⚠️ Category Jubelio gak ke-recognize. Pastikan persis match dari dropdown.';
+    return;
+  }
 
   // Auto-generate parent product code: {IP}-{COL}-{NN}
   const displayCode = generateNextParentCode(cid);
@@ -16181,6 +16265,16 @@ async function submitPD() {
       vendor: null, hpp: null, qty: null,
       notes: notes || null,
       picture_urls: [],
+      // Jubelio import config (parent-level)
+      jubelio_category: jubCategory,
+      jubelio_category_id: jubCategoryId,
+      brand: brand,
+      description: description,
+      package_weight: pkgWeight,
+      package_length: isNaN(pkgLength) ? null : pkgLength,
+      package_width:  isNaN(pkgWidth)  ? null : pkgWidth,
+      package_height: isNaN(pkgHeight) ? null : pkgHeight,
+      barcode: barcode || null,
       added_by: currentUser, date_added: new Date().toISOString()
     };
     const {error} = await sb.from('product_dev').insert(payload);
@@ -16559,8 +16653,24 @@ function renderPDParentEditCard(p) {
       <div style="font-family:var(--mono);font-size:11px;color:var(--g400);font-weight:600;margin-bottom:8px">EDITING · ${(p.displayCode||p.id).replace(/</g,'&lt;')}</div>
       <div class="form-grid" style="grid-template-columns:2fr 1fr;gap:8px">
         <div class="fg"><label style="font-size:11px">Nama Produk *</label><input id="pde-name-${p.id}" type="text" value="${(p.skuName||'').replace(/"/g,'&quot;')}" style="font-size:12px;padding:5px 8px"></div>
-        <div class="fg"><label style="font-size:11px">SRP (Rp)</label><input id="pde-srp-${p.id}" type="number" min="0" value="${p.srp==null?'':p.srp}" style="font-size:12px;padding:5px 8px"></div>
-        <div class="fg full"><label style="font-size:11px">Notes</label><input id="pde-notes-${p.id}" type="text" value="${(p.notes||'').replace(/"/g,'&quot;')}" style="font-size:12px;padding:5px 8px"></div>
+        <div class="fg"><label style="font-size:11px">SRP (Rp) *</label><input id="pde-srp-${p.id}" type="number" min="0" value="${p.srp==null?'':p.srp}" style="font-size:12px;padding:5px 8px"></div>
+        <div class="fg full"><label style="font-size:11px">Notes (internal)</label><input id="pde-notes-${p.id}" type="text" value="${(p.notes||'').replace(/"/g,'&quot;')}" style="font-size:12px;padding:5px 8px"></div>
+      </div>
+
+      <div style="font-family:var(--label);font-size:10px;color:var(--g600);text-transform:uppercase;letter-spacing:0.05em;margin:14px 0 6px">Konfigurasi Import Jubelio</div>
+      <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr;gap:8px">
+        <div class="fg full"><label style="font-size:11px">Category Jubelio *</label>
+          <input id="pde-jub-category-${p.id}" type="text" list="pd-jub-cat-datalist-${p.id}" value="${(p.jubelioCategory||'').replace(/"/g,'&quot;')}" style="font-size:12px;padding:5px 8px" placeholder="Mulai ketik untuk cari...">
+          <datalist id="pd-jub-cat-datalist-${p.id}"></datalist>
+          <div id="pd-jub-cat-hint-${p.id}" style="font-size:11px;color:var(--g400);margin-top:3px">—</div>
+        </div>
+        <div class="fg"><label style="font-size:11px">Brand *</label><input id="pde-brand-${p.id}" type="text" value="${(p.brand||'').replace(/"/g,'&quot;')}" style="font-size:12px;padding:5px 8px"></div>
+        <div class="fg"><label style="font-size:11px">Barcode</label><input id="pde-barcode-${p.id}" type="text" value="${(p.barcode||'').replace(/"/g,'&quot;')}" style="font-size:12px;padding:5px 8px"></div>
+        <div class="fg full"><label style="font-size:11px">Description *</label><textarea id="pde-description-${p.id}" rows="2" style="font-size:12px;padding:5px 8px;resize:vertical;width:100%;border:1px solid var(--g100);border-radius:4px">${(p.description||'').replace(/</g,'&lt;')}</textarea></div>
+        <div class="fg"><label style="font-size:11px">Weight (g) *</label><input id="pde-pkg-weight-${p.id}" type="number" min="0" value="${p.packageWeight==null?100:p.packageWeight}" style="font-size:12px;padding:5px 8px"></div>
+        <div class="fg"><label style="font-size:11px">Length (cm)</label><input id="pde-pkg-length-${p.id}" type="number" min="0" value="${p.packageLength==null?'':p.packageLength}" style="font-size:12px;padding:5px 8px"></div>
+        <div class="fg"><label style="font-size:11px">Width (cm)</label><input id="pde-pkg-width-${p.id}" type="number" min="0" value="${p.packageWidth==null?'':p.packageWidth}" style="font-size:12px;padding:5px 8px"></div>
+        <div class="fg"><label style="font-size:11px">Height (cm)</label><input id="pde-pkg-height-${p.id}" type="number" min="0" value="${p.packageHeight==null?'':p.packageHeight}" style="font-size:12px;padding:5px 8px"></div>
       </div>
       <div style="display:flex;gap:6px;margin-top:10px">
         <button class="btn-save" style="font-size:11px;padding:5px 12px" onclick="savePDParentEdit('${p.id}')">💾 Simpan</button>
@@ -16737,6 +16847,8 @@ async function submitPDSubItem(parentId) {
 function openPDParentEdit(id) {
   pdEditingId = id;
   renderPDDetailTable();
+  // After render, wire the category autocomplete for this edit row.
+  _pdInitJubCategoryAC(id);
 }
 
 // Enter inline-edit mode for a variant or bundle item.
@@ -16756,11 +16868,40 @@ async function savePDParentEdit(id) {
   const name  = (document.getElementById(`pde-name-${id}`).value||'').trim();
   const srpS  = document.getElementById(`pde-srp-${id}`).value;
   const notes = (document.getElementById(`pde-notes-${id}`).value||'').trim();
+  // Jubelio config
+  const jubCategory = (document.getElementById(`pde-jub-category-${id}`)?.value||'').trim();
+  const brand       = (document.getElementById(`pde-brand-${id}`)?.value||'').trim();
+  const barcode     = (document.getElementById(`pde-barcode-${id}`)?.value||'').trim();
+  const description = (document.getElementById(`pde-description-${id}`)?.value||'').trim();
+  const pkgW = parseFloat(document.getElementById(`pde-pkg-weight-${id}`)?.value);
+  const pkgL = parseFloat(document.getElementById(`pde-pkg-length-${id}`)?.value);
+  const pkgWd= parseFloat(document.getElementById(`pde-pkg-width-${id}`)?.value);
+  const pkgH = parseFloat(document.getElementById(`pde-pkg-height-${id}`)?.value);
+
   if (!name) { alert('Nama produk wajib.'); return; }
+  if (!jubCategory) { alert('Category Jubelio wajib (pilih dari dropdown).'); return; }
+  if (!brand)       { alert('Brand wajib.'); return; }
+  if (!description) { alert('Description wajib (untuk import Jubelio).'); return; }
+  if (isNaN(pkgW) || pkgW <= 0) { alert('Package weight wajib (gram).'); return; }
+  if (srpS === '' || isNaN(parseFloat(srpS))) { alert('SRP wajib.'); return; }
+  const jubCategoryId = _pdResolveJubCategoryId(jubCategory);
+  if (!jubCategoryId) {
+    alert('Category Jubelio gak ke-recognize. Pastikan persis match dari dropdown.');
+    return;
+  }
   const upd = {
     sku_name: name,
-    srp: srpS===''?null:parseFloat(srpS),
+    srp: parseFloat(srpS),
     notes: notes || null,
+    jubelio_category: jubCategory,
+    jubelio_category_id: jubCategoryId,
+    brand: brand,
+    description: description,
+    package_weight: pkgW,
+    package_length: isNaN(pkgL) ? null : pkgL,
+    package_width:  isNaN(pkgWd)? null : pkgWd,
+    package_height: isNaN(pkgH) ? null : pkgH,
+    barcode: barcode || null,
     last_updated: new Date().toISOString(), last_updated_by: currentUser
   };
   const {error} = await sb.from('product_dev').update(upd).eq('id',id);
@@ -17092,25 +17233,29 @@ async function exportPDJubelioXlsx() {
   const {parents} = getPDDetailFilteredParents();
   if (!parents.length) { alert('Tidak ada SKU sesuai filter.'); return; }
 
-  // Ask once for the brand + category path (applied to all rows).
-  // User can leave both blank and fill in their copy of the template afterward.
+  // All required Jubelio config now lives on each parent SKU. No prompts —
+  // just validate that the parents have it. If any parent missing required
+  // config, list them and bail.
+  const missing = parents.filter(p =>
+    !p.jubelioCategory || !p.brand || !p.description ||
+    !p.packageWeight || p.srp == null
+  );
+  if (missing.length) {
+    const list = missing.map(p => `• ${p.skuName} (${p.displayCode}): ${[
+      !p.jubelioCategory && 'category',
+      !p.brand           && 'brand',
+      !p.description     && 'description',
+      !p.packageWeight   && 'package_weight',
+      p.srp == null      && 'SRP',
+    ].filter(Boolean).join(', ')}`).join('\n');
+    alert(`Ada ${missing.length} produk yang belum lengkap konfigurasi import-nya:\n\n${list}\n\nEdit produk dan lengkapi field "Konfigurasi Import Jubelio" dulu.`);
+    return;
+  }
+
   const _col = (typeof allColRows !== 'undefined' && Array.isArray(allColRows))
     ? allColRows.find(x => x.id === pdCurrentCollectionId)
     : null;
   const colName = _col?.collectionName || '';
-  const ipName  = _col?.ipRelated || '';
-
-  const brand = prompt(
-    'Brand untuk semua produk?\n(kosongkan kalau gak perlu)',
-    ipName || ''
-  );
-  if (brand === null) return;  // cancel
-
-  const categoryPath = prompt(
-    'Path kategori Jubelio? (paste persis dari kolom "category" di template, mis. "Pakaian Pria -> Atasan -> Kaos")\n\nKalau kosong, kamu isi manual nanti di Excel-nya. VLOOKUP item_category_id akan auto-fill begitu kategori-nya di-set.',
-    ''
-  );
-  if (categoryPath === null) return;
 
   // Columns per Jubelio template (Sheet "Pengisian Import Produk" header row).
   const HEADERS = [
@@ -17130,27 +17275,27 @@ async function exportPDJubelioXlsx() {
   for (const p of parents) {
     const subs = allPDRows.filter(s => s.parentId === p.id && s.skuType === 'variant');
     const pics = Array.isArray(p.pictures) ? p.pictures.slice(0, 5) : [];
-    const descTxt = (p.notes || '').replace(/\r?\n/g, '<br>');
+    const descTxt = (p.description || '').trim();
     const sellPrice = p.srp != null && p.srp !== '' ? Number(p.srp) : '';
     const baseRow = (variant) => {
       const itemCode = variant ? variant.displayCode : p.displayCode;
       if (!itemCode) { skipped++; return null; }
       const isMainImg = pics.length > 0 ? 'Yes' : '';
       return [
-        // A: item_category_id — leave blank; VLOOKUP in template fills it from B
-        '',
+        // A: item_category_id — resolved from category path
+        p.jubelioCategoryId || _pdResolveJubCategoryId(p.jubelioCategory) || '',
         // B: category path
-        categoryPath || '',
+        p.jubelioCategory || '',
         // C: item_group_name — parent product name
         p.skuName || '',
         // D: description (HTML allowed)
-        descTxt ? `<p>${descTxt}</p>` : '',
-        // E: package_weight (g) — default 100 since Jubelio requires it
-        100,
-        // F-H: dimensions — empty
-        '', '', '',
+        descTxt,
+        // E: package_weight (g)
+        p.packageWeight || 100,
+        // F-H: dimensions
+        p.packageLength || '', p.packageWidth || '', p.packageHeight || '',
         // I: brand
-        brand || '',
+        p.brand || '',
         // J: item_code
         itemCode,
         // K: sell_price (parent's SRP)
@@ -17166,7 +17311,7 @@ async function exportPDJubelioXlsx() {
         // P: uom_variant
         '',
         // Q: barcode
-        '',
+        p.barcode || '',
         // R-V: image_url1..5
         pics[0] || '', pics[1] || '', pics[2] || '', pics[3] || '', pics[4] || '',
         // W: default_images — 'Yes' on first variant only

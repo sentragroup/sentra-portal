@@ -10,6 +10,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2/dist/chartjs-plugin-datalabels.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="jubelio-categories.js" defer></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <link rel="stylesheet" href="style.css">
@@ -1629,24 +1630,54 @@
                 <input type="text" id="pd-sku-name" list="pd-sku-datalist" placeholder="Pilih dari collection items atau ketik baru...">
                 <datalist id="pd-sku-datalist"></datalist>
               </div>
-              <div class="fg"><label>SRP (Rp)</label>
+              <div class="fg"><label>SRP (Rp) <span class="req">*</span></label>
                 <input type="number" id="pd-srp" min="0" step="1" placeholder="cth: 250000">
               </div>
-              <div class="fg full"><label>Notes</label><input type="text" id="pd-notes" placeholder="Catatan opsional"></div>
+              <div class="fg full"><label>Notes (internal)</label><input type="text" id="pd-notes" placeholder="Catatan opsional, gak ke-export"></div>
             </div>
 
-            <div class="form-sec" style="margin-top:1.25rem">Pictures Produk (max 2)</div>
+            <div class="form-sec" style="margin-top:1.25rem">Pictures Produk (max 5)</div>
             <div class="form-grid">
               <div class="fg full">
                 <input type="file" id="pd-pics" accept="image/*" multiple style="font-size:12px">
                 <div id="pd-pics-preview" style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"></div>
-                <div style="font-size:11px;color:var(--g400);margin-top:4px">JPG/PNG/WEBP. Maks 5 MB per file. Foto produk umum — variant bisa punya foto sendiri.</div>
+                <div style="font-size:11px;color:var(--g400);margin-top:4px">JPG/PNG/WEBP. Maks 5 MB per file. Auto jadi image_url1..5 di import Jubelio.</div>
+              </div>
+            </div>
+
+            <div class="form-sec" style="margin-top:1.25rem">Konfigurasi Import Jubelio <span style="font-size:11px;color:var(--g400);font-weight:400">— field wajib untuk export Excel ke Jubelio</span></div>
+            <div class="form-grid">
+              <div class="fg full"><label>Category Jubelio <span class="req">*</span></label>
+                <input type="text" id="pd-jub-category" list="pd-jub-cat-datalist" placeholder="Mulai ketik untuk cari kategori (mis. 'Kaos')..." autocomplete="off">
+                <datalist id="pd-jub-cat-datalist"></datalist>
+                <div id="pd-jub-cat-hint" style="font-size:11px;color:var(--g400);margin-top:3px">—</div>
+              </div>
+              <div class="fg"><label>Brand <span class="req">*</span></label>
+                <input type="text" id="pd-brand" placeholder="cth: Reality Club">
+              </div>
+              <div class="fg"><label>Barcode (opsional)</label>
+                <input type="text" id="pd-barcode" placeholder="kosongin kalau gak punya">
+              </div>
+              <div class="fg full"><label>Description <span class="req">*</span></label>
+                <textarea id="pd-description" rows="2" placeholder="Deskripsi produk untuk Jubelio. Boleh pakai HTML tags." style="resize:vertical;width:100%;padding:6px 10px;border:1px solid var(--g100);border-radius:4px;font-family:var(--body);font-size:12px"></textarea>
+              </div>
+              <div class="fg"><label>Package Weight (g) <span class="req">*</span></label>
+                <input type="number" id="pd-pkg-weight" min="0" step="1" value="100" placeholder="100">
+              </div>
+              <div class="fg"><label>Length (cm)</label>
+                <input type="number" id="pd-pkg-length" min="0" step="1" placeholder="opsional">
+              </div>
+              <div class="fg"><label>Width (cm)</label>
+                <input type="number" id="pd-pkg-width" min="0" step="1" placeholder="opsional">
+              </div>
+              <div class="fg"><label>Height (cm)</label>
+                <input type="number" id="pd-pkg-height" min="0" step="1" placeholder="opsional">
               </div>
             </div>
 
             <div style="background:var(--off);border-radius:4px;padding:8px 12px;margin-top:1rem;font-size:11px;color:var(--g600)">
               <b style="color:var(--black)">Setelah disimpan:</b> tambah variant (size, color, qty, HPP, vendor) di card produk masing-masing.
-              Tiap variant = SKU terpisah.
+              Tiap variant = SKU terpisah. Konfigurasi import di atas berlaku untuk semua variant.
             </div>
 
             <div class="btn-row" style="margin-top:1.25rem">
