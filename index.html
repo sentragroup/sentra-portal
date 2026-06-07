@@ -911,12 +911,11 @@
             <button class="tab-btn" onclick="switchPBTab('list',this)">Semua</button>
           </div>
         </div>
-        <div class="stats-row" style="grid-template-columns:repeat(7,1fr);margin-bottom:1.25rem">
+        <div class="stats-row" style="grid-template-columns:repeat(6,1fr);margin-bottom:1.25rem">
           <div class="stat-card"><div class="stat-num" id="pb-s-total">—</div><div class="stat-lbl">Total Events</div></div>
           <div class="stat-card"><div class="stat-num" id="pb-s-upcoming">—</div><div class="stat-lbl">Upcoming</div></div>
           <div class="stat-card"><div class="stat-num" id="pb-s-done">—</div><div class="stat-lbl">Done</div></div>
           <div class="stat-card"><div class="stat-num" id="pb-s-cancelled">—</div><div class="stat-lbl">Cancelled</div></div>
-          <div class="stat-card"><div class="stat-num" id="pb-s-reinbound">—</div><div class="stat-lbl">Need Reinbound</div></div>
           <div class="stat-card"><div class="stat-num" id="pb-s-overdue" style="color:#c0392b">—</div><div class="stat-lbl">Overdue</div></div>
           <div class="stat-card"><div class="stat-num" id="pb-s-grandtotal" style="font-size:14px">—</div><div class="stat-lbl">Grand Total</div></div>
         </div>
@@ -995,7 +994,7 @@
         </div>
         <div id="pbtab-list" style="display:none">
           <div class="filter-panel">
-            <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="['pb-fil-status','pb-fil-reinbound','pb-fil-ip'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});document.getElementById('pbSearch').value='';applyPBFilters()">✕ Reset</button></div>
+            <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="['pb-fil-status','pb-fil-ip'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});document.getElementById('pbSearch').value='';applyPBFilters()">✕ Reset</button></div>
             <div class="filter-grid">
               <select class="f-select" id="pb-fil-status" onchange="applyPBFilters()">
                 <option value="">Semua Status</option>
@@ -1003,13 +1002,6 @@
                 <option value="Done">Done</option>
                 <option value="Cancelled">Cancelled</option>
                 <option value="Overdue">Overdue</option>
-              </select>
-              <select class="f-select" id="pb-fil-reinbound" onchange="applyPBFilters()">
-                <option value="">Semua Reinbound</option>
-                <option value="Done">Reinbound Done</option>
-                <option value="Not Yet">Not Yet</option>
-                <option value="Sold Out">Sold Out</option>
-                <option value="none">Belum Diisi</option>
               </select>
               <select class="f-select" id="pb-fil-ip" onchange="applyPBFilters()">
                 <option value="">Semua IP</option>
@@ -1031,18 +1023,68 @@
                   <th>IP Related</th>
                   <th>Manpower</th>
                   <th>SJ</th>
-                  <th>Delivery</th>
                   <th class="sortable" data-col="eventStatus" onclick="sortPBBy('eventStatus')">Status</th>
-                  <th>Reinbound</th>
                   <th class="sortable" data-col="srDeadline" onclick="sortPBBy('srDeadline')">Deadline</th>
                   <th class="sortable" data-col="grandTotal" onclick="sortPBBy('grandTotal')">Grand Total</th>
                   <th>Payment</th>
-                  <th>ID Pesanan Jubelio</th>
                   <th>Aksi</th>
                 </tr>
               </thead>
-              <tbody id="pbTableBody"><tr><td class="empty-td" colspan="13">Klik "Semua" untuk memuat data.</td></tr></tbody>
+              <tbody id="pbTableBody"><tr><td class="empty-td" colspan="11">Klik "Semua" untuk memuat data.</td></tr></tbody>
             </table>
+          </div>
+        </div>
+
+        <!-- POP UP BOOTH — DETAIL VIEW (per-event) -->
+        <div id="pbtab-detail" style="display:none">
+          <div style="margin-bottom:1rem">
+            <button class="btn-ghost" onclick="closePBDetail()" style="padding:6px 14px;font-size:12px">← Kembali ke list</button>
+          </div>
+          <div class="form-card" style="margin-bottom:1.25rem;padding:18px 22px">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
+              <div>
+                <div class="page-title" id="pbd-title" style="margin:0">—</div>
+                <div class="page-sub" id="pbd-meta" style="margin-top:4px">—</div>
+              </div>
+              <div id="pbd-status-badges" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+            </div>
+            <div id="pbd-tagline" style="margin-top:14px;font-size:12px;color:var(--g600);background:var(--off);border-radius:6px;padding:10px 12px;display:none"></div>
+          </div>
+
+          <!-- Section 1: Stock IN -->
+          <div class="form-card" style="margin-bottom:1.25rem">
+            <div class="form-sec" style="display:flex;justify-content:space-between;align-items:center">
+              <span>📦 Stock IN — Transfer ke event</span>
+              <span style="font-size:11px;color:var(--g400);font-weight:normal" id="pbd-in-summary">—</span>
+            </div>
+            <div id="pbd-stock-in" style="margin-top:10px">Memuat…</div>
+          </div>
+
+          <!-- Section 2: Sales Performance -->
+          <div class="form-card" style="margin-bottom:1.25rem">
+            <div class="form-sec" style="display:flex;justify-content:space-between;align-items:center">
+              <span>💰 Sales Performance — Penjualan di event</span>
+              <span style="font-size:11px;color:var(--g400);font-weight:normal" id="pbd-sales-summary">—</span>
+            </div>
+            <div id="pbd-sales" style="margin-top:10px">Memuat…</div>
+          </div>
+
+          <!-- Section 3: Reinbound (if any) -->
+          <div class="form-card" style="margin-bottom:1.25rem">
+            <div class="form-sec" style="display:flex;justify-content:space-between;align-items:center">
+              <span>↩️ Reinbound — Transfer balik ke gudang</span>
+              <span style="font-size:11px;color:var(--g400);font-weight:normal" id="pbd-reinbound-summary">—</span>
+            </div>
+            <div id="pbd-reinbound" style="margin-top:10px">Memuat…</div>
+          </div>
+
+          <!-- Section 4: Stock Remaining -->
+          <div class="form-card" style="margin-bottom:1.25rem">
+            <div class="form-sec" style="display:flex;justify-content:space-between;align-items:center">
+              <span>📊 Stock Remaining per SKU</span>
+              <span style="font-size:11px;color:var(--g400);font-weight:normal" id="pbd-remaining-summary">—</span>
+            </div>
+            <div id="pbd-remaining" style="margin-top:10px">Memuat…</div>
           </div>
         </div>
       </div>

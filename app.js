@@ -2429,6 +2429,10 @@ function switchPBTab(name, el) {
   el.classList.add("active");
   document.getElementById("pbtab-new").style.display = name==="new" ? "block" : "none";
   document.getElementById("pbtab-list").style.display = name==="list" ? "block" : "none";
+  // Closing a tab from detail view → hide detail panel.
+  const det = document.getElementById("pbtab-detail");
+  if (det) det.style.display = "none";
+  _pbCurrentDetail = null;
   if (name==="list") loadPopupBooth();
 }
 
@@ -2473,13 +2477,11 @@ function renderPBStats(rows) {
   document.getElementById("pb-s-done").textContent = rows.filter(r=>r.eventStatus==="Done").length;
   document.getElementById("pb-s-cancelled").textContent = rows.filter(r=>r.eventStatus==="Cancelled").length;
   document.getElementById("pb-s-overdue").textContent = overdue.length;
-  document.getElementById("pb-s-reinbound").textContent = rows.filter(r=>r.reinboundStatus==="Not Yet").length;
   document.getElementById("pb-s-grandtotal").textContent = totalGT ? "Rp "+totalGT.toLocaleString("id-ID") : "—";
 }
 
 function applyPBFilters() {
   const status   = (document.getElementById("pb-fil-status")?.value)||"";
-  const reinb    = (document.getElementById("pb-fil-reinbound")?.value)||"";
   const ip       = (document.getElementById("pb-fil-ip")?.value)||"";
   const q        = ((document.getElementById("pbSearch")?.value)||"").toLowerCase();
   let rows = allPBRows;
@@ -2488,8 +2490,6 @@ function applyPBFilters() {
     const today=new Date(); today.setHours(0,0,0,0);
     rows = rows.filter(r=>r.srDeadline&&r.eventStatus!=="Done"&&r.eventStatus!=="Cancelled"&&new Date(r.srDeadline+"T00:00:00")<today);
   } else if (status) rows = rows.filter(r=>r.eventStatus===status);
-  if (reinb==="none") rows = rows.filter(r=>!r.reinboundStatus);
-  else if (reinb) rows = rows.filter(r=>r.reinboundStatus===reinb);
   if (ip) rows = rows.filter(r=>(r.ipRelated||"").toLowerCase().includes(ip.toLowerCase()));
   if (q) rows = rows.filter(r=>(r.eventName||"").toLowerCase().includes(q)||(r.location||"").toLowerCase().includes(q)||(r.ipRelated||"").toLowerCase().includes(q)||(r.manpower||"").toLowerCase().includes(q));
   renderPBTable(rows);
@@ -2508,34 +2508,28 @@ function renderPBTable(rows) {
   updateSortTh("pb-thead", pbSort.col, pbSort.dir);
   const tbody = document.getElementById("pbTableBody");
   document.getElementById("pb-tcount").textContent = rows.length+" entri";
-  if (!rows.length) { tbody.innerHTML=`<tr><td class="empty-td" colspan="13">Tidak ada data.</td></tr>`; return; }
+  if (!rows.length) { tbody.innerHTML=`<tr><td class="empty-td" colspan="11">Tidak ada data.</td></tr>`; return; }
   const _today = new Date(); _today.setHours(0,0,0,0);
   tbody.innerHTML = rows.map(r => {
     const esPill = `<span class="pill ${r.eventStatus==="Done"?"p-active":r.eventStatus==="Cancelled"?"p-expired":"p-draft"}" style="font-size:11px">${r.eventStatus||"Planned"}</span>`;
-    const reinPill = r.reinboundStatus ? `<span class="pill ${r.reinboundStatus==="Done"?"p-active":r.reinboundStatus==="Not Yet"?"p-near":r.reinboundStatus==="Sold Out"?"p-expired":"p-draft"}" style="font-size:11px">${r.reinboundStatus}</span>${(r.reinboundQty!==""&&r.reinboundQty!=null)?" ("+r.reinboundQty+")":""}` : "—";
     const jubInfo = r.idPesananJubelio ? (window._jubOrderMap||{})[r.idPesananJubelio.trim()] : null;
     const grandTotal = jubInfo?.grand_total!=null ? `Rp ${Number(jubInfo.grand_total).toLocaleString("id-ID")}` : "—";
     const mekInfo = r.suratJalanUrl ? (window._mekariMap||{})[r.suratJalanUrl.trim()] : null;
     const sjCell = mekInfo ? `<span style="font-size:11px;display:block;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(mekInfo.subject||"").replace(/"/g,"&quot;")}">${mekInfo.subject||r.suratJalanUrl}</span>` : (r.suratJalanUrl?"<span style='font-size:10px;color:var(--g400)'>"+r.suratJalanUrl.slice(0,18)+"…</span>":"—");
-    const idPesananCell = r.idPesananJubelio
-      ? `<div><a href="https://v2.jubelio.com/warehouse/orders/done/${encodeURIComponent(r.idPesananJubelio)}?view=true" target="_blank" style="font-family:var(--mono);font-size:11px;color:#3C3489;text-decoration:none">${r.idPesananJubelio}</a>${jubInfo?.note?`<div style="font-size:10px;color:var(--g400);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${jubInfo.note.replace(/"/g,'&quot;')}">${jubInfo.note}</div>`:""}` + `</div>`
-      : `<span style="background:#fdecea;color:#c0392b;padding:2px 6px;border-radius:4px;font-size:11px">Belum diisi</span>`;
     const pm = r.paymentMethod ? r.paymentMethod.split(",").map(p=>`<span class="pill p-signings" style="font-size:10px;margin-right:2px">${p.trim()}</span>`).join("") : "—";
     const isOverdue = r.srDeadline && r.eventStatus!=="Done" && r.eventStatus!=="Cancelled" && new Date(r.srDeadline+"T00:00:00") < _today;
+    const safeName = String(r.eventName||"").replace(/'/g,"\\'");
     return `<tr>
       <td style="white-space:nowrap;font-size:12px">${fmtDate(r.eventDate)}</td>
-      <td><strong>${r.eventName||"—"}</strong></td>
+      <td><a href="#" onclick="event.preventDefault();openPBDetail('${r.rowIndex}')" style="color:#3C3489;text-decoration:none;font-weight:600">${r.eventName||"—"}</a></td>
       <td style="font-size:12px">${r.location||"—"}</td>
       <td style="font-size:12px;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.ipRelated||""}">${r.ipRelated||"—"}</td>
       <td style="font-size:11px;max-width:160px;color:var(--g600)">${r.manpower||"—"}</td>
       <td>${sjCell}</td>
-      <td><span class="pill ${r.deliveryStatus==="Delivered"?"p-active":"p-draft"}" style="font-size:11px">${r.deliveryStatus||"Pending"}</span></td>
       <td>${esPill}</td>
-      <td style="font-size:12px;white-space:nowrap">${reinPill}</td>
       <td style="white-space:nowrap;font-size:12px${isOverdue?";background:#fdecea;color:#c0392b;font-weight:500":""}">${r.srDeadline?fmtDate(r.srDeadline):"—"}</td>
       <td style="white-space:nowrap;font-size:12px">${grandTotal}</td>
       <td style="font-size:11px">${pm}</td>
-      <td>${idPesananCell}</td>
       <td><button class="btn-icon" onclick="openPBEdit('${r.rowIndex}')">Edit</button> <button class="btn-icon" style="color:#c0392b" onclick="deletePB('${r.rowIndex}')">Del</button></td>
     </tr>
     <tr id="pb-edit-row-${r.rowIndex}" style="display:none">
@@ -2692,6 +2686,298 @@ async function submitPB() {
   } finally {
     btn.disabled=false; btn.textContent="Simpan";
   }
+}
+
+// ── POP UP BOOTH — Detail View (per-event stock + sales + remaining) ──
+// Heuristic for classifying mapped TRFOs:
+//  - source ∈ main warehouses  → delivery (Stock IN to event)
+//  - destination ∈ main warehouses → reinbound (Stock OUT, returning)
+//  - otherwise → assume delivery
+const PB_MAIN_WAREHOUSES = ['Gudang Bintaro','Gudang Pusat','Gudang Penerimaan Barang','Gudang Marte'];
+let _pbCurrentDetail = null;  // currently open event row
+
+function _pbEsc(s) { return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function _pbRp(n) { if (n==null||isNaN(Number(n))) return '—'; return 'Rp ' + new Intl.NumberFormat('id-ID').format(Math.round(Number(n))); }
+
+async function openPBDetail(rowIndex) {
+  const r = allPBRows.find(x => String(x.rowIndex) === String(rowIndex));
+  if (!r) { alert('Event tidak ditemukan'); return; }
+  _pbCurrentDetail = r;
+
+  // View toggle: hide list + new-tab, show detail
+  document.getElementById('pbtab-new').style.display = 'none';
+  document.getElementById('pbtab-list').style.display = 'none';
+  document.getElementById('pbtab-detail').style.display = 'block';
+  // Also dim the top tab-bar since detail view bypasses tabs
+  document.querySelectorAll('#page-popupbooth .tab-btn').forEach(b => b.classList.remove('active'));
+
+  // Header
+  document.getElementById('pbd-title').textContent = r.eventName || '(Tanpa nama)';
+  const metaBits = [
+    r.eventDate ? fmtDate(r.eventDate) : null,
+    r.location || null,
+    r.ipRelated ? `IP: ${r.ipRelated}` : null,
+    r.manpower ? `Manpower: ${r.manpower}` : null,
+  ].filter(Boolean);
+  document.getElementById('pbd-meta').textContent = metaBits.join(' · ') || '—';
+  const badges = [
+    `<span class="pill ${r.eventStatus==='Done'?'p-active':r.eventStatus==='Cancelled'?'p-expired':'p-draft'}" style="font-size:11px">${r.eventStatus||'Planned'}</span>`,
+    r.paymentMethod ? r.paymentMethod.split(',').map(p => `<span class="pill p-signings" style="font-size:11px">${_pbEsc(p.trim())}</span>`).join('') : ''
+  ].filter(Boolean).join('');
+  document.getElementById('pbd-status-badges').innerHTML = badges;
+  const tagEl = document.getElementById('pbd-tagline');
+  if (r.notes) { tagEl.style.display='block'; tagEl.textContent = r.notes; } else { tagEl.style.display='none'; }
+
+  // Reset section placeholders
+  ['pbd-stock-in','pbd-sales','pbd-reinbound','pbd-remaining'].forEach(id => {
+    document.getElementById(id).innerHTML = '<div style="font-size:11px;color:var(--g400)">Memuat…</div>';
+  });
+  ['pbd-in-summary','pbd-sales-summary','pbd-reinbound-summary','pbd-remaining-summary'].forEach(id => {
+    document.getElementById(id).textContent = '—';
+  });
+
+  await _pbLoadDetailData(r.eventName || '');
+}
+
+function closePBDetail() {
+  _pbCurrentDetail = null;
+  document.getElementById('pbtab-detail').style.display = 'none';
+  document.getElementById('pbtab-list').style.display = 'block';
+  // Restore "Semua" tab active state
+  document.querySelectorAll('#page-popupbooth .tab-btn').forEach(b => {
+    if (b.textContent.trim() === 'Semua') b.classList.add('active');
+  });
+}
+
+async function _pbLoadDetailData(eventName) {
+  try {
+    // Fetch mappings + sales in parallel
+    const [
+      {data: txMaps, error: txErr},
+      {data: invMaps, error: invErr}
+    ] = await Promise.all([
+      sb.from('transaction_mappings').select('salesorder_id').eq('category','Pop Up Booth').eq('project_ref', eventName),
+      sb.from('inventory_transfer_mappings').select('item_transfer_id').eq('category','Event').eq('ref_label', eventName)
+    ]);
+    if (txErr) throw txErr;
+    if (invErr) throw invErr;
+
+    const salesOrderIds = (txMaps||[]).map(m => m.salesorder_id).filter(Boolean);
+    const xferIds       = (invMaps||[]).map(m => m.item_transfer_id).filter(Boolean);
+
+    // Fetch xfer headers + items in chunks
+    let xferHeaders = [], xferItems = [];
+    if (xferIds.length) {
+      for (let i = 0; i < xferIds.length; i += 200) {
+        const chunk = xferIds.slice(i, i + 200);
+        const [{data: h}, {data: it}] = await Promise.all([
+          sb.from('jubelio_transfer_outs')
+            .select('item_transfer_id,item_transfer_no,transaction_date,source,destination,is_putaway,transfer_type')
+            .in('item_transfer_id', chunk),
+          sb.from('jubelio_transfer_out_items')
+            .select('item_transfer_id,item_id,item_code,item_name,variant,qty_in_base')
+            .in('item_transfer_id', chunk)
+        ]);
+        xferHeaders.push(...(h||[]));
+        xferItems.push(...(it||[]));
+      }
+    }
+    // Mapping only stores TRFO ids; classify direction by source/dest location
+    const isMain = (loc) => PB_MAIN_WAREHOUSES.includes(loc);
+    const inHeaders = xferHeaders.filter(h => isMain(h.source) && !isMain(h.destination));
+    const outHeaders = xferHeaders.filter(h => isMain(h.destination) && !isMain(h.source));
+    // Anything not clearly direction: default to delivery if neither matches
+    const ambigHeaders = xferHeaders.filter(h => !inHeaders.includes(h) && !outHeaders.includes(h));
+    inHeaders.push(...ambigHeaders);
+
+    const inIds  = new Set(inHeaders.map(h => h.item_transfer_id));
+    const outIds = new Set(outHeaders.map(h => h.item_transfer_id));
+    const inItems  = xferItems.filter(it => inIds.has(it.item_transfer_id));
+    const outItems = xferItems.filter(it => outIds.has(it.item_transfer_id));
+
+    // Sales items
+    let salesItems = [];
+    if (salesOrderIds.length) {
+      for (let i = 0; i < salesOrderIds.length; i += 200) {
+        const chunk = salesOrderIds.slice(i, i + 200);
+        const {data} = await sb.from('jubelio_sales_order_items')
+          .select('salesorder_id,item_id,item_code,item_name,variant,qty,price,disc_amount,tax_amount,sell_price,original_price')
+          .in('salesorder_id', chunk);
+        salesItems.push(...(data||[]));
+      }
+    }
+
+    _pbRenderStockSection('pbd-stock-in', 'pbd-in-summary', inHeaders, inItems, 'Belum ada Transfer IN — map TRFO ke event ini di modul Inventory Transfer.');
+    _pbRenderStockSection('pbd-reinbound', 'pbd-reinbound-summary', outHeaders, outItems, 'Belum ada reinbound TRFO ke event ini.');
+    _pbRenderSalesSection(salesItems);
+    _pbRenderRemainingSection(inItems, salesItems, outItems);
+  } catch (e) {
+    console.error('_pbLoadDetailData:', e);
+    document.getElementById('pbd-stock-in').innerHTML = `<div style="font-size:11px;color:#c33">Gagal: ${_pbEsc(e.message||String(e))}</div>`;
+  }
+}
+
+function _pbRenderStockSection(containerId, summaryId, headers, items, emptyMsg) {
+  const cont = document.getElementById(containerId);
+  const sum  = document.getElementById(summaryId);
+  if (!headers.length) {
+    cont.innerHTML = `<div style="font-size:11px;color:var(--g400);padding:8px 0">${emptyMsg}</div>`;
+    sum.textContent = '0 transfer';
+    return;
+  }
+  const totalQty = items.reduce((a,it) => a + Number(it.qty_in_base||0), 0);
+  sum.textContent = `${headers.length} transfer · ${totalQty.toLocaleString('id-ID')} pcs`;
+
+  // Group items by transfer
+  const itemsByXfer = new Map();
+  items.forEach(it => {
+    const arr = itemsByXfer.get(it.item_transfer_id) || [];
+    arr.push(it);
+    itemsByXfer.set(it.item_transfer_id, arr);
+  });
+
+  cont.innerHTML = headers.sort((a,b) => (b.transaction_date||'').localeCompare(a.transaction_date||'')).map(h => {
+    const itArr = itemsByXfer.get(h.item_transfer_id) || [];
+    const hQty  = itArr.reduce((a,it) => a + Number(it.qty_in_base||0), 0);
+    return `<div style="border:1px solid var(--g100);border-radius:6px;padding:10px 14px;margin-bottom:8px;background:var(--white)">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:6px">
+        <div style="font-family:var(--mono);font-size:12px;font-weight:600">${_pbEsc(h.item_transfer_no||'—')}</div>
+        <div style="font-size:11px;color:var(--g600)">${_pbEsc(h.source||'?')} → ${_pbEsc(h.destination||'?')} · ${fmtDate(h.transaction_date)} · ${hQty.toLocaleString('id-ID')} pcs</div>
+      </div>
+      ${itArr.length ? `<div style="overflow-x:auto"><table style="width:100%;font-size:11px">
+        <thead><tr><th style="text-align:left;padding:4px 8px;background:var(--off);font-weight:600">SKU</th><th style="text-align:left;padding:4px 8px;background:var(--off);font-weight:600">Item</th><th style="text-align:left;padding:4px 8px;background:var(--off);font-weight:600">Variant</th><th style="text-align:right;padding:4px 8px;background:var(--off);font-weight:600">Qty</th></tr></thead>
+        <tbody>
+          ${itArr.map(it => `<tr>
+            <td class="mono" style="padding:4px 8px;color:var(--g600);font-size:10px">${_pbEsc(it.item_code||'—')}</td>
+            <td style="padding:4px 8px">${_pbEsc(it.item_name||'—')}</td>
+            <td style="padding:4px 8px">${_pbEsc(it.variant||'—')}</td>
+            <td class="mono" style="padding:4px 8px;text-align:right">${Number(it.qty_in_base||0).toLocaleString('id-ID')}</td>
+          </tr>`).join('')}
+        </tbody></table></div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function _pbRenderSalesSection(salesItems) {
+  const cont = document.getElementById('pbd-sales');
+  const sum  = document.getElementById('pbd-sales-summary');
+  if (!salesItems.length) {
+    cont.innerHTML = `<div style="font-size:11px;color:var(--g400);padding:8px 0">Belum ada sales mapped ke event ini — map transaksi ke "Pop Up Booth" di modul Transaction Mapping.</div>`;
+    sum.textContent = '0 items';
+    return;
+  }
+  // Aggregate per item_id
+  const byItem = new Map();
+  for (const it of salesItems) {
+    const key = it.item_id || it.item_code;
+    if (!key) continue;
+    const cur = byItem.get(key) || { item_code: it.item_code, item_name: it.item_name, variant: it.variant, qty: 0, revenue: 0, orders: new Set() };
+    cur.qty += Number(it.qty || 0);
+    const lineRev = Number(it.price || 0) * Number(it.qty || 0) - Number(it.disc_amount || 0);
+    cur.revenue += lineRev;
+    cur.orders.add(it.salesorder_id);
+    byItem.set(key, cur);
+  }
+  const rows = Array.from(byItem.values()).sort((a,b) => b.qty - a.qty);
+  const totalQty = rows.reduce((a,r) => a + r.qty, 0);
+  const totalRev = rows.reduce((a,r) => a + r.revenue, 0);
+  const totalOrders = new Set();
+  salesItems.forEach(it => totalOrders.add(it.salesorder_id));
+  sum.textContent = `${totalOrders.size} order · ${rows.length} SKU · ${totalQty.toLocaleString('id-ID')} pcs · ${_pbRp(totalRev)}`;
+
+  cont.innerHTML = `<div style="overflow-x:auto"><table style="width:100%;font-size:11px">
+    <thead><tr>
+      <th style="text-align:left;padding:6px 10px;background:var(--off);font-weight:600">SKU</th>
+      <th style="text-align:left;padding:6px 10px;background:var(--off);font-weight:600">Item</th>
+      <th style="text-align:left;padding:6px 10px;background:var(--off);font-weight:600">Variant</th>
+      <th style="text-align:right;padding:6px 10px;background:var(--off);font-weight:600">Qty Sold</th>
+      <th style="text-align:right;padding:6px 10px;background:var(--off);font-weight:600">Revenue</th>
+    </tr></thead>
+    <tbody>
+      ${rows.map(r => `<tr>
+        <td class="mono" style="padding:5px 10px;color:var(--g600);font-size:10px">${_pbEsc(r.item_code||'—')}</td>
+        <td style="padding:5px 10px">${_pbEsc(r.item_name||'—')}</td>
+        <td style="padding:5px 10px">${_pbEsc(r.variant||'—')}</td>
+        <td class="mono" style="padding:5px 10px;text-align:right;font-weight:600">${r.qty.toLocaleString('id-ID')}</td>
+        <td class="mono" style="padding:5px 10px;text-align:right">${_pbRp(r.revenue)}</td>
+      </tr>`).join('')}
+    </tbody>
+    <tfoot><tr style="border-top:2px solid var(--g100)">
+      <td colspan="3" style="padding:6px 10px;font-weight:600">Total</td>
+      <td class="mono" style="padding:6px 10px;text-align:right;font-weight:600">${totalQty.toLocaleString('id-ID')}</td>
+      <td class="mono" style="padding:6px 10px;text-align:right;font-weight:600">${_pbRp(totalRev)}</td>
+    </tr></tfoot>
+  </table></div>`;
+}
+
+function _pbRenderRemainingSection(inItems, salesItems, outItems) {
+  const cont = document.getElementById('pbd-remaining');
+  const sum  = document.getElementById('pbd-remaining-summary');
+  if (!inItems.length && !salesItems.length && !outItems.length) {
+    cont.innerHTML = `<div style="font-size:11px;color:var(--g400);padding:8px 0">Belum ada data untuk dihitung.</div>`;
+    sum.textContent = '0 SKU';
+    return;
+  }
+  // Aggregate per item_id (fallback to item_code)
+  const agg = new Map();  // key → {item_code, item_name, variant, qty_in, qty_sold, qty_out}
+  const bump = (key, src, field, delta) => {
+    if (!key) return;
+    const cur = agg.get(key) || { item_code: src.item_code, item_name: src.item_name, variant: src.variant, qty_in:0, qty_sold:0, qty_out:0 };
+    cur[field] += delta;
+    // Prefer first-seen labels (likely from IN)
+    if (!cur.item_name && src.item_name) cur.item_name = src.item_name;
+    if (!cur.variant && src.variant) cur.variant = src.variant;
+    if (!cur.item_code && src.item_code) cur.item_code = src.item_code;
+    agg.set(key, cur);
+  };
+  inItems.forEach(it => bump(it.item_id || it.item_code, it, 'qty_in', Number(it.qty_in_base||0)));
+  salesItems.forEach(it => bump(it.item_id || it.item_code, it, 'qty_sold', Number(it.qty||0)));
+  outItems.forEach(it => bump(it.item_id || it.item_code, it, 'qty_out', Number(it.qty_in_base||0)));
+
+  const rows = Array.from(agg.values()).map(r => ({ ...r, remaining: r.qty_in - r.qty_sold - r.qty_out }));
+  rows.sort((a,b) => Math.abs(b.remaining) - Math.abs(a.remaining));
+
+  const totIn = rows.reduce((a,r)=>a+r.qty_in,0);
+  const totSold = rows.reduce((a,r)=>a+r.qty_sold,0);
+  const totOut = rows.reduce((a,r)=>a+r.qty_out,0);
+  const totRem = totIn - totSold - totOut;
+  const mismatchCount = rows.filter(r => r.remaining !== 0).length;
+  sum.textContent = `${rows.length} SKU · sisa ${totRem.toLocaleString('id-ID')} (${mismatchCount} SKU belum 0)`;
+
+  cont.innerHTML = `<div style="overflow-x:auto"><table style="width:100%;font-size:11px">
+    <thead><tr>
+      <th style="text-align:left;padding:6px 10px;background:var(--off);font-weight:600">SKU</th>
+      <th style="text-align:left;padding:6px 10px;background:var(--off);font-weight:600">Item</th>
+      <th style="text-align:left;padding:6px 10px;background:var(--off);font-weight:600">Variant</th>
+      <th style="text-align:right;padding:6px 10px;background:var(--off);font-weight:600">Stock IN</th>
+      <th style="text-align:right;padding:6px 10px;background:var(--off);font-weight:600">Sold</th>
+      <th style="text-align:right;padding:6px 10px;background:var(--off);font-weight:600">Reinbound</th>
+      <th style="text-align:right;padding:6px 10px;background:var(--off);font-weight:600">Sisa</th>
+    </tr></thead>
+    <tbody>
+      ${rows.map(r => {
+        const remColor = r.remaining > 0 ? '#a37800' : r.remaining < 0 ? '#c33' : 'var(--g600)';
+        const remBg    = r.remaining > 0 ? '#fdf6e3' : r.remaining < 0 ? '#fdecea' : 'transparent';
+        return `<tr>
+          <td class="mono" style="padding:5px 10px;color:var(--g600);font-size:10px">${_pbEsc(r.item_code||'—')}</td>
+          <td style="padding:5px 10px">${_pbEsc(r.item_name||'—')}</td>
+          <td style="padding:5px 10px">${_pbEsc(r.variant||'—')}</td>
+          <td class="mono" style="padding:5px 10px;text-align:right">${r.qty_in.toLocaleString('id-ID')}</td>
+          <td class="mono" style="padding:5px 10px;text-align:right">${r.qty_sold.toLocaleString('id-ID')}</td>
+          <td class="mono" style="padding:5px 10px;text-align:right">${r.qty_out.toLocaleString('id-ID')}</td>
+          <td class="mono" style="padding:5px 10px;text-align:right;font-weight:600;color:${remColor};background:${remBg}">${r.remaining.toLocaleString('id-ID')}</td>
+        </tr>`;
+      }).join('')}
+    </tbody>
+    <tfoot><tr style="border-top:2px solid var(--g100);font-weight:600">
+      <td colspan="3" style="padding:6px 10px">Total</td>
+      <td class="mono" style="padding:6px 10px;text-align:right">${totIn.toLocaleString('id-ID')}</td>
+      <td class="mono" style="padding:6px 10px;text-align:right">${totSold.toLocaleString('id-ID')}</td>
+      <td class="mono" style="padding:6px 10px;text-align:right">${totOut.toLocaleString('id-ID')}</td>
+      <td class="mono" style="padding:6px 10px;text-align:right;color:${totRem===0?'var(--g600)':totRem>0?'#a37800':'#c33'}">${totRem.toLocaleString('id-ID')}</td>
+    </tr></tfoot>
+  </table></div>
+  <div style="font-size:10px;color:var(--g400);margin-top:8px">Sisa = IN − Sold − Reinbound. Nol → reconcile complete; positif → masih ada di event/balik; negatif → kemungkinan ada sales unrecorded atau mapping miss.</div>`;
 }
 
 // ── NOTIFICATIONS ──
