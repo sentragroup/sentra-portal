@@ -20801,7 +20801,7 @@ function renderVMCapabilities() {
   if (tc) tc.textContent = `${rows.length} entri`;
 
   if (!rows.length) {
-    tbody.innerHTML = `<tr><td class="empty-td" colspan="8">${allVMCapabilitiesMatrix.length === 0
+    tbody.innerHTML = `<tr><td class="empty-td" colspan="9">${allVMCapabilitiesMatrix.length === 0
       ? 'Belum ada capability terdaftar. Tambah lewat tab "Semua" → klik vendor → tab "Capabilities".'
       : 'Tidak ada match untuk filter ini.'}</td></tr>`;
     return;
@@ -20823,8 +20823,44 @@ function renderVMCapabilities() {
       <td style="text-align:right;font-size:12px">${c.lead_time_days?c.lead_time_days+'d':'—'}</td>
       <td style="text-align:right;font-size:12px;font-weight:600">${cost?'Rp '+cost.toLocaleString('id-ID'):'—'}</td>
       <td style="font-size:11px;color:var(--g600);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(c.description||'').replace(/"/g,'&quot;')}">${(c.description||'—').replace(/</g,'&lt;')}</td>
+      <td style="white-space:nowrap">
+        <button class="btn-icon" onclick="editVMCapabilityFromMatrix(${c.id},'${c.vendor_master_id}')">Edit</button>
+        <button class="btn-icon" style="color:#c0392b" onclick="deleteVMCapabilityFromMatrix(${c.id})">Del</button>
+      </td>
     </tr>`;
   }).join('');
+}
+
+// ── VENDOR MASTER — Capability edit/delete shortcuts from matrix tab ──
+async function editVMCapabilityFromMatrix(capId, vmId) {
+  // Open vendor detail modal, switch to Capabilities tab, then populate edit form
+  await openVMDetail(vmId);
+  // Switch tab buttons: Capabilities is index 3 (Identity / Banking Catalog / PO History / Capabilities)
+  const tabs = document.querySelectorAll('#vmDetailModal .tab-btn');
+  tabs.forEach((b,i) => b.classList.toggle('active', i === 3));
+  ['identity','catalog','po','capabilities'].forEach((t,i) => {
+    document.getElementById(`vm-detail-tab-${t}`).style.display = i === 3 ? 'block' : 'none';
+  });
+  const row = allVMRows.find(r => r.id === vmId);
+  if (!row) return;
+  // _vmRenderCapabilitiesTab is async (fetches data) — must await before editVMCapability touches DOM ids
+  await _vmRenderCapabilitiesTab(row);
+  editVMCapability(capId, vmId);
+}
+
+async function deleteVMCapabilityFromMatrix(capId) {
+  if (!confirm('Hapus capability ini?')) return;
+  try {
+    // Best-effort: also delete storage object
+    const {data: cap} = await sb.from('vendor_capabilities').select('sample_image_url').eq('id', capId).single();
+    if (cap?.sample_image_url) {
+      const m = cap.sample_image_url.match(/vendor-capability-samples\/(.+)$/);
+      if (m) { await sb.storage.from('vendor-capability-samples').remove([m[1]]); }
+    }
+    const {error} = await sb.from('vendor_capabilities').delete().eq('id', capId);
+    if (error) throw error;
+    await loadVMCapabilitiesMatrix();
+  } catch (e) { alert('Gagal: ' + (e.message || e)); }
 }
 
 // ── R&D PRODUCT ──
