@@ -1645,18 +1645,12 @@
               </div>
             </div>
 
-            <div class="form-sec" style="margin-top:1.25rem">Konfigurasi Import Jubelio <span style="font-size:11px;color:var(--g400);font-weight:400">— opsional di sini, tapi wajib semua sebelum export Excel Jubelio</span></div>
+            <div class="form-sec" style="margin-top:1.25rem">Konfigurasi Import Jubelio <span style="font-size:11px;color:var(--g400);font-weight:400">— opsional di sini, wajib lengkap pas export CSV</span></div>
             <div class="form-grid">
               <div class="fg full"><label>Category Jubelio</label>
-                <input type="text" id="pd-jub-category" list="pd-jub-cat-datalist" placeholder="Mulai ketik untuk cari kategori (mis. 'Kaos')..." autocomplete="off">
-                <datalist id="pd-jub-cat-datalist"></datalist>
-                <div id="pd-jub-cat-hint" style="font-size:11px;color:var(--g400);margin-top:3px">—</div>
-              </div>
-              <div class="fg"><label>Brand</label>
-                <input type="text" id="pd-brand" placeholder="cth: Reality Club">
-              </div>
-              <div class="fg"><label>Barcode</label>
-                <input type="text" id="pd-barcode" placeholder="kosongin kalau gak punya">
+                <button type="button" id="pd-jub-category-btn" onclick="openJubCategoryPicker('')" style="padding:7px 12px;border:1px solid var(--g100);border-radius:4px;background:var(--white);text-align:left;font-family:var(--body);font-size:12px;cursor:pointer;width:100%;color:var(--g400)">🔍 Pilih kategori dari 1.340 opsi…</button>
+                <input type="hidden" id="pd-jub-category" value="">
+                <input type="hidden" id="pd-jub-category-id" value="">
               </div>
               <div class="fg"><label>Package Weight (g)</label>
                 <input type="number" id="pd-pkg-weight" min="0" step="1" value="100" placeholder="100">
