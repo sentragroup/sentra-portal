@@ -1303,11 +1303,12 @@
       <!-- VENDOR MASTER — Jubelio supplier picker modal -->
       <div id="vmJubPickerModal" style="display:none;position:fixed;inset:0;background:rgba(12,12,12,0.5);z-index:9100;align-items:center;justify-content:center">
         <div style="background:var(--white);border-radius:8px;width:560px;max-width:92vw;max-height:80vh;display:flex;flex-direction:column;overflow:hidden">
-          <div style="padding:16px 18px;border-bottom:1px solid var(--g100);display:flex;justify-content:space-between;align-items:center">
-            <div>
+          <div style="padding:16px 18px;border-bottom:1px solid var(--g100);display:flex;justify-content:space-between;align-items:center;gap:12px">
+            <div style="flex:1;min-width:0">
               <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:16px">Pilih Pemasok dari Jubelio</div>
-              <div style="font-size:11px;color:var(--g400);margin-top:2px"><span id="vm-jub-picker-count">—</span> supplier (contact_type=1) di Jubelio</div>
+              <div style="font-size:11px;color:var(--g400);margin-top:2px"><span id="vm-jub-picker-count">—</span> supplier (contact_type=1) · <span id="vm-jub-sync-status" style="color:var(--g600)">last sync: —</span></div>
             </div>
+            <button class="btn-icon" id="vm-jub-sync-btn" onclick="vmSyncFromJubelio()" title="Tarik fresh data dari Jubelio (delete-orphan aktif)">↻ Sync</button>
             <button onclick="closeVMJubPicker()" style="background:none;border:none;cursor:pointer;font-size:20px;color:var(--g400)">✕</button>
           </div>
           <div style="padding:12px 18px;border-bottom:1px solid var(--g100)">

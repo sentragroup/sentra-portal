@@ -11211,16 +11211,17 @@ async function loadColStockRecon(colId, colName) {
       return;
     }
     // Expand mappings (1 row per item_name) to ALL SKU variants of those names.
+    // Chunk both .in(item_name) and downstream .in(item_id) — itemNames can be
+    // 2000+ for full reconcile, which blows past PostgREST URL limits.
     const itemNames = [...new Set(mappings.map(m => m.item_name).filter(Boolean))];
-    const allVariantRows = await _fetchAllPages('jubelio_items','item_id,item_name,item_code',
-      q => q.in('item_name', itemNames));
+    const allVariantRows = await _fetchAllPagesIn('jubelio_items','item_id,item_name,item_code','item_name', itemNames);
     const itemIds = [...new Set(allVariantRows.map(r => r.item_id))];
 
     const [adjItems, poItems, salesItems, stocks] = await Promise.all([
-      _fetchAllPages("jubelio_inventory_adjustment_items","item_id,qty",q=>q.in("item_id",itemIds)),
-      _fetchAllPages("jubelio_purchase_order_items","item_id,qty",q=>q.in("item_id",itemIds)),
-      _fetchAllPages("jubelio_sales_order_items","item_id,qty,salesorder_id",q=>q.in("item_id",itemIds)),
-      _fetchAllPages("jubelio_inventory_stocks","item_id,on_hand",q=>q.in("item_id",itemIds)),
+      _fetchAllPagesIn("jubelio_inventory_adjustment_items","item_id,qty","item_id", itemIds),
+      _fetchAllPagesIn("jubelio_purchase_order_items","item_id,qty","item_id", itemIds),
+      _fetchAllPagesIn("jubelio_sales_order_items","item_id,qty,salesorder_id","item_id", itemIds),
+      _fetchAllPagesIn("jubelio_inventory_stocks","item_id,on_hand","item_id", itemIds),
     ]);
     const jubelioItems = allVariantRows; // already fetched
 
@@ -19954,8 +19955,8 @@ function switchVMTab(name, el) {
   if (name === 'new') loadJubSuppliers(); // preload picker (used by 'Pre-fill dari Jubelio')
 }
 
-async function loadJubSuppliers() {
-  if (allJubSuppliers.length) return allJubSuppliers;
+async function loadJubSuppliers(forceRefresh = false) {
+  if (allJubSuppliers.length && !forceRefresh) return allJubSuppliers;
   try {
     const {data, error} = await sb.from('jubelio_contacts')
       .select('contact_id,contact_name,primary_contact,email,phone,mobile,npwp,billing_city,billing_address,payment_term')
@@ -19968,6 +19969,43 @@ async function loadJubSuppliers() {
     console.error('loadJubSuppliers:', e);
     allJubSuppliers = [];
     return [];
+  }
+}
+
+// Trigger sync-jubelio-contacts edge function, clear cache, reload picker.
+// Slow (~45s) — disable button + show status while in flight.
+async function vmSyncFromJubelio() {
+  const btn = document.getElementById('vm-jub-sync-btn');
+  const status = document.getElementById('vm-jub-sync-status');
+  if (btn) { btn.disabled = true; btn.textContent = '⟳ Syncing...'; }
+  if (status) status.textContent = 'syncing dari Jubelio...';
+  try {
+    const r = await fetch(`${SUPABASE_URL}/functions/v1/sync-jubelio-contacts`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${SUPABASE_ANON}`, 'Content-Type': 'application/json' },
+    });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || 'Sync failed');
+    // Refresh local cache from DB
+    allJubSuppliers = []; // bust cache
+    await loadJubSuppliers(true);
+    const count = (allJubSuppliers || []).length;
+    const countEl = document.getElementById('vm-jub-picker-count');
+    if (countEl) countEl.textContent = count;
+    if (status) {
+      const parts = [
+        `${j.suppliers_endpoint?.kept ?? '?'} supplier dari Jubelio`,
+        j.deleted_orphan_suppliers > 0 ? `${j.deleted_orphan_suppliers} orphan dihapus` : null,
+        new Date().toLocaleTimeString('id-ID', {hour:'2-digit',minute:'2-digit'}),
+      ].filter(Boolean);
+      status.textContent = `synced ${parts.join(' · ')}`;
+    }
+    renderVMJubPickerList();
+  } catch (e) {
+    if (status) status.textContent = `gagal: ${e.message||e}`;
+    alert('Sync gagal: ' + (e.message || e));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '↻ Sync'; }
   }
 }
 
