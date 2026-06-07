@@ -144,7 +144,7 @@ function enterApp(user, freshLogin) {
   // Restore page: prefer URL hash, fall back to sessionStorage
   let _pg = location.hash.slice(1).split('/')[0];
   if (!_pg) _pg = sessionStorage.getItem('snt_page') || '';
-  const _pages = ['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','vendormaster','popupbooth','activitylog','mesign','po','stockmovement','productmap','productdev','collections','designermaster','dsgworkflow','warehousekpi','stockadjmgmt','returnreason','tradorders','invcheck','salesperf','reminders','announcements','marte','royalty','income','contentplan','adsmgmt','mktactivation','publication','photoshoot','kolmgmt','txmap'];
+  const _pages = ['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','vendormaster','rnd','popupbooth','activitylog','mesign','po','stockmovement','productmap','productdev','collections','designermaster','dsgworkflow','warehousekpi','stockadjmgmt','returnreason','tradorders','invcheck','salesperf','reminders','announcements','marte','royalty','income','contentplan','adsmgmt','mktactivation','publication','photoshoot','kolmgmt','txmap'];
   if (_pages.includes(_pg))
     showPage(_pg, document.getElementById('nav-'+_pg));
 }
@@ -179,6 +179,7 @@ const ACCESS_MODULES = [
   {key:'collections',label:'Collection Development'},{key:'dsgworkflow',label:'Designer Workflow'},
   {key:'salesreport',label:'Account Report'},{key:'popupbooth',label:'Pop Up Booth'},
   {key:'vendormaster',label:'Vendor Master'},
+  {key:'rnd',label:'R&D Product'},
   {key:'mesign',label:'Mekari Sign'},
   {key:'productdev',label:'Product Development'},{key:'restock',label:'Create PO Restock'},
   {key:'po',label:'Purchase Orders'},{key:'stockmovement',label:'Stock Reconcile'},
@@ -235,7 +236,7 @@ function showPage(name, el) {
   document.getElementById("page-"+_pageId).classList.add("active");
   if (el) el.classList.add("active");
   const _c = document.querySelector('.content'); if (_c) _c.scrollTop = 0;
-  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",txmap:"Transaction Mapping",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)",vendormaster:"Vendor Master"};
+  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",txmap:"Transaction Mapping",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)",vendormaster:"Vendor Master",rnd:"R&D Product"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -253,6 +254,7 @@ function showPage(name, el) {
   if (name==="leads") loadLeads();
   if (name==="distpartner") loadDistPartner();
   if (name==="vendormaster") loadVendorMaster();
+  if (name==="rnd") loadRND();
   if (name==="popupbooth") loadPopupBooth();
   if (name==="activitylog") loadActivityLog();
   if (name==="mesign") loadMekariEsign();
@@ -20573,6 +20575,689 @@ async function deleteVMCapability(capId, vmId) {
     const row = allVMRows.find(r => r.id === vmId);
     if (row) _vmRenderCapabilitiesTab(row);
   } catch (e) { alert('Gagal: ' + (e.message || e)); }
+}
+
+// ── R&D PRODUCT ──
+let allRNDRows = [];     // [{...product, quotes:[...], bestHpp, vendorCount, winnerHpp}]
+let allRQRows = [];      // raw quotes (mapped)
+let rndDetailCurrentId = null;
+let rndQuoteEditingId = null;
+const RND_CATEGORIES = ['Apparel','Tote Bag','Accessories','Enamel Pin','Mug','Sticker','Packaging','Vinyl','Cassette','Print','Other'];
+
+function mapRND(r) {
+  return {
+    id: r.id, rowIndex: r.id,
+    productName: r.product_name || '',
+    category: r.category || '',
+    status: r.status || 'Idea',
+    priority: r.priority || 'Medium',
+    pic: r.pic || '',
+    brief: r.brief || '',
+    referenceImages: r.reference_images || [],
+    moodboardUrl: r.moodboard_url || '',
+    targetSrp: r.target_srp || null,
+    targetHppMax: r.target_hpp_max || null,
+    targetQty: r.target_qty || null,
+    notes: r.notes || '',
+    dateAdded: r.date_added, addedBy: r.added_by,
+    lastUpdated: r.last_updated, lastUpdatedBy: r.last_updated_by,
+    quotes: [], bestHpp: null, vendorCount: 0, winnerHpp: null,
+  };
+}
+
+function mapRQ(r) {
+  return {
+    id: r.id,
+    rndProductId: r.rnd_product_id,
+    vendorMasterId: r.vendor_master_id,
+    status: r.status || 'Diundang',
+    hpp: r.hpp_per_unit || null,
+    moq: r.moq || null,
+    leadTimeDays: r.lead_time_days || null,
+    materialName: r.material_name || '',
+    materialWeightGsm: r.material_weight_gsm || null,
+    materialComposition: r.material_composition || '',
+    printOrFinishMethod: r.print_or_finish_method || '',
+    colorOptions: r.color_options || [],
+    sizeRange: r.size_range || '',
+    materialExtras: r.material_extras || '',
+    sampleCost: r.sample_cost || null,
+    sampleRequestedDate: r.sample_requested_date || null,
+    sampleReceivedDate: r.sample_received_date || null,
+    sampleNotes: r.sample_notes || '',
+    isWinner: r.is_winner === true,
+    decisionNotes: r.decision_notes || '',
+    quoteDate: r.quote_date || null,
+    quotedBy: r.quoted_by || '',
+    lastUpdated: r.last_updated, lastUpdatedBy: r.last_updated_by,
+  };
+}
+
+function switchRNDTab(name, el) {
+  document.querySelectorAll('#page-rnd .tab-btn').forEach(b => b.classList.remove('active'));
+  if (el) el.classList.add('active');
+  document.getElementById('rndtab-new').style.display = name === 'new' ? 'block' : 'none';
+  document.getElementById('rndtab-list').style.display = name === 'list' ? 'block' : 'none';
+  if (name === 'list') loadRND();
+  if (name === 'new') {
+    setupAC("rnd-category", "ac-rnd-category", () => RND_CATEGORIES);
+    setupAC("rnd-pic", "ac-rnd-pic", () => acPics);
+  }
+}
+
+async function loadRND() {
+  const tbody = document.getElementById('rndTableBody');
+  if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="8">Memuat...</td></tr>`;
+  try {
+    const [pRes, qRes] = await Promise.all([
+      sb.from('rnd_products').select('*').order('date_added', {ascending:false}),
+      sb.from('rnd_quotes').select('*'),
+    ]);
+    if (pRes.error) throw pRes.error;
+    if (qRes.error) throw qRes.error;
+    allRQRows = (qRes.data||[]).map(mapRQ);
+    const byProduct = new Map();
+    allRQRows.forEach(q => {
+      if (!byProduct.has(q.rndProductId)) byProduct.set(q.rndProductId, []);
+      byProduct.get(q.rndProductId).push(q);
+    });
+    allRNDRows = (pRes.data||[]).map(mapRND).map(p => {
+      const qs = byProduct.get(p.id) || [];
+      p.quotes = qs;
+      p.vendorCount = qs.length;
+      const hpps = qs.map(q => q.hpp).filter(x => x != null);
+      p.bestHpp = hpps.length ? Math.min(...hpps) : null;
+      const w = qs.find(q => q.isWinner);
+      p.winnerHpp = w?.hpp || null;
+      return p;
+    });
+    // Populate filter dropdowns
+    const catSel = document.getElementById('rnd-f-category');
+    const picSel = document.getElementById('rnd-f-pic');
+    const cats = [...new Set(allRNDRows.map(r => r.category).filter(Boolean))].sort();
+    const pics = [...new Set(allRNDRows.map(r => r.pic).filter(Boolean))].sort();
+    catSel.innerHTML = '<option value="">Semua Kategori</option>' + cats.map(c => `<option>${c.replace(/</g,'&lt;')}</option>`).join('');
+    picSel.innerHTML = '<option value="">Semua PIC</option>' + pics.map(p => `<option>${p.replace(/</g,'&lt;')}</option>`).join('');
+    renderRNDStats();
+    applyRNDFilters();
+  } catch (e) {
+    if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="8">Gagal: ${e.message||e}</td></tr>`;
+  }
+}
+
+function renderRNDStats() {
+  document.getElementById('rnd-s-total').textContent = allRNDRows.length;
+  document.getElementById('rnd-s-research').textContent = allRNDRows.filter(r => r.status==='Researching').length;
+  document.getElementById('rnd-s-sampling').textContent = allRNDRows.filter(r => r.status==='Sampling').length;
+  document.getElementById('rnd-s-approved').textContent = allRNDRows.filter(r => r.status==='Approved').length;
+  document.getElementById('rnd-s-quotes').textContent = allRQRows.length;
+  const withTarget = allRNDRows.filter(r => r.targetHppMax && r.bestHpp);
+  const belowTgt = withTarget.filter(r => r.bestHpp <= r.targetHppMax);
+  document.getElementById('rnd-s-best').textContent = withTarget.length ? Math.round(belowTgt.length / withTarget.length * 100) + '%' : '—';
+}
+
+function applyRNDFilters() {
+  const st = document.getElementById('rnd-f-status').value;
+  const cat = document.getElementById('rnd-f-category').value;
+  const pic = document.getElementById('rnd-f-pic').value;
+  const q = (document.getElementById('rnd-search').value || '').toLowerCase();
+  let rows = allRNDRows;
+  if (st) rows = rows.filter(r => r.status === st);
+  if (cat) rows = rows.filter(r => r.category === cat);
+  if (pic) rows = rows.filter(r => r.pic === pic);
+  if (q) rows = rows.filter(r => (r.productName||'').toLowerCase().includes(q) || (r.brief||'').toLowerCase().includes(q));
+  renderRNDTable(rows);
+}
+
+function clearRNDFilters() {
+  ['rnd-f-status','rnd-f-category','rnd-f-pic','rnd-search'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
+  applyRNDFilters();
+}
+
+function _rndStatusPill(s) {
+  const map = {
+    'Idea':'p-draft', 'Researching':'p-review', 'Sampling':'p-signings',
+    'Approved':'p-active', 'Rejected':'p-expired', 'On Hold':'p-inactive'
+  };
+  return `<span class="pill ${map[s]||'p-draft'}" style="font-size:11px">${s||'—'}</span>`;
+}
+
+function renderRNDTable(rows) {
+  const tbody = document.getElementById('rndTableBody');
+  const tc = document.getElementById('rnd-tcount');
+  if (tc) tc.textContent = `${rows.length} entri`;
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td class="empty-td" colspan="8">Tidak ada R&D product.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = rows.map(r => {
+    const target = r.targetHppMax;
+    const best = r.bestHpp;
+    let bestCell = '—';
+    if (best != null) {
+      const pct = target ? Math.round((best/target - 1) * 100) : null;
+      const color = (target && best <= target) ? '#1e8f4e' : (pct && pct > 0 ? '#c0392b' : 'var(--g600)');
+      bestCell = `<span style="color:${color};font-weight:600">Rp ${best.toLocaleString('id-ID')}</span>`;
+      if (pct != null) bestCell += `<div style="font-size:10px;color:${color}">${pct > 0 ? '+' : ''}${pct}% vs target</div>`;
+    }
+    const vCount = r.vendorCount > 0
+      ? `<strong>${r.vendorCount}</strong> <span style="font-size:10px;color:var(--g400)">vendor</span>${r.winnerHpp?' <span class="pill p-active" style="font-size:9px">⭐ winner picked</span>':''}`
+      : `<span style="color:var(--g400);font-size:11px">belum ada quote</span>`;
+    return `<tr>
+      <td><a href="#" onclick="openRNDDetail('${r.id}');return false" style="color:var(--black);text-decoration:none;font-weight:600">${(r.productName||'').replace(/</g,'&lt;')}</a><div style="font-size:10px;color:var(--g400)" class="mono">${r.id}</div></td>
+      <td style="font-size:12px">${(r.category||'—').replace(/</g,'&lt;')}</td>
+      <td>${_rndStatusPill(r.status)}</td>
+      <td style="font-size:12px">${(r.pic||'—').replace(/</g,'&lt;')}</td>
+      <td style="text-align:right;font-size:12px">${target?'Rp '+target.toLocaleString('id-ID'):'—'}</td>
+      <td>${vCount}</td>
+      <td style="text-align:right;font-size:12px">${bestCell}</td>
+      <td>
+        <button class="btn-icon" onclick="openRNDDetail('${r.id}')">Detail</button>
+        <button class="btn-icon" style="color:#c0392b" onclick="deleteRND('${r.id}')">Del</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function clearRNDForm() {
+  ['rnd-name','rnd-category','rnd-pic','rnd-brief','rnd-refs','rnd-moodboard','rnd-target-srp','rnd-target-hpp','rnd-target-qty','rnd-notes'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
+  document.getElementById('rnd-priority').value = 'Medium';
+  document.getElementById('rnd-status').value = 'Idea';
+  document.getElementById('rnd-feedback').textContent = '';
+}
+
+async function submitRND() {
+  const fb = document.getElementById('rnd-feedback');
+  const btn = document.getElementById('rndSubmitBtn');
+  const name = document.getElementById('rnd-name').value.trim();
+  const cat = document.getElementById('rnd-category').value.trim();
+  const pic = document.getElementById('rnd-pic').value.trim();
+  if (!name) { fb.textContent = '⚠️ Nama produk wajib.'; return; }
+  if (!cat)  { fb.textContent = '⚠️ Kategori wajib.'; return; }
+  if (!pic)  { fb.textContent = '⚠️ PIC wajib.'; return; }
+  btn.disabled = true; fb.textContent = 'Menyimpan...';
+  try {
+    const refs = document.getElementById('rnd-refs').value.split(/\n/).map(s => s.trim()).filter(Boolean);
+    const row = {
+      id: genId('RND'),
+      product_name: name,
+      category: cat,
+      status: document.getElementById('rnd-status').value,
+      priority: document.getElementById('rnd-priority').value,
+      pic,
+      brief: document.getElementById('rnd-brief').value.trim() || null,
+      reference_images: refs.length ? refs : null,
+      moodboard_url: document.getElementById('rnd-moodboard').value.trim() || null,
+      target_srp: parseFloat(document.getElementById('rnd-target-srp').value) || null,
+      target_hpp_max: parseFloat(document.getElementById('rnd-target-hpp').value) || null,
+      target_qty: parseInt(document.getElementById('rnd-target-qty').value, 10) || null,
+      notes: document.getElementById('rnd-notes').value.trim() || null,
+      added_by: currentUser, date_added: new Date().toISOString(),
+    };
+    const {error} = await sb.from('rnd_products').insert(row);
+    if (error) throw error;
+    fb.innerHTML = `<span class="fb-ok">✓ R&D Product "${name}" tersimpan</span>`;
+    clearRNDForm();
+    await loadRND();
+  } catch (e) {
+    fb.innerHTML = `<span class="fb-err">Gagal: ${e.message || e}</span>`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function deleteRND(id) {
+  const row = allRNDRows.find(r => r.id === id);
+  if (!confirm(`Hapus R&D product "${row?.productName||id}"?\n\nIni juga akan menghapus semua quote yang dilampirkan.`)) return;
+  try {
+    const {error} = await sb.from('rnd_products').delete().eq('id', id);
+    if (error) throw error;
+    await loadRND();
+  } catch (e) { alert('Gagal: ' + (e.message || e)); }
+}
+
+// ── R&D — Detail modal (3 tabs: Brief / Quote Comparison / Sample Tracker) ──
+async function openRNDDetail(id) {
+  const row = allRNDRows.find(r => r.id === id);
+  if (!row) return;
+  rndDetailCurrentId = id;
+  document.getElementById('rndDetailModal').style.display = 'flex';
+  document.getElementById('rnd-detail-name').textContent = row.productName;
+  const meta = [`${row.category} · ${row.priority}`, row.id, `PIC: ${row.pic}`];
+  document.getElementById('rnd-detail-meta').textContent = meta.join(' · ');
+  document.querySelectorAll('#rndDetailModal .tab-btn').forEach((b,i) => b.classList.toggle('active', i===0));
+  ['brief','quotes','samples'].forEach((t,i) => {
+    document.getElementById(`rnd-detail-tab-${t}`).style.display = i===0 ? 'block':'none';
+  });
+  _rndRenderBriefTab(row);
+}
+
+function closeRNDDetail() {
+  document.getElementById('rndDetailModal').style.display = 'none';
+  rndDetailCurrentId = null;
+}
+
+function rndSwitchDetailTab(name, el) {
+  document.querySelectorAll('#rndDetailModal .tab-btn').forEach(b => b.classList.remove('active'));
+  if (el) el.classList.add('active');
+  ['brief','quotes','samples'].forEach(t => {
+    document.getElementById(`rnd-detail-tab-${t}`).style.display = t===name ? 'block':'none';
+  });
+  const row = allRNDRows.find(r => r.id === rndDetailCurrentId);
+  if (!row) return;
+  if (name === 'quotes') _rndRenderQuotesTab(row);
+  else if (name === 'samples') _rndRenderSamplesTab(row);
+}
+
+function openRNDStatusMenu() {
+  const row = allRNDRows.find(r => r.id === rndDetailCurrentId);
+  if (!row) return;
+  const options = ['Idea','Researching','Sampling','Approved','Rejected','On Hold'];
+  const choice = prompt(`Ubah status R&D "${row.productName}"\n\nPilihan: ${options.join(' / ')}\nSekarang: ${row.status}\n\nKetik status baru:`, row.status);
+  if (!choice || !options.includes(choice)) { if (choice) alert('Status tidak valid.'); return; }
+  sb.from('rnd_products').update({status: choice, last_updated: new Date().toISOString(), last_updated_by: currentUser}).eq('id', row.id)
+    .then(({error}) => {
+      if (error) { alert('Gagal: '+error.message); return; }
+      loadRND().then(() => {
+        const r = allRNDRows.find(x => x.id === rndDetailCurrentId);
+        if (r) openRNDDetail(r.id);
+      });
+    });
+}
+
+function _rndRenderBriefTab(r) {
+  const cont = document.getElementById('rnd-detail-tab-brief');
+  const refs = (r.referenceImages||[]).map(u => `<a href="${u}" target="_blank" style="display:block;font-size:11px;color:var(--g600);text-decoration:underline;margin-bottom:2px">${u.replace(/</g,'&lt;')}</a>`).join('') || '<span style="color:var(--g400);font-size:11px">—</span>';
+  cont.innerHTML = `
+    <div style="background:var(--off);border-radius:6px;padding:14px;margin-bottom:14px">
+      <div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px">Status & Target</div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+        <div><div style="font-size:10px;color:var(--g400)">STATUS</div><div style="margin-top:2px">${_rndStatusPill(r.status)}</div></div>
+        <div><div style="font-size:10px;color:var(--g400)">PRIORITY</div><div style="font-size:13px;margin-top:2px">${r.priority}</div></div>
+        <div><div style="font-size:10px;color:var(--g400)">TARGET SRP</div><div style="font-size:13px;margin-top:2px">${r.targetSrp?'Rp '+r.targetSrp.toLocaleString('id-ID'):'—'}</div></div>
+        <div><div style="font-size:10px;color:var(--g400)">MAX HPP</div><div style="font-size:13px;margin-top:2px">${r.targetHppMax?'Rp '+r.targetHppMax.toLocaleString('id-ID'):'—'}</div></div>
+        <div><div style="font-size:10px;color:var(--g400)">TARGET QTY</div><div style="font-size:13px;margin-top:2px">${r.targetQty||'—'}</div></div>
+        <div><div style="font-size:10px;color:var(--g400)">VENDORS DIQUOTE</div><div style="font-size:13px;margin-top:2px">${r.vendorCount}</div></div>
+        <div><div style="font-size:10px;color:var(--g400)">BEST HPP</div><div style="font-size:13px;margin-top:2px">${r.bestHpp?'Rp '+r.bestHpp.toLocaleString('id-ID'):'—'}</div></div>
+        <div><div style="font-size:10px;color:var(--g400)">WINNER</div><div style="font-size:13px;margin-top:2px">${r.winnerHpp?'Rp '+r.winnerHpp.toLocaleString('id-ID'):'—'}</div></div>
+      </div>
+    </div>
+    <div style="background:var(--off);border-radius:6px;padding:14px;margin-bottom:14px">
+      <div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px">Brief</div>
+      <div style="font-size:13px;white-space:pre-wrap;line-height:1.6">${(r.brief||'(belum diisi)').replace(/</g,'&lt;')}</div>
+    </div>
+    <div style="background:var(--off);border-radius:6px;padding:14px">
+      <div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px">References</div>
+      ${r.moodboardUrl ? `<div style="margin-bottom:8px"><span style="font-size:11px;color:var(--g400)">MOODBOARD: </span><a href="${r.moodboardUrl}" target="_blank" style="font-size:12px;color:var(--black);text-decoration:underline">${r.moodboardUrl.replace(/</g,'&lt;')}</a></div>` : ''}
+      <div style="font-size:11px;color:var(--g400);margin-bottom:4px">REFERENCE IMAGES</div>
+      ${refs}
+    </div>`;
+}
+
+function _rndRenderQuotesTab(r) {
+  const cont = document.getElementById('rnd-detail-tab-quotes');
+  const vmById = new Map(allVMRows.map(v => [v.id, v]));
+  const quotes = [...r.quotes].sort((a,b) => {
+    if (a.isWinner !== b.isWinner) return b.isWinner ? 1 : -1;
+    return (a.hpp||Infinity) - (b.hpp||Infinity);
+  });
+  const target = r.targetHppMax;
+  cont.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:12px">
+      <div style="font-size:12px;color:var(--g600)">${quotes.length} quote · sorted by winner, then lowest HPP</div>
+      <div style="display:flex;gap:6px">
+        <button class="btn-icon" onclick="openRNDShortlist()">⚡ Shortlist dari Capabilities</button>
+        <button class="btn-primary" style="padding:6px 12px;font-size:12px" onclick="openRNDQuoteModal()">+ Tambah Quote</button>
+      </div>
+    </div>
+    ${quotes.length === 0
+      ? `<div style="background:var(--off);border-radius:6px;padding:24px;text-align:center;color:var(--g600);font-size:13px">Belum ada quote.<br><span style="font-size:11px;color:var(--g400)">Klik "+ Tambah Quote" untuk mulai sourcing.</span></div>`
+      : `<table style="width:100%;font-size:12px">
+          <thead>
+            <tr style="background:var(--off)">
+              <th style="text-align:left">Vendor</th>
+              <th style="text-align:left">Status</th>
+              <th style="text-align:right">HPP</th>
+              <th style="text-align:right">MOQ</th>
+              <th style="text-align:right">Lead</th>
+              <th style="text-align:left">Material</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${quotes.map(q => {
+              const vm = vmById.get(q.vendorMasterId);
+              const vName = vm ? vmSyncedField(vm,'name') : '(vendor dihapus)';
+              const hppColor = (target && q.hpp && q.hpp <= target) ? '#1e8f4e' : (target && q.hpp ? '#c0392b' : 'var(--g600)');
+              const matSummary = [q.materialName, q.materialWeightGsm ? `${q.materialWeightGsm}gsm` : null, q.printOrFinishMethod].filter(Boolean).join(' · ');
+              return `<tr style="${q.isWinner?'background:#f0fff4':''}">
+                <td><strong>${q.isWinner?'⭐ ':''}${vName.replace(/</g,'&lt;')}</strong>${vm?.jubelioContactId?'<div style="font-size:9px;color:var(--g400)">✓ Jubelio</div>':''}</td>
+                <td><span class="pill p-${q.status==='Approved'?'active':(q.status==='Rejected'?'expired':'draft')}" style="font-size:10px">${q.status}</span></td>
+                <td style="text-align:right;font-weight:600;color:${hppColor}">${q.hpp?'Rp '+q.hpp.toLocaleString('id-ID'):'—'}</td>
+                <td style="text-align:right">${q.moq||'—'}</td>
+                <td style="text-align:right">${q.leadTimeDays?q.leadTimeDays+'d':'—'}</td>
+                <td style="font-size:11px;color:var(--g600);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(matSummary||'').replace(/"/g,'&quot;')}">${matSummary||'—'}</td>
+                <td style="white-space:nowrap">
+                  ${q.isWinner?'':`<button class="btn-icon" onclick="markRNDWinner(${q.id})">⭐ Pilih</button>`}
+                  <button class="btn-icon" onclick="openRNDQuoteModal(${q.id})">Edit</button>
+                  <button class="btn-icon" style="color:#c0392b" onclick="deleteRNDQuote(${q.id})">Del</button>
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>`}`;
+}
+
+function _rndRenderSamplesTab(r) {
+  const cont = document.getElementById('rnd-detail-tab-samples');
+  const vmById = new Map(allVMRows.map(v => [v.id, v]));
+  const samples = r.quotes.filter(q => q.sampleRequestedDate || q.sampleReceivedDate || q.sampleCost);
+  if (!samples.length) {
+    cont.innerHTML = `<div style="background:var(--off);border-radius:6px;padding:24px;text-align:center;color:var(--g600);font-size:13px">Belum ada sample. Isi field sample di setiap quote.</div>`;
+    return;
+  }
+  cont.innerHTML = `
+    <table style="width:100%;font-size:12px">
+      <thead><tr style="background:var(--off)">
+        <th style="text-align:left">Vendor</th>
+        <th>Status</th>
+        <th>Diminta</th>
+        <th>Diterima</th>
+        <th style="text-align:right">Lead Sample</th>
+        <th style="text-align:right">Biaya</th>
+        <th style="text-align:left">Catatan</th>
+      </tr></thead>
+      <tbody>
+        ${samples.map(q => {
+          const vm = vmById.get(q.vendorMasterId);
+          const vName = vm ? vmSyncedField(vm,'name') : '(vendor dihapus)';
+          const reqD = q.sampleRequestedDate ? new Date(q.sampleRequestedDate) : null;
+          const rcvD = q.sampleReceivedDate ? new Date(q.sampleReceivedDate) : null;
+          const sLead = (reqD && rcvD) ? Math.round((rcvD - reqD) / 86400000) + 'd' : '—';
+          return `<tr>
+            <td><strong>${vName.replace(/</g,'&lt;')}</strong></td>
+            <td><span class="pill p-draft" style="font-size:10px">${q.status}</span></td>
+            <td>${q.sampleRequestedDate||'—'}</td>
+            <td>${q.sampleReceivedDate||'<em style="color:var(--g400)">menunggu</em>'}</td>
+            <td style="text-align:right">${sLead}</td>
+            <td style="text-align:right">${q.sampleCost?'Rp '+q.sampleCost.toLocaleString('id-ID'):'—'}</td>
+            <td style="font-size:11px;color:var(--g600)">${(q.sampleNotes||'—').replace(/</g,'&lt;')}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>`;
+}
+
+async function markRNDWinner(quoteId) {
+  if (!confirm('Set quote ini sebagai winner? Quote winner sebelumnya akan di-unset.')) return;
+  try {
+    // First: unset all winners for this product
+    await sb.from('rnd_quotes').update({is_winner:false}).eq('rnd_product_id', rndDetailCurrentId);
+    // Then set this one
+    const {error} = await sb.from('rnd_quotes').update({is_winner:true, last_updated:new Date().toISOString(), last_updated_by:currentUser}).eq('id', quoteId);
+    if (error) throw error;
+    await loadRND();
+    const row = allRNDRows.find(r => r.id === rndDetailCurrentId);
+    if (row) _rndRenderQuotesTab(row);
+  } catch (e) { alert('Gagal: ' + (e.message || e)); }
+}
+
+async function deleteRNDQuote(quoteId) {
+  if (!confirm('Hapus quote ini?')) return;
+  try {
+    const {error} = await sb.from('rnd_quotes').delete().eq('id', quoteId);
+    if (error) throw error;
+    await loadRND();
+    const row = allRNDRows.find(r => r.id === rndDetailCurrentId);
+    if (row) _rndRenderQuotesTab(row);
+  } catch (e) { alert('Gagal: ' + (e.message || e)); }
+}
+
+// ── R&D Quote modal (add / edit) ──
+function openRNDQuoteModal(quoteId) {
+  rndQuoteEditingId = quoteId || null;
+  const modal = document.getElementById('rndQuoteModal');
+  document.getElementById('rnd-quote-product-id').value = rndDetailCurrentId;
+  document.getElementById('rnd-quote-modal-title').textContent = quoteId ? 'Edit Quote' : 'Tambah Quote';
+  // Reset
+  ['rnd-quote-hpp','rnd-quote-moq','rnd-quote-lead','rnd-quote-material','rnd-quote-gsm','rnd-quote-composition','rnd-quote-finish','rnd-quote-colors','rnd-quote-sizes','rnd-quote-extras','rnd-quote-sample-req','rnd-quote-sample-rcv','rnd-quote-sample-cost','rnd-quote-sample-notes','rnd-quote-vendor-id'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
+  document.getElementById('rnd-quote-status').value = 'Diundang';
+  document.getElementById('rnd-quote-vendor-display').innerHTML = '<span style="color:var(--g400);font-style:italic">Pilih vendor dari Vendor Master...</span>';
+
+  if (quoteId) {
+    const q = allRQRows.find(x => x.id === quoteId);
+    if (q) {
+      document.getElementById('rnd-quote-id').value = q.id;
+      document.getElementById('rnd-quote-vendor-id').value = q.vendorMasterId;
+      _rndUpdateVendorDisplay(q.vendorMasterId);
+      document.getElementById('rnd-quote-status').value = q.status;
+      document.getElementById('rnd-quote-hpp').value = q.hpp||'';
+      document.getElementById('rnd-quote-moq').value = q.moq||'';
+      document.getElementById('rnd-quote-lead').value = q.leadTimeDays||'';
+      document.getElementById('rnd-quote-material').value = q.materialName||'';
+      document.getElementById('rnd-quote-gsm').value = q.materialWeightGsm||'';
+      document.getElementById('rnd-quote-composition').value = q.materialComposition||'';
+      document.getElementById('rnd-quote-finish').value = q.printOrFinishMethod||'';
+      document.getElementById('rnd-quote-colors').value = (q.colorOptions||[]).join(', ');
+      document.getElementById('rnd-quote-sizes').value = q.sizeRange||'';
+      document.getElementById('rnd-quote-extras').value = q.materialExtras||'';
+      document.getElementById('rnd-quote-sample-req').value = q.sampleRequestedDate||'';
+      document.getElementById('rnd-quote-sample-rcv').value = q.sampleReceivedDate||'';
+      document.getElementById('rnd-quote-sample-cost').value = q.sampleCost||'';
+      document.getElementById('rnd-quote-sample-notes').value = q.sampleNotes||'';
+    }
+  } else {
+    document.getElementById('rnd-quote-id').value = '';
+  }
+  modal.style.display = 'flex';
+}
+
+function closeRNDQuoteModal() {
+  document.getElementById('rndQuoteModal').style.display = 'none';
+  rndQuoteEditingId = null;
+}
+
+function _rndUpdateVendorDisplay(vmId) {
+  const vm = allVMRows.find(v => v.id === vmId);
+  const disp = document.getElementById('rnd-quote-vendor-display');
+  if (!vm) { disp.innerHTML = '<span style="color:#c0392b">(vendor tidak ditemukan)</span>'; return; }
+  const name = vmSyncedField(vm,'name');
+  const contact = vmSyncedField(vm,'contact');
+  const phone = vmSyncedField(vm,'phone');
+  disp.innerHTML = `<strong>${name.replace(/</g,'&lt;')}</strong>${vm.jubelioContactId?' <span class="pill p-active" style="font-size:9px;margin-left:6px">✓ Jubelio</span>':''}<div style="font-size:11px;color:var(--g600);margin-top:2px">PIC: ${(contact||'—').replace(/</g,'&lt;')} · Telp: ${(phone||'—').replace(/</g,'&lt;')}</div>`;
+}
+
+async function saveRNDQuote() {
+  const vmId = document.getElementById('rnd-quote-vendor-id').value;
+  if (!vmId) { alert('Vendor wajib dipilih.'); return; }
+  const productId = document.getElementById('rnd-quote-product-id').value;
+  const editId = document.getElementById('rnd-quote-id').value;
+  const colors = document.getElementById('rnd-quote-colors').value.split(',').map(s=>s.trim()).filter(Boolean);
+  const payload = {
+    vendor_master_id: vmId,
+    status: document.getElementById('rnd-quote-status').value,
+    hpp_per_unit: parseFloat(document.getElementById('rnd-quote-hpp').value) || null,
+    moq: parseInt(document.getElementById('rnd-quote-moq').value, 10) || null,
+    lead_time_days: parseInt(document.getElementById('rnd-quote-lead').value, 10) || null,
+    material_name: document.getElementById('rnd-quote-material').value.trim() || null,
+    material_weight_gsm: parseFloat(document.getElementById('rnd-quote-gsm').value) || null,
+    material_composition: document.getElementById('rnd-quote-composition').value.trim() || null,
+    print_or_finish_method: document.getElementById('rnd-quote-finish').value.trim() || null,
+    color_options: colors.length ? colors : null,
+    size_range: document.getElementById('rnd-quote-sizes').value.trim() || null,
+    material_extras: document.getElementById('rnd-quote-extras').value.trim() || null,
+    sample_cost: parseFloat(document.getElementById('rnd-quote-sample-cost').value) || null,
+    sample_requested_date: document.getElementById('rnd-quote-sample-req').value || null,
+    sample_received_date: document.getElementById('rnd-quote-sample-rcv').value || null,
+    sample_notes: document.getElementById('rnd-quote-sample-notes').value.trim() || null,
+    last_updated: new Date().toISOString(), last_updated_by: currentUser,
+  };
+  try {
+    if (editId) {
+      const {error} = await sb.from('rnd_quotes').update(payload).eq('id', editId);
+      if (error) throw error;
+    } else {
+      payload.rnd_product_id = productId;
+      payload.quote_date = new Date().toISOString().slice(0,10);
+      payload.quoted_by = currentUser;
+      const {error} = await sb.from('rnd_quotes').insert(payload);
+      if (error) throw error;
+    }
+    closeRNDQuoteModal();
+    await loadRND();
+    const row = allRNDRows.find(r => r.id === rndDetailCurrentId);
+    if (row) _rndRenderQuotesTab(row);
+  } catch (e) { alert('Gagal: ' + (e.message || e)); }
+}
+
+// ── R&D Vendor picker ──
+async function openRNDVendorPicker() {
+  if (!allVMRows.length) await loadVendorMaster();
+  document.getElementById('rndVendorPickerModal').style.display = 'flex';
+  document.getElementById('rnd-vendor-picker-search').value = '';
+  renderRNDVendorPickerList();
+}
+function closeRNDVendorPicker() {
+  document.getElementById('rndVendorPickerModal').style.display = 'none';
+}
+function renderRNDVendorPickerList() {
+  const q = (document.getElementById('rnd-vendor-picker-search').value || '').toLowerCase().trim();
+  const list = document.getElementById('rnd-vendor-picker-list');
+  let rows = allVMRows.slice().sort((a,b) => vmSyncedField(a,'name').localeCompare(vmSyncedField(b,'name'), 'id'));
+  if (q) rows = rows.filter(v => vmSyncedField(v,'name').toLowerCase().includes(q));
+  if (!rows.length) {
+    list.innerHTML = `<div style="padding:20px;text-align:center;color:var(--g400);font-size:12px">Tidak ada match.</div>`;
+    return;
+  }
+  list.innerHTML = rows.map(v => {
+    const name = vmSyncedField(v,'name');
+    const contact = vmSyncedField(v,'contact');
+    const phone = vmSyncedField(v,'phone');
+    return `<div style="border-bottom:1px solid var(--g100);padding:10px 0;display:flex;justify-content:space-between;align-items:center;gap:12px">
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600;font-size:13px">${name.replace(/</g,'&lt;')}${v.jubelioContactId?' <span class="pill p-active" style="font-size:9px;margin-left:6px">✓ Jubelio</span>':''}</div>
+        <div style="font-size:11px;color:var(--g600);margin-top:2px">PIC: ${(contact||'—').replace(/</g,'&lt;')} · ${(phone||'—').replace(/</g,'&lt;')}</div>
+      </div>
+      <button class="btn-icon" onclick="rndPickVendor('${v.id}')">Pilih</button>
+    </div>`;
+  }).join('');
+}
+function rndPickVendor(vmId) {
+  document.getElementById('rnd-quote-vendor-id').value = vmId;
+  _rndUpdateVendorDisplay(vmId);
+  closeRNDVendorPicker();
+}
+
+// ── R&D — Shortlist from capabilities ──
+async function openRNDShortlist() {
+  const row = allRNDRows.find(r => r.id === rndDetailCurrentId);
+  if (!row) return;
+  const cat = row.category;
+  if (!cat) { alert('R&D product belum punya kategori — gak bisa shortlist.'); return; }
+  try {
+    const {data, error} = await sb.from('vendor_capabilities').select('*').ilike('category', cat);
+    if (error) throw error;
+    const vmIds = [...new Set((data||[]).map(c => c.vendor_master_id))];
+    if (!vmIds.length) {
+      alert(`Tidak ada vendor dengan capability "${cat}". Tambahkan capability di Vendor Master dulu, atau pilih vendor manual.`);
+      return;
+    }
+    if (!allVMRows.length) await loadVendorMaster();
+    const matched = allVMRows.filter(v => vmIds.includes(v.id));
+    const existing = new Set(row.quotes.map(q => q.vendorMasterId));
+    const fresh = matched.filter(v => !existing.has(v.id));
+    if (!fresh.length) {
+      alert(`Semua vendor dengan capability "${cat}" sudah di-quote untuk produk ini.`);
+      return;
+    }
+    const names = fresh.map(v => '• ' + vmSyncedField(v,'name')).join('\n');
+    if (!confirm(`Tambah ${fresh.length} vendor sebagai quote "Diundang" untuk produk ini?\n\n${names}`)) return;
+    const payloads = fresh.map(v => ({
+      rnd_product_id: row.id, vendor_master_id: v.id,
+      status: 'Diundang', quote_date: new Date().toISOString().slice(0,10), quoted_by: currentUser,
+    }));
+    const {error: insErr} = await sb.from('rnd_quotes').insert(payloads);
+    if (insErr) throw insErr;
+    await loadRND();
+    const r2 = allRNDRows.find(r => r.id === rndDetailCurrentId);
+    if (r2) _rndRenderQuotesTab(r2);
+  } catch (e) { alert('Gagal: ' + (e.message || e)); }
+}
+
+// ── Vendor Master quick-add (from R&D context) ──
+function openVMQuickAddFromRND() {
+  document.getElementById('vmQuickAddModal').style.display = 'flex';
+  ['vm-quick-name','vm-quick-contact','vm-quick-phone','vm-quick-jub-id'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
+  document.getElementById('vm-quick-loc').value = 'Pusat';
+  document.getElementById('vm-quick-tax').value = 'PPN';
+  document.getElementById('vm-quick-jub-selected').style.display = 'none';
+  document.getElementById('vm-quick-feedback').textContent = '';
+}
+function closeVMQuickAdd() {
+  document.getElementById('vmQuickAddModal').style.display = 'none';
+}
+
+async function vmQuickAddPickJubelio() {
+  await loadJubSuppliers();
+  const linkedIds = new Set(allVMRows.map(r => r.jubelioContactId).filter(Boolean));
+  const items = allJubSuppliers.filter(s => !linkedIds.has(s.contact_id));
+  if (!items.length) { alert('Semua pemasok Jubelio sudah ada di Vendor Master.'); return; }
+  // Simple pick: ask via prompt with numbered list (lightweight; not full modal here)
+  const list = items.map((s,i) => `${i+1}. ${s.contact_name}${s.primary_contact?` (${s.primary_contact})`:''}`).join('\n');
+  const choice = prompt(`Pilih nomor pemasok Jubelio:\n\n${list}`);
+  const idx = parseInt(choice, 10) - 1;
+  if (isNaN(idx) || idx < 0 || idx >= items.length) return;
+  const s = items[idx];
+  document.getElementById('vm-quick-jub-id').value = s.contact_id;
+  document.getElementById('vm-quick-name').value = s.contact_name;
+  document.getElementById('vm-quick-contact').value = s.primary_contact || '';
+  document.getElementById('vm-quick-phone').value = s.phone || s.mobile || '';
+  const sel = document.getElementById('vm-quick-jub-selected');
+  sel.style.display = 'block';
+  sel.innerHTML = `✓ Terhubung ke Jubelio: <strong>${s.contact_name.replace(/</g,'&lt;')}</strong> (id ${s.contact_id})`;
+}
+
+async function saveVMQuickAdd() {
+  const fb = document.getElementById('vm-quick-feedback');
+  const btn = document.getElementById('vmQuickSaveBtn');
+  const name = document.getElementById('vm-quick-name').value.trim();
+  if (!name) { fb.textContent = '⚠️ Nama vendor wajib.'; return; }
+  const jubId = parseInt(document.getElementById('vm-quick-jub-id').value, 10) || null;
+  btn.disabled = true; fb.textContent = 'Menyimpan...';
+  try {
+    const id = genId('VM');
+    const row = {
+      id,
+      vendor_name: name,
+      jubelio_contact_id: jubId,
+      contact_person: document.getElementById('vm-quick-contact').value.trim() || null,
+      phone: document.getElementById('vm-quick-phone').value.trim() || null,
+      default_location: document.getElementById('vm-quick-loc').value,
+      default_tax: document.getElementById('vm-quick-tax').value,
+      default_tax_included: false,
+      added_by: currentUser, date_added: new Date().toISOString(),
+    };
+    const {error} = await sb.from('vendor_master').insert(row);
+    if (error) throw error;
+    await loadVendorMaster();
+    closeVMQuickAdd();
+    closeRNDVendorPicker();
+    // Auto-select the new vendor in the R&D quote form
+    document.getElementById('rnd-quote-vendor-id').value = id;
+    _rndUpdateVendorDisplay(id);
+  } catch (e) {
+    fb.innerHTML = `<span class="fb-err">Gagal: ${e.message || e}</span>`;
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // ── DUPLICATE CHECK ──
