@@ -1177,43 +1177,26 @@
           <div class="form-card">
             <div class="form-sec">Identitas Vendor</div>
 
-            <!-- Mode: Jubelio (default) -->
-            <div id="vm-mode-jubelio">
-              <div style="background:var(--off);border:1px solid var(--g100);border-radius:6px;padding:14px;margin-bottom:14px">
-                <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
-                  <div style="flex:1;min-width:200px">
-                    <div style="font-size:11px;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Source</div>
-                    <div style="font-size:14px;font-weight:600">Pemasok dari Jubelio</div>
-                    <div style="font-size:12px;color:var(--g600);margin-top:2px">Nama, contact, email, telp, NPWP auto-sync dari Jubelio.</div>
-                  </div>
-                  <button class="btn-primary" type="button" onclick="openVMJubPicker('')">🔍 Pilih Pemasok</button>
-                </div>
-                <div id="vm-jub-selected" style="display:none;margin-top:14px;background:var(--white);border:1px solid var(--g100);border-radius:6px;padding:12px">
-                  <!-- filled by JS when supplier picked -->
-                </div>
+            <!-- Optional Jubelio link indicator (above manual fields) -->
+            <div id="vm-jub-link-bar" style="display:flex;justify-content:space-between;align-items:center;gap:12px;background:var(--off);border:1px solid var(--g100);border-radius:6px;padding:10px 14px;margin-bottom:14px;font-size:12px">
+              <div style="flex:1;min-width:0">
+                <span id="vm-jub-link-status" style="color:var(--g600)">Belum terhubung ke pemasok Jubelio.</span>
               </div>
-              <div style="text-align:center;font-size:12px;color:var(--g400);margin-bottom:6px">
-                Vendor gak ada di Jubelio? <a href="#" onclick="vmSwitchMode('manual');return false" style="color:var(--black);text-decoration:underline">Tambah manual</a>
+              <div style="display:flex;gap:6px">
+                <button class="btn-icon" type="button" onclick="openVMJubPicker('')">📎 Pre-fill dari Jubelio</button>
+                <button class="btn-icon" type="button" id="vm-jub-unlink-btn" style="display:none;color:#c0392b" onclick="vmClearJubSelection()">Lepas link</button>
               </div>
             </div>
-
-            <!-- Mode: Manual (fallback) -->
-            <div id="vm-mode-manual" style="display:none">
-              <div style="background:#fff8e6;border:1px solid #ffd966;border-radius:6px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:#7a5d00">
-                ⚠️ Mode manual — data ini gak akan auto-sync. Untuk bisa export PO, vendor harus juga ada di Jubelio dengan nama persis sama.
-                <a href="#" onclick="vmSwitchMode('jubelio');return false" style="color:#7a5d00;text-decoration:underline;margin-left:6px">← Kembali pilih dari Jubelio</a>
-              </div>
-              <div class="form-grid">
-                <div class="fg"><label>Nama Vendor <span class="req">*</span></label><input type="text" id="vm-name" placeholder="cth: PT Konveksi Jaya"></div>
-                <div class="fg"><label>Contact Person</label><input type="text" id="vm-contact-person" placeholder="cth: Pak Budi"></div>
-                <div class="fg"><label>Email</label><input type="email" id="vm-email" placeholder="vendor@email.com"></div>
-                <div class="fg"><label>No. Telp <span class="req">*</span></label><input type="text" id="vm-phone" placeholder="081234567890"></div>
-                <div class="fg full"><label>Alamat</label><input type="text" id="vm-address" placeholder="opsional"></div>
-                <div class="fg"><label>NPWP</label><input type="text" id="vm-npwp" placeholder="opsional"></div>
-              </div>
-            </div>
-
             <input type="hidden" id="vm-jub-contact-id" value="">
+
+            <div class="form-grid">
+              <div class="fg"><label>Nama Vendor <span class="req">*</span></label><input type="text" id="vm-name" placeholder="cth: PT Konveksi Jaya"></div>
+              <div class="fg"><label>Contact Person</label><input type="text" id="vm-contact-person" placeholder="cth: Pak Budi"></div>
+              <div class="fg"><label>Email</label><input type="email" id="vm-email" placeholder="vendor@email.com"></div>
+              <div class="fg"><label>No. Telp <span class="req">*</span></label><input type="text" id="vm-phone" placeholder="081234567890"></div>
+              <div class="fg full"><label>Alamat</label><input type="text" id="vm-address" placeholder="opsional"></div>
+              <div class="fg"><label>NPWP</label><input type="text" id="vm-npwp" placeholder="opsional"></div>
+            </div>
 
             <div class="form-sec" style="margin-top:1.25rem">Default PO ke Jubelio</div>
             <div class="form-grid">
@@ -1264,14 +1247,13 @@
             <table>
               <thead><tr>
                 <th>Nama Vendor</th>
-                <th>Source</th>
                 <th>Contact / Telp</th>
                 <th>Default Lokasi</th>
                 <th>Tax</th>
                 <th>SKU Diorder</th>
                 <th>Aksi</th>
               </tr></thead>
-              <tbody id="vmTableBody"><tr><td class="empty-td" colspan="7">Klik "Semua" untuk memuat data.</td></tr></tbody>
+              <tbody id="vmTableBody"><tr><td class="empty-td" colspan="6">Klik "Semua" untuk memuat data.</td></tr></tbody>
             </table>
           </div>
         </div>
