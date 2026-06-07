@@ -2881,11 +2881,18 @@ async function _pbLoadDetailData(eventName) {
       for (const r of (data||[])) costMap.set(r.item_id, Number(r.average_cost) || 0);
     }
 
+    // For Stock Remaining: canceled orders never actually shipped — exclude
+    // their qty from the "Sold" column so the reconcile reflects physical flow.
+    const confirmedSalesItems = salesItems.filter(it => {
+      const h = orderHeaderMap.get(it.salesorder_id);
+      return !(h && (h.is_canceled || h.wms_status === 'CANCELED' || h.wms_status === 'CANCEL'));
+    });
+
     _pbRenderStockSection('pbd-stock-in', 'pbd-in-summary', inHeaders, inItems, 'Belum ada Transfer IN — map TRFO ke event ini di modul Inventory Transfer.', costMap);
     _pbRenderStockSection('pbd-reinbound', 'pbd-reinbound-summary', outHeaders, outItems, 'Belum ada reinbound TRFO ke event ini.', costMap);
     _pbRenderStockSection('pbd-internal', 'pbd-internal-summary', internalHeaders, internalItems, 'Tidak ada perpindahan antar lokasi event.', costMap);
     _pbRenderSalesSection(salesItems, orderHeaderMap, costMap);
-    _pbRenderRemainingSection(inItems, salesItems, outItems, costMap);
+    _pbRenderRemainingSection(inItems, confirmedSalesItems, outItems, costMap);
     _pbApplyCollapsedState();
   } catch (e) {
     console.error('_pbLoadDetailData:', e);
@@ -2958,9 +2965,18 @@ function _pbRenderSalesSection(salesItems, orderHeaderMap, costMap) {
     return;
   }
 
-  // Aggregate per item_id (SKU-level) — for the bottom table
+  // Canceled orders should NOT count as confirmed sales — they inflate revenue.
+  // We keep canceled visible in the by-status breakdown so user sees the full
+  // mapped set, but exclude from KPIs / channel / per-SKU aggregation.
+  const isOrderCanceled = (soId) => {
+    const h = orderHeaderMap?.get(soId);
+    return !!(h && (h.is_canceled || h.wms_status === 'CANCELED' || h.wms_status === 'CANCEL'));
+  };
+  const confirmedItems = salesItems.filter(it => !isOrderCanceled(it.salesorder_id));
+
+  // Per-SKU table = confirmed only
   const byItem = new Map();
-  for (const it of salesItems) {
+  for (const it of confirmedItems) {
     const key = it.item_id || it.item_code;
     if (!key) continue;
     const cur = byItem.get(key) || { item_id: it.item_id, item_code: it.item_code, item_name: it.item_name, variant: it.variant, qty: 0, revenue: 0, orders: new Set() };
@@ -2974,12 +2990,16 @@ function _pbRenderSalesSection(salesItems, orderHeaderMap, costMap) {
   const totalRev = rows.reduce((a,r) => a + r.revenue, 0);
   const totalCOGS = rows.reduce((a,r) => a + r.qty * (costMap?.get(r.item_id) || 0), 0);
   const totalProfit = totalRev - totalCOGS;
-  const totalOrders = new Set(salesItems.map(it => it.salesorder_id));
+  const confirmedOrders = new Set(confirmedItems.map(it => it.salesorder_id));
+  const mappedOrderIds = new Set(salesItems.map(it => it.salesorder_id));
+  const canceledOrders = [...mappedOrderIds].filter(soId => isOrderCanceled(soId));
+  const canceledRev = canceledOrders.reduce((a, soId) => {
+    const lineRev = salesItems.filter(it => it.salesorder_id === soId)
+      .reduce((s,it) => s + (Number(it.price||0) * Number(it.qty||0) - Number(it.disc_amount||0)), 0);
+    return a + lineRev;
+  }, 0);
 
-  // Per-channel breakdown (revenue + order count) — derived from header map
-  const channelMap = new Map();  // channel_name → {orders:Set, revenue, qty}
-  const statusMap  = new Map();  // wms_status (or "CANCELED" if is_canceled) → {orders:Set, revenue}
-  // First index items by order to assign revenue per order
+  // Per-order rollups for channel + status (ALL orders, status keeps canceled separate)
   const orderRev = new Map();
   const orderQty = new Map();
   for (const it of salesItems) {
@@ -2987,23 +3007,28 @@ function _pbRenderSalesSection(salesItems, orderHeaderMap, costMap) {
     orderRev.set(it.salesorder_id, (orderRev.get(it.salesorder_id) || 0) + r);
     orderQty.set(it.salesorder_id, (orderQty.get(it.salesorder_id) || 0) + Number(it.qty || 0));
   }
+  // Channel = confirmed only (revenue should match KPI tiles)
+  const channelMap = new Map();
+  // Status = ALL orders (so canceled appears as a status row)
+  const statusMap  = new Map();
   for (const [soId, rev] of orderRev) {
-    const h = orderHeaderMap?.get(soId) || {};
-    const ch = h.channel_name || '(unknown)';
-    const cur = channelMap.get(ch) || { orders: new Set(), revenue: 0, qty: 0 };
-    cur.orders.add(soId);
-    cur.revenue += rev;
-    cur.qty += orderQty.get(soId) || 0;
-    channelMap.set(ch, cur);
-
-    const st = h.is_canceled ? 'CANCELED' : (h.wms_status || '(unknown)');
+    const h  = orderHeaderMap?.get(soId) || {};
+    const qty = orderQty.get(soId) || 0;
+    if (!isOrderCanceled(soId)) {
+      const ch = h.channel_name || '(unknown)';
+      const cur = channelMap.get(ch) || { orders: new Set(), revenue: 0, qty: 0 };
+      cur.orders.add(soId); cur.revenue += rev; cur.qty += qty;
+      channelMap.set(ch, cur);
+    }
+    const st = isOrderCanceled(soId) ? 'CANCELED' : (h.wms_status || '(unknown)');
     const sc = statusMap.get(st) || { orders: new Set(), revenue: 0 };
-    sc.orders.add(soId);
-    sc.revenue += rev;
+    sc.orders.add(soId); sc.revenue += rev;
     statusMap.set(st, sc);
   }
 
-  sum.textContent = `${totalOrders.size} order · ${rows.length} SKU · ${totalQty.toLocaleString('id-ID')} pcs · ${_pbRpShort(totalRev)} rev · ${_pbRpShort(totalProfit)} margin`;
+  // Header summary reflects CONFIRMED (so it matches what KPI tiles show)
+  const cancelHint = canceledOrders.length ? ` · ${canceledOrders.length} canceled excluded` : '';
+  sum.textContent = `${confirmedOrders.size} order · ${rows.length} SKU · ${totalQty.toLocaleString('id-ID')} pcs · ${_pbRpShort(totalRev)} rev · ${_pbRpShort(totalProfit)} margin${cancelHint}`;
 
   // Pills for channel + status (compact, scannable)
   const channelRows = [...channelMap.entries()].sort((a,b) => b[1].revenue - a[1].revenue);
@@ -3017,6 +3042,12 @@ function _pbRenderSalesSection(salesItems, orderHeaderMap, costMap) {
   };
 
   cont.innerHTML = `
+    <!-- Confirmed-orders banner so user knows what counts -->
+    <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--g600);margin-bottom:10px;padding:6px 10px;background:var(--off);border-left:3px solid var(--g100);border-radius:3px">
+      <span><strong>${confirmedOrders.size}</strong> confirmed orders dipakai untuk semua angka di bawah.</span>
+      ${canceledOrders.length ? `<span style="color:#c33">${canceledOrders.length} canceled (${_pbRpShort(canceledRev)}) tidak dihitung</span>` : ''}
+    </div>
+
     <!-- KPI tiles -->
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px">
       <div style="background:var(--off);border-radius:6px;padding:10px 12px">
@@ -3033,7 +3064,7 @@ function _pbRenderSalesSection(salesItems, orderHeaderMap, costMap) {
       </div>
       <div style="background:var(--off);border-radius:6px;padding:10px 12px">
         <div style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.05em;font-family:var(--label)">Avg / Order</div>
-        <div style="font-size:14px;font-weight:600;font-family:var(--mono);margin-top:2px">${_pbRp(totalOrders.size ? totalRev/totalOrders.size : 0)}</div>
+        <div style="font-size:14px;font-weight:600;font-family:var(--mono);margin-top:2px">${_pbRp(confirmedOrders.size ? totalRev/confirmedOrders.size : 0)}</div>
       </div>
     </div>
 
