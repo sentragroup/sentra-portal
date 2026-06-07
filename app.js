@@ -19885,7 +19885,6 @@ async function syncInvTransfer() {
 let allVMRows = [];
 let allJubSuppliers = [];   // jubelio_contacts where contact_type=1
 let vmDetailCurrentId = null;
-let vmCurrentMode = 'jubelio'; // 'jubelio' | 'manual'
 
 function mapVM(r) {
   return {
@@ -19910,24 +19909,17 @@ function mapVM(r) {
 }
 
 function vmSyncedField(r, field) {
-  // Returns synced value if linked to Jubelio, else falls back to manual field
+  // Manual values are source of truth; Jubelio mirror only fills in if manual is empty
+  const manual = {
+    name: r.vendorName, contact: r.contactPerson, email: r.email,
+    phone: r.phone, npwp: r.npwp, address: r.address,
+  }[field] || '';
+  if (manual) return manual;
   if (r.jubelioContactId) {
-    switch (field) {
-      case 'name': return r.syncedName || r.vendorName;
-      case 'contact': return r.syncedContact || r.contactPerson;
-      case 'email': return r.syncedEmail || r.email;
-      case 'phone': return r.syncedPhone || r.phone;
-      case 'npwp': return r.syncedNpwp || r.npwp;
-      case 'address': return r.syncedCity || r.address;
-    }
-  }
-  switch (field) {
-    case 'name': return r.vendorName;
-    case 'contact': return r.contactPerson;
-    case 'email': return r.email;
-    case 'phone': return r.phone;
-    case 'npwp': return r.npwp;
-    case 'address': return r.address;
+    return ({
+      name: r.syncedName, contact: r.syncedContact, email: r.syncedEmail,
+      phone: r.syncedPhone, npwp: r.syncedNpwp, address: r.syncedCity,
+    }[field]) || '';
   }
   return '';
 }
@@ -19938,7 +19930,7 @@ function switchVMTab(name, el) {
   document.getElementById('vmtab-new').style.display = name === 'new' ? 'block' : 'none';
   document.getElementById('vmtab-list').style.display = name === 'list' ? 'block' : 'none';
   if (name === 'list') loadVendorMaster();
-  if (name === 'new') loadJubSuppliers(); // preload picker
+  if (name === 'new') loadJubSuppliers(); // preload picker (used by 'Pre-fill dari Jubelio')
 }
 
 async function loadJubSuppliers() {
@@ -20001,11 +19993,11 @@ async function loadVendorMaster() {
 
 function renderVMStats() {
   const total = allVMRows.length;
-  const synced = allVMRows.filter(r => r.jubelioContactId).length;
+  const linked = allVMRows.filter(r => r.jubelioContactId).length;
   const withSku = allVMRows.filter(r => (r.skuCount||0) > 0).length;
   document.getElementById('vm-s-total').textContent = total;
   const el2 = document.getElementById('vm-s-with-contact');
-  if (el2) { el2.textContent = synced; el2.parentElement.querySelector('.stat-lbl').textContent = 'Synced dari Jubelio'; }
+  if (el2) { el2.textContent = linked; el2.parentElement.querySelector('.stat-lbl').textContent = 'Linked ke Jubelio'; }
   const el3 = document.getElementById('vm-s-incomplete');
   if (el3) { el3.textContent = withSku; el3.parentElement.querySelector('.stat-lbl').textContent = 'Punya SKU di Product Dev'; }
 }
@@ -20027,7 +20019,7 @@ function renderVMTable(rows) {
   const tc = document.getElementById('vm-tcount');
   if (tc) tc.textContent = `${rows.length} entri`;
   if (!rows.length) {
-    tbody.innerHTML = `<tr><td class="empty-td" colspan="7">Tidak ada vendor. Klik tab "Tambah" untuk pilih dari Jubelio.</td></tr>`;
+    tbody.innerHTML = `<tr><td class="empty-td" colspan="6">Tidak ada vendor. Klik tab "Tambah" untuk input baru.</td></tr>`;
     return;
   }
   tbody.innerHTML = rows.map(r => {
@@ -20035,15 +20027,14 @@ function renderVMTable(rows) {
     const contact = vmSyncedField(r, 'contact');
     const phone = vmSyncedField(r, 'phone');
     const taxPill = `<span class="pill ${r.defaultTax==='PPN'?'p-signings':'p-draft'}" style="font-size:11px">${r.defaultTax}${r.defaultTaxIncluded?' (incl)':''}</span>`;
-    const srcPill = r.jubelioContactId
-      ? `<span class="pill p-active" style="font-size:10px" title="Jubelio contact_id: ${r.jubelioContactId}">✓ Jubelio</span>`
-      : `<span class="pill p-draft" style="font-size:10px">Manual</span>`;
+    const linkChip = r.jubelioContactId
+      ? `<span class="pill p-active" style="font-size:9px;margin-left:6px" title="Linked to Jubelio contact_id: ${r.jubelioContactId}">🔗 Jubelio</span>`
+      : '';
     const skuCell = r.skuCount > 0
       ? `<strong style="color:var(--black)">${r.skuCount}</strong> <span style="font-size:10px;color:var(--g400)">SKU</span>`
       : `<span style="color:var(--g400);font-size:11px">—</span>`;
     return `<tr>
-      <td><a href="#" onclick="openVMDetail('${r.id}');return false" style="color:var(--black);text-decoration:none;font-weight:600">${(name||'(belum diset)').replace(/</g,'&lt;')}</a></td>
-      <td>${srcPill}</td>
+      <td><a href="#" onclick="openVMDetail('${r.id}');return false" style="color:var(--black);text-decoration:none;font-weight:600">${(name||'(belum diset)').replace(/</g,'&lt;')}</a>${linkChip}</td>
       <td style="font-size:12px">
         <div>${(contact||'—').replace(/</g,'&lt;')}</div>
         <div class="mono" style="font-size:11px;color:var(--g600)">${(phone||'—').replace(/</g,'&lt;')}</div>
@@ -20059,15 +20050,7 @@ function renderVMTable(rows) {
   }).join('');
 }
 
-// ── VENDOR MASTER — form mode + picker ──
-function vmSwitchMode(mode) {
-  vmCurrentMode = mode;
-  document.getElementById('vm-mode-jubelio').style.display = mode === 'jubelio' ? 'block' : 'none';
-  document.getElementById('vm-mode-manual').style.display = mode === 'manual' ? 'block' : 'none';
-  if (mode === 'jubelio') { vmClearJubSelection(); }
-  if (mode === 'manual') { document.getElementById('vm-jub-contact-id').value = ''; }
-}
-
+// ── VENDOR MASTER — Jubelio picker (optional pre-fill / link) ──
 async function openVMJubPicker(scope) {
   const modal = document.getElementById('vmJubPickerModal');
   modal.dataset.scope = scope || '';
@@ -20116,42 +20099,44 @@ function vmSelectJubSupplier(contactId) {
   const scope = modal.dataset.scope || '';
   closeVMJubPicker();
   if (scope === '') {
-    // Picking for the new-vendor form
+    // Picking for the new-vendor form: pre-fill manual fields (still editable)
     document.getElementById('vm-jub-contact-id').value = contactId;
-    const display = document.getElementById('vm-jub-selected');
-    display.style.display = 'block';
-    display.innerHTML = `
-      <div style="display:flex;justify-content:space-between;align-items:start;gap:12px">
-        <div style="flex:1;min-width:0">
-          <div style="font-size:11px;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px">Synced from Jubelio</div>
-          <div style="font-weight:700;font-size:15px;margin-top:2px">${(s.contact_name||'').replace(/</g,'&lt;')}</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;margin-top:8px;font-size:12px">
-            <div><span style="color:var(--g400)">PIC:</span> ${(s.primary_contact||'—').replace(/</g,'&lt;')}</div>
-            <div><span style="color:var(--g400)">Telp:</span> <span class="mono">${(s.phone||s.mobile||'—').replace(/</g,'&lt;')}</span></div>
-            <div><span style="color:var(--g400)">Email:</span> <span class="mono">${(s.email||'—').replace(/</g,'&lt;')}</span></div>
-            <div><span style="color:var(--g400)">NPWP:</span> <span class="mono">${(s.npwp||'—').replace(/</g,'&lt;')}</span></div>
-            <div style="grid-column:span 2"><span style="color:var(--g400)">Kota:</span> ${(s.billing_city||'—').replace(/</g,'&lt;')}</div>
-          </div>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:4px">
-          <button class="btn-icon" onclick="openVMJubPicker('')">Ubah</button>
-          <button class="btn-icon" style="color:#c0392b" onclick="vmClearJubSelection()">Lepas</button>
-        </div>
-      </div>`;
+    // Only pre-fill empty inputs — don't clobber what user already typed
+    const setIfEmpty = (id, value) => {
+      const el = document.getElementById(id);
+      if (el && !el.value && value) el.value = value;
+    };
+    setIfEmpty('vm-name', s.contact_name);
+    setIfEmpty('vm-contact-person', s.primary_contact);
+    setIfEmpty('vm-email', s.email);
+    setIfEmpty('vm-phone', s.phone || s.mobile);
+    setIfEmpty('vm-npwp', s.npwp);
+    setIfEmpty('vm-address', s.billing_address || s.billing_city);
+    _vmUpdateJubLinkBar(s);
   } else {
     // Re-link an existing vendor (from detail modal)
     vmRelinkExisting(scope, contactId);
   }
 }
 
+function _vmUpdateJubLinkBar(s) {
+  const status = document.getElementById('vm-jub-link-status');
+  const unlinkBtn = document.getElementById('vm-jub-unlink-btn');
+  if (s) {
+    status.innerHTML = `<span class="pill p-active" style="font-size:10px;margin-right:6px">✓ Linked</span>Jubelio: <strong>${(s.contact_name||'').replace(/</g,'&lt;')}</strong> <span class="mono" style="color:var(--g400);font-size:11px">(id ${s.contact_id})</span>`;
+    unlinkBtn.style.display = 'inline-block';
+  } else {
+    status.innerHTML = '<span style="color:var(--g600)">Belum terhubung ke pemasok Jubelio.</span>';
+    unlinkBtn.style.display = 'none';
+  }
+}
+
 function vmClearJubSelection() {
   document.getElementById('vm-jub-contact-id').value = '';
-  const d = document.getElementById('vm-jub-selected');
-  d.style.display = 'none'; d.innerHTML = '';
+  _vmUpdateJubLinkBar(null);
 }
 
 function clearVMForm() {
-  vmSwitchMode('jubelio');
   vmClearJubSelection();
   ['vm-name','vm-contact-person','vm-email','vm-phone','vm-address','vm-npwp','vm-notes'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '';
@@ -20165,34 +20150,14 @@ function clearVMForm() {
 async function submitVM() {
   const fb = document.getElementById('vm-feedback');
   const btn = document.getElementById('vmSubmitBtn');
+  const vendorName = document.getElementById('vm-name').value.trim();
+  const phone = document.getElementById('vm-phone').value.trim();
+  if (!vendorName) { fb.textContent = '⚠️ Nama vendor wajib.'; return; }
+  if (!phone) { fb.textContent = '⚠️ No. Telp wajib (untuk PO ke Jubelio).'; return; }
   const jubContactId = parseInt(document.getElementById('vm-jub-contact-id').value, 10) || null;
-  let vendorName = '', phone = '', contactPerson = '', email = '', address = '', npwp = '';
-
-  if (vmCurrentMode === 'jubelio') {
-    if (!jubContactId) { fb.textContent = '⚠️ Pilih pemasok dari Jubelio dulu.'; return; }
-    const s = allJubSuppliers.find(x => x.contact_id === jubContactId);
-    if (!s) { fb.textContent = '⚠️ Pemasok tidak ditemukan.'; return; }
-    vendorName = s.contact_name;
-    contactPerson = s.primary_contact || '';
-    email = s.email || '';
-    phone = s.phone || s.mobile || '';
-    address = s.billing_address || s.billing_city || '';
-    npwp = s.npwp || '';
-    // Check duplicate link
-    if (allVMRows.some(r => r.jubelioContactId === jubContactId)) {
-      fb.textContent = '⚠️ Pemasok ini sudah ada di Vendor Master.'; return;
-    }
-  } else {
-    vendorName = document.getElementById('vm-name').value.trim();
-    phone = document.getElementById('vm-phone').value.trim();
-    contactPerson = document.getElementById('vm-contact-person').value.trim();
-    email = document.getElementById('vm-email').value.trim();
-    address = document.getElementById('vm-address').value.trim();
-    npwp = document.getElementById('vm-npwp').value.trim();
-    if (!vendorName) { fb.textContent = '⚠️ Nama vendor wajib.'; return; }
-    if (!phone) { fb.textContent = '⚠️ No. Telp wajib (untuk PO ke Jubelio).'; return; }
+  if (jubContactId && allVMRows.some(r => r.jubelioContactId === jubContactId)) {
+    fb.textContent = '⚠️ Pemasok Jubelio ini sudah ter-link ke vendor lain.'; return;
   }
-
   btn.disabled = true; fb.textContent = 'Menyimpan...';
   try {
     const id = genId('VM');
@@ -20200,11 +20165,11 @@ async function submitVM() {
       id,
       vendor_name: vendorName,
       jubelio_contact_id: jubContactId,
-      contact_person: contactPerson || null,
-      email: email || null,
-      phone: phone || null,
-      address: address || null,
-      npwp: npwp || null,
+      contact_person: document.getElementById('vm-contact-person').value.trim() || null,
+      email: document.getElementById('vm-email').value.trim() || null,
+      phone,
+      address: document.getElementById('vm-address').value.trim() || null,
+      npwp: document.getElementById('vm-npwp').value.trim() || null,
       default_location: document.getElementById('vm-default-location').value,
       default_tax: document.getElementById('vm-default-tax').value,
       default_tax_included: document.getElementById('vm-default-tax-included').value === 'true',
@@ -20213,7 +20178,7 @@ async function submitVM() {
     };
     const {error} = await sb.from('vendor_master').insert(row);
     if (error) throw error;
-    fb.innerHTML = `<span class="fb-ok">✓ Vendor "${vendorName}" tersimpan</span>`;
+    fb.innerHTML = `<span class="fb-ok">✓ Vendor "${vendorName}" tersimpan${jubContactId?' (linked ke Jubelio)':''}</span>`;
     clearVMForm();
     await loadVendorMaster();
   } catch (e) {
@@ -20276,24 +20241,30 @@ function vmSwitchDetailTab(name, el) {
 function _vmRenderIdentityTab(r) {
   const linked = !!r.jubelioContactId;
   const cont = document.getElementById('vm-detail-tab-identity');
-  const fields = [
-    ['Nama Vendor', vmSyncedField(r,'name')],
-    ['Contact Person', vmSyncedField(r,'contact')],
-    ['Email', vmSyncedField(r,'email')],
-    ['Telp/Mobile', vmSyncedField(r,'phone')],
-    ['NPWP', vmSyncedField(r,'npwp')],
-    ['Alamat / Kota', vmSyncedField(r,'address')],
-  ];
-  const idCells = fields.map(([k,v]) => `<div><div style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px">${k}</div><div style="font-size:13px;margin-top:2px">${(v||'—').toString().replace(/</g,'&lt;')}</div></div>`).join('');
+  // Jubelio link mirror (shown as small reference under each field if linked)
+  const ref = (jubVal) => linked && jubVal ? `<div style="font-size:10px;color:var(--g400);margin-top:2px">📎 Jubelio: ${jubVal.toString().replace(/</g,'&lt;')}</div>` : '';
   cont.innerHTML = `
     <div style="background:var(--off);border-radius:6px;padding:14px;margin-bottom:16px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-        <div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Identity ${linked?'<span class="pill p-active" style="font-size:10px;margin-left:8px">Synced from Jubelio</span>':'<span class="pill p-draft" style="font-size:10px;margin-left:8px">Manual</span>'}</div>
-        ${linked
-          ? `<button class="btn-icon" onclick="openVMJubPicker('${r.id}')">Re-link ke Jubelio</button>`
-          : `<button class="btn-icon" onclick="openVMJubPicker('${r.id}')">Tautkan ke Jubelio</button>`}
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap">
+        <div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px">
+          Identity (manual)
+          ${linked?`<span class="pill p-active" style="font-size:10px;margin-left:8px">🔗 Linked to Jubelio (id ${r.jubelioContactId})</span>`:`<span class="pill p-draft" style="font-size:10px;margin-left:8px">Tidak ter-link</span>`}
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="btn-icon" onclick="openVMJubPicker('${r.id}')">${linked?'Ubah link Jubelio':'+ Link ke Jubelio'}</button>
+          ${linked?`<button class="btn-icon" style="color:#c0392b" onclick="vmUnlinkExisting('${r.id}')">Lepas link</button>`:''}
+        </div>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">${idCells}</div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        <div class="fg"><label>Nama Vendor *</label><input id="vmd-name" type="text" value="${(r.vendorName||'').replace(/"/g,'&quot;')}">${ref(r.syncedName)}</div>
+        <div class="fg"><label>Contact Person</label><input id="vmd-contact" type="text" value="${(r.contactPerson||'').replace(/"/g,'&quot;')}">${ref(r.syncedContact)}</div>
+        <div class="fg"><label>Email</label><input id="vmd-email" type="email" value="${(r.email||'').replace(/"/g,'&quot;')}">${ref(r.syncedEmail)}</div>
+        <div class="fg"><label>No. Telp *</label><input id="vmd-phone" type="text" value="${(r.phone||'').replace(/"/g,'&quot;')}">${ref(r.syncedPhone)}</div>
+        <div class="fg full"><label>Alamat</label><input id="vmd-address" type="text" value="${(r.address||'').replace(/"/g,'&quot;')}">${ref(r.syncedCity)}</div>
+        <div class="fg"><label>NPWP</label><input id="vmd-npwp" type="text" value="${(r.npwp||'').replace(/"/g,'&quot;')}">${ref(r.syncedNpwp)}</div>
+      </div>
+      ${linked?`<div style="margin-top:10px;text-align:right"><button class="btn-icon" onclick="vmPullFromJubelio('${r.id}')" title="Replace manual fields with Jubelio data">↻ Tarik ulang dari Jubelio</button></div>`:''}
     </div>
 
     <div style="background:var(--off);border-radius:6px;padding:14px">
@@ -20319,15 +20290,25 @@ function _vmRenderIdentityTab(r) {
         </div>
         <div class="fg"><label>Notes Internal</label><input id="vmd-notes" type="text" value="${(r.notes||'').replace(/"/g,'&quot;')}"></div>
       </div>
-      <div style="margin-top:12px;text-align:right">
-        <button class="btn-save" onclick="saveVMDetailDefaults('${r.id}')">Simpan</button>
+      <div style="margin-top:14px;text-align:right">
+        <button class="btn-save" onclick="saveVMDetailIdentity('${r.id}')">Simpan Semua</button>
       </div>
     </div>`;
 }
 
-async function saveVMDetailDefaults(id) {
+async function saveVMDetailIdentity(id) {
+  const name = document.getElementById('vmd-name').value.trim();
+  const phone = document.getElementById('vmd-phone').value.trim();
+  if (!name) { alert('Nama vendor wajib.'); return; }
+  if (!phone) { alert('No. Telp wajib.'); return; }
   try {
     const {error} = await sb.from('vendor_master').update({
+      vendor_name: name,
+      contact_person: document.getElementById('vmd-contact').value.trim() || null,
+      email: document.getElementById('vmd-email').value.trim() || null,
+      phone,
+      address: document.getElementById('vmd-address').value.trim() || null,
+      npwp: document.getElementById('vmd-npwp').value.trim() || null,
       default_location: document.getElementById('vmd-loc').value,
       default_tax: document.getElementById('vmd-tax').value,
       default_tax_included: document.getElementById('vmd-tax-incl').value === 'true',
@@ -20339,6 +20320,43 @@ async function saveVMDetailDefaults(id) {
     const row = allVMRows.find(r => r.id === id);
     if (row) _vmRenderIdentityTab(row);
     alert('✓ Tersimpan');
+  } catch (e) { alert('Gagal: ' + (e.message || e)); }
+}
+
+async function vmUnlinkExisting(id) {
+  if (!confirm('Lepas link ke Jubelio? Manual fields tetap utuh, hanya jubelio_contact_id yang di-null-kan.')) return;
+  try {
+    const {error} = await sb.from('vendor_master').update({
+      jubelio_contact_id: null,
+      last_updated: new Date().toISOString(), last_updated_by: currentUser,
+    }).eq('id', id);
+    if (error) throw error;
+    await loadVendorMaster();
+    const row = allVMRows.find(r => r.id === id);
+    if (row) _vmRenderIdentityTab(row);
+  } catch (e) { alert('Gagal: ' + (e.message || e)); }
+}
+
+async function vmPullFromJubelio(id) {
+  if (!confirm('Replace nama/contact/email/telp/NPWP/alamat dengan data Jubelio terkini? Field yang sudah kamu edit manual akan tertimpa.')) return;
+  const row = allVMRows.find(r => r.id === id);
+  if (!row || !row.jubelioContactId) return;
+  const s = allJubSuppliers.find(x => x.contact_id === row.jubelioContactId);
+  if (!s) { alert('Data Jubelio tidak ditemukan. Coba refresh halaman.'); return; }
+  try {
+    const {error} = await sb.from('vendor_master').update({
+      vendor_name: s.contact_name || row.vendorName,
+      contact_person: s.primary_contact || null,
+      email: s.email || null,
+      phone: s.phone || s.mobile || row.phone,
+      address: s.billing_address || s.billing_city || null,
+      npwp: s.npwp || null,
+      last_updated: new Date().toISOString(), last_updated_by: currentUser,
+    }).eq('id', id);
+    if (error) throw error;
+    await loadVendorMaster();
+    const r2 = allVMRows.find(r => r.id === id);
+    if (r2) _vmRenderIdentityTab(r2);
   } catch (e) { alert('Gagal: ' + (e.message || e)); }
 }
 
