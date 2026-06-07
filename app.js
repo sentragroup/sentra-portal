@@ -6219,15 +6219,21 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
     return;
   }
 
-  const itemIds = [...new Set(mappings.map(m => m.jubelio_item_id).filter(Boolean))];
+  // product_mappings has one row per distinct item_name with a single
+  // representative jubelio_item_id. Expand to all SKU variants of those names
+  // so size variants (M / L / XL / ...) all show up.
+  const itemNames = [...new Set(mappings.map(m => m.item_name).filter(Boolean))];
+  const allVariantRows = await _fetchAllPages('jubelio_items','item_id, item_name, item_code, thumbnail',
+    q => q.in('item_name', itemNames));
+  const itemIds = [...new Set(allVariantRows.map(r => r.item_id))];
 
-  // 2. Parallel fetch: sales items, stock, adjustments, item codes (for size extraction)
-  const [salesItems, stocks, adjItems, itemCodes] = await Promise.all([
+  // 2. Parallel fetch: sales items, stock, adjustments
+  const [salesItems, stocks, adjItems] = await Promise.all([
     _fetchAllPages("jubelio_sales_order_items","item_id, qty, salesorder_id, price, disc_amount",q=>q.in("item_id",itemIds)),
     _fetchAllPages("jubelio_inventory_stocks","item_id, on_hand",q=>q.in("item_id",itemIds)),
     _fetchAllPages("jubelio_inventory_adjustment_items","item_id, qty",q=>q.in("item_id",itemIds)),
-    _fetchAllPages("jubelio_items","item_id, item_code, thumbnail",q=>q.in("item_id",itemIds)),
-  ]).catch(() => [[], [], [], []]);
+  ]).catch(() => [[], [], []]);
+  const itemCodes = allVariantRows; // already fetched above
 
   // Size map: item_id → size label (last segment of item_code after final "-")
   const sizeMap = {};
@@ -6290,13 +6296,15 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
     if (qty > 0) varData[a.item_id].adjIn += qty; else varData[a.item_id].adjOut += Math.abs(qty);
   }
 
-  // 5. Group by product name, aggregate
+  // 5. Group by product name — use ALL variant rows (allVariantRows) so every
+  // SKU under the same product_mappings.item_name gets included, not just the
+  // representative one stored in product_mappings.jubelio_item_id.
   const productGroups = {};
-  for (const m of mappings) {
-    if (!m.jubelio_item_id) continue;
-    if (!productGroups[m.item_name]) productGroups[m.item_name] = { name: m.item_name, variants: [] };
-    const vd = varData[m.jubelio_item_id] || { stock: 0, sold: 0, adjIn: 0, adjOut: 0 };
-    productGroups[m.item_name].variants.push({ id: m.jubelio_item_id, size: sizeMap[m.jubelio_item_id] || "?", ...vd });
+  for (const v of allVariantRows) {
+    if (!v.item_id || !v.item_name) continue;
+    if (!productGroups[v.item_name]) productGroups[v.item_name] = { name: v.item_name, variants: [] };
+    const vd = varData[v.item_id] || { stock: 0, sold: 0, adjIn: 0, adjOut: 0 };
+    productGroups[v.item_name].variants.push({ id: v.item_id, size: sizeMap[v.item_id] || "?", ...vd });
   }
   const products = Object.values(productGroups).sort((a,b)=>a.name.localeCompare(b.name,'id')).map(p => ({
     ...p,
@@ -11180,15 +11188,19 @@ async function loadColStockRecon(colId, colName) {
       el.innerHTML = `<div style="color:var(--g400);font-size:12px;padding:4px 0">Belum ada produk yang di-mapping ke koleksi ini.</div>`;
       return;
     }
-    const itemIds = [...new Set(mappings.map(m => m.jubelio_item_id).filter(Boolean))];
+    // Expand mappings (1 row per item_name) to ALL SKU variants of those names.
+    const itemNames = [...new Set(mappings.map(m => m.item_name).filter(Boolean))];
+    const allVariantRows = await _fetchAllPages('jubelio_items','item_id,item_name,item_code',
+      q => q.in('item_name', itemNames));
+    const itemIds = [...new Set(allVariantRows.map(r => r.item_id))];
 
-    const [adjItems, poItems, salesItems, stocks, jubelioItems] = await Promise.all([
+    const [adjItems, poItems, salesItems, stocks] = await Promise.all([
       _fetchAllPages("jubelio_inventory_adjustment_items","item_id,qty",q=>q.in("item_id",itemIds)),
       _fetchAllPages("jubelio_purchase_order_items","item_id,qty",q=>q.in("item_id",itemIds)),
       _fetchAllPages("jubelio_sales_order_items","item_id,qty,salesorder_id",q=>q.in("item_id",itemIds)),
       _fetchAllPages("jubelio_inventory_stocks","item_id,on_hand",q=>q.in("item_id",itemIds)),
-      _fetchAllPages("jubelio_items","item_id,item_code",q=>q.in("item_id",itemIds)),
     ]);
+    const jubelioItems = allVariantRows; // already fetched
 
     // Categorise order IDs by wms_status
     let completedSet = new Set(), inProgressSet = new Set(), returnedSet = new Set();
@@ -11235,15 +11247,16 @@ async function loadColStockRecon(colId, colName) {
       if (varData[s.item_id]!==undefined) varData[s.item_id].stock += parseFloat(s.on_hand||0);
     }
 
-    // Group by product name
+    // Group by product name — iterate over ALL SKU variants, not just the
+    // representative jubelio_item_id stored in product_mappings.
     const productGroups = {};
-    for (const m of mappings) {
-      if (!m.jubelio_item_id) continue;
-      if (!productGroups[m.item_name]) productGroups[m.item_name] = {name:m.item_name,variants:[]};
-      const vd = varData[m.jubelio_item_id]||{adjIn:0,adjOut:0,po:0,sold:0,inProgress:0,returned:0,stock:0};
+    for (const v of allVariantRows) {
+      if (!v.item_id || !v.item_name) continue;
+      if (!productGroups[v.item_name]) productGroups[v.item_name] = {name:v.item_name,variants:[]};
+      const vd = varData[v.item_id]||{adjIn:0,adjOut:0,po:0,sold:0,inProgress:0,returned:0,stock:0};
       const stockIn = vd.po + vd.adjIn;
       const sisa    = stockIn - vd.adjOut - vd.sold - vd.inProgress - vd.returned - vd.stock;
-      productGroups[m.item_name].variants.push({id:m.jubelio_item_id, size:sizeMap[m.jubelio_item_id]||"?",
+      productGroups[v.item_name].variants.push({id:v.item_id, size:sizeMap[v.item_id]||"?",
         ...vd, stockIn, sisa});
     }
     const products = Object.values(productGroups).sort((a,b)=>a.name.localeCompare(b.name,'id')).map(p => {
@@ -11796,19 +11809,26 @@ async function loadSalesPerf() {
       return;
     }
 
-    // brand/ip/collection resolver: history items carry their own; 2026 items use product_mappings
+    // brand/ip/collection resolver: history items carry their own; 2026 items use product_mappings.
+    // product_mappings has ONE row per distinct item_name with a single representative
+    // jubelio_item_id, so we must fall back to lookup by name when an SKU's item_id
+    // doesn't match the stored representative (otherwise only one variant per product
+    // ever finds its mapping).
     const _mapOf = it => it._hist
       ? { brand: it._brand, ip: it._ip, collection: it._collection, item_name: it._parent }
-      : (mappingById[it.item_id] || {});
+      : (mappingById[it.item_id] || mappingByName[it.item_name] || {});
 
     // 3. Load product_mappings (cached, all pages)
     if (!_spAllMappings) {
       _spAllMappings = await _fetchAllPages('product_mappings', 'jubelio_item_id,item_name,brand,ip,collection');
     }
-    // Index by jubelio_item_id (SKU-level) for accurate brand/IP lookup
+    // Index by jubelio_item_id (for fast direct match) AND by item_name (fallback
+    // so all variants of the same product resolve to the same mapping).
     const mappingById = {};
+    const mappingByName = {};
     for (const m of _spAllMappings) {
       if (m.jubelio_item_id) mappingById[m.jubelio_item_id] = m;
+      if (m.item_name)       mappingByName[m.item_name] = m;
     }
     // Ensure brand/IP/col dropdowns are populated (in case preload missed them)
     const _bMS=_spMS['sp-ms-brand'], _iMS=_spMS['sp-ms-ip'], _cMS=_spMS['sp-ms-collection'];
@@ -12257,15 +12277,21 @@ async function loadInsights() {
     const soIds = orders.map(o=>o.salesorder_id);
     const _rawItems = [];
     for (let i=0;i<soIds.length;i+=500) {
-      const rows = await _fetchAllPages('jubelio_sales_order_items','salesorder_id,item_id,qty,price,disc_amount',q=>q.in('salesorder_id',soIds.slice(i,i+500)));
+      const rows = await _fetchAllPages('jubelio_sales_order_items','salesorder_id,item_id,item_name,qty,price,disc_amount',q=>q.in('salesorder_id',soIds.slice(i,i+500)));
       _rawItems.push(...rows);
     }
     const _seen=new Set();
     const items = _rawItems.filter(it=>{ const k=`${it.salesorder_id}:${it.item_id}`; if(_seen.has(k))return false; _seen.add(k); return true; });
 
     if (!_spAllMappings) _spAllMappings = await _fetchAllPages('product_mappings','jubelio_item_id,item_name,brand,ip,collection');
-    const mById={};
-    for (const m of _spAllMappings) if(m.jubelio_item_id) mById[m.jubelio_item_id]=m;
+    // Index by id AND name — product_mappings stores only one representative item_id
+    // per distinct item_name, so other SKU variants need a name-based fallback.
+    const mById={}, mByName={};
+    for (const m of _spAllMappings) {
+      if (m.jubelio_item_id) mById[m.jubelio_item_id]=m;
+      if (m.item_name)       mByName[m.item_name]=m;
+    }
+    const _resolveMap = (it) => mById[it.item_id] || mByName[it.item_name] || {};
 
     const orderMap = new Map(orders.map(o=>[o.salesorder_id,o]));
     const ID_MONTHS = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
@@ -12285,11 +12311,11 @@ async function loadInsights() {
       const mi=parseInt((o.transaction_date||'').slice(5,7))-1; if(mi<0||mi>11) continue;
       const qty=parseFloat(it.qty||0), rev=qty*parseFloat(it.price||0), disc=parseFloat(it.disc_amount||0);
       monthlyTotals[mi].qty+=qty;
-      const ip=(mById[it.item_id]||{}).ip||'(Lainnya)';
+      const ip=_resolveMap(it).ip||'(Lainnya)';
       if (!ipMonthly[ip]) ipMonthly[ip]=Array.from({length:12},()=>({revenue:0,disc:0,net:0,qty:0}));
       ipMonthly[ip][mi].revenue+=rev; ipMonthly[ip][mi].disc+=disc;
       ipMonthly[ip][mi].net+=rev-disc; ipMonthly[ip][mi].qty+=qty;
-      const brand=(mById[it.item_id]||{}).brand||'(Lainnya)';
+      const brand=_resolveMap(it).brand||'(Lainnya)';
       if (!brandMonthly[brand]) brandMonthly[brand]=Array.from({length:12},()=>({revenue:0,disc:0,net:0,qty:0}));
       brandMonthly[brand][mi].revenue+=rev; brandMonthly[brand][mi].disc+=disc;
       brandMonthly[brand][mi].net+=rev-disc; brandMonthly[brand][mi].qty+=qty;
@@ -12363,8 +12389,8 @@ async function loadInsights() {
     // Build salesorder_id lookup per IP and per brand
     const ipToOrderIds={}, brandToOrderIds={};
     for (const it of items) {
-      const ip=(mById[it.item_id]||{}).ip||'(Lainnya)';
-      const brand=(mById[it.item_id]||{}).brand||'(Lainnya)';
+      const ip=_resolveMap(it).ip||'(Lainnya)';
+      const brand=_resolveMap(it).brand||'(Lainnya)';
       if (!ipToOrderIds[ip]) ipToOrderIds[ip]=new Set();
       ipToOrderIds[ip].add(it.salesorder_id);
       if (!brandToOrderIds[brand]) brandToOrderIds[brand]=new Set();
@@ -12374,7 +12400,7 @@ async function loadInsights() {
     // Build category breakdown
     const _catOrderSets={}, _catRev={}, _catQty={};
     for (const it of items) {
-      const m = mById[it.item_id] || {};
+      const m = _resolveMap(it);
       const cat = _extractCategory(m.item_name || '');
       if (!_catOrderSets[cat]) _catOrderSets[cat]=new Set();
       _catOrderSets[cat].add(it.salesorder_id);
