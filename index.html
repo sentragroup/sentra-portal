@@ -1237,23 +1237,37 @@
           <div class="filter-panel">
             <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="vmCapClearFilters()">✕ Reset</button></div>
             <div class="filter-grid">
+              <select id="vmCapProductType" onchange="renderVMCapabilities()"><option value="">Semua Tipe Produk</option></select>
               <select id="vmCapCategory" onchange="renderVMCapabilities()"><option value="">Semua Kategori</option></select>
+              <select id="vmCapVendor" onchange="renderVMCapabilities()"><option value="">Semua Vendor</option></select>
               <select id="vmCapSort" onchange="renderVMCapabilities()">
                 <option value="cost-asc">Sort: Harga termurah dulu</option>
                 <option value="cost-desc">Sort: Harga termahal dulu</option>
                 <option value="moq-asc">Sort: MOQ terkecil</option>
                 <option value="lead-asc">Sort: Lead time tercepat</option>
                 <option value="vendor">Sort: Nama vendor (A→Z)</option>
+                <option value="type">Sort: Tipe Produk (A→Z)</option>
               </select>
-              <input class="search-box" type="text" id="vmCapSearch" placeholder="Cari vendor, tipe produk, material..." oninput="renderVMCapabilities()" style="width:100%">
+              <input class="search-box" type="text" id="vmCapSearch" placeholder="Cari vendor, tipe, kategori, catatan..." oninput="renderVMCapabilities()" style="grid-column:span 2">
             </div>
           </div>
           <div class="table-toolbar">
             <button class="btn-refresh" onclick="loadVMCapabilitiesMatrix()">↻ Refresh</button>
-            <div class="tcount" id="vmCap-tcount">— kategori</div>
+            <div class="tcount" id="vmCap-tcount">— entri</div>
           </div>
-          <div id="vmCapMatrix" style="margin-top:8px">
-            <div style="padding:24px;text-align:center;color:var(--g400);font-size:12px">Klik tab "Capabilities" untuk memuat.</div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Tipe Produk</th>
+                <th>Kategori</th>
+                <th>Vendor</th>
+                <th style="text-align:right">MOQ</th>
+                <th style="text-align:right">Lead</th>
+                <th style="text-align:right">Est. Cost</th>
+                <th>Catatan</th>
+              </tr></thead>
+              <tbody id="vmCapTableBody"><tr><td class="empty-td" colspan="7">Klik tab "Capabilities" untuk memuat.</td></tr></tbody>
+            </table>
           </div>
         </div>
 

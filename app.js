@@ -20602,8 +20602,8 @@ async function deleteVMCapability(capId, vmId) {
 let allVMCapabilitiesMatrix = [];   // [{...cap, vendorName, vendorRow}]
 
 async function loadVMCapabilitiesMatrix() {
-  const cont = document.getElementById('vmCapMatrix');
-  if (cont) cont.innerHTML = `<div style="padding:24px;text-align:center;color:var(--g400);font-size:12px">Memuat capabilities...</div>`;
+  const tbody = document.getElementById('vmCapTableBody');
+  if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="7">Memuat...</td></tr>`;
   try {
     if (!allVMRows.length) await loadVendorMaster();
     const {data, error} = await sb.from('vendor_capabilities').select('*');
@@ -20618,34 +20618,51 @@ async function loadVMCapabilitiesMatrix() {
       };
     }).filter(c => c.vendorRow); // skip orphans
 
-    // Populate category dropdown
+    // Populate filter dropdowns
     const cats = [...new Set(allVMCapabilitiesMatrix.map(c => c.category).filter(Boolean))]
       .sort((a,b) => a.localeCompare(b, 'id'));
-    const catSel = document.getElementById('vmCapCategory');
-    catSel.innerHTML = '<option value="">Semua Kategori</option>' + cats.map(c => `<option>${c.replace(/</g,'&lt;')}</option>`).join('');
+    const types = [...new Set(allVMCapabilitiesMatrix.map(c => c.product_type).filter(Boolean))]
+      .sort((a,b) => a.localeCompare(b, 'id'));
+    const vendors = [...new Set(allVMCapabilitiesMatrix.map(c => c.vendorName).filter(Boolean))]
+      .sort((a,b) => a.localeCompare(b, 'id'));
+    const fillSel = (id, items, allLabel) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const cur = el.value;
+      el.innerHTML = `<option value="">${allLabel}</option>` + items.map(x => `<option${cur===x?' selected':''}>${x.replace(/</g,'&lt;')}</option>`).join('');
+    };
+    fillSel('vmCapCategory', cats, 'Semua Kategori');
+    fillSel('vmCapProductType', types, 'Semua Tipe Produk');
+    fillSel('vmCapVendor', vendors, 'Semua Vendor');
 
     renderVMCapabilities();
   } catch (e) {
-    if (cont) cont.innerHTML = `<div style="padding:24px;color:#c0392b;font-size:12px">Gagal: ${e.message||e}</div>`;
+    if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="7">Gagal: ${e.message||e}</td></tr>`;
   }
 }
 
 function vmCapClearFilters() {
-  document.getElementById('vmCapCategory').value = '';
-  document.getElementById('vmCapSearch').value = '';
+  ['vmCapCategory','vmCapProductType','vmCapVendor','vmCapSearch'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
   document.getElementById('vmCapSort').value = 'cost-asc';
   renderVMCapabilities();
 }
 
 function renderVMCapabilities() {
-  const cont = document.getElementById('vmCapMatrix');
-  if (!cont) return;
+  const tbody = document.getElementById('vmCapTableBody');
+  const tc = document.getElementById('vmCap-tcount');
+  if (!tbody) return;
   const catFilter = document.getElementById('vmCapCategory').value;
+  const typeFilter = document.getElementById('vmCapProductType').value;
+  const vendorFilter = document.getElementById('vmCapVendor').value;
   const sort = document.getElementById('vmCapSort').value;
   const q = (document.getElementById('vmCapSearch').value || '').toLowerCase().trim();
 
-  let rows = allVMCapabilitiesMatrix;
+  let rows = allVMCapabilitiesMatrix.slice();
   if (catFilter) rows = rows.filter(c => c.category === catFilter);
+  if (typeFilter) rows = rows.filter(c => c.product_type === typeFilter);
+  if (vendorFilter) rows = rows.filter(c => c.vendorName === vendorFilter);
   if (q) rows = rows.filter(c =>
     (c.vendorName||'').toLowerCase().includes(q) ||
     (c.category||'').toLowerCase().includes(q) ||
@@ -20653,14 +20670,6 @@ function renderVMCapabilities() {
     (c.description||'').toLowerCase().includes(q)
   );
 
-  // Group by category
-  const byCat = new Map();
-  rows.forEach(c => {
-    if (!byCat.has(c.category)) byCat.set(c.category, []);
-    byCat.get(c.category).push(c);
-  });
-
-  // Sort items within each category
   const _cost = c => c.unit_cost_estimate ? parseFloat(c.unit_cost_estimate) : Infinity;
   const _moq = c => c.moq != null ? c.moq : Infinity;
   const _lead = c => c.lead_time_days != null ? c.lead_time_days : Infinity;
@@ -20670,71 +20679,32 @@ function renderVMCapabilities() {
     'moq-asc':   (a,b) => _moq(a) - _moq(b),
     'lead-asc':  (a,b) => _lead(a) - _lead(b),
     'vendor':    (a,b) => (a.vendorName||'').localeCompare(b.vendorName||'', 'id'),
+    'type':      (a,b) => (a.product_type||'').localeCompare(b.product_type||'', 'id'),
   }[sort] || ((a,b) => _cost(a) - _cost(b));
+  rows.sort(sorter);
 
-  // Sort categories alphabetically
-  const catKeys = [...byCat.keys()].sort((a,b) => (a||'').localeCompare(b||'', 'id'));
+  if (tc) tc.textContent = `${rows.length} entri`;
 
-  document.getElementById('vmCap-tcount').textContent = `${catKeys.length} kategori · ${rows.length} entri`;
-
-  if (!catKeys.length) {
-    cont.innerHTML = `<div style="background:var(--off);border-radius:6px;padding:32px;text-align:center;color:var(--g600);font-size:13px">
-      Belum ada capability terdaftar.<br>
-      <span style="font-size:11px;color:var(--g400)">Tambah capability di tab "Semua" → klik vendor → tab "Capabilities".</span>
-    </div>`;
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td class="empty-td" colspan="7">${allVMCapabilitiesMatrix.length === 0
+      ? 'Belum ada capability terdaftar. Tambah lewat tab "Semua" → klik vendor → tab "Capabilities".'
+      : 'Tidak ada match untuk filter ini.'}</td></tr>`;
     return;
   }
 
-  cont.innerHTML = catKeys.map(cat => {
-    const items = byCat.get(cat).slice().sort(sorter);
-    // Aggregate stats per category
-    const costs = items.map(_cost).filter(x => isFinite(x));
-    const minCost = costs.length ? Math.min(...costs) : null;
-    const maxCost = costs.length ? Math.max(...costs) : null;
-    const vendorCount = new Set(items.map(i => i.vendor_master_id)).size;
-    const costRangeText = costs.length
-      ? (minCost === maxCost ? `Rp ${minCost.toLocaleString('id-ID')}` : `Rp ${minCost.toLocaleString('id-ID')} – ${maxCost.toLocaleString('id-ID')}`)
-      : '—';
-
-    return `<details style="background:var(--off);border-radius:6px;margin-bottom:10px" open>
-      <summary style="padding:12px 16px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
-        <div>
-          <strong style="font-size:14px">${(cat||'(tanpa kategori)').replace(/</g,'&lt;')}</strong>
-          <span style="font-size:11px;color:var(--g600);margin-left:8px">${vendorCount} vendor · ${items.length} entri</span>
-        </div>
-        <div style="font-size:12px;color:var(--g600);font-family:'DM Mono',monospace">Cost range: ${costRangeText}</div>
-      </summary>
-      <div style="padding:0 14px 14px">
-        <table style="width:100%;font-size:12px;background:var(--white);border-radius:4px;overflow:hidden">
-          <thead>
-            <tr style="background:var(--g100)">
-              <th style="text-align:left;padding:8px">Vendor</th>
-              <th style="text-align:left;padding:8px">Tipe Produk</th>
-              <th style="text-align:right;padding:8px">MOQ</th>
-              <th style="text-align:right;padding:8px">Lead</th>
-              <th style="text-align:right;padding:8px">Est. Cost</th>
-              <th style="text-align:left;padding:8px">Catatan</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${items.map(c => {
-              const cost = c.unit_cost_estimate ? parseFloat(c.unit_cost_estimate) : null;
-              const isLowest = (cost != null && cost === minCost && costs.length > 1) ? '★ ' : '';
-              const jubelioChip = c.vendorRow?.jubelioContactId
-                ? '<span class="pill p-active" style="font-size:9px;margin-left:4px">🔗 Jubelio</span>' : '';
-              return `<tr style="border-top:1px solid var(--g100)">
-                <td style="padding:8px"><a href="#" onclick="openVMDetail('${c.vendor_master_id}');return false" style="color:var(--black);text-decoration:none;font-weight:600">${isLowest}${(c.vendorName||'').replace(/</g,'&lt;')}</a>${jubelioChip}</td>
-                <td style="padding:8px">${(c.product_type||'—').replace(/</g,'&lt;')}</td>
-                <td style="padding:8px;text-align:right">${c.moq||'—'}</td>
-                <td style="padding:8px;text-align:right">${c.lead_time_days?c.lead_time_days+'d':'—'}</td>
-                <td style="padding:8px;text-align:right;${cost != null && cost === minCost && costs.length > 1 ? 'color:#1e8f4e;font-weight:600' : ''}">${cost?'Rp '+cost.toLocaleString('id-ID'):'—'}</td>
-                <td style="padding:8px;font-size:11px;color:var(--g600);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(c.description||'').replace(/"/g,'&quot;')}">${(c.description||'—').replace(/</g,'&lt;')}</td>
-              </tr>`;
-            }).join('')}
-          </tbody>
-        </table>
-      </div>
-    </details>`;
+  tbody.innerHTML = rows.map(c => {
+    const cost = c.unit_cost_estimate ? parseFloat(c.unit_cost_estimate) : null;
+    const jubelioChip = c.vendorRow?.jubelioContactId
+      ? '<span class="pill p-active" style="font-size:9px;margin-left:4px">🔗 Jubelio</span>' : '';
+    return `<tr>
+      <td><strong>${(c.product_type||'—').replace(/</g,'&lt;')}</strong></td>
+      <td style="font-size:12px">${(c.category||'—').replace(/</g,'&lt;')}</td>
+      <td><a href="#" onclick="openVMDetail('${c.vendor_master_id}');return false" style="color:var(--black);text-decoration:none;font-weight:600">${(c.vendorName||'').replace(/</g,'&lt;')}</a>${jubelioChip}</td>
+      <td style="text-align:right;font-size:12px">${c.moq||'—'}</td>
+      <td style="text-align:right;font-size:12px">${c.lead_time_days?c.lead_time_days+'d':'—'}</td>
+      <td style="text-align:right;font-size:12px;font-weight:600">${cost?'Rp '+cost.toLocaleString('id-ID'):'—'}</td>
+      <td style="font-size:11px;color:var(--g600);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(c.description||'').replace(/"/g,'&quot;')}">${(c.description||'—').replace(/</g,'&lt;')}</td>
+    </tr>`;
   }).join('');
 }
 
