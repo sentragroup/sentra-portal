@@ -1069,10 +1069,19 @@
           <!-- Section 3: Reinbound (if any) -->
           <div class="form-card" style="margin-bottom:1.25rem">
             <div class="form-sec" style="display:flex;justify-content:space-between;align-items:center">
-              <span title="TRFO dimap ke event ini DAN source-nya event warehouse (Gudang Pick Up in Concert, Gudang Event 1/2). Sisa stock yang dibalikin pas event selesai.">↩️ Reinbound — Transfer balik dari event <span style="font-size:11px;color:var(--g400);font-weight:normal">ⓘ</span></span>
+              <span title="TRFO dimap ke event ini yang source-nya di event sales zone DAN destination-nya KELUAR dari event zone (mis. balik ke Bintaro/Pusat).">↩️ Reinbound — Transfer balik dari event <span style="font-size:11px;color:var(--g400);font-weight:normal">ⓘ</span></span>
               <span style="font-size:11px;color:var(--g400);font-weight:normal" id="pbd-reinbound-summary">—</span>
             </div>
             <div id="pbd-reinbound" style="margin-top:10px">Memuat…</div>
+          </div>
+
+          <!-- Section 3b: Internal Moves (intra-event-zone, not counted) -->
+          <div class="form-card" style="margin-bottom:1.25rem">
+            <div class="form-sec" style="display:flex;justify-content:space-between;align-items:center">
+              <span title="Perpindahan stok antar lokasi yang sama-sama jualan event ini (mis. Pick Up in Concert → Gudang Offline). Net stok tidak berubah, jadi TIDAK dimasukkan ke kalkulasi Stock Remaining — biar tidak double-count.">🔄 Internal Moves — Antar lokasi event (tidak dihitung) <span style="font-size:11px;color:var(--g400);font-weight:normal">ⓘ</span></span>
+              <span style="font-size:11px;color:var(--g400);font-weight:normal" id="pbd-internal-summary">—</span>
+            </div>
+            <div id="pbd-internal" style="margin-top:10px">Memuat…</div>
           </div>
 
           <!-- Section 4: Stock Remaining -->
