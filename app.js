@@ -22209,11 +22209,10 @@ async function loadRestock() {
       }
     }
 
-    // Load vendor_master (uses existing module cache if available)
+    // Load vendor_master + Jubelio suppliers (uses existing module caches if available)
     if (!allVMRows.length) await loadVendorMaster();
-    _rstAllVendors = allVMRows.map(v => ({
-      id: v.id, name: vmSyncedField(v, 'name'), jubelioContactId: v.jubelioContactId,
-    })).filter(v => v.name).sort((a,b) => a.name.localeCompare(b.name, 'id'));
+    if (!allJubSuppliers.length) await loadJubSuppliers();
+    _rstAllVendors = _rstBuildAllVendors();
     // Client-side: only count qty from orders in the selected period
     const soldItems = soldItemsRaw.filter(it => orderIdSet.has(it.salesorder_id));
 
@@ -22633,6 +22632,61 @@ function _rstSetParentVendor(parentName, vmId) {
   else delete _rstParentVendorMap[parentName];
 }
 
+// Merge Vendor Master + Jubelio supplier list into one dropdown source.
+// Each entry has a stable `id` — uses VM-id when linked to vendor_master,
+// otherwise 'jub:<contact_id>' for Jubelio-only suppliers.
+function _rstBuildAllVendors() {
+  const out = [];
+  const seenJubIds = new Set();
+  const seenNames = new Set();
+  // 1) Vendor Master entries (manual + Jubelio-linked)
+  for (const v of allVMRows) {
+    const name = vmSyncedField(v, 'name'); if (!name) continue;
+    out.push({
+      id: v.id, name, source: v.jubelioContactId ? 'both' : 'vm',
+      vendorMasterId: v.id, jubelioContactId: v.jubelioContactId || null,
+    });
+    if (v.jubelioContactId) seenJubIds.add(v.jubelioContactId);
+    seenNames.add(name.toLowerCase());
+  }
+  // 2) Jubelio suppliers not yet in Vendor Master
+  for (const s of allJubSuppliers) {
+    if (seenJubIds.has(s.contact_id)) continue;
+    if (seenNames.has((s.contact_name||'').toLowerCase())) continue;
+    out.push({
+      id: `jub:${s.contact_id}`, name: s.contact_name || '(unnamed)', source: 'jub',
+      vendorMasterId: null, jubelioContactId: s.contact_id,
+    });
+  }
+  return out.sort((a,b) => a.name.localeCompare(b.name, 'id'));
+}
+
+// Resolve a vendor id (VM id OR 'jub:N') into a usable contact + defaults
+// for CSV/PDF export. Falls back gracefully when only Jubelio data exists.
+function _rstResolveVendor(vendorId) {
+  if (!vendorId) return null;
+  const v = _rstAllVendors.find(x => x.id === vendorId);
+  if (!v) return null;
+  const vm = v.vendorMasterId ? allVMRows.find(r => r.id === v.vendorMasterId) : null;
+  const jub = v.jubelioContactId ? allJubSuppliers.find(s => s.contact_id === v.jubelioContactId) : null;
+  // Prefer manual VM values, fall back to Jubelio mirror
+  const pick = (vmField, jubField) => {
+    const a = vm ? vmSyncedField(vm, vmField) : '';
+    if (a) return a;
+    return (jub && jubField) ? (jub[jubField] || '') : '';
+  };
+  return {
+    name: (vm ? vmSyncedField(vm, 'name') : null) || (jub?.contact_name) || v.name,
+    email: pick('email', 'email'),
+    phone: pick('phone', 'phone') || (jub?.mobile || ''),
+    defaultLocation: vm?.defaultLocation || 'Gudang Penerimaan Barang',
+    defaultTax: vm?.defaultTax || 'No Tax',
+    defaultTaxIncluded: vm?.defaultTaxIncluded === true,
+    jubelioContactId: v.jubelioContactId,
+    source: v.source,
+  };
+}
+
 function _rstSetParentPrice(parentName, val) {
   const n = parseFloat(val);
   if (isNaN(n) || n <= 0) delete _rstParentPriceMap[parentName];
@@ -22640,16 +22694,16 @@ function _rstSetParentPrice(parentName, val) {
 }
 
 // Compute parent-level vendor default from variants' last PO history.
-// Returns the most-frequently-seen Jubelio supplier mapped to vendor_master.id, or null.
+// Returns the most-frequently-seen supplier id (VM id or 'jub:N'), or null.
 function _rstParentDefaultVendor(parentProduct) {
   if (!_rstAllVendors.length) return null;
-  const vmByJub = new Map(_rstAllVendors.filter(x=>x.jubelioContactId).map(x => [x.jubelioContactId, x.id]));
-  const vmByName = new Map(_rstAllVendors.map(x => [x.name.toLowerCase(), x.id]));
+  const byJubId = new Map(_rstAllVendors.filter(x=>x.jubelioContactId).map(x => [x.jubelioContactId, x.id]));
+  const byName  = new Map(_rstAllVendors.map(x => [x.name.toLowerCase(), x.id]));
   const votes = {};
   for (const v of parentProduct.variants) {
     const lp = _rstLastPOByItem[v.itemId]; if (!lp) continue;
-    const vmId = vmByJub.get(lp.contact_id) || vmByName.get((lp.supplier_name||'').toLowerCase());
-    if (vmId) votes[vmId] = (votes[vmId] || 0) + 1;
+    const id = byJubId.get(lp.contact_id) || byName.get((lp.supplier_name||'').toLowerCase());
+    if (id) votes[id] = (votes[id] || 0) + 1;
   }
   const sorted = Object.entries(votes).sort((a,b) => b[1] - a[1]);
   return sorted.length ? sorted[0][0] : null;
@@ -22777,16 +22831,14 @@ function _rstCloseSummary() {
 function _rstExportCSVForVendor(vmId) {
   const lines = _rstCollectSelectedLines().filter(l => l.vmId === vmId);
   if (!lines.length) { alert('Tidak ada item untuk vendor ini.'); return; }
-  const vm = _rstAllVendors.find(v => v.id === vmId);
-  const supplierName = vm?.name || vmId;
-
-  // Pull Jubelio identity for the vendor (email, phone, defaults from vendor_master)
-  const vmFull = allVMRows.find(v => v.id === vmId);
-  const phone = vmFull ? vmSyncedField(vmFull, 'phone') : '';
-  const email = vmFull ? vmSyncedField(vmFull, 'email') : '';
-  const defaultLoc = vmFull?.defaultLocation || 'Gudang Penerimaan Barang';
-  const defaultTax = vmFull?.defaultTax || 'No Tax';
-  const taxIncl = vmFull?.defaultTaxIncluded ? 'TRUE' : 'FALSE';
+  const res = _rstResolveVendor(vmId);
+  if (!res) { alert('Vendor tidak ditemukan.'); return; }
+  const supplierName = res.name;
+  const phone = res.phone;
+  const email = res.email;
+  const defaultLoc = res.defaultLocation;
+  const defaultTax = res.defaultTax;
+  const taxIncl = res.defaultTaxIncluded ? 'TRUE' : 'FALSE';
 
   const today = new Date().toISOString().slice(0, 10);
   const esc = v => {
@@ -22823,13 +22875,11 @@ function _rstExportCSVForVendor(vmId) {
 function _rstExportPDFForVendor(vmId) {
   const lines = _rstCollectSelectedLines().filter(l => l.vmId === vmId);
   if (!lines.length) { alert('Tidak ada item untuk vendor ini.'); return; }
-  const vm = _rstAllVendors.find(v => v.id === vmId);
-  const vmFull = allVMRows.find(v => v.id === vmId);
-  const supplierName = vm?.name || vmId;
-  const phone = vmFull ? vmSyncedField(vmFull, 'phone') : '';
-  const email = vmFull ? vmSyncedField(vmFull, 'email') : '';
+  const res = _rstResolveVendor(vmId);
+  if (!res) { alert('Vendor tidak ditemukan.'); return; }
+  const supplierName = res.name;
   const today = new Date().toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric'});
-  _rstOpenPrintWindow(`PO Restock — ${supplierName}`, _rstBuildPDFBody(supplierName, {phone, email}, lines, today));
+  _rstOpenPrintWindow(`PO Restock — ${supplierName}`, _rstBuildPDFBody(supplierName, {phone: res.phone, email: res.email}, lines, today));
 }
 
 // ── Combined "PDF All" — flat table with Vendor column ──
