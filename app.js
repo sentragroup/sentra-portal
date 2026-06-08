@@ -21840,7 +21840,7 @@ function _rpRenderProjectCard(p, progress) {
       </div>
       <div style="display:flex;gap:6px">
         <button onclick="_rpOpenProject('${id}')" style="padding:6px 12px;background:white;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-size:12px">Lihat</button>
-        ${p.status==='Draft' ? `<button onclick="_rpDeleteProject('${id}')" style="padding:6px 12px;background:white;border:1px solid var(--g200);color:#c0392b;border-radius:4px;cursor:pointer;font-size:12px">Hapus</button>` : ''}
+        <button onclick="_rpDeleteProject('${id}')" style="padding:6px 12px;background:white;border:1px solid var(--g200);color:#c0392b;border-radius:4px;cursor:pointer;font-size:12px">Hapus</button>
       </div>
     </div>
     <div style="display:flex;gap:12px;align-items:center">
@@ -21964,15 +21964,15 @@ async function _rpSaveProject(activate) {
   }
 }
 
-// Inline flash message above the builder (replaces alert for non-blocking feedback)
+// Inline flash message — non-blocking feedback, auto-hides + auto-removes
+// so the fixed-position banner can't block clicks once it's gone.
 function _rpFlashMessage(text, kind) {
-  const toolbar = document.querySelector('#rp-view-builder');
-  if (!toolbar) { alert(text); return; }
   let bar = document.getElementById('rp-flash');
   if (!bar) {
     bar = document.createElement('div');
     bar.id = 'rp-flash';
-    bar.style.cssText = 'position:fixed;top:16px;right:16px;z-index:9000;padding:10px 16px;border-radius:6px;font-size:13px;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,0.15);transition:opacity 0.3s';
+    // pointer-events:none so even while visible it doesn't catch clicks
+    bar.style.cssText = 'position:fixed;top:16px;right:16px;z-index:9000;padding:10px 16px;border-radius:6px;font-size:13px;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,0.15);transition:opacity 0.3s;pointer-events:none';
     document.body.appendChild(bar);
   }
   bar.style.background = kind === 'ok' ? '#daf3e0' : '#fde0e0';
@@ -21982,12 +21982,22 @@ function _rpFlashMessage(text, kind) {
   bar.style.opacity = '1';
   bar.style.display = 'block';
   clearTimeout(_rpFlashMessage._t);
+  clearTimeout(_rpFlashMessage._t2);
   _rpFlashMessage._t = setTimeout(() => { bar.style.opacity = '0'; }, 3000);
+  // After fade completes, set display:none so it's fully removed from layout
+  _rpFlashMessage._t2 = setTimeout(() => { bar.style.display = 'none'; }, 3400);
 }
 
 async function _rpDeleteProject(id) {
   const p = _rpRows.find(r => r.id === id);
-  if (!confirm(`Hapus project "${p?.name||id}"? Tidak bisa di-undo.`)) return;
+  if (!p) return;
+  let msg = `Hapus project "${p.name||id}"?\n\nTidak bisa di-undo.`;
+  if (p.status === 'Active') {
+    msg = `⚠️ Project ini status Active${(p.linked_po_ids||[]).length?` dan sudah ter-link ke ${(p.linked_po_ids||[]).length} PO Jubelio`:''}.\n\nHapus tetap akan menghapus snapshot project + link-nya (PO di Jubelio tidak terpengaruh).\n\nLanjut hapus "${p.name||id}"?`;
+  } else if (p.status === 'Completed') {
+    msg = `Project "${p.name||id}" sudah Completed (arsip). Yakin hapus permanen?`;
+  }
+  if (!confirm(msg)) return;
   try {
     const {error} = await sb.from('restock_projects').delete().eq('id', id);
     if (error) throw error;
@@ -22900,6 +22910,7 @@ function _rstCloseSummary() {
 
 // ── Per-vendor CSV export (Jubelio Purchase import format) ──
 function _rstExportCSVForVendor(vmId) {
+  _rstCloseSummary(); // close Review modal so user is back on builder after export
   const lines = _rstCollectSelectedLines().filter(l => l.vmId === vmId);
   if (!lines.length) { alert('Tidak ada item untuk vendor ini.'); return; }
   const res = _rstResolveVendor(vmId);
@@ -22944,6 +22955,7 @@ function _rstExportCSVForVendor(vmId) {
 
 // ── Per-vendor PDF export (window.print pattern, consistent with PD module) ──
 function _rstExportPDFForVendor(vmId) {
+  _rstCloseSummary();
   const lines = _rstCollectSelectedLines().filter(l => l.vmId === vmId);
   if (!lines.length) { alert('Tidak ada item untuk vendor ini.'); return; }
   const res = _rstResolveVendor(vmId);
@@ -22955,6 +22967,7 @@ function _rstExportPDFForVendor(vmId) {
 
 // ── Combined "PDF All" — flat table with Vendor column ──
 function _rstExportPDFAll() {
+  _rstCloseSummary();
   const lines = _rstCollectSelectedLines();
   if (!lines.length) { alert('Tidak ada item dipilih.'); return; }
   const vmById = new Map(_rstAllVendors.map(v => [v.id, v]));
