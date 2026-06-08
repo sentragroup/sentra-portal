@@ -17777,11 +17777,13 @@ async function loadRoyaltyReport() {
   fb.textContent = ''; fb.className = 'feedback'; btn.textContent = 'Loading...'; btn.disabled = true;
 
   try {
-    // 1. Pull non-canceled sales orders for the whole year (keep transaction_date for month bucketing)
+    // 1. Pull COMPLETED sales orders for the whole year (keep transaction_date for month bucketing).
+    // Royalty is paid only on delivered + closed sales — exclude PENDING, PAID, FINISH_*, RETURNED,
+    // CANCELED. (Confirmed business policy: strict completed-only definition.)
     const orders = await _fetchAllPages(
       'jubelio_sales_orders',
       'salesorder_id,transaction_date,wms_status,is_canceled,sub_total',
-      q => q.gte('transaction_date', startISO).lt('transaction_date', endISO).neq('wms_status','CANCELED')
+      q => q.gte('transaction_date', startISO).lt('transaction_date', endISO).eq('wms_status','COMPLETED')
     );
     // Map each order → its WIB month (1..12)
     const orderMonth = new Map();
