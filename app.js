@@ -21715,9 +21715,16 @@ async function loadRestockSupplierOptions() {
 async function loadRestock() {
   if (_rstLoading) return;
   _rstLoading = true;
-  const tbody = document.getElementById('rst-tbody');
-  if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="9">⟳ Memuat data...</td></tr>`;
-  ['rst-s-skus','rst-s-products','rst-s-suggested'].forEach(id => { const e=document.getElementById(id); if(e) e.textContent='—'; });
+  // Show loading state in the products container (only if user hasn't added anything yet)
+  const container = document.getElementById('rst-products');
+  if (container && _rstAddedProducts.size === 0) {
+    container.innerHTML = `<div style="padding:48px 24px;text-align:center;background:var(--off);border:1px solid var(--g100);border-radius:8px">
+      <div style="font-size:14px;color:var(--g600);margin-bottom:4px">⟳ Memuat data jualan, stock, &amp; supplier...</div>
+      <div style="font-size:11px;color:var(--g400)">Pertama kali load butuh ~15–30 detik (ngumpulin riwayat PO tiap SKU)</div>
+    </div>`;
+  }
+  const summaryBar = document.getElementById('rst-summary-bar');
+  if (summaryBar) summaryBar.textContent = '⟳ memuat data...';
 
   try {
     const fromDate = document.getElementById('rst-from')?.value;
@@ -21843,7 +21850,14 @@ async function loadRestock() {
   } catch(e) {
     console.error('loadRestock:',e);
     const container = document.getElementById('rst-products');
-    if (container) container.innerHTML = `<div style="padding:24px;color:#c0392b;font-size:13px">Error: ${e.message}</div>`;
+    if (container && _rstAddedProducts.size === 0) {
+      container.innerHTML = `<div style="padding:24px;color:#c0392b;font-size:13px;background:#fdf0f0;border:1px solid #f3a8a8;border-radius:8px">
+        <div style="font-weight:600;margin-bottom:4px">Gagal memuat data</div>
+        <div style="font-size:11px;color:#7a0000">${(e.message||e).toString().replace(/</g,'&lt;')}</div>
+      </div>`;
+    }
+    const sb2 = document.getElementById('rst-summary-bar');
+    if (sb2) sb2.textContent = `❌ gagal load — ${e.message||'unknown'}`;
   } finally {
     _rstLoading = false;
   }
@@ -22069,7 +22083,14 @@ function _rstSetPrice(itemId, val) {
 
 // ── Add Product picker modal ──
 function _rstOpenAddPicker() {
-  if (!_rstData) { alert('Data belum siap — coba refresh halaman.'); return; }
+  if (!_rstData) {
+    if (_rstLoading) {
+      alert('Data masih dimuat — tunggu loading bar di tengah selesai (~15-30 detik), terus klik Tambah lagi.');
+    } else {
+      alert('Data belum dimuat. Cek tanggal periode di atas lalu refresh halaman.');
+    }
+    return;
+  }
   document.getElementById('rst-add-modal').style.display = 'flex';
   document.getElementById('rst-add-search').value = '';
   _rstRenderAddPicker();
