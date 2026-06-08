@@ -22381,24 +22381,7 @@ function _rstUpdateSummaryBar() {
 
 function _rstRenderProductCard(p) {
   const pKey = btoa(unescape(encodeURIComponent(p.name))).replace(/[^a-zA-Z0-9]/g,'');
-  const RST_ROLL      = 60;
-  const RST_THRESHOLD = Math.round(RST_ROLL * 0.75);
   const safeParentName = p.name.replace(/'/g,"\\'").replace(/"/g,'&quot;');
-
-  // ── Auto-suggest qty per variant using roll rounding logic ──
-  const restockVars = p.variants.filter(v => v.suggestedQty > 0);
-  const rawTotal    = restockVars.reduce((s, v) => s + v.suggestedQty, 0);
-  const adjQtys     = {}; // itemId → rounded suggested qty
-  if (rawTotal >= RST_THRESHOLD) {
-    const roundedTotal = Math.ceil(rawTotal / RST_ROLL) * RST_ROLL;
-    let distSum = 0;
-    restockVars.forEach(v => { adjQtys[v.itemId] = Math.floor(v.suggestedQty / rawTotal * roundedTotal); distSum += adjQtys[v.itemId]; });
-    const rem = roundedTotal - distSum;
-    if (rem > 0) {
-      const largest = restockVars.reduce((a, b) => b.suggestedQty > a.suggestedQty ? b : a);
-      adjQtys[largest.itemId] = (adjQtys[largest.itemId] || 0) + rem;
-    }
-  }
 
   // ── Header ──
   let urgBadge = '';
@@ -22434,11 +22417,11 @@ function _rstRenderProductCard(p) {
   const totalStock = variants.reduce((s,v)=>s+(v.stock||0), 0);
   const totalSold  = variants.reduce((s,v)=>s+(v.qtySold||0), 0);
 
-  // Initial total Order Qty across checked variants (auto-suggest or override)
+  // Initial total Order Qty across checked variants (manual override or suggest)
   let totalOrderQty = 0;
   for (const v of variants) {
     if (!_rstSelectedItems.has(v.itemId)) continue;
-    const q = _rstQtyMap[v.itemId] != null ? _rstQtyMap[v.itemId] : (adjQtys[v.itemId] || v.suggestedQty || 0);
+    const q = _rstQtyMap[v.itemId] != null ? _rstQtyMap[v.itemId] : (v.suggestedQty || 0);
     totalOrderQty += Number(q) || 0;
   }
 
@@ -22467,7 +22450,7 @@ function _rstRenderProductCard(p) {
     const chk = _rstSelectedItems.has(v.itemId);
     const defaultQty = (_rstQtyMap[v.itemId] != null)
       ? _rstQtyMap[v.itemId]
-      : (chk ? (adjQtys[v.itemId] || v.suggestedQty || '') : '');
+      : (chk ? (v.suggestedQty || '') : '');
     return `<td style="padding:3px 4px;text-align:center;background:${chk?'#eaf3ff':''}">
       <input type="number" class="rst-qty-input" data-item-id="${v.itemId}" data-pkey="${pKey}" min="0" step="1" value="${defaultQty}" placeholder="0" oninput="_rstSetQty(${v.itemId},this.value);_rstRecalcCardTotal('${pKey}')" style="width:54px;text-align:center;font-size:11px;font-family:var(--mono);padding:3px 4px;border:1px solid var(--g200);border-radius:4px;background:white">
     </td>`;
@@ -22548,24 +22531,13 @@ function _rstAddProduct(parentName) {
   const p = _rstData.products.find(pp => pp.name === parentName);
   if (!p) return;
   _rstAddedProducts.add(parentName);
-  // Auto-pick all restock-needed variants. Use the same roll-rounding distribution.
-  const RST_ROLL = 60, RST_THRESHOLD = Math.round(RST_ROLL * 0.75);
-  const restockVars = p.variants.filter(v => v.suggestedQty > 0);
-  const rawTotal    = restockVars.reduce((s,v) => s + v.suggestedQty, 0);
-  if (rawTotal >= RST_THRESHOLD) {
-    const roundedTotal = Math.ceil(rawTotal / RST_ROLL) * RST_ROLL;
-    let distSum = 0;
-    const adjQtys = {};
-    restockVars.forEach(v => { adjQtys[v.itemId] = Math.floor(v.suggestedQty / rawTotal * roundedTotal); distSum += adjQtys[v.itemId]; });
-    const rem = roundedTotal - distSum;
-    if (rem > 0) {
-      const largest = restockVars.reduce((a,b) => b.suggestedQty > a.suggestedQty ? b : a);
-      adjQtys[largest.itemId] = (adjQtys[largest.itemId] || 0) + rem;
-    }
-    for (const v of restockVars) {
-      _rstSelectedItems.add(v.itemId);
-      if (_rstQtyMap[v.itemId] == null) _rstQtyMap[v.itemId] = adjQtys[v.itemId];
-    }
+  // Auto-check restock-needed variants with raw per-variant suggestion qty
+  // (just enough to cover RESTOCK_TARGET days minus current stock — no roll
+  // rounding, no proportional redistribution; user can adjust freely).
+  for (const v of p.variants) {
+    if (!(v.suggestedQty > 0)) continue;
+    _rstSelectedItems.add(v.itemId);
+    if (_rstQtyMap[v.itemId] == null) _rstQtyMap[v.itemId] = v.suggestedQty;
   }
   if (typeof _rpMarkDirty === 'function') _rpMarkDirty();
   _rstRenderAddedProducts();
