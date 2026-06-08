@@ -5328,10 +5328,13 @@ async function loadColSalesMonitor(col) {
       return;
     }
 
-    // Fetch orders in window (non-canceled)
+    // Fetch orders in window — include all "going to deliver" + delivered (COMPLETED, PAID,
+    // FINISH_PACK, FINISH_PICK). Exclude CANCELED, RETURNED, PENDING since this is a sales
+    // monitor — pipeline-ish revenue, but not orders that already reversed or haven't been paid.
     const orders = await _fetchAllPages('jubelio_sales_orders',
       'salesorder_id,transaction_date,wms_status',
-      q => q.gte('transaction_date', startISO).lt('transaction_date', endISO).neq('wms_status','CANCELED'));
+      q => q.gte('transaction_date', startISO).lt('transaction_date', endISO)
+            .in('wms_status', ['COMPLETED','PAID','FINISH_PACK','FINISH_PICK']));
     const orderIds = orders.map(o=>o.salesorder_id);
     const orderDate = new Map(orders.map(o => [o.salesorder_id, o.transaction_date]));
 
@@ -18141,12 +18144,13 @@ async function loadIncomeStatement() {
   const endISO = `${next.getFullYear()}-${String(next.getMonth()+1).padStart(2,'0')}-01T00:00:00+07:00`;
 
   try {
-    // 1. Orders in period, exclude canceled (server) + returned (client)
+    // 1. Orders in period — COMPLETED only (match royalty / strict business definition).
+    // Excludes CANCELED, RETURNED, PENDING, PAID, FINISH_PACK, FINISH_PICK.
     const orders = await _fetchAllPages(
       'jubelio_sales_orders', 'salesorder_id,wms_status',
-      q => q.gte('transaction_date', startISO).lt('transaction_date', endISO).neq('wms_status','CANCELED')
+      q => q.gte('transaction_date', startISO).lt('transaction_date', endISO).eq('wms_status','COMPLETED')
     );
-    const validOrderIds = orders.filter(o => o.wms_status !== 'RETURNED').map(o => o.salesorder_id);
+    const validOrderIds = orders.map(o => o.salesorder_id);
     fb.textContent = `${validOrderIds.length.toLocaleString('id-ID')} orders → mengambil items...`;
 
     // 2. Items for those orders
