@@ -246,8 +246,8 @@
         <div class="page-header">
           <div><div class="page-title">Agreement</div><div class="page-sub">Submit dan kelola semua perjanjian dan kontrak.</div></div>
           <div class="tab-bar">
-            <button class="tab-btn active" onclick="switchTab('new',this)">Entri Baru</button>
-            <button class="tab-btn" onclick="switchTab('list',this)">Semua Agreement</button>
+            <button class="tab-btn" onclick="switchTab('new',this)">Entri Baru</button>
+            <button class="tab-btn active" onclick="switchTab('list',this)">Semua Agreement</button>
           </div>
         </div>
         <div class="stats-row col7">
@@ -259,7 +259,7 @@
           <div class="stat-card warn"><div class="stat-num" id="s-near">—</div><div class="stat-lbl">Near Expiring</div></div>
           <div class="stat-card danger"><div class="stat-num" id="s-expired">—</div><div class="stat-lbl">Expired</div></div>
         </div>
-        <div id="tab-new">
+        <div id="tab-new" style="display:none">
           <div class="form-card">
             <div class="form-sec">Detail Agreement</div>
             <div class="form-grid">
@@ -283,7 +283,7 @@
             <div class="feedback" id="feedback"></div>
           </div>
         </div>
-        <div id="tab-list" style="display:none;">
+        <div id="tab-list">
           <div class="filter-panel">
             <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="clearFilters()">✕ Reset</button></div>
             <div class="filter-grid">
@@ -314,8 +314,8 @@
         <div class="page-header">
           <div><div class="page-title">IP Master</div><div class="page-sub">Database semua IP dan Brand yang dikelola.</div></div>
           <div class="tab-bar">
-            <button class="tab-btn active" onclick="switchIpTab('new',this)">Tambah IP</button>
-            <button class="tab-btn" onclick="switchIpTab('list',this)">Semua IP</button>
+            <button class="tab-btn" onclick="switchIpTab('new',this)">Tambah IP</button>
+            <button class="tab-btn active" onclick="switchIpTab('list',this)">Semua IP</button>
           </div>
         </div>
         <div class="stats-section-label">Agreement Status</div>
@@ -332,7 +332,7 @@
           <div class="stat-card"><div class="stat-num" id="ip-s-live-active">—</div><div class="stat-lbl">Live Active</div></div>
           <div class="stat-card danger"><div class="stat-num" id="ip-s-live-inactive">—</div><div class="stat-lbl">Live Inactive</div></div>
         </div>
-        <div id="iptab-new">
+        <div id="iptab-new" style="display:none">
           <div class="form-card">
             <div class="form-sec">Detail IP / Brand</div>
             <div class="form-grid">
@@ -367,7 +367,7 @@
             <div class="feedback" id="ip-feedback"></div>
           </div>
         </div>
-        <div id="iptab-list" style="display:none;">
+        <div id="iptab-list">
           <div class="filter-panel">
             <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="clearIPFilters()">✕ Reset</button></div>
             <div class="filter-grid">
@@ -397,8 +397,8 @@
         <div class="page-header">
           <div><div class="page-title">Collaborator Royalty</div><div class="page-sub">Database penerima royalty dan terms-nya.</div></div>
           <div class="tab-bar">
-            <button class="tab-btn active" onclick="switchRRTab('new',this)">Tambah Penerima</button>
-            <button class="tab-btn" onclick="switchRRTab('list',this)">Semua Penerima</button>
+            <button class="tab-btn" onclick="switchRRTab('new',this)">Tambah Penerima</button>
+            <button class="tab-btn active" onclick="switchRRTab('list',this)">Semua Penerima</button>
           </div>
         </div>
         <div class="stats-row col3">
@@ -406,7 +406,7 @@
           <div class="stat-card"><div class="stat-num" id="rr-s-postsales">—</div><div class="stat-lbl">Post-Sales</div></div>
           <div class="stat-card"><div class="stat-num" id="rr-s-advance">—</div><div class="stat-lbl">Advance / Both</div></div>
         </div>
-        <div id="rrtab-new">
+        <div id="rrtab-new" style="display:none">
           <div class="form-card">
             <div class="form-sec">Detail Penerima Royalty</div>
             <div class="form-grid">
@@ -432,7 +432,7 @@
             <div class="feedback" id="rr-feedback"></div>
           </div>
         </div>
-        <div id="rrtab-list" style="display:none;">
+        <div id="rrtab-list">
           <div class="filter-panel">
             <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="clearRRFilters()">✕ Reset</button></div>
             <div class="filter-grid">
@@ -533,8 +533,8 @@
         <div class="page-header">
           <div><div class="page-title">Brand Master</div><div class="page-sub">Database rate per brand dan kategori produk.</div></div>
           <div class="tab-bar">
-            <button class="tab-btn active" onclick="switchBMTab('new',this)">Tambah Brand</button>
-            <button class="tab-btn" onclick="switchBMTab('list',this)">Semua Brand</button>
+            <button class="tab-btn" onclick="switchBMTab('new',this)">Tambah Brand</button>
+            <button class="tab-btn active" onclick="switchBMTab('list',this)">Semua Brand</button>
           </div>
         </div>
         <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem;">
@@ -543,7 +543,7 @@
           <div class="stat-card warn"><div class="stat-num" id="bm-s-nego">—</div><div class="stat-lbl">Ada Rate Nego</div></div>
           <div class="stat-card"><div class="stat-num" id="bm-s-live">—</div><div class="stat-lbl">Live Active</div></div>
         </div>
-        <div id="bmtab-new">
+        <div id="bmtab-new" style="display:none">
           <div class="form-card">
             <div class="form-sec">Detail Brand</div>
             <div class="form-grid">
@@ -584,7 +584,7 @@
             <div class="feedback" id="bm-feedback"></div>
           </div>
         </div>
-        <div id="bmtab-list" style="display:none;">
+        <div id="bmtab-list">
           <div class="filter-panel">
             <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="clearBMFilters()">✕ Reset</button></div>
             <div class="filter-grid">
@@ -814,8 +814,8 @@
         <div class="page-header">
           <div><div class="page-title">Distribution Partner</div><div class="page-sub">Database mitra distribusi merchandise — consignment dan bulk purchase.</div></div>
           <div class="tab-bar">
-            <button class="tab-btn active" onclick="switchDPTab('new',this)">Tambah Partner</button>
-            <button class="tab-btn" onclick="switchDPTab('list',this)">Semua Partner</button>
+            <button class="tab-btn" onclick="switchDPTab('new',this)">Tambah Partner</button>
+            <button class="tab-btn active" onclick="switchDPTab('list',this)">Semua Partner</button>
           </div>
         </div>
         <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem;">
@@ -824,7 +824,7 @@
           <div class="stat-card info"><div class="stat-num" id="dp-s-consign">—</div><div class="stat-lbl">Consignment</div></div>
           <div class="stat-card"><div class="stat-num" id="dp-s-bulk">—</div><div class="stat-lbl">Bulk Purchase</div></div>
         </div>
-        <div id="dptab-new">
+        <div id="dptab-new" style="display:none">
           <div class="form-card">
             <div class="form-sec">Detail Partner</div>
             <div class="form-grid">
@@ -856,7 +856,7 @@
             <div class="feedback" id="dp-feedback"></div>
           </div>
         </div>
-        <div id="dptab-list" style="display:none;">
+        <div id="dptab-list">
           <div class="filter-panel">
             <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="clearDPFilters()">✕ Reset</button></div>
             <div class="filter-grid">
@@ -910,8 +910,8 @@
         <div class="page-header">
           <div><div class="page-title">R&amp;D Product</div><div class="page-sub">Asses kandidat produk baru sebelum launching — brief, sourcing multi-vendor, quote &amp; sample tracker.</div></div>
           <div class="tab-bar">
-            <button class="tab-btn active" onclick="switchRNDTab('new',this)">Tambah</button>
-            <button class="tab-btn" onclick="switchRNDTab('list',this)">Semua</button>
+            <button class="tab-btn" onclick="switchRNDTab('new',this)">Tambah</button>
+            <button class="tab-btn active" onclick="switchRNDTab('list',this)">Semua</button>
           </div>
         </div>
 
@@ -924,7 +924,7 @@
           <div class="stat-card"><div class="stat-num" id="rnd-s-best">—</div><div class="stat-lbl">% Below Target HPP</div></div>
         </div>
 
-        <div id="rndtab-new">
+        <div id="rndtab-new" style="display:none">
           <div class="form-card">
             <div class="form-sec">Brief Produk</div>
             <div class="form-grid">
@@ -965,7 +965,7 @@
           </div>
         </div>
 
-        <div id="rndtab-list" style="display:none">
+        <div id="rndtab-list">
           <div class="filter-panel">
             <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="clearRNDFilters()">✕ Reset</button></div>
             <div class="filter-grid">
@@ -1162,8 +1162,8 @@
         <div class="page-header">
           <div><div class="page-title">Vendor Master</div><div class="page-sub">Database vendor / pemasok produksi — contact, default lokasi & pajak. Dipakai pas export PO ke Jubelio.</div></div>
           <div class="tab-bar">
-            <button class="tab-btn active" onclick="switchVMTab('new',this)">Tambah</button>
-            <button class="tab-btn" onclick="switchVMTab('list',this)">Semua</button>
+            <button class="tab-btn" onclick="switchVMTab('new',this)">Tambah</button>
+            <button class="tab-btn active" onclick="switchVMTab('list',this)">Semua</button>
             <button class="tab-btn" onclick="switchVMTab('capabilities',this)">Capabilities</button>
           </div>
         </div>
@@ -1174,7 +1174,7 @@
           <div class="stat-card"><div class="stat-num" id="vm-s-incomplete">—</div><div class="stat-lbl">Belum Lengkap</div></div>
         </div>
 
-        <div id="vmtab-new">
+        <div id="vmtab-new" style="display:none">
           <div class="form-card">
             <div class="form-sec">Identitas Vendor</div>
 
@@ -1273,7 +1273,7 @@
           </div>
         </div>
 
-        <div id="vmtab-list" style="display:none">
+        <div id="vmtab-list">
           <div class="filter-panel">
             <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="document.getElementById('vmSearch').value='';applyVMFilters()">✕ Reset</button></div>
             <div class="filter-grid">
@@ -1352,8 +1352,8 @@
         <div class="page-header">
           <div><div class="page-title">Pop Up Booth</div><div class="page-sub">Track event pop-up booth, manpower, stok, penjualan, dan reinbound.</div></div>
           <div class="tab-bar">
-            <button class="tab-btn active" onclick="switchPBTab('new',this)">Tambah</button>
-            <button class="tab-btn" onclick="switchPBTab('list',this)">Semua</button>
+            <button class="tab-btn" onclick="switchPBTab('new',this)">Tambah</button>
+            <button class="tab-btn active" onclick="switchPBTab('list',this)">Semua</button>
           </div>
         </div>
         <div class="stats-row" style="grid-template-columns:repeat(6,1fr);margin-bottom:1.25rem">
@@ -1364,7 +1364,7 @@
           <div class="stat-card"><div class="stat-num" id="pb-s-cancelled">—</div><div class="stat-lbl">Cancelled</div></div>
           <div class="stat-card"><div class="stat-num" id="pb-s-grandtotal" style="font-size:14px">—</div><div class="stat-lbl">Grand Total (filter)</div></div>
         </div>
-        <div id="pbtab-new">
+        <div id="pbtab-new" style="display:none">
           <div class="form-card">
             <div class="form-sec">Informasi Event</div>
             <div class="form-grid">
@@ -1424,7 +1424,7 @@
             <div class="feedback" id="pb-feedback"></div>
           </div>
         </div>
-        <div id="pbtab-list" style="display:none">
+        <div id="pbtab-list">
           <div class="filter-panel">
             <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="['pb-fil-status','pb-fil-ip'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});document.getElementById('pbSearch').value='';applyPBFilters()">✕ Reset</button></div>
             <div class="filter-grid">
@@ -1922,8 +1922,8 @@
       <div class="page-header">
         <div><div class="page-title">Designer Workflow</div><div class="page-sub">Tracking deliverables, kontrak, dan pembayaran per project designer.</div></div>
         <div class="tab-bar">
-          <button class="tab-btn active" onclick="switchDwTab('new',this)">+ Tambah</button>
-          <button class="tab-btn" onclick="switchDwTab('list',this)">Semua</button>
+          <button class="tab-btn" onclick="switchDwTab('new',this)">+ Tambah</button>
+          <button class="tab-btn active" onclick="switchDwTab('list',this)">Semua</button>
         </div>
       </div>
       <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
@@ -1936,7 +1936,7 @@
         <div class="stat-card"><div class="stat-num" id="dw-s-paid" style="color:#1a5c25">—</div><div class="stat-lbl">Paid</div></div>
         <div class="stat-card"><div class="stat-num" id="dw-s-kontrak">—</div><div class="stat-lbl">Ada Kontrak</div></div>
       </div>
-      <div id="dwtab-new">
+      <div id="dwtab-new" style="display:none">
         <div class="form-card">
           <div class="form-sec">Project Designer (Manual / Sendiri)</div>
           <div class="form-grid">
@@ -1956,7 +1956,7 @@
           <div class="feedback" id="dw-feedback"></div>
         </div>
       </div>
-      <div id="dwtab-list" style="display:none">
+      <div id="dwtab-list">
         <div class="filter-panel">
           <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="clearDwFilters()">✕ Reset</button></div>
           <div class="filter-grid">
@@ -2183,8 +2183,8 @@
       <div class="page-header">
         <div><div class="page-title">Content Planning</div><div class="page-sub">Plan content per piece — social media, blog, video. Owner, deadline, channel, status.</div></div>
         <div class="tab-bar">
-          <button class="tab-btn active" onclick="switchCPTab('new',this)">Tambah</button>
-          <button class="tab-btn" onclick="switchCPTab('list',this)">Semua</button>
+          <button class="tab-btn" onclick="switchCPTab('new',this)">Tambah</button>
+          <button class="tab-btn active" onclick="switchCPTab('list',this)">Semua</button>
         </div>
       </div>
       <div class="stats-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:1.25rem">
@@ -2194,7 +2194,7 @@
         <div class="stat-card"><div class="stat-num" id="cp-s-scheduled">—</div><div class="stat-lbl">Scheduled</div></div>
         <div class="stat-card"><div class="stat-num" id="cp-s-published">—</div><div class="stat-lbl">Published</div></div>
       </div>
-      <div id="cptab-new">
+      <div id="cptab-new" style="display:none">
         <div class="form-card">
           <div class="form-sec">Tambah Content</div>
           <div class="form-grid">
@@ -2224,7 +2224,7 @@
           <div class="feedback" id="cp-feedback"></div>
         </div>
       </div>
-      <div id="cptab-list" style="display:none">
+      <div id="cptab-list">
         <div class="filter-panel">
           <select id="cp-fil-status" onchange="loadContentPlan()"><option value="">Semua Status</option><option>Planning</option><option>Drafting</option><option>Review</option><option>Approved</option><option>Scheduled</option><option>Published</option><option>Cancelled</option></select>
           <select id="cp-fil-type" onchange="loadContentPlan()"><option value="">Semua Type</option></select>
@@ -2248,8 +2248,8 @@
       <div class="page-header">
         <div><div class="page-title">Ads Management</div><div class="page-sub">Track campaign paid ads — Meta, TikTok, Google. Budget vs spend, period, PIC.</div></div>
         <div class="tab-bar">
-          <button class="tab-btn active" onclick="switchAdsTab('new',this)">Tambah</button>
-          <button class="tab-btn" onclick="switchAdsTab('list',this)">Semua</button>
+          <button class="tab-btn" onclick="switchAdsTab('new',this)">Tambah</button>
+          <button class="tab-btn active" onclick="switchAdsTab('list',this)">Semua</button>
         </div>
       </div>
       <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
@@ -2258,7 +2258,7 @@
         <div class="stat-card"><div class="stat-num" id="ads-s-budget">—</div><div class="stat-lbl">Total Budget</div></div>
         <div class="stat-card"><div class="stat-num" id="ads-s-spend">—</div><div class="stat-lbl">Total Spend</div></div>
       </div>
-      <div id="adstab-new">
+      <div id="adstab-new" style="display:none">
         <div class="form-card">
           <div class="form-sec">Tambah Campaign</div>
           <div class="form-grid">
@@ -2285,7 +2285,7 @@
           <div class="feedback" id="ads-feedback"></div>
         </div>
       </div>
-      <div id="adstab-list" style="display:none">
+      <div id="adstab-list">
         <div class="filter-panel">
           <select id="ads-fil-status" onchange="loadAdsManagement()"><option value="">Semua Status</option><option>Planning</option><option>Active</option><option>Paused</option><option>Ended</option><option>Cancelled</option></select>
           <select id="ads-fil-channel" onchange="loadAdsManagement()"><option value="">Semua Channel</option></select>
@@ -2309,8 +2309,8 @@
       <div class="page-header">
         <div><div class="page-title">Marketing Activation</div><div class="page-sub">Manage events &amp; activations — pop-up, fan meet, launch party. Venue, budget, PIC.</div></div>
         <div class="tab-bar">
-          <button class="tab-btn active" onclick="switchMaTab('new',this)">Tambah</button>
-          <button class="tab-btn" onclick="switchMaTab('list',this)">Semua</button>
+          <button class="tab-btn" onclick="switchMaTab('new',this)">Tambah</button>
+          <button class="tab-btn active" onclick="switchMaTab('list',this)">Semua</button>
         </div>
       </div>
       <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
@@ -2319,7 +2319,7 @@
         <div class="stat-card"><div class="stat-num" id="ma-s-done">—</div><div class="stat-lbl">Done</div></div>
         <div class="stat-card"><div class="stat-num" id="ma-s-budget">—</div><div class="stat-lbl">Total Budget</div></div>
       </div>
-      <div id="matab-new">
+      <div id="matab-new" style="display:none">
         <div class="form-card">
           <div class="form-sec">Tambah Event</div>
           <div class="form-grid">
@@ -2344,7 +2344,7 @@
           <div class="feedback" id="ma-feedback"></div>
         </div>
       </div>
-      <div id="matab-list" style="display:none">
+      <div id="matab-list">
         <div class="filter-panel">
           <select id="ma-fil-status" onchange="loadMktActivation()"><option value="">Semua Status</option><option>Planning</option><option>Booked</option><option>In Progress</option><option>Done</option><option>Cancelled</option></select>
           <select id="ma-fil-type" onchange="loadMktActivation()"><option value="">Semua Type</option></select>
@@ -2368,8 +2368,8 @@
       <div class="page-header">
         <div><div class="page-title">KOL Management</div><div class="page-sub">Track KOL placements — handle, tier, fee, deliverables, status. Brief &amp; post link per placement.</div></div>
         <div class="tab-bar">
-          <button class="tab-btn active" onclick="switchKolTab('new',this)">Tambah</button>
-          <button class="tab-btn" onclick="switchKolTab('list',this)">Semua</button>
+          <button class="tab-btn" onclick="switchKolTab('new',this)">Tambah</button>
+          <button class="tab-btn active" onclick="switchKolTab('list',this)">Semua</button>
         </div>
       </div>
       <div class="stats-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:1.25rem">
@@ -2379,7 +2379,7 @@
         <div class="stat-card"><div class="stat-num" id="kol-s-fee">—</div><div class="stat-lbl">Total Fee</div></div>
         <div class="stat-card"><div class="stat-num" id="kol-s-paid">—</div><div class="stat-lbl">Paid</div></div>
       </div>
-      <div id="koltab-new">
+      <div id="koltab-new" style="display:none">
         <div class="form-card">
           <div class="form-sec">Tambah KOL Placement</div>
           <div class="form-grid">
@@ -2422,7 +2422,7 @@
           <div class="feedback" id="kol-feedback"></div>
         </div>
       </div>
-      <div id="koltab-list" style="display:none">
+      <div id="koltab-list">
         <div class="filter-panel">
           <select id="kol-fil-status" onchange="loadKolMgmt()"><option value="">Semua Status</option><option>Outreach</option><option>Negotiating</option><option>Confirmed</option><option>Briefed</option><option>Posted</option><option>Completed</option><option>Cancelled</option></select>
           <select id="kol-fil-platform" onchange="loadKolMgmt()"><option value="">Semua Platform</option></select>
@@ -2668,8 +2668,8 @@
       <div class="page-header">
         <div><div class="page-title">Publication</div><div class="page-sub">Track PR &amp; press release — media outlet, publish/embargo date, link, status.</div></div>
         <div class="tab-bar">
-          <button class="tab-btn active" onclick="switchPubTab('new',this)">Tambah</button>
-          <button class="tab-btn" onclick="switchPubTab('list',this)">Semua</button>
+          <button class="tab-btn" onclick="switchPubTab('new',this)">Tambah</button>
+          <button class="tab-btn active" onclick="switchPubTab('list',this)">Semua</button>
         </div>
       </div>
       <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
@@ -2678,7 +2678,7 @@
         <div class="stat-card"><div class="stat-num" id="pub-s-embargo">—</div><div class="stat-lbl">Under Embargo</div></div>
         <div class="stat-card"><div class="stat-num" id="pub-s-published">—</div><div class="stat-lbl">Published</div></div>
       </div>
-      <div id="pubtab-new">
+      <div id="pubtab-new" style="display:none">
         <div class="form-card">
           <div class="form-sec">Tambah Publikasi</div>
           <div class="form-grid">
@@ -2704,7 +2704,7 @@
           <div class="feedback" id="pub-feedback"></div>
         </div>
       </div>
-      <div id="pubtab-list" style="display:none">
+      <div id="pubtab-list">
         <div class="filter-panel">
           <select id="pub-fil-status" onchange="loadPublication()"><option value="">Semua Status</option><option>Planning</option><option>Draft</option><option>Approved</option><option>Embargoed</option><option>Published</option><option>Cancelled</option></select>
           <select id="pub-fil-type" onchange="loadPublication()"><option value="">Semua Type</option></select>
@@ -2728,8 +2728,8 @@
       <div class="page-header">
         <div><div class="page-title">Photoshoot Planning</div><div class="page-sub">Plan &amp; track sesi photoshoot — jadwal, lokasi, delivery, budget per shoot.</div></div>
         <div class="tab-bar">
-          <button class="tab-btn active" onclick="switchPsTab('new',this)">Tambah</button>
-          <button class="tab-btn" onclick="switchPsTab('list',this)">Semua</button>
+          <button class="tab-btn" onclick="switchPsTab('new',this)">Tambah</button>
+          <button class="tab-btn active" onclick="switchPsTab('list',this)">Semua</button>
         </div>
       </div>
       <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
@@ -2738,7 +2738,7 @@
         <div class="stat-card"><div class="stat-num" id="ps-s-delivered">—</div><div class="stat-lbl">Delivered</div></div>
         <div class="stat-card"><div class="stat-num" id="ps-s-budget">—</div><div class="stat-lbl">Total Budget</div></div>
       </div>
-      <div id="pstab-new">
+      <div id="pstab-new" style="display:none">
         <div class="form-card">
           <div class="form-sec">Tambah Photoshoot</div>
           <div class="form-grid">
@@ -2762,7 +2762,7 @@
           <div class="feedback" id="ps-feedback"></div>
         </div>
       </div>
-      <div id="pstab-list" style="display:none">
+      <div id="pstab-list">
         <div class="filter-panel">
           <select id="ps-fil-status" onchange="loadPhotoshoot()"><option value="">Semua Status</option><option>Planning</option><option>Booked</option><option>Shot</option><option>Editing</option><option>Delivered</option><option>Cancelled</option></select>
           <select id="ps-fil-collection" onchange="loadPhotoshoot()"><option value="">Semua Collection</option></select>
@@ -2785,8 +2785,8 @@
       <div class="page-header">
         <div><div class="page-title">Designer Master</div><div class="page-sub">Database designer — kontak dan kategori.</div></div>
         <div class="tab-bar">
-          <button class="tab-btn active" onclick="switchDsgTab('new',this)">Tambah</button>
-          <button class="tab-btn" onclick="switchDsgTab('list',this)">Semua</button>
+          <button class="tab-btn" onclick="switchDsgTab('new',this)">Tambah</button>
+          <button class="tab-btn active" onclick="switchDsgTab('list',this)">Semua</button>
         </div>
       </div>
       <div class="stats-row" style="grid-template-columns:repeat(3,1fr);margin-bottom:1.25rem">
@@ -2794,7 +2794,7 @@
         <div class="stat-card"><div class="stat-num" id="dsg-s-active">—</div><div class="stat-lbl">Active</div></div>
         <div class="stat-card"><div class="stat-num" id="dsg-s-inactive">—</div><div class="stat-lbl">Inactive</div></div>
       </div>
-      <div id="dsgtab-new">
+      <div id="dsgtab-new" style="display:none">
         <div class="form-card">
           <div class="form-sec">Informasi Designer</div>
           <div class="form-grid">
@@ -2835,7 +2835,7 @@
           <div class="feedback" id="dsg-feedback"></div>
         </div>
       </div>
-      <div id="dsgtab-list" style="display:none">
+      <div id="dsgtab-list">
         <div class="filter-panel">
           <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="clearDsgFilters()">✕ Reset</button></div>
           <div class="filter-grid">
@@ -3778,8 +3778,8 @@
         <div class="page-header">
           <div><div class="page-title">Monthly Settlement</div><div class="page-sub">Marte Operations — laporan konsinyasi bulanan per brand</div></div>
           <div class="tab-bar">
-            <button class="tab-btn active" id="mst-tab-new-btn" onclick="switchMSTTab('new',this)">+ Tambah</button>
-            <button class="tab-btn" id="mst-tab-list-btn" onclick="switchMSTTab('list',this)">Semua</button>
+            <button class="tab-btn" id="mst-tab-new-btn" onclick="switchMSTTab('new',this)">+ Tambah</button>
+            <button class="tab-btn active" id="mst-tab-list-btn" onclick="switchMSTTab('list',this)">Semua</button>
           </div>
         </div>
         <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
@@ -3790,7 +3790,7 @@
         </div>
 
         <!-- FORM TAB -->
-        <div id="msttab-new">
+        <div id="msttab-new" style="display:none">
           <div class="form-card">
             <div class="form-sec">Info Settlement</div>
             <div class="form-grid">
@@ -3907,7 +3907,7 @@
         </div>
 
         <!-- LIST TAB -->
-        <div id="msttab-list" style="display:none">
+        <div id="msttab-list">
           <div class="filter-panel">
             <select id="mst-fil-status" onchange="renderMSTTable()"><option value="">Semua Status</option><option value="Draft">Draft</option><option value="Sent">Sent</option><option value="Invoiced">Invoiced</option><option value="Settled">Settled</option></select>
             <input type="text" id="mst-fil-search" placeholder="Cari brand / periode..." oninput="renderMSTTable()" style="max-width:220px">

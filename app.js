@@ -263,7 +263,7 @@ function showPage(name, el) {
   // Save current page to sessionStorage as fallback for refresh restoration
   if (name !== "home") sessionStorage.setItem('snt_page', name);
   else sessionStorage.removeItem('snt_page');
-  if (name==="agreement") loadStats();
+  if (name==="agreement") { loadStats(); loadAgreements(); }
   if (name==="ipmaster") { loadIPMaster(); loadStats(); }
   if (name==="recipients") loadRecipients();
   if (name==="brandmaster") loadBrandMaster();
