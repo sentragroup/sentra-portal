@@ -22383,100 +22383,115 @@ function _rstRenderProductCard(p) {
 
   // ── Transposed variant table: sizes as columns, metrics as rows ──
   const variants = p.variants;
-  // Helper for total cell colour
-  const _dClrFor = days => days===null ? '#aaa' : days<7 ? '#c0392b' : days<14 ? '#e65100' : days<30 ? '#b8860b' : '#2d7a2d';
   const totalStock = variants.reduce((s,v)=>s+(v.stock||0), 0);
   const totalSold  = variants.reduce((s,v)=>s+(v.qtySold||0), 0);
-  const totalAvg   = variants.reduce((s,v)=>s+(v.avgDaily||0), 0);
+
+  // Initial total Order Qty across checked variants (auto-suggest or override)
+  let totalOrderQty = 0;
+  for (const v of variants) {
+    if (!_rstSelectedItems.has(v.itemId)) continue;
+    const q = _rstQtyMap[v.itemId] != null ? _rstQtyMap[v.itemId] : (adjQtys[v.itemId] || v.suggestedQty || 0);
+    totalOrderQty += Number(q) || 0;
+  }
+
+  // Highlight color for the Sisa Hari indicator embedded in size header
+  const _dClrFor = days => days===null ? null : days<7 ? '#c0392b' : days<14 ? '#e65100' : days<30 ? '#b8860b' : null;
 
   const sizeHead = variants.map(v => {
     const isSel = _rstSelectedItems.has(v.itemId);
-    return `<th style="padding:8px 6px;text-align:center;background:${isSel?'#eaf3ff':'#fafafa'};border-bottom:1px solid var(--g100);font-size:11px;font-weight:700;color:var(--text)">${v.size.replace(/</g,'&lt;')}</th>`;
+    const dClr  = _dClrFor(v.daysOfStock);
+    const daysHint = (v.daysOfStock !== null && dClr)
+      ? `<div style="font-size:9px;font-family:var(--mono);color:${dClr};font-weight:600;margin-top:1px">${Math.floor(v.daysOfStock)}d</div>` : '';
+    return `<th style="padding:5px 4px;text-align:center;background:${isSel?'#eaf3ff':'#fafafa'};border-bottom:1px solid var(--g100);font-size:11px;font-weight:700;color:var(--text)">${v.size.replace(/</g,'&lt;')}${daysHint}</th>`;
   }).join('');
 
   const checkRow = variants.map(v => {
     const chk = _rstSelectedItems.has(v.itemId);
     const safeItemName = (v.itemNameFull||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-    return `<td style="padding:5px 6px;text-align:center;background:${chk?'#eaf3ff':''}">
+    return `<td style="padding:3px 4px;text-align:center;background:${chk?'#eaf3ff':''}">
       <input type="checkbox" class="rst-var-chk" data-item-id="${v.itemId}" data-item-code="${v.itemCode}" data-item-name="${safeItemName}" data-pkey="${pKey}" data-parent-name="${safeParentName}" ${chk?'checked':''} onchange="_rstToggleVariant(${v.itemId},this.checked)" style="cursor:pointer">
     </td>`;
   }).join('');
 
-  const stockRow = variants.map(v => `<td style="padding:5px 6px;text-align:center;font-family:var(--mono);font-size:12px">${v.stock||0}</td>`).join('');
-  const soldRow  = variants.map(v => `<td style="padding:5px 6px;text-align:center;font-family:var(--mono);font-size:12px;color:var(--g400)">${v.qtySold>0?v.qtySold:'—'}</td>`).join('');
-  const avgRow   = variants.map(v => `<td style="padding:5px 6px;text-align:center;font-family:var(--mono);font-size:12px;color:var(--g400)">${v.avgDaily>0?v.avgDaily.toFixed(1):'—'}</td>`).join('');
-  const daysRow  = variants.map(v => {
-    const dClr = _dClrFor(v.daysOfStock);
-    const dStr = v.daysOfStock!==null ? Math.floor(v.daysOfStock)+'d' : '—';
-    return `<td style="padding:5px 6px;text-align:center;font-family:var(--mono);font-size:12px;color:${dClr};font-weight:${v.needsRestock?700:400}">${dStr}</td>`;
-  }).join('');
+  const stockRow = variants.map(v => `<td style="padding:3px 4px;text-align:center;font-family:var(--mono);font-size:11px">${v.stock||0}</td>`).join('');
+  const soldRow  = variants.map(v => `<td style="padding:3px 4px;text-align:center;font-family:var(--mono);font-size:11px;color:var(--g400)">${v.qtySold>0?v.qtySold:'—'}</td>`).join('');
   const qtyRow = variants.map(v => {
     const chk = _rstSelectedItems.has(v.itemId);
     const defaultQty = (_rstQtyMap[v.itemId] != null)
       ? _rstQtyMap[v.itemId]
       : (chk ? (adjQtys[v.itemId] || v.suggestedQty || '') : '');
-    return `<td style="padding:5px 6px;text-align:center;background:${chk?'#eaf3ff':''}">
-      <input type="number" class="rst-qty-input" data-item-id="${v.itemId}" min="0" step="1" value="${defaultQty}" placeholder="0" onchange="_rstSetQty(${v.itemId},this.value)" style="width:60px;text-align:center;font-size:12px;font-family:var(--mono);padding:4px 4px;border:1px solid var(--g200);border-radius:4px;background:white">
+    return `<td style="padding:3px 4px;text-align:center;background:${chk?'#eaf3ff':''}">
+      <input type="number" class="rst-qty-input" data-item-id="${v.itemId}" data-pkey="${pKey}" min="0" step="1" value="${defaultQty}" placeholder="0" oninput="_rstSetQty(${v.itemId},this.value);_rstRecalcCardTotal('${pKey}')" style="width:54px;text-align:center;font-size:11px;font-family:var(--mono);padding:3px 4px;border:1px solid var(--g200);border-radius:4px;background:white">
     </td>`;
   }).join('');
 
-  const labelTd = 'padding:5px 10px;font-size:11px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600;background:#fafafa;border-right:1px solid var(--g100);white-space:nowrap';
-  const totLabelTd = 'padding:5px 10px;font-size:11px;color:var(--g400);text-align:right;border-left:1px solid var(--g100);background:#fafafa;font-weight:600';
+  const labelTd = 'padding:3px 8px;font-size:10px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600;background:#fafafa;border-right:1px solid var(--g100);white-space:nowrap';
+  const totLabelTd = 'padding:3px 8px;font-size:11px;color:var(--g400);text-align:right;border-left:1px solid var(--g100);background:#fafafa;font-weight:600;white-space:nowrap';
 
   return `<div class="rst-card" data-pkey="${pKey}" style="background:white;border:1px solid var(--g100);border-radius:8px;overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,0.03)">
-    <div style="padding:12px 14px;display:flex;align-items:flex-start;gap:14px;background:var(--off);border-bottom:1px solid var(--g100)">
+    <div style="padding:10px 12px;display:flex;align-items:flex-start;gap:12px;background:var(--off);border-bottom:1px solid var(--g100)">
       ${thumb}
       <div style="flex:1;min-width:0">
-        <div style="font-size:14px;font-weight:700;line-height:1.3">${p.name.replace(/</g,'&lt;')}</div>
-        <div style="display:flex;gap:6px;align-items:center;margin-top:4px;flex-wrap:wrap">
+        <div style="font-size:13px;font-weight:700;line-height:1.3">${p.name.replace(/</g,'&lt;')}</div>
+        <div style="display:flex;gap:6px;align-items:center;margin-top:3px;flex-wrap:wrap">
           <span style="font-size:11px;color:var(--g600)">${p.brand}</span>
           ${p.ip ? `<span style="font-size:11px;color:var(--g300)">·</span><span style="font-size:11px;color:var(--g600)">${p.ip.replace(/</g,'&lt;')}</span>` : ''}
-          ${p.collection ? `<span style="font-size:11px;color:var(--g300)">·</span><span style="font-size:11px;color:var(--g600)">${p.collection.replace(/</g,'&lt;')}</span>` : ''}
           ${urgBadge}
           ${p.restockCount>0
             ? `<span style="font-size:10px;color:var(--g400)">${p.restockCount} SKU perlu restock</span>`
             : `<span style="font-size:10px;color:#2d7a2d">✓ stok aman</span>`}
         </div>
-        <!-- Parent-level Vendor + Harga Beli -->
-        <div style="display:flex;gap:14px;align-items:center;margin-top:10px;flex-wrap:wrap">
-          <div style="display:flex;align-items:center;gap:6px">
-            <label style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Vendor</label>
-            <select onchange="_rstSetParentVendor('${safeParentName}',this.value)" style="font-size:12px;padding:4px 8px;border:1px solid var(--g200);border-radius:4px;background:white;min-width:180px">
-              <option value="">— Pilih vendor —</option>${vendorOpts}
-            </select>
-          </div>
-          <div style="display:flex;align-items:center;gap:6px">
-            <label style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Harga Beli (Rp)</label>
-            <input type="number" min="0" step="1000" value="${currentPrice}" placeholder="0" onchange="_rstSetParentPrice('${safeParentName}',this.value)" style="width:110px;text-align:right;font-size:12px;font-family:var(--mono);padding:4px 8px;border:1px solid var(--g200);border-radius:4px;background:white">
-          </div>
+        <!-- Parent-level Vendor + Harga Beli (more compact, inline) -->
+        <div style="display:flex;gap:10px;align-items:center;margin-top:6px;flex-wrap:wrap">
+          <select onchange="_rstSetParentVendor('${safeParentName}',this.value)" style="font-size:11px;padding:3px 6px;border:1px solid var(--g200);border-radius:4px;background:white;min-width:160px">
+            <option value="">— Pilih vendor —</option>${vendorOpts}
+          </select>
+          <input type="number" min="0" step="1000" value="${currentPrice}" placeholder="Harga beli (Rp)" onchange="_rstSetParentPrice('${safeParentName}',this.value)" style="width:120px;text-align:right;font-size:11px;font-family:var(--mono);padding:3px 6px;border:1px solid var(--g200);border-radius:4px;background:white">
           ${lastPOHint}
         </div>
       </div>
-      <button onclick="_rstRemoveProduct('${safeParentName}')" style="background:none;border:1px solid var(--g200);border-radius:4px;color:#c0392b;cursor:pointer;font-size:11px;padding:5px 10px;white-space:nowrap">✕ Hapus</button>
+      <button onclick="_rstRemoveProduct('${safeParentName}')" style="background:none;border:1px solid var(--g200);border-radius:4px;color:#c0392b;cursor:pointer;font-size:11px;padding:4px 8px;white-space:nowrap">✕</button>
     </div>
     <div style="overflow-x:auto">
-      <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <table style="width:100%;border-collapse:collapse;font-size:11px">
         <thead>
           <tr>
-            <th style="padding:8px 10px;text-align:right;font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.3px;font-weight:600;background:#fafafa;border-right:1px solid var(--g100)">Size →</th>
+            <th style="padding:5px 8px;text-align:right;font-size:9px;color:var(--g400);text-transform:uppercase;letter-spacing:0.3px;font-weight:600;background:#fafafa;border-right:1px solid var(--g100)">Size →</th>
             ${sizeHead}
             <th style="${totLabelTd}">Total</th>
           </tr>
         </thead>
         <tbody>
-          <tr><td style="${labelTd}">Pilih</td>${checkRow}<td style="${totLabelTd}">${variants.filter(v=>_rstSelectedItems.has(v.itemId)).length}/${variants.length}</td></tr>
+          <tr><td style="${labelTd}">Pilih</td>${checkRow}<td style="${totLabelTd}" id="rst-total-chk-${pKey}">${variants.filter(v=>_rstSelectedItems.has(v.itemId)).length}/${variants.length}</td></tr>
           <tr><td style="${labelTd}">Stock</td>${stockRow}<td style="${totLabelTd}">${totalStock.toLocaleString('id-ID')}</td></tr>
           <tr><td style="${labelTd}">Sold</td>${soldRow}<td style="${totLabelTd}">${totalSold>0?totalSold.toLocaleString('id-ID'):'—'}</td></tr>
-          <tr><td style="${labelTd}">Avg/Hr</td>${avgRow}<td style="${totLabelTd}">${totalAvg>0?totalAvg.toFixed(1):'—'}</td></tr>
-          <tr><td style="${labelTd}">Sisa Hr</td>${daysRow}<td style="${totLabelTd}">—</td></tr>
           <tr style="border-top:2px solid var(--g100)">
-            <td style="${labelTd};background:#f0f7ff;color:var(--text)">Order Qty</td>${qtyRow}
-            <td style="${totLabelTd};background:#f0f7ff;color:var(--text);font-weight:700" id="rst-total-qty-${pKey}">—</td>
+            <td style="${labelTd};background:#f0f7ff;color:var(--text)">Order</td>${qtyRow}
+            <td style="${totLabelTd};background:#f0f7ff;color:var(--text);font-weight:700;font-size:12px" id="rst-total-qty-${pKey}">${totalOrderQty > 0 ? totalOrderQty.toLocaleString('id-ID') : '—'}</td>
           </tr>
         </tbody>
       </table>
     </div>
   </div>`;
+}
+
+// Live-update the Total Order Qty + Total Selected count for a product card
+function _rstRecalcCardTotal(pKey) {
+  let totalQty = 0;
+  let selectedCount = 0;
+  let totalChks = 0;
+  document.querySelectorAll(`.rst-var-chk[data-pkey="${pKey}"]`).forEach(chk => {
+    totalChks++;
+    if (chk.checked) selectedCount++;
+  });
+  document.querySelectorAll(`.rst-qty-input[data-pkey="${pKey}"]`).forEach(input => {
+    const chk = document.querySelector(`.rst-var-chk[data-item-id="${input.dataset.itemId}"]`);
+    if (chk?.checked) totalQty += parseFloat(input.value) || 0;
+  });
+  const qtyCell = document.getElementById(`rst-total-qty-${pKey}`);
+  if (qtyCell) qtyCell.textContent = totalQty > 0 ? totalQty.toLocaleString('id-ID') : '—';
+  const chkCell = document.getElementById(`rst-total-chk-${pKey}`);
+  if (chkCell) chkCell.textContent = `${selectedCount}/${totalChks}`;
 }
 
 // ── Add/remove a product from the order ──
@@ -22527,9 +22542,21 @@ function _rstRemoveProduct(parentName) {
 function _rstToggleVariant(itemId, checked) {
   if (checked) _rstSelectedItems.add(itemId);
   else         _rstSelectedItems.delete(itemId);
-  // Update the row's bg + summary bar inline (no full re-render)
-  const row = document.querySelector(`.rst-var-chk[data-item-id="${itemId}"]`)?.closest('tr');
-  if (row) row.style.background = checked ? '#f0f7ff' : '';
+  // Visually highlight selected cells + recalc card totals + summary bar
+  const chk = document.querySelector(`.rst-var-chk[data-item-id="${itemId}"]`);
+  if (chk) {
+    const pKey = chk.dataset.pkey;
+    chk.parentElement.style.background = checked ? '#eaf3ff' : '';
+    const qtyInput = document.querySelector(`.rst-qty-input[data-item-id="${itemId}"]`);
+    if (qtyInput) {
+      qtyInput.parentElement.style.background = checked ? '#eaf3ff' : '';
+      // If checked and qty is empty, prefill with suggested qty (if any)
+      if (checked && (!qtyInput.value || qtyInput.value === '0')) {
+        if (_rstQtyMap[itemId] != null) qtyInput.value = _rstQtyMap[itemId];
+      }
+    }
+    if (pKey) _rstRecalcCardTotal(pKey);
+  }
   _rstUpdateSummaryBar();
 }
 
