@@ -21669,15 +21669,15 @@ const RESTOCK_BRANDS    = ['SD&Y', 'Lagaa', 'Marte'];
 const RESTOCK_LEAD_DAYS = 30;   // flag variant if days_of_stock < this
 const RESTOCK_TARGET    = 60;   // suggested order covers this many days
 
-let _rstLoading        = false;
-let _rstData           = null;     // { products, dayCount }
-let _rstAddedProducts  = new Set();// parentName set of products added to order
-let _rstSelectedItems  = new Set();// item_ids ticked for PO (within added products)
-let _rstVendorMap      = {};       // itemId → vendor_master.id (manually picked override)
-let _rstAllVendors     = [];       // [{id, name, jubelioContactId}] from vendor_master
-let _rstLastPOByItem   = {};       // itemId → {supplier_name, contact_id, date} from latest PO
-let _rstQtyMap         = {};       // itemId → manually overridden qty (else default)
-let _rstPriceMap       = {};       // itemId → manually entered price
+let _rstLoading          = false;
+let _rstData             = null;     // { products, dayCount }
+let _rstAddedProducts    = new Set();// parentName set of products added to order
+let _rstSelectedItems    = new Set();// item_ids ticked for PO (within added products)
+let _rstParentVendorMap  = {};       // parentName → vendor_master.id (one vendor per product)
+let _rstParentPriceMap   = {};       // parentName → harga beli (Rp) for all variants of this product
+let _rstAllVendors       = [];       // [{id, name, jubelioContactId}] from vendor_master
+let _rstLastPOByItem     = {};       // itemId → {supplier_name, contact_id, date} from latest PO
+let _rstQtyMap           = {};       // itemId → manually overridden qty per variant
 let _rstMode          = 'restock'; // 'restock' | 'catalog'
 
 function _rstParseSize(itemCode) {
@@ -21908,6 +21908,7 @@ function _rstRenderProductCard(p) {
   const pKey = btoa(unescape(encodeURIComponent(p.name))).replace(/[^a-zA-Z0-9]/g,'');
   const RST_ROLL      = 60;
   const RST_THRESHOLD = Math.round(RST_ROLL * 0.75);
+  const safeParentName = p.name.replace(/'/g,"\\'").replace(/"/g,'&quot;');
 
   // ── Auto-suggest qty per variant using roll rounding logic ──
   const restockVars = p.variants.filter(v => v.suggestedQty > 0);
@@ -21933,53 +21934,70 @@ function _rstRenderProductCard(p) {
     urgBadge  = `<span style="font-size:10px;background:${bg};color:${clr};border:1px solid ${bdr};border-radius:3px;padding:2px 6px;font-family:var(--mono)">⚠ ${Math.floor(p.minDays)}d</span>`;
   }
   const thumb = p.thumbnail
-    ? `<img src="${p.thumbnail}" style="width:44px;height:44px;object-fit:cover;border-radius:4px;border:1px solid var(--g100);flex-shrink:0">`
-    : `<div style="width:44px;height:44px;background:var(--g100);border-radius:4px;flex-shrink:0"></div>`;
+    ? `<img src="${p.thumbnail}" style="width:56px;height:56px;object-fit:cover;border-radius:4px;border:1px solid var(--g100);flex-shrink:0">`
+    : `<div style="width:56px;height:56px;background:var(--g100);border-radius:4px;flex-shrink:0"></div>`;
 
-  // Vendor dropdown helpers
-  const vmByJub  = new Map(_rstAllVendors.filter(x=>x.jubelioContactId).map(x => [x.jubelioContactId, x.id]));
-  const vmByName = new Map(_rstAllVendors.map(x => [x.name.toLowerCase(), x.id]));
+  // ── Parent-level Vendor + Harga Beli ──
+  const defaultVm = _rstParentDefaultVendor(p);
+  const currentVm = (p.name in _rstParentVendorMap) ? _rstParentVendorMap[p.name] : (defaultVm || '');
+  // Persist the inferred default to map so collect() can read it without recomputing
+  if (!(p.name in _rstParentVendorMap) && defaultVm) _rstParentVendorMap[p.name] = defaultVm;
+  const vendorOpts = _rstAllVendors.map(x =>
+    `<option value="${x.id}"${currentVm===x.id?' selected':''}>${x.name.replace(/</g,'&lt;')}</option>`).join('');
+  // Find the most recent last-PO date across variants — used in the hint
+  const lastPOs = p.variants.map(v => _rstLastPOByItem[v.itemId]).filter(Boolean);
+  const lastPOHint = lastPOs.length
+    ? (() => {
+        const newest = lastPOs.sort((a,b) => (b.date||'').localeCompare(a.date||''))[0];
+        return `<span style="font-size:10px;color:var(--g400)" title="${(newest.supplier_name||'').replace(/"/g,'&quot;')} (${(newest.date||'').slice(0,10)})">📋 PO terakhir: ${(newest.supplier_name||'').replace(/</g,'&lt;')}</span>`;
+      })()
+    : '';
+  const currentPrice = _rstParentPriceMap[p.name] != null ? _rstParentPriceMap[p.name] : '';
 
-  // ── Variants table ──
-  const variantRows = p.variants.map(v => {
+  // ── Transposed variant table: sizes as columns, metrics as rows ──
+  const variants = p.variants;
+  // Helper for total cell colour
+  const _dClrFor = days => days===null ? '#aaa' : days<7 ? '#c0392b' : days<14 ? '#e65100' : days<30 ? '#b8860b' : '#2d7a2d';
+  const totalStock = variants.reduce((s,v)=>s+(v.stock||0), 0);
+  const totalSold  = variants.reduce((s,v)=>s+(v.qtySold||0), 0);
+  const totalAvg   = variants.reduce((s,v)=>s+(v.avgDaily||0), 0);
+
+  const sizeHead = variants.map(v => {
+    const isSel = _rstSelectedItems.has(v.itemId);
+    return `<th style="padding:8px 6px;text-align:center;background:${isSel?'#eaf3ff':'#fafafa'};border-bottom:1px solid var(--g100);font-size:11px;font-weight:700;color:var(--text)">${v.size.replace(/</g,'&lt;')}</th>`;
+  }).join('');
+
+  const checkRow = variants.map(v => {
     const chk = _rstSelectedItems.has(v.itemId);
-    const dClr = v.daysOfStock===null ? '#aaa' : v.daysOfStock<7 ? '#c0392b' : v.daysOfStock<14 ? '#e65100' : v.daysOfStock<30 ? '#b8860b' : '#2d7a2d';
-    const dStr = v.daysOfStock!==null ? Math.floor(v.daysOfStock)+'d' : '—';
-    const aStr = v.avgDaily>0 ? v.avgDaily.toFixed(1) : '—';
     const safeItemName = (v.itemNameFull||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    return `<td style="padding:5px 6px;text-align:center;background:${chk?'#eaf3ff':''}">
+      <input type="checkbox" class="rst-var-chk" data-item-id="${v.itemId}" data-item-code="${v.itemCode}" data-item-name="${safeItemName}" data-pkey="${pKey}" data-parent-name="${safeParentName}" ${chk?'checked':''} onchange="_rstToggleVariant(${v.itemId},this.checked)" style="cursor:pointer">
+    </td>`;
+  }).join('');
 
-    const lastPO = _rstLastPOByItem[v.itemId];
-    const suggestedVm = lastPO
-      ? (vmByJub.get(lastPO.contact_id) || vmByName.get((lastPO.supplier_name||'').toLowerCase()))
-      : null;
-    const currentVm = (v.itemId in _rstVendorMap) ? _rstVendorMap[v.itemId] : (suggestedVm || '');
-    const vendorOpts = _rstAllVendors.map(x =>
-      `<option value="${x.id}"${currentVm===x.id?' selected':''}>${x.name.replace(/</g,'&lt;')}</option>`).join('');
-    const lastPOHint = lastPO ? `<div style="font-size:9px;color:var(--g400);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px" title="${(lastPO.supplier_name||'').replace(/"/g,'&quot;')} (${(lastPO.date||'').slice(0,10)})">📋 ${(lastPO.supplier_name||'').replace(/</g,'&lt;')}</div>` : '';
-
+  const stockRow = variants.map(v => `<td style="padding:5px 6px;text-align:center;font-family:var(--mono);font-size:12px">${v.stock||0}</td>`).join('');
+  const soldRow  = variants.map(v => `<td style="padding:5px 6px;text-align:center;font-family:var(--mono);font-size:12px;color:var(--g400)">${v.qtySold>0?v.qtySold:'—'}</td>`).join('');
+  const avgRow   = variants.map(v => `<td style="padding:5px 6px;text-align:center;font-family:var(--mono);font-size:12px;color:var(--g400)">${v.avgDaily>0?v.avgDaily.toFixed(1):'—'}</td>`).join('');
+  const daysRow  = variants.map(v => {
+    const dClr = _dClrFor(v.daysOfStock);
+    const dStr = v.daysOfStock!==null ? Math.floor(v.daysOfStock)+'d' : '—';
+    return `<td style="padding:5px 6px;text-align:center;font-family:var(--mono);font-size:12px;color:${dClr};font-weight:${v.needsRestock?700:400}">${dStr}</td>`;
+  }).join('');
+  const qtyRow = variants.map(v => {
+    const chk = _rstSelectedItems.has(v.itemId);
     const defaultQty = (_rstQtyMap[v.itemId] != null)
       ? _rstQtyMap[v.itemId]
       : (chk ? (adjQtys[v.itemId] || v.suggestedQty || '') : '');
-    const defaultPrice = _rstPriceMap[v.itemId] != null ? _rstPriceMap[v.itemId] : '';
-
-    const P = 'padding:6px 8px;vertical-align:middle';
-    return `<tr style="border-bottom:1px solid var(--g50);${chk?'background:#f0f7ff':''}">
-      <td style="${P};text-align:center"><input type="checkbox" class="rst-var-chk" data-item-id="${v.itemId}" data-item-code="${v.itemCode}" data-item-name="${safeItemName}" data-pkey="${pKey}" ${chk?'checked':''} onchange="_rstToggleVariant(${v.itemId},this.checked)" style="cursor:pointer"></td>
-      <td style="${P};font-size:12px;font-weight:${v.needsRestock?600:400}">${v.size}</td>
-      <td style="${P};text-align:right;font-size:12px;font-family:var(--mono)">${v.stock}</td>
-      <td style="${P};text-align:right;font-size:12px;font-family:var(--mono);color:var(--g400)">${v.qtySold>0?v.qtySold:'—'}</td>
-      <td style="${P};text-align:right;font-size:12px;font-family:var(--mono);color:var(--g400)">${aStr}</td>
-      <td style="${P};text-align:right;font-size:12px;font-family:var(--mono);color:${dClr};font-weight:${v.needsRestock?700:400}">${dStr}</td>
-      <td style="${P};text-align:right"><input type="number" class="rst-qty-input" data-item-id="${v.itemId}" min="0" step="1" value="${defaultQty}" placeholder="0" onchange="_rstSetQty(${v.itemId},this.value)" style="width:72px;text-align:right;font-size:12px;font-family:var(--mono);padding:4px 6px;border:1px solid var(--g200);border-radius:4px;background:white"></td>
-      <td style="${P};text-align:right"><input type="number" class="rst-price-input" data-item-id="${v.itemId}" min="0" step="1000" value="${defaultPrice}" placeholder="0" onchange="_rstSetPrice(${v.itemId},this.value)" style="width:92px;text-align:right;font-size:12px;font-family:var(--mono);padding:4px 6px;border:1px solid var(--g200);border-radius:4px;background:white"></td>
-      <td style="${P}"><select class="rst-vendor-sel" data-item-id="${v.itemId}" onchange="_rstSetVendor(${v.itemId},this.value)" style="font-size:11px;width:150px;padding:4px 6px;border:1px solid var(--g200);border-radius:4px;background:white">
-        <option value="">— Pilih —</option>${vendorOpts}
-      </select>${lastPOHint}</td>
-    </tr>`;
+    return `<td style="padding:5px 6px;text-align:center;background:${chk?'#eaf3ff':''}">
+      <input type="number" class="rst-qty-input" data-item-id="${v.itemId}" min="0" step="1" value="${defaultQty}" placeholder="0" onchange="_rstSetQty(${v.itemId},this.value)" style="width:60px;text-align:center;font-size:12px;font-family:var(--mono);padding:4px 4px;border:1px solid var(--g200);border-radius:4px;background:white">
+    </td>`;
   }).join('');
 
+  const labelTd = 'padding:5px 10px;font-size:11px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600;background:#fafafa;border-right:1px solid var(--g100);white-space:nowrap';
+  const totLabelTd = 'padding:5px 10px;font-size:11px;color:var(--g400);text-align:right;border-left:1px solid var(--g100);background:#fafafa;font-weight:600';
+
   return `<div class="rst-card" data-pkey="${pKey}" style="background:white;border:1px solid var(--g100);border-radius:8px;overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,0.03)">
-    <div style="padding:12px 14px;display:flex;align-items:center;gap:12px;background:var(--off);border-bottom:1px solid var(--g100)">
+    <div style="padding:12px 14px;display:flex;align-items:flex-start;gap:14px;background:var(--off);border-bottom:1px solid var(--g100)">
       ${thumb}
       <div style="flex:1;min-width:0">
         <div style="font-size:14px;font-weight:700;line-height:1.3">${p.name.replace(/</g,'&lt;')}</div>
@@ -21992,23 +22010,43 @@ function _rstRenderProductCard(p) {
             ? `<span style="font-size:10px;color:var(--g400)">${p.restockCount} SKU perlu restock</span>`
             : `<span style="font-size:10px;color:#2d7a2d">✓ stok aman</span>`}
         </div>
+        <!-- Parent-level Vendor + Harga Beli -->
+        <div style="display:flex;gap:14px;align-items:center;margin-top:10px;flex-wrap:wrap">
+          <div style="display:flex;align-items:center;gap:6px">
+            <label style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Vendor</label>
+            <select onchange="_rstSetParentVendor('${safeParentName}',this.value)" style="font-size:12px;padding:4px 8px;border:1px solid var(--g200);border-radius:4px;background:white;min-width:180px">
+              <option value="">— Pilih vendor —</option>${vendorOpts}
+            </select>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px">
+            <label style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Harga Beli (Rp)</label>
+            <input type="number" min="0" step="1000" value="${currentPrice}" placeholder="0" onchange="_rstSetParentPrice('${safeParentName}',this.value)" style="width:110px;text-align:right;font-size:12px;font-family:var(--mono);padding:4px 8px;border:1px solid var(--g200);border-radius:4px;background:white">
+          </div>
+          ${lastPOHint}
+        </div>
       </div>
-      <button onclick="_rstRemoveProduct('${p.name.replace(/'/g,"\\'").replace(/"/g,'&quot;')}')" style="background:none;border:1px solid var(--g200);border-radius:4px;color:#c0392b;cursor:pointer;font-size:11px;padding:5px 10px;white-space:nowrap">✕ Hapus</button>
+      <button onclick="_rstRemoveProduct('${safeParentName}')" style="background:none;border:1px solid var(--g200);border-radius:4px;color:#c0392b;cursor:pointer;font-size:11px;padding:5px 10px;white-space:nowrap">✕ Hapus</button>
     </div>
     <div style="overflow-x:auto">
       <table style="width:100%;border-collapse:collapse;font-size:12px">
-        <thead><tr style="background:#fafafa;color:var(--g400);font-size:10px;text-transform:uppercase;letter-spacing:0.3px">
-          <th style="padding:7px 8px;text-align:center;width:32px"></th>
-          <th style="padding:7px 8px;text-align:left;width:60px">Size</th>
-          <th style="padding:7px 8px;text-align:right;width:60px">Stock</th>
-          <th style="padding:7px 8px;text-align:right;width:60px">Sold</th>
-          <th style="padding:7px 8px;text-align:right;width:60px">Avg/Hr</th>
-          <th style="padding:7px 8px;text-align:right;width:60px">Sisa</th>
-          <th style="padding:7px 8px;text-align:right;width:90px">Order Qty</th>
-          <th style="padding:7px 8px;text-align:right;width:110px">Harga Beli</th>
-          <th style="padding:7px 8px;text-align:left;min-width:160px">Vendor</th>
-        </tr></thead>
-        <tbody>${variantRows}</tbody>
+        <thead>
+          <tr>
+            <th style="padding:8px 10px;text-align:right;font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.3px;font-weight:600;background:#fafafa;border-right:1px solid var(--g100)">Size →</th>
+            ${sizeHead}
+            <th style="${totLabelTd}">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td style="${labelTd}">Pilih</td>${checkRow}<td style="${totLabelTd}">${variants.filter(v=>_rstSelectedItems.has(v.itemId)).length}/${variants.length}</td></tr>
+          <tr><td style="${labelTd}">Stock</td>${stockRow}<td style="${totLabelTd}">${totalStock.toLocaleString('id-ID')}</td></tr>
+          <tr><td style="${labelTd}">Sold</td>${soldRow}<td style="${totLabelTd}">${totalSold>0?totalSold.toLocaleString('id-ID'):'—'}</td></tr>
+          <tr><td style="${labelTd}">Avg/Hr</td>${avgRow}<td style="${totLabelTd}">${totalAvg>0?totalAvg.toFixed(1):'—'}</td></tr>
+          <tr><td style="${labelTd}">Sisa Hr</td>${daysRow}<td style="${totLabelTd}">—</td></tr>
+          <tr style="border-top:2px solid var(--g100)">
+            <td style="${labelTd};background:#f0f7ff;color:var(--text)">Order Qty</td>${qtyRow}
+            <td style="${totLabelTd};background:#f0f7ff;color:var(--text);font-weight:700" id="rst-total-qty-${pKey}">—</td>
+          </tr>
+        </tbody>
       </table>
     </div>
   </div>`;
@@ -22043,17 +22081,16 @@ function _rstAddProduct(parentName) {
 }
 
 function _rstRemoveProduct(parentName) {
-  if (!confirm(`Hapus produk "${parentName}" dari order? Qty/price/vendor yang udah dieuit akan hilang.`)) return;
+  if (!confirm(`Hapus produk "${parentName}" dari order? Qty/price/vendor yang sudah diisi akan hilang.`)) return;
   _rstAddedProducts.delete(parentName);
-  // Clean up state for this product's variants
+  delete _rstParentVendorMap[parentName];
+  delete _rstParentPriceMap[parentName];
   if (_rstData) {
     const p = _rstData.products.find(pp => pp.name === parentName);
     if (p) {
       for (const v of p.variants) {
         _rstSelectedItems.delete(v.itemId);
         delete _rstQtyMap[v.itemId];
-        delete _rstPriceMap[v.itemId];
-        delete _rstVendorMap[v.itemId];
       }
     }
   }
@@ -22073,12 +22110,6 @@ function _rstSetQty(itemId, val) {
   const n = parseFloat(val);
   if (isNaN(n) || n <= 0) delete _rstQtyMap[itemId];
   else _rstQtyMap[itemId] = n;
-}
-
-function _rstSetPrice(itemId, val) {
-  const n = parseFloat(val);
-  if (isNaN(n) || n <= 0) delete _rstPriceMap[itemId];
-  else _rstPriceMap[itemId] = n;
 }
 
 // ── Add Product picker modal ──
@@ -22169,36 +22200,58 @@ function generateRestockPO() {
   _rstShowReview();
 }
 
-function _rstSetVendor(itemId, vmId) {
-  _rstVendorMap[itemId] = vmId || null;
+function _rstSetParentVendor(parentName, vmId) {
+  if (vmId) _rstParentVendorMap[parentName] = vmId;
+  else delete _rstParentVendorMap[parentName];
 }
 
-// ── Collect selected line items with vendor + qty + price ──
+function _rstSetParentPrice(parentName, val) {
+  const n = parseFloat(val);
+  if (isNaN(n) || n <= 0) delete _rstParentPriceMap[parentName];
+  else _rstParentPriceMap[parentName] = n;
+}
+
+// Compute parent-level vendor default from variants' last PO history.
+// Returns the most-frequently-seen Jubelio supplier mapped to vendor_master.id, or null.
+function _rstParentDefaultVendor(parentProduct) {
+  if (!_rstAllVendors.length) return null;
+  const vmByJub = new Map(_rstAllVendors.filter(x=>x.jubelioContactId).map(x => [x.jubelioContactId, x.id]));
+  const vmByName = new Map(_rstAllVendors.map(x => [x.name.toLowerCase(), x.id]));
+  const votes = {};
+  for (const v of parentProduct.variants) {
+    const lp = _rstLastPOByItem[v.itemId]; if (!lp) continue;
+    const vmId = vmByJub.get(lp.contact_id) || vmByName.get((lp.supplier_name||'').toLowerCase());
+    if (vmId) votes[vmId] = (votes[vmId] || 0) + 1;
+  }
+  const sorted = Object.entries(votes).sort((a,b) => b[1] - a[1]);
+  return sorted.length ? sorted[0][0] : null;
+}
+
+// ── Collect selected line items. Vendor + price live at parent level; qty per variant. ──
 function _rstCollectSelectedLines() {
   const lines = [];
   document.querySelectorAll('.rst-var-chk:checked').forEach(chk => {
-    const row = chk.closest('tr');
-    const qty = parseFloat(row?.querySelector('.rst-qty-input')?.value) || 0;
-    const price = parseFloat(row?.querySelector('.rst-price-input')?.value) || 0;
-    if (qty <= 0) return;
+    // qty input now lives in a different cell — find by data-item-id rather than DOM walking
     const itemId = Number(chk.dataset.itemId);
+    const qtyInput = document.querySelector(`.rst-qty-input[data-item-id="${itemId}"]`);
+    const qty = parseFloat(qtyInput?.value) || 0;
+    if (qty <= 0) return;
     const sku = chk.dataset.itemCode || '';
     const itemName = chk.dataset.itemName || '';
-    const sel = row?.querySelector('.rst-vendor-sel');
-    const vmId = sel?.value || null;
-    // Find parent product info for context
-    const pKey = chk.dataset.pkey;
-    let parentName = '', brand = '', ip = '', collection = '', size = '?';
+    const parentName = chk.dataset.parentName || '';
+    const vmId = _rstParentVendorMap[parentName] || null;
+    const price = _rstParentPriceMap[parentName] || 0;
+    let brand = '', ip = '', collection = '', size = '?', thumbnail = null;
     if (_rstData) {
-      const p = _rstData.products.find(pp =>
-        btoa(unescape(encodeURIComponent(pp.name))).replace(/[^a-zA-Z0-9]/g,'') === pKey);
+      const p = _rstData.products.find(pp => pp.name === parentName);
       if (p) {
-        parentName = p.name; brand = p.brand; ip = p.ip||''; collection = p.collection||'';
+        brand = p.brand; ip = p.ip||''; collection = p.collection||'';
+        thumbnail = p.thumbnail || null;
         const v = p.variants.find(vv => vv.itemId === itemId);
         if (v) size = v.size;
       }
     }
-    lines.push({ itemId, sku, itemName, qty, price, vmId, parentName, brand, ip, collection, size });
+    lines.push({ itemId, sku, itemName, qty, price, vmId, parentName, brand, ip, collection, size, thumbnail });
   });
   return lines;
 }
@@ -22369,31 +22422,75 @@ function _rstOpenPrintWindow(title, bodyHtml) {
   if (!w) { alert('Pop-up diblokir. Izinkan pop-up untuk export PDF.'); return; }
   w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${title.replace(/</g,'&lt;')}</title>
     <style>
-      body{font-family:Arial,Helvetica,sans-serif;color:#222;padding:24px;max-width:1000px;margin:0 auto}
+      body{font-family:Arial,Helvetica,sans-serif;color:#222;padding:24px;max-width:1100px;margin:0 auto}
       h1{font-size:20px;margin:0 0 4px;font-weight:700}
       .sub{font-size:11px;color:#888;margin-bottom:18px}
       .meta{font-size:12px;margin-bottom:16px;display:grid;grid-template-columns:auto 1fr;gap:4px 16px}
       .meta dt{font-weight:600;color:#666}
       table{width:100%;border-collapse:collapse;font-size:11px;margin-top:10px}
       thead th{background:#f2f2f2;padding:6px 8px;text-align:left;border-bottom:1px solid #999;font-size:10px;text-transform:uppercase;letter-spacing:0.3px}
-      tbody td{padding:6px 8px;border-bottom:1px solid #eee}
+      tbody td{padding:6px 8px;border-bottom:1px solid #eee;vertical-align:middle}
       .mono{font-family:'Courier New',monospace}
-      .num{text-align:right;font-family:'Courier New',monospace}
+      .num{text-align:right;font-family:'Courier New',monospace;white-space:nowrap}
       .total{font-weight:700;background:#f9f9f9}
-      .vendor-row{background:#eef2ff;font-weight:700;font-size:12px}
+      .thumb{width:54px;height:54px;object-fit:cover;border:1px solid #ddd;border-radius:4px}
+      .thumb-empty{width:54px;height:54px;background:#eee;border-radius:4px;display:inline-block}
       .footer{margin-top:24px;font-size:10px;color:#888;text-align:right}
-      @media print{ body{padding:12px} }
+      @media print{ body{padding:12px} .thumb{print-color-adjust:exact;-webkit-print-color-adjust:exact} }
     </style></head><body>${bodyHtml}
     <div class="footer">Generated ${new Date().toLocaleString('id-ID')} · Sentra Portal</div>
     </body></html>`);
   w.document.close();
-  w.addEventListener('load', () => setTimeout(()=>w.print(), 400));
+  // Wait for images to load before printing, with a 4s cap
+  w.addEventListener('load', () => {
+    const imgs = Array.from(w.document.images || []);
+    let pending = imgs.length;
+    const done = () => setTimeout(()=>w.print(), 200);
+    if (!pending) return done();
+    const tick = () => { pending--; if (pending<=0) done(); };
+    imgs.forEach(img => {
+      if (img.complete) tick();
+      else { img.addEventListener('load', tick); img.addEventListener('error', tick); }
+    });
+    setTimeout(() => done(), 4000); // hard cap
+  });
+}
+
+// Group lines by parent product for image-friendly PDFs. Uses rowspan to show
+// each product thumbnail once across its variant rows.
+function _rstGroupByParentForPDF(lines) {
+  // Preserve added order: first occurrence of each parent gets sorted by sku
+  const map = new Map();
+  for (const l of lines) {
+    if (!map.has(l.parentName)) map.set(l.parentName, { thumbnail: l.thumbnail, parentName: l.parentName, brand: l.brand, ip: l.ip, vendorName: l.vendorName, items: [] });
+    map.get(l.parentName).items.push(l);
+  }
+  for (const g of map.values()) g.items.sort((a,b) => (a.sku||'').localeCompare(b.sku||''));
+  return [...map.values()];
 }
 
 function _rstBuildPDFBody(supplierName, contact, lines, today) {
   const totalQty = lines.reduce((s,l) => s+l.qty, 0);
   const totalNilai = lines.reduce((s,l) => s+l.qty*l.price, 0);
   const fmt = v => 'Rp ' + Math.round(v).toLocaleString('id-ID');
+  const groups = _rstGroupByParentForPDF(lines);
+
+  const rowsHtml = groups.flatMap(g => {
+    const span = g.items.length;
+    const thumbCell = g.thumbnail
+      ? `<td rowspan="${span}" style="text-align:center;width:64px"><img class="thumb" src="${g.thumbnail.replace(/"/g,'&quot;')}"></td>`
+      : `<td rowspan="${span}" style="text-align:center;width:64px"><span class="thumb-empty"></span></td>`;
+    return g.items.map((l, idx) => `<tr>
+      ${idx === 0 ? thumbCell : ''}
+      <td class="mono">${(l.sku||'—').replace(/</g,'&lt;')}</td>
+      <td>${(l.parentName||l.itemName||'—').replace(/</g,'&lt;')}${idx===0 && l.brand ? `<div style="font-size:9px;color:#888;margin-top:2px">${l.brand}${l.ip?' · '+l.ip:''}</div>` : ''}</td>
+      <td>${(l.size||'').replace(/</g,'&lt;')}</td>
+      <td class="num">${l.qty}</td>
+      <td class="num">${l.price?fmt(l.price):'—'}</td>
+      <td class="num">${fmt(l.qty*l.price)}</td>
+    </tr>`);
+  }).join('');
+
   return `
     <h1>Purchase Order — Restock</h1>
     <div class="sub">${today}</div>
@@ -22405,17 +22502,10 @@ function _rstBuildPDFBody(supplierName, contact, lines, today) {
       <dt>Total Item</dt><dd>${lines.length} SKU · ${totalQty} unit</dd>
     </dl>
     <table>
-      <thead><tr><th>SKU</th><th>Produk</th><th>Size</th><th class="num">Qty</th><th class="num">Harga</th><th class="num">Subtotal</th></tr></thead>
+      <thead><tr><th style="width:64px">Foto</th><th>SKU</th><th>Produk</th><th>Size</th><th class="num">Qty</th><th class="num">Harga</th><th class="num">Subtotal</th></tr></thead>
       <tbody>
-        ${lines.map(l => `<tr>
-          <td class="mono">${(l.sku||'—').replace(/</g,'&lt;')}</td>
-          <td>${(l.parentName||l.itemName||'—').replace(/</g,'&lt;')}</td>
-          <td>${(l.size||'').replace(/</g,'&lt;')}</td>
-          <td class="num">${l.qty}</td>
-          <td class="num">${l.price?fmt(l.price):'—'}</td>
-          <td class="num">${fmt(l.qty*l.price)}</td>
-        </tr>`).join('')}
-        <tr class="total"><td colspan="3">TOTAL</td><td class="num">${totalQty}</td><td></td><td class="num">${fmt(totalNilai)}</td></tr>
+        ${rowsHtml}
+        <tr class="total"><td colspan="4">TOTAL</td><td class="num">${totalQty}</td><td></td><td class="num">${fmt(totalNilai)}</td></tr>
       </tbody>
     </table>`;
 }
@@ -22424,24 +22514,45 @@ function _rstBuildPDFAllBody(lines, today) {
   const totalQty = lines.reduce((s,l) => s+l.qty, 0);
   const totalNilai = lines.reduce((s,l) => s+l.qty*l.price, 0);
   const fmt = v => 'Rp ' + Math.round(v).toLocaleString('id-ID');
-  // sort by vendor then sku
-  lines = lines.slice().sort((a,b) => (a.vendorName||'').localeCompare(b.vendorName||'', 'id') || (a.sku||'').localeCompare(b.sku||''));
+  // Sort by vendor then parent (preserve grouping for nicer rowspan)
+  const sorted = lines.slice().sort((a,b) =>
+    (a.vendorName||'').localeCompare(b.vendorName||'', 'id') ||
+    (a.parentName||'').localeCompare(b.parentName||'', 'id') ||
+    (a.sku||'').localeCompare(b.sku||''));
+  // Group by parentName preserving sort
+  const groups = [];
+  let cur = null;
+  for (const l of sorted) {
+    if (!cur || cur.parentName !== l.parentName || cur.vendorName !== l.vendorName) {
+      cur = { thumbnail: l.thumbnail, parentName: l.parentName, brand: l.brand, ip: l.ip, vendorName: l.vendorName, items: [] };
+      groups.push(cur);
+    }
+    cur.items.push(l);
+  }
+  const rowsHtml = groups.flatMap(g => {
+    const span = g.items.length;
+    const thumbCell = g.thumbnail
+      ? `<td rowspan="${span}" style="text-align:center;width:60px"><img class="thumb" src="${g.thumbnail.replace(/"/g,'&quot;')}"></td>`
+      : `<td rowspan="${span}" style="text-align:center;width:60px"><span class="thumb-empty"></span></td>`;
+    return g.items.map((l, idx) => `<tr>
+      ${idx === 0 ? thumbCell : ''}
+      ${idx === 0 ? `<td rowspan="${span}">${(l.vendorName||'—').replace(/</g,'&lt;')}</td>` : ''}
+      <td class="mono">${(l.sku||'—').replace(/</g,'&lt;')}</td>
+      <td>${(l.parentName||l.itemName||'—').replace(/</g,'&lt;')}${idx===0 && l.brand ? `<div style="font-size:9px;color:#888;margin-top:2px">${l.brand}${l.ip?' · '+l.ip:''}</div>` : ''}</td>
+      <td>${(l.size||'').replace(/</g,'&lt;')}</td>
+      <td class="num">${l.qty}</td>
+      <td class="num">${l.price?fmt(l.price):'—'}</td>
+      <td class="num">${fmt(l.qty*l.price)}</td>
+    </tr>`);
+  }).join('');
   return `
     <h1>Purchase Order — Restock (All Vendors)</h1>
     <div class="sub">${today} · ${lines.length} SKU · ${totalQty} unit · ${fmt(totalNilai)}</div>
     <table>
-      <thead><tr><th>Vendor</th><th>SKU</th><th>Produk</th><th>Size</th><th class="num">Qty</th><th class="num">Harga</th><th class="num">Subtotal</th></tr></thead>
+      <thead><tr><th style="width:60px">Foto</th><th>Vendor</th><th>SKU</th><th>Produk</th><th>Size</th><th class="num">Qty</th><th class="num">Harga</th><th class="num">Subtotal</th></tr></thead>
       <tbody>
-        ${lines.map(l => `<tr>
-          <td>${(l.vendorName||'—').replace(/</g,'&lt;')}</td>
-          <td class="mono">${(l.sku||'—').replace(/</g,'&lt;')}</td>
-          <td>${(l.parentName||l.itemName||'—').replace(/</g,'&lt;')}</td>
-          <td>${(l.size||'').replace(/</g,'&lt;')}</td>
-          <td class="num">${l.qty}</td>
-          <td class="num">${l.price?fmt(l.price):'—'}</td>
-          <td class="num">${fmt(l.qty*l.price)}</td>
-        </tr>`).join('')}
-        <tr class="total"><td colspan="4">TOTAL</td><td class="num">${totalQty}</td><td></td><td class="num">${fmt(totalNilai)}</td></tr>
+        ${rowsHtml}
+        <tr class="total"><td colspan="5">TOTAL</td><td class="num">${totalQty}</td><td></td><td class="num">${fmt(totalNilai)}</td></tr>
       </tbody>
     </table>`;
 }
