@@ -1829,18 +1829,18 @@
         <div class="page-header">
           <div><div class="page-title">Collection Development</div><div class="page-sub">Manajemen collection merchandise — dari ideation hingga approval design.</div></div>
           <div class="tab-bar">
-            <button class="tab-btn active" onclick="switchColTab('new',this)">+ Tambah</button>
-            <button class="tab-btn" onclick="switchColTab('list',this)">Semua</button>
+            <button class="tab-btn" onclick="switchColTab('new',this)">+ Tambah</button>
+            <button class="tab-btn active" onclick="switchColTab('list',this)">Semua</button>
           </div>
         </div>
-        <div class="stats-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:1.25rem">
-          <div class="stat-card"><div class="stat-num" id="col-s-total">—</div><div class="stat-lbl">Total</div></div>
-          <div class="stat-card"><div class="stat-num" id="col-s-draft">—</div><div class="stat-lbl">Draft</div></div>
-          <div class="stat-card"><div class="stat-num" id="col-s-inprogress">—</div><div class="stat-lbl">In Progress</div></div>
-          <div class="stat-card"><div class="stat-num" id="col-s-done">—</div><div class="stat-lbl">Done</div></div>
-          <div class="stat-card"><div class="stat-num" id="col-s-skus">—</div><div class="stat-lbl">Total SKUs</div></div>
+        <div class="stats-row" id="col-stats-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:1.25rem">
+          <div class="stat-card" data-status="" style="cursor:pointer" onclick="_colFilterByStatus('')"><div class="stat-num" id="col-s-total">—</div><div class="stat-lbl">Total</div></div>
+          <div class="stat-card" data-status="Draft" style="cursor:pointer" onclick="_colFilterByStatus('Draft')"><div class="stat-num" id="col-s-draft">—</div><div class="stat-lbl">Draft</div></div>
+          <div class="stat-card" data-status="In Progress" style="cursor:pointer" onclick="_colFilterByStatus('In Progress')"><div class="stat-num" id="col-s-inprogress">—</div><div class="stat-lbl">In Progress</div></div>
+          <div class="stat-card" data-status="Done" style="cursor:pointer" onclick="_colFilterByStatus('Done')"><div class="stat-num" id="col-s-done">—</div><div class="stat-lbl">Done</div></div>
+          <div class="stat-card" data-status="" style="cursor:pointer" onclick="_colFilterByStatus('')"><div class="stat-num" id="col-s-skus">—</div><div class="stat-lbl">Total SKUs</div></div>
         </div>
-        <div id="coltab-new">
+        <div id="coltab-new" style="display:none">
           <div class="form-card">
             <div class="form-sec">Informasi Collection</div>
             <div class="form-grid">
@@ -1861,12 +1861,20 @@
             <div class="feedback" id="col-feedback"></div>
           </div>
         </div>
-        <div id="coltab-list" style="display:none">
+        <div id="coltab-list">
           <div class="filter-panel">
             <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="clearColFilters()">✕ Reset</button></div>
             <div class="filter-grid">
               <select class="f-select" id="col-fil-status" onchange="applyColFilters()"><option value="">Semua Status</option><option>Draft</option><option>In Progress</option><option>Done</option></select>
               <select class="f-select" id="col-fil-priority" onchange="applyColFilters()"><option value="">Semua Priority</option><option>High</option><option>Medium</option><option>Low</option></select>
+              <select class="f-select" id="col-fil-month" onchange="applyColFilters()">
+                <option value="">Semua Bulan</option>
+                <option value="1">Januari</option><option value="2">Februari</option><option value="3">Maret</option>
+                <option value="4">April</option><option value="5">Mei</option><option value="6">Juni</option>
+                <option value="7">Juli</option><option value="8">Agustus</option><option value="9">September</option>
+                <option value="10">Oktober</option><option value="11">November</option><option value="12">Desember</option>
+              </select>
+              <select class="f-select" id="col-fil-year" onchange="applyColFilters()"><option value="">Semua Tahun</option></select>
               <input class="search-box" type="text" id="colSearch" placeholder="Cari nama collection, IP..." oninput="applyColFilters()" style="width:100%">
             </div>
           </div>
