@@ -4897,19 +4897,64 @@ function renderColStats(rows,items) {
   document.getElementById("col-s-inprogress").textContent=rows.filter(r=>r.status==="In Progress").length;
   document.getElementById("col-s-done").textContent=rows.filter(r=>r.status==="Done").length;
   document.getElementById("col-s-skus").textContent=items.length;
+  // Highlight the currently-active status card
+  const active = document.getElementById("col-fil-status")?.value || "";
+  document.querySelectorAll('#col-stats-row .stat-card').forEach(card => {
+    const matches = (card.dataset.status || "") === active;
+    card.style.outline = matches && active ? '2px solid #3C3489' : 'none';
+    card.style.outlineOffset = '2px';
+  });
+}
+
+// Populate year dropdown from collections' release dates + date_added.
+// Keeps current selection.
+function _colPopulateYearDropdown() {
+  const sel = document.getElementById("col-fil-year");
+  if (!sel) return;
+  const cur = sel.value;
+  const years = new Set();
+  for (const r of allColRows) {
+    const d = r.releaseDate || r.dateAdded;
+    if (!d) continue;
+    const y = String(d).slice(0,4);
+    if (/^\d{4}$/.test(y)) years.add(y);
+  }
+  const sorted = [...years].sort((a,b) => Number(b) - Number(a));
+  sel.innerHTML = '<option value="">Semua Tahun</option>' +
+    sorted.map(y => `<option value="${y}"${cur===y?' selected':''}>${y}</option>`).join('');
 }
 
 function applyColFilters() {
+  _colPopulateYearDropdown();
   const status=document.getElementById("col-fil-status")?.value||"";
   const priority=document.getElementById("col-fil-priority")?.value||"";
+  const month=document.getElementById("col-fil-month")?.value||"";
+  const year=document.getElementById("col-fil-year")?.value||"";
   const q=(document.getElementById("colSearch")?.value||"").toLowerCase();
   let rows=allColRows;
   if(status) rows=rows.filter(r=>r.status===status);
   if(priority) rows=rows.filter(r=>r.priority===priority);
+  if(month||year) {
+    rows = rows.filter(r => {
+      const d = r.releaseDate || r.dateAdded;
+      if (!d) return false; // no date → excluded when month/year filter active
+      const s = String(d);
+      const yMatch = year ? s.slice(0,4) === year : true;
+      const mMatch = month ? String(parseInt(s.slice(5,7),10)) === month : true;
+      return yMatch && mMatch;
+    });
+  }
   if(q) rows=rows.filter(r=>(r.collectionName||"").toLowerCase().includes(q)||(r.ipRelated||"").toLowerCase().includes(q));
   renderColStats(rows, allColItems.filter(i=>rows.some(r=>r.id===i.collectionId)));
   _colFiltered = rows;
   renderColView();
+}
+
+// Click stat card → set status filter + re-apply. Pass empty string to clear.
+function _colFilterByStatus(status) {
+  const sel = document.getElementById("col-fil-status");
+  if (sel) sel.value = status || "";
+  applyColFilters();
 }
 
 // ── Collection list: table vs calendar view toggle ──
@@ -4988,7 +5033,7 @@ function renderColCalendar(rows) {
 }
 
 function clearColFilters() {
-  ["col-fil-status","col-fil-priority"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
+  ["col-fil-status","col-fil-priority","col-fil-month","col-fil-year"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
   const s=document.getElementById("colSearch");if(s)s.value="";
   applyColFilters();
 }
