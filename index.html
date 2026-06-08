@@ -1684,85 +1684,53 @@
     <!-- NEED RESTOCK -->
     <div class="page" id="page-restock">
       <div class="page-header">
-        <div><div class="page-title">Create PO Restock</div><div class="page-sub">Download CSV import PO untuk produk SD&amp;Y, Lagaa, dan Marte yang perlu di-restock, lalu import via Jubelio → Pembelian → Import.</div></div>
+        <div><div class="page-title">Create PO Restock</div><div class="page-sub">Tambah produk yang mau di-restock, atur qty + vendor per SKU, lalu export PO ke Jubelio per vendor.</div></div>
       </div>
 
-      <div class="filter-panel">
-        <div class="filter-panel-top">
-          <span class="filter-panel-label">Periode Penjualan (untuk avg/hari)</span>
-          <div style="display:flex;border:1px solid var(--g200);border-radius:6px;overflow:hidden;font-size:12px;flex-shrink:0">
-            <button id="rst-mode-restock" onclick="_rstSetMode('restock')"
-              style="padding:5px 14px;border:none;cursor:pointer;background:#3C3489;color:white;font-weight:600;line-height:1">Perlu Restock</button>
-            <button id="rst-mode-catalog" onclick="_rstSetMode('catalog')"
-              style="padding:5px 14px;border:none;cursor:pointer;background:white;color:var(--g400);line-height:1">Semua Katalog</button>
-          </div>
+      <!-- Top toolbar: period date + actions -->
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:12px 14px;background:var(--off);border:1px solid var(--g100);border-radius:8px;margin-bottom:1rem">
+        <div style="display:flex;gap:6px;align-items:center;font-size:12px;color:var(--g600)">
+          <span>Periode jualan (avg/hari):</span>
+          <input class="f-select" type="date" id="rst-from" onchange="loadRestock()" style="font-size:12px;padding:4px 8px;width:auto">
+          <span style="color:var(--g400)">—</span>
+          <input class="f-select" type="date" id="rst-to" onchange="loadRestock()" style="font-size:12px;padding:4px 8px;width:auto">
         </div>
-        <div class="filter-grid">
-          <input class="f-select" type="date" id="rst-from" onchange="">
-          <input class="f-select" type="date" id="rst-to" onchange="">
-          <input class="f-select" type="text" id="rst-search" placeholder="🔍 Cari nama produk..." oninput="if(_rstData)renderRestockTable(_rstData.products)">
-          <select class="f-select" id="rst-brand" onchange="if(_rstData)renderRestockTable(_rstData.products)">
+        <div style="flex:1"></div>
+        <div id="rst-summary-bar" style="font-size:12px;color:var(--g600)">— belum ada produk dalam order</div>
+        <button onclick="_rstOpenAddPicker()" style="padding:8px 16px;background:#3C3489;color:white;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">+ Tambah Produk</button>
+        <button id="rst-gen-btn" onclick="_rstShowReview()" style="padding:8px 16px;background:white;color:#3C3489;border:1px solid #3C3489;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">📋 Review Pesanan</button>
+      </div>
+
+      <!-- Product cards container (empty state OR cards) -->
+      <div id="rst-products" style="display:flex;flex-direction:column;gap:12px"></div>
+    </div>
+
+    <!-- ADD PRODUCT PICKER MODAL -->
+    <div id="rst-add-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:550;align-items:center;justify-content:center;padding:16px">
+      <div style="background:white;border-radius:12px;width:100%;max-width:760px;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,0.25);overflow:hidden">
+        <div style="padding:16px 20px;border-bottom:1px solid var(--g100);display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <div style="font-size:15px;font-weight:700">Tambah Produk ke Order</div>
+            <div style="font-size:11px;color:var(--g400);margin-top:2px"><span id="rst-add-count">—</span> produk tersedia · klik untuk tambah</div>
+          </div>
+          <button onclick="_rstCloseAddPicker()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--g400);padding:0 4px">×</button>
+        </div>
+        <div style="padding:12px 20px;border-bottom:1px solid var(--g100);display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <input class="f-select" type="text" id="rst-add-search" placeholder="🔍 Cari nama produk..." oninput="_rstRenderAddPicker()" style="flex:2;min-width:200px;font-size:13px;padding:6px 10px">
+          <select class="f-select" id="rst-add-brand" onchange="_rstRenderAddPicker()" style="flex:1;min-width:130px;font-size:12px;padding:6px 8px">
             <option value="">Semua Brand</option>
             <option value="SD&amp;Y">SD&amp;Y</option>
             <option value="Lagaa">Lagaa</option>
             <option value="Marte">Marte</option>
           </select>
-          <select class="f-select" id="rst-ip" onchange="if(_rstData)renderRestockTable(_rstData.products)">
+          <select class="f-select" id="rst-add-ip" onchange="_rstRenderAddPicker()" style="flex:1;min-width:130px;font-size:12px;padding:6px 8px">
             <option value="">Semua IP</option>
           </select>
-          <select class="f-select" id="rst-collection" onchange="if(_rstData)renderRestockTable(_rstData.products)">
-            <option value="">Semua Collection</option>
-          </select>
-          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
-            <input type="checkbox" id="rst-show-all" onchange="if(_rstData)renderRestockTable(_rstData.products)"> Tampilkan semua SKU (termasuk stok aman)
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;white-space:nowrap;color:var(--g600)">
+            <input type="checkbox" id="rst-add-urgent-only" checked onchange="_rstRenderAddPicker()"> Yang perlu restock saja
           </label>
         </div>
-      </div>
-
-      <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1rem">
-        <div class="stat-card danger"><div class="stat-num" id="rst-s-skus">—</div><div class="stat-lbl">SKU Perlu Restock</div></div>
-        <div class="stat-card"><div class="stat-num" id="rst-s-products">—</div><div class="stat-lbl">Produk Aktif</div></div>
-        <div class="stat-card"><div class="stat-num" id="rst-s-suggested">—</div><div class="stat-lbl">Total Suggested Units</div></div>
-        <div class="stat-card info"><div class="stat-num" id="rst-s-selected">0</div><div class="stat-lbl">SKU Dipilih</div></div>
-      </div>
-
-      <div style="background:#f8f9fa;border:1px solid var(--g200);border-radius:8px;padding:14px 16px;margin-bottom:1rem;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-        <div style="flex:1;font-size:12px;color:var(--g600)">
-          Pilih SKU di tabel bawah, atur qty + vendor per row (vendor auto-suggest dari PO terakhir),<br>
-          lalu klik <strong>Review Pesanan</strong> untuk grouping + export CSV/PDF per vendor.
-        </div>
-        <button id="rst-gen-btn" onclick="_rstShowReview()" style="background:#3C3489;color:white;border:none;border-radius:6px;padding:10px 22px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">📋 Review Pesanan →</button>
-        <div id="rst-gen-status" style="flex:0 0 100%;font-size:12px;margin-top:2px;min-height:16px"></div>
-      </div>
-
-      <div class="table-toolbar">
-        <button class="btn-refresh" onclick="loadRestock()">↻ Refresh</button>
-        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
-          <input type="checkbox" id="rst-select-all" onchange="rstToggleAll(this.checked)"> Pilih Semua yang Perlu Restock
-        </label>
-        <div class="tcount" id="rst-tcount">—</div>
-      </div>
-
-      <div class="table-wrap">
-        <table style="width:100%;table-layout:fixed">
-          <colgroup>
-            <col style="width:26px"><col style="width:32px"><col style="width:auto">
-            <col style="width:55px"><col style="width:55px"><col style="width:55px">
-            <col style="width:60px"><col style="width:85px"><col style="width:105px">
-            <col style="width:160px">
-          </colgroup>
-          <thead><tr>
-            <th></th><th></th><th>Produk / SKU</th>
-            <th style="text-align:right">Stock</th>
-            <th style="text-align:right">Sold</th>
-            <th style="text-align:right">Avg/Hr</th>
-            <th style="text-align:right">Sisa Hr</th>
-            <th style="text-align:right">Order Qty</th>
-            <th style="text-align:right">Harga Beli</th>
-            <th>Vendor</th>
-          </tr></thead>
-          <tbody id="rst-tbody"><tr><td class="empty-td" colspan="10">Klik "Refresh" untuk memuat data.</td></tr></tbody>
-        </table>
+        <div id="rst-add-list" style="flex:1;overflow-y:auto;padding:8px 20px"></div>
       </div>
     </div>
 
