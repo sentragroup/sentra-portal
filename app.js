@@ -3971,7 +3971,8 @@ function renderPOTable(rows){
     return `<span class="pill ${c}" style="font-size:11px">${s||"—"}</span>`;
   };
   const rPill=s=>{
-    if(s==="Lunas") return `<span class="pill p-active" style="font-size:11px">Lunas</span>`;
+    if(s==="Penuh")    return `<span class="pill p-active" style="font-size:11px">Diterima Penuh</span>`;
+    if(s==="Over")     return `<span class="pill p-near" style="font-size:11px" title="Diterima lebih dari qty PO">Diterima · Over</span>`;
     if(s==="Sebagian") return `<span class="pill p-review" style="font-size:11px">Sebagian</span>`;
     return `<span class="pill p-draft" style="font-size:11px">Belum</span>`;
   };
@@ -3989,7 +3990,7 @@ function renderPOTable(rows){
     // receive status
     const totalPOQty=items.reduce((s,it)=>s+(it.qty||0),0);
     const totalRcvd=Object.values(rcvdByDetailId).reduce((s,v)=>s+v,0);
-    const rcvStatus=bills.length===0?"Belum":totalRcvd>=totalPOQty?"Lunas":"Sebagian";
+    const rcvStatus=bills.length===0?"Belum":totalRcvd>totalPOQty?"Over":totalRcvd>=totalPOQty?"Penuh":"Sebagian";
     const rcv=allPOReceives.find(rx=>rx.purchaseorder_no===r.purchaseorderNo);
     const rcvDate=rcv?new Date(rcv.transaction_date).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"2-digit"}):null;
     const gt=r.grandTotal!=null?`Rp ${Math.round(r.grandTotal).toLocaleString("id-ID")}`:"—";
@@ -4858,7 +4859,11 @@ function getPipelineStatuses(colId) {
   let production="not-started";
   const poLinks=colToPos[colId]||[];
   if(poLinks.length){
-    const allPutaway=poLinks.every(({poId})=>allPOBills.some(b=>b.purchaseorder_id===poId&&b.is_putaway===true));
+    // Production "done" requires every linked PO to have at least one bill AND every bill putaway
+    const allPutaway=poLinks.every(({poId})=>{
+      const bs=allPOBills.filter(b=>b.purchaseorder_id===poId);
+      return bs.length>0 && bs.every(b=>b.is_putaway===true);
+    });
     production=allPutaway?"done":"in-progress";
   }
   const getStage=s=>stages.find(r=>r.stage===s)?.status||"Not Started";
@@ -5649,7 +5654,7 @@ function refreshStageHeaderBadge(colId, stage) {
   const ps=getPipelineStatuses(colId);
   let s;
   if(stage==="sampling") s=items.length?(items.every(i=>i.samplingStatus==="Done")?"Done":items.some(i=>i.samplingStatus!=="Not Started")?"In Progress":"Not Started"):"Not Started";
-  else if(stage==="production"){const pl=colToPos[colId]||[];s=pl.length?(pl.every(({poId})=>allPOBills.some(b=>b.purchaseorder_id===poId&&b.is_putaway===true))?"Done":"In Progress"):"Not Started";}
+  else if(stage==="production"){const pl=colToPos[colId]||[];s=pl.length?(pl.every(({poId})=>{const bs=allPOBills.filter(b=>b.purchaseorder_id===poId);return bs.length>0&&bs.every(b=>b.is_putaway===true);})?"Done":"In Progress"):"Not Started";}
   else if(stage==="inbound"){const st=allColStages.find(r=>r.collectionId===colId&&r.stage==="inbound");s=st?.status||"Not Started";}
   else if(stage==="marketing") s=ps.marketing==="done"?"Done":ps.marketing==="in-progress"?"In Progress":"Not Started";
   const c=s==="Done"?"p-active":s==="In Progress"?"p-signings":"p-draft";
@@ -5887,8 +5892,11 @@ function renderColDetail(col, items) {
           const poLinks=colToPos[col.id]||[];
           let prodStatus="Not Started";
           if(poLinks.length){
-            // Done = all linked POs have at least one bill with is_putaway=true
-            const allPutaway=poLinks.every(({poId})=>allPOBills.some(b=>b.purchaseorder_id===poId&&b.is_putaway===true));
+            // Done = every linked PO has at least one bill AND every bill is putaway
+            const allPutaway=poLinks.every(({poId})=>{
+              const bs=allPOBills.filter(b=>b.purchaseorder_id===poId);
+              return bs.length>0 && bs.every(b=>b.is_putaway===true);
+            });
             prodStatus=allPutaway?"Done":"In Progress";
           }
           return cdStageBox("🏭","Purchasing & Inbound",cdStageBadge(prodStatus,`col-production-badge-${col.id}`),`
@@ -6498,12 +6506,15 @@ function renderColPOCards(colId) {
     // actual received date: from penerimaan (nerima barang), fallback to bill date
     const receive=allPOReceives.find(rx=>rx.purchaseorder_no===r.purchaseorderNo);
     const actualDate=receive?receive.transaction_date:(bills.length?bills.map(b=>b.transaction_date).sort()[0]:null);
-    // putaway status from bill
-    const isPutaway=bills.some(b=>b.is_putaway===true);
+    // putaway status from bills — ALL bills must be putaway (not just one of them)
+    const isPutawayAll = bills.length>0 && bills.every(b=>b.is_putaway===true);
+    const billsPutawayDone = bills.filter(b=>b.is_putaway===true).length;
     // status pills
     const stC=r.status==="ACTIVE"?"p-signings":r.status==="COMPLETED"?"p-active":r.status==="CANCELLED"?"p-inactive":"p-draft";
-    const rcvLabel=bills.length===0?"Belum Diterima":totalRcvd>=totalPO?"Lunas":"Sebagian";
-    const rcvC=bills.length===0?"p-draft":totalRcvd>=totalPO?"p-active":"p-review";
+    // Receipt label: 0 bills = Belum Diterima · partial = Sebagian · >= PO qty = Diterima Penuh (with Over chip if over)
+    const overReceived = bills.length>0 && totalRcvd>totalPO;
+    const rcvLabel = bills.length===0 ? "Belum Diterima" : totalRcvd>=totalPO ? (overReceived?"Diterima · Over":"Diterima Penuh") : "Sebagian";
+    const rcvC = bills.length===0 ? "p-draft" : totalRcvd>=totalPO ? (overReceived?"p-near":"p-active") : "p-review";
     const dt=r.transactionDate?new Date(r.transactionDate).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"—";
     // item rows — all PO items shown, with checkbox to include/exclude per collection
     const itemRows=poItems.map(it=>{
@@ -6563,9 +6574,9 @@ function renderColPOCards(colId) {
         </div>
         ${actualDate?`<div style="display:flex;align-items:center;gap:6px">
           <span style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">Putaway</span>
-          ${isPutaway
-            ?`<span class="pill p-active" style="font-size:9px">✓ Selesai</span>`
-            :`<span class="pill p-review" style="font-size:9px">Pending</span>`}
+          ${isPutawayAll
+            ?`<span class="pill p-active" style="font-size:9px" title="Semua ${bills.length} bill sudah putaway">✓ Selesai (${bills.length}/${bills.length})</span>`
+            :`<span class="pill p-review" style="font-size:9px" title="${billsPutawayDone} dari ${bills.length} bill sudah putaway">Pending (${billsPutawayDone}/${bills.length})</span>`}
         </div>`:""}
       </div>
       <!-- Items (collapsible) -->
@@ -6633,7 +6644,8 @@ function renderColPOChips(colId) {
     const poItems=allPOItems.filter(i=>i.purchaseorderId===poId);
     const total=poItems.reduce((s,i)=>s+(i.qty||0),0);
     if(linked.length===0) return `<span class="pill p-draft" style="font-size:9px">Belum</span>`;
-    if(rcvd>=total) return `<span class="pill p-active" style="font-size:9px">Lunas</span>`;
+    if(rcvd>total)  return `<span class="pill p-near" style="font-size:9px" title="Diterima ${rcvd} > qty PO ${total}">Penuh · Over</span>`;
+    if(rcvd>=total) return `<span class="pill p-active" style="font-size:9px">Penuh</span>`;
     return `<span class="pill p-review" style="font-size:9px">Sebagian</span>`;
   };
   return links.map(({linkId,poId,po})=>{
