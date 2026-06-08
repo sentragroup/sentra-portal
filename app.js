@@ -11940,14 +11940,18 @@ async function loadSalesPerf() {
         : (oDisc>0 && oSub>0 ? oDisc * (it._rev/oSub) : 0);
     }
 
-    // 5. Time series (daily) — qty from items; revenue from items (if filtered) or order sub_total
+    // 5. Time series (daily) — qty from items; revenue from items (if filtered) or order sub_total.
+    // Fallback to grand_total when sub_total is null (some marketplace orders sync with null sub_total
+    // — Jubelio's detail endpoint doesn't always populate it). Backfill cron keeps this rare, but the
+    // fallback prevents whole-day bars from disappearing if a sync window stores null.
     const timeSeries = {};
     if (!hasItemFilter) {
       for (const o of filteredOrders) {
         const date = (o.transaction_date || '').slice(0, 10);
         if (!date) continue;
         if (!timeSeries[date]) timeSeries[date] = { qty: 0, revenue: 0 };
-        timeSeries[date].revenue += parseFloat(o.sub_total || 0);
+        const rev = (o.sub_total != null) ? parseFloat(o.sub_total) : parseFloat(o.grand_total || 0);
+        timeSeries[date].revenue += rev;
       }
     }
     for (const it of items) {
