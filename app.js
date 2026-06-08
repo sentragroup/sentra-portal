@@ -334,7 +334,7 @@ function showPage(name, el) {
     const _fe=document.getElementById('rst-from'), _te=document.getElementById('rst-to');
     if(_fe && !_fe.value) _fe.value=_fr;
     if(_te && !_te.value) _te.value=_to;
-    loadRestockSupplierOptions();
+    // Vendor list is loaded inside loadRestock() via loadVendorMaster()
     loadRestock();
   }
   if (name==="project") loadProjects();
@@ -21673,6 +21673,9 @@ let _rstLoading       = false;
 let _rstData          = null;     // { products, dayCount }
 let _rstExpanded      = {};       // parentName → bool
 let _rstSelectedItems = new Set();// item_ids ticked for PO
+let _rstVendorMap     = {};       // itemId → vendor_master.id (manually picked override)
+let _rstAllVendors    = [];       // [{id, name, jubelioContactId}] from vendor_master
+let _rstLastPOByItem  = {};       // itemId → {supplier_name, contact_id, date} from latest PO
 let _rstMode          = 'restock'; // 'restock' | 'catalog'
 
 function _rstParseSize(itemCode) {
@@ -21744,14 +21747,36 @@ async function loadRestock() {
     const orderIds = orders.map(o => o.salesorder_id);
 
     // 3-5. Parallel: sold items (filter by item only — orderIdSet applied client-side),
-    //      stock, item info. Chunk .in() to avoid URL-length limits when
+    //      stock, item info, last-PO history per item (for vendor auto-suggest),
+    //      and vendor_master list. Chunk .in() to avoid URL-length limits when
     //      allItemIds is large (currently 2000+ for SDY/Lagaa/Marte).
     const orderIdSet = new Set(orderIds);
-    const [soldItemsRaw, stockRows, itemInfoRows] = await Promise.all([
+    const [soldItemsRaw, stockRows, itemInfoRows, poItemsForVendor, poOrders] = await Promise.all([
       _fetchAllPagesIn('jubelio_sales_order_items','salesorder_id,item_id,qty','item_id', allItemIds),
       _fetchAllPagesIn('jubelio_inventory_stocks','item_id,on_hand','item_id', allItemIds),
       _fetchAllPagesIn('jubelio_items','item_id,item_code,item_name,thumbnail','item_id', allItemIds),
+      _fetchAllPagesIn('jubelio_purchase_order_items','purchaseorder_id,item_id','item_id', allItemIds),
+      _fetchAllPages('jubelio_purchase_orders','purchaseorder_id,supplier_name,contact_id,transaction_date'),
     ]);
+
+    // Build last-PO map per item_id
+    const poById = new Map(poOrders.map(po => [po.purchaseorder_id, po]));
+    _rstLastPOByItem = {};
+    for (const pi of poItemsForVendor) {
+      const po = poById.get(pi.purchaseorder_id); if (!po) continue;
+      const cur = _rstLastPOByItem[pi.item_id];
+      if (!cur || (po.transaction_date || '') > (cur.date || '')) {
+        _rstLastPOByItem[pi.item_id] = {
+          supplier_name: po.supplier_name, contact_id: po.contact_id, date: po.transaction_date,
+        };
+      }
+    }
+
+    // Load vendor_master (uses existing module cache if available)
+    if (!allVMRows.length) await loadVendorMaster();
+    _rstAllVendors = allVMRows.map(v => ({
+      id: v.id, name: vmSyncedField(v, 'name'), jubelioContactId: v.jubelioContactId,
+    })).filter(v => v.name).sort((a,b) => a.name.localeCompare(b.name, 'id'));
     // Client-side: only count qty from orders in the selected period
     const soldItems = soldItemsRaw.filter(it => orderIdSet.has(it.salesorder_id));
 
@@ -21932,6 +21957,18 @@ function renderRestockTable(products) {
       const aStr= v.avgDaily>0 ? v.avgDaily.toFixed(1) : '—';
       const P   = 'padding:5px 8px;vertical-align:middle';
       const safeItemName = (v.itemNameFull||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+      // Vendor dropdown: auto-suggest from last PO (matched via contact_id, fallback to name)
+      const vmByJub = new Map(_rstAllVendors.filter(x=>x.jubelioContactId).map(x => [x.jubelioContactId, x.id]));
+      const vmByName = new Map(_rstAllVendors.map(x => [x.name.toLowerCase(), x.id]));
+      const lastPO = _rstLastPOByItem[v.itemId];
+      const suggestedVm = lastPO
+        ? (vmByJub.get(lastPO.contact_id) || vmByName.get((lastPO.supplier_name||'').toLowerCase()))
+        : null;
+      const currentVm = (v.itemId in _rstVendorMap) ? _rstVendorMap[v.itemId] : (suggestedVm || '');
+      const vendorOpts = _rstAllVendors.map(x =>
+        `<option value="${x.id}"${currentVm===x.id?' selected':''}>${x.name.replace(/</g,'&lt;')}</option>`).join('');
+      const lastPOHint = lastPO ? `<div style="font-size:9px;color:var(--g400);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px" title="${(lastPO.supplier_name||'').replace(/"/g,'&quot;')} (${(lastPO.date||'').slice(0,10)})">📋 ${(lastPO.supplier_name||'').replace(/</g,'&lt;')}</div>` : '';
+
       rows.push(`<tr class="rst-variant-row" style="border-bottom:1px solid var(--g50);${chk?'background:#f0f7ff':''}">`+
         `<td style="${P}"></td>`+
         `<td style="${P};text-align:center"><input type="checkbox" class="rst-var-chk" data-item-id="${v.itemId}" data-item-code="${v.itemCode}" data-item-name="${safeItemName}" data-pkey="${pKey}" ${chk?'checked':''} onchange="_rstToggleVariant(${v.itemId},this.checked,'${pKey}')" style="cursor:pointer"></td>`+
@@ -21942,11 +21979,14 @@ function renderRestockTable(products) {
         `<td style="${P};text-align:right;font-size:12px;font-family:var(--mono);color:${dClr};font-weight:${v.needsRestock?700:400}">${dStr}</td>`+
         `<td style="${P};text-align:right"><input type="number" class="rst-qty-input" min="0" step="1" value="${chk&&(adjQtys[v.itemId]||v.suggestedQty)>0?(adjQtys[v.itemId]||v.suggestedQty):''}" placeholder="0" style="width:70px;text-align:right;font-size:12px;font-family:var(--mono);padding:3px 6px;border:1px solid var(--g200);border-radius:4px;background:white"></td>`+
         `<td style="${P};text-align:right"><input type="number" class="rst-price-input" min="0" step="1000" placeholder="0" style="width:90px;text-align:right;font-size:12px;font-family:var(--mono);padding:3px 6px;border:1px solid var(--g200);border-radius:4px;background:white"></td>`+
+        `<td style="${P}"><select class="rst-vendor-sel" data-item-id="${v.itemId}" onchange="_rstSetVendor(${v.itemId},this.value)" style="font-size:11px;width:150px;padding:3px 6px;border:1px solid var(--g200);border-radius:4px;background:white">`+
+          `<option value="">— Pilih —</option>${vendorOpts}`+
+        `</select>${lastPOHint}</td>`+
         `</tr>`);
     }
   }
 
-  tbody.innerHTML = rows.join('') || `<tr><td class="empty-td" colspan="9">Tidak ada produk yang perlu restock dalam periode ini.</td></tr>`;
+  tbody.innerHTML = rows.join('') || `<tr><td class="empty-td" colspan="10">Tidak ada produk yang perlu restock dalam periode ini.</td></tr>`;
   const tc = document.getElementById('rst-tcount');
   if (tc) tc.textContent = `${totalVisible} produk`;
 }
@@ -22042,25 +22082,28 @@ function _rstSetMode(mode) {
 }
 
 function generateRestockPO() {
-  const supplierEl = document.getElementById('rst-supplier');
-  if (!supplierEl?.value) { alert('Pilih supplier terlebih dahulu.'); return; }
-  _rstShowSummary();
+  // legacy alias — old global Supplier+Generate button removed; route to Review
+  _rstShowReview();
 }
 
-function _rstShowSummary() {
-  const supplierEl   = document.getElementById('rst-supplier');
-  const supplierName = supplierEl?.options[supplierEl.selectedIndex]?.text || 'MGMT';
+function _rstSetVendor(itemId, vmId) {
+  _rstVendorMap[itemId] = vmId || null;
+}
 
-  const productSummary = {};
-  let hasZeroPrice = false;
-
+// ── Collect selected line items with vendor + qty + price ──
+function _rstCollectSelectedLines() {
+  const lines = [];
   document.querySelectorAll('.rst-var-chk:checked').forEach(chk => {
-    const row   = chk.closest('tr');
-    const qty   = parseFloat(row?.querySelector('.rst-qty-input')?.value)   || 0;
+    const row = chk.closest('tr');
+    const qty = parseFloat(row?.querySelector('.rst-qty-input')?.value) || 0;
     const price = parseFloat(row?.querySelector('.rst-price-input')?.value) || 0;
     if (qty <= 0) return;
-    if (price === 0) hasZeroPrice = true;
-
+    const itemId = Number(chk.dataset.itemId);
+    const sku = chk.dataset.itemCode || '';
+    const itemName = chk.dataset.itemName || '';
+    const sel = row?.querySelector('.rst-vendor-sel');
+    const vmId = sel?.value || null;
+    // Find parent product info for context
     const pKey = chk.dataset.pkey;
     let parentName = '', brand = '', ip = '', collection = '', size = '?';
     if (_rstData) {
@@ -22068,101 +22111,97 @@ function _rstShowSummary() {
         btoa(unescape(encodeURIComponent(pp.name))).replace(/[^a-zA-Z0-9]/g,'') === pKey);
       if (p) {
         parentName = p.name; brand = p.brand; ip = p.ip||''; collection = p.collection||'';
-        const v = p.variants.find(vv => vv.itemId === Number(chk.dataset.itemId));
+        const v = p.variants.find(vv => vv.itemId === itemId);
         if (v) size = v.size;
       }
     }
-    if (!parentName) parentName = chk.dataset.itemCode || '—';
-
-    if (!productSummary[parentName]) {
-      productSummary[parentName] = { name:parentName, brand, ip, collection, pKey, roll:60, sizeQtys:{}, prices:[], totalQty:0, totalNilai:0 };
-    }
-    productSummary[parentName].sizeQtys[size] = qty;
-    productSummary[parentName].prices.push(price);
-    productSummary[parentName].totalQty   += qty;
-    productSummary[parentName].totalNilai += qty * price;
+    lines.push({ itemId, sku, itemName, qty, price, vmId, parentName, brand, ip, collection, size });
   });
+  return lines;
+}
 
-  if (!Object.keys(productSummary).length) {
-    alert('Tidak ada item dipilih atau semua qty = 0.');
-    return;
+// ── Group lines by vendor ──
+function _rstGroupByVendor(lines) {
+  const byVendor = new Map();
+  const unassigned = [];
+  for (const l of lines) {
+    if (!l.vmId) { unassigned.push(l); continue; }
+    if (!byVendor.has(l.vmId)) byVendor.set(l.vmId, []);
+    byVendor.get(l.vmId).push(l);
   }
+  return { byVendor, unassigned };
+}
 
-  // Collect sizes in standard order
-  const _SO = ['XS','S','M','L','XL','XXL','XXXL','4XL','5XL'];
-  const sizeSet = new Set();
-  for (const p of Object.values(productSummary)) for (const s of Object.keys(p.sizeQtys)) sizeSet.add(s);
-  const sizes = [..._SO.filter(s => sizeSet.has(s)), ...[...sizeSet].filter(s => !_SO.includes(s)).sort()];
+function _rstShowReview() {
+  const lines = _rstCollectSelectedLines();
+  if (!lines.length) { alert('Tidak ada item dipilih, atau semua qty = 0.'); return; }
+  const {byVendor, unassigned} = _rstGroupByVendor(lines);
+  const vmById = new Map(_rstAllVendors.map(v => [v.id, v]));
 
-  const prods      = Object.values(productSummary);
-  const grandQty   = prods.reduce((s,p) => s + p.totalQty,   0);
-  const grandNilai = prods.reduce((s,p) => s + p.totalNilai, 0);
+  const cont = document.getElementById('rst-summary-content');
+  const totalQty = lines.reduce((s,l) => s+l.qty, 0);
+  const totalNilai = lines.reduce((s,l) => s + l.qty*l.price, 0);
   const fmtRp = v => 'Rp ' + Math.round(v).toLocaleString('id-ID');
 
-  let html = `<div style="font-size:12px;color:var(--g400);margin-bottom:12px">
-    Supplier: <strong style="color:var(--text)">${supplierName}</strong>
-    &nbsp;·&nbsp; ${prods.length} produk &nbsp;·&nbsp; ${grandQty} unit
-    ${grandNilai > 0 ? '&nbsp;·&nbsp; <strong style="color:var(--text)">'+fmtRp(grandNilai)+'</strong>' : ''}
-  </div>`;
-
-  if (hasZeroPrice) {
-    html += `<div style="background:#fff8e1;border:1px solid #ffe082;border-radius:6px;padding:9px 12px;margin-bottom:12px;font-size:12px;color:#7a5c00">
-      ⚠ Beberapa item memiliki harga beli Rp 0 — pastikan harga sudah diisi sebelum import ke Jubelio.
+  let html = '';
+  if (unassigned.length) {
+    html += `<div style="background:#fff3e0;border:1px solid #ffb74d;border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:#7a3d00">
+      ⚠️ <strong>${unassigned.length} item belum punya vendor.</strong> Pilih vendor per row dulu sebelum export.
+      <div style="font-size:11px;color:#7a3d00;margin-top:4px">${unassigned.slice(0,5).map(l => l.sku||l.parentName).join(', ')}${unassigned.length>5?` (+${unassigned.length-5} lagi)`:''}</div>
     </div>`;
   }
 
-  const rollWarnings = Object.values(productSummary).filter(p => p.totalQty > 0 && p.totalQty % p.roll !== 0);
-  if (rollWarnings.length) {
-    const items = rollWarnings.map(p => {
-      const next = Math.ceil(p.totalQty / p.roll) * p.roll;
-      return `<strong>${p.name}</strong>: ${p.totalQty} pcs (next: ${next}, roll ${p.roll})`;
-    }).join('<br>');
-    html += `<div style="background:#fce8e6;border:1px solid #f28b82;border-radius:6px;padding:9px 12px;margin-bottom:12px;font-size:12px;color:#7a0000">
-      ⚠ Qty berikut bukan kelipatan 1 roll (60 pcs) — sesuaikan sebelum download:<br>${items}
+  // Per-vendor sections
+  const vendorEntries = [...byVendor.entries()].map(([vmId, items]) => {
+    const vm = vmById.get(vmId);
+    return { vmId, vm, name: vm?.name || vmId, items };
+  }).sort((a,b) => a.name.localeCompare(b.name, 'id'));
+
+  for (const {vmId, vm, name, items} of vendorEntries) {
+    const vQty = items.reduce((s,l) => s+l.qty, 0);
+    const vNilai = items.reduce((s,l) => s+l.qty*l.price, 0);
+    const safeName = name.replace(/'/g,"\\'").replace(/"/g,'&quot;');
+    html += `<div style="background:var(--off);border:1px solid var(--g100);border-radius:8px;margin-bottom:12px;overflow:hidden">
+      <div style="padding:10px 14px;background:white;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;border-bottom:1px solid var(--g100)">
+        <div style="flex:1;min-width:160px">
+          <div style="font-weight:700;font-size:13px">${name.replace(/</g,'&lt;')}${vm?.jubelioContactId?' <span class="pill p-active" style="font-size:9px;margin-left:6px">🔗 Jubelio</span>':''}</div>
+          <div style="font-size:11px;color:var(--g400);margin-top:2px">${items.length} SKU · ${vQty} unit${vNilai>0?` · ${fmtRp(vNilai)}`:''}</div>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button onclick="_rstExportCSVForVendor('${vmId}')" style="padding:6px 12px;background:#3C3489;color:white;border:none;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600">⬇️ CSV (Jubelio)</button>
+          <button onclick="_rstExportPDFForVendor('${vmId}')" style="padding:6px 12px;background:white;color:#3C3489;border:1px solid #3C3489;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600">📄 PDF</button>
+        </div>
+      </div>
+      <div style="padding:0 14px 10px">
+        <table style="width:100%;font-size:11px;margin-top:6px">
+          <thead><tr style="color:var(--g400);text-transform:uppercase;font-size:9px">
+            <th style="text-align:left;padding:4px 4px">SKU</th>
+            <th style="text-align:left;padding:4px 4px">Produk</th>
+            <th style="padding:4px 4px">Size</th>
+            <th style="text-align:right;padding:4px 4px">Qty</th>
+            <th style="text-align:right;padding:4px 4px">Harga</th>
+            <th style="text-align:right;padding:4px 4px">Subtotal</th>
+          </tr></thead>
+          <tbody>${items.map(l => `<tr style="border-top:1px solid var(--g100)">
+            <td class="mono" style="padding:4px 4px;font-size:10px;color:var(--g600)">${(l.sku||'—').replace(/</g,'&lt;')}</td>
+            <td style="padding:4px 4px;font-size:11px">${(l.parentName||l.itemName||'—').replace(/</g,'&lt;')}</td>
+            <td style="padding:4px 4px;font-size:11px;text-align:center">${(l.size||'').replace(/</g,'&lt;')}</td>
+            <td style="padding:4px 4px;text-align:right;font-family:var(--mono)">${l.qty}</td>
+            <td style="padding:4px 4px;text-align:right;font-family:var(--mono);color:${l.price?'var(--text)':'#c0392b'}">${l.price?fmtRp(l.price):'—'}</td>
+            <td style="padding:4px 4px;text-align:right;font-family:var(--mono);font-weight:600">${fmtRp(l.qty*l.price)}</td>
+          </tr>`).join('')}</tbody>
+        </table>
+      </div>
     </div>`;
   }
 
-  html += `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
-    <thead><tr style="background:#f7f8fa;border-bottom:2px solid var(--g200)">
-      <th style="padding:8px 10px;text-align:left;font-weight:600">Produk</th>
-      ${sizes.map(s=>`<th style="padding:8px 10px;text-align:center;font-weight:600;min-width:40px">${s}</th>`).join('')}
-      <th style="padding:8px 10px;text-align:right;font-weight:600;white-space:nowrap">Total</th>
-      <th style="padding:8px 10px;text-align:right;font-weight:600;white-space:nowrap">Harga Beli</th>
-      <th style="padding:8px 10px;text-align:right;font-weight:600;white-space:nowrap">Est. Nilai</th>
-    </tr></thead><tbody>`;
-
-  for (const p of prods) {
-    const uniquePrices = [...new Set(p.prices)];
-    const priceStr = uniquePrices.length === 0 ? '—'
-      : uniquePrices.length === 1 ? fmtRp(uniquePrices[0])
-      : uniquePrices.map(pr=>fmtRp(pr)).join(' / ');
-    const meta = [p.ip, p.collection].filter(Boolean).join(' · ');
-    html += `<tr style="border-bottom:1px solid var(--g100)">
-      <td style="padding:7px 10px">
-        <div style="font-weight:500">${p.name} <span style="font-size:10px;color:var(--g400)">${p.brand}</span></div>
-        ${meta ? `<div style="font-size:10px;color:var(--g400)">${meta}</div>` : ''}
-      </td>
-      ${sizes.map(s=>`<td style="padding:7px 10px;text-align:center;font-family:var(--mono);font-size:12px">${p.sizeQtys[s]??'—'}</td>`).join('')}
-      <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-weight:600">${p.totalQty}</td>
-      <td style="padding:7px 10px;text-align:right;font-size:11px;color:var(--g400)">${priceStr}</td>
-      <td style="padding:7px 10px;text-align:right;font-family:var(--mono)">${p.totalNilai>0?fmtRp(p.totalNilai):'—'}</td>
-    </tr>`;
+  if (vendorEntries.length === 0 && unassigned.length === 0) {
+    html += `<div style="padding:24px;text-align:center;color:var(--g400);font-size:13px">Belum ada item yang siap di-review.</div>`;
   }
 
-  html += `<tr style="background:#f7f8fa;font-weight:700;border-top:2px solid var(--g200)">
-    <td style="padding:8px 10px">Total</td>
-    ${sizes.map(()=>`<td></td>`).join('')}
-    <td style="padding:8px 10px;text-align:right;font-family:var(--mono)">${grandQty}</td>
-    <td></td>
-    <td style="padding:8px 10px;text-align:right;font-family:var(--mono)">${grandNilai>0?fmtRp(grandNilai):'—'}</td>
-  </tr>`;
-
-  html += `</tbody></table></div>`;
-
-  const content = document.getElementById('rst-summary-content');
-  if (content) content.innerHTML = html;
-  const modal = document.getElementById('rst-summary-modal');
-  if (modal) modal.style.display = 'flex';
+  cont.innerHTML = html;
+  document.getElementById('rst-summary-modal').style.display = 'flex';
+  document.getElementById('rst-review-summary').textContent = `${lines.length} SKU · ${totalQty} unit${totalNilai>0?` · ${fmtRp(totalNilai)}`:''} · ${vendorEntries.length} vendor${unassigned.length?` · ${unassigned.length} unassigned`:''}`;
 }
 
 function _rstCloseSummary() {
@@ -22170,61 +22209,158 @@ function _rstCloseSummary() {
   if (modal) modal.style.display = 'none';
 }
 
-function _rstDoDownloadCSV() {
-  _rstCloseSummary();
+// ── Per-vendor CSV export (Jubelio Purchase import format) ──
+function _rstExportCSVForVendor(vmId) {
+  const lines = _rstCollectSelectedLines().filter(l => l.vmId === vmId);
+  if (!lines.length) { alert('Tidak ada item untuk vendor ini.'); return; }
+  const vm = _rstAllVendors.find(v => v.id === vmId);
+  const supplierName = vm?.name || vmId;
 
-  const supplierEl   = document.getElementById('rst-supplier');
-  const supplierName = supplierEl?.options[supplierEl.selectedIndex]?.text || 'MGMT';
+  // Pull Jubelio identity for the vendor (email, phone, defaults from vendor_master)
+  const vmFull = allVMRows.find(v => v.id === vmId);
+  const phone = vmFull ? vmSyncedField(vmFull, 'phone') : '';
+  const email = vmFull ? vmSyncedField(vmFull, 'email') : '';
+  const defaultLoc = vmFull?.defaultLocation || 'Gudang Penerimaan Barang';
+  const defaultTax = vmFull?.defaultTax || 'No Tax';
+  const taxIncl = vmFull?.defaultTaxIncluded ? 'TRUE' : 'FALSE';
 
-  const items = [];
-  document.querySelectorAll('.rst-var-chk:checked').forEach(chk => {
-    const row   = chk.closest('tr');
-    const qty   = parseFloat(row?.querySelector('.rst-qty-input')?.value)   || 0;
-    const price = parseFloat(row?.querySelector('.rst-price-input')?.value) || 0;
-    if (qty <= 0) return;
-    items.push({ sku: chk.dataset.itemCode || '', qty, price });
-  });
-
-  if (!items.length) return;
-
-  const note    = document.getElementById('rst-note')?.value || '';
-  const today   = new Date().toISOString().slice(0, 10);
-  const statusEl = document.getElementById('rst-gen-status');
-
+  const today = new Date().toISOString().slice(0, 10);
   const esc = v => {
     const s = String(v ?? '');
     return (s.includes(',') || s.includes('"') || s.includes('\n'))
       ? '"' + s.replace(/"/g, '""') + '"' : s;
   };
-
   const COLS = ['No. Pesanan','No. Ref Pemasok','Tanggal','Zona Waktu','Nama Pemasok',
                 'Email Pemasok','No Telp. Pemasok','Harga Termasuk Pajak','Lokasi',
                 'Keterangan','SKU','Harga','Qty','Nilai Diskon','Pajak'];
-  const lines = [COLS.join(',')];
-
-  items.forEach((it, i) => {
+  const note = `Restock ${today}`;
+  const csvRows = [COLS.join(',')];
+  lines.forEach((it, i) => {
     if (i === 0) {
-      lines.push(['[auto]', '', esc(today), 'WIB', esc(supplierName),
-        '', '0', 'FALSE', 'Gudang Penerimaan Barang',
-        esc(note), esc(it.sku), it.price, it.qty, 0, 'No Tax'].join(','));
+      csvRows.push(['[auto]', '', esc(today), 'WIB', esc(supplierName),
+        esc(email), esc(phone), taxIncl, esc(defaultLoc),
+        esc(note), esc(it.sku), it.price, it.qty, 0, esc(defaultTax)].join(','));
     } else {
-      lines.push(['', '', '', '', '', '', '', '', '', '',
-        esc(it.sku), it.price, it.qty, 0, 'No Tax'].join(','));
+      csvRows.push(['', '', '', '', '', '', '', '', '', '',
+        esc(it.sku), it.price, it.qty, 0, esc(defaultTax)].join(','));
     }
   });
-
-  const csv      = lines.join('\r\n');
-  const blob     = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const url      = URL.createObjectURL(blob);
-  const filename = `PO-Restock-${today}.csv`;
-  const a        = document.createElement('a');
+  const csv = csvRows.join('\r\n');
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const safeName = supplierName.replace(/[^a-zA-Z0-9._-]+/g,'_').slice(0,40);
+  const filename = `PO-Restock-${safeName}-${today}.csv`;
+  const a = document.createElement('a');
   a.href = url; a.download = filename; a.click();
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 200);
+}
 
-  const totalQty = items.reduce((s,i) => s+i.qty, 0);
-  if (statusEl) statusEl.innerHTML =
-    `✅ <strong>${filename}</strong> berhasil diunduh · ${items.length} SKU · ${totalQty} unit`+
-    ` · <span style="color:var(--g400);font-size:12px">Import via Jubelio → Pembelian → Import</span>`;
+// ── Per-vendor PDF export (window.print pattern, consistent with PD module) ──
+function _rstExportPDFForVendor(vmId) {
+  const lines = _rstCollectSelectedLines().filter(l => l.vmId === vmId);
+  if (!lines.length) { alert('Tidak ada item untuk vendor ini.'); return; }
+  const vm = _rstAllVendors.find(v => v.id === vmId);
+  const vmFull = allVMRows.find(v => v.id === vmId);
+  const supplierName = vm?.name || vmId;
+  const phone = vmFull ? vmSyncedField(vmFull, 'phone') : '';
+  const email = vmFull ? vmSyncedField(vmFull, 'email') : '';
+  const today = new Date().toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric'});
+  _rstOpenPrintWindow(`PO Restock — ${supplierName}`, _rstBuildPDFBody(supplierName, {phone, email}, lines, today));
+}
+
+// ── Combined "PDF All" — flat table with Vendor column ──
+function _rstExportPDFAll() {
+  const lines = _rstCollectSelectedLines();
+  if (!lines.length) { alert('Tidak ada item dipilih.'); return; }
+  const vmById = new Map(_rstAllVendors.map(v => [v.id, v]));
+  const enriched = lines.map(l => ({
+    ...l,
+    vendorName: l.vmId ? (vmById.get(l.vmId)?.name || l.vmId) : '— belum di-assign —',
+  }));
+  const today = new Date().toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric'});
+  _rstOpenPrintWindow(`PO Restock — All Vendors`, _rstBuildPDFAllBody(enriched, today));
+}
+
+function _rstOpenPrintWindow(title, bodyHtml) {
+  const w = window.open('', '_blank');
+  if (!w) { alert('Pop-up diblokir. Izinkan pop-up untuk export PDF.'); return; }
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${title.replace(/</g,'&lt;')}</title>
+    <style>
+      body{font-family:Arial,Helvetica,sans-serif;color:#222;padding:24px;max-width:1000px;margin:0 auto}
+      h1{font-size:20px;margin:0 0 4px;font-weight:700}
+      .sub{font-size:11px;color:#888;margin-bottom:18px}
+      .meta{font-size:12px;margin-bottom:16px;display:grid;grid-template-columns:auto 1fr;gap:4px 16px}
+      .meta dt{font-weight:600;color:#666}
+      table{width:100%;border-collapse:collapse;font-size:11px;margin-top:10px}
+      thead th{background:#f2f2f2;padding:6px 8px;text-align:left;border-bottom:1px solid #999;font-size:10px;text-transform:uppercase;letter-spacing:0.3px}
+      tbody td{padding:6px 8px;border-bottom:1px solid #eee}
+      .mono{font-family:'Courier New',monospace}
+      .num{text-align:right;font-family:'Courier New',monospace}
+      .total{font-weight:700;background:#f9f9f9}
+      .vendor-row{background:#eef2ff;font-weight:700;font-size:12px}
+      .footer{margin-top:24px;font-size:10px;color:#888;text-align:right}
+      @media print{ body{padding:12px} }
+    </style></head><body>${bodyHtml}
+    <div class="footer">Generated ${new Date().toLocaleString('id-ID')} · Sentra Portal</div>
+    </body></html>`);
+  w.document.close();
+  w.addEventListener('load', () => setTimeout(()=>w.print(), 400));
+}
+
+function _rstBuildPDFBody(supplierName, contact, lines, today) {
+  const totalQty = lines.reduce((s,l) => s+l.qty, 0);
+  const totalNilai = lines.reduce((s,l) => s+l.qty*l.price, 0);
+  const fmt = v => 'Rp ' + Math.round(v).toLocaleString('id-ID');
+  return `
+    <h1>Purchase Order — Restock</h1>
+    <div class="sub">${today}</div>
+    <dl class="meta">
+      <dt>Pemasok</dt><dd>${supplierName.replace(/</g,'&lt;')}</dd>
+      ${contact.phone?`<dt>Telp</dt><dd>${contact.phone.replace(/</g,'&lt;')}</dd>`:''}
+      ${contact.email?`<dt>Email</dt><dd>${contact.email.replace(/</g,'&lt;')}</dd>`:''}
+      <dt>Tanggal</dt><dd>${today}</dd>
+      <dt>Total Item</dt><dd>${lines.length} SKU · ${totalQty} unit</dd>
+    </dl>
+    <table>
+      <thead><tr><th>SKU</th><th>Produk</th><th>Size</th><th class="num">Qty</th><th class="num">Harga</th><th class="num">Subtotal</th></tr></thead>
+      <tbody>
+        ${lines.map(l => `<tr>
+          <td class="mono">${(l.sku||'—').replace(/</g,'&lt;')}</td>
+          <td>${(l.parentName||l.itemName||'—').replace(/</g,'&lt;')}</td>
+          <td>${(l.size||'').replace(/</g,'&lt;')}</td>
+          <td class="num">${l.qty}</td>
+          <td class="num">${l.price?fmt(l.price):'—'}</td>
+          <td class="num">${fmt(l.qty*l.price)}</td>
+        </tr>`).join('')}
+        <tr class="total"><td colspan="3">TOTAL</td><td class="num">${totalQty}</td><td></td><td class="num">${fmt(totalNilai)}</td></tr>
+      </tbody>
+    </table>`;
+}
+
+function _rstBuildPDFAllBody(lines, today) {
+  const totalQty = lines.reduce((s,l) => s+l.qty, 0);
+  const totalNilai = lines.reduce((s,l) => s+l.qty*l.price, 0);
+  const fmt = v => 'Rp ' + Math.round(v).toLocaleString('id-ID');
+  // sort by vendor then sku
+  lines = lines.slice().sort((a,b) => (a.vendorName||'').localeCompare(b.vendorName||'', 'id') || (a.sku||'').localeCompare(b.sku||''));
+  return `
+    <h1>Purchase Order — Restock (All Vendors)</h1>
+    <div class="sub">${today} · ${lines.length} SKU · ${totalQty} unit · ${fmt(totalNilai)}</div>
+    <table>
+      <thead><tr><th>Vendor</th><th>SKU</th><th>Produk</th><th>Size</th><th class="num">Qty</th><th class="num">Harga</th><th class="num">Subtotal</th></tr></thead>
+      <tbody>
+        ${lines.map(l => `<tr>
+          <td>${(l.vendorName||'—').replace(/</g,'&lt;')}</td>
+          <td class="mono">${(l.sku||'—').replace(/</g,'&lt;')}</td>
+          <td>${(l.parentName||l.itemName||'—').replace(/</g,'&lt;')}</td>
+          <td>${(l.size||'').replace(/</g,'&lt;')}</td>
+          <td class="num">${l.qty}</td>
+          <td class="num">${l.price?fmt(l.price):'—'}</td>
+          <td class="num">${fmt(l.qty*l.price)}</td>
+        </tr>`).join('')}
+        <tr class="total"><td colspan="4">TOTAL</td><td class="num">${totalQty}</td><td></td><td class="num">${fmt(totalNilai)}</td></tr>
+      </tbody>
+    </table>`;
 }
 
 // ── MARTE SKU CATEGORIES ──
