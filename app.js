@@ -55,21 +55,20 @@ async function _fetchAllPages(table, select="*", extraQ){
 }
 
 // Same as _fetchAllPages but chunks an `.in(idColumn, ids)` filter to avoid
-// PostgREST URL-length limits when `ids` gets large (>~500). Each chunk is
-// fetched separately and results concatenated.
+// PostgREST URL-length limits when `ids` gets large (>~500). All chunks are
+// fetched in parallel — gives ~Nx speedup compared to a sequential loop.
 async function _fetchAllPagesIn(table, select, idColumn, ids, extraQ, chunkSize=500){
   if(!ids || !ids.length) return [];
-  const out = [];
-  for(let i=0; i<ids.length; i+=chunkSize){
-    const slice = ids.slice(i, i+chunkSize);
-    const rows = await _fetchAllPages(table, select, q => {
+  const slices = [];
+  for(let i=0; i<ids.length; i+=chunkSize) slices.push(ids.slice(i, i+chunkSize));
+  const results = await Promise.all(slices.map(slice =>
+    _fetchAllPages(table, select, q => {
       q = q.in(idColumn, slice);
       if (extraQ) q = extraQ(q);
       return q;
-    });
-    out.push(...rows);
-  }
-  return out;
+    })
+  ));
+  return results.flat();
 }
 // Sort state per module
 let agrSort={col:null,dir:'asc'}, ipSort={col:null,dir:'asc'}, rrSort={col:null,dir:'asc'};
@@ -21675,10 +21674,11 @@ let _rstLastPOByItem     = {};       // itemId → {supplier_name, contact_id, d
 let _rstQtyMap           = {};       // itemId → manually overridden qty per variant
 
 // ── Restock Projects state ──
-let _rpView         = 'list';       // 'list' | 'builder'
-let _rpRows         = [];           // saved projects (from DB)
-let _rpCurrentId    = null;         // RP-id when editing existing, null when new
-let _rpCurrentStatus = 'Draft';     // current project's status when in builder
+let _rpView          = 'list';       // 'list' | 'builder'
+let _rpRows          = [];           // saved projects (from DB)
+let _rpCurrentId     = null;         // RP-id when editing existing, null when new
+let _rpCurrentStatus = 'Draft';      // current project's status when in builder
+let _rpDirty         = false;        // true when user changed something since last save
 let _rstMode          = 'restock'; // 'restock' | 'catalog'
 
 function _rstParseSize(itemCode) {
@@ -21709,15 +21709,10 @@ function _rpShowBuilderView() {
 }
 
 function _rpBackToList() {
-  if (_rpHasUnsavedChanges() && !confirm('Ada perubahan belum tersimpan. Yakin keluar?')) return;
+  if (_rpDirty && _rstAddedProducts.size > 0 && !confirm('Ada perubahan belum disimpan. Yakin keluar tanpa save?')) return;
   _rpResetBuilderState();
   _rpShowListView();
   loadRestockProjects();
-}
-
-function _rpHasUnsavedChanges() {
-  // Heuristic: anything in builder is considered unsaved (we don't diff)
-  return _rstAddedProducts.size > 0;
 }
 
 function _rpResetBuilderState() {
@@ -21728,9 +21723,13 @@ function _rpResetBuilderState() {
   _rstParentPriceMap = {};
   _rpCurrentId = null;
   _rpCurrentStatus = 'Draft';
+  _rpDirty = false;
   const nameEl = document.getElementById('rp-name'); if (nameEl) nameEl.value = '';
-  document.getElementById('rp-progress-panel').style.display = 'none';
+  const panel = document.getElementById('rp-progress-panel'); if (panel) panel.style.display = 'none';
 }
+
+// Mark dirty on any builder change — wired to onchange/oninput of inputs and toggles.
+function _rpMarkDirty() { _rpDirty = true; }
 
 // ── Project list ──
 async function loadRestockProjects() {
@@ -21900,14 +21899,19 @@ async function _rpOpenProject(id) {
   _rpRefreshStatusPill();
   _rpShowBuilderView();
   await loadRestock(); // loads data + auto-renders added products
+  _rpDirty = false;    // Just loaded saved state, mark clean
 }
 
 // ── Save project (insert or update) ──
 async function _rpSaveProject(activate) {
   const name = document.getElementById('rp-name').value.trim();
-  if (!name) { alert('Nama project wajib.'); return; }
+  if (!name) { alert('⚠️ Nama project wajib diisi dulu.'); return; }
   const lines = _rstCollectSelectedLines();
-  if (!lines.length && activate) { alert('Tidak ada SKU yang dipilih. Tambah produk + qty dulu sebelum Activate.'); return; }
+  if (!lines.length) {
+    if (activate) { alert('⚠️ Belum ada SKU yang dipilih + qty > 0. Tambah produk dulu, centang variant, atur qty sebelum Activate.'); return; }
+    // For Draft save, warn but allow
+    if (!confirm('Belum ada SKU dipilih (semua qty 0). Tetap save sebagai Draft kosong?')) return;
+  }
   const periodFrom = document.getElementById('rst-from').value || null;
   const periodTo   = document.getElementById('rst-to').value   || null;
   const itemsPayload = lines.map(l => ({
@@ -21917,6 +21921,13 @@ async function _rpSaveProject(activate) {
     vendor_master_id: l.vmId, qty_planned: l.qty, price_planned: l.price,
   }));
   const targetStatus = activate ? 'Active' : (_rpCurrentStatus === 'Draft' ? 'Draft' : _rpCurrentStatus);
+  // Disable buttons while saving + show inline status
+  const saveBtn = document.getElementById('rp-save-btn');
+  const actBtn = document.getElementById('rp-activate-btn');
+  const origSaveLabel = saveBtn?.textContent;
+  const origActLabel = actBtn?.textContent;
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = '⟳ Menyimpan...'; }
+  if (actBtn)  { actBtn.disabled = true; }
   try {
     if (_rpCurrentId) {
       const {error} = await sb.from('restock_projects').update({
@@ -21927,24 +21938,51 @@ async function _rpSaveProject(activate) {
       if (error) throw error;
     } else {
       const newId = genId('RP');
-      const {error} = await sb.from('restock_projects').insert({
+      const {error, data} = await sb.from('restock_projects').insert({
         id: newId, name, status: targetStatus, items: itemsPayload,
         period_from: periodFrom, period_to: periodTo,
         created_by: currentUser, date_created: new Date().toISOString(),
-      });
+      }).select().single();
       if (error) throw error;
       _rpCurrentId = newId;
+      console.log('Restock project saved:', newId, data);
     }
     _rpCurrentStatus = targetStatus;
+    _rpDirty = false;  // Reset dirty flag — current state is now persisted
     _rpRefreshStatusPill();
-    alert(`✓ Project "${name}" tersimpan sebagai ${targetStatus}.`);
+    // Inline feedback (not alert — feels faster + less disruptive)
+    _rpFlashMessage(`✓ Tersimpan sebagai ${targetStatus} · ${itemsPayload.length} SKU`, 'ok');
     // Refresh list cache for progress panel
     await loadRestockProjects();
-    // Show progress panel if activated
     if (targetStatus !== 'Draft') _rpUpdateProgressPanel();
   } catch (e) {
-    alert('Gagal: ' + (e.message || e));
+    console.error('Save project failed:', e);
+    alert('❌ Gagal save: ' + (e.message || e) + '\n\nCek browser console untuk detail.');
+  } finally {
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = origSaveLabel; }
+    if (actBtn)  { actBtn.disabled = false;  actBtn.textContent = origActLabel; }
   }
+}
+
+// Inline flash message above the builder (replaces alert for non-blocking feedback)
+function _rpFlashMessage(text, kind) {
+  const toolbar = document.querySelector('#rp-view-builder');
+  if (!toolbar) { alert(text); return; }
+  let bar = document.getElementById('rp-flash');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'rp-flash';
+    bar.style.cssText = 'position:fixed;top:16px;right:16px;z-index:9000;padding:10px 16px;border-radius:6px;font-size:13px;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,0.15);transition:opacity 0.3s';
+    document.body.appendChild(bar);
+  }
+  bar.style.background = kind === 'ok' ? '#daf3e0' : '#fde0e0';
+  bar.style.color = kind === 'ok' ? '#0a7d3a' : '#b81d1d';
+  bar.style.border = kind === 'ok' ? '1px solid #a7dab4' : '1px solid #f3a8a8';
+  bar.textContent = text;
+  bar.style.opacity = '1';
+  bar.style.display = 'block';
+  clearTimeout(_rpFlashMessage._t);
+  _rpFlashMessage._t = setTimeout(() => { bar.style.opacity = '0'; }, 3000);
 }
 
 async function _rpDeleteProject(id) {
@@ -22519,6 +22557,7 @@ function _rstAddProduct(parentName) {
       if (_rstQtyMap[v.itemId] == null) _rstQtyMap[v.itemId] = adjQtys[v.itemId];
     }
   }
+  if (typeof _rpMarkDirty === 'function') _rpMarkDirty();
   _rstRenderAddedProducts();
 }
 
@@ -22536,12 +22575,14 @@ function _rstRemoveProduct(parentName) {
       }
     }
   }
+  if (typeof _rpMarkDirty === 'function') _rpMarkDirty();
   _rstRenderAddedProducts();
 }
 
 function _rstToggleVariant(itemId, checked) {
   if (checked) _rstSelectedItems.add(itemId);
   else         _rstSelectedItems.delete(itemId);
+  if (typeof _rpMarkDirty === 'function') _rpMarkDirty();
   // Visually highlight selected cells + recalc card totals + summary bar
   const chk = document.querySelector(`.rst-var-chk[data-item-id="${itemId}"]`);
   if (chk) {
@@ -22564,6 +22605,7 @@ function _rstSetQty(itemId, val) {
   const n = parseFloat(val);
   if (isNaN(n) || n <= 0) delete _rstQtyMap[itemId];
   else _rstQtyMap[itemId] = n;
+  if (typeof _rpMarkDirty === 'function') _rpMarkDirty();
 }
 
 // ── Add Product picker modal ──
@@ -22657,6 +22699,7 @@ function generateRestockPO() {
 function _rstSetParentVendor(parentName, vmId) {
   if (vmId) _rstParentVendorMap[parentName] = vmId;
   else delete _rstParentVendorMap[parentName];
+  if (typeof _rpMarkDirty === 'function') _rpMarkDirty();
 }
 
 // Merge Vendor Master + Jubelio supplier list into one dropdown source.
@@ -22718,6 +22761,7 @@ function _rstSetParentPrice(parentName, val) {
   const n = parseFloat(val);
   if (isNaN(n) || n <= 0) delete _rstParentPriceMap[parentName];
   else _rstParentPriceMap[parentName] = n;
+  if (typeof _rpMarkDirty === 'function') _rpMarkDirty();
 }
 
 // Compute parent-level vendor default from variants' last PO history.
