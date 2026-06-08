@@ -328,14 +328,9 @@ function showPage(name, el) {
   if (name==="tradorders") loadTradeOrders();
   if (name==="invcheck") loadInvCheck();
   if (name==="restock") {
-    // Default dates: last 30 days
-    const _now=new Date(), _to=_now.toISOString().slice(0,10);
-    const _fr=new Date(_now-30*864e5).toISOString().slice(0,10);
-    const _fe=document.getElementById('rst-from'), _te=document.getElementById('rst-to');
-    if(_fe && !_fe.value) _fe.value=_fr;
-    if(_te && !_te.value) _te.value=_to;
-    // Vendor list is loaded inside loadRestock() via loadVendorMaster()
-    loadRestock();
+    // Default to project list view (builder loads when user picks/creates project)
+    _rpShowListView();
+    loadRestockProjects();
   }
   if (name==="project") loadProjects();
   if (name==="calendar") loadCalendar();
@@ -21678,6 +21673,12 @@ let _rstParentPriceMap   = {};       // parentName → harga beli (Rp) for all v
 let _rstAllVendors       = [];       // [{id, name, jubelioContactId}] from vendor_master
 let _rstLastPOByItem     = {};       // itemId → {supplier_name, contact_id, date} from latest PO
 let _rstQtyMap           = {};       // itemId → manually overridden qty per variant
+
+// ── Restock Projects state ──
+let _rpView         = 'list';       // 'list' | 'builder'
+let _rpRows         = [];           // saved projects (from DB)
+let _rpCurrentId    = null;         // RP-id when editing existing, null when new
+let _rpCurrentStatus = 'Draft';     // current project's status when in builder
 let _rstMode          = 'restock'; // 'restock' | 'catalog'
 
 function _rstParseSize(itemCode) {
@@ -21689,6 +21690,433 @@ function _rstParseSize(itemCode) {
   const SIZES = ['XS','S','M','L','XL','XXL','XXXL','4XL','5XL'];
   if (SIZES.includes(raw)) return raw;
   return raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// RESTOCK PROJECTS — saved restock plans linked to Jubelio POs
+// ─────────────────────────────────────────────────────────────────────
+
+function _rpShowListView() {
+  _rpView = 'list';
+  document.getElementById('rp-view-list').style.display = '';
+  document.getElementById('rp-view-builder').style.display = 'none';
+}
+
+function _rpShowBuilderView() {
+  _rpView = 'builder';
+  document.getElementById('rp-view-list').style.display = 'none';
+  document.getElementById('rp-view-builder').style.display = '';
+}
+
+function _rpBackToList() {
+  if (_rpHasUnsavedChanges() && !confirm('Ada perubahan belum tersimpan. Yakin keluar?')) return;
+  _rpResetBuilderState();
+  _rpShowListView();
+  loadRestockProjects();
+}
+
+function _rpHasUnsavedChanges() {
+  // Heuristic: anything in builder is considered unsaved (we don't diff)
+  return _rstAddedProducts.size > 0;
+}
+
+function _rpResetBuilderState() {
+  _rstAddedProducts = new Set();
+  _rstSelectedItems = new Set();
+  _rstQtyMap = {};
+  _rstParentVendorMap = {};
+  _rstParentPriceMap = {};
+  _rpCurrentId = null;
+  _rpCurrentStatus = 'Draft';
+  const nameEl = document.getElementById('rp-name'); if (nameEl) nameEl.value = '';
+  document.getElementById('rp-progress-panel').style.display = 'none';
+}
+
+// ── Project list ──
+async function loadRestockProjects() {
+  const listEl = document.getElementById('rp-list');
+  const sumEl  = document.getElementById('rp-list-summary');
+  if (!listEl) return;
+  listEl.innerHTML = `<div style="padding:24px;text-align:center;color:var(--g400);font-size:12px">Memuat...</div>`;
+  try {
+    // Load projects + Jubelio POs/bills in parallel (for progress calc)
+    const [pRes, poRes, billsRes, billItemsRes] = await Promise.all([
+      sb.from('restock_projects').select('*').order('date_created', {ascending:false}),
+      sb.from('jubelio_purchase_orders').select('purchaseorder_id,purchaseorder_no,supplier_name,transaction_date,contact_id,is_closed,status'),
+      sb.from('jubelio_purchase_bills').select('bill_id,bill_no,purchaseorder_id,is_putaway,transaction_date'),
+      sb.from('jubelio_purchase_bill_items').select('bill_id,item_id,qty'),
+    ]);
+    if (pRes.error) throw pRes.error;
+    _rpRows = pRes.data || [];
+    const poById = new Map((poRes.data||[]).map(po => [po.purchaseorder_id, po]));
+    const billsByPo = new Map();
+    (billsRes.data||[]).forEach(b => {
+      if (!billsByPo.has(b.purchaseorder_id)) billsByPo.set(b.purchaseorder_id, []);
+      billsByPo.get(b.purchaseorder_id).push(b);
+    });
+    const itemsByBill = new Map();
+    (billItemsRes.data||[]).forEach(it => {
+      if (!itemsByBill.has(it.bill_id)) itemsByBill.set(it.bill_id, []);
+      itemsByBill.get(it.bill_id).push(it);
+    });
+
+    // Compute progress + render
+    if (!_rpRows.length) {
+      listEl.innerHTML = `<div style="padding:48px 24px;text-align:center;background:var(--off);border:2px dashed var(--g100);border-radius:12px">
+        <div style="font-size:14px;color:var(--g600);margin-bottom:6px">Belum ada project restock</div>
+        <div style="font-size:12px;color:var(--g400);margin-bottom:14px">Klik <strong>+ Project Baru</strong> untuk mulai.</div>
+        <button onclick="_rpStartNewProject()" style="padding:8px 16px;background:#3C3489;color:white;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600">+ Project Baru</button>
+      </div>`;
+      if (sumEl) sumEl.textContent = '0 project';
+      return;
+    }
+
+    if (sumEl) {
+      const draft = _rpRows.filter(r => r.status==='Draft').length;
+      const active = _rpRows.filter(r => r.status==='Active').length;
+      const done = _rpRows.filter(r => r.status==='Completed').length;
+      sumEl.textContent = `${_rpRows.length} project · ${draft} draft · ${active} active · ${done} completed`;
+    }
+
+    listEl.innerHTML = _rpRows.map(p => {
+      const progress = _rpComputeProgress(p, poById, billsByPo, itemsByBill);
+      return _rpRenderProjectCard(p, progress);
+    }).join('');
+  } catch (e) {
+    listEl.innerHTML = `<div style="padding:24px;color:#c0392b;font-size:13px">Gagal: ${e.message||e}</div>`;
+  }
+}
+
+function _rpComputeProgress(project, poById, billsByPo, itemsByBill) {
+  const items = Array.isArray(project.items) ? project.items : [];
+  const planned = items.reduce((s, it) => s + (Number(it.qty_planned)||0), 0);
+  const plannedByItemId = new Map();
+  for (const it of items) {
+    const k = String(it.item_id);
+    plannedByItemId.set(k, (plannedByItemId.get(k) || 0) + (Number(it.qty_planned)||0));
+  }
+  let received = 0;
+  for (const poId of (project.linked_po_ids || [])) {
+    const bills = billsByPo.get(poId) || [];
+    for (const b of bills) {
+      const billItems = itemsByBill.get(b.bill_id) || [];
+      for (const bi of billItems) {
+        if (plannedByItemId.has(String(bi.item_id))) {
+          received += Number(bi.qty) || 0;
+        }
+      }
+    }
+  }
+  const pct = planned > 0 ? Math.min(100, Math.round(received / planned * 100)) : 0;
+  return { planned, received, pct, linkedCount: (project.linked_po_ids||[]).length };
+}
+
+function _rpStatusPill(status, pct) {
+  let cls = 'p-draft', lbl = status;
+  if (status === 'Active') cls = pct >= 100 ? 'p-active' : 'p-signings';
+  if (status === 'Completed') cls = 'p-active';
+  if (status === 'Cancelled') cls = 'p-expired';
+  return `<span class="pill ${cls}" style="font-size:11px">${lbl}</span>`;
+}
+
+function _rpRenderProjectCard(p, progress) {
+  const items = Array.isArray(p.items) ? p.items : [];
+  const vendors = new Set(items.map(it => it.vendor_master_id).filter(Boolean));
+  const dateStr = p.date_created
+    ? new Date(p.date_created).toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'})
+    : '—';
+  const totalNilai = items.reduce((s, it) => s + (Number(it.qty_planned)||0) * (Number(it.price_planned)||0), 0);
+  const fmtRp = v => 'Rp ' + Math.round(v).toLocaleString('id-ID');
+  const pctClr = progress.pct >= 100 ? '#1e8f4e' : progress.pct > 0 ? '#3C3489' : '#aaa';
+  const id = (p.id||'').replace(/'/g,"\\'");
+
+  return `<div style="background:white;border:1px solid var(--g100);border-radius:8px;padding:14px 16px;box-shadow:0 1px 2px rgba(0,0,0,0.03)">
+    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:14px;font-weight:700;line-height:1.3">
+          <a href="#" onclick="_rpOpenProject('${id}');return false" style="color:var(--text);text-decoration:none">${(p.name||p.id).replace(/</g,'&lt;')}</a>
+          <span style="margin-left:8px">${_rpStatusPill(p.status, progress.pct)}</span>
+        </div>
+        <div style="font-size:11px;color:var(--g400);margin-top:2px">${p.id} · ${dateStr} · ${items.length} SKU · ${vendors.size} vendor${totalNilai>0?` · est. ${fmtRp(totalNilai)}`:''}</div>
+      </div>
+      <div style="display:flex;gap:6px">
+        <button onclick="_rpOpenProject('${id}')" style="padding:6px 12px;background:white;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-size:12px">Lihat</button>
+        ${p.status==='Draft' ? `<button onclick="_rpDeleteProject('${id}')" style="padding:6px 12px;background:white;border:1px solid var(--g200);color:#c0392b;border-radius:4px;cursor:pointer;font-size:12px">Hapus</button>` : ''}
+      </div>
+    </div>
+    <div style="display:flex;gap:12px;align-items:center">
+      <div style="flex:1;background:var(--g100);height:8px;border-radius:4px;overflow:hidden">
+        <div style="height:100%;width:${progress.pct}%;background:${pctClr};transition:width 0.3s"></div>
+      </div>
+      <div style="font-size:11px;color:var(--g600);font-family:'DM Mono',monospace;white-space:nowrap">${progress.received}/${progress.planned} pcs · ${progress.pct}%${progress.linkedCount>0?` · 🔗 ${progress.linkedCount} PO`:''}</div>
+    </div>
+  </div>`;
+}
+
+// ── Start new project (clear state, open builder) ──
+async function _rpStartNewProject() {
+  _rpResetBuilderState();
+  _rpCurrentId = null;
+  _rpCurrentStatus = 'Draft';
+  // Auto-name
+  const n = (_rpRows.filter(r => /^Restock #\d+$/.test(r.name||'')).length) + 1;
+  document.getElementById('rp-name').value = `Restock #${n}`;
+  // Default dates (last 30 days)
+  const _now = new Date();
+  const _to = _now.toISOString().slice(0,10);
+  const _fr = new Date(_now - 30*864e5).toISOString().slice(0,10);
+  const fe = document.getElementById('rst-from'); if (fe && !fe.value) fe.value = _fr;
+  const te = document.getElementById('rst-to');   if (te && !te.value) te.value = _to;
+  _rpRefreshStatusPill();
+  _rpShowBuilderView();
+  await loadRestock();
+}
+
+// ── Open existing project ──
+async function _rpOpenProject(id) {
+  const p = _rpRows.find(r => r.id === id);
+  if (!p) { alert('Project tidak ditemukan'); return; }
+  _rpCurrentId = id;
+  _rpCurrentStatus = p.status || 'Draft';
+  document.getElementById('rp-name').value = p.name || '';
+  if (p.period_from) document.getElementById('rst-from').value = p.period_from;
+  if (p.period_to)   document.getElementById('rst-to').value   = p.period_to;
+  // Hydrate builder state from saved items
+  _rstAddedProducts = new Set();
+  _rstSelectedItems = new Set();
+  _rstQtyMap = {};
+  _rstParentVendorMap = {};
+  _rstParentPriceMap = {};
+  const items = Array.isArray(p.items) ? p.items : [];
+  for (const it of items) {
+    if (it.parent_name) _rstAddedProducts.add(it.parent_name);
+    if (it.item_id != null) {
+      _rstSelectedItems.add(Number(it.item_id));
+      if (it.qty_planned != null) _rstQtyMap[Number(it.item_id)] = Number(it.qty_planned);
+    }
+    if (it.parent_name && it.vendor_master_id) _rstParentVendorMap[it.parent_name] = it.vendor_master_id;
+    if (it.parent_name && it.price_planned != null) _rstParentPriceMap[it.parent_name] = Number(it.price_planned);
+  }
+  _rpRefreshStatusPill();
+  _rpShowBuilderView();
+  await loadRestock(); // loads data + auto-renders added products
+}
+
+// ── Save project (insert or update) ──
+async function _rpSaveProject(activate) {
+  const name = document.getElementById('rp-name').value.trim();
+  if (!name) { alert('Nama project wajib.'); return; }
+  const lines = _rstCollectSelectedLines();
+  if (!lines.length && activate) { alert('Tidak ada SKU yang dipilih. Tambah produk + qty dulu sebelum Activate.'); return; }
+  const periodFrom = document.getElementById('rst-from').value || null;
+  const periodTo   = document.getElementById('rst-to').value   || null;
+  const itemsPayload = lines.map(l => ({
+    item_id: l.itemId, item_code: l.sku, parent_name: l.parentName,
+    brand: l.brand, ip: l.ip, collection: l.collection,
+    size: l.size, thumbnail: l.thumbnail,
+    vendor_master_id: l.vmId, qty_planned: l.qty, price_planned: l.price,
+  }));
+  const targetStatus = activate ? 'Active' : (_rpCurrentStatus === 'Draft' ? 'Draft' : _rpCurrentStatus);
+  try {
+    if (_rpCurrentId) {
+      const {error} = await sb.from('restock_projects').update({
+        name, status: targetStatus, items: itemsPayload,
+        period_from: periodFrom, period_to: periodTo,
+        last_updated: new Date().toISOString(), last_updated_by: currentUser,
+      }).eq('id', _rpCurrentId);
+      if (error) throw error;
+    } else {
+      const newId = genId('RP');
+      const {error} = await sb.from('restock_projects').insert({
+        id: newId, name, status: targetStatus, items: itemsPayload,
+        period_from: periodFrom, period_to: periodTo,
+        created_by: currentUser, date_created: new Date().toISOString(),
+      });
+      if (error) throw error;
+      _rpCurrentId = newId;
+    }
+    _rpCurrentStatus = targetStatus;
+    _rpRefreshStatusPill();
+    alert(`✓ Project "${name}" tersimpan sebagai ${targetStatus}.`);
+    // Refresh list cache for progress panel
+    await loadRestockProjects();
+    // Show progress panel if activated
+    if (targetStatus !== 'Draft') _rpUpdateProgressPanel();
+  } catch (e) {
+    alert('Gagal: ' + (e.message || e));
+  }
+}
+
+async function _rpDeleteProject(id) {
+  const p = _rpRows.find(r => r.id === id);
+  if (!confirm(`Hapus project "${p?.name||id}"? Tidak bisa di-undo.`)) return;
+  try {
+    const {error} = await sb.from('restock_projects').delete().eq('id', id);
+    if (error) throw error;
+    await loadRestockProjects();
+  } catch (e) { alert('Gagal: ' + (e.message || e)); }
+}
+
+async function _rpMarkComplete() {
+  if (!_rpCurrentId) return;
+  if (!confirm('Mark project ini sebagai Completed?')) return;
+  try {
+    const {error} = await sb.from('restock_projects').update({
+      status: 'Completed', last_updated: new Date().toISOString(), last_updated_by: currentUser,
+    }).eq('id', _rpCurrentId);
+    if (error) throw error;
+    _rpCurrentStatus = 'Completed';
+    _rpRefreshStatusPill();
+    await loadRestockProjects();
+  } catch (e) { alert('Gagal: ' + (e.message || e)); }
+}
+
+function _rpRefreshStatusPill() {
+  const el = document.getElementById('rp-status-pill');
+  if (el) el.innerHTML = _rpStatusPill(_rpCurrentStatus, 0);
+  // Show/hide progress panel
+  const panel = document.getElementById('rp-progress-panel');
+  if (panel) panel.style.display = (_rpCurrentId && _rpCurrentStatus !== 'Draft') ? 'block' : 'none';
+  if (_rpCurrentId && _rpCurrentStatus !== 'Draft') _rpUpdateProgressPanel();
+}
+
+async function _rpUpdateProgressPanel() {
+  if (!_rpCurrentId) return;
+  // Re-fetch progress data (it's already cached if loadRestockProjects ran)
+  const p = _rpRows.find(r => r.id === _rpCurrentId);
+  if (!p) return;
+  const [poRes, billsRes, billItemsRes] = await Promise.all([
+    sb.from('jubelio_purchase_orders').select('purchaseorder_id,purchaseorder_no,supplier_name,transaction_date,is_closed,status'),
+    sb.from('jubelio_purchase_bills').select('bill_id,purchaseorder_id'),
+    sb.from('jubelio_purchase_bill_items').select('bill_id,item_id,qty'),
+  ]);
+  const poById = new Map((poRes.data||[]).map(po => [po.purchaseorder_id, po]));
+  const billsByPo = new Map();
+  (billsRes.data||[]).forEach(b => {
+    if (!billsByPo.has(b.purchaseorder_id)) billsByPo.set(b.purchaseorder_id, []);
+    billsByPo.get(b.purchaseorder_id).push(b);
+  });
+  const itemsByBill = new Map();
+  (billItemsRes.data||[]).forEach(it => {
+    if (!itemsByBill.has(it.bill_id)) itemsByBill.set(it.bill_id, []);
+    itemsByBill.get(it.bill_id).push(it);
+  });
+  const progress = _rpComputeProgress(p, poById, billsByPo, itemsByBill);
+  document.getElementById('rp-progress-text').textContent = `${progress.received} / ${progress.planned} pcs · ${progress.pct}%`;
+  document.getElementById('rp-progress-bar').style.width = progress.pct + '%';
+  document.getElementById('rp-progress-bar').style.background = progress.pct >= 100 ? '#1e8f4e' : '#3C3489';
+  // Render linked POs
+  const linkedDiv = document.getElementById('rp-linked-pos');
+  const linkedIds = p.linked_po_ids || [];
+  if (!linkedIds.length) {
+    linkedDiv.innerHTML = `<span style="font-size:11px;color:var(--g400)">Belum ada PO terkait. Klik <strong>+ Link PO Jubelio</strong> untuk hubungkan.</span>`;
+  } else {
+    linkedDiv.innerHTML = linkedIds.map(poId => {
+      const po = poById.get(poId);
+      const label = po ? `${po.purchaseorder_no||poId} — ${po.supplier_name||'?'}` : `PO #${poId}`;
+      return `<span style="display:inline-flex;align-items:center;gap:4px;background:white;border:1px solid var(--g200);border-radius:4px;padding:3px 8px;font-size:11px">
+        🔗 ${label.replace(/</g,'&lt;')}
+        <button onclick="_rpUnlinkPo(${poId})" style="background:none;border:none;cursor:pointer;color:#c0392b;font-size:13px;line-height:1;padding:0 0 0 4px" title="Lepas link">×</button>
+      </span>`;
+    }).join('');
+  }
+  // Show/hide Mark Complete button
+  document.getElementById('rp-complete-btn').style.display =
+    (_rpCurrentStatus === 'Active' && progress.pct >= 100) ? 'inline-block' : 'none';
+}
+
+// ── PO Link Picker modal ──
+async function _rpOpenPoLinkPicker() {
+  if (!_rpCurrentId) { alert('Save project dulu sebelum link PO.'); return; }
+  document.getElementById('rp-po-picker-modal').style.display = 'flex';
+  document.getElementById('rp-po-search').value = '';
+  await _rpLoadPosForPicker();
+}
+
+function _rpClosePoLinkPicker() {
+  document.getElementById('rp-po-picker-modal').style.display = 'none';
+}
+
+let _rpAllPos = [];
+async function _rpLoadPosForPicker() {
+  const listEl = document.getElementById('rp-po-list');
+  listEl.innerHTML = `<div style="padding:24px;text-align:center;color:var(--g400);font-size:12px">Memuat PO...</div>`;
+  try {
+    const {data, error} = await sb.from('jubelio_purchase_orders')
+      .select('purchaseorder_id,purchaseorder_no,supplier_name,transaction_date,grand_total,is_closed,status,location_name')
+      .order('transaction_date', {ascending:false})
+      .limit(200);
+    if (error) throw error;
+    _rpAllPos = data || [];
+    // Populate vendor dropdown
+    const sel = document.getElementById('rp-po-vendor-fil');
+    const vendors = [...new Set(_rpAllPos.map(po => po.supplier_name).filter(Boolean))].sort();
+    sel.innerHTML = '<option value="">Semua Vendor</option>' + vendors.map(v => `<option>${v.replace(/</g,'&lt;')}</option>`).join('');
+    _rpRenderPoPicker();
+  } catch (e) {
+    listEl.innerHTML = `<div style="padding:24px;color:#c0392b;font-size:12px">Gagal: ${e.message||e}</div>`;
+  }
+}
+
+function _rpRenderPoPicker() {
+  const p = _rpRows.find(r => r.id === _rpCurrentId);
+  const linkedIds = new Set((p?.linked_po_ids)||[]);
+  const q = (document.getElementById('rp-po-search').value||'').toLowerCase().trim();
+  const vfil = document.getElementById('rp-po-vendor-fil').value;
+  let rows = _rpAllPos.slice();
+  if (vfil) rows = rows.filter(po => po.supplier_name === vfil);
+  if (q) rows = rows.filter(po =>
+    (po.purchaseorder_no||'').toLowerCase().includes(q) ||
+    (po.supplier_name||'').toLowerCase().includes(q));
+  const listEl = document.getElementById('rp-po-list');
+  if (!rows.length) {
+    listEl.innerHTML = `<div style="padding:24px;text-align:center;color:var(--g400);font-size:12px">Tidak ada match.</div>`;
+    return;
+  }
+  listEl.innerHTML = rows.slice(0, 100).map(po => {
+    const linked = linkedIds.has(po.purchaseorder_id);
+    const date = po.transaction_date ? new Date(po.transaction_date).toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'numeric'}) : '—';
+    const amt = po.grand_total ? `Rp ${Math.round(po.grand_total).toLocaleString('id-ID')}` : '—';
+    return `<div style="display:flex;align-items:center;gap:10px;padding:10px;border-bottom:1px solid var(--g100)">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:600" class="mono">${(po.purchaseorder_no||po.purchaseorder_id).replace(/</g,'&lt;')}</div>
+        <div style="font-size:11px;color:var(--g600);margin-top:2px">${(po.supplier_name||'—').replace(/</g,'&lt;')} · ${date} · ${amt}</div>
+      </div>
+      ${linked
+        ? `<button onclick="_rpUnlinkPo(${po.purchaseorder_id});setTimeout(_rpRenderPoPicker,400)" style="padding:5px 10px;background:white;color:#c0392b;border:1px solid #c0392b;border-radius:4px;cursor:pointer;font-size:11px">Lepas</button>`
+        : `<button onclick="_rpLinkPo(${po.purchaseorder_id});setTimeout(_rpRenderPoPicker,400)" style="padding:5px 10px;background:#3C3489;color:white;border:none;border-radius:4px;cursor:pointer;font-size:11px">+ Link</button>`}
+    </div>`;
+  }).join('');
+}
+
+async function _rpLinkPo(poId) {
+  const p = _rpRows.find(r => r.id === _rpCurrentId);
+  if (!p) return;
+  const cur = new Set(p.linked_po_ids || []);
+  cur.add(poId);
+  try {
+    const {error} = await sb.from('restock_projects').update({
+      linked_po_ids: [...cur], last_updated: new Date().toISOString(), last_updated_by: currentUser,
+    }).eq('id', _rpCurrentId);
+    if (error) throw error;
+    p.linked_po_ids = [...cur];
+    await _rpUpdateProgressPanel();
+  } catch (e) { alert('Gagal: ' + (e.message || e)); }
+}
+
+async function _rpUnlinkPo(poId) {
+  const p = _rpRows.find(r => r.id === _rpCurrentId);
+  if (!p) return;
+  const cur = new Set(p.linked_po_ids || []);
+  cur.delete(poId);
+  try {
+    const {error} = await sb.from('restock_projects').update({
+      linked_po_ids: [...cur], last_updated: new Date().toISOString(), last_updated_by: currentUser,
+    }).eq('id', _rpCurrentId);
+    if (error) throw error;
+    p.linked_po_ids = [...cur];
+    await _rpUpdateProgressPanel();
+  } catch (e) { alert('Gagal: ' + (e.message || e)); }
 }
 
 async function loadRestockSupplierOptions() {
