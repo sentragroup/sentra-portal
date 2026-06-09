@@ -3970,7 +3970,7 @@ function renderPOTable(rows){
   // Visual progress bar showing received/po qty + shipment (bill) count.
   // Color follows the same urgency convention as restock: green >= 100%,
   // amber 50-99%, red <50%, neutral if nothing received yet.
-  const progressCell = (totalPOQty, totalRcvd, billCount, rcvStatus) => {
+  const progressCell = (totalPOQty, totalRcvd, putawayCount, rcvStatus, totalBills) => {
     if (!totalPOQty) return `<span style="color:var(--g400);font-size:11px">—</span>`;
     const pct = Math.min(150, Math.round((totalRcvd / totalPOQty) * 100));
     const fillPct = Math.min(100, pct);
@@ -3982,9 +3982,12 @@ function renderPOTable(rows){
                 : rcvStatus === 'Over'  ? `<span style="color:#a66800;font-weight:600">⚠ Over</span>`
                 : rcvStatus === 'Belum' ? `<span style="color:#c0392b">Belum diterima</span>`
                 : `<span style="color:#3C3489;font-weight:600">${pct}% diterima</span>`;
-    const shipLine = billCount > 0
-      ? `<span style="color:var(--g400)">${billCount} kiriman</span>`
-      : `<span style="color:var(--g400)">belum ada kiriman</span>`;
+    // Pending tagihan = bills exist but goods not yet putaway in Jubelio
+    const pendingBills = (totalBills || 0) - (putawayCount || 0);
+    const shipParts = [];
+    if (putawayCount > 0) shipParts.push(`${putawayCount} kiriman`);
+    if (pendingBills > 0) shipParts.push(`<span title="Tagihan dibuat tapi barang belum putaway di Jubelio" style="color:#a66800">+${pendingBills} pending</span>`);
+    const shipLine = shipParts.length ? shipParts.join(' · ') : 'belum ada kiriman';
     return `<div style="min-width:150px">
       <div style="display:flex;justify-content:space-between;font-size:10px;margin-bottom:3px">
         ${label}
@@ -4001,9 +4004,13 @@ function renderPOTable(rows){
   tbody.innerHTML=rows.flatMap(r=>{
     const items=allPOItems.filter(i=>i.purchaseorderId===r.id);
     const bills=allPOBills.filter(b=>b.purchaseorder_id===r.id);
-    // received qty per item (sum across all bills for this PO)
+    // Jubelio counts only PUTAWAY bills as "diterima" — pending tagihan
+    // (is_putaway=false) means invoice exists but goods haven't been
+    // received into stock yet, so they shouldn't add to received qty.
+    const billsPutaway = bills.filter(b => b.is_putaway === true);
+    // received qty per item (sum across putaway bills only)
     const rcvdByDetailId={};
-    bills.forEach(b=>{
+    billsPutaway.forEach(b=>{
       allPOBillItems.filter(bi=>bi.bill_id===b.bill_id).forEach(bi=>{
         const key=bi.purchaseorder_detail_id;
         rcvdByDetailId[key]=(rcvdByDetailId[key]||0)+(Number(bi.qty)||0);
@@ -4012,7 +4019,7 @@ function renderPOTable(rows){
     // receive status
     const totalPOQty=items.reduce((s,it)=>s+(it.qty||0),0);
     const totalRcvd=Object.values(rcvdByDetailId).reduce((s,v)=>s+v,0);
-    const rcvStatus=bills.length===0?"Belum":totalRcvd>totalPOQty?"Over":totalRcvd>=totalPOQty?"Penuh":"Sebagian";
+    const rcvStatus=billsPutaway.length===0?"Belum":totalRcvd>totalPOQty?"Over":totalRcvd>=totalPOQty?"Penuh":"Sebagian";
     const gt=r.grandTotal!=null?`Rp ${Math.round(r.grandTotal).toLocaleString("id-ID")}`:"—";
     const dt=r.transactionDate?new Date(r.transactionDate).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"—";
     const hasItems=items.length>0;
@@ -4025,7 +4032,7 @@ function renderPOTable(rows){
       <td><a href="https://v2.jubelio.com/purchase/orders/detail/${r.id}" target="_blank" style="font-family:var(--mono);font-size:12px;color:#3C3489;text-decoration:none">${r.purchaseorderNo||r.id}</a></td>
       <td style="font-size:13px">${r.supplierName||"—"}</td>
       <td>${sPill(r.status)}</td>
-      <td>${progressCell(totalPOQty, totalRcvd, bills.length, rcvStatus)}</td>
+      <td>${progressCell(totalPOQty, totalRcvd, billsPutaway.length, rcvStatus, bills.length)}</td>
       <td style="white-space:nowrap;font-size:12px">${dt}</td>
       <td style="white-space:nowrap">${expectedInput}</td>
       <td style="font-size:12px">${r.locationName||"—"}</td>
