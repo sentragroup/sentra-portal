@@ -15618,6 +15618,11 @@ function mapPD(r) {
     packageWidth:      r.package_width      != null ? Number(r.package_width)  : null,
     packageHeight:     r.package_height     != null ? Number(r.package_height) : null,
     barcode:           r.barcode            || '',
+    // Design link snapshot (from designer_workflow at create time)
+    designWorkflowId:  r.design_workflow_id || null,
+    designUrl:         r.design_url         || '',
+    designDesigner:    r.design_designer    || '',
+    designStatus:      r.design_status      || '',
     dateAdded: r.date_added, addedBy: r.added_by,
     lastUpdated: r.last_updated, lastUpdatedBy: r.last_updated_by
   };
@@ -16260,8 +16265,122 @@ function renderPDDetail() {
     const dl = document.getElementById('pd-sku-datalist');
     if (dl) dl.innerHTML = items.map(it => `<option value="${(it.sku_name||'').replace(/"/g,'&quot;')}" data-id="${it.id}">`).join('');
   });
+  // Mirror designer_workflow rows for this collection above the add form
+  _pdLoadDesignMirror(cid);
 
   renderPDDetailTable();
+}
+
+// ── Designer Workflow mirror — display DW rows for this collection so the user
+// can pick one and pre-fill the parent SKU form (incl. design link). ─────────
+let _pdDesignRows = []; // {id, project_name, designer, deliverables_status, deliverables_url, deadline}
+
+async function _pdLoadDesignMirror(cid) {
+  const body = document.getElementById('pd-design-mirror-body');
+  const cnt  = document.getElementById('pd-design-count');
+  if (!body) return;
+  body.innerHTML = `<div style="padding:14px;text-align:center;color:var(--g400);font-size:11px">Memuat...</div>`;
+  try {
+    const {data, error} = await sb.from('designer_workflow')
+      .select('id,project_name,designer,deliverables_status,deliverables_url,deadline')
+      .eq('collection_id', cid)
+      .order('deadline', {ascending:true,nullsFirst:false});
+    if (error) throw error;
+    _pdDesignRows = data || [];
+    _pdRenderDesignMirror();
+    if (cnt) cnt.textContent = `${_pdDesignRows.length} design task`;
+  } catch (e) {
+    body.innerHTML = `<div style="padding:14px;color:#c0392b;font-size:11px">Gagal: ${e.message||e}</div>`;
+  }
+}
+
+function _pdRefreshDesignMirror() {
+  if (pdCurrentCollectionId) _pdLoadDesignMirror(pdCurrentCollectionId);
+}
+
+function _pdRenderDesignMirror() {
+  const body = document.getElementById('pd-design-mirror-body');
+  if (!body) return;
+  if (!_pdDesignRows.length) {
+    body.innerHTML = `<div style="padding:16px;text-align:center;color:var(--g400);font-size:12px">
+      Belum ada design task di Designer Workflow untuk collection ini.<br>
+      <a href="#dsgworkflow" style="font-size:11px;color:var(--g600)" onclick="showPage('dsgworkflow',null);return false">Buka Designer Workflow →</a>
+    </div>`;
+    return;
+  }
+  // Status colour helper
+  const stPill = s => {
+    const v = (s||'').trim();
+    const cls = v === 'Done' || v === 'Approved' ? 'p-active'
+      : v === 'In Progress' || v === 'In Review' ? 'p-signings'
+      : v === 'Revision' ? 'p-near'
+      : v === 'Rejected' ? 'p-expired'
+      : 'p-draft';
+    return `<span class="pill ${cls}" style="font-size:10px">${v || '—'}</span>`;
+  };
+  const linkCell = u => u
+    ? `<a href="${u.replace(/"/g,'&quot;')}" target="_blank" style="color:var(--black);font-size:11px;text-decoration:underline">↗ Buka</a>`
+    : `<span style="font-size:11px;color:var(--g400)">—</span>`;
+
+  body.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:12px">
+    <thead><tr style="background:#fafafa">
+      <th style="text-align:left;padding:7px 10px;font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">SKU / Project</th>
+      <th style="text-align:left;padding:7px 10px;font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Designer</th>
+      <th style="text-align:left;padding:7px 10px;font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Status</th>
+      <th style="text-align:left;padding:7px 10px;font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Link</th>
+      <th style="text-align:right;padding:7px 10px;font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.3px;font-weight:600"></th>
+    </tr></thead>
+    <tbody>
+    ${_pdDesignRows.map(d => `<tr style="border-top:1px solid var(--g100)">
+      <td style="padding:7px 10px"><strong>${(d.project_name||'—').replace(/</g,'&lt;')}</strong></td>
+      <td style="padding:7px 10px;color:var(--g600)">${(d.designer||'—').replace(/</g,'&lt;')}</td>
+      <td style="padding:7px 10px">${stPill(d.deliverables_status)}</td>
+      <td style="padding:7px 10px">${linkCell(d.deliverables_url)}</td>
+      <td style="padding:7px 10px;text-align:right">
+        <button class="btn-ghost" style="font-size:11px;padding:3px 10px" onclick="_pdUseDesign(${d.id})">Pakai →</button>
+      </td>
+    </tr>`).join('')}
+    </tbody>
+  </table>`;
+}
+
+// Prefill the +Tambah Produk form with this DW row. Also opens the add form
+// if collapsed so the user sees the prefilled values.
+function _pdUseDesign(dwId) {
+  const d = _pdDesignRows.find(x => x.id === dwId);
+  if (!d) return;
+  const nameInp = document.getElementById('pd-sku-name');
+  if (nameInp) nameInp.value = d.project_name || '';
+  document.getElementById('pd-design-workflow-id').value = String(d.id);
+  document.getElementById('pd-design-url').value         = d.deliverables_url || '';
+  document.getElementById('pd-design-designer').value    = d.designer || '';
+  document.getElementById('pd-design-status').value      = d.deliverables_status || '';
+  const hint = document.getElementById('pd-design-linked-hint');
+  const hintName = document.getElementById('pd-design-linked-name');
+  const hintLink = document.getElementById('pd-design-linked-link');
+  if (hint) hint.style.display = 'block';
+  if (hintName) hintName.textContent = `${d.project_name||'—'} · ${d.designer||'?'} · ${d.deliverables_status||'?'}`;
+  if (hintLink) {
+    if (d.deliverables_url) { hintLink.href = d.deliverables_url; hintLink.style.display = ''; }
+    else hintLink.style.display = 'none';
+  }
+  // Ensure add form is expanded
+  const addBody  = document.getElementById('pd-add-body');
+  const addCaret = document.getElementById('pd-add-caret');
+  if (addBody) addBody.style.display = '';
+  if (addCaret) addCaret.textContent = '▼';
+  updatePDCodePreview();
+  // Scroll to the form so user sees prefilled
+  document.getElementById('pd-add-card')?.scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+function _pdClearDesignLink() {
+  document.getElementById('pd-design-workflow-id').value = '';
+  document.getElementById('pd-design-url').value         = '';
+  document.getElementById('pd-design-designer').value    = '';
+  document.getElementById('pd-design-status').value      = '';
+  const hint = document.getElementById('pd-design-linked-hint');
+  if (hint) hint.style.display = 'none';
 }
 
 function populatePDDetailForm() {
@@ -16337,6 +16456,7 @@ function clearPDForm() {
   pdPicsToUpload = [];
   const fb = document.getElementById('pd-feedback');
   if (fb) fb.textContent = '';
+  _pdClearDesignLink();
   updatePDCodePreview();
 }
 
@@ -16463,6 +16583,11 @@ async function submitPD() {
       package_width:  isNaN(pkgWidth)  ? null : pkgWidth,
       package_height: isNaN(pkgHeight) ? null : pkgHeight,
       barcode: null,
+      // Design link snapshot from the +Pakai handler (null if user didn't pick)
+      design_workflow_id: parseInt(document.getElementById('pd-design-workflow-id')?.value, 10) || null,
+      design_url:         document.getElementById('pd-design-url')?.value         || null,
+      design_designer:    document.getElementById('pd-design-designer')?.value    || null,
+      design_status:      document.getElementById('pd-design-status')?.value      || null,
       added_by: currentUser, date_added: new Date().toISOString()
     };
     const {error} = await sb.from('product_dev').insert(payload);
@@ -16606,9 +16731,13 @@ function renderPDParentCard(p, allChildren) {
   const vendorSet = new Set(allChildren.map(s=>s.vendor).filter(Boolean));
   const vendorTxt = vendorSet.size === 0 ? '—' : vendorSet.size === 1 ? [...vendorSet][0] : `${vendorSet.size} vendors`;
   const code = p.displayCode || p.id;
+  const designChip = p.designUrl
+    ? `<a href="${p.designUrl.replace(/"/g,'&quot;')}" target="_blank" title="${(p.designDesigner||'').replace(/"/g,'&quot;')} · ${(p.designStatus||'').replace(/"/g,'&quot;')}" style="font-size:10px;padding:2px 6px;background:#eef0f8;border-radius:3px;color:#3C3489;border:1px solid #3C3489;font-weight:500;text-decoration:none;display:inline-flex;align-items:center;gap:3px">🎨 Design${p.designDesigner?` · ${p.designDesigner.replace(/</g,'&lt;')}`:''}</a>`
+    : '';
   const pills = [
     subs.length        ? `<span style="font-size:10px;padding:2px 6px;background:var(--white);border-radius:3px;color:var(--g600);border:1px solid var(--g100);font-weight:500">${subs.length} variant${subs.length===1?'':'s'}</span>` : '',
-    bundleItems.length ? `<span style="font-size:10px;padding:2px 6px;background:var(--white);border-radius:3px;color:var(--g600);border:1px solid var(--g100);font-weight:500">📦 ${bundleItems.length} bundle item${bundleItems.length===1?'':'s'}</span>` : ''
+    bundleItems.length ? `<span style="font-size:10px;padding:2px 6px;background:var(--white);border-radius:3px;color:var(--g600);border:1px solid var(--g100);font-weight:500">📦 ${bundleItems.length} bundle item${bundleItems.length===1?'':'s'}</span>` : '',
+    designChip,
   ].filter(Boolean).join(' ');
   const ratioPill = ratio ? `<span class="pill ${ratio>=2.5?'p-active':(ratio>=1.8?'p-review':'p-near')}" style="font-size:10px">${ratio.toFixed(2)}×</span>` : '<span style="color:var(--g400);font-size:11px">—</span>';
 
