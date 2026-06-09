@@ -22880,8 +22880,13 @@ function _rstRenderProductCard(p) {
     const bdr = p.minDays<7 ? '#e8b8b8' : p.minDays<14 ? '#ffb74d' : '#ffe082';
     urgBadge  = `<span style="font-size:10px;background:${bg};color:${clr};border:1px solid ${bdr};border-radius:3px;padding:2px 6px;font-family:var(--mono)">⚠ ${Math.floor(p.minDays)}d</span>`;
   }
-  const thumb = p.thumbnail
-    ? `<img src="${p.thumbnail}" style="width:56px;height:56px;object-fit:cover;border-radius:4px;border:1px solid var(--g100);flex-shrink:0">`
+  // Show as many photos as Jubelio gave us (max 2). No placeholder when
+  // a second photo doesn't exist — just don't render the slot.
+  const cardImgs = (Array.isArray(p.imageUrls) && p.imageUrls.length)
+    ? p.imageUrls.slice(0, 2)
+    : (p.thumbnail ? [p.thumbnail] : []);
+  const thumb = cardImgs.length
+    ? `<div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0">${cardImgs.map(u => `<img src="${u.replace(/"/g,'&quot;')}" style="width:56px;height:56px;object-fit:cover;border-radius:4px;border:1px solid var(--g100);display:block" onerror="this.style.display='none'">`).join('')}</div>`
     : `<div style="width:56px;height:56px;background:var(--g100);border-radius:4px;flex-shrink:0"></div>`;
 
   // ── Parent-level Vendor + Harga Beli ──
@@ -23575,26 +23580,18 @@ function _rstBuildPDFBody(supplierName, contact, lines, today) {
   const fmt = v => 'Rp ' + Math.round(v).toLocaleString('id-ID');
   const groups = _rstGroupByParentForPDF(lines);
 
-  // Always reserve 2 photo slots (front + back). If only 1 exists, show a
-  // labeled empty slot for the missing one so the team knows to upload it.
+  // Render whatever photos Jubelio gave us (max 2). No 'Depan/Belakang'
+  // labels — slot 2 is sometimes a size chart or detail shot, not the
+  // actual back design. No placeholder for missing slot 2 either.
   const photoCell = (pics, thumb, span) => {
     const imgs = (pics && pics.length) ? pics : (thumb ? [thumb] : []);
-    if (!imgs.length) {
-      return `<td rowspan="${span}" style="text-align:center;width:300px;padding:8px">
-        <div class="photo-grid">
-          <div class="photo-slot"><span class="slot-label">Belum ada foto depan</span></div>
-          <div class="photo-slot"><span class="slot-label">Belum ada foto belakang</span></div>
-        </div>
-      </td>`;
-    }
-    const front = imgs[0]
-      ? `<div class="photo-slot"><img class="photo" src="${imgs[0].replace(/"/g,'&quot;')}" onerror="this.style.display='none'"><div class="photo-cap">Depan</div></div>`
-      : `<div class="photo-slot"><span class="slot-label">Belum ada foto depan</span></div>`;
-    const back = imgs[1]
-      ? `<div class="photo-slot"><img class="photo" src="${imgs[1].replace(/"/g,'&quot;')}" onerror="this.style.display='none'"><div class="photo-cap">Belakang</div></div>`
-      : `<div class="photo-slot"><span class="slot-label">Belum ada foto belakang</span></div>`;
+    if (!imgs.length) return `<td rowspan="${span}" style="text-align:center;width:300px;padding:8px">
+      <span class="slot-label">No photo</span>
+    </td>`;
     return `<td rowspan="${span}" style="text-align:center;width:300px;padding:8px">
-      <div class="photo-grid">${front}${back}</div>
+      <div class="photo-grid">
+        ${imgs.map(u => `<img class="photo" src="${u.replace(/"/g,'&quot;')}" onerror="this.style.display='none'">`).join('')}
+      </div>
     </td>`;
   };
   const rowsHtml = groups.flatMap(g => {
@@ -23611,11 +23608,9 @@ function _rstBuildPDFBody(supplierName, contact, lines, today) {
 
   return `
     <style>
-      .photo-grid{display:flex;gap:6px;justify-content:center;align-items:flex-start}
-      .photo-slot{display:flex;flex-direction:column;align-items:center;gap:3px}
+      .photo-grid{display:flex;gap:6px;justify-content:center;align-items:center;flex-wrap:wrap}
       .photo{width:140px;height:140px;object-fit:cover;border:1px solid #ddd;border-radius:6px;display:block}
-      .photo-cap{font-size:9px;color:#666;text-transform:uppercase;letter-spacing:0.5px}
-      .slot-label{display:inline-flex;align-items:center;justify-content:center;width:140px;height:140px;background:#f5f5f5;border:1px dashed #ccc;border-radius:6px;color:#aaa;font-size:10px;padding:6px;text-align:center;line-height:1.3}
+      .slot-label{display:inline-flex;align-items:center;justify-content:center;width:140px;height:140px;background:#f5f5f5;border:1px dashed #ccc;border-radius:6px;color:#aaa;font-size:10px}
       tbody tr{page-break-inside:avoid}
     </style>
     <h1>Purchase Order — Restock</h1>
@@ -23655,20 +23650,18 @@ function _rstBuildPDFAllBody(lines, today) {
     }
     cur.items.push(l);
   }
-  // Attach PD front+back photos per group
+  // Attach photos per group + render whatever's available (no labels,
+  // no placeholder for missing slot 2 — slot 2 isn't reliably back).
   for (const g of groups) g.pictures = _rstResolveParentPictures(g.parentName);
-  // Same 2-slot layout as per-vendor PDF — always show both slots so missing
-  // back photos are visible instead of silently absent.
   const photoCell = (pics, thumb, span) => {
     const imgs = (pics && pics.length) ? pics : (thumb ? [thumb] : []);
-    const front = imgs[0]
-      ? `<div class="photo-slot"><img class="photo" src="${imgs[0].replace(/"/g,'&quot;')}" onerror="this.style.display='none'"><div class="photo-cap">Depan</div></div>`
-      : `<div class="photo-slot"><span class="slot-label">Belum ada foto depan</span></div>`;
-    const back = imgs[1]
-      ? `<div class="photo-slot"><img class="photo" src="${imgs[1].replace(/"/g,'&quot;')}" onerror="this.style.display='none'"><div class="photo-cap">Belakang</div></div>`
-      : `<div class="photo-slot"><span class="slot-label">Belum ada foto belakang</span></div>`;
+    if (!imgs.length) return `<td rowspan="${span}" style="text-align:center;width:300px;padding:8px">
+      <span class="slot-label">No photo</span>
+    </td>`;
     return `<td rowspan="${span}" style="text-align:center;width:300px;padding:8px">
-      <div class="photo-grid">${front}${back}</div>
+      <div class="photo-grid">
+        ${imgs.map(u => `<img class="photo" src="${u.replace(/"/g,'&quot;')}" onerror="this.style.display='none'">`).join('')}
+      </div>
     </td>`;
   };
   const rowsHtml = groups.flatMap(g => {
@@ -23685,11 +23678,9 @@ function _rstBuildPDFAllBody(lines, today) {
   }).join('');
   return `
     <style>
-      .photo-grid{display:flex;gap:6px;justify-content:center;align-items:flex-start}
-      .photo-slot{display:flex;flex-direction:column;align-items:center;gap:3px}
+      .photo-grid{display:flex;gap:6px;justify-content:center;align-items:center;flex-wrap:wrap}
       .photo{width:140px;height:140px;object-fit:cover;border:1px solid #ddd;border-radius:6px;display:block}
-      .photo-cap{font-size:9px;color:#666;text-transform:uppercase;letter-spacing:0.5px}
-      .slot-label{display:inline-flex;align-items:center;justify-content:center;width:140px;height:140px;background:#f5f5f5;border:1px dashed #ccc;border-radius:6px;color:#aaa;font-size:10px;padding:6px;text-align:center;line-height:1.3}
+      .slot-label{display:inline-flex;align-items:center;justify-content:center;width:140px;height:140px;background:#f5f5f5;border:1px dashed #ccc;border-radius:6px;color:#aaa;font-size:10px}
       tbody tr{page-break-inside:avoid}
     </style>
     <h1>Purchase Order — Restock (All Vendors)</h1>
