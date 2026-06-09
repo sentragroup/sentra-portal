@@ -18096,9 +18096,15 @@ async function exportPDPurchaseOrderCsv() {
     // Header fields (first item only)
     // Strip phone to digits only — Jubelio rejects spaces/dashes
     const cleanPhone = String(r.phone || '').replace(/[^0-9]/g, '');
-    const poRef = `PO-${todayDate.replace(/-/g,'')}-${Math.floor(Math.random()*9000)+1000}`;
+    // Deterministic PO ref per (collection, vendor) — re-export hits the same
+    // ID so Jubelio's duplicate check guards against double-records.
+    const vendorCode = (String(r.vendorName||'').match(/[A-Za-z0-9]/g) || []).slice(0, 4).join('').toUpperCase() || 'VND';
+    const colTail    = (typeof pdCurrentCollectionId === 'string' && pdCurrentCollectionId)
+      ? pdCurrentCollectionId.replace(/^COL-/, '')
+      : todayDate.replace(/-/g,'');
+    const poRef = `PO-${colTail}-${vendorCode}`;
     const headerCells = [
-      poRef,                                     // No. Pesanan (explicit ref; [auto] gets rejected by importer)
+      poRef,                                     // No. Pesanan (explicit, deterministic)
       '',                                        // No. Ref Pemasok
       today,                                     // Tanggal
       'WIB',                                     // Zona Waktu
@@ -23428,10 +23434,20 @@ function _rstExportCSVForVendor(vmId) {
   //     "Format tanggal tidak sesuai". Spec text is the source of truth
   //     here, not the time-bearing example row in the template sheet.
   //   - Pajak:   'PPN 11%' or 'No Tax' (registered tax codes)
-  //   - No. Pesanan: explicit reference, not '[auto]'.
+  //   - No. Pesanan: explicit reference. Deterministic per (project,
+  //     vendor) so re-exports collide on Jubelio's side — protects
+  //     against accidental double-records when the user re-uploads.
   const todayDate = new Date().toISOString().slice(0, 10);
   const today     = todayDate;
-  const poRef     = `RST-${todayDate.replace(/-/g,'')}-${Math.floor(Math.random()*9000)+1000}`;
+  // Short, stable vendor code from supplier name (first 4 alphanumerics).
+  const vendorCode = (supplierName.match(/[A-Za-z0-9]/g) || []).slice(0, 4).join('').toUpperCase() || 'VND';
+  // Project tail: prefer the saved project's id ("RP-YYYYMMDD-NNNN" → keep
+  // the date+seq part). When the project hasn't been saved yet, fall back to
+  // today's date — at least same-day re-exports stay idempotent.
+  const projectTail = (typeof _rpCurrentId === 'string' && _rpCurrentId)
+    ? _rpCurrentId.replace(/^RP-/, '')
+    : todayDate.replace(/-/g,'');
+  const poRef = `RST-${projectTail}-${vendorCode}`;
   const esc = v => {
     const s = String(v ?? '');
     return (s.includes(',') || s.includes('"') || s.includes('\n'))
