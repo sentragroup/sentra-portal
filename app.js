@@ -16305,28 +16305,26 @@ function _pdRefreshDesignMirror() {
 function _pdRenderDesignMirror() {
   const body = document.getElementById('pd-design-mirror-body');
   if (!body) return;
-  const addBtn = `<button class="btn-ghost" style="font-size:11px;padding:5px 12px;border-color:#3C3489;color:#3C3489" onclick="_pdAddDesignTask()">+ Tambah Design Task</button>`;
   if (!_pdDesignRows.length) {
-    body.innerHTML = `<div style="padding:20px 16px;text-align:center;color:var(--g400);font-size:12px">
-      Belum ada design task untuk collection ini.<br>
-      <div style="margin-top:10px">${addBtn}</div>
+    body.innerHTML = `<div style="padding:18px;text-align:center;color:var(--g400);font-size:12px">
+      Belum ada design task di Designer Workflow untuk collection ini.<br>
+      <a href="#dsgworkflow" style="font-size:11px;color:var(--g600)" onclick="showPage('dsgworkflow',null);return false">Buka Designer Workflow →</a>
     </div>`;
     return;
   }
-  // Status colour helper
-  const stPill = (id, s) => {
+  // Read-only status pill — mirror state from Designer Workflow only
+  const stPill = s => {
     const v = (s||'').trim();
     const cls = v === 'Completed' || v === 'Done' || v === 'Approved' ? 'p-active'
       : v === 'In Progress' || v === 'In Review' ? 'p-signings'
       : v === 'Revision' ? 'p-near'
       : v === 'Rejected' ? 'p-expired'
       : 'p-draft';
-    return `<span class="pill ${cls}" style="font-size:10px;cursor:pointer" title="Klik untuk ubah" onclick="_pdEditDesignStatus(${id})">${v || '—'}</span>`;
+    return `<span class="pill ${cls}" style="font-size:10px">${v || '—'}</span>`;
   };
-  const linkCell = (id, u) => u
-    ? `<a href="${u.replace(/"/g,'&quot;')}" target="_blank" style="color:var(--black);font-size:11px;text-decoration:underline">↗ Buka</a>
-       <button onclick="_pdEditDesignUrl(${id})" title="Ubah link" style="background:none;border:none;cursor:pointer;color:var(--g400);font-size:10px;margin-left:4px">✎</button>`
-    : `<button onclick="_pdEditDesignUrl(${id})" style="background:none;border:1px dashed var(--g200);color:#3C3489;border-radius:3px;font-size:10px;padding:2px 8px;cursor:pointer">+ Tambah link</button>`;
+  const linkCell = u => u
+    ? `<a href="${u.replace(/"/g,'&quot;')}" target="_blank" style="color:var(--black);font-size:11px;text-decoration:underline">↗ Buka</a>`
+    : `<span style="font-size:11px;color:var(--g400)">—</span>`;
 
   body.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:12px">
     <thead><tr style="background:#fafafa">
@@ -16344,88 +16342,19 @@ function _pdRenderDesignMirror() {
       return `<tr style="border-top:1px solid var(--g100)">
         <td style="padding:7px 10px">${skuLabel}</td>
         <td style="padding:7px 10px;color:var(--g600)">${(d.designer||'—').replace(/</g,'&lt;')}</td>
-        <td style="padding:7px 10px">${stPill(d.id, d.deliverables_status)}</td>
-        <td style="padding:7px 10px">${linkCell(d.id, d.deliverables_url)}</td>
+        <td style="padding:7px 10px">${stPill(d.deliverables_status)}</td>
+        <td style="padding:7px 10px">${linkCell(d.deliverables_url)}</td>
         <td style="padding:7px 10px;text-align:right;white-space:nowrap">
           ${d.sku_name||d.project_name ? `<button class="btn-ghost" style="font-size:11px;padding:3px 10px" onclick="_pdUseDesign(${d.id})">Pakai →</button>` : ''}
         </td>
       </tr>`;
     }).join('')}
     </tbody>
-    <tfoot><tr><td colspan="5" style="padding:8px 10px;text-align:right;background:#fafafa;border-top:1px solid var(--g100)">${addBtn}</td></tr></tfoot>
-  </table>`;
-}
-
-// Inline-edit: update deliverables_url via prompt
-async function _pdEditDesignUrl(dwId) {
-  const d = _pdDesignRows.find(x => x.id === dwId);
-  if (!d) return;
-  const cur = d.deliverables_url || '';
-  const next = window.prompt(`Link design (Google Drive URL) untuk "${d.sku_name||d.project_name||'(no name)'}":`, cur);
-  if (next === null) return;
-  const url = next.trim() || null;
-  try {
-    const {error} = await sb.from('designer_workflow').update({
-      deliverables_url: url, last_updated: new Date().toISOString(), last_updated_by: currentUser,
-    }).eq('id', dwId);
-    if (error) throw error;
-    d.deliverables_url = url;
-    _pdRenderDesignMirror();
-  } catch (e) { alert('Gagal: ' + (e.message||e)); }
-}
-
-// Inline-edit: update deliverables_status via prompt with allowed choices
-async function _pdEditDesignStatus(dwId) {
-  const d = _pdDesignRows.find(x => x.id === dwId);
-  if (!d) return;
-  const choices = ['Pending','In Progress','Revision','Completed'];
-  const cur = d.deliverables_status || 'Pending';
-  const next = window.prompt(`Status untuk "${d.sku_name||d.project_name||'(no name)'}":\n\nPilihan: ${choices.join(' / ')}\nSekarang: ${cur}\n\nKetik status baru:`, cur);
-  if (next === null) return;
-  if (!choices.includes(next)) { alert('Status tidak valid.'); return; }
-  try {
-    const {error} = await sb.from('designer_workflow').update({
-      deliverables_status: next, last_updated: new Date().toISOString(), last_updated_by: currentUser,
-    }).eq('id', dwId);
-    if (error) throw error;
-    d.deliverables_status = next;
-    _pdRenderDesignMirror();
-  } catch (e) { alert('Gagal: ' + (e.message||e)); }
-}
-
-// Create a new DW row tied to this collection without leaving PD
-async function _pdAddDesignTask() {
-  const cid = pdCurrentCollectionId;
-  if (!cid) return;
-  const sku = window.prompt('Nama SKU untuk design task baru:\n(contoh: "Reality Club Mainline Tote")');
-  if (sku == null) return;
-  const skuName = sku.trim();
-  if (!skuName) return;
-  // Designer — autocomplete via Designer Master if available
-  const designers = (typeof allDsgRows !== 'undefined' && Array.isArray(allDsgRows))
-    ? allDsgRows.map(d => d.name).filter(Boolean) : [];
-  const hint = designers.length ? `\n\nDesigner yang ada: ${designers.slice(0,8).join(', ')}${designers.length>8?'...':''}` : '';
-  const dsg = window.prompt(`Designer untuk "${skuName}":${hint}`);
-  if (dsg == null) return;
-  const designer = dsg.trim();
-  if (!designer) { alert('Designer wajib.'); return; }
-  const url = window.prompt(`Link design (Google Drive URL, opsional):`);
-  if (url == null) return;
-  try {
-    const id = genId('DW');
-    const {error} = await sb.from('designer_workflow').insert({
-      id, collection_id: cid, designer,
-      sku_name: skuName, project_name: skuName,
-      deliverables_url: url.trim() || null,
-      deliverables_status: 'Pending',
-      payment_status: 'Not Paid',
-      locked: false,
-      date_added: new Date().toISOString().slice(0,10), added_by: currentUser,
-      last_updated: new Date().toISOString(), last_updated_by: currentUser,
-    });
-    if (error) throw error;
-    await _pdLoadDesignMirror(cid);
-  } catch (e) { alert('Gagal: ' + (e.message||e)); }
+  </table>
+  <div style="padding:8px 12px;font-size:10px;color:var(--g400);text-align:right;background:#fafafa;border-top:1px solid var(--g100)">
+    Read-only mirror · ubah datanya di
+    <a href="#dsgworkflow" onclick="showPage('dsgworkflow',null);return false" style="color:var(--g600);text-decoration:underline">Designer Workflow</a>
+  </div>`;
 }
 
 // Prefill the +Tambah Produk form with this DW row. Also opens the add form
