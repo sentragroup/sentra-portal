@@ -4591,7 +4591,14 @@ function mapCol(r) {
 function mapCI(r) {
   return {
     rowIndex:r.id, id:r.id, collectionId:r.collection_id,
-    skuName:r.sku_name||"", category:r.category||"", subCategory:r.sub_category||"",
+    skuName:r.sku_name||"",
+    // Granular Business-tab fields
+    skuProper:r.sku_proper||"",
+    category:r.category||"", subCategory:r.sub_category||"",
+    treatment:r.treatment||"", color:r.color||"",
+    qty:r.qty!=null?Number(r.qty):null,
+    srp:r.srp!=null?Number(r.srp):null,
+    // Creative-tab fields
     designer:r.designer||"",
     deadline:r.deadline||"", designPreviewUrl:r.design_preview_url||"",
     approvalStatus:r.approval_status||"Pending", notes:r.notes||"",
@@ -4600,9 +4607,10 @@ function mapCI(r) {
   };
 }
 
-// Compose the final display SKU name from its parts: {IP} - {core} - {kategori} - {sub-kategori}
-function composeSkuName(ipRelated, coreName, category, subCategory) {
-  return [ipRelated, coreName, category, subCategory]
+// Compose the final display SKU name from its parts:
+// {IP} - {sku_proper} - {kategori} - {sub-kategori} - {treatment} - {color}
+function composeSkuName(ipRelated, skuProper, category, subCategory, treatment, color) {
+  return [ipRelated, skuProper, category, subCategory, treatment, color]
     .map(s => (s||'').trim())
     .filter(Boolean)
     .join(' - ');
@@ -5166,11 +5174,9 @@ function cdFmtIDR(n) {
 // ── Sales Target section (Business tab) ──
 function renderColTargetSection(col, items) {
   const cid = col.id;
-  const hasTarget = col.targetRevenue != null || col.targetUnits != null;
   const releaseDate = col.releaseDate;
   const today = new Date(); today.setHours(0,0,0,0);
   const days = releaseDate ? Math.round((new Date(releaseDate+'T00:00:00') - today) / 86400000) : null;
-  const isPostLaunch = days != null && days <= 0;
 
   // Pull product_dev projection for viability check (synchronous from cached allPDRows if available)
   let pdUnits = 0, pdRevenue = 0;
@@ -5188,39 +5194,57 @@ function renderColTargetSection(col, items) {
     }
   } catch(e) { console.warn('PD projection unavailable:', e); }
 
+  // Sales target = auto-computed from items (trigger keeps target_revenue/units in sync)
   const targetRev = Number(col.targetRevenue||0);
   const targetUn  = Number(col.targetUnits||0);
+  const hasTarget = targetRev > 0 || targetUn > 0;
   const revGap  = targetRev ? (pdRevenue - targetRev) : 0;
   const unitGap = targetUn  ? (pdUnits   - targetUn)  : 0;
 
-  // Form OR display
-  const setInfo = col.targetSetAt ? `Set ${col.targetSetBy?`oleh ${(col.targetSetBy||'').replace(/</g,'&lt;')}`:''} · ${(col.targetSetAt||'').slice(0,10)}` : '';
-
-  // Derive existing avg SRP for the form (revenue / units)
-  const existingAvgSRP = (col.targetRevenue && col.targetUnits) ? Math.round(col.targetRevenue/col.targetUnits) : '';
-  const formHTML = `<div style="background:linear-gradient(135deg,#fffef0 0%,#fefad0 100%);border:1px solid #f1cf7a;border-radius:8px;padding:16px">
-    <div style="font-family:var(--syne);font-size:15px;font-weight:700;margin-bottom:4px">${hasTarget?'Target Aktif':'Set Sales Target'}</div>
-    <div style="font-size:11px;color:var(--g600);margin-bottom:12px">${hasTarget?setInfo:'Set target dari pcs × avg SRP — biar PD punya angka commitment, dan kita bisa ukur progress.'}</div>
-
-    <!-- Calculator: pcs × avg SRP → revenue -->
-    <div style="display:grid;grid-template-columns:1fr 1fr auto 1fr 1.2fr;gap:10px;align-items:end;margin-bottom:10px">
-      <div class="fg" style="margin:0"><label style="font-size:11px">Target Units (pcs) <span class="req">*</span></label><input type="number" id="ct-un-${cid}" min="0" value="${col.targetUnits==null?'':col.targetUnits}" placeholder="cth: 1000" oninput="updateColTargetCalc('${cid}')"></div>
-      <div class="fg" style="margin:0"><label style="font-size:11px">Avg SRP / unit (Rp) <span class="req">*</span></label><input type="number" id="ct-srp-${cid}" min="0" value="${existingAvgSRP}" placeholder="cth: 100000" oninput="updateColTargetCalc('${cid}')"></div>
-      <div style="font-family:var(--mono);font-size:18px;color:var(--g400);padding-bottom:8px;text-align:center">=</div>
-      <div class="fg" style="margin:0"><label style="font-size:11px">Target Revenue <span style="color:var(--g400);font-weight:400">(auto)</span></label><input type="text" id="ct-rev-display-${cid}" readonly style="background:var(--off);font-weight:700" placeholder="—"></div>
-      <div class="fg" style="margin:0"><label style="font-size:11px">Window (hari sejak launch)</label>
-        <select id="ct-win-${cid}" style="width:100%;padding:7px 8px;font-size:13px;border:1px solid var(--g100);border-radius:4px;background:var(--white)">
-          ${[30,60,90,120,180].map(d => `<option value="${d}"${(col.targetWindowDays||90)===d?' selected':''}>${d} hari</option>`).join('')}
-        </select>
+  // SKU add form — naming + commercial fields. Lives in the Business tab now.
+  const ip = col.ipRelated || 'IP';
+  const skuFormHTML = `<div style="background:var(--off);border:1px solid var(--g100);border-radius:8px;padding:14px;margin-bottom:14px">
+    <div style="font-family:var(--syne);font-size:14px;font-weight:700;margin-bottom:6px">+ Tambah SKU</div>
+    <div style="font-size:11px;color:var(--g600);margin-bottom:10px">Auto-build SKU name: <b id="ci-dp-preview-${cid}" style="color:var(--black);font-family:var(--mono)">${ip.replace(/</g,'&lt;')} - ...</b></div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px">
+      <div class="fg" style="margin:0"><label style="font-size:11px">Nama SKU <span class="req">*</span></label><input type="text" id="ci-dp-name-${cid}" placeholder="cth: Calligraphic" oninput="updateCIDpPreview('${cid}')"></div>
+      <div class="fg" style="margin:0;position:relative"><label style="font-size:11px">Kategori</label><input type="text" id="ci-dp-cat-${cid}" placeholder="T-Shirt, Cap..." autocomplete="off" oninput="updateCIDpPreview('${cid}')"><div class="ac-list" id="ac-ci-dp-cat-${cid}"></div></div>
+      <div class="fg" style="margin:0;position:relative"><label style="font-size:11px">Sub-Kategori</label><input type="text" id="ci-dp-subcat-${cid}" placeholder="Sleeveless, Regular..." autocomplete="off" oninput="updateCIDpPreview('${cid}')"><div class="ac-list" id="ac-ci-dp-subcat-${cid}"></div></div>
+      <div class="fg" style="margin:0"><label style="font-size:11px">Treatment</label><input type="text" id="ci-dp-treat-${cid}" placeholder="DTG, Sablon, Embroidery..." oninput="updateCIDpPreview('${cid}')"></div>
+      <div class="fg" style="margin:0"><label style="font-size:11px">Color</label><input type="text" id="ci-dp-color-${cid}" placeholder="Black, White, Navy..." oninput="updateCIDpPreview('${cid}')"></div>
+      <div style="display:grid;grid-template-columns:1fr 1.4fr;gap:8px">
+        <div class="fg" style="margin:0"><label style="font-size:11px">Qty</label><input type="number" id="ci-dp-qty-${cid}" min="0" step="1" placeholder="200" oninput="updateCIDpPreview('${cid}')"></div>
+        <div class="fg" style="margin:0"><label style="font-size:11px">SRP (Rp)</label><input type="number" id="ci-dp-srp-${cid}" min="0" step="1000" placeholder="120000" oninput="updateCIDpPreview('${cid}')"></div>
       </div>
     </div>
-    <input type="hidden" id="ct-rev-${cid}" value="${col.targetRevenue==null?'':col.targetRevenue}">
-    <div class="fg" style="margin-bottom:10px"><label style="font-size:11px">Catatan</label><input type="text" id="ct-notes-${cid}" value="${(col.targetNotes||'').replace(/"/g,'&quot;')}" placeholder="Asumsi, strategi, atau referensi historical"></div>
-    <div style="display:flex;gap:8px">
-      <button class="btn-primary" style="padding:7px 14px;font-size:12px" onclick="saveColTarget('${cid}')">${hasTarget?'💾 Simpan Revisi':'🎯 Save Target'}</button>
-      ${hasTarget?`<button class="btn-ghost" style="padding:7px 12px;font-size:12px" onclick="clearColTarget('${cid}')">✕ Clear</button>`:''}
+    <div style="display:flex;align-items:center;gap:12px">
+      <button class="btn-primary" style="padding:7px 14px;font-size:12px" onclick="addCollectionItem('${cid}')">+ Tambah SKU</button>
+      <span id="ci-dp-line-${cid}" style="font-size:11px;color:var(--g600);font-family:var(--mono)"></span>
     </div>
-    <div class="feedback" id="ct-feedback-${cid}" style="margin-top:8px"></div>
+  </div>`;
+
+  // Read-only target summary — sales target is auto-computed from Σ(qty × srp)
+  const fmtRp = v => 'Rp ' + Math.round(v||0).toLocaleString('id-ID');
+  const ciCount = items.length;
+  const itemsWithPrice = items.filter(i => (i.qty||0) > 0 && (i.srp||0) > 0).length;
+  const formHTML = `<div style="background:linear-gradient(135deg,#fffef0 0%,#fefad0 100%);border:1px solid #f1cf7a;border-radius:8px;padding:16px;margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;align-items:start;gap:12px;flex-wrap:wrap">
+      <div>
+        <div style="font-family:var(--syne);font-size:15px;font-weight:700;margin-bottom:4px">Sales Target ${hasTarget?'':'(belum ada SKU)'}</div>
+        <div style="font-size:11px;color:var(--g600)">Auto-compute dari Σ(qty × SRP) di setiap SKU di Business tab. ${ciCount?`${itemsWithPrice}/${ciCount} SKU sudah lengkap qty+SRP.`:'Tambah SKU dulu untuk set target.'}</div>
+      </div>
+      <span style="font-size:10px;color:var(--g400);font-family:var(--mono);align-self:center">${days!=null?(days>0?`T-${days}d to launch`:days===0?'Launches today':`${-days}d ago`):'No release date'}</span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+      <div style="background:var(--white);border:1px solid var(--g100);border-radius:6px;padding:10px 14px">
+        <div style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:4px">Target Units</div>
+        <div style="font-family:var(--mono);font-size:18px;font-weight:700">${targetUn?targetUn.toLocaleString('id-ID')+' pcs':'—'}</div>
+      </div>
+      <div style="background:var(--white);border:1px solid var(--g100);border-radius:6px;padding:10px 14px">
+        <div style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:4px">Target Revenue</div>
+        <div style="font-family:var(--mono);font-size:18px;font-weight:700">${targetRev?fmtRp(targetRev):'—'}</div>
+      </div>
+    </div>
   </div>`;
 
   // Monitor panel — placeholder, will be populated by loadColSalesMonitor
@@ -5257,10 +5281,42 @@ function renderColTargetSection(col, items) {
 
   // Status pill in section header
   const headerBadge = hasTarget
-    ? `<span class="pill ${(pdUnits&&pdRevenue&&!revGap&&!unitGap)||(targetRev&&pdRevenue>=targetRev&&targetUn&&pdUnits>=targetUn)?'p-active':(pdUnits||pdRevenue)?'p-near':'p-draft'}" style="font-size:10px;margin-left:auto">${days!=null?(days>0?`T-${days}d`:days===0?'Launches today':`${-days}d ago`):'No date'}</span>`
-    : `<span class="pill p-draft" style="font-size:10px;margin-left:auto">Target belum di-set</span>`;
+    ? `<span class="pill ${(pdUnits&&pdRevenue&&!revGap&&!unitGap)||(targetRev&&pdRevenue>=targetRev&&targetUn&&pdUnits>=targetUn)?'p-active':(pdUnits||pdRevenue)?'p-near':'p-draft'}" style="font-size:10px;margin-left:auto">${ciCount} SKU</span>`
+    : `<span class="pill p-draft" style="font-size:10px;margin-left:auto">Belum ada SKU</span>`;
 
-  return cdStageBox("🎯","Sales Target", headerBadge, formHTML + viability + monitorPanel);
+  // SKU list — read-only summary table (designer/link/approval editable in Creative tab)
+  const fmtRp2 = v => v ? 'Rp ' + Math.round(v).toLocaleString('id-ID') : '—';
+  const skuTableHTML = items.length
+    ? `<div class="table-wrap" style="margin-top:8px"><table style="width:100%">
+        <thead><tr style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">
+          <th style="padding:6px 10px;text-align:left">Nama SKU</th>
+          <th style="padding:6px 10px;text-align:left">Kategori</th>
+          <th style="padding:6px 10px;text-align:left">Treatment</th>
+          <th style="padding:6px 10px;text-align:left">Color</th>
+          <th style="padding:6px 10px;text-align:right">Qty</th>
+          <th style="padding:6px 10px;text-align:right">SRP</th>
+          <th style="padding:6px 10px;text-align:right">Subtotal</th>
+          <th style="padding:6px 10px;text-align:left">Aksi</th>
+        </tr></thead>
+        <tbody>
+          ${items.map(i => `<tr style="border-top:1px solid var(--g100)">
+            <td style="padding:7px 10px"><strong style="font-size:12px">${(i.skuName||'').replace(/</g,'&lt;')}</strong></td>
+            <td style="padding:7px 10px;font-size:11px;color:var(--g600)">${i.category?`${i.category}${i.subCategory?' · '+i.subCategory:''}`:'—'}</td>
+            <td style="padding:7px 10px;font-size:11px;color:var(--g600)">${i.treatment||'—'}</td>
+            <td style="padding:7px 10px;font-size:11px;color:var(--g600)">${i.color||'—'}</td>
+            <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px">${i.qty||'—'}</td>
+            <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px">${fmtRp2(i.srp)}</td>
+            <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px;font-weight:600">${(i.qty&&i.srp)?fmtRp2(i.qty*i.srp):'—'}</td>
+            <td style="padding:7px 10px;white-space:nowrap">
+              <button class="btn-icon" style="font-size:11px" onclick="openSKUEdit('${i.id}')">Edit</button>
+              <button class="btn-icon" style="color:#c0392b;font-size:11px" onclick="deleteSKU('${i.id}','${cid}')">Del</button>
+            </td>
+          </tr>`).join('')}
+        </tbody>
+      </table></div>`
+    : '<div style="color:var(--g400);font-size:12px;padding:12px;text-align:center">Belum ada SKU. Tambah pakai form di atas.</div>';
+
+  return cdStageBox("🎯","Sales Target & SKU Naming", headerBadge, formHTML + skuFormHTML + skuTableHTML + viability + monitorPanel);
 }
 
 // Live update of target revenue display as user types units × srp
@@ -5732,8 +5788,7 @@ function renderColDetail(col, items) {
       ? `<a href="${previewUrl}" target="_blank" title="Buka link" style="color:#3C3489;text-decoration:none;font-size:13px;padding:0 4px">↗</a>`
       : '';
     return `<tr id="ci-row-${i.id}" style="border-top:1px solid var(--g100)">
-    <td style="padding:8px 10px"><strong style="font-size:13px">${i.skuName}</strong></td>
-    <td style="padding:8px 10px">${i.category?`<span class="pill p-signings" style="font-size:10px">${i.category}</span>`:`<span style="color:var(--g400);font-size:11px">—</span>`}</td>
+    <td style="padding:8px 10px"><strong style="font-size:13px">${i.skuName}</strong>${i.category?`<div style="font-size:10px;color:var(--g400);margin-top:2px">${i.category}${i.subCategory?' · '+i.subCategory:''}${i.treatment?' · '+i.treatment:''}${i.color?' · '+i.color:''}</div>`:''}</td>
     <td style="padding:8px 10px;color:var(--g600)">${i.designer||"—"}</td>
     <td style="padding:8px 10px;white-space:nowrap">
       ${dlPast?'<span title="Lewat deadline" style="color:#c0392b">⚠ </span>':''}<input type="date" value="${i.deadline||""}" style="${dlInputStyle}" onchange="saveSKUField('${i.id}','${col.id}','deadline',this.value)">
@@ -5757,11 +5812,20 @@ function renderColDetail(col, items) {
     </td>
   </tr>
   <tr id="ci-edit-${i.id}" style="display:none;border-top:1px solid var(--g100)">
-    <td colspan="7" style="padding:8px 10px 12px">
+    <td colspan="6" style="padding:8px 10px 12px">
       <div class="edit-row-form" style="background:var(--off)">
+        <div style="font-size:10px;color:var(--g400);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Naming &amp; Commercial (Business)</div>
         <div class="edit-row-grid">
-          <div class="fg"><label style="font-size:11px">Nama SKU *</label><input type="text" id="cie-name-${i.id}" value="${(i.skuName||"").replace(/"/g,"&quot;")}"></div>
+          <div class="fg"><label style="font-size:11px">Nama SKU (proper)</label><input type="text" id="cie-prop-${i.id}" value="${(i.skuProper||i.skuName||"").replace(/"/g,"&quot;")}"></div>
           <div class="fg" style="position:relative"><label style="font-size:11px">Kategori</label><input type="text" id="cie-cat-${i.id}" value="${(i.category||"").replace(/"/g,"&quot;")}" autocomplete="off"><div class="ac-list" id="ac-cie-cat-${i.id}"></div></div>
+          <div class="fg" style="position:relative"><label style="font-size:11px">Sub-Kategori</label><input type="text" id="cie-subcat-${i.id}" value="${(i.subCategory||"").replace(/"/g,"&quot;")}" autocomplete="off"><div class="ac-list" id="ac-cie-subcat-${i.id}"></div></div>
+          <div class="fg"><label style="font-size:11px">Treatment</label><input type="text" id="cie-treat-${i.id}" value="${(i.treatment||"").replace(/"/g,"&quot;")}"></div>
+          <div class="fg"><label style="font-size:11px">Color</label><input type="text" id="cie-color-${i.id}" value="${(i.color||"").replace(/"/g,"&quot;")}"></div>
+          <div class="fg"><label style="font-size:11px">Qty</label><input type="number" id="cie-qty-${i.id}" min="0" step="1" value="${i.qty!=null?i.qty:""}"></div>
+          <div class="fg"><label style="font-size:11px">SRP (Rp)</label><input type="number" id="cie-srp-${i.id}" min="0" step="1000" value="${i.srp!=null?i.srp:""}"></div>
+        </div>
+        <div style="font-size:10px;color:var(--g400);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.5px;margin:10px 0 6px">Design (Creative)</div>
+        <div class="edit-row-grid">
           <div class="fg" style="position:relative"><label style="font-size:11px">Designer</label><input type="text" id="cie-dsg-${i.id}" value="${(i.designer||"").replace(/"/g,"&quot;")}" autocomplete="off"><div class="ac-list" id="ac-cie-dsg-${i.id}"></div></div>
           <div class="fg"><label style="font-size:11px">Deadline</label><input type="date" id="cie-deadline-${i.id}" value="${i.deadline||""}"></div>
           <div class="fg full"><label style="font-size:11px">Design Preview URL</label><input type="url" id="cie-preview-${i.id}" value="${(i.designPreviewUrl||"").replace(/"/g,"&quot;")}" placeholder="https://drive.google.com/..."></div>
@@ -5858,30 +5922,19 @@ function renderColDetail(col, items) {
 
         <!-- ─────────── 🎨 CREATIVE TAB ─────────── -->
         <div id="cd-tab-creative-${col.id}" class="cd-tab-content" style="display:none">
-        <!-- SKU Master List -->
-        ${cdStageBox("📋","SKUs & Design",`<span style="font-size:11px;color:var(--g400);font-family:var(--mono);margin-left:auto">${items.length} items</span>`,`
-          <div style="padding:12px;background:var(--off);border-radius:6px;margin-bottom:14px">
-            <div style="font-size:11px;color:var(--g600);font-family:var(--mono);margin-bottom:8px">
-              Final SKU: <b id="ci-dp-preview-${col.id}" style="color:var(--black)">${(col.ipRelated||'IP').replace(/</g,'&lt;')} - ...</b>
-              <span style="color:var(--g400);font-weight:400">· IP otomatis dari collection</span>
-            </div>
-            <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
-              <div class="fg" style="min-width:160px;flex:2"><label style="font-size:11px">Nama SKU * <span style="color:var(--g400);font-weight:400">(core, tanpa IP)</span></label><input type="text" id="ci-dp-name-${col.id}" placeholder="cth: Artwork 1" oninput="updateCIDpPreview('${col.id}')"></div>
-              <div class="fg" style="min-width:120px;flex:1.2;position:relative"><label style="font-size:11px">Kategori</label><input type="text" id="ci-dp-cat-${col.id}" placeholder="T-Shirt, Cap..." autocomplete="off" oninput="updateCIDpPreview('${col.id}')"><div class="ac-list" id="ac-ci-dp-cat-${col.id}"></div></div>
-              <div class="fg" style="min-width:120px;flex:1.2;position:relative"><label style="font-size:11px">Sub-Kategori <span style="color:var(--g400);font-weight:400">(fitting)</span></label><input type="text" id="ci-dp-subcat-${col.id}" placeholder="Boxy Tee, Regular..." autocomplete="off" oninput="updateCIDpPreview('${col.id}')"><div class="ac-list" id="ac-ci-dp-subcat-${col.id}"></div></div>
-              <div class="fg" style="min-width:130px;flex:1.3;position:relative"><label style="font-size:11px">Designer</label><input type="text" id="ci-dp-dsg-${col.id}" placeholder="Pilih dari designer master" autocomplete="off"><div class="ac-list" id="ac-ci-dp-${col.id}"></div></div>
-              <div class="fg" style="min-width:120px;flex:0.9"><label style="font-size:11px">Deadline</label><input type="date" id="ci-dp-deadline-${col.id}"></div>
-              <div style="padding-bottom:2px"><button class="btn-primary" style="padding:6px 14px;font-size:12px" onclick="addCollectionItem('${col.id}')">+ Tambah</button></div>
-            </div>
+        <!-- Design assignment per SKU -->
+        ${cdStageBox("🎨","Design Assignment per SKU",`<span style="font-size:11px;color:var(--g400);font-family:var(--mono);margin-left:auto">${items.length} SKU</span>`,`
+          <div style="padding:10px 12px;background:var(--off);border-radius:6px;margin-bottom:12px;font-size:11px;color:var(--g600)">
+            ℹ️ Set designer, deadline, design link, dan approval per SKU di sini. Naming SKU + qty + SRP di-set di tab <strong>Business</strong>.
           </div>
           ${items.length?`<div class="table-wrap" style="max-height:400px;overflow-y:auto"><table style="width:100%">
             <thead><tr style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">
-              <th style="padding:6px 10px;text-align:left">SKU</th><th style="padding:6px 10px;text-align:left">Kategori</th>
+              <th style="padding:6px 10px;text-align:left">SKU</th>
               <th style="padding:6px 10px;text-align:left">Designer</th><th style="padding:6px 10px;text-align:left">Deadline</th>
               <th style="padding:6px 10px;text-align:left">Design File</th><th style="padding:6px 10px;text-align:left">Approval</th><th style="padding:6px 10px;text-align:left">Aksi</th>
             </tr></thead>
             <tbody>${skuRows}</tbody>
-          </table></div>`:`<div style="color:var(--g400);font-size:12px">Belum ada SKU. Tambah di atas.</div>`}
+          </table></div>`:`<div style="color:var(--g400);font-size:12px">Belum ada SKU. Tambah dulu di tab Business.</div>`}
           ${colDwRows.filter(dw=>dw.designer).length?`
           <div style="margin-top:14px;border-top:1px solid var(--g100);padding-top:12px">
             <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:8px">Designer Payment</div>
@@ -5996,6 +6049,7 @@ function renderColDetail(col, items) {
   setupAC(`ci-dp-dsg-${col.id}`,`ac-ci-dp-${col.id}`,()=>allDsgRows.filter(d=>d.status==="Active").map(d=>d.name));
   items.forEach(i=>{
     setupAC(`cie-cat-${i.id}`,`ac-cie-cat-${i.id}`,()=>skuCats);
+    setupAC(`cie-subcat-${i.id}`,`ac-cie-subcat-${i.id}`,()=>skuSubCats);
     setupAC(`cie-dsg-${i.id}`,`ac-cie-dsg-${i.id}`,()=>allDsgRows.filter(d=>d.status==="Active").map(d=>d.name));
   });
   // Prime the SKU preview text
@@ -6741,45 +6795,63 @@ async function handleRemoveCPLink(linkId, colId){
 function updateCIDpPreview(colId) {
   const col = allColRows.find(r => r.id === colId);
   const ip  = col?.ipRelated || 'IP';
-  const core = document.getElementById(`ci-dp-name-${colId}`)?.value.trim() || '';
+  const prop = document.getElementById(`ci-dp-name-${colId}`)?.value.trim() || '';
   const cat  = document.getElementById(`ci-dp-cat-${colId}`)?.value.trim() || '';
   const sub  = document.getElementById(`ci-dp-subcat-${colId}`)?.value.trim() || '';
-  const preview = composeSkuName(ip, core || '…', cat, sub);
+  const treat= document.getElementById(`ci-dp-treat-${colId}`)?.value.trim() || '';
+  const clr  = document.getElementById(`ci-dp-color-${colId}`)?.value.trim() || '';
+  const preview = composeSkuName(ip, prop || '…', cat, sub, treat, clr);
   const el = document.getElementById(`ci-dp-preview-${colId}`);
   if (el) el.textContent = preview;
+  // Live update the auto sales target preview from qty × srp
+  const qty = parseFloat(document.getElementById(`ci-dp-qty-${colId}`)?.value) || 0;
+  const srp = parseFloat(document.getElementById(`ci-dp-srp-${colId}`)?.value) || 0;
+  const lineEl = document.getElementById(`ci-dp-line-${colId}`);
+  if (lineEl) lineEl.textContent = (qty && srp) ? 'Line revenue: Rp ' + (qty*srp).toLocaleString('id-ID') : '';
 }
 
 async function addCollectionItem(colId) {
-  const core = document.getElementById(`ci-dp-name-${colId}`)?.value.trim();
-  if(!core){alert("Nama SKU wajib diisi.");return;}
-  const cat = document.getElementById(`ci-dp-cat-${colId}`)?.value.trim() || '';
-  const sub = document.getElementById(`ci-dp-subcat-${colId}`)?.value.trim() || '';
-  const col = allColRows.find(r => r.id === colId);
-  const ip  = col?.ipRelated || '';
-  const composedName = composeSkuName(ip, core, cat, sub);
+  const prop = document.getElementById(`ci-dp-name-${colId}`)?.value.trim();
+  if(!prop){alert("Nama SKU wajib diisi.");return;}
+  const cat  = document.getElementById(`ci-dp-cat-${colId}`)?.value.trim() || '';
+  const sub  = document.getElementById(`ci-dp-subcat-${colId}`)?.value.trim() || '';
+  const treat= document.getElementById(`ci-dp-treat-${colId}`)?.value.trim() || '';
+  const clr  = document.getElementById(`ci-dp-color-${colId}`)?.value.trim() || '';
+  const qty  = parseInt(document.getElementById(`ci-dp-qty-${colId}`)?.value, 10);
+  const srp  = parseFloat(document.getElementById(`ci-dp-srp-${colId}`)?.value);
+  const col  = allColRows.find(r => r.id === colId);
+  const ip   = col?.ipRelated || '';
+  const composedName = composeSkuName(ip, prop, cat, sub, treat, clr);
   try {
     const id=genId("CI");
     const {error}=await sb.from("collection_items").insert({
       id, collection_id:colId,
       sku_name: composedName,
+      sku_proper: prop,
       category: cat || null,
       sub_category: sub || null,
-      designer:document.getElementById(`ci-dp-dsg-${colId}`)?.value.trim()||null,
-      deadline:document.getElementById(`ci-dp-deadline-${colId}`)?.value||null,
+      treatment: treat || null,
+      color: clr || null,
+      qty: isNaN(qty) ? null : qty,
+      srp: isNaN(srp) ? null : srp,
       approval_status:"Pending",
       date_added:new Date().toISOString().slice(0,10), added_by:currentUser,
       last_updated:new Date().toISOString(), last_updated_by:currentUser
     });
     if(error)throw error;
-    [`ci-dp-name-${colId}`,`ci-dp-cat-${colId}`,`ci-dp-subcat-${colId}`,`ci-dp-dsg-${colId}`,`ci-dp-deadline-${colId}`].forEach(eid=>{const el=document.getElementById(eid);if(el)el.value="";});
+    [`ci-dp-name-${colId}`,`ci-dp-cat-${colId}`,`ci-dp-subcat-${colId}`,`ci-dp-treat-${colId}`,`ci-dp-color-${colId}`,`ci-dp-qty-${colId}`,`ci-dp-srp-${colId}`].forEach(eid=>{const el=document.getElementById(eid);if(el)el.value="";});
     logActivity("Collections","create",id,`SKU: ${composedName}`);
     const {data}=await sb.from("collection_items").select("*").eq("collection_id",colId);
     allColItems=allColItems.filter(i=>i.collectionId!==colId).concat((data||[]).map(mapCI));
-    const col=allColRows.find(r=>r.id===colId);
-    if(col) renderColDetail(col, allColItems.filter(i=>i.collectionId===colId));
+    // Also refresh the parent collection row (target_revenue/units were auto-updated by trigger)
+    const {data: c2} = await sb.from("collections").select("*").eq("id", colId).single();
+    if (c2) {
+      const idx = allColRows.findIndex(r => r.id === colId);
+      if (idx >= 0) allColRows[idx] = mapCol(c2);
+    }
+    const col2=allColRows.find(r=>r.id===colId);
+    if(col2) renderColDetail(col2, allColItems.filter(i=>i.collectionId===colId));
     applyColFilters();
-    // Auto-create DW project for any new designer assignment
-    ensureDWForCollection(colId);
   } catch(e){alert("Gagal: "+(e.message||e));}
 }
 
@@ -6807,9 +6879,19 @@ async function pushToDesignerWorkflow(colId) {
 }
 
 function openSKUEdit(itemId) {
+  // The inline edit row lives in the Creative tab. If the click came from
+  // Business tab (where naming/commercial table is now), switch tabs first.
+  const row = document.getElementById("ci-edit-"+itemId);
+  if (!row) return;
+  // Walk up to find the cd-tab-{name}-{colId} pane
+  let pane = row.closest('.cd-tab-content');
+  if (pane && pane.style.display === 'none') {
+    const m = pane.id.match(/^cd-tab-(\w+)-(.+)$/);
+    if (m && typeof cdSwitchTab === 'function') cdSwitchTab(m[2], m[1]);
+  }
   document.querySelectorAll("[id^='ci-edit-']").forEach(el=>{if(el.id!=="ci-edit-"+itemId)el.style.display="none";});
-  const row=document.getElementById("ci-edit-"+itemId);if(!row)return;
-  row.style.display=row.style.display==="table-row"?"none":"table-row";
+  row.style.display = row.style.display === "table-row" ? "none" : "table-row";
+  setTimeout(() => row.scrollIntoView({behavior:'smooth',block:'center'}), 50);
 }
 function closeSKUEdit(itemId){const r=document.getElementById("ci-edit-"+itemId);if(r)r.style.display="none";}
 
@@ -7155,22 +7237,49 @@ async function saveSKUEdit(itemId, colId) {
   const btn=document.querySelector(`#ci-edit-${itemId} .btn-save`);
   if(btn){btn.disabled=true;btn.textContent="Menyimpan...";}
   try {
-    const nm=document.getElementById(`cie-name-${itemId}`)?.value.trim();
-    if(!nm){if(btn){btn.disabled=false;btn.textContent="Simpan";}alert("Nama SKU wajib diisi.");return;}
-    const cat=document.getElementById(`cie-cat-${itemId}`)?.value.trim()||null;
-    const dsg=document.getElementById(`cie-dsg-${itemId}`)?.value.trim()||null;
-    const dl=document.getElementById(`cie-deadline-${itemId}`)?.value||null;
-    const pv=document.getElementById(`cie-preview-${itemId}`)?.value.trim()||null;
+    const prop = document.getElementById(`cie-prop-${itemId}`)?.value.trim();
+    if(!prop){if(btn){btn.disabled=false;btn.textContent="Simpan";}alert("Nama SKU wajib diisi.");return;}
+    const cat   = document.getElementById(`cie-cat-${itemId}`)?.value.trim() || '';
+    const sub   = document.getElementById(`cie-subcat-${itemId}`)?.value.trim() || '';
+    const treat = document.getElementById(`cie-treat-${itemId}`)?.value.trim() || '';
+    const clr   = document.getElementById(`cie-color-${itemId}`)?.value.trim() || '';
+    const qty   = parseInt(document.getElementById(`cie-qty-${itemId}`)?.value, 10);
+    const srp   = parseFloat(document.getElementById(`cie-srp-${itemId}`)?.value);
+    const dsg   = document.getElementById(`cie-dsg-${itemId}`)?.value.trim() || null;
+    const dl    = document.getElementById(`cie-deadline-${itemId}`)?.value || null;
+    const pv    = document.getElementById(`cie-preview-${itemId}`)?.value.trim() || null;
+    const col   = allColRows.find(r => r.id === colId);
+    const ip    = col?.ipRelated || '';
+    const composedName = composeSkuName(ip, prop, cat, sub, treat, clr);
     const {error}=await sb.from("collection_items").update({
-      sku_name:nm, category:cat, designer:dsg, deadline:dl, design_preview_url:pv,
-      last_updated:new Date().toISOString(), last_updated_by:currentUser
+      sku_name: composedName,
+      sku_proper: prop,
+      category: cat || null,
+      sub_category: sub || null,
+      treatment: treat || null,
+      color: clr || null,
+      qty: isNaN(qty) ? null : qty,
+      srp: isNaN(srp) ? null : srp,
+      designer: dsg, deadline: dl, design_preview_url: pv,
+      last_updated: new Date().toISOString(), last_updated_by: currentUser
     }).eq("id",itemId);
     if(error)throw error;
     const idx=allColItems.findIndex(i=>i.id===itemId);
-    if(idx>-1) allColItems[idx]={...allColItems[idx],skuName:nm,category:cat||"",designer:dsg||"",deadline:dl||"",designPreviewUrl:pv||""};
-    logActivity("Collections","edit",itemId,`SKU: ${nm}`);
-    const col=allColRows.find(r=>r.id===colId);
-    if(col) renderColDetail(col, allColItems.filter(i=>i.collectionId===colId));
+    if(idx>-1) allColItems[idx]={...allColItems[idx],
+      skuName: composedName, skuProper: prop,
+      category: cat, subCategory: sub, treatment: treat, color: clr,
+      qty: isNaN(qty)?null:qty, srp: isNaN(srp)?null:srp,
+      designer: dsg||'', deadline: dl||'', designPreviewUrl: pv||''
+    };
+    // Refresh parent collection (trigger updated target_revenue/units)
+    const {data: c2} = await sb.from("collections").select("*").eq("id", colId).single();
+    if (c2) {
+      const ci = allColRows.findIndex(r => r.id === colId);
+      if (ci >= 0) allColRows[ci] = mapCol(c2);
+    }
+    logActivity("Collections","edit",itemId,`SKU: ${composedName}`);
+    const col2=allColRows.find(r=>r.id===colId);
+    if(col2) renderColDetail(col2, allColItems.filter(i=>i.collectionId===colId));
     applyColFilters();
     // Sync DW rows: remove orphaned designers, add new ones
     syncDWForCollection(colId);
