@@ -1941,7 +1941,10 @@
           <div class="form-sec">Project Designer (Manual / Sendiri)</div>
           <div class="form-grid">
             <div class="fg" style="position:relative"><label>Designer <span class="req">*</span></label><input type="text" id="dw-designer" placeholder="Pilih designer" autocomplete="off"><div class="ac-list" id="ac-dw-designer"></div></div>
-            <div class="fg"><label>Project <span style="font-size:10px;color:var(--g400)">(nama bebas)</span></label><input type="text" id="dw-project" placeholder="Nama project..."></div>
+            <div class="fg" style="position:relative"><label>SKU / Project <span style="font-size:10px;color:var(--g400)">(per SKU, autocomplete dari Collection)</span></label>
+              <input type="text" id="dw-sku" placeholder="Pilih SKU dari collection, atau ketik nama..." autocomplete="off">
+              <div class="ac-list" id="ac-dw-sku"></div>
+            </div>
             <div class="fg"><label>Deadline</label><input type="date" id="dw-deadline"></div>
             <div class="fg"><label>Status Deliverables</label><select id="dw-dl-status"><option value="Pending">Pending</option><option value="In Progress">In Progress</option><option value="Revision">Revision</option><option value="Completed">Completed</option></select></div>
             <div class="fg full"><label>Deliverables URL <span style="font-size:11px;color:var(--g400)">(Google Drive)</span></label><input type="url" id="dw-deliverables" placeholder="https://drive.google.com/..."></div>
