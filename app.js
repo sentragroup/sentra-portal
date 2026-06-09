@@ -22880,9 +22880,14 @@ function _rstRenderProductCard(p) {
     const bdr = p.minDays<7 ? '#e8b8b8' : p.minDays<14 ? '#ffb74d' : '#ffe082';
     urgBadge  = `<span style="font-size:10px;background:${bg};color:${clr};border:1px solid ${bdr};border-radius:3px;padding:2px 6px;font-family:var(--mono)">⚠ ${Math.floor(p.minDays)}d</span>`;
   }
-  const thumb = p.thumbnail
-    ? `<img src="${p.thumbnail}" style="width:56px;height:56px;object-fit:cover;border-radius:4px;border:1px solid var(--g100);flex-shrink:0">`
-    : `<div style="width:56px;height:56px;background:var(--g100);border-radius:4px;flex-shrink:0"></div>`;
+  // Front + back thumbnails — same source as vendor PDF (imageUrls 0/1)
+  const cardImgs = (Array.isArray(p.imageUrls) && p.imageUrls.length)
+    ? p.imageUrls.slice(0, 2)
+    : (p.thumbnail ? [p.thumbnail] : []);
+  const slot = (url) => url
+    ? `<img src="${url.replace(/"/g,'&quot;')}" style="width:56px;height:56px;object-fit:cover;border-radius:4px;border:1px solid var(--g100);display:block" onerror="this.style.display='none'">`
+    : `<div style="width:56px;height:56px;background:var(--g100);border-radius:4px;display:flex;align-items:center;justify-content:center;color:var(--g400);font-size:8px;text-align:center;line-height:1.1">No back<br>photo</div>`;
+  const thumb = `<div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0">${slot(cardImgs[0])}${slot(cardImgs[1])}</div>`;
 
   // ── Parent-level Vendor + Harga Beli ──
   const defaultVm = _rstParentDefaultVendor(p);
