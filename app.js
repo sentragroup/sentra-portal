@@ -22880,14 +22880,9 @@ function _rstRenderProductCard(p) {
     const bdr = p.minDays<7 ? '#e8b8b8' : p.minDays<14 ? '#ffb74d' : '#ffe082';
     urgBadge  = `<span style="font-size:10px;background:${bg};color:${clr};border:1px solid ${bdr};border-radius:3px;padding:2px 6px;font-family:var(--mono)">⚠ ${Math.floor(p.minDays)}d</span>`;
   }
-  // Front + back thumbnails — same source as vendor PDF (imageUrls 0/1)
-  const cardImgs = (Array.isArray(p.imageUrls) && p.imageUrls.length)
-    ? p.imageUrls.slice(0, 2)
-    : (p.thumbnail ? [p.thumbnail] : []);
-  const slot = (url) => url
-    ? `<img src="${url.replace(/"/g,'&quot;')}" style="width:56px;height:56px;object-fit:cover;border-radius:4px;border:1px solid var(--g100);display:block" onerror="this.style.display='none'">`
-    : `<div style="width:56px;height:56px;background:var(--g100);border-radius:4px;display:flex;align-items:center;justify-content:center;color:var(--g400);font-size:8px;text-align:center;line-height:1.1">No back<br>photo</div>`;
-  const thumb = `<div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0">${slot(cardImgs[0])}${slot(cardImgs[1])}</div>`;
+  const thumb = p.thumbnail
+    ? `<img src="${p.thumbnail}" style="width:56px;height:56px;object-fit:cover;border-radius:4px;border:1px solid var(--g100);flex-shrink:0">`
+    : `<div style="width:56px;height:56px;background:var(--g100);border-radius:4px;flex-shrink:0"></div>`;
 
   // ── Parent-level Vendor + Harga Beli ──
   const defaultVm = _rstParentDefaultVendor(p);
@@ -23606,7 +23601,6 @@ function _rstBuildPDFBody(supplierName, contact, lines, today) {
     const span = g.items.length;
     return g.items.map((l, idx) => `<tr>
       ${idx === 0 ? photoCell(g.pictures, g.thumbnail, span) : ''}
-      <td class="mono">${(l.sku||'—').replace(/</g,'&lt;')}</td>
       <td>${(l.parentName||l.itemName||'—').replace(/</g,'&lt;')}${idx===0 && l.brand ? `<div style="font-size:9px;color:#888;margin-top:2px">${l.brand}${l.ip?' · '+l.ip:''}</div>` : ''}</td>
       <td>${(l.size||'').replace(/</g,'&lt;')}</td>
       <td class="num">${l.qty}</td>
@@ -23634,10 +23628,10 @@ function _rstBuildPDFBody(supplierName, contact, lines, today) {
       <dt>Total Item</dt><dd>${lines.length} SKU · ${totalQty} unit</dd>
     </dl>
     <table>
-      <thead><tr><th style="width:300px">Foto</th><th>SKU</th><th>Produk</th><th>Size</th><th class="num">Qty</th><th class="num">Harga</th><th class="num">Subtotal</th></tr></thead>
+      <thead><tr><th style="width:300px">Foto</th><th>Produk</th><th>Size</th><th class="num">Qty</th><th class="num">Harga</th><th class="num">Subtotal</th></tr></thead>
       <tbody>
         ${rowsHtml}
-        <tr class="total"><td colspan="4">TOTAL</td><td class="num">${totalQty}</td><td></td><td class="num">${fmt(totalNilai)}</td></tr>
+        <tr class="total"><td colspan="3">TOTAL</td><td class="num">${totalQty}</td><td></td><td class="num">${fmt(totalNilai)}</td></tr>
       </tbody>
     </table>`;
 }
@@ -23682,7 +23676,6 @@ function _rstBuildPDFAllBody(lines, today) {
     return g.items.map((l, idx) => `<tr>
       ${idx === 0 ? photoCell(g.pictures, g.thumbnail, span) : ''}
       ${idx === 0 ? `<td rowspan="${span}">${(l.vendorName||'—').replace(/</g,'&lt;')}</td>` : ''}
-      <td class="mono">${(l.sku||'—').replace(/</g,'&lt;')}</td>
       <td>${(l.parentName||l.itemName||'—').replace(/</g,'&lt;')}${idx===0 && l.brand ? `<div style="font-size:9px;color:#888;margin-top:2px">${l.brand}${l.ip?' · '+l.ip:''}</div>` : ''}</td>
       <td>${(l.size||'').replace(/</g,'&lt;')}</td>
       <td class="num">${l.qty}</td>
@@ -23702,10 +23695,10 @@ function _rstBuildPDFAllBody(lines, today) {
     <h1>Purchase Order — Restock (All Vendors)</h1>
     <div class="sub">${today} · ${lines.length} SKU · ${totalQty} unit · ${fmt(totalNilai)}</div>
     <table>
-      <thead><tr><th style="width:300px">Foto</th><th>Vendor</th><th>SKU</th><th>Produk</th><th>Size</th><th class="num">Qty</th><th class="num">Harga</th><th class="num">Subtotal</th></tr></thead>
+      <thead><tr><th style="width:300px">Foto</th><th>Vendor</th><th>Produk</th><th>Size</th><th class="num">Qty</th><th class="num">Harga</th><th class="num">Subtotal</th></tr></thead>
       <tbody>
         ${rowsHtml}
-        <tr class="total"><td colspan="5">TOTAL</td><td class="num">${totalQty}</td><td></td><td class="num">${fmt(totalNilai)}</td></tr>
+        <tr class="total"><td colspan="4">TOTAL</td><td class="num">${totalQty}</td><td></td><td class="num">${fmt(totalNilai)}</td></tr>
       </tbody>
     </table>`;
 }
