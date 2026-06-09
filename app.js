@@ -16332,18 +16332,33 @@ function _pdRenderDesignMirror() {
       <th style="text-align:right;padding:7px 10px;font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.3px;font-weight:600"></th>
     </tr></thead>
     <tbody>
-    ${_pdDesignRows.map(d => {
-      const cat = d.category ? `<div style="font-size:10px;color:var(--g400);margin-top:2px">${d.category.replace(/</g,'&lt;')}</div>` : '';
-      return `<tr style="border-top:1px solid var(--g100)">
-        <td style="padding:7px 10px"><strong>${(d.sku_name||'—').replace(/</g,'&lt;')}</strong>${cat}</td>
-        <td style="padding:7px 10px;color:var(--g600)">${(d.designer||'—').replace(/</g,'&lt;')}</td>
-        <td style="padding:7px 10px">${stPill(d.approval_status)}</td>
-        <td style="padding:7px 10px">${linkCell(d.design_preview_url)}</td>
-        <td style="padding:7px 10px;text-align:right;white-space:nowrap">
-          ${d.sku_name ? `<button class="btn-ghost" style="font-size:11px;padding:3px 10px" onclick="_pdUseDesign('${d.id.replace(/'/g,"\\'")}')">Pakai →</button>` : ''}
-        </td>
-      </tr>`;
-    }).join('')}
+    ${(() => {
+      // Build a map: collection_item_id → parent SKU code, for "already mapped" badge
+      const cid = pdCurrentCollectionId;
+      const ciToParent = new Map();
+      for (const r of allPDRows) {
+        if (!r.parentId && r.collectionId === cid && r.collectionItemId) {
+          ciToParent.set(r.collectionItemId, r);
+        }
+      }
+      return _pdDesignRows.map(d => {
+        const cat = d.category ? `<div style="font-size:10px;color:var(--g400);margin-top:2px">${d.category.replace(/</g,'&lt;')}</div>` : '';
+        const mapped = ciToParent.get(d.id);
+        const mapBadge = mapped
+          ? `<span class="pill p-active" title="Sudah dibuat sebagai ${mapped.displayCode||mapped.id}" style="font-size:9px;margin-left:6px;cursor:default">✓ Mapped${mapped.displayCode?` · ${mapped.displayCode}`:''}</span>`
+          : `<span class="pill p-draft" title="Belum dibuat di Product Dev" style="font-size:9px;margin-left:6px;cursor:default">Belum mapped</span>`;
+        const actBtn = mapped
+          ? '' // already created — no Pakai button
+          : (d.sku_name ? `<button class="btn-ghost" style="font-size:11px;padding:3px 10px" onclick="_pdUseDesign('${d.id.replace(/'/g,"\\'")}')">Pakai →</button>` : '');
+        return `<tr style="border-top:1px solid var(--g100);${mapped?'background:#f7fbf7':''}">
+          <td style="padding:7px 10px"><strong>${(d.sku_name||'—').replace(/</g,'&lt;')}</strong>${mapBadge}${cat}</td>
+          <td style="padding:7px 10px;color:var(--g600)">${(d.designer||'—').replace(/</g,'&lt;')}</td>
+          <td style="padding:7px 10px">${stPill(d.approval_status)}</td>
+          <td style="padding:7px 10px">${linkCell(d.design_preview_url)}</td>
+          <td style="padding:7px 10px;text-align:right;white-space:nowrap">${actBtn}</td>
+        </tr>`;
+      }).join('');
+    })()}
     </tbody>
   </table>
   <div style="padding:8px 12px;font-size:10px;color:var(--g400);text-align:right;background:#fafafa;border-top:1px solid var(--g100)">
@@ -16616,6 +16631,8 @@ async function submitPD() {
     fb.textContent = '✅ Produk tersimpan. Scroll ke bawah untuk tambah variants / bundle items.';
     await fetchPDRows();
     clearPDForm();
+    // Re-render the design mirror so the freshly-mapped CI gets its "✓ Mapped" badge
+    _pdRenderDesignMirror();
     try { renderPDDetailTable(); } catch(rerr) {
       console.error('renderPDDetailTable failed after submit:', rerr);
       fb.textContent = '⚠️ Tersimpan, tapi tampilan tidak refresh. Reload halaman. (' + (rerr.message||rerr) + ')';
@@ -16731,6 +16748,21 @@ function renderPDDetailTable() {
   }).join('');
 }
 
+// Resolve a parent SKU's design info: prefer the snapshot saved on the
+// product_dev row, fall back to the live collection_items row this parent
+// is linked to (via collection_item_id). Lets legacy products picked
+// up before the "Pakai" feature still surface their design link.
+function _pdResolveParentDesign(p) {
+  if (p.designUrl || p.designDesigner || p.designStatus) {
+    return { url: p.designUrl||'', designer: p.designDesigner||'', status: p.designStatus||'', source: 'snapshot' };
+  }
+  if (p.collectionItemId && Array.isArray(_pdDesignRows)) {
+    const ci = _pdDesignRows.find(r => r.id === p.collectionItemId);
+    if (ci) return { url: ci.design_preview_url||'', designer: ci.designer||'', status: ci.approval_status||'', source: 'collection_items' };
+  }
+  return null;
+}
+
 function renderPDParentCard(p, allChildren) {
   const subs        = allChildren.filter(c => pdChildKind(c) === 'variant');
   const bundleItems = allChildren.filter(c => pdChildKind(c) === 'bundle_item');
@@ -16741,8 +16773,9 @@ function renderPDParentCard(p, allChildren) {
   const vendorSet = new Set(allChildren.map(s=>s.vendor).filter(Boolean));
   const vendorTxt = vendorSet.size === 0 ? '—' : vendorSet.size === 1 ? [...vendorSet][0] : `${vendorSet.size} vendors`;
   const code = p.displayCode || p.id;
-  const designChip = p.designUrl
-    ? `<a href="${p.designUrl.replace(/"/g,'&quot;')}" target="_blank" title="${(p.designDesigner||'').replace(/"/g,'&quot;')} · ${(p.designStatus||'').replace(/"/g,'&quot;')}" style="font-size:10px;padding:2px 6px;background:#eef0f8;border-radius:3px;color:#3C3489;border:1px solid #3C3489;font-weight:500;text-decoration:none;display:inline-flex;align-items:center;gap:3px">🎨 Design${p.designDesigner?` · ${p.designDesigner.replace(/</g,'&lt;')}`:''}</a>`
+  const dz = _pdResolveParentDesign(p);
+  const designChip = dz?.url
+    ? `<a href="${dz.url.replace(/"/g,'&quot;')}" target="_blank" title="${(dz.designer||'').replace(/"/g,'&quot;')} · ${(dz.status||'').replace(/"/g,'&quot;')}" style="font-size:10px;padding:2px 6px;background:#eef0f8;border-radius:3px;color:#3C3489;border:1px solid #3C3489;font-weight:500;text-decoration:none;display:inline-flex;align-items:center;gap:3px">🎨 Design${dz.designer?` · ${dz.designer.replace(/</g,'&lt;')}`:''}</a>`
     : '';
   const pills = [
     subs.length        ? `<span style="font-size:10px;padding:2px 6px;background:var(--white);border-radius:3px;color:var(--g600);border:1px solid var(--g100);font-weight:500">${subs.length} variant${subs.length===1?'':'s'}</span>` : '',
@@ -16803,6 +16836,9 @@ function renderPDParentCard(p, allChildren) {
         <span>HPP/unit: <span class="mono"><b style="color:var(--black)">${proj.unitCost?pdFmtIDR(Math.round(proj.unitCost)):'—'}</b></span></span>
         <span>SRP: <span class="mono"><b style="color:var(--black)">${pdFmtIDR(p.srp)}</b></span></span>
         <span>Ratio: ${ratioPill}</span>
+        ${dz?.url
+          ? `<span>Design: <a href="${dz.url.replace(/"/g,'&quot;')}" target="_blank" style="color:#3C3489;font-weight:600;text-decoration:underline">↗ Buka</a>${dz.designer?` <span style="color:var(--g400)">· ${dz.designer.replace(/</g,'&lt;')}</span>`:''}${dz.status?` <span class="pill ${dz.status==='Approved'?'p-active':dz.status==='Revision'?'p-near':dz.status==='Rejected'?'p-expired':'p-draft'}" style="font-size:9px;margin-left:4px">${dz.status}</span>`:''}</span>`
+          : '<span style="color:var(--g400)">Design: —</span>'}
       </div>
       ${renderPDProjectionRow(proj)}
       ${p.notes ? `<div style="margin-top:6px;font-size:11px;color:var(--g600);font-style:italic">${p.notes.replace(/</g,'&lt;')}</div>` : ''}
