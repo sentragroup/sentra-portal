@@ -18092,6 +18092,8 @@ async function exportPDPurchaseOrderCsv() {
     const r = vendorResolve(vendorName);
     if (r.jubelioContactId) syncedCount++; else manualCount++;
     // Header fields (first item only)
+    // Strip phone to digits only — Jubelio rejects spaces/dashes
+    const cleanPhone = String(r.phone || '').replace(/[^0-9]/g, '');
     const headerCells = [
       '[auto]',                                  // No. Pesanan
       '',                                        // No. Ref Pemasok
@@ -18099,8 +18101,8 @@ async function exportPDPurchaseOrderCsv() {
       'WIB',                                     // Zona Waktu
       r.vendorName,                              // Nama Pemasok (from Jubelio if linked)
       r.email || '',                             // Email
-      r.phone || '',                             // No. Telp (may be empty)
-      r.defaultTaxIncluded ? 'TRUE' : 'FALSE',   // Harga Termasuk Pajak
+      cleanPhone,                                // No. Telp (digits only)
+      r.defaultTaxIncluded ? 'True' : 'False',   // Harga Termasuk Pajak (matches Jubelio template casing)
       r.defaultLocation,                         // Lokasi
       colName ? `Production order — ${colName}` : 'Production order',  // Keterangan
     ];
@@ -18110,7 +18112,7 @@ async function exportPDPurchaseOrderCsv() {
         Number(v.hpp) || 0,                      // Harga
         Number(v.qty) || 0,                      // Qty
         0,                                       // Nilai Diskon
-        vm.defaultTax,                           // Pajak
+        r.defaultTax || 'No Tax',                // Pajak (was vm.defaultTax — vm undef caused empty cell)
       ];
       if (idx === 0) {
         rows.push([...headerCells, ...itemCells]);
@@ -23370,12 +23372,36 @@ function _rstExportCSVForVendor(vmId) {
   if (!lines.length) { alert('Tidak ada item untuk vendor ini.'); return; }
   const res = _rstResolveVendor(vmId);
   if (!res) { alert('Vendor tidak ditemukan.'); return; }
-  const supplierName = res.name;
-  const phone = res.phone;
-  const email = res.email;
-  const defaultLoc = res.defaultLocation;
-  const defaultTax = res.defaultTax;
-  const taxIncl = res.defaultTaxIncluded ? 'TRUE' : 'FALSE';
+
+  // ── Jubelio-import requires these exact constraints on the header row ──
+  // Match Jubelio template: True/False mixed-case, phone digits-only, every
+  // header field populated. We validate here so the user gets actionable
+  // feedback instead of Jubelio bouncing the CSV on upload.
+  const supplierName = (res.name || '').trim();
+  // "angka tanpa spasi atau tanda hubung" — strip anything non-numeric
+  const phone = String(res.phone || '').replace(/[^0-9]/g, '');
+  const email = (res.email || '').trim();
+  const defaultLoc = (res.defaultLocation || '').trim();
+  const defaultTax = (res.defaultTax || 'No Tax').trim();
+  // Jubelio reference uses "True"/"False" (capitalised), not all-caps
+  const taxIncl = res.defaultTaxIncluded ? 'True' : 'False';
+
+  const missing = [];
+  if (!supplierName) missing.push('Nama Pemasok');
+  if (!phone)        missing.push('No Telp Pemasok (header wajib, format: angka tanpa spasi/dash)');
+  if (!defaultLoc)   missing.push('Lokasi (set Default Lokasi di Vendor Master)');
+  if (!defaultTax)   missing.push('Pajak (set Default Pajak di Vendor Master)');
+  if (missing.length) {
+    alert(`Vendor "${supplierName||vmId}" belum lengkap untuk Jubelio CSV:\n\n• ${missing.join('\n• ')}\n\nLengkapi di Database → Vendor Master, lalu coba lagi.`);
+    return;
+  }
+
+  // Line-level validation
+  const badLines = lines.filter(l => !l.sku || !(Number(l.price) > 0) || !(Number(l.qty) > 0));
+  if (badLines.length) {
+    const sample = badLines.slice(0,5).map(l => `• ${l.sku||'(no sku)'} — price ${l.price||0}, qty ${l.qty||0}`).join('\n');
+    if (!confirm(`${badLines.length} baris belum lengkap (price atau qty = 0):\n\n${sample}${badLines.length>5?`\n...dan ${badLines.length-5} lainnya`:''}\n\nLanjutkan export? (baris kosong bakal di-reject Jubelio)`)) return;
+  }
 
   const today = new Date().toISOString().slice(0, 10);
   const esc = v => {
@@ -23389,13 +23415,17 @@ function _rstExportCSVForVendor(vmId) {
   const note = `Restock ${today}`;
   const csvRows = [COLS.join(',')];
   lines.forEach((it, i) => {
+    const sku   = String(it.sku || '').trim();
+    const price = Math.max(0, Math.round(Number(it.price) || 0));
+    const qty   = Math.max(0, Math.round(Number(it.qty) || 0));
     if (i === 0) {
       csvRows.push(['[auto]', '', esc(today), 'WIB', esc(supplierName),
         esc(email), esc(phone), taxIncl, esc(defaultLoc),
-        esc(note), esc(it.sku), it.price, it.qty, 0, esc(defaultTax)].join(','));
+        esc(note), esc(sku), price, qty, 0, esc(defaultTax)].join(','));
     } else {
+      // Continuation rows: header cells empty, only line cells filled
       csvRows.push(['', '', '', '', '', '', '', '', '', '',
-        esc(it.sku), it.price, it.qty, 0, esc(defaultTax)].join(','));
+        esc(sku), price, qty, 0, esc(defaultTax)].join(','));
     }
   });
   const csv = csvRows.join('\r\n');
