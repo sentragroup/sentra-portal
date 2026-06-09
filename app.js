@@ -17417,13 +17417,23 @@ function buildPDCatalogHTML(title, parents, subsByParent, mode, vendor) {
           ${pic2 ? `<img src="${pdEsc(pic2)}" alt="">` : ''}
         </div>
         <div class="details">
-          <table class="kv">
-            ${showHPP ? `<tr><th>HPP/unit</th><td class="mono">${proj.unitCost?'Rp '+pdFmtIDR(Math.round(proj.unitCost)):'—'}</td></tr>` : ''}
-            <tr><th>Diproduksi</th><td class="mono">${totalQty||'—'} unit</td></tr>
-            ${showSRP ? `<tr><th>SRP</th><td class="mono"><b>Rp ${pdFmtIDR(p.srp)}</b></td></tr>` : ''}
-            ${showRatio && ratio ? `<tr><th>Ratio SRP/HPP</th><td class="mono"><b>${ratio.toFixed(2)}×</b></td></tr>` : ''}
-            ${p.notes ? `<tr><th>Notes</th><td>${pdEsc(p.notes)}</td></tr>` : ''}
-          </table>
+          ${(() => {
+            const dz = _pdResolveParentDesign(p);
+            const designRow = dz?.url
+              ? `<tr><th>Design</th><td><a href="${pdEsc(dz.url)}" target="_blank" style="color:#3C3489;text-decoration:underline;word-break:break-all">${pdEsc(dz.url)}</a>${dz.status?` <span style="font-size:9px;padding:1px 5px;background:#eef0f8;color:#3C3489;border-radius:3px;margin-left:4px">${pdEsc(dz.status)}</span>`:''}</td></tr>`
+              : '';
+            const designerRow = (mode === 'internal' && dz?.designer)
+              ? `<tr><th>Designer</th><td>${pdEsc(dz.designer)}</td></tr>` : '';
+            return `<table class="kv">
+              ${designRow}
+              ${designerRow}
+              ${showHPP ? `<tr><th>HPP/unit</th><td class="mono">${proj.unitCost?'Rp '+pdFmtIDR(Math.round(proj.unitCost)):'—'}</td></tr>` : ''}
+              <tr><th>Diproduksi</th><td class="mono">${totalQty||'—'} unit</td></tr>
+              ${showSRP ? `<tr><th>SRP</th><td class="mono"><b>Rp ${pdFmtIDR(p.srp)}</b></td></tr>` : ''}
+              ${showRatio && ratio ? `<tr><th>Ratio SRP/HPP</th><td class="mono"><b>${ratio.toFixed(2)}×</b></td></tr>` : ''}
+              ${p.notes ? `<tr><th>Notes</th><td>${pdEsc(p.notes)}</td></tr>` : ''}
+            </table>`;
+          })()}
           ${mode === 'internal' && proj.units ? `
             <div class="proj">
               <div class="proj-label">📊 Projection (100% sold)</div>
@@ -17490,21 +17500,28 @@ function buildPDCatalogHTML(title, parents, subsByParent, mode, vendor) {
   <div class="sub">${pdEsc(collName)} · ${pdEsc(parents.length)} SKU · ${today}</div>
   <span class="badge">${modeLabel}</span>
 </header>
-${mode === 'internal' ? (() => {
+${(() => {
   const gp = pdComputeGlobalProjection();
   if (!gp.units) return '';
+  // Per mode: internal = full 4 metrics; external = units + revenue + margin (no HPP/modal);
+  // vendor = units + modal only (no SRP → no revenue / margin)
   const marginColor = gp.grossMargin > 0 ? '#0a7d3a' : gp.grossMargin < 0 ? '#c33' : '#111';
   const pct = gp.grossMarginPct !== null ? ` (${gp.grossMarginPct.toFixed(1)}%)` : '';
+  const cells = [];
+  cells.push(`<div><div class="gp-lbl">Total Diproduksi</div><div class="gp-val">${pdFmtIDR(gp.units)} unit</div></div>`);
+  if (mode === 'internal' || mode === 'vendor') {
+    cells.push(`<div><div class="gp-lbl">Total Modal</div><div class="gp-val">Rp ${pdFmtIDR(gp.modal)}</div></div>`);
+  }
+  if (mode === 'internal' || mode === 'external') {
+    cells.push(`<div><div class="gp-lbl">Total Revenue</div><div class="gp-val">Rp ${pdFmtIDR(gp.revenue100)}</div></div>`);
+    cells.push(`<div><div class="gp-lbl">Gross Margin</div><div class="gp-val" style="color:${marginColor}">Rp ${pdFmtIDR(gp.grossMargin)}${pct}</div></div>`);
+  }
+  const cols = cells.length;
   return `<div class="gp">
     <div class="gp-title">📊 Global Projection · 100% terjual</div>
-    <div class="gp-grid">
-      <div><div class="gp-lbl">Total Diproduksi</div><div class="gp-val">${pdFmtIDR(gp.units)} unit</div></div>
-      <div><div class="gp-lbl">Total Modal</div><div class="gp-val">Rp ${pdFmtIDR(gp.modal)}</div></div>
-      <div><div class="gp-lbl">Total Revenue</div><div class="gp-val">Rp ${pdFmtIDR(gp.revenue100)}</div></div>
-      <div><div class="gp-lbl">Gross Margin</div><div class="gp-val" style="color:${marginColor}">Rp ${pdFmtIDR(gp.grossMargin)}${pct}</div></div>
-    </div>
+    <div class="gp-grid" style="grid-template-columns:repeat(${cols},1fr)">${cells.join('')}</div>
   </div>`;
-})() : ''}
+})()}
 ${cardsHTML || '<div class="empty">Tidak ada SKU untuk export ini.</div>'}
 </body></html>`;
 }
