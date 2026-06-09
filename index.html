@@ -2103,6 +2103,20 @@
           <div class="tcount" id="pd-tcount" style="margin-left:auto">— SKU</div>
         </div>
 
+        <!-- Designer Workflow mirror — design tasks for this collection -->
+        <div id="pd-design-mirror-card" style="margin-top:1rem;background:var(--white);border:1px solid var(--g100);border-radius:8px;overflow:hidden">
+          <div style="padding:10px 14px;background:var(--off);border-bottom:1px solid var(--g100);display:flex;align-items:center;justify-content:space-between;gap:10px">
+            <div style="display:flex;align-items:center;gap:8px;min-width:0">
+              <span style="font-size:11px;color:var(--g400);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.5px">🎨 Designs di Collection ini</span>
+              <span id="pd-design-count" style="font-size:11px;color:var(--g600)">—</span>
+            </div>
+            <button class="btn-ghost" style="font-size:11px;padding:4px 10px" onclick="_pdRefreshDesignMirror()">↻</button>
+          </div>
+          <div id="pd-design-mirror-body" style="font-size:12px">
+            <div style="padding:14px;text-align:center;color:var(--g400);font-size:11px">Memuat...</div>
+          </div>
+        </div>
+
         <!-- Add product form (parent only — variants are added per-product after save) -->
         <div class="form-card" id="pd-add-card" style="margin-top:1rem">
           <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="togglePDAddForm()">
@@ -2116,8 +2130,17 @@
             </div>
             <div class="form-grid">
               <div class="fg"><label>Nama Produk <span class="req">*</span></label>
-                <input type="text" id="pd-sku-name" list="pd-sku-datalist" placeholder="Pilih dari collection items atau ketik baru...">
+                <input type="text" id="pd-sku-name" list="pd-sku-datalist" placeholder="Pilih dari collection items, klik 'Pakai' di design, atau ketik baru...">
                 <datalist id="pd-sku-datalist"></datalist>
+                <input type="hidden" id="pd-design-workflow-id" value="">
+                <input type="hidden" id="pd-design-url" value="">
+                <input type="hidden" id="pd-design-designer" value="">
+                <input type="hidden" id="pd-design-status" value="">
+                <div id="pd-design-linked-hint" style="display:none;margin-top:4px;font-size:11px;color:var(--g600)">
+                  🔗 Linked ke design <strong id="pd-design-linked-name">—</strong>
+                  <a href="#" id="pd-design-linked-link" target="_blank" style="margin-left:4px;color:var(--black)">[link]</a>
+                  <button type="button" onclick="_pdClearDesignLink()" style="margin-left:6px;background:none;border:none;color:#c0392b;cursor:pointer;font-size:11px">✕</button>
+                </div>
               </div>
               <div class="fg"><label>SRP (Rp)</label>
                 <input type="number" id="pd-srp" min="0" step="1" placeholder="cth: 250000">
