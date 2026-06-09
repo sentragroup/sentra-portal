@@ -16272,11 +16272,9 @@ function renderPDDetail() {
   renderPDDetailTable();
 }
 
-// ── Designer Workflow mirror — display DW rows for this collection so the user
-// can pick one and pre-fill the parent SKU form (incl. design link). Each row's
-// link + status are inline-editable; user can also add a brand new design task
-// from this panel without leaving Product Dev. ─────────────────────────────
-let _pdDesignRows = []; // {id, sku_name, project_name, designer, deliverables_status, deliverables_url, deadline}
+// ── Read-only mirror of collection_items (the planned SKUs + their design state).
+// One row per planned SKU; data lives in Collection Development, edited there. ─
+let _pdDesignRows = []; // collection_items rows: {id, sku_name, designer, approval_status, design_preview_url, deadline, category}
 
 async function _pdLoadDesignMirror(cid) {
   const body = document.getElementById('pd-design-mirror-body');
@@ -16284,15 +16282,14 @@ async function _pdLoadDesignMirror(cid) {
   if (!body) return;
   body.innerHTML = `<div style="padding:14px;text-align:center;color:var(--g400);font-size:11px">Memuat...</div>`;
   try {
-    const {data, error} = await sb.from('designer_workflow')
-      .select('id,sku_name,project_name,designer,deliverables_status,deliverables_url,deadline')
+    const {data, error} = await sb.from('collection_items')
+      .select('id,sku_name,designer,approval_status,design_preview_url,deadline,category')
       .eq('collection_id', cid)
-      .order('sku_name', {ascending:true,nullsFirst:false})
-      .order('deadline', {ascending:true,nullsFirst:false});
+      .order('sku_name', {ascending:true,nullsFirst:false});
     if (error) throw error;
     _pdDesignRows = data || [];
     _pdRenderDesignMirror();
-    if (cnt) cnt.textContent = `${_pdDesignRows.length} design task`;
+    if (cnt) cnt.textContent = `${_pdDesignRows.length} SKU`;
   } catch (e) {
     body.innerHTML = `<div style="padding:14px;color:#c0392b;font-size:11px">Gagal: ${e.message||e}</div>`;
   }
@@ -16307,20 +16304,20 @@ function _pdRenderDesignMirror() {
   if (!body) return;
   if (!_pdDesignRows.length) {
     body.innerHTML = `<div style="padding:18px;text-align:center;color:var(--g400);font-size:12px">
-      Belum ada design task di Designer Workflow untuk collection ini.<br>
-      <a href="#dsgworkflow" style="font-size:11px;color:var(--g600)" onclick="showPage('dsgworkflow',null);return false">Buka Designer Workflow →</a>
+      Collection ini belum punya SKU yang direncanakan.<br>
+      <a href="#collections" style="font-size:11px;color:var(--g600)" onclick="showPage('collections',null);return false">Tambah SKU di Collection Development →</a>
     </div>`;
     return;
   }
-  // Read-only status pill — mirror state from Designer Workflow only
+  // Read-only approval status pill from collection_items
   const stPill = s => {
     const v = (s||'').trim();
-    const cls = v === 'Completed' || v === 'Done' || v === 'Approved' ? 'p-active'
-      : v === 'In Progress' || v === 'In Review' ? 'p-signings'
-      : v === 'Revision' ? 'p-near'
+    const cls = v === 'Approved' ? 'p-active'
+      : v === 'In Review' || v === 'In Progress' ? 'p-signings'
+      : v === 'Revision' || v === 'Revisi' ? 'p-near'
       : v === 'Rejected' ? 'p-expired'
       : 'p-draft';
-    return `<span class="pill ${cls}" style="font-size:10px">${v || '—'}</span>`;
+    return `<span class="pill ${cls}" style="font-size:10px">${v || 'Pending'}</span>`;
   };
   const linkCell = u => u
     ? `<a href="${u.replace(/"/g,'&quot;')}" target="_blank" style="color:var(--black);font-size:11px;text-decoration:underline">↗ Buka</a>`
@@ -16330,22 +16327,20 @@ function _pdRenderDesignMirror() {
     <thead><tr style="background:#fafafa">
       <th style="text-align:left;padding:7px 10px;font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">SKU</th>
       <th style="text-align:left;padding:7px 10px;font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Designer</th>
-      <th style="text-align:left;padding:7px 10px;font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Status</th>
-      <th style="text-align:left;padding:7px 10px;font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Link</th>
+      <th style="text-align:left;padding:7px 10px;font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Approval</th>
+      <th style="text-align:left;padding:7px 10px;font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Design Link</th>
       <th style="text-align:right;padding:7px 10px;font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.3px;font-weight:600"></th>
     </tr></thead>
     <tbody>
     ${_pdDesignRows.map(d => {
-      const skuLabel = d.sku_name
-        ? `<strong>${d.sku_name.replace(/</g,'&lt;')}</strong>`
-        : `<span style="color:var(--g400)">${(d.project_name||'—').replace(/</g,'&lt;')}</span><span style="font-size:9px;color:var(--g400);margin-left:4px">(collection-level)</span>`;
+      const cat = d.category ? `<div style="font-size:10px;color:var(--g400);margin-top:2px">${d.category.replace(/</g,'&lt;')}</div>` : '';
       return `<tr style="border-top:1px solid var(--g100)">
-        <td style="padding:7px 10px">${skuLabel}</td>
+        <td style="padding:7px 10px"><strong>${(d.sku_name||'—').replace(/</g,'&lt;')}</strong>${cat}</td>
         <td style="padding:7px 10px;color:var(--g600)">${(d.designer||'—').replace(/</g,'&lt;')}</td>
-        <td style="padding:7px 10px">${stPill(d.deliverables_status)}</td>
-        <td style="padding:7px 10px">${linkCell(d.deliverables_url)}</td>
+        <td style="padding:7px 10px">${stPill(d.approval_status)}</td>
+        <td style="padding:7px 10px">${linkCell(d.design_preview_url)}</td>
         <td style="padding:7px 10px;text-align:right;white-space:nowrap">
-          ${d.sku_name||d.project_name ? `<button class="btn-ghost" style="font-size:11px;padding:3px 10px" onclick="_pdUseDesign(${d.id})">Pakai →</button>` : ''}
+          ${d.sku_name ? `<button class="btn-ghost" style="font-size:11px;padding:3px 10px" onclick="_pdUseDesign('${d.id.replace(/'/g,"\\'")}')">Pakai →</button>` : ''}
         </td>
       </tr>`;
     }).join('')}
@@ -16353,29 +16348,30 @@ function _pdRenderDesignMirror() {
   </table>
   <div style="padding:8px 12px;font-size:10px;color:var(--g400);text-align:right;background:#fafafa;border-top:1px solid var(--g100)">
     Read-only mirror · ubah datanya di
-    <a href="#dsgworkflow" onclick="showPage('dsgworkflow',null);return false" style="color:var(--g600);text-decoration:underline">Designer Workflow</a>
+    <a href="#collections" onclick="showPage('collections',null);return false" style="color:var(--g600);text-decoration:underline">Collection Development</a>
   </div>`;
 }
 
 // Prefill the +Tambah Produk form with this DW row. Also opens the add form
 // if collapsed so the user sees the prefilled values.
-function _pdUseDesign(dwId) {
-  const d = _pdDesignRows.find(x => x.id === dwId);
+function _pdUseDesign(ciId) {
+  const d = _pdDesignRows.find(x => x.id === ciId);
   if (!d) return;
-  const dispName = d.sku_name || d.project_name || '';
+  const dispName = d.sku_name || '';
   const nameInp = document.getElementById('pd-sku-name');
   if (nameInp) nameInp.value = dispName;
-  document.getElementById('pd-design-workflow-id').value = String(d.id);
-  document.getElementById('pd-design-url').value         = d.deliverables_url || '';
+  // Reuse existing hidden inputs — they map straight onto product_dev.design_* fields
+  document.getElementById('pd-design-workflow-id').value = ''; // unused for CI source
+  document.getElementById('pd-design-url').value         = d.design_preview_url || '';
   document.getElementById('pd-design-designer').value    = d.designer || '';
-  document.getElementById('pd-design-status').value      = d.deliverables_status || '';
+  document.getElementById('pd-design-status').value      = d.approval_status || '';
   const hint = document.getElementById('pd-design-linked-hint');
   const hintName = document.getElementById('pd-design-linked-name');
   const hintLink = document.getElementById('pd-design-linked-link');
   if (hint) hint.style.display = 'block';
-  if (hintName) hintName.textContent = `${dispName||'—'} · ${d.designer||'?'} · ${d.deliverables_status||'?'}`;
+  if (hintName) hintName.textContent = `${dispName||'—'} · ${d.designer||'?'} · ${d.approval_status||'Pending'}`;
   if (hintLink) {
-    if (d.deliverables_url) { hintLink.href = d.deliverables_url; hintLink.style.display = ''; }
+    if (d.design_preview_url) { hintLink.href = d.design_preview_url; hintLink.style.display = ''; }
     else hintLink.style.display = 'none';
   }
   // Ensure add form is expanded
