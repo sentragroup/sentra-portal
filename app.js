@@ -18081,9 +18081,9 @@ async function exportPDPurchaseOrderCsv() {
     'Email Pemasok','No Telp. Pemasok','Harga Termasuk Pajak','Lokasi',
     'Keterangan','SKU','Harga','Qty','Nilai Diskon','Pajak'
   ];
-  // Match Jubelio strict importer: "YYYY-MM-DD HH:MM:SS" with time tail.
+  // Jubelio importer requires bare 'YYYY-MM-DD' — adding time tail is rejected.
   const todayDate = new Date().toISOString().slice(0,10);
-  const today     = todayDate + ' 00:00:00';
+  const today     = todayDate;
   const _col = (typeof allColRows !== 'undefined' && Array.isArray(allColRows))
     ? allColRows.find(x => x.id === pdCurrentCollectionId) : null;
   const colName = _col?.collectionName || '';
@@ -23423,13 +23423,14 @@ function _rstExportCSVForVendor(vmId) {
     if (!confirm(`${badLines.length} baris belum lengkap (price atau qty = 0):\n\n${sample}${badLines.length>5?`\n...dan ${badLines.length-5} lainnya`:''}\n\nLanjutkan export? (baris kosong bakal di-reject Jubelio)`)) return;
   }
 
-  // Match Jubelio template strictly:
-  //   - Tanggal: 'YYYY-MM-DD HH:MM:SS' (template example uses this)
+  // Match Jubelio importer rules (confirmed via reject messages):
+  //   - Tanggal: bare 'YYYY-MM-DD'. Adding ' 00:00:00' is REJECTED with
+  //     "Format tanggal tidak sesuai". Spec text is the source of truth
+  //     here, not the time-bearing example row in the template sheet.
   //   - Pajak:   'PPN 11%' or 'No Tax' (registered tax codes)
-  //   - No. Pesanan: explicit reference, not '[auto]' (importer occasionally
-  //     rejects [auto] in CSV mode even though spec mentions it).
+  //   - No. Pesanan: explicit reference, not '[auto]'.
   const todayDate = new Date().toISOString().slice(0, 10);
-  const today     = todayDate + ' 00:00:00';
+  const today     = todayDate;
   const poRef     = `RST-${todayDate.replace(/-/g,'')}-${Math.floor(Math.random()*9000)+1000}`;
   const esc = v => {
     const s = String(v ?? '');
