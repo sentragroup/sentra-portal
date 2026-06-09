@@ -3830,6 +3830,7 @@ function renderMekariTable(rows) {
 
 // ── PURCHASE ORDERS ──
 let allPORows=[], allPOItems=[], allPOBills=[], allPOBillItems=[], allPOReceives=[];
+let allPOExtras=[]; // po_extras: {purchaseorder_id, expected_date, ...}
 let allCPLinks=[];            // collection_po_links rows
 let allCPLinkItems=[];        // collection_po_link_items rows
 let cplItemsByLink={};        // link_id → Set<purchaseorder_detail_id>
@@ -3894,18 +3895,20 @@ async function loadPO(){
       to:     document.getElementById("po-fil-to")?.value||""
     };
     // POs with server-side filter+pagination; items/bills/receives load full (supplementary)
-    const [poData,itemData,billData,billItemData,rcvData]=await Promise.all([
+    const [poData,itemData,billData,billItemData,rcvData,extrasData]=await Promise.all([
       fetchPOPages(filters),
       _fetchAllPages("jubelio_purchase_order_items","*",q=>q.order("purchaseorder_detail_id",{ascending:true})),
       _fetchAllPages("jubelio_purchase_bills"),
       _fetchAllPages("jubelio_purchase_bill_items"),
-      _fetchAllPages("jubelio_purchase_receives")
+      _fetchAllPages("jubelio_purchase_receives"),
+      _fetchAllPages("po_extras"),
     ]);
     allPORows=poData.map(mapPO);
     allPOItems=(itemData||[]).map(mapPOItem);
     allPOBills=(billData||[]);
     allPOBillItems=(billItemData||[]);
     allPOReceives=(rcvData||[]);
+    allPOExtras=(extrasData||[]);
     await refreshCPLinks();
     const qtyByPO={};
     allPOItems.forEach(i=>{qtyByPO[i.purchaseorderId]=(qtyByPO[i.purchaseorderId]||0)+(i.qty||0);});
@@ -3964,12 +3967,37 @@ function renderPOTable(rows){
     const c=s==="ACTIVE"?"p-signings":s==="COMPLETED"?"p-active":s==="CANCELLED"?"p-inactive":"p-draft";
     return `<span class="pill ${c}" style="font-size:11px">${s||"—"}</span>`;
   };
-  const rPill=s=>{
-    if(s==="Penuh")    return `<span class="pill p-active" style="font-size:11px">Diterima Penuh</span>`;
-    if(s==="Over")     return `<span class="pill p-near" style="font-size:11px" title="Diterima lebih dari qty PO">Diterima · Over</span>`;
-    if(s==="Sebagian") return `<span class="pill p-review" style="font-size:11px">Sebagian</span>`;
-    return `<span class="pill p-draft" style="font-size:11px">Belum</span>`;
+  // Visual progress bar showing received/po qty + shipment (bill) count.
+  // Color follows the same urgency convention as restock: green >= 100%,
+  // amber 50-99%, red <50%, neutral if nothing received yet.
+  const progressCell = (totalPOQty, totalRcvd, billCount, rcvStatus) => {
+    if (!totalPOQty) return `<span style="color:var(--g400);font-size:11px">—</span>`;
+    const pct = Math.min(150, Math.round((totalRcvd / totalPOQty) * 100));
+    const fillPct = Math.min(100, pct);
+    const color = rcvStatus === 'Penuh' ? '#1e8f4e'
+                : rcvStatus === 'Over'  ? '#a66800'
+                : rcvStatus === 'Sebagian' ? '#3C3489'
+                : '#c0392b';
+    const label = rcvStatus === 'Penuh' ? `<span style="color:#1e8f4e;font-weight:600">✓ Penuh</span>`
+                : rcvStatus === 'Over'  ? `<span style="color:#a66800;font-weight:600">⚠ Over</span>`
+                : rcvStatus === 'Belum' ? `<span style="color:#c0392b">Belum diterima</span>`
+                : `<span style="color:#3C3489;font-weight:600">${pct}% diterima</span>`;
+    const shipLine = billCount > 0
+      ? `<span style="color:var(--g400)">${billCount} kiriman</span>`
+      : `<span style="color:var(--g400)">belum ada kiriman</span>`;
+    return `<div style="min-width:150px">
+      <div style="display:flex;justify-content:space-between;font-size:10px;margin-bottom:3px">
+        ${label}
+        <span style="font-family:var(--mono);color:var(--g600)">${totalRcvd.toLocaleString('id-ID')}/${totalPOQty.toLocaleString('id-ID')}</span>
+      </div>
+      <div style="background:var(--g100);border-radius:99px;height:6px;overflow:hidden">
+        <div style="background:${color};height:100%;width:${fillPct}%;transition:width .3s"></div>
+      </div>
+      <div style="font-size:10px;color:var(--g400);margin-top:3px">${shipLine}</div>
+    </div>`;
   };
+  // Quick lookup: purchaseorder_id → expected_date
+  const extrasById = new Map(allPOExtras.map(e => [e.purchaseorder_id, e]));
   tbody.innerHTML=rows.flatMap(r=>{
     const items=allPOItems.filter(i=>i.purchaseorderId===r.id);
     const bills=allPOBills.filter(b=>b.purchaseorder_id===r.id);
@@ -3985,23 +4013,24 @@ function renderPOTable(rows){
     const totalPOQty=items.reduce((s,it)=>s+(it.qty||0),0);
     const totalRcvd=Object.values(rcvdByDetailId).reduce((s,v)=>s+v,0);
     const rcvStatus=bills.length===0?"Belum":totalRcvd>totalPOQty?"Over":totalRcvd>=totalPOQty?"Penuh":"Sebagian";
-    const rcv=allPOReceives.find(rx=>rx.purchaseorder_no===r.purchaseorderNo);
-    const rcvDate=rcv?new Date(rcv.transaction_date).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"2-digit"}):null;
     const gt=r.grandTotal!=null?`Rp ${Math.round(r.grandTotal).toLocaleString("id-ID")}`:"—";
     const dt=r.transactionDate?new Date(r.transactionDate).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"—";
     const hasItems=items.length>0;
     const totalQty=items.reduce((s,it)=>s+(it.qty||0),0);
+    const ext = extrasById.get(r.id);
+    const expectedDate = ext?.expected_date || '';
+    const expectedInput = `<input type="date" value="${expectedDate}" onchange="savePOExpectedDate(${r.id}, this.value)" style="font-size:11px;padding:3px 6px;border:1px solid var(--g100);border-radius:4px;background:var(--white)">`;
     const main=`<tr>
       <td style="text-align:center;cursor:${hasItems?"pointer":"default"};color:var(--g400);user-select:none" onclick="${hasItems?`togglePOItems(${r.id})`:""}" id="po-toggle-${r.id}">${hasItems?"▶":""}</td>
       <td><a href="https://v2.jubelio.com/purchase/orders/detail/${r.id}" target="_blank" style="font-family:var(--mono);font-size:12px;color:#3C3489;text-decoration:none">${r.purchaseorderNo||r.id}</a></td>
       <td style="font-size:13px">${r.supplierName||"—"}</td>
       <td>${sPill(r.status)}</td>
-      <td style="white-space:nowrap">${rPill(rcvStatus)}${rcvDate?`<span style="font-size:10px;color:var(--g400);display:block;margin-top:2px">${rcvDate}</span>`:""}</td>
+      <td>${progressCell(totalPOQty, totalRcvd, bills.length, rcvStatus)}</td>
       <td style="white-space:nowrap;font-size:12px">${dt}</td>
+      <td style="white-space:nowrap">${expectedInput}</td>
       <td style="font-size:12px">${r.locationName||"—"}</td>
       <td style="white-space:nowrap;font-size:12px;font-weight:600">${gt}</td>
       <td style="font-size:12px;text-align:right;font-weight:600">${totalQty?totalQty.toLocaleString("id-ID"):"—"}</td>
-      <td style="font-size:12px;color:var(--g400)">${items.length} item${items.length!==1?"s":""}</td>
       <td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--g600)" title="${(r.note||"").replace(/"/g,"&quot;")}">${r.note||"—"}</td>
       <td style="font-size:11px">${(poToCollections[r.id]||[]).map(c=>`<span class="pill p-signings" style="font-size:10px;margin-right:3px">${c}</span>`).join("")||`<span style="color:var(--g400)">—</span>`}</td>
       <td style="font-size:11px;color:var(--g400);white-space:nowrap">${relTime(r.syncedAt)}</td>
@@ -4048,6 +4077,28 @@ function togglePOItems(poId){
   if(tog) tog.textContent=open?"▶":"▼";
 }
 
+// Inline-save the user's expected delivery date for a PO into po_extras.
+// Empty value clears the row's expected_date (kept the upsert row so future
+// updates re-use the same record).
+async function savePOExpectedDate(poId, dateStr) {
+  const date = (dateStr || '').trim() || null;
+  try {
+    const {error} = await sb.from('po_extras').upsert({
+      purchaseorder_id: poId,
+      expected_date: date,
+      updated_at: new Date().toISOString(),
+      updated_by: currentUser,
+    }, { onConflict: 'purchaseorder_id' });
+    if (error) throw error;
+    // Update local cache so a follow-up render reflects the change
+    const idx = allPOExtras.findIndex(e => e.purchaseorder_id === poId);
+    if (idx >= 0) allPOExtras[idx] = { ...allPOExtras[idx], expected_date: date };
+    else allPOExtras.push({ purchaseorder_id: poId, expected_date: date });
+  } catch (e) {
+    alert('Gagal save expected date: ' + (e.message || e));
+  }
+}
+
 async function refreshCPLinks(){
   const queries=[
     sb.from("collection_po_links").select("*"),
@@ -4071,6 +4122,10 @@ async function refreshCPLinks(){
   // purchaseorder_id → collection names
   poToCollections={};
   colToPos={};
+  // Expected date is now sourced from po_extras (set in Track PO module).
+  // collection_po_links.expected_date still read as a fallback for legacy
+  // rows that were set before the migration.
+  const extrasById = new Map((allPOExtras||[]).map(e => [e.purchaseorder_id, e.expected_date]));
   allCPLinks.forEach(lnk=>{
     const colName=colNameMap[lnk.collection_id];
     const col=colName?{collectionName:colName}:allColRows.find(r=>r.id===lnk.collection_id);
@@ -4080,7 +4135,12 @@ async function refreshCPLinks(){
       poToCollections[lnk.purchaseorder_id].push(col.collectionName);
     }
     if(!colToPos[lnk.collection_id]) colToPos[lnk.collection_id]=[];
-    colToPos[lnk.collection_id].push({linkId:lnk.id, poId:lnk.purchaseorder_id, expectedDate:lnk.expected_date||"", po});
+    const expFromExtras = extrasById.get(lnk.purchaseorder_id) || '';
+    colToPos[lnk.collection_id].push({
+      linkId: lnk.id, poId: lnk.purchaseorder_id,
+      expectedDate: expFromExtras || lnk.expected_date || '',
+      po,
+    });
   });
 }
 
@@ -6668,15 +6728,17 @@ function renderColPOCards(colId) {
         const expPast=expectedDate&&new Date(expectedDate+"T00:00:00")<today;
         const expOverdue=expPast&&!actualDate;
         const expLate=expPast&&actualDate&&new Date(actualDate)>new Date(expectedDate+"T00:00:00");
-        const inputBorder=expOverdue?"1px solid #e74c3c":expLate?"1px solid #e67e22":"1px solid var(--g100)";
-        const inputBg=expOverdue?"#fdecea":expLate?"#fff3e0":"var(--white)";
+        const expColor=expOverdue?"#c0392b":expLate?"#a66800":"var(--black)";
+        const expDisplay = expectedDate
+          ? `<span style="font-size:12px;font-weight:600;color:${expColor}">${new Date(expectedDate+'T00:00:00').toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'numeric'})}</span>`
+          : `<span style="font-size:11px;color:var(--g400)">Belum diset</span>`;
         return `<div style="padding:10px 14px;display:flex;gap:24px;align-items:center;border-bottom:1px solid var(--g100);flex-wrap:wrap">
         <div style="display:flex;align-items:center;gap:8px">
-          <span style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">Expected</span>
-          <input type="date" value="${expectedDate||""}" style="font-size:12px;padding:3px 8px;border:${inputBorder};border-radius:4px;background:${inputBg}"
-            onchange="saveCPLExpectedDate('${linkId}','${colId}',this.value)">
+          <span style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)" title="Set di modul Track Purchase Order">Expected</span>
+          ${expDisplay}
           ${expOverdue?`<span class="pill p-expired" style="font-size:9px">Overdue</span>`:""}
           ${expLate?`<span class="pill p-near" style="font-size:9px">Terlambat</span>`:""}
+          <a href="#po" onclick="showPage('po',null);return false" title="Buka Track Purchase Order untuk edit" style="font-size:10px;color:#3C3489;text-decoration:none">✎ edit di Track PO</a>
         </div>`;
       })()}
         <div style="display:flex;align-items:center;gap:8px">
