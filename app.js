@@ -22880,11 +22880,12 @@ function _rstRenderProductCard(p) {
     const bdr = p.minDays<7 ? '#e8b8b8' : p.minDays<14 ? '#ffb74d' : '#ffe082';
     urgBadge  = `<span style="font-size:10px;background:${bg};color:${clr};border:1px solid ${bdr};border-radius:3px;padding:2px 6px;font-family:var(--mono)">⚠ ${Math.floor(p.minDays)}d</span>`;
   }
-  // Show as many photos as Jubelio gave us (max 2). No placeholder when
-  // a second photo doesn't exist — just don't render the slot.
-  const cardImgs = (Array.isArray(p.imageUrls) && p.imageUrls.length)
-    ? p.imageUrls.slice(0, 2)
+  // Show as many photos as Jubelio gave us (max 2), but skip size-chart
+  // templates so the builder shows real product photography only.
+  const cardImgsRaw = (Array.isArray(p.imageUrls) && p.imageUrls.length)
+    ? p.imageUrls
     : (p.thumbnail ? [p.thumbnail] : []);
+  const cardImgs = cardImgsRaw.filter(u => u && !_rstIsSizeChartUrl(u)).slice(0, 2);
   const thumb = cardImgs.length
     ? `<div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0">${cardImgs.map(u => `<img src="${u.replace(/"/g,'&quot;')}" style="width:56px;height:56px;object-fit:cover;border-radius:4px;border:1px solid var(--g100);display:block" onerror="this.style.display='none'">`).join('')}</div>`
     : `<div style="width:56px;height:56px;background:var(--g100);border-radius:4px;flex-shrink:0"></div>`;
@@ -23525,22 +23526,47 @@ function _rstOpenPrintWindow(title, bodyHtml) {
 
 // Group lines by parent product for image-friendly PDFs. Uses rowspan to show
 // each product thumbnail once across its variant rows.
+// Apparel sizing convention — smallest first, OS at the end. Used to sort
+// variant rows inside each parent group in the vendor PDFs.
+const _RST_SIZE_ORDER = ['XS','S','M','L','XL','XXL','XXXL','4XL','5XL','OS'];
+
 function _rstGroupByParentForPDF(lines) {
-  // Preserve added order: first occurrence of each parent gets sorted by sku
   const map = new Map();
   for (const l of lines) {
     if (!map.has(l.parentName)) map.set(l.parentName, { thumbnail: l.thumbnail, parentName: l.parentName, brand: l.brand, ip: l.ip, vendorName: l.vendorName, items: [] });
     map.get(l.parentName).items.push(l);
   }
-  for (const g of map.values()) g.items.sort((a,b) => (a.sku||'').localeCompare(b.sku||''));
-  // Enrich with up to 2 photos from product_dev (front + back) so vendor PDFs
-  // can show the same images the Product Dev catalog uses, not just the small
-  // Jubelio thumbnail.
+  // Sort items inside each parent by apparel-size order (S→M→L→XL…), SKU tiebreak.
+  for (const g of map.values()) g.items.sort((a, b) => {
+    const ai = _RST_SIZE_ORDER.indexOf((a.size||'').trim().toUpperCase());
+    const bi = _RST_SIZE_ORDER.indexOf((b.size||'').trim().toUpperCase());
+    const ax = ai < 0 ? _RST_SIZE_ORDER.length : ai;
+    const bx = bi < 0 ? _RST_SIZE_ORDER.length : bi;
+    if (ax !== bx) return ax - bx;
+    return (a.sku||'').localeCompare(b.sku||'');
+  });
+  // Enrich with up to 2 photos
   const groups = [...map.values()];
   for (const g of groups) {
     g.pictures = _rstResolveParentPictures(g.parentName);
   }
   return groups;
+}
+
+// Heuristic: skip Jubelio image URLs that look like size-chart / size-guide
+// templates. SDY's template images use the "*_final_fix*" / "*fix_2025*"
+// pattern; other brands sometimes name files with "size-chart" or "chart"
+// directly. False positives are rare; if a real photo gets dropped, add a
+// stricter pattern here.
+function _rstIsSizeChartUrl(url) {
+  if (!url) return false;
+  const u = String(url).toLowerCase();
+  return /size[-_]?chart/.test(u)
+      || /sizechart/.test(u)
+      || /size[-_]?guide/.test(u)
+      || /measurement/.test(u)
+      || /final[-_]fix/.test(u)   // SDY template overlay
+      || /fix[-_]?2025/.test(u);  // SDY 2025 template
 }
 
 // Map a restock parent name to up to 2 photos (front + back). Priority:
@@ -23552,24 +23578,22 @@ function _rstResolveParentPictures(parentName) {
   const pics = [];
   if (!parentName) return pics;
   const want = parentName.trim().toLowerCase();
+  const push = (u) => {
+    if (!u) return;
+    if (_rstIsSizeChartUrl(u)) return;   // never let template/size-chart slip into vendor PDFs
+    if (pics.includes(u)) return;
+    if (pics.length < 2) pics.push(u);
+  };
   // 1. Product Dev manual uploads (preferred — usually better staged photography)
   if (Array.isArray(allPDRows)) {
     const parent = allPDRows.find(r => !r.parentId && (r.skuName||'').trim().toLowerCase() === want);
-    if (parent && Array.isArray(parent.pictures)) {
-      for (const u of parent.pictures) {
-        if (u && pics.length < 2) pics.push(u);
-      }
-    }
+    if (parent && Array.isArray(parent.pictures)) parent.pictures.forEach(push);
   }
   if (pics.length >= 2) return pics;
-  // 2. Jubelio group-level images (synced via sync-jubelio-item-thumbnails)
+  // 2. Jubelio group-level images
   if (_rstData?.products) {
     const p = _rstData.products.find(x => (x.name||'').trim().toLowerCase() === want);
-    if (p && Array.isArray(p.imageUrls)) {
-      for (const u of p.imageUrls) {
-        if (u && pics.length < 2 && !pics.includes(u)) pics.push(u);
-      }
-    }
+    if (p && Array.isArray(p.imageUrls)) p.imageUrls.forEach(push);
   }
   return pics;
 }
@@ -23636,10 +23660,17 @@ function _rstBuildPDFAllBody(lines, today) {
   const totalNilai = lines.reduce((s,l) => s+l.qty*l.price, 0);
   const fmt = v => 'Rp ' + Math.round(v).toLocaleString('id-ID');
   // Sort by vendor then parent (preserve grouping for nicer rowspan)
-  const sorted = lines.slice().sort((a,b) =>
-    (a.vendorName||'').localeCompare(b.vendorName||'', 'id') ||
-    (a.parentName||'').localeCompare(b.parentName||'', 'id') ||
-    (a.sku||'').localeCompare(b.sku||''));
+  // Sort by vendor → parent → size (apparel order), SKU as last tiebreak.
+  const sorted = lines.slice().sort((a, b) => {
+    const v = (a.vendorName||'').localeCompare(b.vendorName||'', 'id'); if (v) return v;
+    const p = (a.parentName||'').localeCompare(b.parentName||'', 'id'); if (p) return p;
+    const ai = _RST_SIZE_ORDER.indexOf((a.size||'').trim().toUpperCase());
+    const bi = _RST_SIZE_ORDER.indexOf((b.size||'').trim().toUpperCase());
+    const ax = ai < 0 ? _RST_SIZE_ORDER.length : ai;
+    const bx = bi < 0 ? _RST_SIZE_ORDER.length : bi;
+    if (ax !== bx) return ax - bx;
+    return (a.sku||'').localeCompare(b.sku||'');
+  });
   // Group by parentName preserving sort
   const groups = [];
   let cur = null;
