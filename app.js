@@ -22724,7 +22724,7 @@ async function loadRestock() {
     const [soldItemsRaw, stockRows, itemInfoRows, poItemsForVendor, poOrders] = await Promise.all([
       _fetchAllPagesIn('jubelio_sales_order_items','salesorder_id,item_id,qty','item_id', allItemIds),
       _fetchAllPagesIn('jubelio_inventory_stocks','item_id,on_hand','item_id', allItemIds),
-      _fetchAllPagesIn('jubelio_items','item_id,item_code,item_name,thumbnail','item_id', allItemIds),
+      _fetchAllPagesIn('jubelio_items','item_id,item_code,item_name,thumbnail,image_urls','item_id', allItemIds),
       _fetchAllPagesIn('jubelio_purchase_order_items','purchaseorder_id,item_id','item_id', allItemIds),
       _fetchAllPages('jubelio_purchase_orders','purchaseorder_id,supplier_name,contact_id,transaction_date'),
     ]);
@@ -22761,7 +22761,7 @@ async function loadRestock() {
     const productMap = {};
     for (const m of mappings) {
       const { item_name: parentName, brand, ip, collection, jubelio_item_id: itemId } = m;
-      if (!productMap[parentName]) productMap[parentName] = { name:parentName, brand, ip, collection:collection||'', thumbnail:null, variants:[] };
+      if (!productMap[parentName]) productMap[parentName] = { name:parentName, brand, ip, collection:collection||'', thumbnail:null, imageUrls:[], variants:[] };
       const info        = infoMap[itemId]  || {};
       const stock       = stockMap[itemId] || 0;
       const qtySold     = qtyMap[itemId]   || 0;
@@ -22770,6 +22770,10 @@ async function loadRestock() {
       const suggestedQty= avgDaily > 0 ? Math.max(0, Math.ceil(RESTOCK_TARGET * avgDaily) - stock) : 0;
       const needsRestock= daysOfStock !== null && daysOfStock < RESTOCK_LEAD_DAYS;
       if (!productMap[parentName].thumbnail && info.thumbnail) productMap[parentName].thumbnail = info.thumbnail;
+      // Capture the full image list once per parent (first variant that has it wins)
+      if (!productMap[parentName].imageUrls.length && Array.isArray(info.image_urls) && info.image_urls.length) {
+        productMap[parentName].imageUrls = info.image_urls;
+      }
       productMap[parentName].variants.push({
         itemId, itemCode: info.item_code||'', itemNameFull: info.item_name||parentName,
         size: _rstParseSize(info.item_code),
@@ -23438,6 +23442,30 @@ function _rstExportCSVForVendor(vmId) {
   setTimeout(() => URL.revokeObjectURL(url), 200);
 }
 
+// Trigger sync-jubelio-item-thumbnails (refetch all) so jubelio_items.image_urls
+// gets populated with the full image array. Re-run when vendor PDFs show
+// "Belum ada foto belakang" — Jubelio item screen usually has 2+ images,
+// we just had only thumbnail before. Uses the supabase client so it picks
+// up the user's JWT and passes the function's verify_jwt check.
+async function _rstSyncJubelioPhotos(btn) {
+  const original = btn?.textContent;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Menyinkronkan…'; }
+  try {
+    const { data, error } = await sb.functions.invoke('sync-jubelio-item-thumbnails?refetch=true', { method: 'POST' });
+    if (error) throw error;
+    const ok = data?.ok !== false;
+    const updated = data?.skusUpdated ?? '—';
+    const groups  = data?.groupsWithImages ?? '—';
+    alert(ok
+      ? `✓ Sync foto selesai. ${updated} SKU diperbarui dari ${groups} produk Jubelio.\n\nReload halaman untuk lihat foto baru di PDF vendor.`
+      : `Sync selesai dengan warning:\n${JSON.stringify(data)}`);
+  } catch (e) {
+    alert('Gagal sync: ' + (e.message || e));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = original || '🔄 Sync Foto Jubelio'; }
+  }
+}
+
 // Make sure product_dev rows are cached so _rstResolveParentPictures() can
 // match parent names to PD photo arrays. Cheap no-op once loaded.
 async function _rstEnsurePDLoaded() {
@@ -23534,17 +23562,31 @@ function _rstGroupByParentForPDF(lines) {
   return groups;
 }
 
-// Map a restock parent name to up to 2 product_dev pictures (front + back).
-// Exact (case-insensitive) match on sku_name; falls back to the existing
-// Jubelio thumbnail if no PD row matches.
+// Map a restock parent name to up to 2 photos (front + back). Priority:
+//   1. product_dev.picture_urls (manually uploaded)
+//   2. jubelio_items.image_urls (auto-pulled by sync-jubelio-item-thumbnails)
+// Falls back silently to [] when neither has them — caller will render the
+// 'Belum ada foto...' placeholder.
 function _rstResolveParentPictures(parentName) {
   const pics = [];
-  if (Array.isArray(allPDRows) && parentName) {
-    const want = parentName.trim().toLowerCase();
+  if (!parentName) return pics;
+  const want = parentName.trim().toLowerCase();
+  // 1. Product Dev manual uploads (preferred — usually better staged photography)
+  if (Array.isArray(allPDRows)) {
     const parent = allPDRows.find(r => !r.parentId && (r.skuName||'').trim().toLowerCase() === want);
     if (parent && Array.isArray(parent.pictures)) {
       for (const u of parent.pictures) {
         if (u && pics.length < 2) pics.push(u);
+      }
+    }
+  }
+  if (pics.length >= 2) return pics;
+  // 2. Jubelio group-level images (synced via sync-jubelio-item-thumbnails)
+  if (_rstData?.products) {
+    const p = _rstData.products.find(x => (x.name||'').trim().toLowerCase() === want);
+    if (p && Array.isArray(p.imageUrls)) {
+      for (const u of p.imageUrls) {
+        if (u && pics.length < 2 && !pics.includes(u)) pics.push(u);
       }
     }
   }
