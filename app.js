@@ -253,7 +253,7 @@ function showPage(name, el) {
   document.getElementById("page-"+_pageId).classList.add("active");
   if (el) el.classList.add("active");
   const _c = document.querySelector('.content'); if (_c) _c.scrollTop = 0;
-  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",txmap:"Transaction Mapping",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)",vendormaster:"Vendor Master",rnd:"R&D Product"};
+  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",txmap:"Transaction Mapping",intpurchase:"Internal Purchase",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)",vendormaster:"Vendor Master",rnd:"R&D Product"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -293,6 +293,15 @@ function showPage(name, el) {
     if(_fe && !_fe.value) _fe.value=_fr;
     if(_te && !_te.value) _te.value=_to;
     loadTxMap();
+  }
+  if (name==="intpurchase") {
+    // Default date range: last 90 days (internal purchases are lower volume)
+    const _now=new Date(), _to=_now.toISOString().slice(0,10);
+    const _fr=new Date(_now-90*864e5).toISOString().slice(0,10);
+    const _fe=document.getElementById('ip-from'), _te=document.getElementById('ip-to');
+    if(_fe && !_fe.value) _fe.value=_fr;
+    if(_te && !_te.value) _te.value=_to;
+    loadInternalPurchase();
   }
   if (name==="invtransferout" || name==="invtransferin" || name==="invtransfer") {
     // Default: last 90 days (transfers are lower-volume than sales)
@@ -19557,7 +19566,7 @@ async function deleteKol(id) {
 // Supports bulk-edit: select multiple rows, set category + project ref once.
 
 const TX_EXCLUDE_LOCATIONS = ['Gudang Bintaro', 'Gudang Marte'];
-const TX_CATEGORIES = ['Wholesale', 'Consignment', 'Pop Up Booth'];
+const TX_CATEGORIES = ['Wholesale', 'Consignment', 'Pop Up Booth', 'Internal Purchase'];
 let _txRows = [];               // current page rows with mapping merged in
 let _txTotalCount = 0;
 let _txPage = 0;
@@ -19592,10 +19601,14 @@ function _txRefOptions(category) {
 }
 
 function _txRefSelectHTML(rowId, category, currentValue) {
-  const opts = _txRefOptions(category);
   if (!category) {
     return `<select disabled style="width:100%;padding:4px 6px;font-size:11px;border:1px solid var(--g100);border-radius:3px;background:var(--off);color:var(--g400)"><option>— pilih category dulu —</option></select>`;
   }
+  // Internal Purchase doesn't have a lookup table — free-text input (buyer name)
+  if (category === 'Internal Purchase') {
+    return `<input type="text" value="${_txEsc(currentValue||'')}" placeholder="Nama pembeli / staff" style="width:100%;padding:4px 6px;font-size:11px;border:1px solid var(--g100);border-radius:3px;background:var(--white)" onblur="updateTxField(${rowId},'project_ref',this.value)">`;
+  }
+  const opts = _txRefOptions(category);
   if (!opts.length) {
     return `<select disabled style="width:100%;padding:4px 6px;font-size:11px;border:1px solid var(--g100);border-radius:3px;background:var(--off);color:var(--g400)"><option>${category==='Pop Up Booth'?'Tidak ada event di Pop Up Booth':'Tidak ada partner di Distribution Master'}</option></select>`;
   }
@@ -19616,6 +19629,12 @@ function _txUpdateBulkRefOptions() {
   if (!sel) return;
   if (!cat) {
     sel.innerHTML = `<option value="">— pilih category dulu —</option>`;
+    sel.disabled = true;
+    return;
+  }
+  // Internal Purchase ref is free-text per row, not a lookup. Disable bulk ref.
+  if (cat === 'Internal Purchase') {
+    sel.innerHTML = `<option value="">— Internal Purchase: isi ref per row —</option>`;
     sel.disabled = true;
     return;
   }
@@ -19939,6 +19958,143 @@ async function clearTxBulkClear() {
     clearTxSelection();
     loadTxMap();
   } catch(e) { alert('Gagal: '+(e.message||e)); }
+}
+
+// ── INTERNAL PURCHASE ────────────────────────────────────────────────────────
+// Shows only transactions mapped to category 'Internal Purchase' from the
+// Transaction Mapping module. Each row exposes a bukti-transfer URL input
+// stored on transaction_mappings.transfer_proof_url so finance can verify
+// the staff payment matches the Jubelio order amount.
+
+let _ipRows = []; // {salesorder_id, salesorder_no, ..., _mapping}
+
+async function loadInternalPurchase() {
+  const tbody = document.getElementById('ipTableBody');
+  if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="9">Memuat...</td></tr>`;
+  const from = document.getElementById('ip-from')?.value || '';
+  const to   = document.getElementById('ip-to')?.value || '';
+  const proofFil = document.getElementById('ip-fil-proof')?.value || '';
+  const search = (document.getElementById('ip-search')?.value || '').trim().toLowerCase();
+  try {
+    // 1. Mappings tagged Internal Purchase
+    let mq = sb.from('transaction_mappings').select('*').eq('category', 'Internal Purchase');
+    const {data: maps, error: mErr} = await mq;
+    if (mErr) throw mErr;
+    if (!maps || !maps.length) {
+      tbody.innerHTML = `<tr><td class="empty-td" colspan="9">Belum ada transaksi yang di-map ke Internal Purchase. Map di modul Transaction Mapping dulu.</td></tr>`;
+      _ipRows = [];
+      _renderIPStats();
+      const tc=document.getElementById('ip-tcount'); if(tc) tc.textContent = '0 entri';
+      return;
+    }
+    const orderIds = maps.map(m => m.salesorder_id);
+    // 2. Fetch the matching sales orders (chunked)
+    const ordRows = [];
+    for (let i = 0; i < orderIds.length; i += 500) {
+      const chunk = orderIds.slice(i, i+500);
+      let q = sb.from('jubelio_sales_orders').select(
+        'salesorder_id,salesorder_no,transaction_date,customer_name,shipping_full_name,wms_status,sub_total,is_canceled,note,location_name'
+      ).in('salesorder_id', chunk);
+      if (from) q = q.gte('transaction_date', from);
+      if (to)   q = q.lte('transaction_date', to + 'T23:59:59');
+      const {data} = await q;
+      ordRows.push(...(data||[]));
+    }
+    const ordById = new Map(ordRows.map(o => [o.salesorder_id, o]));
+    // 3. Merge: only keep rows whose order survived the date filter
+    let merged = maps
+      .filter(m => ordById.has(m.salesorder_id))
+      .map(m => ({ ...ordById.get(m.salesorder_id), _mapping: m }))
+      .sort((a, b) => (b.transaction_date||'').localeCompare(a.transaction_date||''));
+    // 4. Apply proof filter + search
+    if (proofFil === 'missing') merged = merged.filter(r => !r._mapping?.transfer_proof_url);
+    else if (proofFil === 'filled') merged = merged.filter(r => !!r._mapping?.transfer_proof_url);
+    if (search) {
+      merged = merged.filter(r =>
+        (r.salesorder_no||'').toLowerCase().includes(search) ||
+        (r._mapping?.project_ref||'').toLowerCase().includes(search) ||
+        (r.customer_name||'').toLowerCase().includes(search) ||
+        (r.shipping_full_name||'').toLowerCase().includes(search)
+      );
+    }
+    _ipRows = merged;
+    _renderIPTable();
+    _renderIPStats();
+  } catch (e) {
+    console.error('loadInternalPurchase:', e);
+    if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="9">Gagal: ${e.message||e}</td></tr>`;
+  }
+}
+
+function _renderIPStats() {
+  const total = _ipRows.length;
+  const pending = _ipRows.filter(r => !r._mapping?.transfer_proof_url).length;
+  const done = total - pending;
+  const sum = _ipRows.reduce((s, r) => s + Number(r.sub_total || 0), 0);
+  const tEl = document.getElementById('ip-s-total');   if (tEl) tEl.textContent = total;
+  const pEl = document.getElementById('ip-s-pending'); if (pEl) pEl.textContent = pending;
+  const dEl = document.getElementById('ip-s-done');    if (dEl) dEl.textContent = done;
+  const aEl = document.getElementById('ip-s-amount');  if (aEl) aEl.textContent = _txRp(sum);
+}
+
+function _renderIPTable() {
+  const tbody = document.getElementById('ipTableBody');
+  if (!tbody) return;
+  const tc = document.getElementById('ip-tcount');
+  if (!_ipRows.length) {
+    tbody.innerHTML = `<tr><td class="empty-td" colspan="9">Tidak ada data sesuai filter.</td></tr>`;
+    if (tc) tc.textContent = '0 entri';
+    return;
+  }
+  if (tc) tc.textContent = `${_ipRows.length} entri`;
+  tbody.innerHTML = _ipRows.map(r => {
+    const m = r._mapping || {};
+    const proof = m.transfer_proof_url || '';
+    const isCanceled = r.is_canceled || (r.wms_status === 'CANCELED');
+    const jubNote = (r.note || '').replace(/\s+/g, ' ').trim();
+    const mappedAt = m.mapped_at ? new Date(m.mapped_at).toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'2-digit'}) : '—';
+    const proofLink = proof
+      ? `<a href="${_txEsc(proof)}" target="_blank" style="font-size:10px;color:#3C3489;text-decoration:underline">↗ Lihat</a>`
+      : `<span style="font-size:10px;color:#c0392b">⚠ Belum ada</span>`;
+    return `<tr>
+      <td class="mono" style="font-size:11px;font-weight:600">${_txEsc(r.salesorder_no || ('#'+r.salesorder_id))}</td>
+      <td class="mono" style="font-size:11px;white-space:nowrap">${_txDate(r.transaction_date)}</td>
+      <td style="font-size:12px;font-weight:600">${_txEsc(m.project_ref || '—')}</td>
+      <td style="font-size:11px;color:var(--g600)">${_txEsc(r.customer_name || r.shipping_full_name || '—')}</td>
+      <td class="mono" style="text-align:right;font-size:11px;white-space:nowrap">${_txRp(r.sub_total)}</td>
+      <td><span class="pill ${isCanceled ? 'p-expired' : 'p-info'}" style="font-size:10px">${_txEsc(r.wms_status || '—')}</span></td>
+      <td>
+        <div style="display:flex;gap:6px;align-items:center">
+          <input type="url" value="${_txEsc(proof)}" placeholder="https:// (paste Drive / WhatsApp / photo link)" style="flex:1;padding:4px 6px;font-size:11px;border:1px solid var(--g100);border-radius:3px;background:var(--white)" onblur="saveIPProof(${r.salesorder_id}, this.value)">
+          ${proofLink}
+        </div>
+      </td>
+      <td style="font-size:11px;color:var(--g600);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_txEsc(jubNote)}">${jubNote || '<span style="color:var(--g400)">—</span>'}</td>
+      <td style="font-size:10px;color:var(--g400);white-space:nowrap">${mappedAt}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function saveIPProof(salesorderId, url) {
+  const val = (url || '').trim() || null;
+  try {
+    const {error} = await sb.from('transaction_mappings').update({
+      transfer_proof_url: val,
+      last_updated: new Date().toISOString(),
+      last_updated_by: currentUser,
+    }).eq('salesorder_id', salesorderId);
+    if (error) throw error;
+    const row = _ipRows.find(r => r.salesorder_id === salesorderId);
+    if (row) row._mapping = { ...(row._mapping||{}), transfer_proof_url: val };
+    _renderIPTable();
+    _renderIPStats();
+  } catch (e) { alert('Gagal save bukti: ' + (e.message||e)); }
+}
+
+function clearInternalPurchaseFilters() {
+  ['ip-from','ip-to','ip-search'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  const pf = document.getElementById('ip-fil-proof'); if (pf) pf.value = '';
+  loadInternalPurchase();
 }
 
 // ── 8. INVENTORY TRANSFER ──
