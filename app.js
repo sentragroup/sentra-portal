@@ -18081,7 +18081,9 @@ async function exportPDPurchaseOrderCsv() {
     'Email Pemasok','No Telp. Pemasok','Harga Termasuk Pajak','Lokasi',
     'Keterangan','SKU','Harga','Qty','Nilai Diskon','Pajak'
   ];
-  const today = new Date().toISOString().slice(0,10);
+  // Match Jubelio strict importer: "YYYY-MM-DD HH:MM:SS" with time tail.
+  const todayDate = new Date().toISOString().slice(0,10);
+  const today     = todayDate + ' 00:00:00';
   const _col = (typeof allColRows !== 'undefined' && Array.isArray(allColRows))
     ? allColRows.find(x => x.id === pdCurrentCollectionId) : null;
   const colName = _col?.collectionName || '';
@@ -18106,13 +18108,16 @@ async function exportPDPurchaseOrderCsv() {
       r.defaultLocation,                         // Lokasi
       colName ? `Production order — ${colName}` : 'Production order',  // Keterangan
     ];
+    // Map PPN → 'PPN 11%' to match Jubelio's registered tax code
+    let lineTax = (r.defaultTax || 'No Tax').trim();
+    if (lineTax === 'PPN') lineTax = 'PPN 11%';
     items.forEach((v, idx) => {
       const itemCells = [
         v.displayCode,                           // SKU
         Number(v.hpp) || 0,                      // Harga
         Number(v.qty) || 0,                      // Qty
         0,                                       // Nilai Diskon
-        r.defaultTax || 'No Tax',                // Pajak (was vm.defaultTax — vm undef caused empty cell)
+        lineTax,                                 // Pajak
       ];
       if (idx === 0) {
         rows.push([...headerCells, ...itemCells]);
@@ -23392,7 +23397,11 @@ function _rstExportCSVForVendor(vmId) {
   const phone = String(res.phone || '').replace(/[^0-9]/g, '');
   const email = (res.email || '').trim();
   const defaultLoc = (res.defaultLocation || '').trim();
-  const defaultTax = (res.defaultTax || 'No Tax').trim();
+  // Match Jubelio reference exactly: "PPN" alone gets rejected; the registered
+  // code in Jubelio is "PPN 11%" (sample row in template uses this). Map our
+  // vendor master enum to what Jubelio's importer recognizes.
+  let defaultTax = (res.defaultTax || 'No Tax').trim();
+  if (defaultTax === 'PPN') defaultTax = 'PPN 11%';
   // Jubelio reference uses "True"/"False" (capitalised), not all-caps
   const taxIncl = res.defaultTaxIncluded ? 'True' : 'False';
 
@@ -23413,7 +23422,11 @@ function _rstExportCSVForVendor(vmId) {
     if (!confirm(`${badLines.length} baris belum lengkap (price atau qty = 0):\n\n${sample}${badLines.length>5?`\n...dan ${badLines.length-5} lainnya`:''}\n\nLanjutkan export? (baris kosong bakal di-reject Jubelio)`)) return;
   }
 
-  const today = new Date().toISOString().slice(0, 10);
+  // Jubelio template's example row uses "YYYY-MM-DD HH:MM:SS" with time
+  // component, not bare date. Spec text says either works, but Jubelio's
+  // strict importer in practice expects the time tail.
+  const todayDate = new Date().toISOString().slice(0, 10);
+  const today     = todayDate + ' 00:00:00';
   const esc = v => {
     const s = String(v ?? '');
     return (s.includes(',') || s.includes('"') || s.includes('\n'))
@@ -23422,7 +23435,7 @@ function _rstExportCSVForVendor(vmId) {
   const COLS = ['No. Pesanan','No. Ref Pemasok','Tanggal','Zona Waktu','Nama Pemasok',
                 'Email Pemasok','No Telp. Pemasok','Harga Termasuk Pajak','Lokasi',
                 'Keterangan','SKU','Harga','Qty','Nilai Diskon','Pajak'];
-  const note = `Restock ${today}`;
+  const note = `Restock ${todayDate}`;
   const csvRows = [COLS.join(',')];
   lines.forEach((it, i) => {
     const sku   = String(it.sku || '').trim();
