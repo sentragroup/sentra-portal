@@ -16290,6 +16290,12 @@ async function _pdLoadDesignMirror(cid) {
     _pdDesignRows = data || [];
     _pdRenderDesignMirror();
     if (cnt) cnt.textContent = `${_pdDesignRows.length} SKU`;
+    // Mirror finished loading after the cards already rendered with empty
+    // _pdDesignRows — re-render cards so the Design fallback to
+    // collection_items.design_preview_url actually surfaces on first load.
+    if (typeof renderPDDetailTable === 'function' && pdCurrentCollectionId === cid) {
+      try { renderPDDetailTable(); } catch(_) {}
+    }
   } catch (e) {
     body.innerHTML = `<div style="padding:14px;color:#c0392b;font-size:11px">Gagal: ${e.message||e}</div>`;
   }
