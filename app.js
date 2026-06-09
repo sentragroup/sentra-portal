@@ -23438,23 +23438,34 @@ function _rstExportCSVForVendor(vmId) {
   setTimeout(() => URL.revokeObjectURL(url), 200);
 }
 
+// Make sure product_dev rows are cached so _rstResolveParentPictures() can
+// match parent names to PD photo arrays. Cheap no-op once loaded.
+async function _rstEnsurePDLoaded() {
+  if (Array.isArray(allPDRows) && allPDRows.length) return;
+  if (typeof fetchPDRows === 'function') {
+    try { await fetchPDRows(); } catch(_) {}
+  }
+}
+
 // ── Per-vendor PDF export (window.print pattern, consistent with PD module) ──
-function _rstExportPDFForVendor(vmId) {
+async function _rstExportPDFForVendor(vmId) {
   _rstCloseSummary();
   const lines = _rstCollectSelectedLines().filter(l => l.vmId === vmId);
   if (!lines.length) { alert('Tidak ada item untuk vendor ini.'); return; }
   const res = _rstResolveVendor(vmId);
   if (!res) { alert('Vendor tidak ditemukan.'); return; }
+  await _rstEnsurePDLoaded();
   const supplierName = res.name;
   const today = new Date().toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric'});
   _rstOpenPrintWindow(`PO Restock — ${supplierName}`, _rstBuildPDFBody(supplierName, {phone: res.phone, email: res.email}, lines, today));
 }
 
 // ── Combined "PDF All" — flat table with Vendor column ──
-function _rstExportPDFAll() {
+async function _rstExportPDFAll() {
   _rstCloseSummary();
   const lines = _rstCollectSelectedLines();
   if (!lines.length) { alert('Tidak ada item dipilih.'); return; }
+  await _rstEnsurePDLoaded();
   const vmById = new Map(_rstAllVendors.map(v => [v.id, v]));
   const enriched = lines.map(l => ({
     ...l,
@@ -23513,7 +23524,31 @@ function _rstGroupByParentForPDF(lines) {
     map.get(l.parentName).items.push(l);
   }
   for (const g of map.values()) g.items.sort((a,b) => (a.sku||'').localeCompare(b.sku||''));
-  return [...map.values()];
+  // Enrich with up to 2 photos from product_dev (front + back) so vendor PDFs
+  // can show the same images the Product Dev catalog uses, not just the small
+  // Jubelio thumbnail.
+  const groups = [...map.values()];
+  for (const g of groups) {
+    g.pictures = _rstResolveParentPictures(g.parentName);
+  }
+  return groups;
+}
+
+// Map a restock parent name to up to 2 product_dev pictures (front + back).
+// Exact (case-insensitive) match on sku_name; falls back to the existing
+// Jubelio thumbnail if no PD row matches.
+function _rstResolveParentPictures(parentName) {
+  const pics = [];
+  if (Array.isArray(allPDRows) && parentName) {
+    const want = parentName.trim().toLowerCase();
+    const parent = allPDRows.find(r => !r.parentId && (r.skuName||'').trim().toLowerCase() === want);
+    if (parent && Array.isArray(parent.pictures)) {
+      for (const u of parent.pictures) {
+        if (u && pics.length < 2) pics.push(u);
+      }
+    }
+  }
+  return pics;
 }
 
 function _rstBuildPDFBody(supplierName, contact, lines, today) {
@@ -23522,13 +23557,18 @@ function _rstBuildPDFBody(supplierName, contact, lines, today) {
   const fmt = v => 'Rp ' + Math.round(v).toLocaleString('id-ID');
   const groups = _rstGroupByParentForPDF(lines);
 
+  const photoCell = (pics, thumb, span) => {
+    // Prefer 2 PD photos (front + back). Fall back to single Jubelio thumb.
+    const imgs = (pics && pics.length) ? pics : (thumb ? [thumb] : []);
+    if (!imgs.length) return `<td rowspan="${span}" style="text-align:center;width:300px"><span class="photo-empty">No photo</span></td>`;
+    return `<td rowspan="${span}" style="text-align:center;width:300px;padding:8px">
+      <div class="photo-grid">${imgs.map(u => `<img class="photo" src="${u.replace(/"/g,'&quot;')}" onerror="this.style.display='none'">`).join('')}</div>
+    </td>`;
+  };
   const rowsHtml = groups.flatMap(g => {
     const span = g.items.length;
-    const thumbCell = g.thumbnail
-      ? `<td rowspan="${span}" style="text-align:center;width:64px"><img class="thumb" src="${g.thumbnail.replace(/"/g,'&quot;')}"></td>`
-      : `<td rowspan="${span}" style="text-align:center;width:64px"><span class="thumb-empty"></span></td>`;
     return g.items.map((l, idx) => `<tr>
-      ${idx === 0 ? thumbCell : ''}
+      ${idx === 0 ? photoCell(g.pictures, g.thumbnail, span) : ''}
       <td class="mono">${(l.sku||'—').replace(/</g,'&lt;')}</td>
       <td>${(l.parentName||l.itemName||'—').replace(/</g,'&lt;')}${idx===0 && l.brand ? `<div style="font-size:9px;color:#888;margin-top:2px">${l.brand}${l.ip?' · '+l.ip:''}</div>` : ''}</td>
       <td>${(l.size||'').replace(/</g,'&lt;')}</td>
@@ -23539,6 +23579,12 @@ function _rstBuildPDFBody(supplierName, contact, lines, today) {
   }).join('');
 
   return `
+    <style>
+      .photo-grid{display:flex;gap:6px;justify-content:center;align-items:center}
+      .photo{width:140px;height:140px;object-fit:cover;border:1px solid #ddd;border-radius:6px}
+      .photo-empty{display:inline-block;width:140px;height:140px;background:#f5f5f5;border:1px dashed #ccc;border-radius:6px;color:#aaa;font-size:10px;line-height:140px}
+      tbody tr{page-break-inside:avoid}
+    </style>
     <h1>Purchase Order — Restock</h1>
     <div class="sub">${today}</div>
     <dl class="meta">
@@ -23549,7 +23595,7 @@ function _rstBuildPDFBody(supplierName, contact, lines, today) {
       <dt>Total Item</dt><dd>${lines.length} SKU · ${totalQty} unit</dd>
     </dl>
     <table>
-      <thead><tr><th style="width:64px">Foto</th><th>SKU</th><th>Produk</th><th>Size</th><th class="num">Qty</th><th class="num">Harga</th><th class="num">Subtotal</th></tr></thead>
+      <thead><tr><th style="width:300px">Foto</th><th>SKU</th><th>Produk</th><th>Size</th><th class="num">Qty</th><th class="num">Harga</th><th class="num">Subtotal</th></tr></thead>
       <tbody>
         ${rowsHtml}
         <tr class="total"><td colspan="4">TOTAL</td><td class="num">${totalQty}</td><td></td><td class="num">${fmt(totalNilai)}</td></tr>
@@ -23576,13 +23622,19 @@ function _rstBuildPDFAllBody(lines, today) {
     }
     cur.items.push(l);
   }
+  // Attach PD front+back photos per group
+  for (const g of groups) g.pictures = _rstResolveParentPictures(g.parentName);
+  const photoCell = (pics, thumb, span) => {
+    const imgs = (pics && pics.length) ? pics : (thumb ? [thumb] : []);
+    if (!imgs.length) return `<td rowspan="${span}" style="text-align:center;width:300px"><span class="photo-empty">No photo</span></td>`;
+    return `<td rowspan="${span}" style="text-align:center;width:300px;padding:8px">
+      <div class="photo-grid">${imgs.map(u => `<img class="photo" src="${u.replace(/"/g,'&quot;')}" onerror="this.style.display='none'">`).join('')}</div>
+    </td>`;
+  };
   const rowsHtml = groups.flatMap(g => {
     const span = g.items.length;
-    const thumbCell = g.thumbnail
-      ? `<td rowspan="${span}" style="text-align:center;width:60px"><img class="thumb" src="${g.thumbnail.replace(/"/g,'&quot;')}"></td>`
-      : `<td rowspan="${span}" style="text-align:center;width:60px"><span class="thumb-empty"></span></td>`;
     return g.items.map((l, idx) => `<tr>
-      ${idx === 0 ? thumbCell : ''}
+      ${idx === 0 ? photoCell(g.pictures, g.thumbnail, span) : ''}
       ${idx === 0 ? `<td rowspan="${span}">${(l.vendorName||'—').replace(/</g,'&lt;')}</td>` : ''}
       <td class="mono">${(l.sku||'—').replace(/</g,'&lt;')}</td>
       <td>${(l.parentName||l.itemName||'—').replace(/</g,'&lt;')}${idx===0 && l.brand ? `<div style="font-size:9px;color:#888;margin-top:2px">${l.brand}${l.ip?' · '+l.ip:''}</div>` : ''}</td>
@@ -23593,10 +23645,16 @@ function _rstBuildPDFAllBody(lines, today) {
     </tr>`);
   }).join('');
   return `
+    <style>
+      .photo-grid{display:flex;gap:6px;justify-content:center;align-items:center}
+      .photo{width:140px;height:140px;object-fit:cover;border:1px solid #ddd;border-radius:6px}
+      .photo-empty{display:inline-block;width:140px;height:140px;background:#f5f5f5;border:1px dashed #ccc;border-radius:6px;color:#aaa;font-size:10px;line-height:140px}
+      tbody tr{page-break-inside:avoid}
+    </style>
     <h1>Purchase Order — Restock (All Vendors)</h1>
     <div class="sub">${today} · ${lines.length} SKU · ${totalQty} unit · ${fmt(totalNilai)}</div>
     <table>
-      <thead><tr><th style="width:60px">Foto</th><th>Vendor</th><th>SKU</th><th>Produk</th><th>Size</th><th class="num">Qty</th><th class="num">Harga</th><th class="num">Subtotal</th></tr></thead>
+      <thead><tr><th style="width:300px">Foto</th><th>Vendor</th><th>SKU</th><th>Produk</th><th>Size</th><th class="num">Qty</th><th class="num">Harga</th><th class="num">Subtotal</th></tr></thead>
       <tbody>
         ${rowsHtml}
         <tr class="total"><td colspan="5">TOTAL</td><td class="num">${totalQty}</td><td></td><td class="num">${fmt(totalNilai)}</td></tr>
