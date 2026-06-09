@@ -3970,7 +3970,16 @@ function renderPOTable(rows){
   // Visual progress bar showing received/po qty + shipment (bill) count.
   // Color follows the same urgency convention as restock: green >= 100%,
   // amber 50-99%, red <50%, neutral if nothing received yet.
-  const progressCell = (totalPOQty, totalRcvd, putawayCount, rcvStatus, totalBills) => {
+  // Days between two date strings (YYYY-MM-DD or ISO). Positive = b is later than a.
+  const _dayDiff = (a, b) => {
+    if (!a || !b) return null;
+    const da = new Date(a.length<=10 ? a+'T00:00:00' : a);
+    const db = new Date(b.length<=10 ? b+'T00:00:00' : b);
+    return Math.round((db - da) / 86400000);
+  };
+  const _fmtShort = d => d ? new Date(d.length<=10?d+'T00:00:00':d).toLocaleDateString('id-ID',{day:'2-digit',month:'short'}) : '';
+
+  const progressCell = (totalPOQty, totalRcvd, putawayCount, rcvStatus, totalBills, firstPutawayDate, expectedDate) => {
     if (!totalPOQty) return `<span style="color:var(--g400);font-size:11px">—</span>`;
     const pct = Math.min(150, Math.round((totalRcvd / totalPOQty) * 100));
     const fillPct = Math.min(100, pct);
@@ -3985,10 +3994,34 @@ function renderPOTable(rows){
     // Pending tagihan = bills exist but goods not yet putaway in Jubelio
     const pendingBills = (totalBills || 0) - (putawayCount || 0);
     const shipParts = [];
-    if (putawayCount > 0) shipParts.push(`${putawayCount} kiriman`);
+    if (putawayCount > 0) shipParts.push(`${putawayCount}× putaway`);
     if (pendingBills > 0) shipParts.push(`<span title="Tagihan dibuat tapi barang belum putaway di Jubelio" style="color:#a66800">+${pendingBills} pending</span>`);
     const shipLine = shipParts.length ? shipParts.join(' · ') : 'belum ada kiriman';
-    return `<div style="min-width:150px">
+
+    // First putaway vs expected — on time / late / early
+    let arrivalLine = '';
+    if (firstPutawayDate) {
+      const arrived = `<span style="color:var(--g600)">Sampai ${_fmtShort(firstPutawayDate)}</span>`;
+      let vs = '';
+      if (expectedDate) {
+        const diff = _dayDiff(expectedDate, firstPutawayDate);
+        if (diff === null) {}
+        else if (diff === 0) vs = `<span style="color:#1e8f4e;font-weight:600">· tepat waktu</span>`;
+        else if (diff < 0)   vs = `<span style="color:#1e8f4e">· ${-diff}h lebih cepat</span>`;
+        else                 vs = `<span style="color:#c0392b;font-weight:600">· ${diff}h telat</span>`;
+      }
+      arrivalLine = `<div style="font-size:10px;margin-top:2px">${arrived} ${vs}</div>`;
+    } else if (expectedDate) {
+      // Not yet received — show countdown vs expected
+      const today = new Date().toISOString().slice(0,10);
+      const diff = _dayDiff(today, expectedDate);
+      const vs = diff > 0 ? `<span style="color:var(--g600)">T-${diff} hari ke expected</span>`
+               : diff === 0 ? `<span style="color:#a66800;font-weight:600">expected hari ini</span>`
+               : `<span style="color:#c0392b;font-weight:600">overdue ${-diff}h</span>`;
+      arrivalLine = `<div style="font-size:10px;margin-top:2px">${vs}</div>`;
+    }
+
+    return `<div style="min-width:170px">
       <div style="display:flex;justify-content:space-between;font-size:10px;margin-bottom:3px">
         ${label}
         <span style="font-family:var(--mono);color:var(--g600)">${totalRcvd.toLocaleString('id-ID')}/${totalPOQty.toLocaleString('id-ID')}</span>
@@ -3997,6 +4030,7 @@ function renderPOTable(rows){
         <div style="background:${color};height:100%;width:${fillPct}%;transition:width .3s"></div>
       </div>
       <div style="font-size:10px;color:var(--g400);margin-top:3px">${shipLine}</div>
+      ${arrivalLine}
     </div>`;
   };
   // Quick lookup: purchaseorder_id → expected_date
@@ -4020,6 +4054,10 @@ function renderPOTable(rows){
     const totalPOQty=items.reduce((s,it)=>s+(it.qty||0),0);
     const totalRcvd=Object.values(rcvdByDetailId).reduce((s,v)=>s+v,0);
     const rcvStatus=billsPutaway.length===0?"Belum":totalRcvd>totalPOQty?"Over":totalRcvd>=totalPOQty?"Penuh":"Sebagian";
+    // First putaway date — used to score on-time vs expected_date
+    const firstPutawayDate = billsPutaway.length
+      ? billsPutaway.map(b => b.transaction_date).sort()[0]
+      : null;
     const gt=r.grandTotal!=null?`Rp ${Math.round(r.grandTotal).toLocaleString("id-ID")}`:"—";
     const dt=r.transactionDate?new Date(r.transactionDate).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"—";
     const hasItems=items.length>0;
@@ -4032,7 +4070,7 @@ function renderPOTable(rows){
       <td><a href="https://v2.jubelio.com/purchase/orders/detail/${r.id}" target="_blank" style="font-family:var(--mono);font-size:12px;color:#3C3489;text-decoration:none">${r.purchaseorderNo||r.id}</a></td>
       <td style="font-size:13px">${r.supplierName||"—"}</td>
       <td>${sPill(r.status)}</td>
-      <td>${progressCell(totalPOQty, totalRcvd, billsPutaway.length, rcvStatus, bills.length)}</td>
+      <td>${progressCell(totalPOQty, totalRcvd, billsPutaway.length, rcvStatus, bills.length, firstPutawayDate, expectedDate)}</td>
       <td style="white-space:nowrap;font-size:12px">${dt}</td>
       <td style="white-space:nowrap">${expectedInput}</td>
       <td style="font-size:12px">${r.locationName||"—"}</td>
