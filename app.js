@@ -5299,7 +5299,7 @@ function renderColTargetSection(col, items) {
           <th style="padding:6px 10px;text-align:left">Aksi</th>
         </tr></thead>
         <tbody>
-          ${items.map(i => `<tr style="border-top:1px solid var(--g100)">
+          ${items.map(i => `<tr id="ci-row-biz-${i.id}" style="border-top:1px solid var(--g100)">
             <td style="padding:7px 10px"><strong style="font-size:12px">${(i.skuName||'').replace(/</g,'&lt;')}</strong></td>
             <td style="padding:7px 10px;font-size:11px;color:var(--g600)">${i.category?`${i.category}${i.subCategory?' · '+i.subCategory:''}`:'—'}</td>
             <td style="padding:7px 10px;font-size:11px;color:var(--g600)">${i.treatment||'—'}</td>
@@ -5308,8 +5308,28 @@ function renderColTargetSection(col, items) {
             <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px">${fmtRp2(i.srp)}</td>
             <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px;font-weight:600">${(i.qty&&i.srp)?fmtRp2(i.qty*i.srp):'—'}</td>
             <td style="padding:7px 10px;white-space:nowrap">
-              <button class="btn-icon" style="font-size:11px" onclick="openSKUEdit('${i.id}')">Edit</button>
+              <button class="btn-icon" style="font-size:11px" onclick="openSKUEditBiz('${i.id}')">Edit</button>
               <button class="btn-icon" style="color:#c0392b;font-size:11px" onclick="deleteSKU('${i.id}','${cid}')">Del</button>
+            </td>
+          </tr>
+          <tr id="ci-edit-biz-${i.id}" style="display:none;border-top:1px solid var(--g100)">
+            <td colspan="8" style="padding:8px 10px 12px">
+              <div class="edit-row-form" style="background:var(--off)">
+                <div style="font-size:10px;color:var(--g400);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Naming &amp; Commercial</div>
+                <div class="edit-row-grid">
+                  <div class="fg"><label style="font-size:11px">Nama SKU (proper)</label><input type="text" id="cieb-prop-${i.id}" value="${(i.skuProper||i.skuName||'').replace(/"/g,'&quot;')}"></div>
+                  <div class="fg" style="position:relative"><label style="font-size:11px">Kategori</label><input type="text" id="cieb-cat-${i.id}" value="${(i.category||'').replace(/"/g,'&quot;')}" autocomplete="off"><div class="ac-list" id="ac-cieb-cat-${i.id}"></div></div>
+                  <div class="fg" style="position:relative"><label style="font-size:11px">Sub-Kategori</label><input type="text" id="cieb-subcat-${i.id}" value="${(i.subCategory||'').replace(/"/g,'&quot;')}" autocomplete="off"><div class="ac-list" id="ac-cieb-subcat-${i.id}"></div></div>
+                  <div class="fg"><label style="font-size:11px">Treatment</label><input type="text" id="cieb-treat-${i.id}" value="${(i.treatment||'').replace(/"/g,'&quot;')}"></div>
+                  <div class="fg"><label style="font-size:11px">Color</label><input type="text" id="cieb-color-${i.id}" value="${(i.color||'').replace(/"/g,'&quot;')}"></div>
+                  <div class="fg"><label style="font-size:11px">Qty</label><input type="number" id="cieb-qty-${i.id}" min="0" step="1" value="${i.qty!=null?i.qty:''}"></div>
+                  <div class="fg"><label style="font-size:11px">SRP (Rp)</label><input type="number" id="cieb-srp-${i.id}" min="0" step="1000" value="${i.srp!=null?i.srp:''}"></div>
+                </div>
+                <div class="edit-row-btns">
+                  <button class="btn-save" onclick="saveSKUEditBiz('${i.id}','${cid}')">Simpan</button>
+                  <button class="btn-cancel" onclick="closeSKUEditBiz('${i.id}')">Batal</button>
+                </div>
+              </div>
             </td>
           </tr>`).join('')}
         </tbody>
@@ -5807,32 +5827,29 @@ function renderColDetail(col, items) {
       </select>
     </td>
     <td style="padding:8px 10px;white-space:nowrap">
-      <button class="btn-icon" style="font-size:11px" onclick="openSKUEdit('${i.id}')">Edit</button>
+      <button class="btn-icon" style="font-size:11px" onclick="openSKUEditCre('${i.id}')">Edit</button>
       <button class="btn-icon" style="color:#c0392b;font-size:11px" onclick="deleteSKU('${i.id}','${col.id}')">Del</button>
     </td>
   </tr>
-  <tr id="ci-edit-${i.id}" style="display:none;border-top:1px solid var(--g100)">
+  <tr id="ci-edit-cre-${i.id}" style="display:none;border-top:1px solid var(--g100)">
     <td colspan="6" style="padding:8px 10px 12px">
       <div class="edit-row-form" style="background:var(--off)">
-        <div style="font-size:10px;color:var(--g400);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Naming &amp; Commercial (Business)</div>
-        <div class="edit-row-grid">
-          <div class="fg"><label style="font-size:11px">Nama SKU (proper)</label><input type="text" id="cie-prop-${i.id}" value="${(i.skuProper||i.skuName||"").replace(/"/g,"&quot;")}"></div>
-          <div class="fg" style="position:relative"><label style="font-size:11px">Kategori</label><input type="text" id="cie-cat-${i.id}" value="${(i.category||"").replace(/"/g,"&quot;")}" autocomplete="off"><div class="ac-list" id="ac-cie-cat-${i.id}"></div></div>
-          <div class="fg" style="position:relative"><label style="font-size:11px">Sub-Kategori</label><input type="text" id="cie-subcat-${i.id}" value="${(i.subCategory||"").replace(/"/g,"&quot;")}" autocomplete="off"><div class="ac-list" id="ac-cie-subcat-${i.id}"></div></div>
-          <div class="fg"><label style="font-size:11px">Treatment</label><input type="text" id="cie-treat-${i.id}" value="${(i.treatment||"").replace(/"/g,"&quot;")}"></div>
-          <div class="fg"><label style="font-size:11px">Color</label><input type="text" id="cie-color-${i.id}" value="${(i.color||"").replace(/"/g,"&quot;")}"></div>
-          <div class="fg"><label style="font-size:11px">Qty</label><input type="number" id="cie-qty-${i.id}" min="0" step="1" value="${i.qty!=null?i.qty:""}"></div>
-          <div class="fg"><label style="font-size:11px">SRP (Rp)</label><input type="number" id="cie-srp-${i.id}" min="0" step="1000" value="${i.srp!=null?i.srp:""}"></div>
-        </div>
-        <div style="font-size:10px;color:var(--g400);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.5px;margin:10px 0 6px">Design (Creative)</div>
+        <div style="font-size:10px;color:var(--g400);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Design</div>
         <div class="edit-row-grid">
           <div class="fg" style="position:relative"><label style="font-size:11px">Designer</label><input type="text" id="cie-dsg-${i.id}" value="${(i.designer||"").replace(/"/g,"&quot;")}" autocomplete="off"><div class="ac-list" id="ac-cie-dsg-${i.id}"></div></div>
           <div class="fg"><label style="font-size:11px">Deadline</label><input type="date" id="cie-deadline-${i.id}" value="${i.deadline||""}"></div>
           <div class="fg full"><label style="font-size:11px">Design Preview URL</label><input type="url" id="cie-preview-${i.id}" value="${(i.designPreviewUrl||"").replace(/"/g,"&quot;")}" placeholder="https://drive.google.com/..."></div>
+          <div class="fg"><label style="font-size:11px">Approval</label>
+            <select id="cie-approval-${i.id}">
+              <option${i.approvalStatus==="Pending"?" selected":""}>Pending</option>
+              <option${i.approvalStatus==="Revision"?" selected":""}>Revision</option>
+              <option${i.approvalStatus==="Approved"?" selected":""}>Approved</option>
+            </select>
+          </div>
         </div>
         <div class="edit-row-btns">
-          <button class="btn-save" onclick="saveSKUEdit('${i.id}','${col.id}')">Simpan</button>
-          <button class="btn-cancel" onclick="closeSKUEdit('${i.id}')">Batal</button>
+          <button class="btn-save" onclick="saveSKUEditCre('${i.id}','${col.id}')">Simpan</button>
+          <button class="btn-cancel" onclick="closeSKUEditCre('${i.id}')">Batal</button>
         </div>
       </div>
     </td>
@@ -6878,22 +6895,31 @@ async function pushToDesignerWorkflow(colId) {
   } catch(e){alert("Gagal: "+(e.message||e));}
 }
 
-function openSKUEdit(itemId) {
-  // The inline edit row lives in the Creative tab. If the click came from
-  // Business tab (where naming/commercial table is now), switch tabs first.
-  const row = document.getElementById("ci-edit-"+itemId);
+// ── Two separate inline edit flows ──
+//   Business edit row (Naming + Commercial) lives in Business-tab table.
+//   Creative edit row (Design fields)        lives in Creative-tab table.
+// Click on the right Edit button toggles the matching row.
+function openSKUEditBiz(itemId) {
+  const row = document.getElementById("ci-edit-biz-"+itemId);
   if (!row) return;
-  // Walk up to find the cd-tab-{name}-{colId} pane
-  let pane = row.closest('.cd-tab-content');
-  if (pane && pane.style.display === 'none') {
-    const m = pane.id.match(/^cd-tab-(\w+)-(.+)$/);
-    if (m && typeof cdSwitchTab === 'function') cdSwitchTab(m[2], m[1]);
-  }
-  document.querySelectorAll("[id^='ci-edit-']").forEach(el=>{if(el.id!=="ci-edit-"+itemId)el.style.display="none";});
+  document.querySelectorAll("[id^='ci-edit-biz-']").forEach(el=>{if(el.id!=="ci-edit-biz-"+itemId)el.style.display="none";});
   row.style.display = row.style.display === "table-row" ? "none" : "table-row";
-  setTimeout(() => row.scrollIntoView({behavior:'smooth',block:'center'}), 50);
+  setTimeout(()=>row.scrollIntoView({behavior:'smooth',block:'center'}), 50);
 }
-function closeSKUEdit(itemId){const r=document.getElementById("ci-edit-"+itemId);if(r)r.style.display="none";}
+function closeSKUEditBiz(itemId){const r=document.getElementById("ci-edit-biz-"+itemId);if(r)r.style.display="none";}
+
+function openSKUEditCre(itemId) {
+  const row = document.getElementById("ci-edit-cre-"+itemId);
+  if (!row) return;
+  document.querySelectorAll("[id^='ci-edit-cre-']").forEach(el=>{if(el.id!=="ci-edit-cre-"+itemId)el.style.display="none";});
+  row.style.display = row.style.display === "table-row" ? "none" : "table-row";
+  setTimeout(()=>row.scrollIntoView({behavior:'smooth',block:'center'}), 50);
+}
+function closeSKUEditCre(itemId){const r=document.getElementById("ci-edit-cre-"+itemId);if(r)r.style.display="none";}
+
+// Back-compat aliases for any older code paths still referencing openSKUEdit / closeSKUEdit / saveSKUEdit.
+function openSKUEdit(itemId){ openSKUEditCre(itemId); }
+function closeSKUEdit(itemId){ closeSKUEditCre(itemId); }
 
 // DW deliverables link inline edit (from collection detail)
 function openDwLinkEdit(dwId){const d=document.getElementById(`dw-link-display-${dwId}`);const e=document.getElementById(`dw-link-edit-${dwId}`);if(d)d.style.display="none";if(e)e.style.display="inline";}
@@ -7233,21 +7259,19 @@ async function colNotesSave(colId, stage, el) {
   el.style.display='none';
 }
 
-async function saveSKUEdit(itemId, colId) {
-  const btn=document.querySelector(`#ci-edit-${itemId} .btn-save`);
+// Save: Business inline edit (naming + commercial). Recomputes sku_name.
+async function saveSKUEditBiz(itemId, colId) {
+  const btn=document.querySelector(`#ci-edit-biz-${itemId} .btn-save`);
   if(btn){btn.disabled=true;btn.textContent="Menyimpan...";}
   try {
-    const prop = document.getElementById(`cie-prop-${itemId}`)?.value.trim();
+    const prop = document.getElementById(`cieb-prop-${itemId}`)?.value.trim();
     if(!prop){if(btn){btn.disabled=false;btn.textContent="Simpan";}alert("Nama SKU wajib diisi.");return;}
-    const cat   = document.getElementById(`cie-cat-${itemId}`)?.value.trim() || '';
-    const sub   = document.getElementById(`cie-subcat-${itemId}`)?.value.trim() || '';
-    const treat = document.getElementById(`cie-treat-${itemId}`)?.value.trim() || '';
-    const clr   = document.getElementById(`cie-color-${itemId}`)?.value.trim() || '';
-    const qty   = parseInt(document.getElementById(`cie-qty-${itemId}`)?.value, 10);
-    const srp   = parseFloat(document.getElementById(`cie-srp-${itemId}`)?.value);
-    const dsg   = document.getElementById(`cie-dsg-${itemId}`)?.value.trim() || null;
-    const dl    = document.getElementById(`cie-deadline-${itemId}`)?.value || null;
-    const pv    = document.getElementById(`cie-preview-${itemId}`)?.value.trim() || null;
+    const cat   = document.getElementById(`cieb-cat-${itemId}`)?.value.trim() || '';
+    const sub   = document.getElementById(`cieb-subcat-${itemId}`)?.value.trim() || '';
+    const treat = document.getElementById(`cieb-treat-${itemId}`)?.value.trim() || '';
+    const clr   = document.getElementById(`cieb-color-${itemId}`)?.value.trim() || '';
+    const qty   = parseInt(document.getElementById(`cieb-qty-${itemId}`)?.value, 10);
+    const srp   = parseFloat(document.getElementById(`cieb-srp-${itemId}`)?.value);
     const col   = allColRows.find(r => r.id === colId);
     const ip    = col?.ipRelated || '';
     const composedName = composeSkuName(ip, prop, cat, sub, treat, clr);
@@ -7260,7 +7284,6 @@ async function saveSKUEdit(itemId, colId) {
       color: clr || null,
       qty: isNaN(qty) ? null : qty,
       srp: isNaN(srp) ? null : srp,
-      designer: dsg, deadline: dl, design_preview_url: pv,
       last_updated: new Date().toISOString(), last_updated_by: currentUser
     }).eq("id",itemId);
     if(error)throw error;
@@ -7269,7 +7292,6 @@ async function saveSKUEdit(itemId, colId) {
       skuName: composedName, skuProper: prop,
       category: cat, subCategory: sub, treatment: treat, color: clr,
       qty: isNaN(qty)?null:qty, srp: isNaN(srp)?null:srp,
-      designer: dsg||'', deadline: dl||'', designPreviewUrl: pv||''
     };
     // Refresh parent collection (trigger updated target_revenue/units)
     const {data: c2} = await sb.from("collections").select("*").eq("id", colId).single();
@@ -7281,10 +7303,38 @@ async function saveSKUEdit(itemId, colId) {
     const col2=allColRows.find(r=>r.id===colId);
     if(col2) renderColDetail(col2, allColItems.filter(i=>i.collectionId===colId));
     applyColFilters();
+  } catch(e){if(btn){btn.disabled=false;btn.textContent="Simpan";}alert("Gagal: "+(e.message||e));}
+}
+
+// Save: Creative inline edit (designer, deadline, design link, approval).
+async function saveSKUEditCre(itemId, colId) {
+  const btn=document.querySelector(`#ci-edit-cre-${itemId} .btn-save`);
+  if(btn){btn.disabled=true;btn.textContent="Menyimpan...";}
+  try {
+    const dsg = document.getElementById(`cie-dsg-${itemId}`)?.value.trim() || null;
+    const dl  = document.getElementById(`cie-deadline-${itemId}`)?.value || null;
+    const pv  = document.getElementById(`cie-preview-${itemId}`)?.value.trim() || null;
+    const ap  = document.getElementById(`cie-approval-${itemId}`)?.value || 'Pending';
+    const {error}=await sb.from("collection_items").update({
+      designer: dsg, deadline: dl, design_preview_url: pv, approval_status: ap,
+      last_updated: new Date().toISOString(), last_updated_by: currentUser
+    }).eq("id",itemId);
+    if(error)throw error;
+    const idx=allColItems.findIndex(i=>i.id===itemId);
+    if(idx>-1) allColItems[idx]={...allColItems[idx],
+      designer: dsg||'', deadline: dl||'', designPreviewUrl: pv||'', approvalStatus: ap,
+    };
+    logActivity("Collections","edit",itemId,`Design update: ${allColItems[idx]?.skuName||itemId}`);
+    const col=allColRows.find(r=>r.id===colId);
+    if(col) renderColDetail(col, allColItems.filter(i=>i.collectionId===colId));
+    applyColFilters();
     // Sync DW rows: remove orphaned designers, add new ones
     syncDWForCollection(colId);
   } catch(e){if(btn){btn.disabled=false;btn.textContent="Simpan";}alert("Gagal: "+(e.message||e));}
 }
+
+// Back-compat alias
+async function saveSKUEdit(itemId, colId){ return saveSKUEditCre(itemId, colId); }
 
 async function updateSKUApproval(itemId, colId, status) {
   try {
