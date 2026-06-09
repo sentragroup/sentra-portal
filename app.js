@@ -23442,30 +23442,6 @@ function _rstExportCSVForVendor(vmId) {
   setTimeout(() => URL.revokeObjectURL(url), 200);
 }
 
-// Trigger sync-jubelio-item-thumbnails (refetch all) so jubelio_items.image_urls
-// gets populated with the full image array. Re-run when vendor PDFs show
-// "Belum ada foto belakang" — Jubelio item screen usually has 2+ images,
-// we just had only thumbnail before. Uses the supabase client so it picks
-// up the user's JWT and passes the function's verify_jwt check.
-async function _rstSyncJubelioPhotos(btn) {
-  const original = btn?.textContent;
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Menyinkronkan…'; }
-  try {
-    const { data, error } = await sb.functions.invoke('sync-jubelio-item-thumbnails?refetch=true', { method: 'POST' });
-    if (error) throw error;
-    const ok = data?.ok !== false;
-    const updated = data?.skusUpdated ?? '—';
-    const groups  = data?.groupsWithImages ?? '—';
-    alert(ok
-      ? `✓ Sync foto selesai. ${updated} SKU diperbarui dari ${groups} produk Jubelio.\n\nReload halaman untuk lihat foto baru di PDF vendor.`
-      : `Sync selesai dengan warning:\n${JSON.stringify(data)}`);
-  } catch (e) {
-    alert('Gagal sync: ' + (e.message || e));
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = original || '🔄 Sync Foto Jubelio'; }
-  }
-}
-
 // Make sure product_dev rows are cached so _rstResolveParentPictures() can
 // match parent names to PD photo arrays. Cheap no-op once loaded.
 async function _rstEnsurePDLoaded() {
