@@ -18096,8 +18096,9 @@ async function exportPDPurchaseOrderCsv() {
     // Header fields (first item only)
     // Strip phone to digits only — Jubelio rejects spaces/dashes
     const cleanPhone = String(r.phone || '').replace(/[^0-9]/g, '');
+    const poRef = `PO-${todayDate.replace(/-/g,'')}-${Math.floor(Math.random()*9000)+1000}`;
     const headerCells = [
-      '[auto]',                                  // No. Pesanan
+      poRef,                                     // No. Pesanan (explicit ref; [auto] gets rejected by importer)
       '',                                        // No. Ref Pemasok
       today,                                     // Tanggal
       'WIB',                                     // Zona Waktu
@@ -23422,11 +23423,14 @@ function _rstExportCSVForVendor(vmId) {
     if (!confirm(`${badLines.length} baris belum lengkap (price atau qty = 0):\n\n${sample}${badLines.length>5?`\n...dan ${badLines.length-5} lainnya`:''}\n\nLanjutkan export? (baris kosong bakal di-reject Jubelio)`)) return;
   }
 
-  // Jubelio template's example row uses "YYYY-MM-DD HH:MM:SS" with time
-  // component, not bare date. Spec text says either works, but Jubelio's
-  // strict importer in practice expects the time tail.
+  // Match Jubelio template strictly:
+  //   - Tanggal: 'YYYY-MM-DD HH:MM:SS' (template example uses this)
+  //   - Pajak:   'PPN 11%' or 'No Tax' (registered tax codes)
+  //   - No. Pesanan: explicit reference, not '[auto]' (importer occasionally
+  //     rejects [auto] in CSV mode even though spec mentions it).
   const todayDate = new Date().toISOString().slice(0, 10);
   const today     = todayDate + ' 00:00:00';
+  const poRef     = `RST-${todayDate.replace(/-/g,'')}-${Math.floor(Math.random()*9000)+1000}`;
   const esc = v => {
     const s = String(v ?? '');
     return (s.includes(',') || s.includes('"') || s.includes('\n'))
@@ -23442,7 +23446,7 @@ function _rstExportCSVForVendor(vmId) {
     const price = Math.max(0, Math.round(Number(it.price) || 0));
     const qty   = Math.max(0, Math.round(Number(it.qty) || 0));
     if (i === 0) {
-      csvRows.push(['[auto]', '', esc(today), 'WIB', esc(supplierName),
+      csvRows.push([esc(poRef), '', esc(today), 'WIB', esc(supplierName),
         esc(email), esc(phone), taxIncl, esc(defaultLoc),
         esc(note), esc(sku), price, qty, 0, esc(defaultTax)].join(','));
     } else {
@@ -23451,11 +23455,14 @@ function _rstExportCSVForVendor(vmId) {
         esc(sku), price, qty, 0, esc(defaultTax)].join(','));
     }
   });
-  const csv = csvRows.join('\r\n');
-  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+  // Jubelio's importer reads plain UTF-8; the BOM occasionally confuses it
+  // when the header row gets parsed literally. Skip the BOM and use \n line
+  // endings (matches Excel's CSV export from the template sheet).
+  const csv = csvRows.join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const safeName = supplierName.replace(/[^a-zA-Z0-9._-]+/g,'_').slice(0,40);
-  const filename = `PO-Restock-${safeName}-${today}.csv`;
+  const filename = `PO-Restock-${safeName}-${todayDate}.csv`;
   const a = document.createElement('a');
   a.href = url; a.download = filename; a.click();
   setTimeout(() => URL.revokeObjectURL(url), 200);
