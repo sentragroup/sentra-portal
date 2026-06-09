@@ -16100,7 +16100,15 @@ function pdComputeProjection(parent, allChildren) {
   // Per-unit cost
   const unitCost = units ? modal / units : null;
 
-  const srp = Number(parent.srp||0);
+  // Effective SRP: prefer the value saved on the parent. Fall back to the
+  // SRP target in collection_items so revenue/margin still surface for
+  // legacy PD rows where production team hasn't re-typed SRP after Business
+  // set it.
+  let srp = Number(parent.srp||0);
+  if (!srp && parent?.collectionItemId && Array.isArray(_pdDesignRows)) {
+    const ci = _pdDesignRows.find(r => r.id === parent.collectionItemId);
+    if (ci?.srp) srp = Number(ci.srp);
+  }
   const revenue100 = (srp && units) ? srp * units : 0;
   const grossMargin    = revenue100 - modal;
   const grossMarginPct = revenue100 ? (grossMargin / revenue100) * 100 : null;
@@ -16459,7 +16467,7 @@ async function _pdLoadDesignMirror(cid) {
   body.innerHTML = `<div style="padding:14px;text-align:center;color:var(--g400);font-size:11px">Memuat...</div>`;
   try {
     const {data, error} = await sb.from('collection_items')
-      .select('id,sku_name,designer,approval_status,design_preview_url,deadline,category')
+      .select('id,sku_name,designer,approval_status,design_preview_url,deadline,category,qty,srp')
       .eq('collection_id', cid)
       .order('sku_name', {ascending:true,nullsFirst:false});
     if (error) throw error;
@@ -16510,19 +16518,36 @@ function _pdRenderDesignMirror() {
       <th style="text-align:left;padding:7px 10px;font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">SKU</th>
       <th style="text-align:left;padding:7px 10px;font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Designer</th>
       <th style="text-align:left;padding:7px 10px;font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Approval</th>
+      <th style="text-align:right;padding:7px 10px;font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Target Qty</th>
+      <th style="text-align:right;padding:7px 10px;font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">SRP</th>
       <th style="text-align:left;padding:7px 10px;font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Design Link</th>
       <th style="text-align:right;padding:7px 10px;font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.3px;font-weight:600"></th>
     </tr></thead>
     <tbody>
     ${(() => {
-      // Build a map: collection_item_id → parent SKU code, for "already mapped" badge
       const cid = pdCurrentCollectionId;
+      // Map collection_item_id → parent SKU (for ✓ Mapped pill)
       const ciToParent = new Map();
+      // Map collection_item_id → sum of variant qty under that parent
+      const ciToVariantQty = new Map();
       for (const r of allPDRows) {
         if (!r.parentId && r.collectionId === cid && r.collectionItemId) {
           ciToParent.set(r.collectionItemId, r);
+          const sumQty = allPDRows
+            .filter(v => v.parentId === r.id)
+            .reduce((s, v) => s + (Number(v.qty) || 0), 0);
+          ciToVariantQty.set(r.collectionItemId, sumQty);
         }
       }
+      const fmtRp = v => v ? 'Rp ' + Math.round(v).toLocaleString('id-ID') : '<span style="color:var(--g400)">—</span>';
+      const qtyCell = d => {
+        if (!d.qty) return '<span style="color:var(--g400)">—</span>';
+        const planned = ciToVariantQty.get(d.id) || 0;
+        if (!planned) return `<span style="font-family:var(--mono)">${d.qty}</span>`;
+        const pct = Math.round(planned / d.qty * 100);
+        const color = planned >= d.qty ? '#0a7d3a' : planned >= d.qty*0.8 ? '#a66800' : '#c0392b';
+        return `<span style="font-family:var(--mono)">${planned}/${d.qty}</span><div style="font-size:9px;color:${color}">${pct}% planned</div>`;
+      };
       return _pdDesignRows.map(d => {
         const cat = d.category ? `<div style="font-size:10px;color:var(--g400);margin-top:2px">${d.category.replace(/</g,'&lt;')}</div>` : '';
         const mapped = ciToParent.get(d.id);
@@ -16536,6 +16561,8 @@ function _pdRenderDesignMirror() {
           <td style="padding:7px 10px"><strong>${(d.sku_name||'—').replace(/</g,'&lt;')}</strong>${mapBadge}${cat}</td>
           <td style="padding:7px 10px;color:var(--g600)">${(d.designer||'—').replace(/</g,'&lt;')}</td>
           <td style="padding:7px 10px">${stPill(d.approval_status)}</td>
+          <td style="padding:7px 10px;text-align:right">${qtyCell(d)}</td>
+          <td style="padding:7px 10px;text-align:right;font-family:var(--mono)">${fmtRp(d.srp)}</td>
           <td style="padding:7px 10px">${linkCell(d.design_preview_url)}</td>
           <td style="padding:7px 10px;text-align:right;white-space:nowrap">${actBtn}</td>
         </tr>`;
@@ -16557,6 +16584,9 @@ function _pdUseDesign(ciId) {
   const dispName = d.sku_name || '';
   const nameInp = document.getElementById('pd-sku-name');
   if (nameInp) nameInp.value = dispName;
+  // Auto-prefill SRP from collection_items so production team doesn't need to retype it
+  const srpInp = document.getElementById('pd-srp');
+  if (srpInp && d.srp != null) srpInp.value = d.srp;
   // Reuse existing hidden inputs — they map straight onto product_dev.design_* fields
   document.getElementById('pd-design-workflow-id').value = ''; // unused for CI source
   document.getElementById('pd-design-url').value         = d.design_preview_url || '';
@@ -16945,6 +16975,15 @@ function _pdResolveParentDesign(p) {
   return null;
 }
 
+// Resolve a parent SKU's business target reference from collection_items.
+// Returns {qtyTarget, srpTarget} when this PD parent is linked to a CI row.
+function _pdResolveParentBusiness(p) {
+  if (!p?.collectionItemId || !Array.isArray(_pdDesignRows)) return null;
+  const ci = _pdDesignRows.find(r => r.id === p.collectionItemId);
+  if (!ci) return null;
+  return { qtyTarget: ci.qty || null, srpTarget: ci.srp || null };
+}
+
 function renderPDParentCard(p, allChildren) {
   const subs        = _pdSortVariantsBySize(allChildren.filter(c => pdChildKind(c) === 'variant'));
   const bundleItems = allChildren.filter(c => pdChildKind(c) === 'bundle_item');
@@ -17013,15 +17052,30 @@ function renderPDParentCard(p, allChildren) {
           <button class="btn-ghost" style="font-size:11px;padding:3px 8px;color:#c33" onclick="deletePD('${p.id}',true)">🗑</button>
         </div>
       </div>
-      <div style="display:flex;flex-wrap:wrap;gap:16px;font-size:12px;color:var(--g600)">
-        <span>Vendor: <b style="color:var(--black)">${vendorTxt.replace(/</g,'&lt;')}</b></span>
-        <span>HPP/unit: <span class="mono"><b style="color:var(--black)">${proj.unitCost?pdFmtIDR(Math.round(proj.unitCost)):'—'}</b></span></span>
-        <span>SRP: <span class="mono"><b style="color:var(--black)">${pdFmtIDR(p.srp)}</b></span></span>
-        <span>Ratio: ${ratioPill}</span>
-        ${dz?.url
-          ? `<span>Design: <a href="${dz.url.replace(/"/g,'&quot;')}" target="_blank" style="color:#3C3489;font-weight:600;text-decoration:underline">↗ Buka</a>${dz.designer?` <span style="color:var(--g400)">· ${dz.designer.replace(/</g,'&lt;')}</span>`:''}${dz.status?` <span class="pill ${dz.status==='Approved'?'p-active':dz.status==='Revision'?'p-near':dz.status==='Rejected'?'p-expired':'p-draft'}" style="font-size:9px;margin-left:4px">${dz.status}</span>`:''}</span>`
-          : '<span style="color:var(--g400)">Design: —</span>'}
-      </div>
+      ${(() => {
+        const biz = _pdResolveParentBusiness(p);
+        // SRP: prefer the explicit value saved on PD; fall back to Business target from CI
+        const effectiveSrp = p.srp || biz?.srpTarget || null;
+        const srpFromBiz = !p.srp && biz?.srpTarget;
+        // Target qty: only meaningful when CI has it set
+        const qtyTarget = biz?.qtyTarget || null;
+        const plannedQty = totalQty || 0;
+        const qtyPct = qtyTarget ? Math.round(plannedQty / qtyTarget * 100) : null;
+        const qtyColor = qtyTarget == null ? '' : plannedQty >= qtyTarget ? '#0a7d3a' : plannedQty >= qtyTarget*0.8 ? '#a66800' : '#c0392b';
+        const targetCell = qtyTarget
+          ? `<span>Target Qty: <span class="mono"><b style="color:${qtyColor}">${plannedQty}/${qtyTarget}</b></span>${qtyPct!=null?` <span style="font-size:10px;color:${qtyColor}">(${qtyPct}%)</span>`:''}</span>`
+          : '';
+        return `<div style="display:flex;flex-wrap:wrap;gap:16px;font-size:12px;color:var(--g600)">
+          <span>Vendor: <b style="color:var(--black)">${vendorTxt.replace(/</g,'&lt;')}</b></span>
+          <span>HPP/unit: <span class="mono"><b style="color:var(--black)">${proj.unitCost?pdFmtIDR(Math.round(proj.unitCost)):'—'}</b></span></span>
+          <span title="${srpFromBiz?'Diambil dari target SRP di Business tab Collection Dev':'Tersimpan di PD'}">SRP: <span class="mono"><b style="color:var(--black)">${effectiveSrp?pdFmtIDR(effectiveSrp):'—'}</b></span>${srpFromBiz?' <span style="font-size:9px;color:#3C3489;background:#eef0f8;padding:1px 5px;border-radius:3px;margin-left:3px">from Biz</span>':''}</span>
+          <span>Ratio: ${ratioPill}</span>
+          ${targetCell}
+          ${dz?.url
+            ? `<span>Design: <a href="${dz.url.replace(/"/g,'&quot;')}" target="_blank" style="color:#3C3489;font-weight:600;text-decoration:underline">↗ Buka</a>${dz.designer?` <span style="color:var(--g400)">· ${dz.designer.replace(/</g,'&lt;')}</span>`:''}${dz.status?` <span class="pill ${dz.status==='Approved'?'p-active':dz.status==='Revision'?'p-near':dz.status==='Rejected'?'p-expired':'p-draft'}" style="font-size:9px;margin-left:4px">${dz.status}</span>`:''}</span>`
+            : '<span style="color:var(--g400)">Design: —</span>'}
+        </div>`;
+      })()}
       ${renderPDProjectionRow(proj)}
       ${p.notes ? `<div style="margin-top:6px;font-size:11px;color:var(--g600);font-style:italic">${p.notes.replace(/</g,'&lt;')}</div>` : ''}
       ${childrenBlock}
