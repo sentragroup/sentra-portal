@@ -15878,7 +15878,24 @@ function generateNextVariantCode(collection_id, size) {
 }
 
 // Standard size options for the variant form
-const PD_SIZE_OPTIONS = ['OS','S','M','L','XL','XXL','XXXL'];
+// Order matters: drives size-chip layout in the add form AND the sort order
+// of variant rows inside a parent card. Apparel sizes ascending, then OS.
+const PD_SIZE_OPTIONS = ['S','M','L','XL','XXL','XXXL','OS'];
+
+// Stable sort for variant arrays. Known sizes follow PD_SIZE_OPTIONS;
+// unknown sizes go after, ordered alphabetically. Falls back to display_code
+// when sizes are equal so the result is deterministic.
+function _pdSortVariantsBySize(arr) {
+  const idx = s => {
+    const i = PD_SIZE_OPTIONS.indexOf((s||'').trim().toUpperCase());
+    return i < 0 ? PD_SIZE_OPTIONS.length : i;
+  };
+  return arr.slice().sort((a, b) => {
+    const da = idx(a.size), db = idx(b.size);
+    if (da !== db) return da - db;
+    return (a.displayCode || '').localeCompare(b.displayCode || '');
+  });
+}
 // "OS" = One Size — for products without size variations (CD, sticker, pin,
 // keychain, accessories, etc). Treated as no size_variant at Jubelio export.
 const PD_NO_SIZE_TOKENS = new Set(['OS','ONE SIZE','FREE SIZE','FREE','NO SIZE']);
@@ -16770,7 +16787,7 @@ function _pdResolveParentDesign(p) {
 }
 
 function renderPDParentCard(p, allChildren) {
-  const subs        = allChildren.filter(c => pdChildKind(c) === 'variant');
+  const subs        = _pdSortVariantsBySize(allChildren.filter(c => pdChildKind(c) === 'variant'));
   const bundleItems = allChildren.filter(c => pdChildKind(c) === 'bundle_item');
   const proj  = pdComputeProjection(p, allChildren);
   const ratio = proj.ratio;
@@ -17342,7 +17359,7 @@ function buildPDCatalogHTML(title, parents, subsByParent, mode, vendor) {
 
   const cardsHTML = parents.map(p => {
     const all = subsByParent[p.id] || [];
-    const variants    = all.filter(c => pdChildKind(c) === 'variant');
+    const variants    = _pdSortVariantsBySize(all.filter(c => pdChildKind(c) === 'variant'));
     const bundleItems = all.filter(c => pdChildKind(c) === 'bundle_item');
     const proj = pdComputeProjection(p, all);
     const ratio = proj.ratio;
