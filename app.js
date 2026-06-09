@@ -19673,7 +19673,7 @@ async function loadTxMap() {
     };
 
     // Total count + dropdown filter population happen in parallel
-    const orderCols = 'salesorder_id,salesorder_no,transaction_date,location_name,channel_name,store_name,customer_name,shipping_full_name,wms_status,sub_total,is_canceled';
+    const orderCols = 'salesorder_id,salesorder_no,transaction_date,location_name,channel_name,store_name,customer_name,shipping_full_name,wms_status,sub_total,is_canceled,note';
     const from_n = _txPage * pageSize;
     const to_n   = from_n + pageSize - 1;
 
@@ -19772,7 +19772,10 @@ function _renderTxTable() {
   tbody.innerHTML = _txRows.map(r => {
     const cat = r._mapping?.category || '';
     const proj = r._mapping?.project_ref || '';
-    const notes = r._mapping?.notes || '';
+    // Notes now come from Jubelio (read-only) — usually carries event /
+    // location context like "Sarasvatifest - Bali March 1, 2026". Strip
+    // tabs and trim so the cell renders cleanly.
+    const jubNote = (r.note || '').replace(/\s+/g, ' ').trim();
     const isMapped = !!cat || !!proj;
     const rowBg = isMapped ? 'background:#fafdf6' : '';
     const isCanceled = r.is_canceled || (r.wms_status === 'CANCELED');
@@ -19788,7 +19791,7 @@ function _renderTxTable() {
       <td><span class="pill ${isCanceled ? 'p-expired' : 'p-info'}" style="font-size:10px">${_txEsc(r.wms_status || '—')}</span></td>
       <td><select onchange="updateTxField(${r.salesorder_id},'category',this.value)" class="pill ${isMapped ? 'p-active' : 'p-draft'}" style="font-size:10px;padding:2px 6px;border:1px solid;width:100%">${catOpts.map(o => `<option value="${o}"${o===cat?' selected':''}>${o || '— Unmapped —'}</option>`).join('')}</select></td>
       <td>${_txRefSelectHTML(r.salesorder_id, cat, proj)}</td>
-      <td><input type="text" value="${_txEsc(notes)}" placeholder="Catatan" style="width:100%;padding:4px 6px;font-size:11px;border:1px solid var(--g100);border-radius:3px;background:var(--white)" onblur="updateTxField(${r.salesorder_id},'notes',this.value)"></td>
+      <td style="font-size:11px;color:var(--g600);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_txEsc(jubNote)}">${jubNote ? _txEsc(jubNote) : '<span style="color:var(--g400)">—</span>'}</td>
       <td style="text-align:center">${isMapped ? `<button class="btn-icon" style="font-size:10px;color:#c33" onclick="unmapTx(${r.salesorder_id})">✕</button>` : '—'}</td>
     </tr>`;
   }).join('');
