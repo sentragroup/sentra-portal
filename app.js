@@ -3840,8 +3840,7 @@ function renderMekariTable(rows) {
 // ── PURCHASE ORDERS ──
 let allPORows=[], allPOItems=[], allPOBills=[], allPOBillItems=[], allPOReceives=[];
 let allPOExtras=[]; // po_extras: {purchaseorder_id, expected_date, category, ...}
-let allBillExtras=[]; // bill_extras: {bill_id, is_paid, paid_at, ...} — manual fallback
-let allPOPayments=[];     // jubelio_purchase_payments: header rows
+let allPOPayments=[];     // jubelio_purchase_payments: header rows (auto-synced)
 let allPOPaymentBills=[]; // jubelio_purchase_payment_bills: bill ↔ payment links
 let allCPLinks=[];            // collection_po_links rows
 let allCPLinkItems=[];        // collection_po_link_items rows
@@ -3907,14 +3906,13 @@ async function loadPO(){
       to:     document.getElementById("po-fil-to")?.value||""
     };
     // POs with server-side filter+pagination; items/bills/receives load full (supplementary)
-    const [poData,itemData,billData,billItemData,rcvData,extrasData,billExtrasData,paymentsData,paymentBillsData]=await Promise.all([
+    const [poData,itemData,billData,billItemData,rcvData,extrasData,paymentsData,paymentBillsData]=await Promise.all([
       fetchPOPages(filters),
       _fetchAllPages("jubelio_purchase_order_items","*",q=>q.order("purchaseorder_detail_id",{ascending:true})),
       _fetchAllPages("jubelio_purchase_bills"),
       _fetchAllPages("jubelio_purchase_bill_items"),
       _fetchAllPages("jubelio_purchase_receives"),
       _fetchAllPages("po_extras"),
-      _fetchAllPages("bill_extras"),
       _fetchAllPages("jubelio_purchase_payments","payment_id,payment_no,transaction_date,amount,account_name,contact_name"),
       _fetchAllPages("jubelio_purchase_payment_bills","payment_detail_id,payment_id,bill_id,payment_amount,due"),
     ]);
@@ -3924,7 +3922,6 @@ async function loadPO(){
     allPOBillItems=(billItemData||[]);
     allPOReceives=(rcvData||[]);
     allPOExtras=(extrasData||[]);
-    allBillExtras=(billExtrasData||[]);
     allPOPayments=(paymentsData||[]);
     allPOPaymentBills=(paymentBillsData||[]);
     await refreshCPLinks();
@@ -4112,13 +4109,11 @@ function renderPOTable(rows){
       <td style="font-size:11px">${(poToCollections[r.id]||[]).map(c=>`<span class="pill p-signings" style="font-size:10px;margin-right:3px">${c}</span>`).join("")||`<span style="color:var(--g400)">—</span>`}</td>
       <td style="font-size:11px;color:var(--g400);white-space:nowrap">${relTime(r.syncedAt)}</td>
     </tr>`;
-    // Bills section. Jubelio's /purchase/payments/ links each payment to one
-    // or more bills. We aggregate per bill_id: a bill is paid when
-    // SUM(payment_amount) for its bill_id ≥ grand_total. Falls back to the
-    // manual bill_extras flag for cases where the user wants to pre-mark.
-    const billExtraById = new Map((allBillExtras||[]).map(be => [be.bill_id, be]));
+    // Bills section. Status is derived purely from Jubelio Purchase Payment
+    // sync (jubelio_purchase_payment_bills) — no manual override anymore.
+    // A bill is Lunas when sum(payment_amount) ≥ grand_total OR the latest
+    // due hits zero. Anything else shows partial / belum lunas.
     const paymentById = new Map((allPOPayments||[]).map(p => [p.payment_id, p]));
-    // bill_id → [{payment, payment_amount, due}]
     const paymentsByBill = new Map();
     for (const pl of (allPOPaymentBills||[])) {
       if (!paymentsByBill.has(pl.bill_id)) paymentsByBill.set(pl.bill_id, []);
@@ -4140,34 +4135,26 @@ function renderPOTable(rows){
           <th style="padding:6px 10px;text-align:left">Payment Doc</th>
         </tr></thead>
         <tbody>${bills.map(b => {
-          const be = billExtraById.get(b.bill_id) || {};
           const pays = paymentsByBill.get(b.bill_id) || [];
           const totalPaid = pays.reduce((s, p) => s + p.payment_amount, 0);
           const grandTotal = Number(b.grand_total)||0;
-          // Paid if Jubelio payments cover the bill (sum ≥ grand_total OR due = 0)
           const lastDue = pays.length ? pays[pays.length-1].due : null;
-          const isPaidJubelio = pays.length > 0 && (totalPaid >= grandTotal - 1 || (lastDue !== null && lastDue <= 0));
-          const isPaid = isPaidJubelio || be.is_paid === true;
+          const isPaid = pays.length > 0 && (totalPaid >= grandTotal - 1 || (lastDue !== null && lastDue <= 0));
           const bDate = b.transaction_date ? new Date(b.transaction_date).toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'2-digit'}) : '—';
           const putPill = b.is_putaway ? `<span class="pill p-active" style="font-size:10px">✓ Putaway</span>` : `<span class="pill p-draft" style="font-size:10px">Pending</span>`;
           let paidPill, paymentDocCell;
-          if (isPaidJubelio) {
-            const lastPay = pays[pays.length-1].payment;
-            const payDate = lastPay?.transaction_date ? new Date(lastPay.transaction_date).toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'2-digit'}) : '';
-            paidPill = `<span class="pill p-active" style="font-size:10px" title="Otomatis dari Jubelio Purchase Payment">✓ Lunas (Jubelio)</span>`;
+          if (isPaid) {
+            paidPill = `<span class="pill p-active" style="font-size:10px">✓ Lunas</span>`;
             paymentDocCell = pays.map(p => {
               const pn = p.payment?.payment_no || '—';
               const pd = p.payment?.transaction_date ? new Date(p.payment.transaction_date).toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'2-digit'}) : '';
               const acct = p.payment?.account_name || '';
               return `<div style="font-family:var(--mono);font-size:10px"><b>${pn}</b> <span style="color:var(--g400)">${pd}${acct?' · '+acct:''}</span></div>`;
             }).join('');
-          } else if (be.is_paid === true) {
-            paidPill = `<span class="pill p-near" style="font-size:10px" title="Manual flag — belum sync ke Jubelio">✓ Lunas (Manual)</span>`;
-            paymentDocCell = `<div style="font-size:10px;color:var(--g400)">${be.paid_at || '—'} <button onclick="saveBillPaid(${b.bill_id}, false)" title="Hapus flag manual" style="background:none;border:none;color:#c0392b;font-size:10px;cursor:pointer">✕</button></div>`;
           } else {
             const partial = totalPaid > 0 ? `<div style="font-size:10px;color:#a66800;margin-top:2px">Partial: Rp ${Math.round(totalPaid).toLocaleString('id-ID')} / ${Math.round(grandTotal).toLocaleString('id-ID')}</div>` : '';
             paidPill = `<span class="pill p-draft" style="font-size:10px">Belum lunas</span>${partial}`;
-            paymentDocCell = `<button onclick="saveBillPaid(${b.bill_id}, true)" style="font-size:10px;padding:3px 8px;background:var(--white);border:1px solid var(--g100);border-radius:3px;cursor:pointer" title="Tandai lunas manual (sebelum sync)">+ Mark manual</button>`;
+            paymentDocCell = `<span style="font-size:10px;color:var(--g400)">—</span>`;
           }
           return `<tr style="border-top:1px solid var(--g100)">
             <td style="padding:6px 10px;font-family:var(--mono);font-size:11px">${b.bill_no||b.bill_id}</td>
@@ -4241,49 +4228,6 @@ async function savePOCategory(poId, value) {
     else allPOExtras.push({ purchaseorder_id: poId, category: v });
     applyPOFilters();
   } catch (e) { alert('Gagal save category: '+(e.message||e)); }
-}
-
-// Toggle a bill's paid flag. When unchecked, also clear the paid_at date so
-// the disabled-date input doesn't keep a stale value visible.
-async function saveBillPaid(billId, paid) {
-  try {
-    const row = {
-      bill_id: billId,
-      is_paid: !!paid,
-      updated_at: new Date().toISOString(),
-      updated_by: currentUser,
-    };
-    if (paid && !((allBillExtras.find(e => e.bill_id === billId)||{}).paid_at)) {
-      // Auto-stamp today's date when first marked paid (user can edit after)
-      row.paid_at = new Date().toISOString().slice(0,10);
-    } else if (!paid) {
-      row.paid_at = null;
-    }
-    const {error} = await sb.from('bill_extras').upsert(row, { onConflict: 'bill_id' });
-    if (error) throw error;
-    const idx = allBillExtras.findIndex(e => e.bill_id === billId);
-    if (idx >= 0) allBillExtras[idx] = { ...allBillExtras[idx], ...row };
-    else allBillExtras.push(row);
-    applyPOFilters();
-  } catch (e) { alert('Gagal save status bayar: '+(e.message||e)); }
-}
-
-// Update the paid_at date once a bill is already marked paid.
-async function saveBillPaidDate(billId, dateStr) {
-  const d = (dateStr||'').trim() || null;
-  try {
-    const {error} = await sb.from('bill_extras').upsert({
-      bill_id: billId,
-      is_paid: true,
-      paid_at: d,
-      updated_at: new Date().toISOString(),
-      updated_by: currentUser,
-    }, { onConflict: 'bill_id' });
-    if (error) throw error;
-    const idx = allBillExtras.findIndex(e => e.bill_id === billId);
-    if (idx >= 0) allBillExtras[idx] = { ...allBillExtras[idx], paid_at: d };
-    else allBillExtras.push({ bill_id: billId, is_paid: true, paid_at: d });
-  } catch (e) { alert('Gagal save tanggal bayar: '+(e.message||e)); }
 }
 
 // Inline-save the user's expected delivery date for a PO into po_extras.
