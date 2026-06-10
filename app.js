@@ -3840,7 +3840,9 @@ function renderMekariTable(rows) {
 // ── PURCHASE ORDERS ──
 let allPORows=[], allPOItems=[], allPOBills=[], allPOBillItems=[], allPOReceives=[];
 let allPOExtras=[]; // po_extras: {purchaseorder_id, expected_date, category, ...}
-let allBillExtras=[]; // bill_extras: {bill_id, is_paid, paid_at, ...}
+let allBillExtras=[]; // bill_extras: {bill_id, is_paid, paid_at, ...} — manual fallback
+let allPOPayments=[];     // jubelio_purchase_payments: header rows
+let allPOPaymentBills=[]; // jubelio_purchase_payment_bills: bill ↔ payment links
 let allCPLinks=[];            // collection_po_links rows
 let allCPLinkItems=[];        // collection_po_link_items rows
 let cplItemsByLink={};        // link_id → Set<purchaseorder_detail_id>
@@ -3905,7 +3907,7 @@ async function loadPO(){
       to:     document.getElementById("po-fil-to")?.value||""
     };
     // POs with server-side filter+pagination; items/bills/receives load full (supplementary)
-    const [poData,itemData,billData,billItemData,rcvData,extrasData,billExtrasData]=await Promise.all([
+    const [poData,itemData,billData,billItemData,rcvData,extrasData,billExtrasData,paymentsData,paymentBillsData]=await Promise.all([
       fetchPOPages(filters),
       _fetchAllPages("jubelio_purchase_order_items","*",q=>q.order("purchaseorder_detail_id",{ascending:true})),
       _fetchAllPages("jubelio_purchase_bills"),
@@ -3913,6 +3915,8 @@ async function loadPO(){
       _fetchAllPages("jubelio_purchase_receives"),
       _fetchAllPages("po_extras"),
       _fetchAllPages("bill_extras"),
+      _fetchAllPages("jubelio_purchase_payments","payment_id,payment_no,transaction_date,amount,account_name,contact_name"),
+      _fetchAllPages("jubelio_purchase_payment_bills","payment_detail_id,payment_id,bill_id,payment_amount,due"),
     ]);
     allPORows=poData.map(mapPO);
     allPOItems=(itemData||[]).map(mapPOItem);
@@ -3921,6 +3925,8 @@ async function loadPO(){
     allPOReceives=(rcvData||[]);
     allPOExtras=(extrasData||[]);
     allBillExtras=(billExtrasData||[]);
+    allPOPayments=(paymentsData||[]);
+    allPOPaymentBills=(paymentBillsData||[]);
     await refreshCPLinks();
     const qtyByPO={};
     allPOItems.forEach(i=>{qtyByPO[i.purchaseorderId]=(qtyByPO[i.purchaseorderId]||0)+(i.qty||0);});
@@ -4106,8 +4112,22 @@ function renderPOTable(rows){
       <td style="font-size:11px">${(poToCollections[r.id]||[]).map(c=>`<span class="pill p-signings" style="font-size:10px;margin-right:3px">${c}</span>`).join("")||`<span style="color:var(--g400)">—</span>`}</td>
       <td style="font-size:11px;color:var(--g400);white-space:nowrap">${relTime(r.syncedAt)}</td>
     </tr>`;
-    // Bills section: paid status checkbox + Jubelio bill no/date/grand total/putaway
+    // Bills section. Jubelio's /purchase/payments/ links each payment to one
+    // or more bills. We aggregate per bill_id: a bill is paid when
+    // SUM(payment_amount) for its bill_id ≥ grand_total. Falls back to the
+    // manual bill_extras flag for cases where the user wants to pre-mark.
     const billExtraById = new Map((allBillExtras||[]).map(be => [be.bill_id, be]));
+    const paymentById = new Map((allPOPayments||[]).map(p => [p.payment_id, p]));
+    // bill_id → [{payment, payment_amount, due}]
+    const paymentsByBill = new Map();
+    for (const pl of (allPOPaymentBills||[])) {
+      if (!paymentsByBill.has(pl.bill_id)) paymentsByBill.set(pl.bill_id, []);
+      paymentsByBill.get(pl.bill_id).push({
+        payment: paymentById.get(pl.payment_id),
+        payment_amount: Number(pl.payment_amount)||0,
+        due: Number(pl.due)||0,
+      });
+    }
     const billsHTML = bills.length ? `<div style="margin-bottom:14px">
       <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:6px">Tagihan / Bills (${bills.length})</div>
       <table style="width:100%;font-size:11px;border-collapse:collapse;background:var(--white);border:1px solid var(--g100);border-radius:4px;overflow:hidden">
@@ -4117,29 +4137,45 @@ function renderPOTable(rows){
           <th style="padding:6px 10px;text-align:left">Putaway</th>
           <th style="padding:6px 10px;text-align:right">Grand Total</th>
           <th style="padding:6px 10px;text-align:left">Status Bayar</th>
-          <th style="padding:6px 10px;text-align:left">Tanggal Bayar</th>
+          <th style="padding:6px 10px;text-align:left">Payment Doc</th>
         </tr></thead>
         <tbody>${bills.map(b => {
           const be = billExtraById.get(b.bill_id) || {};
-          const paid = be.is_paid === true;
-          const paidAt = be.paid_at || '';
+          const pays = paymentsByBill.get(b.bill_id) || [];
+          const totalPaid = pays.reduce((s, p) => s + p.payment_amount, 0);
+          const grandTotal = Number(b.grand_total)||0;
+          // Paid if Jubelio payments cover the bill (sum ≥ grand_total OR due = 0)
+          const lastDue = pays.length ? pays[pays.length-1].due : null;
+          const isPaidJubelio = pays.length > 0 && (totalPaid >= grandTotal - 1 || (lastDue !== null && lastDue <= 0));
+          const isPaid = isPaidJubelio || be.is_paid === true;
           const bDate = b.transaction_date ? new Date(b.transaction_date).toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'2-digit'}) : '—';
           const putPill = b.is_putaway ? `<span class="pill p-active" style="font-size:10px">✓ Putaway</span>` : `<span class="pill p-draft" style="font-size:10px">Pending</span>`;
-          const paidPill = paid ? `<span class="pill p-active" style="font-size:10px;margin-left:6px">✓ Lunas</span>` : `<span class="pill p-near" style="font-size:10px;margin-left:6px">Belum lunas</span>`;
+          let paidPill, paymentDocCell;
+          if (isPaidJubelio) {
+            const lastPay = pays[pays.length-1].payment;
+            const payDate = lastPay?.transaction_date ? new Date(lastPay.transaction_date).toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'2-digit'}) : '';
+            paidPill = `<span class="pill p-active" style="font-size:10px" title="Otomatis dari Jubelio Purchase Payment">✓ Lunas (Jubelio)</span>`;
+            paymentDocCell = pays.map(p => {
+              const pn = p.payment?.payment_no || '—';
+              const pd = p.payment?.transaction_date ? new Date(p.payment.transaction_date).toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'2-digit'}) : '';
+              const acct = p.payment?.account_name || '';
+              return `<div style="font-family:var(--mono);font-size:10px"><b>${pn}</b> <span style="color:var(--g400)">${pd}${acct?' · '+acct:''}</span></div>`;
+            }).join('');
+          } else if (be.is_paid === true) {
+            paidPill = `<span class="pill p-near" style="font-size:10px" title="Manual flag — belum sync ke Jubelio">✓ Lunas (Manual)</span>`;
+            paymentDocCell = `<div style="font-size:10px;color:var(--g400)">${be.paid_at || '—'} <button onclick="saveBillPaid(${b.bill_id}, false)" title="Hapus flag manual" style="background:none;border:none;color:#c0392b;font-size:10px;cursor:pointer">✕</button></div>`;
+          } else {
+            const partial = totalPaid > 0 ? `<div style="font-size:10px;color:#a66800;margin-top:2px">Partial: Rp ${Math.round(totalPaid).toLocaleString('id-ID')} / ${Math.round(grandTotal).toLocaleString('id-ID')}</div>` : '';
+            paidPill = `<span class="pill p-draft" style="font-size:10px">Belum lunas</span>${partial}`;
+            paymentDocCell = `<button onclick="saveBillPaid(${b.bill_id}, true)" style="font-size:10px;padding:3px 8px;background:var(--white);border:1px solid var(--g100);border-radius:3px;cursor:pointer" title="Tandai lunas manual (sebelum sync)">+ Mark manual</button>`;
+          }
           return `<tr style="border-top:1px solid var(--g100)">
             <td style="padding:6px 10px;font-family:var(--mono);font-size:11px">${b.bill_no||b.bill_id}</td>
             <td style="padding:6px 10px;font-family:var(--mono);font-size:11px;white-space:nowrap">${bDate}</td>
             <td style="padding:6px 10px">${putPill}</td>
-            <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:11px;font-weight:600">${b.grand_total!=null?'Rp '+Math.round(Number(b.grand_total)).toLocaleString('id-ID'):'—'}</td>
-            <td style="padding:6px 10px;white-space:nowrap">
-              <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:11px">
-                <input type="checkbox" ${paid?'checked':''} onchange="saveBillPaid(${b.bill_id}, this.checked)">
-                ${paidPill}
-              </label>
-            </td>
-            <td style="padding:6px 10px;white-space:nowrap">
-              <input type="date" value="${paidAt}" onchange="saveBillPaidDate(${b.bill_id}, this.value)" style="font-size:11px;padding:3px 6px;border:1px solid var(--g100);border-radius:3px;background:var(--white)" ${paid?'':'disabled'}>
-            </td>
+            <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:11px;font-weight:600">${b.grand_total!=null?'Rp '+Math.round(grandTotal).toLocaleString('id-ID'):'—'}</td>
+            <td style="padding:6px 10px;white-space:nowrap">${paidPill}</td>
+            <td style="padding:6px 10px">${paymentDocCell}</td>
           </tr>`;
         }).join('')}</tbody>
       </table>
