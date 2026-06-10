@@ -3839,7 +3839,8 @@ function renderMekariTable(rows) {
 
 // ── PURCHASE ORDERS ──
 let allPORows=[], allPOItems=[], allPOBills=[], allPOBillItems=[], allPOReceives=[];
-let allPOExtras=[]; // po_extras: {purchaseorder_id, expected_date, ...}
+let allPOExtras=[]; // po_extras: {purchaseorder_id, expected_date, category, ...}
+let allBillExtras=[]; // bill_extras: {bill_id, is_paid, paid_at, ...}
 let allCPLinks=[];            // collection_po_links rows
 let allCPLinkItems=[];        // collection_po_link_items rows
 let cplItemsByLink={};        // link_id → Set<purchaseorder_detail_id>
@@ -3904,13 +3905,14 @@ async function loadPO(){
       to:     document.getElementById("po-fil-to")?.value||""
     };
     // POs with server-side filter+pagination; items/bills/receives load full (supplementary)
-    const [poData,itemData,billData,billItemData,rcvData,extrasData]=await Promise.all([
+    const [poData,itemData,billData,billItemData,rcvData,extrasData,billExtrasData]=await Promise.all([
       fetchPOPages(filters),
       _fetchAllPages("jubelio_purchase_order_items","*",q=>q.order("purchaseorder_detail_id",{ascending:true})),
       _fetchAllPages("jubelio_purchase_bills"),
       _fetchAllPages("jubelio_purchase_bill_items"),
       _fetchAllPages("jubelio_purchase_receives"),
       _fetchAllPages("po_extras"),
+      _fetchAllPages("bill_extras"),
     ]);
     allPORows=poData.map(mapPO);
     allPOItems=(itemData||[]).map(mapPOItem);
@@ -3918,6 +3920,7 @@ async function loadPO(){
     allPOBillItems=(billItemData||[]);
     allPOReceives=(rcvData||[]);
     allPOExtras=(extrasData||[]);
+    allBillExtras=(billExtrasData||[]);
     await refreshCPLinks();
     const qtyByPO={};
     allPOItems.forEach(i=>{qtyByPO[i.purchaseorderId]=(qtyByPO[i.purchaseorderId]||0)+(i.qty||0);});
@@ -4073,12 +4076,26 @@ function renderPOTable(rows){
     const totalQty=items.reduce((s,it)=>s+(it.qty||0),0);
     const ext = extrasById.get(r.id);
     const expectedDate = ext?.expected_date || '';
+    const category = ext?.category || '';
     const expectedInput = `<input type="date" value="${expectedDate}" onchange="savePOExpectedDate(${r.id}, this.value)" style="font-size:11px;padding:3px 6px;border:1px solid var(--g100);border-radius:4px;background:var(--white)">`;
+    // Compact category pill — CBD blue, CAD amber, unset gray
+    const catCls = category === 'Cash Before Delivery' ? 'p-signings'
+                 : category === 'Cash After Delivery'  ? 'p-near'
+                 : 'p-draft';
+    const catShort = category === 'Cash Before Delivery' ? 'CBD'
+                    : category === 'Cash After Delivery'  ? 'CAD'
+                    : '—';
+    const categoryCell = `<select onchange="savePOCategory(${r.id}, this.value)" class="pill ${catCls}" style="font-size:10px;padding:2px 6px;border:1px solid;width:100%" title="${category||'Set CBD or CAD'}">
+      <option value=""${!category?' selected':''}>— set —</option>
+      <option value="Cash Before Delivery"${category==='Cash Before Delivery'?' selected':''}>CBD</option>
+      <option value="Cash After Delivery"${category==='Cash After Delivery'?' selected':''}>CAD</option>
+    </select>`;
     const main=`<tr>
       <td style="text-align:center;cursor:${hasItems?"pointer":"default"};color:var(--g400);user-select:none" onclick="${hasItems?`togglePOItems(${r.id})`:""}" id="po-toggle-${r.id}">${hasItems?"▶":""}</td>
       <td><a href="https://v2.jubelio.com/purchase/orders/detail/${r.id}" target="_blank" style="font-family:var(--mono);font-size:12px;color:#3C3489;text-decoration:none">${r.purchaseorderNo||r.id}</a></td>
       <td style="font-size:13px">${r.supplierName||"—"}</td>
       <td>${sPill(r.status)}</td>
+      <td>${categoryCell}</td>
       <td>${progressCell(totalPOQty, totalRcvd, billsPutaway.length, rcvStatus, bills.length, firstPutawayDate, expectedDate)}</td>
       <td style="white-space:nowrap;font-size:12px">${dt}</td>
       <td style="white-space:nowrap">${expectedInput}</td>
@@ -4089,9 +4106,50 @@ function renderPOTable(rows){
       <td style="font-size:11px">${(poToCollections[r.id]||[]).map(c=>`<span class="pill p-signings" style="font-size:10px;margin-right:3px">${c}</span>`).join("")||`<span style="color:var(--g400)">—</span>`}</td>
       <td style="font-size:11px;color:var(--g400);white-space:nowrap">${relTime(r.syncedAt)}</td>
     </tr>`;
+    // Bills section: paid status checkbox + Jubelio bill no/date/grand total/putaway
+    const billExtraById = new Map((allBillExtras||[]).map(be => [be.bill_id, be]));
+    const billsHTML = bills.length ? `<div style="margin-bottom:14px">
+      <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:6px">Tagihan / Bills (${bills.length})</div>
+      <table style="width:100%;font-size:11px;border-collapse:collapse;background:var(--white);border:1px solid var(--g100);border-radius:4px;overflow:hidden">
+        <thead><tr style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);background:#fafafa">
+          <th style="padding:6px 10px;text-align:left">Bill No</th>
+          <th style="padding:6px 10px;text-align:left">Tanggal</th>
+          <th style="padding:6px 10px;text-align:left">Putaway</th>
+          <th style="padding:6px 10px;text-align:right">Grand Total</th>
+          <th style="padding:6px 10px;text-align:left">Status Bayar</th>
+          <th style="padding:6px 10px;text-align:left">Tanggal Bayar</th>
+        </tr></thead>
+        <tbody>${bills.map(b => {
+          const be = billExtraById.get(b.bill_id) || {};
+          const paid = be.is_paid === true;
+          const paidAt = be.paid_at || '';
+          const bDate = b.transaction_date ? new Date(b.transaction_date).toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'2-digit'}) : '—';
+          const putPill = b.is_putaway ? `<span class="pill p-active" style="font-size:10px">✓ Putaway</span>` : `<span class="pill p-draft" style="font-size:10px">Pending</span>`;
+          const paidPill = paid ? `<span class="pill p-active" style="font-size:10px;margin-left:6px">✓ Lunas</span>` : `<span class="pill p-near" style="font-size:10px;margin-left:6px">Belum lunas</span>`;
+          return `<tr style="border-top:1px solid var(--g100)">
+            <td style="padding:6px 10px;font-family:var(--mono);font-size:11px">${b.bill_no||b.bill_id}</td>
+            <td style="padding:6px 10px;font-family:var(--mono);font-size:11px;white-space:nowrap">${bDate}</td>
+            <td style="padding:6px 10px">${putPill}</td>
+            <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-size:11px;font-weight:600">${b.grand_total!=null?'Rp '+Math.round(Number(b.grand_total)).toLocaleString('id-ID'):'—'}</td>
+            <td style="padding:6px 10px;white-space:nowrap">
+              <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:11px">
+                <input type="checkbox" ${paid?'checked':''} onchange="saveBillPaid(${b.bill_id}, this.checked)">
+                ${paidPill}
+              </label>
+            </td>
+            <td style="padding:6px 10px;white-space:nowrap">
+              <input type="date" value="${paidAt}" onchange="saveBillPaidDate(${b.bill_id}, this.value)" style="font-size:11px;padding:3px 6px;border:1px solid var(--g100);border-radius:3px;background:var(--white)" ${paid?'':'disabled'}>
+            </td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table>
+    </div>` : `<div style="font-size:11px;color:var(--g400);padding:6px 0 12px">Belum ada tagihan/bill di Jubelio untuk PO ini.</div>`;
+
     const detail=`<tr id="po-items-${r.id}" style="display:none;background:var(--off)">
       <td></td>
-      <td colspan="12" style="padding:8px 12px 14px">
+      <td colspan="13" style="padding:8px 12px 14px">
+        ${billsHTML}
+        <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:6px">Items (${items.length})</div>
         <table style="width:100%;font-size:11px;border-collapse:collapse">
           <thead><tr style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">
             <th style="padding:4px 8px;text-align:left">Item Code</th>
@@ -4129,6 +4187,67 @@ function togglePOItems(poId){
   const open=row.style.display==="table-row";
   row.style.display=open?"none":"table-row";
   if(tog) tog.textContent=open?"▶":"▼";
+}
+
+// Inline-save the PO payment category (CBD/CAD) into po_extras.
+async function savePOCategory(poId, value) {
+  const v = (value||'').trim() || null;
+  try {
+    const {error} = await sb.from('po_extras').upsert({
+      purchaseorder_id: poId,
+      category: v,
+      updated_at: new Date().toISOString(),
+      updated_by: currentUser,
+    }, { onConflict: 'purchaseorder_id' });
+    if (error) throw error;
+    const idx = allPOExtras.findIndex(e => e.purchaseorder_id === poId);
+    if (idx >= 0) allPOExtras[idx] = { ...allPOExtras[idx], category: v };
+    else allPOExtras.push({ purchaseorder_id: poId, category: v });
+    applyPOFilters();
+  } catch (e) { alert('Gagal save category: '+(e.message||e)); }
+}
+
+// Toggle a bill's paid flag. When unchecked, also clear the paid_at date so
+// the disabled-date input doesn't keep a stale value visible.
+async function saveBillPaid(billId, paid) {
+  try {
+    const row = {
+      bill_id: billId,
+      is_paid: !!paid,
+      updated_at: new Date().toISOString(),
+      updated_by: currentUser,
+    };
+    if (paid && !((allBillExtras.find(e => e.bill_id === billId)||{}).paid_at)) {
+      // Auto-stamp today's date when first marked paid (user can edit after)
+      row.paid_at = new Date().toISOString().slice(0,10);
+    } else if (!paid) {
+      row.paid_at = null;
+    }
+    const {error} = await sb.from('bill_extras').upsert(row, { onConflict: 'bill_id' });
+    if (error) throw error;
+    const idx = allBillExtras.findIndex(e => e.bill_id === billId);
+    if (idx >= 0) allBillExtras[idx] = { ...allBillExtras[idx], ...row };
+    else allBillExtras.push(row);
+    applyPOFilters();
+  } catch (e) { alert('Gagal save status bayar: '+(e.message||e)); }
+}
+
+// Update the paid_at date once a bill is already marked paid.
+async function saveBillPaidDate(billId, dateStr) {
+  const d = (dateStr||'').trim() || null;
+  try {
+    const {error} = await sb.from('bill_extras').upsert({
+      bill_id: billId,
+      is_paid: true,
+      paid_at: d,
+      updated_at: new Date().toISOString(),
+      updated_by: currentUser,
+    }, { onConflict: 'bill_id' });
+    if (error) throw error;
+    const idx = allBillExtras.findIndex(e => e.bill_id === billId);
+    if (idx >= 0) allBillExtras[idx] = { ...allBillExtras[idx], paid_at: d };
+    else allBillExtras.push({ bill_id: billId, is_paid: true, paid_at: d });
+  } catch (e) { alert('Gagal save tanggal bayar: '+(e.message||e)); }
 }
 
 // Inline-save the user's expected delivery date for a PO into po_extras.
