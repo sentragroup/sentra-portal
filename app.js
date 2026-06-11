@@ -3547,17 +3547,37 @@ function _pbExportSalesCsv() {
   if (!_pbExportCache) { alert('Belum ada data sales untuk di-export.'); return; }
   const { eventName, eventDate, location,
           salesItems, orderHeaderMap, costMap,
-          channelMap, channelFees } = _pbExportCache;
+          channelFees } = _pbExportCache;
   const feeOf = (ch) => Number(channelFees?.[ch]) || 0;
 
-  // Per-(channel, item) aggregation — confirmed only (exclude canceled)
-  const isCanceled = (soId) => {
+  // STRICT: only COMPLETED orders make it to the CSV — matches Royalty
+  // Report, Income Statement, and Consignment Report policy. Anything still
+  // in pipeline (PAID / FINISH_PACK / FINISH_PICK / PENDING) gets dropped so
+  // finance only sees cash that's actually been settled.
+  const isCompleted = (soId) => {
     const h = orderHeaderMap?.get(soId);
-    return !!(h && (h.is_canceled || h.wms_status === 'CANCELED' || h.wms_status === 'CANCEL'));
+    return !!(h && h.wms_status === 'COMPLETED');
   };
+  const completedItems = salesItems.filter(it => isCompleted(it.salesorder_id));
+
+  // Recompute channel totals from completed-only items (the dashboard's
+  // channelMap includes all confirmed = non-canceled, which would not match
+  // the CSV totals here).
+  const channelMap = new Map();
+  for (const it of completedItems) {
+    const h  = orderHeaderMap?.get(it.salesorder_id) || {};
+    const ch = h.channel_name || '(unknown)';
+    const lineRev = Number(it.price || 0) * Number(it.qty || 0) - Number(it.disc_amount || 0);
+    const cur = channelMap.get(ch) || { orders: new Set(), revenue: 0, qty: 0 };
+    cur.orders.add(it.salesorder_id);
+    cur.revenue += lineRev;
+    cur.qty     += Number(it.qty || 0);
+    channelMap.set(ch, cur);
+  }
+
+  // Per-(channel, item) aggregation
   const perChItem = new Map(); // key = "<channel>||<item_id>"
-  for (const it of salesItems) {
-    if (isCanceled(it.salesorder_id)) continue;
+  for (const it of completedItems) {
     const h  = orderHeaderMap?.get(it.salesorder_id) || {};
     const ch = h.channel_name || '(unknown)';
     const key = `${ch}||${it.item_id || it.item_code || ''}`;
@@ -3583,6 +3603,7 @@ function _pbExportSalesCsv() {
   lines.push(['Event', esc(eventName)].join(','));
   lines.push(['Tanggal', esc(eventDate)].join(','));
   lines.push(['Lokasi', esc(location)].join(','));
+  lines.push(['Status filter', 'COMPLETED only (PAID/FINISH_PACK/FINISH_PICK/PENDING/CANCELED excluded)'].join(','));
   lines.push(['Generated', esc(new Date().toLocaleString('id-ID'))].join(','));
   lines.push('');
 
