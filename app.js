@@ -18365,8 +18365,11 @@ async function exportPDPurchaseOrderCsv() {
     if (/[",\r\n<]/.test(s)) return '"' + s.replace(/"/g,'""') + '"';
     return s;
   };
-  const csv = rows.map(r => r.map(csvEscape).join(',')).join('\r\n');
-  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+  // Match Excel's CSV save (and the working Restock CSV): LF line endings,
+  // no BOM. Both CRLF and a leading UTF-8 BOM have been observed to make
+  // Jubelio bounce with the generic 'Pastikan format data sesuai template'.
+  const csv = rows.map(r => r.map(csvEscape).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
 
   const safeName = (colName || pdCurrentCollectionId || 'collection').replace(/[^a-zA-Z0-9._-]+/g,'_').slice(0,80);
   const fname = `jubelio-po-${safeName}-${today}.csv`;
