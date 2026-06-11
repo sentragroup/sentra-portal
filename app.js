@@ -161,7 +161,7 @@ function enterApp(user, freshLogin) {
   // Restore page: prefer URL hash, fall back to sessionStorage
   let _pg = location.hash.slice(1).split('/')[0];
   if (!_pg) _pg = sessionStorage.getItem('snt_page') || '';
-  const _pages = ['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','vendormaster','rnd','popupbooth','activitylog','mesign','po','stockmovement','productmap','productdev','collections','designermaster','dsgworkflow','warehousekpi','stockadjmgmt','returnreason','tradorders','invcheck','salesperf','reminders','announcements','marte','royalty','income','contentplan','adsmgmt','mktactivation','publication','photoshoot','kolmgmt','txmap'];
+  const _pages = ['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','vendormaster','rnd','popupbooth','activitylog','mesign','po','stockmovement','productmap','productdev','collections','designermaster','dsgworkflow','warehousekpi','stockadjmgmt','returnreason','tradorders','invcheck','salesperf','reminders','announcements','marte','royalty','income','contentplan','adsmgmt','mktactivation','publication','photoshoot','kolmgmt','txmap','sampling'];
   if (_pages.includes(_pg))
     showPage(_pg, document.getElementById('nav-'+_pg));
 }
@@ -253,7 +253,7 @@ function showPage(name, el) {
   document.getElementById("page-"+_pageId).classList.add("active");
   if (el) el.classList.add("active");
   const _c = document.querySelector('.content'); if (_c) _c.scrollTop = 0;
-  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",txmap:"Transaction Mapping",intpurchase:"Internal Purchase",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)",vendormaster:"Vendor Master",rnd:"R&D Product"};
+  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",sampling:"Sampling",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",txmap:"Transaction Mapping",intpurchase:"Internal Purchase",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)",vendormaster:"Vendor Master",rnd:"R&D Product"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -279,6 +279,7 @@ function showPage(name, el) {
   if (name==="stockmovement" && !_srcRows.length) loadStockMovement();
   if (name==="productmap") loadProductMap(0,'');
   if (name==="productdev") loadProductDev();
+  if (name==="sampling") loadSampling();
   if (name==="contentplan") loadContentPlan();
   if (name==="adsmgmt") loadAdsManagement();
   if (name==="mktactivation") loadMktActivation();
@@ -22683,6 +22684,361 @@ async function saveVMQuickAdd() {
   } finally {
     btn.disabled = false;
   }
+}
+
+// ── SAMPLING ──
+// Versioned per-SKU sample tracker: grid (collections) → detail (SKU cards),
+// each SKU has expected_date / notes / status + a list of versions (Sample 1,
+// 2, 3…). Each version owns N images, each image owns N pin annotations
+// (click-to-place comment with x_pct/y_pct + open/resolved status).
+
+let allSmpCollections = [];   // collections with sampling stats
+let allSmpItems = [];         // collection_items joined with sampling_skus
+let _smpCurrentCol = null;    // currently opened collection
+let _smpAnnoImage = null;     // image currently in annotation modal {imageId,url}
+let _smpAnnoList = [];        // annotations for the open image
+
+function _smpEsc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+async function loadSampling() {
+  document.getElementById('smp-view-grid').style.display = 'block';
+  document.getElementById('smp-view-detail').style.display = 'none';
+  document.getElementById('smp-grid-list').innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:32px;color:var(--g400);font-size:13px">⟳ Memuat sampling...</div>`;
+  try {
+    const [colsRes, itemsRes, skusRes] = await Promise.all([
+      sb.from('collections').select('id, collection_name, ip_related, revenue_stream, status, target_drop_date').order('created_at',{ascending:false}),
+      sb.from('collection_items').select('id, collection_id, sku_name, sku_proper, kategori, sub_kategori, treatment, color, qty, srp, design_status'),
+      sb.from('sampling_skus').select('id, collection_item_id, expected_date, notes, status'),
+    ]);
+    if (colsRes.error) throw colsRes.error;
+    if (itemsRes.error) throw itemsRes.error;
+    if (skusRes.error) throw skusRes.error;
+
+    const skusByItem = new Map();
+    (skusRes.data||[]).forEach(s => skusByItem.set(s.collection_item_id, s));
+    allSmpItems = (itemsRes.data||[]).map(it => ({ ...it, sampling: skusByItem.get(it.id) || null }));
+
+    // Build collection stats
+    const itemsByCol = new Map();
+    for (const it of allSmpItems) {
+      const arr = itemsByCol.get(it.collection_id) || [];
+      arr.push(it); itemsByCol.set(it.collection_id, arr);
+    }
+    allSmpCollections = (colsRes.data||[]).map(c => {
+      const items = itemsByCol.get(c.id) || [];
+      const approved = items.filter(it => it.sampling?.status === 'Approved').length;
+      const inProgress = items.filter(it => it.sampling && it.sampling.status !== 'Approved' && it.sampling.status !== 'Rejected').length;
+      return { ...c, _items: items, _total: items.length, _approved: approved, _inProgress: inProgress };
+    });
+
+    // Seed IP filter
+    const ipSel = document.getElementById('smp-grid-ip');
+    const ips = [...new Set(allSmpCollections.map(c => c.ip_related).filter(Boolean))].sort();
+    ipSel.innerHTML = `<option value="">Semua IP / Artist</option>` + ips.map(ip => `<option value="${_smpEsc(ip)}">${_smpEsc(ip)}</option>`).join('');
+
+    renderSmpGrid();
+  } catch (e) {
+    document.getElementById('smp-grid-list').innerHTML = `<div style="grid-column:1/-1;color:#c33;padding:32px">Gagal: ${_smpEsc(e.message||e)}</div>`;
+  }
+}
+
+function renderSmpGrid() {
+  const ipFilter = document.getElementById('smp-grid-ip').value;
+  const q = (document.getElementById('smp-grid-search').value || '').toLowerCase();
+  let rows = allSmpCollections;
+  if (ipFilter) rows = rows.filter(c => c.ip_related === ipFilter);
+  if (q) rows = rows.filter(c => (c.collection_name||'').toLowerCase().includes(q) || (c.ip_related||'').toLowerCase().includes(q));
+  document.getElementById('smp-grid-tcount').textContent = `${rows.length} collection`;
+
+  const list = document.getElementById('smp-grid-list');
+  if (!rows.length) { list.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:32px;color:var(--g400);font-size:13px">Belum ada collection.</div>`; return; }
+  list.innerHTML = rows.map(c => {
+    const pct = c._total ? Math.round(c._approved/c._total*100) : 0;
+    const barColor = pct >= 80 ? '#1c7a3b' : pct >= 40 ? '#a66800' : 'var(--g400)';
+    return `<div class="tool-card" style="cursor:pointer;padding:14px" onclick="openSmpDetail('${_smpEsc(c.id)}')">
+      <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:14px;margin-bottom:4px">${_smpEsc(c.collection_name||'(Tanpa nama)')}</div>
+      <div style="font-size:11px;color:var(--g600);font-family:var(--mono);margin-bottom:8px">${_smpEsc(c.ip_related||'—')}${c.revenue_stream?' · '+_smpEsc(c.revenue_stream):''}</div>
+      <div style="display:flex;gap:8px;margin-bottom:8px;font-size:11px">
+        <span style="color:var(--g600)"><b>${c._total}</b> SKU</span>
+        <span style="color:#1c7a3b"><b>${c._approved}</b> approved</span>
+        <span style="color:#a66800"><b>${c._inProgress}</b> in progress</span>
+      </div>
+      <div style="background:var(--g100);border-radius:3px;height:6px;overflow:hidden"><div style="background:${barColor};height:100%;width:${pct}%"></div></div>
+      <div style="font-size:10px;color:var(--g400);margin-top:4px;font-family:var(--mono)">${pct}% approved</div>
+    </div>`;
+  }).join('');
+}
+
+async function openSmpDetail(colId) {
+  const col = allSmpCollections.find(c => String(c.id) === String(colId));
+  if (!col) return;
+  _smpCurrentCol = col;
+  document.getElementById('smp-view-grid').style.display = 'none';
+  document.getElementById('smp-view-detail').style.display = 'block';
+  document.getElementById('smp-detail-title').textContent = col.collection_name || '(Tanpa nama)';
+  document.getElementById('smp-detail-sub').textContent = [col.ip_related, col.revenue_stream, col.target_drop_date ? `Drop: ${col.target_drop_date}` : null].filter(Boolean).join(' · ');
+  document.getElementById('smp-detail-skus').innerHTML = `<div style="text-align:center;padding:32px;color:var(--g400)">⟳ Memuat SKUs...</div>`;
+  await renderSmpDetailSKUs(col);
+}
+
+function smpBackToGrid() {
+  document.getElementById('smp-view-detail').style.display = 'none';
+  document.getElementById('smp-view-grid').style.display = 'block';
+  _smpCurrentCol = null;
+}
+
+async function renderSmpDetailSKUs(col) {
+  const items = col._items;
+  if (!items.length) { document.getElementById('smp-detail-skus').innerHTML = `<div style="padding:32px;text-align:center;color:var(--g400);font-size:13px">Belum ada SKU di collection ini. Tambah dulu di Collection Development.</div>`; return; }
+  // Ensure sampling_skus row exists for each item (auto-create on open)
+  const missing = items.filter(it => !it.sampling).map(it => ({
+    collection_item_id: it.id, status: 'Pending', added_by: currentUser, last_updated_by: currentUser,
+  }));
+  if (missing.length) {
+    const { data, error } = await sb.from('sampling_skus').insert(missing).select('id, collection_item_id, expected_date, notes, status');
+    if (!error && data) data.forEach(r => { const it = items.find(x => x.id === r.collection_item_id); if (it) it.sampling = r; });
+  }
+
+  // Fetch versions + images + annotations for these sampling_skus
+  const skuIds = items.map(it => it.sampling?.id).filter(Boolean);
+  let versions = [], images = [], annotations = [];
+  if (skuIds.length) {
+    const [vRes, iRes, aRes] = await Promise.all([
+      sb.from('sampling_versions').select('*').in('sampling_sku_id', skuIds).order('version_no'),
+      // Images/annotations are joined by version → fetch all version ids first, then images
+      Promise.resolve({ data: [] }),
+      Promise.resolve({ data: [] }),
+    ]);
+    versions = vRes.data || [];
+    const verIds = versions.map(v => v.id);
+    if (verIds.length) {
+      const imgRes = await sb.from('sampling_images').select('*').in('version_id', verIds).order('position');
+      images = imgRes.data || [];
+      const imgIds = images.map(i => i.id);
+      if (imgIds.length) {
+        const annRes = await sb.from('sampling_annotations').select('*').in('image_id', imgIds).order('created_at');
+        annotations = annRes.data || [];
+      }
+    }
+  }
+  // Index
+  const versionsBySku = new Map();
+  versions.forEach(v => { const arr = versionsBySku.get(v.sampling_sku_id) || []; arr.push(v); versionsBySku.set(v.sampling_sku_id, arr); });
+  const imagesByVer = new Map();
+  images.forEach(im => { const arr = imagesByVer.get(im.version_id) || []; arr.push(im); imagesByVer.set(im.version_id, arr); });
+  const annosByImg = new Map();
+  annotations.forEach(a => { const arr = annosByImg.get(a.image_id) || []; arr.push(a); annosByImg.set(a.image_id, arr); });
+
+  const sizeOrder = ['XS','S','M','L','XL','XXL','XXXL'];
+  items.sort((a,b) => {
+    const ai = sizeOrder.indexOf((a.treatment||'').toUpperCase()); const bi = sizeOrder.indexOf((b.treatment||'').toUpperCase());
+    return (ai<0?99:ai) - (bi<0?99:bi);
+  });
+
+  const cardsHtml = items.map(it => {
+    const samp = it.sampling || {};
+    const vers = versionsBySku.get(samp.id) || [];
+    const statusPill = {
+      'Pending':'p-draft', 'In Progress':'p-review', 'Approved':'p-active', 'Rejected':'p-expired',
+    }[samp.status || 'Pending'] || 'p-draft';
+    return `<div class="form-card" style="padding:14px;border:1px solid var(--g100)">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px">
+        <div>
+          <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:14px">${_smpEsc(it.sku_name||'(SKU)')}</div>
+          <div style="font-size:11px;color:var(--g600);font-family:var(--mono);margin-top:2px">${_smpEsc(it.sku_proper||'')}${it.kategori?' · '+_smpEsc(it.kategori):''}${it.treatment?' · '+_smpEsc(it.treatment):''}${it.color?' · '+_smpEsc(it.color):''}</div>
+        </div>
+        <select onchange="smpSetStatus(${samp.id},this.value)" class="pill ${statusPill}" style="font-size:11px;padding:3px 8px;border-radius:12px;cursor:pointer;border:1px solid transparent">
+          ${['Pending','In Progress','Approved','Rejected'].map(s => `<option value="${s}" ${s===(samp.status||'Pending')?'selected':''}>${s}</option>`).join('')}
+        </select>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+        <div class="fg" style="margin:0"><label style="font-size:10px">Expected Date</label><input type="date" value="${samp.expected_date||''}" onchange="smpSetField(${samp.id},'expected_date',this.value)" style="font-size:12px"></div>
+        <div class="fg" style="margin:0"><label style="font-size:10px">Notes</label><input type="text" value="${_smpEsc(samp.notes||'')}" onchange="smpSetField(${samp.id},'notes',this.value)" style="font-size:12px" placeholder="Catatan SKU..."></div>
+      </div>
+      <div style="border-top:1px solid var(--g100);padding-top:10px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div style="font-size:10px;color:var(--g600);font-family:var(--label);text-transform:uppercase;letter-spacing:0.05em">Versions</div>
+          <button onclick="smpAddVersion(${samp.id})" style="font-size:11px;padding:3px 10px;background:#3C3489;color:white;border:none;border-radius:3px;cursor:pointer">+ Sample ${(vers[vers.length-1]?.version_no||0)+1}</button>
+        </div>
+        ${vers.length ? vers.map(v => {
+          const imgs = imagesByVer.get(v.id) || [];
+          return `<div style="background:var(--off);border-radius:6px;padding:10px;margin-bottom:8px">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">
+              <div style="font-size:12px;font-weight:600">Sample ${v.version_no}${v.label?` · ${_smpEsc(v.label)}`:''}</div>
+              <div style="display:flex;gap:6px">
+                <label style="font-size:10px;padding:3px 8px;background:var(--white);border:1px solid var(--g100);border-radius:3px;cursor:pointer">+ Foto<input type="file" multiple accept="image/*" style="display:none" onchange="smpUploadImages(${v.id},this)"></label>
+                <button onclick="smpDelVersion(${v.id})" style="font-size:10px;padding:3px 8px;background:transparent;color:#c33;border:1px solid var(--g100);border-radius:3px;cursor:pointer">Hapus</button>
+              </div>
+            </div>
+            ${imgs.length ? `<div style="display:flex;gap:8px;flex-wrap:wrap">${imgs.map(im => {
+              const annos = annosByImg.get(im.id) || [];
+              const openCount = annos.filter(a => a.status === 'Open').length;
+              return `<div style="position:relative;cursor:pointer" onclick="smpOpenAnnoModal(${im.id},'${_smpEsc(im.image_url)}')">
+                <img src="${_smpEsc(im.image_url)}" style="width:120px;height:120px;object-fit:cover;border-radius:4px;border:1px solid var(--g100)">
+                ${annos.length?`<span style="position:absolute;top:4px;right:4px;background:${openCount?'#c33':'#1c7a3b'};color:white;font-size:10px;padding:2px 6px;border-radius:10px;font-weight:600">${annos.length}${openCount?` · ${openCount} open`:''}</span>`:''}
+              </div>`;
+            }).join('')}</div>` : `<div style="font-size:11px;color:var(--g400)">Belum ada foto. Klik "+ Foto" untuk upload.</div>`}
+          </div>`;
+        }).join('') : `<div style="font-size:11px;color:var(--g400);padding:8px 0">Belum ada sample. Klik "+ Sample 1" untuk mulai.</div>`}
+      </div>
+    </div>`;
+  }).join('');
+  document.getElementById('smp-detail-skus').innerHTML = cardsHtml;
+}
+
+async function smpSetField(samplingId, field, value) {
+  if (!samplingId) return;
+  const payload = { [field]: value || null, last_updated: new Date().toISOString(), last_updated_by: currentUser };
+  await sb.from('sampling_skus').update(payload).eq('id', samplingId);
+  const it = allSmpItems.find(x => x.sampling?.id === samplingId);
+  if (it) it.sampling[field] = value || null;
+}
+
+async function smpSetStatus(samplingId, status) {
+  await smpSetField(samplingId, 'status', status);
+  // Refresh col stats in grid memory + re-render detail
+  if (_smpCurrentCol) {
+    const it = _smpCurrentCol._items.find(x => x.sampling?.id === samplingId);
+    if (it) it.sampling.status = status;
+    _smpCurrentCol._approved = _smpCurrentCol._items.filter(x => x.sampling?.status === 'Approved').length;
+    _smpCurrentCol._inProgress = _smpCurrentCol._items.filter(x => x.sampling && x.sampling.status !== 'Approved' && x.sampling.status !== 'Rejected').length;
+    renderSmpDetailSKUs(_smpCurrentCol);
+  }
+}
+
+async function smpAddVersion(samplingSkuId) {
+  if (!samplingSkuId) { alert('Sampling row belum ada — coba refresh.'); return; }
+  // Fetch current max version_no
+  const { data: existing } = await sb.from('sampling_versions').select('version_no').eq('sampling_sku_id', samplingSkuId).order('version_no',{ascending:false}).limit(1);
+  const nextNo = (existing?.[0]?.version_no || 0) + 1;
+  const { error } = await sb.from('sampling_versions').insert({
+    sampling_sku_id: samplingSkuId, version_no: nextNo, created_by: currentUser,
+  });
+  if (error) { alert('Gagal: '+error.message); return; }
+  // Bump SKU status if still Pending
+  const it = _smpCurrentCol?._items.find(x => x.sampling?.id === samplingSkuId);
+  if (it && (!it.sampling.status || it.sampling.status === 'Pending')) {
+    await smpSetField(samplingSkuId, 'status', 'In Progress');
+    it.sampling.status = 'In Progress';
+  }
+  renderSmpDetailSKUs(_smpCurrentCol);
+}
+
+async function smpDelVersion(versionId) {
+  if (!confirm('Hapus sample ini beserta semua foto dan komentarnya?')) return;
+  await sb.from('sampling_versions').delete().eq('id', versionId);
+  renderSmpDetailSKUs(_smpCurrentCol);
+}
+
+async function smpUploadImages(versionId, inputEl) {
+  const files = [...inputEl.files];
+  if (!files.length) return;
+  inputEl.disabled = true;
+  try {
+    // Fetch current max position
+    const { data: existing } = await sb.from('sampling_images').select('position').eq('version_id', versionId).order('position',{ascending:false}).limit(1);
+    let pos = (existing?.[0]?.position || 0);
+    for (const f of files) {
+      pos += 1;
+      const ext = (f.name.split('.').pop() || 'jpg').toLowerCase();
+      const path = `v${versionId}/${Date.now()}_${Math.random().toString(36).slice(2,8)}.${ext}`;
+      const { error: upErr } = await sb.storage.from('sampling-images').upload(path, f, { contentType: f.type, upsert: false });
+      if (upErr) throw upErr;
+      const { data: pub } = sb.storage.from('sampling-images').getPublicUrl(path);
+      await sb.from('sampling_images').insert({
+        version_id: versionId, image_url: pub.publicUrl, position: pos, uploaded_by: currentUser,
+      });
+    }
+    renderSmpDetailSKUs(_smpCurrentCol);
+  } catch (e) {
+    alert('Upload gagal: ' + (e.message || e));
+  } finally {
+    inputEl.disabled = false; inputEl.value = '';
+  }
+}
+
+// ── Annotation modal ──
+async function smpOpenAnnoModal(imageId, imageUrl) {
+  _smpAnnoImage = { imageId, url: imageUrl };
+  const modal = document.getElementById('smp-anno-modal');
+  modal.style.display = 'flex';
+  document.getElementById('smp-anno-title').textContent = 'Foto Sample';
+  document.getElementById('smp-anno-image-wrap').innerHTML = `<div style="position:relative;display:inline-block">
+    <img id="smp-anno-img" src="${_smpEsc(imageUrl)}" style="max-width:100%;max-height:85vh;display:block" onclick="smpAddAnnoFromClick(event)">
+    <div id="smp-anno-pins" style="position:absolute;inset:0;pointer-events:none"></div>
+  </div>`;
+  await smpReloadAnnos();
+}
+
+function smpCloseAnnoModal() {
+  document.getElementById('smp-anno-modal').style.display = 'none';
+  _smpAnnoImage = null; _smpAnnoList = [];
+  // Re-render detail in case annotation counts changed
+  if (_smpCurrentCol) renderSmpDetailSKUs(_smpCurrentCol);
+}
+
+async function smpReloadAnnos() {
+  if (!_smpAnnoImage) return;
+  const { data, error } = await sb.from('sampling_annotations').select('*').eq('image_id', _smpAnnoImage.imageId).order('created_at');
+  if (error) return;
+  _smpAnnoList = data || [];
+  smpRenderPinsAndList();
+}
+
+function smpRenderPinsAndList() {
+  const pinsWrap = document.getElementById('smp-anno-pins');
+  const list = document.getElementById('smp-anno-list');
+  document.getElementById('smp-anno-count').textContent = _smpAnnoList.length;
+  if (!pinsWrap || !list) return;
+  pinsWrap.innerHTML = _smpAnnoList.map((a,i) => {
+    const color = a.status === 'Resolved' ? '#1c7a3b' : '#c33';
+    return `<div style="position:absolute;left:${a.x_pct}%;top:${a.y_pct}%;transform:translate(-50%,-50%);width:24px;height:24px;background:${color};color:white;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;border:2px solid white;box-shadow:0 1px 3px rgba(0,0,0,0.4);pointer-events:auto;cursor:pointer" onclick="document.getElementById('smp-anno-card-${a.id}').scrollIntoView({behavior:'smooth',block:'center'})">${i+1}</div>`;
+  }).join('');
+  list.innerHTML = _smpAnnoList.length ? _smpAnnoList.map((a,i) => {
+    const dotColor = a.status === 'Resolved' ? '#1c7a3b' : '#c33';
+    return `<div id="smp-anno-card-${a.id}" style="background:var(--off);border-radius:6px;padding:10px;margin-bottom:8px;font-size:12px">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+        <span style="width:20px;height:20px;background:${dotColor};color:white;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:600">${i+1}</span>
+        <span style="font-size:10px;color:var(--g400);font-family:var(--mono)">${_smpEsc(a.created_by||'—')} · ${a.created_at?new Date(a.created_at).toLocaleString('id-ID',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}):''}</span>
+        <span class="pill ${a.status==='Resolved'?'p-active':'p-review'}" style="font-size:9px;padding:1px 6px;margin-left:auto">${a.status}</span>
+      </div>
+      <div style="line-height:1.5">${_smpEsc(a.comment_text)}</div>
+      <div style="display:flex;gap:6px;margin-top:6px">
+        ${a.status==='Open' ? `<button onclick="smpResolveAnno(${a.id})" style="font-size:10px;padding:2px 8px;background:#1c7a3b;color:white;border:none;border-radius:3px;cursor:pointer">✓ Resolve</button>` : `<button onclick="smpReopenAnno(${a.id})" style="font-size:10px;padding:2px 8px;background:var(--white);color:var(--g600);border:1px solid var(--g100);border-radius:3px;cursor:pointer">Reopen</button>`}
+        <button onclick="smpDelAnno(${a.id})" style="font-size:10px;padding:2px 8px;background:transparent;color:#c33;border:1px solid var(--g100);border-radius:3px;cursor:pointer">Hapus</button>
+      </div>
+    </div>`;
+  }).join('') : `<div style="color:var(--g400);font-size:11px;padding:8px 0">Belum ada komentar. Klik di gambar untuk taruh pin.</div>`;
+}
+
+async function smpAddAnnoFromClick(e) {
+  if (!_smpAnnoImage) return;
+  const img = document.getElementById('smp-anno-img');
+  const rect = img.getBoundingClientRect();
+  const xPct = ((e.clientX - rect.left) / rect.width) * 100;
+  const yPct = ((e.clientY - rect.top) / rect.height) * 100;
+  const txt = prompt('Komentar untuk area ini:');
+  if (!txt || !txt.trim()) return;
+  const { error } = await sb.from('sampling_annotations').insert({
+    image_id: _smpAnnoImage.imageId, x_pct: Number(xPct.toFixed(2)), y_pct: Number(yPct.toFixed(2)),
+    comment_text: txt.trim(), status: 'Open', created_by: currentUser,
+  });
+  if (error) { alert('Gagal: '+error.message); return; }
+  await smpReloadAnnos();
+}
+
+async function smpResolveAnno(id) {
+  await sb.from('sampling_annotations').update({ status: 'Resolved', resolved_at: new Date().toISOString(), resolved_by: currentUser }).eq('id', id);
+  await smpReloadAnnos();
+}
+async function smpReopenAnno(id) {
+  await sb.from('sampling_annotations').update({ status: 'Open', resolved_at: null, resolved_by: null }).eq('id', id);
+  await smpReloadAnnos();
+}
+async function smpDelAnno(id) {
+  if (!confirm('Hapus komentar ini?')) return;
+  await sb.from('sampling_annotations').delete().eq('id', id);
+  await smpReloadAnnos();
 }
 
 // ── DUPLICATE CHECK ──
