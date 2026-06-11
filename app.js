@@ -18238,12 +18238,14 @@ async function exportPDPurchaseOrderCsv() {
   const {parents} = getPDDetailFilteredParents();
   if (!parents.length) { alert('Tidak ada SKU di collection / filter ini.'); return; }
 
-  // Collect all variants under these parents (with vendor + qty + hpp)
+  // Collect all variants + bundle items under these parents. Bundle items
+  // are also produced by vendors and need a PO line, so the export covers
+  // both child kinds.
   const parentIds = new Set(parents.map(p => p.id));
-  const variants = allPDRows.filter(s => s.skuType === 'variant' && parentIds.has(s.parentId));
+  const variants = allPDRows.filter(s => parentIds.has(s.parentId) && (s.skuType === 'variant' || s.skuType === 'bundle_item'));
   const liveVariants = variants.filter(v => v.displayCode && v.vendor && (v.qty || 0) > 0);
   if (!liveVariants.length) {
-    alert('Tidak ada variant dengan vendor + qty > 0. Cek bahwa variant SKU sudah punya display_code, vendor, dan qty.');
+    alert('Tidak ada variant/bundle item dengan vendor + qty > 0. Cek bahwa SKU sudah punya display_code, vendor, dan qty.');
     return;
   }
 
