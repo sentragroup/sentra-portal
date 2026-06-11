@@ -86,7 +86,7 @@ function mapRR(r) { return {rowIndex:r.id,id:r.id,name:r.nama||"",tipe:r.tipe||"
 function mapBM(r) { return {rowIndex:r.id,id:r.id,name:r.name||"",category:r.category||"",liveStatus:r.live_status||"Active",brandType:r.brand_type||"",vatStatus:r.vat_status||"",revenue:r.revenue_stream||"",agreements:r.related_agreement||"",apparel:r.apparel_rate!=null?r.apparel_rate:"",accessories:r.accessories_rate!=null?r.accessories_rate:"",collectible:r.collectible_rate!=null?r.collectible_rate:"",preloved:r.preloved_rate!=null?r.preloved_rate:"",wellness:r.wellness_rate!=null?r.wellness_rate:"",others:r.others_rate!=null?r.others_rate:"",notes:r.notes||"",email:r.email||"",pic:r.pic||"",addedBy:r.added_by||""}; }
 function mapLD(r) { return {rowIndex:r.id,id:r.id,name:r.lead_name||"",category:r.category||"",stage:r.stage||"",pic:r.pic||"",revenue:r.revenue_stream||"",contact:r.contact||"",notes:r.notes||"",priority:r.priority||"",followUpDate:r.follow_up_date||"",date:r.date_added?new Date(r.date_added).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"",by:r.added_by||"",lastUpdate:r.last_updated?new Date(r.last_updated).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"",lastBy:r.last_updated_by||"",addedBy:r.added_by||""}; }
 function mapDP(r) { return {rowIndex:r.id,id:r.id,name:r.partner_name||"",type:r.type||"",channel:r.channel||"",region:r.region||"",pic:r.pic||"",contactPerson:r.contact_person||"",contactInfo:r.contact_info||"",agreements:r.related_agreement||"",liveStatus:r.live_status||"Active",notes:r.notes||"",email:r.email||"",addedBy:r.added_by||""}; }
-function mapPB(r) { return {rowIndex:r.id,id:r.id,eventDate:r.event_date||"",eventName:r.event_name||"",location:r.location||"",ipRelated:r.ip_related||"",manpower:r.manpower||"",suratJalanUrl:r.surat_jalan_url||"",deliveryStatus:r.delivery_status||"",eventStatus:r.event_status||"",reinboundStatus:r.reinbound_status||"",reinboundQty:r.reinbound_qty!=null?r.reinbound_qty:"",srDeadline:r.sr_deadline||"",actualSales:r.actual_sales!=null?r.actual_sales:"",paymentMethod:r.payment_method||"",idPesananJubelio:r.id_pesanan_jubelio||"",notes:r.notes||"",dateAdded:r.date_added||"",addedBy:r.added_by||"",lastUpdated:r.last_updated||"",lastUpdatedBy:r.last_updated_by||""}; }
+function mapPB(r) { return {rowIndex:r.id,id:r.id,eventDate:r.event_date||"",eventName:r.event_name||"",location:r.location||"",ipRelated:r.ip_related||"",manpower:r.manpower||"",suratJalanUrl:r.surat_jalan_url||"",deliveryStatus:r.delivery_status||"",eventStatus:r.event_status||"",reinboundStatus:r.reinbound_status||"",reinboundQty:r.reinbound_qty!=null?r.reinbound_qty:"",srDeadline:r.sr_deadline||"",actualSales:r.actual_sales!=null?r.actual_sales:"",paymentMethod:r.payment_method||"",idPesananJubelio:r.id_pesanan_jubelio||"",notes:r.notes||"",channelFees:r.channel_fees||{},dateAdded:r.date_added||"",addedBy:r.added_by||"",lastUpdated:r.last_updated||"",lastUpdatedBy:r.last_updated_by||""}; }
 
 let currentUser = "";
 let currentUserEmail = "";
@@ -3371,6 +3371,23 @@ function _pbRenderSalesSection(salesItems, orderHeaderMap, costMap) {
   const cancelHint = canceledOrders.length ? ` · ${canceledOrders.length} canceled excluded` : '';
   sum.textContent = `${confirmedOrders.size} order · ${rows.length} SKU · ${totalQty.toLocaleString('id-ID')} pcs · ${_pbRpShort(totalRev)} rev · ${_pbRpShort(totalProfit)} margin${cancelHint}`;
 
+  // 3rd-party channel fees (e.g. Shopee 3%, Tokopedia 2.5%) — let finance see
+  // expected net cash vs gross revenue. Stored on the event row as JSONB.
+  const eventId = _pbCurrentDetail?.rowIndex || _pbCurrentDetail?.id;
+  const channelFees = (_pbCurrentDetail?.channelFees) || {};
+  const feeOf = (ch) => Number(channelFees[ch]) || 0;
+  // Stash data needed by the export handler — built fresh each render so the
+  // CSV always matches what the user is currently looking at.
+  _pbExportCache = {
+    eventName: _pbCurrentDetail?.eventName || '',
+    eventDate: _pbCurrentDetail?.eventDate || '',
+    location:  _pbCurrentDetail?.location  || '',
+    salesItems, orderHeaderMap, costMap,
+    channelMap, channelFees,
+    totalRev, totalCOGS, totalProfit, totalQty,
+    confirmedOrdersCount: confirmedOrders.size,
+  };
+
   // Pills for channel + status (compact, scannable)
   const channelRows = [...channelMap.entries()].sort((a,b) => b[1].revenue - a[1].revenue);
   const statusRows  = [...statusMap.entries()].sort((a,b) => b[1].orders.size - a[1].orders.size);
@@ -3412,11 +3429,34 @@ function _pbRenderSalesSection(salesItems, orderHeaderMap, costMap) {
     <!-- Breakdown by channel + status, side by side -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:12px">
       <div>
-        <div style="font-size:10px;color:var(--g600);text-transform:uppercase;letter-spacing:0.05em;font-family:var(--label);margin-bottom:6px">By channel</div>
-        ${channelRows.map(([ch, v]) => `<div style="display:flex;justify-content:space-between;gap:8px;font-size:11px;padding:5px 0;border-bottom:1px solid var(--g100)">
-          <span style="font-weight:500">${_pbEsc(ch)}</span>
-          <span style="color:var(--g600);font-family:var(--mono)">${v.orders.size} order · ${v.qty} pcs · ${_pbRpShort(v.revenue)}</span>
-        </div>`).join('') || `<div style="font-size:11px;color:var(--g400)">—</div>`}
+        <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px">
+          <div style="font-size:10px;color:var(--g600);text-transform:uppercase;letter-spacing:0.05em;font-family:var(--label)">By channel · Fee % · Net</div>
+          <button onclick="_pbExportSalesCsv()" style="font-size:10px;padding:3px 8px;background:#3C3489;color:white;border:none;border-radius:3px;cursor:pointer;font-family:var(--mono)">📥 Export CSV</button>
+        </div>
+        ${channelRows.map(([ch, v]) => {
+          const feePct = feeOf(ch);
+          const feeAmt = v.revenue * feePct / 100;
+          const net    = v.revenue - feeAmt;
+          const feeStr = feePct ? `<span style="color:#a66800">−${_pbRpShort(feeAmt)}</span>` : '';
+          return `<div style="display:flex;align-items:center;gap:8px;font-size:11px;padding:6px 0;border-bottom:1px solid var(--g100)">
+            <span style="font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_pbEsc(ch)}</span>
+            <span style="display:flex;align-items:center;gap:3px">
+              <input type="number" min="0" max="100" step="0.1" value="${feePct||''}" placeholder="0" onchange="_pbSaveChannelFee('${eventId}','${_pbEsc(ch).replace(/'/g,"&#39;")}',this.value)" style="width:46px;padding:2px 4px;font-size:10px;border:1px solid var(--g100);border-radius:3px;background:var(--white);text-align:right;font-family:var(--mono)">
+              <span style="font-size:10px;color:var(--g400)">%</span>
+            </span>
+            <span style="color:var(--g600);font-family:var(--mono);min-width:60px;text-align:right" title="${v.orders.size} order · ${v.qty} pcs">${_pbRpShort(v.revenue)}</span>
+            ${feeStr ? `<span style="font-family:var(--mono);min-width:60px;text-align:right">${feeStr}</span>` : ''}
+            <span style="font-family:var(--mono);min-width:70px;text-align:right;font-weight:600;color:${feePct?'#1c7a3b':'var(--g600)'}" title="Net cash diterima dari channel ini setelah potongan">${_pbRpShort(net)}</span>
+          </div>`;
+        }).join('') || `<div style="font-size:11px;color:var(--g400)">—</div>`}
+        ${channelRows.some(([ch]) => feeOf(ch) > 0) ? (() => {
+          const totalFee = channelRows.reduce((s, [ch, v]) => s + v.revenue * feeOf(ch) / 100, 0);
+          const totalNet = totalRev - totalFee;
+          return `<div style="display:flex;justify-content:space-between;gap:8px;font-size:11px;padding:6px 0;font-weight:600;margin-top:4px">
+            <span>Total</span>
+            <span style="font-family:var(--mono)">${_pbRpShort(totalRev)} − <span style="color:#a66800">${_pbRpShort(totalFee)}</span> = <span style="color:#1c7a3b">${_pbRpShort(totalNet)}</span></span>
+          </div>`;
+        })() : ''}
       </div>
       <div>
         <div style="font-size:10px;color:var(--g600);text-transform:uppercase;letter-spacing:0.05em;font-family:var(--label);margin-bottom:6px">By status</div>
@@ -3467,6 +3507,141 @@ function _pbRenderSalesSection(salesItems, orderHeaderMap, costMap) {
       </tr></tfoot>
     </table></div>
   `;
+}
+
+// State snapshot used by the export handler so the CSV reflects what the
+// user is currently looking at without re-running the aggregation.
+let _pbExportCache = null;
+
+// Save a single channel's fee % to popup_booths.channel_fees JSONB. Empty
+// or zero value removes the entry (default 0%, no fee).
+async function _pbSaveChannelFee(eventId, channelName, raw) {
+  if (!eventId) return;
+  const pct = parseFloat(raw);
+  const ev  = allPBRows.find(x => String(x.rowIndex) === String(eventId));
+  const fees = { ...(ev?.channelFees || {}) };
+  if (isNaN(pct) || pct <= 0) delete fees[channelName];
+  else fees[channelName] = Number(pct.toFixed(2));
+  try {
+    const { error } = await sb.from('popup_booths').update({
+      channel_fees: fees,
+      last_updated: new Date().toISOString(),
+      last_updated_by: currentUser,
+    }).eq('id', eventId);
+    if (error) throw error;
+    if (ev) ev.channelFees = fees;
+    if (_pbCurrentDetail && String(_pbCurrentDetail.rowIndex) === String(eventId)) {
+      _pbCurrentDetail.channelFees = fees;
+    }
+    // Re-render the sales section so Net updates without a full reload.
+    if (_pbExportCache) {
+      _pbRenderSalesSection(_pbExportCache.salesItems, _pbExportCache.orderHeaderMap, _pbExportCache.costMap);
+    }
+  } catch (e) { alert('Gagal save fee: ' + (e.message || e)); }
+}
+
+// Export sales-per-channel CSV. Two sections:
+//   1. Channel summary  — Orders, Qty, Gross, Fee %, Fee Rp, Net cash, COGS, Margin
+//   2. Per-SKU x channel — Channel, SKU, Item, Variant, Qty, Revenue, COGS, Margin
+function _pbExportSalesCsv() {
+  if (!_pbExportCache) { alert('Belum ada data sales untuk di-export.'); return; }
+  const { eventName, eventDate, location,
+          salesItems, orderHeaderMap, costMap,
+          channelMap, channelFees } = _pbExportCache;
+  const feeOf = (ch) => Number(channelFees?.[ch]) || 0;
+
+  // Per-(channel, item) aggregation — confirmed only (exclude canceled)
+  const isCanceled = (soId) => {
+    const h = orderHeaderMap?.get(soId);
+    return !!(h && (h.is_canceled || h.wms_status === 'CANCELED' || h.wms_status === 'CANCEL'));
+  };
+  const perChItem = new Map(); // key = "<channel>||<item_id>"
+  for (const it of salesItems) {
+    if (isCanceled(it.salesorder_id)) continue;
+    const h  = orderHeaderMap?.get(it.salesorder_id) || {};
+    const ch = h.channel_name || '(unknown)';
+    const key = `${ch}||${it.item_id || it.item_code || ''}`;
+    const cur = perChItem.get(key) || {
+      channel: ch,
+      item_id: it.item_id, item_code: it.item_code || '',
+      item_name: it.item_name || '', variant: it.variant || '',
+      qty: 0, revenue: 0,
+    };
+    cur.qty     += Number(it.qty || 0);
+    cur.revenue += Number(it.price || 0) * Number(it.qty || 0) - Number(it.disc_amount || 0);
+    perChItem.set(key, cur);
+  }
+
+  const esc = (v) => {
+    const s = String(v ?? '');
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const fmt = (n) => Math.round(Number(n) || 0);
+
+  const lines = [];
+  // Header block
+  lines.push(['Event', esc(eventName)].join(','));
+  lines.push(['Tanggal', esc(eventDate)].join(','));
+  lines.push(['Lokasi', esc(location)].join(','));
+  lines.push(['Generated', esc(new Date().toLocaleString('id-ID'))].join(','));
+  lines.push('');
+
+  // Section 1: Channel summary
+  lines.push(['=== Per Channel ==='].join(','));
+  lines.push(['Channel','Orders','Qty (pcs)','Gross Revenue (Rp)','Fee %','Fee (Rp)','Net Cash (Rp)','COGS (Rp)','Margin (Rp)'].join(','));
+  let tOrd=0, tQty=0, tGross=0, tFee=0, tNet=0, tCogs=0;
+  const channelRows = [...channelMap.entries()].sort((a,b) => b[1].revenue - a[1].revenue);
+  for (const [ch, v] of channelRows) {
+    const pct = feeOf(ch);
+    const fee = v.revenue * pct / 100;
+    const net = v.revenue - fee;
+    // COGS for this channel — sum from per-item table filtered by channel
+    let chCogs = 0;
+    for (const [k, r] of perChItem) {
+      if (r.channel !== ch) continue;
+      chCogs += r.qty * (costMap?.get(r.item_id) || 0);
+    }
+    const margin = v.revenue - chCogs;
+    lines.push([
+      esc(ch), v.orders.size, v.qty,
+      fmt(v.revenue), pct ? pct.toFixed(1) : '0',
+      fmt(fee), fmt(net),
+      fmt(chCogs), fmt(margin),
+    ].join(','));
+    tOrd += v.orders.size; tQty += v.qty;
+    tGross += v.revenue; tFee += fee; tNet += net; tCogs += chCogs;
+  }
+  lines.push([
+    'TOTAL', tOrd, tQty,
+    fmt(tGross), '', fmt(tFee), fmt(tNet), fmt(tCogs), fmt(tGross - tCogs),
+  ].join(','));
+  lines.push('');
+
+  // Section 2: Per-SKU x channel
+  lines.push(['=== Per SKU per Channel ==='].join(','));
+  lines.push(['Channel','SKU','Item','Variant','Qty','Revenue (Rp)','COGS (Rp)','Margin (Rp)'].join(','));
+  const sortedItems = [...perChItem.values()].sort((a,b) => {
+    if (a.channel !== b.channel) return a.channel.localeCompare(b.channel);
+    return b.revenue - a.revenue;
+  });
+  for (const r of sortedItems) {
+    const cogs   = r.qty * (costMap?.get(r.item_id) || 0);
+    const margin = r.revenue - cogs;
+    lines.push([
+      esc(r.channel), esc(r.item_code), esc(r.item_name), esc(r.variant),
+      r.qty, fmt(r.revenue), fmt(cogs), fmt(margin),
+    ].join(','));
+  }
+
+  const csv = lines.join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const safeName = (eventName || 'event').replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 60);
+  const today = new Date().toISOString().slice(0, 10);
+  const a = document.createElement('a');
+  a.href = url; a.download = `pb-sales-${safeName}-${today}.csv`;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 100);
 }
 
 function _pbRenderAdjustmentSection(headers, items, costMap) {
