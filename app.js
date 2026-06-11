@@ -10417,6 +10417,47 @@ const INV_CAT_SVG = {
 
 function invEsc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 
+// ── DIO (Days Inventory Outstanding) ──
+// Velocity-based aging: how many days the current stock will last at the
+// recent sell-through rate. Window of 90d gives a stable signal that's
+// short enough to react to slowing brands.
+const INV_DIO_WINDOW = 90;
+const INV_DIO_BUCKETS = [
+  { key: 'fast',      label: 'Fast',      icon: '🟢', max: 30,       color: '#1c7a3b' },
+  { key: 'normal',    label: 'Normal',    icon: '🟢', max: 60,       color: '#5a8c3d' },
+  { key: 'slow',      label: 'Slow',      icon: '🟡', max: 120,      color: '#a66800' },
+  { key: 'very_slow', label: 'Very Slow', icon: '🟠', max: 365,      color: '#c73e1d' },
+  { key: 'dead',      label: 'Dead',      icon: '⚫', max: Infinity, color: '#444'    },
+];
+const INV_DIO_BUCKET_MAP = Object.fromEntries(INV_DIO_BUCKETS.map(b => [b.key, b]));
+let invDioByItemId = {};                              // item_id -> qty sold in window
+let invFilterDIO = new Set(INV_DIO_BUCKETS.map(b => b.key));
+
+function computeDIOBucket(days) {
+  if (days === null || !isFinite(days)) return 'dead';
+  for (const b of INV_DIO_BUCKETS) if (days <= b.max) return b.key;
+  return 'dead';
+}
+
+function annotateInvGroupsWithDIO() {
+  for (const g of invGroups) {
+    const itemIds = new Set(g.skus.map(s => s.item_id));
+    let soldUnits = 0;
+    for (const id of itemIds) soldUnits += (invDioByItemId[id] || 0);
+    let stockUnits = 0;
+    for (const v of Object.values(g.byLocation)) stockUnits += Number(v) || 0;
+    g._sold90    = soldUnits;
+    g._stockTot  = stockUnits;
+    if (soldUnits <= 0 || stockUnits <= 0) {
+      g._dio = soldUnits <= 0 ? Infinity : 0;
+      g._dioBucket = soldUnits <= 0 ? 'dead' : 'fast';
+    } else {
+      g._dio = stockUnits / (soldUnits / INV_DIO_WINDOW);
+      g._dioBucket = computeDIOBucket(g._dio);
+    }
+  }
+}
+
 async function loadInvCheck(){
   const container=document.getElementById('inv-table-container');
   const catsEl=document.getElementById('inv-cat-cards');
@@ -10433,11 +10474,14 @@ async function loadInvCheck(){
     // 2. Read from fresh jubelio_inventory_stocks (synced by sync-jubelio-inventory),
     //    joining item metadata (name/brand/group) from jubelio_items client-side.
     //    by_location was stale (separate, un-synced table) so we no longer use it.
-    const [stockRows, itemRows] = locIds.length ? await Promise.all([
+    const [stockRows, itemRows, dioRes] = locIds.length ? await Promise.all([
       _fetchAllPages('jubelio_inventory_stocks','location_id,item_id,on_hand,available,synced_at',
         q=>q.in('location_id',locIds).neq('on_hand',0)),
-      _fetchAllPages('jubelio_items','item_id,item_code,item_name,item_group_id,brand_name,thumbnail')
-    ]) : [[],[]];
+      _fetchAllPages('jubelio_items','item_id,item_code,item_name,item_group_id,brand_name,thumbnail'),
+      sb.rpc('inv_sales_velocity', { window_days: INV_DIO_WINDOW }),
+    ]) : [[],[],{data:[]}];
+    invDioByItemId = {};
+    for (const r of (dioRes?.data || [])) invDioByItemId[r.item_id] = Number(r.qty_sold) || 0;
     const itemMeta={};
     for(const it of (itemRows||[])) itemMeta[it.item_id]=it;
     invStockFlat=(stockRows||[]).map(s=>{
@@ -10462,6 +10506,7 @@ async function loadInvCheck(){
       syncNote.textContent=latest?'Terakhir sync: '+new Date(latest).toLocaleString('id-ID',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}):'—';
     }
     rebuildInvGroups();
+    annotateInvGroupsWithDIO();
     renderInvFilterChips();
     renderInvCatCards(invGroups);
     invPage=1;
@@ -10508,6 +10553,7 @@ function invDeriveParentName(name){
 function renderInvFilterChips(){
   const catsEl=document.getElementById('inv-f-cats');
   const whsEl=document.getElementById('inv-f-whs');
+  const dioEl=document.getElementById('inv-f-dio');
   if(!catsEl||!whsEl) return;
   const chipBase='display:inline-flex;align-items:center;padding:3px 9px;border-radius:99px;font-size:11px;font-family:var(--mono);cursor:pointer;border:1px solid;white-space:nowrap;transition:all .12s;';
   // Category chips
@@ -10517,6 +10563,23 @@ function renderInvFilterChips(){
     const st=active?`background:${cfg.text};color:#fff;border-color:${cfg.text}`:`background:var(--white);color:var(--g600);border-color:var(--g200)`;
     return `<span style="${chipBase}${st}" onclick="toggleInvCatFilter('${cat}',this)">${cfg.icon} ${cat}</span>`;
   }).join('');
+  // DIO chips — bucket count from current invGroups
+  if (dioEl) {
+    const counts = {};
+    for (const g of invGroups) {
+      const b = g._dioBucket || 'dead';
+      counts[b] = (counts[b] || 0) + 1;
+    }
+    dioEl.innerHTML = INV_DIO_BUCKETS.map(b => {
+      const active = invFilterDIO.has(b.key);
+      const cnt = counts[b.key] || 0;
+      const st = active
+        ? `background:${b.color};color:#fff;border-color:${b.color}`
+        : `background:var(--white);color:var(--g600);border-color:var(--g200)`;
+      const maxLbl = b.max === Infinity ? '>365d / no sales' : (b.key === 'fast' ? `<30d` : `<${b.max}d`);
+      return `<span style="${chipBase}${st}" onclick="toggleInvDIOFilter('${b.key}',this)" title="${maxLbl}">${b.icon} ${b.label} <span style="opacity:.7;margin-left:4px">${cnt}</span></span>`;
+    }).join('');
+  }
   // Warehouse chips — only show warehouses whose category is currently active
   const visibleLocs=invLocations.filter(l=>invFilterCats.has(l.category));
   if(!visibleLocs.length){
@@ -10538,6 +10601,20 @@ function toggleInvCatFilter(cat,el){
   invFilterWhs=new Set(invLocations.filter(l=>invFilterCats.has(l.category)).map(l=>l.location_id));
   renderInvFilterChips();
   invPage=1; applyInvFilters();
+}
+
+function toggleInvDIOFilter(key, el) {
+  if (invFilterDIO.has(key)) {
+    if (invFilterDIO.size <= 1) return;  // can't deselect all
+    invFilterDIO.delete(key);
+  } else invFilterDIO.add(key);
+  const b = INV_DIO_BUCKET_MAP[key];
+  const now = invFilterDIO.has(key);
+  el.style.background = now ? b.color : 'var(--white)';
+  el.style.color      = now ? '#fff'  : 'var(--g600)';
+  el.style.borderColor= now ? b.color : 'var(--g200)';
+  invPage = 1;
+  applyInvFilters();
 }
 
 function toggleInvWhFilter(locId,el){
@@ -10564,6 +10641,7 @@ function invSearchDebounce(){
 function clearInvFilters(){
   invFilterCats=new Set(INV_CAT_ORDER);
   invFilterWhs=new Set(invLocations.map(l=>l.location_id));
+  invFilterDIO=new Set(INV_DIO_BUCKETS.map(b=>b.key));
   invFilterSearch='';
   const s=document.getElementById('inv-f-search'); if(s) s.value='';
   renderInvFilterChips();
@@ -10580,6 +10658,8 @@ function applyInvFilters(){
   // Only show parent items that have stock (>0) in at least one visible warehouse column
   const _activeLocIds=activeCols.map(c=>c.location_id);
   filtered=filtered.filter(g=>_activeLocIds.some(lid=>(parseFloat(g.byLocation[lid])||0)>0));
+  // DIO bucket filter
+  filtered = filtered.filter(g => invFilterDIO.has(g._dioBucket || 'dead'));
   const totalSkus=filtered.reduce((s,g)=>s+new Set(g.skus.map(sk=>sk.item_code)).size,0);
   const tcEl=document.getElementById('inv-tcount');
   if(tcEl) tcEl.textContent=`${filtered.length} parent item · ${totalSkus} SKU`;
@@ -10635,10 +10715,24 @@ function renderInvTable(groups,columns,page){
     const rowId=`inv-g-${gid}`;
     // Count unique SKUs across all locations
     const uniqueSkuCodes=[...new Set(group.skus.map(s=>s.item_code))];
-    // Parent item cells
+    // Parent item cells — thumbnail tooltip + inline DIO badge
+    const dioBucket = INV_DIO_BUCKET_MAP[group._dioBucket || 'dead'];
+    const dioDays   = group._dio;
+    const dioLabel  = (dioDays === null || !isFinite(dioDays)) ? 'No sales 90d'
+                    : dioDays > 999 ? '999+ d' : `${Math.round(dioDays)} d`;
+    const tooltipTxt =
+      `${group.parent_name}\n` +
+      `─────────────────────\n` +
+      `Days Inventory Outstanding\n` +
+      `Bucket: ${dioBucket.label} (${dioBucket.key === 'dead' && (group._sold90||0) === 0 ? 'no sales' : '< ' + (dioBucket.max === Infinity ? '∞' : dioBucket.max) + ' days'})\n` +
+      `DIO: ${dioLabel}\n` +
+      `Sold 90d: ${(group._sold90||0).toLocaleString('id-ID')} pcs\n` +
+      `Stock total: ${(group._stockTot||0).toLocaleString('id-ID')} pcs\n` +
+      `Velocity: ${((group._sold90||0)/INV_DIO_WINDOW).toFixed(2)} pcs/day`;
     const thumbHTML=group.thumbnail
-      ? `<img src="${group.thumbnail}" style="width:36px;height:36px;object-fit:cover;border-radius:5px;border:1px solid var(--g100);display:block;flex-shrink:0" onerror="this.style.visibility='hidden'">`
-      : `<div style="width:36px;height:36px;border-radius:5px;background:var(--off);flex-shrink:0"></div>`;
+      ? `<img src="${group.thumbnail}" title="${invEsc(tooltipTxt)}" style="width:36px;height:36px;object-fit:cover;border-radius:5px;border:1px solid var(--g100);display:block;flex-shrink:0;cursor:help" onerror="this.style.visibility='hidden'">`
+      : `<div title="${invEsc(tooltipTxt)}" style="width:36px;height:36px;border-radius:5px;background:var(--off);flex-shrink:0;cursor:help"></div>`;
+    const dioBadge = `<span title="${invEsc(tooltipTxt)}" style="display:inline-flex;align-items:center;gap:3px;background:${dioBucket.color}1a;color:${dioBucket.color};font-family:var(--mono);font-size:9px;padding:1px 6px;border-radius:99px;margin-left:6px;cursor:help;font-weight:500" >${dioBucket.icon} ${dioLabel}</span>`;
     let pCells=`<td style="${stickyTd}background:var(--white);padding:10px 12px;border-bottom:1px solid var(--g100);vertical-align:middle">
       <div style="display:flex;align-items:center;gap:10px">
         ${thumbHTML}
@@ -10646,7 +10740,7 @@ function renderInvTable(groups,columns,page){
           <div style="font-weight:400;font-size:13px;color:var(--black);margin-bottom:2px">${invEsc(group.parent_name)}
             <button onclick="toggleInvSKUs('${rowId}',this)" style="background:none;border:none;cursor:pointer;color:var(--g400);font-size:10px;padding:1px 5px;border-radius:3px;font-family:var(--mono);margin-left:4px;line-height:1.4">▾ ${uniqueSkuCodes.length} SKU</button>
           </div>
-          <div style="font-family:var(--mono);font-size:10px;color:var(--g400)">${invEsc(group.brand_name)}</div>
+          <div style="font-family:var(--mono);font-size:10px;color:var(--g400)">${invEsc(group.brand_name)}${dioBadge}</div>
         </div>
       </div>
     </td>`;
