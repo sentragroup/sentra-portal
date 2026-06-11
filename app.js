@@ -22706,7 +22706,7 @@ async function loadSampling() {
   document.getElementById('smp-grid-list').innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:32px;color:var(--g400);font-size:13px">⟳ Memuat sampling...</div>`;
   try {
     const [colsRes, itemsRes, skusRes] = await Promise.all([
-      sb.from('collections').select('id, collection_name, ip_related, revenue_stream, status, target_drop_date').order('created_at',{ascending:false}),
+      sb.from('collections').select('id, collection_name, ip_related, revenue_stream, status, release_date').order('date_added',{ascending:false}),
       sb.from('collection_items').select('id, collection_id, sku_name, sku_proper, kategori, sub_kategori, treatment, color, qty, srp, design_status'),
       sb.from('sampling_skus').select('id, collection_item_id, expected_date, notes, status'),
     ]);
@@ -22776,7 +22776,7 @@ async function openSmpDetail(colId) {
   document.getElementById('smp-view-grid').style.display = 'none';
   document.getElementById('smp-view-detail').style.display = 'block';
   document.getElementById('smp-detail-title').textContent = col.collection_name || '(Tanpa nama)';
-  document.getElementById('smp-detail-sub').textContent = [col.ip_related, col.revenue_stream, col.target_drop_date ? `Drop: ${col.target_drop_date}` : null].filter(Boolean).join(' · ');
+  document.getElementById('smp-detail-sub').textContent = [col.ip_related, col.revenue_stream, col.release_date ? `Release: ${col.release_date}` : null].filter(Boolean).join(' · ');
   document.getElementById('smp-detail-skus').innerHTML = `<div style="text-align:center;padding:32px;color:var(--g400)">⟳ Memuat SKUs...</div>`;
   await renderSmpDetailSKUs(col);
 }
