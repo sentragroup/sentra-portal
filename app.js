@@ -9773,14 +9773,18 @@ async function saveSAEventRef(adjId, eventRef) {
 }
 
 // ── SYNC ALL JUBELIO ──
+// Only jobs that finance / purchasing ops need fresh during the day live
+// here. The heavy ones (Sales Orders, full Inventory Stock, Adjustments)
+// run via daily cron at 19:00–20:00 WIB — refreshing them mid-day is
+// rarely worth the 30–60s wait. Reports that depend on them (Sales Perf,
+// Royalty, Income Statement) already reflect the previous day's close,
+// which is the canonical view.
 const SYNC_ALL_JOBS = [
-  { slug: "sync-jubelio-gudang-offline",          label: "Sales Orders"       },
   { slug: "sync-jubelio-purchase-orders",         label: "Purchase Orders"    },
   { slug: "sync-jubelio-purchase-bills",          label: "Purchase Bills"     },
+  { slug: "sync-jubelio-purchase-payments",       label: "Purchase Payments"  },
   { slug: "sync-jubelio-purchase-receives",       label: "Purchase Receives"  },
-  { slug: "sync-jubelio-inventory",               label: "Inventory Stock"    },
-  { slug: "sync-jubelio-inventory-adjustments",   label: "Adjustments"        },
-  { slug: "sync-jubelio-contacts",                label: "Contacts"           },
+  { slug: "sync-jubelio-contacts?suppliers_only=true", label: "Contacts (suppliers)" },
   { slug: "sync-jubelio-warehouse",               label: "Warehouse / Putaway"},
 ];
 
