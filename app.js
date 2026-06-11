@@ -20852,15 +20852,18 @@ async function loadJubSuppliers(forceRefresh = false) {
   }
 }
 
-// Trigger sync-jubelio-contacts edge function, clear cache, reload picker.
-// Slow (~45s) — disable button + show status while in flight.
+// Trigger sync-jubelio-contacts edge function in fast 'suppliers_only' mode.
+// Used to be ~45s because it walked the full 56k-contact list; the
+// suppliers_only path only hits /contacts/suppliers/ (~30 records) so it
+// returns in ~2s. Daily cron still runs the full sweep to keep customer +
+// staff data fresh.
 async function vmSyncFromJubelio() {
   const btn = document.getElementById('vm-jub-sync-btn');
   const status = document.getElementById('vm-jub-sync-status');
   if (btn) { btn.disabled = true; btn.textContent = '⟳ Syncing...'; }
-  if (status) status.textContent = 'syncing dari Jubelio...';
+  if (status) status.textContent = 'syncing supplier dari Jubelio...';
   try {
-    const r = await fetch(`${SUPABASE_URL}/functions/v1/sync-jubelio-contacts`, {
+    const r = await fetch(`${SUPABASE_URL}/functions/v1/sync-jubelio-contacts?suppliers_only=true`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${SUPABASE_ANON}`, 'Content-Type': 'application/json' },
     });
