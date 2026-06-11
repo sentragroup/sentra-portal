@@ -5554,8 +5554,11 @@ function renderColTargetSection(col, items) {
 
 // Live update of target revenue display as user types units × srp
 function updateColTargetCalc(cid) {
-  const un  = parseFloat(document.getElementById(`ct-un-${cid}`).value || 0);
-  const srp = parseFloat(document.getElementById(`ct-srp-${cid}`).value || 0);
+  const unEl  = document.getElementById(`ct-un-${cid}`);
+  const srpEl = document.getElementById(`ct-srp-${cid}`);
+  if (!unEl || !srpEl) return;            // legacy manual form removed
+  const un  = parseFloat(unEl.value || 0);
+  const srp = parseFloat(srpEl.value || 0);
   const rev = un * srp;
   const display = document.getElementById(`ct-rev-display-${cid}`);
   const hidden  = document.getElementById(`ct-rev-${cid}`);
@@ -5900,10 +5903,13 @@ async function loadColPDSection(col) {
 
 async function saveColTarget(colId) {
   const fb = document.getElementById(`ct-feedback-${colId}`);
-  const unRaw  = document.getElementById(`ct-un-${colId}`).value;
-  const srpRaw = document.getElementById(`ct-srp-${colId}`).value;
-  const win    = parseInt(document.getElementById(`ct-win-${colId}`).value || '90', 10);
-  const notes  = document.getElementById(`ct-notes-${colId}`).value.trim();
+  const unEl  = document.getElementById(`ct-un-${colId}`);
+  const srpEl = document.getElementById(`ct-srp-${colId}`);
+  if (!unEl || !srpEl) return;            // legacy manual form removed
+  const unRaw  = unEl.value;
+  const srpRaw = srpEl.value;
+  const win    = parseInt(document.getElementById(`ct-win-${colId}`)?.value || '90', 10);
+  const notes  = document.getElementById(`ct-notes-${colId}`)?.value.trim() || '';
   const un  = unRaw  === '' ? null : parseInt(unRaw, 10);
   const srp = srpRaw === '' ? null : parseFloat(srpRaw);
   if (!un || un <= 0) {
@@ -6294,8 +6300,8 @@ function renderColDetail(col, items) {
   // Activate the persisted tab (Business by default)
   const _lastTab = sessionStorage.getItem(`cd-tab-${col.id}`) || 'business';
   cdSwitchTab(col.id, _lastTab);
-  // Prime the target calculator display + load monitoring
-  updateColTargetCalc(col.id);
+  // (updateColTargetCalc removed — sales target is now auto-computed from
+  // collection_items via DB trigger; the manual calculator form is gone.)
   loadColSalesMonitor(col);
   // Load Product Development data for the Delivery tab
   loadColPDSection(col);
