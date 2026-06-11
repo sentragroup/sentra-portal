@@ -22707,7 +22707,7 @@ async function loadSampling() {
   try {
     const [colsRes, itemsRes, skusRes] = await Promise.all([
       sb.from('collections').select('id, collection_name, ip_related, revenue_stream, status, release_date').order('date_added',{ascending:false}),
-      sb.from('collection_items').select('id, collection_id, sku_name, sku_proper, kategori, sub_kategori, treatment, color, qty, srp, design_status'),
+      sb.from('collection_items').select('id, collection_id, sku_name, sku_proper, category, sub_category, treatment, color, qty, srp, approval_status'),
       sb.from('sampling_skus').select('id, collection_item_id, expected_date, notes, status'),
     ]);
     if (colsRes.error) throw colsRes.error;
@@ -22845,7 +22845,7 @@ async function renderSmpDetailSKUs(col) {
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px">
         <div>
           <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:14px">${_smpEsc(it.sku_name||'(SKU)')}</div>
-          <div style="font-size:11px;color:var(--g600);font-family:var(--mono);margin-top:2px">${_smpEsc(it.sku_proper||'')}${it.kategori?' · '+_smpEsc(it.kategori):''}${it.treatment?' · '+_smpEsc(it.treatment):''}${it.color?' · '+_smpEsc(it.color):''}</div>
+          <div style="font-size:11px;color:var(--g600);font-family:var(--mono);margin-top:2px">${_smpEsc(it.sku_proper||'')}${it.category?' · '+_smpEsc(it.category):''}${it.treatment?' · '+_smpEsc(it.treatment):''}${it.color?' · '+_smpEsc(it.color):''}</div>
         </div>
         <select onchange="smpSetStatus(${samp.id},this.value)" class="pill ${statusPill}" style="font-size:11px;padding:3px 8px;border-radius:12px;cursor:pointer;border:1px solid transparent">
           ${['Pending','In Progress','Approved','Rejected'].map(s => `<option value="${s}" ${s===(samp.status||'Pending')?'selected':''}>${s}</option>`).join('')}
