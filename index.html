@@ -3501,23 +3501,28 @@
             </div>
             <div id="inv-f-dio" style="display:flex;flex-wrap:wrap;gap:5px;flex:1"></div>
           </div>
-          <div style="display:flex;align-items:flex-start;gap:10px;border-top:1px solid var(--g100);padding-top:10px">
-            <div style="min-width:140px">
-              <div class="filter-panel-label" style="margin-bottom:6px">IP / Artist</div>
+          <div style="display:flex;align-items:center;gap:10px;border-top:1px solid var(--g100);padding-top:10px;flex-wrap:wrap">
+            <div id="inv-f-ip-wrap" class="inv-dropdown" style="position:relative">
+              <button class="filter-panel-label inv-dd-btn" onclick="invToggleDD('ip')" style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border:1px solid var(--g200);background:var(--white);border-radius:6px;cursor:pointer;font-size:12px;min-width:160px;justify-content:space-between">
+                <span id="inv-f-ip-label">IP / Artist <span style="color:var(--g400)">— Semua</span></span>
+                <span style="color:var(--g400)">▾</span>
+              </button>
+              <div id="inv-f-ip" class="inv-dd-panel" style="display:none;position:absolute;top:calc(100% + 4px);left:0;background:var(--white);border:1px solid var(--g200);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,0.08);padding:8px;min-width:240px;max-height:300px;overflow-y:auto;z-index:10"></div>
             </div>
-            <div id="inv-f-ip" style="display:flex;flex-wrap:wrap;gap:5px;flex:1"></div>
-          </div>
-          <div style="display:flex;align-items:flex-start;gap:10px;border-top:1px solid var(--g100);padding-top:10px">
-            <div style="min-width:140px">
-              <div class="filter-panel-label" style="margin-bottom:6px">Revenue Stream</div>
+            <div id="inv-f-revenue-wrap" class="inv-dropdown" style="position:relative">
+              <button class="filter-panel-label inv-dd-btn" onclick="invToggleDD('revenue')" style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border:1px solid var(--g200);background:var(--white);border-radius:6px;cursor:pointer;font-size:12px;min-width:160px;justify-content:space-between">
+                <span id="inv-f-revenue-label">Revenue Stream <span style="color:var(--g400)">— Semua</span></span>
+                <span style="color:var(--g400)">▾</span>
+              </button>
+              <div id="inv-f-revenue" class="inv-dd-panel" style="display:none;position:absolute;top:calc(100% + 4px);left:0;background:var(--white);border:1px solid var(--g200);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,0.08);padding:8px;min-width:200px;max-height:300px;overflow-y:auto;z-index:10"></div>
             </div>
-            <div id="inv-f-revenue" style="display:flex;flex-wrap:wrap;gap:5px;flex:1"></div>
-          </div>
-          <div style="display:flex;align-items:flex-start;gap:10px;border-top:1px solid var(--g100);padding-top:10px">
-            <div style="min-width:140px">
-              <div class="filter-panel-label" style="margin-bottom:6px">Brand</div>
+            <div id="inv-f-brand-wrap" class="inv-dropdown" style="position:relative">
+              <button class="filter-panel-label inv-dd-btn" onclick="invToggleDD('brand')" style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border:1px solid var(--g200);background:var(--white);border-radius:6px;cursor:pointer;font-size:12px;min-width:160px;justify-content:space-between">
+                <span id="inv-f-brand-label">Brand <span style="color:var(--g400)">— Semua</span></span>
+                <span style="color:var(--g400)">▾</span>
+              </button>
+              <div id="inv-f-brand" class="inv-dd-panel" style="display:none;position:absolute;top:calc(100% + 4px);left:0;background:var(--white);border:1px solid var(--g200);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,0.08);padding:8px;min-width:240px;max-height:300px;overflow-y:auto;z-index:10"></div>
             </div>
-            <div id="inv-f-brand" style="display:flex;flex-wrap:wrap;gap:5px;flex:1"></div>
           </div>
 <div style="display:flex;align-items:center;gap:10px;border-top:1px solid var(--g100);padding-top:10px">
             <div class="filter-panel-label">Cari:</div>

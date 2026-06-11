@@ -10616,31 +10616,14 @@ function renderInvFilterChips(){
       : '';
     dioEl.innerHTML = chipsHtml + clearBtn;
   }
-  // IP / Revenue / Brand chips
-  const ipEl = document.getElementById('inv-f-ip');
-  const revEl = document.getElementById('inv-f-revenue');
-  const brEl  = document.getElementById('inv-f-brand');
-  const renderMultiChip = (el, allValues, activeSet, toggleFn, clearFn) => {
-    if (!el) return;
-    if (!allValues.length) { el.innerHTML = `<span style="font-family:var(--mono);font-size:10px;color:var(--g400)">—</span>`; return; }
-    const any = activeSet.size > 0;
-    const chips = allValues.map(v => {
-      const active = activeSet.has(v);
-      const st = active
-        ? `background:var(--black);color:#fff;border-color:var(--black);font-weight:600`
-        : `background:var(--white);color:var(--g600);border-color:var(--g200);opacity:${any?0.45:1}`;
-      const safe = invEsc(v).replace(/'/g, "\\'");
-      return `<span style="${chipBase}${st}" onclick="${toggleFn}('${safe}',this)">${invEsc(v)}</span>`;
-    }).join('');
-    const clr = any ? `<span style="${chipBase}background:var(--off);color:var(--g600);border-color:var(--g200);font-size:10px" onclick="${clearFn}()" title="Reset">× clear</span>` : '';
-    el.innerHTML = chips + clr;
-  };
+  // IP / Revenue / Brand — render as multi-select dropdowns to save vertical
+  // space; each button shows a summary of what's selected.
   const allIPs      = [...new Set(invGroups.map(g => g._ip).filter(Boolean))].sort();
   const allRevs     = [...new Set(invGroups.map(g => g._revenue).filter(Boolean))].sort();
   const allBrandsUI = [...new Set(invGroups.map(g => (g.brand_name||'').trim()).filter(Boolean))].sort();
-  renderMultiChip(ipEl,  allIPs,      invFilterIP,      'toggleInvIPFilter',      'clearInvIPFilter');
-  renderMultiChip(revEl, allRevs,     invFilterRevenue, 'toggleInvRevenueFilter', 'clearInvRevenueFilter');
-  renderMultiChip(brEl,  allBrandsUI, invFilterBrand,   'toggleInvBrandFilter',   'clearInvBrandFilter');
+  invRenderDDPanel('ip',      'IP / Artist',     allIPs,      invFilterIP,      'toggleInvIPFilter',      'clearInvIPFilter');
+  invRenderDDPanel('revenue', 'Revenue Stream',  allRevs,     invFilterRevenue, 'toggleInvRevenueFilter', 'clearInvRevenueFilter');
+  invRenderDDPanel('brand',   'Brand',           allBrandsUI, invFilterBrand,   'toggleInvBrandFilter',   'clearInvBrandFilter');
   // Warehouse chips — only show warehouses whose category is currently active
   const visibleLocs=invLocations.filter(l=>invFilterCats.has(l.category));
   if(!visibleLocs.length){
@@ -10663,6 +10646,49 @@ function toggleInvCatFilter(cat,el){
   renderInvFilterChips();
   invPage=1; applyInvFilters();
 }
+
+// Render checkbox-list dropdown panel + update its toggle button label.
+// Reusable for IP / Revenue Stream / Brand multi-selects.
+function invRenderDDPanel(slug, title, allValues, activeSet, toggleFn, clearFn) {
+  const panel = document.getElementById(`inv-f-${slug}`);
+  const label = document.getElementById(`inv-f-${slug}-label`);
+  if (!panel || !label) return;
+  // Button summary
+  const any = activeSet.size > 0;
+  const summary = !any ? `<span style="color:var(--g400)">— Semua</span>`
+                : activeSet.size === 1 ? `<span style="color:var(--black)">— ${invEsc([...activeSet][0])}</span>`
+                : `<span style="color:var(--black);font-weight:600">— ${activeSet.size} dipilih</span>`;
+  label.innerHTML = `${invEsc(title)} ${summary}`;
+  // Panel body
+  if (!allValues.length) { panel.innerHTML = `<div style="font-size:11px;color:var(--g400);padding:4px 6px">Tidak ada data.</div>`; return; }
+  const clearRow = any ? `<div style="border-bottom:1px solid var(--g100);padding:4px 6px 6px;margin-bottom:6px"><button onclick="${clearFn}()" style="background:none;border:none;color:#c33;font-size:11px;cursor:pointer;font-family:var(--mono);padding:0">× clear semua</button></div>` : '';
+  const items = allValues.map(v => {
+    const safe = invEsc(v).replace(/'/g, "\\'");
+    const checked = activeSet.has(v) ? 'checked' : '';
+    return `<label style="display:flex;align-items:center;gap:6px;padding:4px 6px;cursor:pointer;font-size:12px;border-radius:3px" onmouseover="this.style.background='var(--off)'" onmouseout="this.style.background='transparent'">
+      <input type="checkbox" ${checked} onchange="${toggleFn}('${safe}')" style="cursor:pointer;flex-shrink:0">
+      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${invEsc(v)}</span>
+    </label>`;
+  }).join('');
+  panel.innerHTML = clearRow + items;
+}
+
+// Toggle the visibility of one dropdown panel; close siblings.
+function invToggleDD(slug) {
+  ['ip','revenue','brand'].forEach(s => {
+    const p = document.getElementById(`inv-f-${s}`);
+    if (!p) return;
+    if (s === slug) p.style.display = (p.style.display === 'block' ? 'none' : 'block');
+    else p.style.display = 'none';
+  });
+}
+
+// Close any open inv dropdown on outside click.
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.inv-dropdown')) {
+    document.querySelectorAll('.inv-dd-panel').forEach(p => { p.style.display = 'none'; });
+  }
+});
 
 function toggleInvDIOFilter(key) {
   if (invFilterDIO.has(key)) invFilterDIO.delete(key);
