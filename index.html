@@ -3496,14 +3496,34 @@
           </div>
           <div style="display:flex;align-items:flex-start;gap:10px;border-top:1px solid var(--g100);padding-top:10px">
             <div style="min-width:140px">
-              <div class="filter-panel-label" style="margin-bottom:6px" title="Days Inventory Outstanding — berapa hari stok bisa habis di kecepatan penjualan 90 hari terakhir (COMPLETED only)">Days Inv Outstanding</div>
+              <div class="filter-panel-label" style="margin-bottom:6px" title="Days Inventory Outstanding — berapa hari stok bisa habis di kecepatan penjualan 90 hari terakhir (COMPLETED only). Default tidak ada filter; klik bucket untuk filter ke bucket itu.">Days Inv Outstanding</div>
+              <div style="font-size:10px;color:var(--g400);font-family:var(--mono)">Klik untuk filter</div>
             </div>
             <div id="inv-f-dio" style="display:flex;flex-wrap:wrap;gap:5px;flex:1"></div>
+          </div>
+          <div style="display:flex;align-items:flex-start;gap:10px;border-top:1px solid var(--g100);padding-top:10px">
+            <div style="min-width:140px">
+              <div class="filter-panel-label" style="margin-bottom:6px">IP / Artist</div>
+            </div>
+            <div id="inv-f-ip" style="display:flex;flex-wrap:wrap;gap:5px;flex:1"></div>
+          </div>
+          <div style="display:flex;align-items:flex-start;gap:10px;border-top:1px solid var(--g100);padding-top:10px">
+            <div style="min-width:140px">
+              <div class="filter-panel-label" style="margin-bottom:6px">Revenue Stream</div>
+            </div>
+            <div id="inv-f-revenue" style="display:flex;flex-wrap:wrap;gap:5px;flex:1"></div>
+          </div>
+          <div style="display:flex;align-items:flex-start;gap:10px;border-top:1px solid var(--g100);padding-top:10px">
+            <div style="min-width:140px">
+              <div class="filter-panel-label" style="margin-bottom:6px">Brand</div>
+            </div>
+            <div id="inv-f-brand" style="display:flex;flex-wrap:wrap;gap:5px;flex:1"></div>
           </div>
 <div style="display:flex;align-items:center;gap:10px;border-top:1px solid var(--g100);padding-top:10px">
             <div class="filter-panel-label">Cari:</div>
             <input type="text" id="inv-f-search" placeholder="Nama parent item atau brand..." oninput="invSearchDebounce()" style="padding:6px 10px;border:1px solid var(--g200);border-radius:6px;font-family:var(--body);font-size:12px;outline:none;width:260px;background:var(--white);color:var(--black)">
             <button class="btn-clear-filter" onclick="clearInvFilters()">Reset Filter</button>
+            <button class="btn-clear-filter" onclick="exportInvCheckCsv()" style="background:#3C3489;color:white;border-color:#3C3489">📥 Export CSV</button>
             <div class="tcount" id="inv-tcount" style="margin-left:auto">—</div>
           </div>
         </div>

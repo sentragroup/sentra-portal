@@ -10431,7 +10431,17 @@ const INV_DIO_BUCKETS = [
 ];
 const INV_DIO_BUCKET_MAP = Object.fromEntries(INV_DIO_BUCKETS.map(b => [b.key, b]));
 let invDioByItemId = {};                              // item_id -> qty sold in window
-let invFilterDIO = new Set(INV_DIO_BUCKETS.map(b => b.key));
+// Empty set = no DIO filter (show all). Click a chip = add bucket → show only
+// the selected buckets. Click again to remove. Matches user mental model
+// better than "all selected = no filter".
+let invFilterDIO = new Set();
+// Cross-reference for IP / Revenue Stream filters — built from ip_master +
+// brand_master joined on (case-insensitive) name. Each group inherits its
+// brand's IP and revenue stream via brand_name lookup.
+let invBrandMeta = {};        // brand_name_lower -> { ip, revenue }
+let invFilterIP      = new Set();
+let invFilterRevenue = new Set();
+let invFilterBrand   = new Set();
 
 function computeDIOBucket(days) {
   if (days === null || !isFinite(days)) return 'dead';
@@ -10455,6 +10465,11 @@ function annotateInvGroupsWithDIO() {
       g._dio = stockUnits / (soldUnits / INV_DIO_WINDOW);
       g._dioBucket = computeDIOBucket(g._dio);
     }
+    // IP + Revenue lookup via brand_name
+    const k = (g.brand_name || '').toLowerCase().trim();
+    const meta = invBrandMeta[k];
+    g._ip      = meta?.ip      || '';
+    g._revenue = meta?.revenue || '';
   }
 }
 
@@ -10474,14 +10489,29 @@ async function loadInvCheck(){
     // 2. Read from fresh jubelio_inventory_stocks (synced by sync-jubelio-inventory),
     //    joining item metadata (name/brand/group) from jubelio_items client-side.
     //    by_location was stale (separate, un-synced table) so we no longer use it.
-    const [stockRows, itemRows, dioRes] = locIds.length ? await Promise.all([
+    const [stockRows, itemRows, dioRes, ipRes, bmRes] = locIds.length ? await Promise.all([
       _fetchAllPages('jubelio_inventory_stocks','location_id,item_id,on_hand,available,synced_at',
         q=>q.in('location_id',locIds).neq('on_hand',0)),
       _fetchAllPages('jubelio_items','item_id,item_code,item_name,item_group_id,brand_name,thumbnail'),
       sb.rpc('inv_sales_velocity', { window_days: INV_DIO_WINDOW }),
-    ]) : [[],[],{data:[]}];
+      sb.from('ip_master').select('name,revenue_stream'),
+      sb.from('brand_master').select('name,revenue_stream'),
+    ]) : [[],[],{data:[]},{data:[]},{data:[]}];
     invDioByItemId = {};
     for (const r of (dioRes?.data || [])) invDioByItemId[r.item_id] = Number(r.qty_sold) || 0;
+    // Build brand → {ip, revenue} cross-reference. Both IP Master and Brand
+    // Master keyed by name (lowercase) — Brand Master wins if there's overlap
+    // because the brand_master entry is more likely to match a jubelio_items
+    // brand_name verbatim.
+    invBrandMeta = {};
+    for (const r of (ipRes.data||[])) {
+      const k = (r.name||'').toLowerCase().trim();
+      if (k) invBrandMeta[k] = { ip: r.name, revenue: r.revenue_stream || '' };
+    }
+    for (const r of (bmRes.data||[])) {
+      const k = (r.name||'').toLowerCase().trim();
+      if (k) invBrandMeta[k] = { ip: r.name, revenue: r.revenue_stream || '' };
+    }
     const itemMeta={};
     for(const it of (itemRows||[])) itemMeta[it.item_id]=it;
     invStockFlat=(stockRows||[]).map(s=>{
@@ -10563,23 +10593,54 @@ function renderInvFilterChips(){
     const st=active?`background:${cfg.text};color:#fff;border-color:${cfg.text}`:`background:var(--white);color:var(--g600);border-color:var(--g200)`;
     return `<span style="${chipBase}${st}" onclick="toggleInvCatFilter('${cat}',this)">${cfg.icon} ${cat}</span>`;
   }).join('');
-  // DIO chips — bucket count from current invGroups
+  // DIO chips — empty filter = no filter applied, all rows visible.
+  // Click a chip to switch into "show only these buckets" mode.
   if (dioEl) {
     const counts = {};
     for (const g of invGroups) {
       const b = g._dioBucket || 'dead';
       counts[b] = (counts[b] || 0) + 1;
     }
-    dioEl.innerHTML = INV_DIO_BUCKETS.map(b => {
+    const anySelected = invFilterDIO.size > 0;
+    const chipsHtml = INV_DIO_BUCKETS.map(b => {
       const active = invFilterDIO.has(b.key);
       const cnt = counts[b.key] || 0;
       const st = active
-        ? `background:${b.color};color:#fff;border-color:${b.color}`
-        : `background:var(--white);color:var(--g600);border-color:var(--g200)`;
+        ? `background:${b.color};color:#fff;border-color:${b.color};font-weight:600`
+        : `background:var(--white);color:var(--g600);border-color:var(--g200);opacity:${anySelected?0.45:1}`;
       const maxLbl = b.max === Infinity ? '>365d / no sales' : (b.key === 'fast' ? `<30d` : `<${b.max}d`);
-      return `<span style="${chipBase}${st}" onclick="toggleInvDIOFilter('${b.key}',this)" title="${maxLbl}">${b.icon} ${b.label} <span style="opacity:.7;margin-left:4px">${cnt}</span></span>`;
+      return `<span style="${chipBase}${st}" onclick="toggleInvDIOFilter('${b.key}',this)" title="Klik untuk filter — ${maxLbl}">${b.icon} ${b.label} <span style="opacity:.75;margin-left:4px">${cnt}</span></span>`;
     }).join('');
+    const clearBtn = anySelected
+      ? `<span style="${chipBase}background:var(--off);color:var(--g600);border-color:var(--g200);font-size:10px" onclick="clearInvDIOFilter()" title="Hapus filter DIO">× clear</span>`
+      : '';
+    dioEl.innerHTML = chipsHtml + clearBtn;
   }
+  // IP / Revenue / Brand chips
+  const ipEl = document.getElementById('inv-f-ip');
+  const revEl = document.getElementById('inv-f-revenue');
+  const brEl  = document.getElementById('inv-f-brand');
+  const renderMultiChip = (el, allValues, activeSet, toggleFn, clearFn) => {
+    if (!el) return;
+    if (!allValues.length) { el.innerHTML = `<span style="font-family:var(--mono);font-size:10px;color:var(--g400)">—</span>`; return; }
+    const any = activeSet.size > 0;
+    const chips = allValues.map(v => {
+      const active = activeSet.has(v);
+      const st = active
+        ? `background:var(--black);color:#fff;border-color:var(--black);font-weight:600`
+        : `background:var(--white);color:var(--g600);border-color:var(--g200);opacity:${any?0.45:1}`;
+      const safe = invEsc(v).replace(/'/g, "\\'");
+      return `<span style="${chipBase}${st}" onclick="${toggleFn}('${safe}',this)">${invEsc(v)}</span>`;
+    }).join('');
+    const clr = any ? `<span style="${chipBase}background:var(--off);color:var(--g600);border-color:var(--g200);font-size:10px" onclick="${clearFn}()" title="Reset">× clear</span>` : '';
+    el.innerHTML = chips + clr;
+  };
+  const allIPs      = [...new Set(invGroups.map(g => g._ip).filter(Boolean))].sort();
+  const allRevs     = [...new Set(invGroups.map(g => g._revenue).filter(Boolean))].sort();
+  const allBrandsUI = [...new Set(invGroups.map(g => (g.brand_name||'').trim()).filter(Boolean))].sort();
+  renderMultiChip(ipEl,  allIPs,      invFilterIP,      'toggleInvIPFilter',      'clearInvIPFilter');
+  renderMultiChip(revEl, allRevs,     invFilterRevenue, 'toggleInvRevenueFilter', 'clearInvRevenueFilter');
+  renderMultiChip(brEl,  allBrandsUI, invFilterBrand,   'toggleInvBrandFilter',   'clearInvBrandFilter');
   // Warehouse chips — only show warehouses whose category is currently active
   const visibleLocs=invLocations.filter(l=>invFilterCats.has(l.category));
   if(!visibleLocs.length){
@@ -10603,18 +10664,42 @@ function toggleInvCatFilter(cat,el){
   invPage=1; applyInvFilters();
 }
 
-function toggleInvDIOFilter(key, el) {
-  if (invFilterDIO.has(key)) {
-    if (invFilterDIO.size <= 1) return;  // can't deselect all
-    invFilterDIO.delete(key);
-  } else invFilterDIO.add(key);
-  const b = INV_DIO_BUCKET_MAP[key];
-  const now = invFilterDIO.has(key);
-  el.style.background = now ? b.color : 'var(--white)';
-  el.style.color      = now ? '#fff'  : 'var(--g600)';
-  el.style.borderColor= now ? b.color : 'var(--g200)';
-  invPage = 1;
-  applyInvFilters();
+function toggleInvDIOFilter(key) {
+  if (invFilterDIO.has(key)) invFilterDIO.delete(key);
+  else invFilterDIO.add(key);
+  renderInvFilterChips();
+  invPage = 1; applyInvFilters();
+}
+function clearInvDIOFilter() {
+  invFilterDIO.clear(); renderInvFilterChips();
+  invPage = 1; applyInvFilters();
+}
+function toggleInvIPFilter(v) {
+  if (invFilterIP.has(v)) invFilterIP.delete(v); else invFilterIP.add(v);
+  renderInvFilterChips();
+  invPage = 1; applyInvFilters();
+}
+function clearInvIPFilter() {
+  invFilterIP.clear(); renderInvFilterChips();
+  invPage = 1; applyInvFilters();
+}
+function toggleInvRevenueFilter(v) {
+  if (invFilterRevenue.has(v)) invFilterRevenue.delete(v); else invFilterRevenue.add(v);
+  renderInvFilterChips();
+  invPage = 1; applyInvFilters();
+}
+function clearInvRevenueFilter() {
+  invFilterRevenue.clear(); renderInvFilterChips();
+  invPage = 1; applyInvFilters();
+}
+function toggleInvBrandFilter(v) {
+  if (invFilterBrand.has(v)) invFilterBrand.delete(v); else invFilterBrand.add(v);
+  renderInvFilterChips();
+  invPage = 1; applyInvFilters();
+}
+function clearInvBrandFilter() {
+  invFilterBrand.clear(); renderInvFilterChips();
+  invPage = 1; applyInvFilters();
 }
 
 function toggleInvWhFilter(locId,el){
@@ -10641,7 +10726,10 @@ function invSearchDebounce(){
 function clearInvFilters(){
   invFilterCats=new Set(INV_CAT_ORDER);
   invFilterWhs=new Set(invLocations.map(l=>l.location_id));
-  invFilterDIO=new Set(INV_DIO_BUCKETS.map(b=>b.key));
+  invFilterDIO.clear();
+  invFilterIP.clear();
+  invFilterRevenue.clear();
+  invFilterBrand.clear();
   invFilterSearch='';
   const s=document.getElementById('inv-f-search'); if(s) s.value='';
   renderInvFilterChips();
@@ -10658,8 +10746,12 @@ function applyInvFilters(){
   // Only show parent items that have stock (>0) in at least one visible warehouse column
   const _activeLocIds=activeCols.map(c=>c.location_id);
   filtered=filtered.filter(g=>_activeLocIds.some(lid=>(parseFloat(g.byLocation[lid])||0)>0));
-  // DIO bucket filter
-  filtered = filtered.filter(g => invFilterDIO.has(g._dioBucket || 'dead'));
+  // DIO bucket filter — empty set means 'no filter, show all'
+  if (invFilterDIO.size > 0) filtered = filtered.filter(g => invFilterDIO.has(g._dioBucket || 'dead'));
+  // IP / Revenue / Brand — same empty-means-all semantics
+  if (invFilterIP.size > 0)      filtered = filtered.filter(g => invFilterIP.has(g._ip || '—'));
+  if (invFilterRevenue.size > 0) filtered = filtered.filter(g => invFilterRevenue.has(g._revenue || '—'));
+  if (invFilterBrand.size > 0)   filtered = filtered.filter(g => invFilterBrand.has((g.brand_name||'').trim()));
   const totalSkus=filtered.reduce((s,g)=>s+new Set(g.skus.map(sk=>sk.item_code)).size,0);
   const tcEl=document.getElementById('inv-tcount');
   if(tcEl) tcEl.textContent=`${filtered.length} parent item · ${totalSkus} SKU`;
@@ -10719,7 +10811,7 @@ function renderInvTable(groups,columns,page){
     const dioBucket = INV_DIO_BUCKET_MAP[group._dioBucket || 'dead'];
     const dioDays   = group._dio;
     const dioLabel  = (dioDays === null || !isFinite(dioDays)) ? 'No sales 90d'
-                    : dioDays > 999 ? '999+ d' : `${Math.round(dioDays)} d`;
+                    : dioDays > 999 ? `DIO 999+d` : `DIO ${Math.round(dioDays)}d`;
     const tooltipTxt =
       `${group.parent_name}\n` +
       `─────────────────────\n` +
@@ -10798,6 +10890,79 @@ function renderInvTable(groups,columns,page){
       <tbody>${rowsHTML}</tbody>
     </table>
   </div>`;
+}
+
+// Export currently filtered Inventory Check view to CSV.
+// Mirrors what's on screen — same warehouse columns the user has active, plus
+// IP / Brand / DIO so finance can ageing-analysis externally. Excel-friendly
+// LF + no BOM (Restock-style).
+function exportInvCheckCsv() {
+  // Re-run the filter pipeline so we export EXACTLY what's visible
+  const activeCols = INV_CAT_ORDER.flatMap(cat =>
+    invLocations.filter(l => l.category===cat && invFilterCats.has(l.category) && invFilterWhs.has(l.location_id)));
+  let filtered = invGroups;
+  if (invFilterSearch) filtered = filtered.filter(g => g.parent_name.toLowerCase().includes(invFilterSearch) || (g.brand_name||'').toLowerCase().includes(invFilterSearch));
+  const activeLocIds = activeCols.map(c => c.location_id);
+  filtered = filtered.filter(g => activeLocIds.some(lid => (parseFloat(g.byLocation[lid])||0) > 0));
+  if (invFilterDIO.size > 0)     filtered = filtered.filter(g => invFilterDIO.has(g._dioBucket || 'dead'));
+  if (invFilterIP.size > 0)      filtered = filtered.filter(g => invFilterIP.has(g._ip || '—'));
+  if (invFilterRevenue.size > 0) filtered = filtered.filter(g => invFilterRevenue.has(g._revenue || '—'));
+  if (invFilterBrand.size > 0)   filtered = filtered.filter(g => invFilterBrand.has((g.brand_name||'').trim()));
+
+  if (!filtered.length) { alert('Tidak ada data untuk di-export di filter saat ini.'); return; }
+
+  const esc = (v) => {
+    const s = String(v ?? '');
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const lines = [];
+  const filterSummary = [
+    `Kategori: ${[...invFilterCats].join('|')}`,
+    `Gudang: ${activeCols.map(c=>c.location_name).join('|')}`,
+    invFilterDIO.size      ? `DIO: ${[...invFilterDIO].join('|')}` : null,
+    invFilterIP.size       ? `IP: ${[...invFilterIP].join('|')}`   : null,
+    invFilterRevenue.size  ? `Revenue: ${[...invFilterRevenue].join('|')}` : null,
+    invFilterBrand.size    ? `Brand: ${[...invFilterBrand].join('|')}` : null,
+    invFilterSearch        ? `Cari: ${invFilterSearch}` : null,
+  ].filter(Boolean).join(' · ');
+  lines.push(['Inventory Check Export'].join(','));
+  lines.push(['Generated', esc(new Date().toLocaleString('id-ID'))].join(','));
+  lines.push(['Filter', esc(filterSummary)].join(','));
+  lines.push('');
+
+  // Header row
+  const headers = [
+    'Parent Item','Brand','IP','Revenue Stream',
+    'DIO Bucket','DIO (days)','Sold 90d','Stock Total',
+    ...activeCols.map(c => c.location_name),
+  ];
+  lines.push(headers.map(esc).join(','));
+
+  for (const g of filtered) {
+    const dioVal = (g._dio === null || !isFinite(g._dio))
+      ? (g._sold90 > 0 ? 0 : '')
+      : Math.round(g._dio);
+    const row = [
+      g.parent_name || '',
+      g.brand_name  || '',
+      g._ip         || '',
+      g._revenue    || '',
+      INV_DIO_BUCKET_MAP[g._dioBucket || 'dead']?.label || '',
+      dioVal,
+      g._sold90 || 0,
+      g._stockTot || 0,
+      ...activeCols.map(c => Math.round(parseFloat(g.byLocation[c.location_id]) || 0)),
+    ];
+    lines.push(row.map(esc).join(','));
+  }
+  const csv = lines.join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const today = new Date().toISOString().slice(0, 10);
+  const a = document.createElement('a');
+  a.href = url; a.download = `inv-check-${today}.csv`;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 100);
 }
 
 function toggleInvSKUs(rowId,btn){
