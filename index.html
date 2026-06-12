@@ -3496,10 +3496,17 @@
           </div>
           <div style="display:flex;align-items:flex-start;gap:10px;border-top:1px solid var(--g100);padding-top:10px">
             <div style="min-width:140px">
-              <div class="filter-panel-label" style="margin-bottom:6px" title="Days Inventory Outstanding — berapa hari stok bisa habis di kecepatan penjualan 90 hari terakhir (COMPLETED only). Default tidak ada filter; klik bucket untuk filter ke bucket itu.">Days Inv Outstanding</div>
+              <div class="filter-panel-label" style="margin-bottom:6px" title="Days Inventory Outstanding — berapa hari stok bisa habis di kecepatan penjualan 90 hari terakhir (COMPLETED only). Default tidak ada filter; klik bucket untuk filter ke bucket itu.">DIO (velocity)</div>
               <div style="font-size:10px;color:var(--g400);font-family:var(--mono)">Klik untuk filter</div>
             </div>
             <div id="inv-f-dio" style="display:flex;flex-wrap:wrap;gap:5px;flex:1"></div>
+          </div>
+          <div style="display:flex;align-items:flex-start;gap:10px;border-top:1px solid var(--g100);padding-top:10px">
+            <div style="min-width:140px">
+              <div class="filter-panel-label" style="margin-bottom:6px" title="Umur SKU = hari sejak first putaway (kapan SKU pertama kali masuk gudang via bill). 'Belum putaway' = SKU yang ada di stok tapi belum pernah masuk via PO bill (data lama).">Aging (umur)</div>
+              <div style="font-size:10px;color:var(--g400);font-family:var(--mono)">Klik untuk filter</div>
+            </div>
+            <div id="inv-f-age" style="display:flex;flex-wrap:wrap;gap:5px;flex:1"></div>
           </div>
           <div style="display:flex;align-items:center;gap:10px;border-top:1px solid var(--g100);padding-top:10px;flex-wrap:wrap">
             <div id="inv-f-ip-wrap" class="inv-dropdown" style="position:relative">

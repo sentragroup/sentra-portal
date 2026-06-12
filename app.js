@@ -10435,6 +10435,28 @@ let invDioByItemId = {};                              // item_id -> qty sold in 
 // the selected buckets. Click again to remove. Matches user mental model
 // better than "all selected = no filter".
 let invFilterDIO = new Set();
+
+// ── Inventory Aging ──
+// Days since the SKU was first putaway (first time it actually landed in a
+// warehouse). Conceptually different from velocity-based DIO: this answers
+// "how long has this thing been sitting in our system?" — vs DIO which asks
+// "at current sell rate, how long until it runs out?". User wants both.
+const INV_AGE_BUCKETS = [
+  { key: 'fresh',   label: 'Baru',    icon: '🟢', max: 30,       color: '#1c7a3b' },
+  { key: 'recent',  label: 'Recent',  icon: '🟢', max: 90,       color: '#5a8c3d' },
+  { key: 'mature',  label: 'Mature',  icon: '🟡', max: 180,      color: '#a66800' },
+  { key: 'old',     label: 'Old',     icon: '🟠', max: 365,      color: '#c73e1d' },
+  { key: 'vintage', label: 'Vintage', icon: '⚫', max: Infinity, color: '#444'    },
+];
+const INV_AGE_BUCKET_MAP = Object.fromEntries(INV_AGE_BUCKETS.map(b => [b.key, b]));
+let invFirstPutawayByItemId = {};   // item_id -> ISO date string of first putaway
+let invFilterAge = new Set();       // empty = no filter
+
+function computeAgeBucket(days) {
+  if (days === null || !isFinite(days)) return 'vintage';
+  for (const b of INV_AGE_BUCKETS) if (days <= b.max) return b.key;
+  return 'vintage';
+}
 // Cross-reference for IP / Revenue Stream filters — built from ip_master +
 // brand_master joined on (case-insensitive) name. Each group inherits its
 // brand's IP and revenue stream via brand_name lookup.
@@ -10470,6 +10492,22 @@ function annotateInvGroupsWithDIO() {
     const meta = invBrandMeta[k];
     g._ip      = meta?.ip      || '';
     g._revenue = meta?.revenue || '';
+    // Aging: earliest putaway date across the group's child SKUs.
+    let earliest = null;
+    for (const id of itemIds) {
+      const d = invFirstPutawayByItemId[id];
+      if (!d) continue;
+      if (!earliest || d < earliest) earliest = d;
+    }
+    g._firstPutaway = earliest;
+    if (earliest) {
+      const ageMs = Date.now() - new Date(earliest).getTime();
+      g._ageDays = Math.max(0, Math.floor(ageMs / 86400000));
+      g._ageBucket = computeAgeBucket(g._ageDays);
+    } else {
+      g._ageDays = null;     // unknown — never received via putaway
+      g._ageBucket = 'vintage';
+    }
   }
 }
 
@@ -10489,16 +10527,19 @@ async function loadInvCheck(){
     // 2. Read from fresh jubelio_inventory_stocks (synced by sync-jubelio-inventory),
     //    joining item metadata (name/brand/group) from jubelio_items client-side.
     //    by_location was stale (separate, un-synced table) so we no longer use it.
-    const [stockRows, itemRows, dioRes, ipRes, bmRes] = locIds.length ? await Promise.all([
+    const [stockRows, itemRows, dioRes, ageRes, ipRes, bmRes] = locIds.length ? await Promise.all([
       _fetchAllPages('jubelio_inventory_stocks','location_id,item_id,on_hand,available,synced_at',
         q=>q.in('location_id',locIds).neq('on_hand',0)),
       _fetchAllPages('jubelio_items','item_id,item_code,item_name,item_group_id,brand_name,thumbnail'),
       sb.rpc('inv_sales_velocity', { window_days: INV_DIO_WINDOW }),
+      sb.rpc('inv_first_putaway_date'),
       sb.from('ip_master').select('name,revenue_stream'),
       sb.from('brand_master').select('name,revenue_stream'),
-    ]) : [[],[],{data:[]},{data:[]},{data:[]}];
+    ]) : [[],[],{data:[]},{data:[]},{data:[]},{data:[]}];
     invDioByItemId = {};
     for (const r of (dioRes?.data || [])) invDioByItemId[r.item_id] = Number(r.qty_sold) || 0;
+    invFirstPutawayByItemId = {};
+    for (const r of (ageRes?.data || [])) invFirstPutawayByItemId[r.item_id] = r.first_putaway;
     // Build brand → {ip, revenue} cross-reference. Both IP Master and Brand
     // Master keyed by name (lowercase) — Brand Master wins if there's overlap
     // because the brand_master entry is more likely to match a jubelio_items
@@ -10593,6 +10634,27 @@ function renderInvFilterChips(){
     const st=active?`background:${cfg.text};color:#fff;border-color:${cfg.text}`:`background:var(--white);color:var(--g600);border-color:var(--g200)`;
     return `<span style="${chipBase}${st}" onclick="toggleInvCatFilter('${cat}',this)">${cfg.icon} ${cat}</span>`;
   }).join('');
+  // Age chips
+  const ageEl = document.getElementById('inv-f-age');
+  if (ageEl) {
+    const counts = {};
+    for (const g of invGroups) {
+      const b = g._ageBucket || 'vintage';
+      counts[b] = (counts[b] || 0) + 1;
+    }
+    const anyAge = invFilterAge.size > 0;
+    const ageChips = INV_AGE_BUCKETS.map(b => {
+      const active = invFilterAge.has(b.key);
+      const cnt = counts[b.key] || 0;
+      const st = active
+        ? `background:${b.color};color:#fff;border-color:${b.color};font-weight:600`
+        : `background:var(--white);color:var(--g600);border-color:var(--g200);opacity:${anyAge?0.45:1}`;
+      const maxLbl = b.max === Infinity ? '>365d / belum putaway' : (b.key === 'fresh' ? `<30d` : `<${b.max}d`);
+      return `<span style="${chipBase}${st}" onclick="toggleInvAgeFilter('${b.key}',this)" title="Klik untuk filter — ${maxLbl}">${b.icon} ${b.label} <span style="opacity:.75;margin-left:4px">${cnt}</span></span>`;
+    }).join('');
+    const ageClear = anyAge ? `<span style="${chipBase}background:var(--off);color:var(--g600);border-color:var(--g200);font-size:10px" onclick="clearInvAgeFilter()" title="Hapus filter Aging">× clear</span>` : '';
+    ageEl.innerHTML = ageChips + ageClear;
+  }
   // DIO chips — empty filter = no filter applied, all rows visible.
   // Click a chip to switch into "show only these buckets" mode.
   if (dioEl) {
@@ -10700,6 +10762,16 @@ function clearInvDIOFilter() {
   invFilterDIO.clear(); renderInvFilterChips();
   invPage = 1; applyInvFilters();
 }
+function toggleInvAgeFilter(key) {
+  if (invFilterAge.has(key)) invFilterAge.delete(key);
+  else invFilterAge.add(key);
+  renderInvFilterChips();
+  invPage = 1; applyInvFilters();
+}
+function clearInvAgeFilter() {
+  invFilterAge.clear(); renderInvFilterChips();
+  invPage = 1; applyInvFilters();
+}
 function toggleInvIPFilter(v) {
   if (invFilterIP.has(v)) invFilterIP.delete(v); else invFilterIP.add(v);
   renderInvFilterChips();
@@ -10753,6 +10825,7 @@ function clearInvFilters(){
   invFilterCats=new Set(INV_CAT_ORDER);
   invFilterWhs=new Set(invLocations.map(l=>l.location_id));
   invFilterDIO.clear();
+  invFilterAge.clear();
   invFilterIP.clear();
   invFilterRevenue.clear();
   invFilterBrand.clear();
@@ -10774,6 +10847,7 @@ function applyInvFilters(){
   filtered=filtered.filter(g=>_activeLocIds.some(lid=>(parseFloat(g.byLocation[lid])||0)>0));
   // DIO bucket filter — empty set means 'no filter, show all'
   if (invFilterDIO.size > 0) filtered = filtered.filter(g => invFilterDIO.has(g._dioBucket || 'dead'));
+  if (invFilterAge.size > 0) filtered = filtered.filter(g => invFilterAge.has(g._ageBucket || 'vintage'));
   // IP / Revenue / Brand — same empty-means-all semantics
   if (invFilterIP.size > 0)      filtered = filtered.filter(g => invFilterIP.has(g._ip || '—'));
   if (invFilterRevenue.size > 0) filtered = filtered.filter(g => invFilterRevenue.has(g._revenue || '—'));
@@ -10838,19 +10912,31 @@ function renderInvTable(groups,columns,page){
     const dioDays   = group._dio;
     const dioLabel  = (dioDays === null || !isFinite(dioDays)) ? 'No sales 90d'
                     : dioDays > 999 ? `DIO 999+d` : `DIO ${Math.round(dioDays)}d`;
+    // Age (days since first putaway) — second metric alongside velocity DIO
+    const ageBucket = INV_AGE_BUCKET_MAP[group._ageBucket || 'vintage'];
+    const ageDays   = group._ageDays;
+    const ageLabel  = (ageDays === null || ageDays === undefined) ? 'Belum putaway'
+                    : ageDays > 999 ? `Age 999+d` : `Age ${ageDays}d`;
+    const firstPutawayStr = group._firstPutaway ? new Date(group._firstPutaway).toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'numeric'}) : '—';
     const tooltipTxt =
       `${group.parent_name}\n` +
       `─────────────────────\n` +
-      `Days Inventory Outstanding\n` +
-      `Bucket: ${dioBucket.label} (${dioBucket.key === 'dead' && (group._sold90||0) === 0 ? 'no sales' : '< ' + (dioBucket.max === Infinity ? '∞' : dioBucket.max) + ' days'})\n` +
+      `Days Inventory Outstanding (velocity)\n` +
+      `Bucket: ${dioBucket.label}\n` +
       `DIO: ${dioLabel}\n` +
       `Sold 90d: ${(group._sold90||0).toLocaleString('id-ID')} pcs\n` +
       `Stock total: ${(group._stockTot||0).toLocaleString('id-ID')} pcs\n` +
-      `Velocity: ${((group._sold90||0)/INV_DIO_WINDOW).toFixed(2)} pcs/day`;
+      `Velocity: ${((group._sold90||0)/INV_DIO_WINDOW).toFixed(2)} pcs/day\n` +
+      `─────────────────────\n` +
+      `Aging (umur sejak putaway)\n` +
+      `Bucket: ${ageBucket.label}\n` +
+      `Age: ${ageLabel}\n` +
+      `First putaway: ${firstPutawayStr}`;
     const thumbHTML=group.thumbnail
       ? `<img src="${group.thumbnail}" title="${invEsc(tooltipTxt)}" style="width:36px;height:36px;object-fit:cover;border-radius:5px;border:1px solid var(--g100);display:block;flex-shrink:0;cursor:help" onerror="this.style.visibility='hidden'">`
       : `<div title="${invEsc(tooltipTxt)}" style="width:36px;height:36px;border-radius:5px;background:var(--off);flex-shrink:0;cursor:help"></div>`;
-    const dioBadge = `<span title="${invEsc(tooltipTxt)}" style="display:inline-flex;align-items:center;gap:3px;background:${dioBucket.color}1a;color:${dioBucket.color};font-family:var(--mono);font-size:9px;padding:1px 6px;border-radius:99px;margin-left:6px;cursor:help;font-weight:500" >${dioBucket.icon} ${dioLabel}</span>`;
+    const dioBadge = `<span title="${invEsc(tooltipTxt)}" style="display:inline-flex;align-items:center;gap:3px;background:${dioBucket.color}1a;color:${dioBucket.color};font-family:var(--mono);font-size:9px;padding:1px 6px;border-radius:99px;margin-left:6px;cursor:help;font-weight:500">${dioBucket.icon} ${dioLabel}</span>`;
+    const ageBadge = `<span title="${invEsc(tooltipTxt)}" style="display:inline-flex;align-items:center;gap:3px;background:${ageBucket.color}1a;color:${ageBucket.color};font-family:var(--mono);font-size:9px;padding:1px 6px;border-radius:99px;margin-left:4px;cursor:help;font-weight:500">${ageBucket.icon} ${ageLabel}</span>`;
     let pCells=`<td style="${stickyTd}background:var(--white);padding:10px 12px;border-bottom:1px solid var(--g100);vertical-align:middle">
       <div style="display:flex;align-items:center;gap:10px">
         ${thumbHTML}
@@ -10858,7 +10944,7 @@ function renderInvTable(groups,columns,page){
           <div style="font-weight:400;font-size:13px;color:var(--black);margin-bottom:2px">${invEsc(group.parent_name)}
             <button onclick="toggleInvSKUs('${rowId}',this)" style="background:none;border:none;cursor:pointer;color:var(--g400);font-size:10px;padding:1px 5px;border-radius:3px;font-family:var(--mono);margin-left:4px;line-height:1.4">▾ ${uniqueSkuCodes.length} SKU</button>
           </div>
-          <div style="font-family:var(--mono);font-size:10px;color:var(--g400)">${invEsc(group.brand_name)}${dioBadge}</div>
+          <div style="font-family:var(--mono);font-size:10px;color:var(--g400)">${invEsc(group.brand_name)}${dioBadge}${ageBadge}</div>
         </div>
       </div>
     </td>`;
@@ -10931,6 +11017,7 @@ function exportInvCheckCsv() {
   const activeLocIds = activeCols.map(c => c.location_id);
   filtered = filtered.filter(g => activeLocIds.some(lid => (parseFloat(g.byLocation[lid])||0) > 0));
   if (invFilterDIO.size > 0)     filtered = filtered.filter(g => invFilterDIO.has(g._dioBucket || 'dead'));
+  if (invFilterAge.size > 0)     filtered = filtered.filter(g => invFilterAge.has(g._ageBucket || 'vintage'));
   if (invFilterIP.size > 0)      filtered = filtered.filter(g => invFilterIP.has(g._ip || '—'));
   if (invFilterRevenue.size > 0) filtered = filtered.filter(g => invFilterRevenue.has(g._revenue || '—'));
   if (invFilterBrand.size > 0)   filtered = filtered.filter(g => invFilterBrand.has((g.brand_name||'').trim()));
@@ -10946,6 +11033,7 @@ function exportInvCheckCsv() {
     `Kategori: ${[...invFilterCats].join('|')}`,
     `Gudang: ${activeCols.map(c=>c.location_name).join('|')}`,
     invFilterDIO.size      ? `DIO: ${[...invFilterDIO].join('|')}` : null,
+    invFilterAge.size      ? `Aging: ${[...invFilterAge].join('|')}` : null,
     invFilterIP.size       ? `IP: ${[...invFilterIP].join('|')}`   : null,
     invFilterRevenue.size  ? `Revenue: ${[...invFilterRevenue].join('|')}` : null,
     invFilterBrand.size    ? `Brand: ${[...invFilterBrand].join('|')}` : null,
@@ -10960,6 +11048,7 @@ function exportInvCheckCsv() {
   const headers = [
     'Parent Item','Brand','IP','Revenue Stream',
     'DIO Bucket','DIO (days)','Sold 90d','Stock Total',
+    'Aging Bucket','Age (days)','First Putaway',
     ...activeCols.map(c => c.location_name),
   ];
   lines.push(headers.map(esc).join(','));
@@ -10968,6 +11057,8 @@ function exportInvCheckCsv() {
     const dioVal = (g._dio === null || !isFinite(g._dio))
       ? (g._sold90 > 0 ? 0 : '')
       : Math.round(g._dio);
+    const ageVal = (g._ageDays === null || g._ageDays === undefined) ? '' : g._ageDays;
+    const firstPut = g._firstPutaway ? new Date(g._firstPutaway).toISOString().slice(0,10) : '';
     const row = [
       g.parent_name || '',
       g.brand_name  || '',
@@ -10977,6 +11068,9 @@ function exportInvCheckCsv() {
       dioVal,
       g._sold90 || 0,
       g._stockTot || 0,
+      INV_AGE_BUCKET_MAP[g._ageBucket || 'vintage']?.label || '',
+      ageVal,
+      firstPut,
       ...activeCols.map(c => Math.round(parseFloat(g.byLocation[c.location_id]) || 0)),
     ];
     lines.push(row.map(esc).join(','));
