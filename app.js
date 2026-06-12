@@ -9720,6 +9720,40 @@ let saUserCats    = [];   // user-added category strings (collected from DB)
 let saPage        = 0;
 let saEvents      = [];   // popup_booths events for Event Ref dropdown
 
+// Trigger sync-jubelio-inventory-adjustments edge function first so the user
+// gets fresh data from Jubelio (not just a re-read of yesterday's cron).
+// Then refresh the table from the DB. Single cooldown shared with the page
+// so user can't hammer it; ~10–20s typical run.
+let _saSyncCooldownUntil = 0;
+async function syncAndReloadSA() {
+  const btn    = document.getElementById('sa-sync-btn');
+  const status = document.getElementById('sa-sync-status');
+  const now = Date.now();
+  if (now < _saSyncCooldownUntil) {
+    const remaining = Math.ceil((_saSyncCooldownUntil - now) / 1000);
+    if (status) status.textContent = `Tunggu ${remaining}s untuk sync ulang`;
+    await loadSAData();
+    return;
+  }
+  if (btn) { btn.disabled = true; btn.textContent = '⟳ Syncing...'; }
+  if (status) status.textContent = 'syncing dari Jubelio...';
+  const t0 = Date.now();
+  try {
+    const j = await callEdgeFunction('sync-jubelio-inventory-adjustments');
+    const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+    const note = j?.detailFetched > 0
+      ? `synced · ${j.detailFetched} record baru · ${elapsed}s`
+      : `synced · 0 record baru · ${elapsed}s`;
+    if (status) status.textContent = note;
+    _saSyncCooldownUntil = Date.now() + 60_000;  // 60s cooldown to avoid hammering Jubelio
+  } catch (e) {
+    if (status) status.textContent = `gagal: ${e.message||e}`;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '↻ Sync Jubelio'; }
+  }
+  await loadSAData();
+}
+
 async function loadSAData() {
   const tbody = document.getElementById("sa-tbody");
   if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="8">Memuat...</td></tr>`;
