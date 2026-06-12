@@ -250,6 +250,7 @@
           <div class="tab-bar">
             <button class="tab-btn" onclick="switchTab('new',this)">Entri Baru</button>
             <button class="tab-btn active" onclick="switchTab('list',this)">Semua Agreement</button>
+            <button class="tab-btn" onclick="switchTab('marte',this)">Marte Consignment</button>
           </div>
         </div>
         <div class="stats-row col7">
@@ -283,6 +284,33 @@
               <button class="btn-ghost" onclick="clearForm()">Bersihkan</button>
             </div>
             <div class="feedback" id="feedback"></div>
+          </div>
+        </div>
+        <div id="tab-marte" style="display:none">
+          <div class="table-toolbar">
+            <input class="search-box" type="text" id="marteSearchBox" placeholder="Cari brand, signer, email..." oninput="renderMarteConsignment()">
+            <select class="f-select" id="marteFilterLink" onchange="renderMarteConsignment()" style="max-width:180px"><option value="">Semua</option><option value="linked">Sudah linked</option><option value="unlinked">Belum linked</option></select>
+            <button class="btn-refresh" onclick="loadMarteConsignment()">↻ Refresh</button>
+            <div class="tcount" id="marteCount">— entri</div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Tanggal</th>
+                <th>Brand</th>
+                <th>Mitra Type</th>
+                <th>Signer</th>
+                <th>Email</th>
+                <th>Phone</th>
+                <th>PIC</th>
+                <th>Bank</th>
+                <th>NPWP</th>
+                <th>Dokumen</th>
+                <th>Agreement Link</th>
+                <th></th>
+              </tr></thead>
+              <tbody id="marteTableBody"><tr><td class="empty-td" colspan="12">Memuat...</td></tr></tbody>
+            </table>
           </div>
         </div>
         <div id="tab-list">

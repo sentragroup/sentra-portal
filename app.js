@@ -389,9 +389,123 @@ function closeMobileSidebar() {
 function switchTab(name, el) {
   document.querySelectorAll("#page-agreement .tab-btn").forEach(b=>b.classList.remove("active"));
   el.classList.add("active");
-  document.getElementById("tab-new").style.display  = name==="new"  ? "block":"none";
-  document.getElementById("tab-list").style.display = name==="list" ? "block":"none";
-  if (name==="list") loadAgreements();
+  document.getElementById("tab-new").style.display   = name==="new"   ? "block":"none";
+  document.getElementById("tab-list").style.display  = name==="list"  ? "block":"none";
+  document.getElementById("tab-marte").style.display = name==="marte" ? "block":"none";
+  if (name==="list")  loadAgreements();
+  if (name==="marte") loadMarteConsignment();
+}
+
+// ── MARTE CONSIGNMENT TAB ──
+// Form submissions from form_marte_consignment (external KYC form) with a
+// manual 'link to agreement' picker so user can tie a submission to its
+// signed Agreement row.
+let allMarteRows = [];
+function _mcEsc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+async function loadMarteConsignment() {
+  const body = document.getElementById('marteTableBody');
+  if (!body) return;
+  body.innerHTML = `<tr><td class="empty-td" colspan="12">⟳ Memuat...</td></tr>`;
+  try {
+    // Need agreements loaded so the link dropdown has options. loadAgreements
+    // populates allRows; fetch in parallel to avoid serial latency.
+    const [marteRes, agrRes] = await Promise.all([
+      sb.from('form_marte_consignment').select('*').order('submitted_at',{ascending:false}),
+      (!allRows || !allRows.length) ? sb.from('agreements').select('*').order('id') : Promise.resolve({ data: null }),
+    ]);
+    if (marteRes.error) throw marteRes.error;
+    if (agrRes.data) allRows = agrRes.data.map(mapAgr);
+    allMarteRows = marteRes.data || [];
+    renderMarteConsignment();
+  } catch (e) {
+    body.innerHTML = `<tr><td class="empty-td" colspan="12" style="color:#c33">Gagal: ${_mcEsc(e.message||e)}</td></tr>`;
+  }
+}
+
+function renderMarteConsignment() {
+  const body = document.getElementById('marteTableBody');
+  if (!body) return;
+  const q = (document.getElementById('marteSearchBox')?.value || '').toLowerCase().trim();
+  const linkF = document.getElementById('marteFilterLink')?.value || '';
+  let rows = allMarteRows;
+  if (q) rows = rows.filter(r => [r.brand_name, r.signer_name, r.signer_email, r.pic_name, r.respondent_email].some(v => (v||'').toLowerCase().includes(q)));
+  if (linkF === 'linked')   rows = rows.filter(r => r.agreement_id);
+  if (linkF === 'unlinked') rows = rows.filter(r => !r.agreement_id);
+  document.getElementById('marteCount').textContent = `${rows.length} entri`;
+  if (!rows.length) { body.innerHTML = `<tr><td class="empty-td" colspan="12">Tidak ada data.</td></tr>`; return; }
+
+  // Build agreement options once — Marte revenue stream + Signed status first,
+  // then everything else. Plus a 'lainnya' bucket if nothing matches.
+  const agrMarte = (allRows||[]).filter(a => (a.revenue||'').toLowerCase() === 'marte').sort((a,b)=>(a.partner||'').localeCompare(b.partner||''));
+  const agrOther = (allRows||[]).filter(a => (a.revenue||'').toLowerCase() !== 'marte').sort((a,b)=>(a.partner||'').localeCompare(b.partner||''));
+  const buildOpts = (selectedId) => {
+    const mk = (a) => `<option value="${_mcEsc(a.id)}" ${a.id===selectedId?'selected':''}>${_mcEsc(a.id)} — ${_mcEsc(a.partner||a.title||'')}</option>`;
+    let html = `<option value="">— Belum di-link —</option>`;
+    if (agrMarte.length) {
+      html += `<optgroup label="Marte">${agrMarte.map(mk).join('')}</optgroup>`;
+    }
+    if (agrOther.length) {
+      html += `<optgroup label="Lainnya">${agrOther.map(mk).join('')}</optgroup>`;
+    }
+    return html;
+  };
+
+  body.innerHTML = rows.map(r => {
+    const dt = r.submitted_at ? new Date(r.submitted_at).toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'numeric'}) : '—';
+    const docs = [
+      r.ktp_url ? `<a href="${_mcEsc(r.ktp_url)}" target="_blank" style="font-size:10px;color:#3C3489">KTP</a>` : null,
+      r.individual_npwp_url ? `<a href="${_mcEsc(r.individual_npwp_url)}" target="_blank" style="font-size:10px;color:#3C3489">NPWP Pribadi</a>` : null,
+      r.company_npwp_url ? `<a href="${_mcEsc(r.company_npwp_url)}" target="_blank" style="font-size:10px;color:#3C3489">NPWP PT</a>` : null,
+      r.surat_kuasa_url ? `<a href="${_mcEsc(r.surat_kuasa_url)}" target="_blank" style="font-size:10px;color:#3C3489">Surat Kuasa</a>` : null,
+    ].filter(Boolean).join(' · ');
+    const linked = r.agreement_id;
+    const linkedAgr = linked ? (allRows||[]).find(a => a.id === linked) : null;
+    const linkBadge = linked
+      ? `<a href="#" onclick="event.preventDefault();showPage('agreement',null);setTimeout(()=>{const el=document.querySelector('[data-agr-id=\\'${_mcEsc(linked)}\\']');if(el)el.scrollIntoView({block:'center'})},300)" style="font-size:11px;color:#1c7a3b;font-family:var(--mono);text-decoration:none" title="${_mcEsc(linkedAgr?.title||'')}">→ ${_mcEsc(linked)}</a>`
+      : `<span style="font-size:10px;color:var(--g400)">belum di-link</span>`;
+    return `<tr>
+      <td style="font-family:var(--mono);font-size:11px">${_mcEsc(dt)}</td>
+      <td><b>${_mcEsc(r.brand_name||'—')}</b></td>
+      <td><span style="font-size:11px">${_mcEsc(r.mitra_type||'')}</span></td>
+      <td>${_mcEsc(r.signer_name||'—')}<br><span style="font-size:10px;color:var(--g400)">${_mcEsc(r.signer_position||'')}</span></td>
+      <td style="font-size:11px"><a href="mailto:${_mcEsc(r.signer_email||'')}" style="color:#3C3489">${_mcEsc(r.signer_email||'—')}</a></td>
+      <td style="font-family:var(--mono);font-size:11px">${_mcEsc(r.signer_phone||'—')}</td>
+      <td>${_mcEsc(r.pic_name||'—')}<br><span style="font-size:10px;color:var(--g400)">${_mcEsc(r.pic_phone||'')}</span></td>
+      <td style="font-size:11px">${_mcEsc(r.bank_name||'—')}<br><span style="font-family:var(--mono);color:var(--g400)">${_mcEsc(r.bank_account_number||'')}</span></td>
+      <td style="font-family:var(--mono);font-size:11px">${_mcEsc(r.company_npwp_no||r.individual_npwp_no||'—')}</td>
+      <td>${docs || `<span style="font-size:10px;color:var(--g400)">—</span>`}</td>
+      <td>
+        <div style="display:flex;flex-direction:column;gap:4px;min-width:200px">
+          <select onchange="linkMarteToAgreement(${r.id},this.value)" style="padding:3px 6px;font-size:11px;border:1px solid var(--g100);border-radius:4px;background:var(--white)">${buildOpts(r.agreement_id||'')}</select>
+          ${linkBadge}
+        </div>
+      </td>
+      <td><button class="btn-cancel" onclick="deleteMarteConsignment(${r.id})" style="padding:3px 8px;font-size:11px">×</button></td>
+    </tr>`;
+  }).join('');
+}
+
+async function linkMarteToAgreement(marteId, agreementId) {
+  try {
+    const payload = { agreement_id: agreementId || null };
+    const { error } = await sb.from('form_marte_consignment').update(payload).eq('id', marteId);
+    if (error) throw error;
+    // Update local state then re-render
+    const r = allMarteRows.find(x => x.id === marteId);
+    if (r) r.agreement_id = agreementId || null;
+    renderMarteConsignment();
+  } catch (e) { alert('Gagal link: '+(e.message||e)); }
+}
+
+async function deleteMarteConsignment(id) {
+  if (!confirm('Hapus submission ini?')) return;
+  try {
+    const { error } = await sb.from('form_marte_consignment').delete().eq('id', id);
+    if (error) throw error;
+    allMarteRows = allMarteRows.filter(r => r.id !== id);
+    renderMarteConsignment();
+  } catch (e) { alert('Gagal hapus: '+(e.message||e)); }
 }
 
 function switchIpTab(name, el) {
