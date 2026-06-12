@@ -16027,11 +16027,13 @@ async function _mrLoadSKUDetail(brandId) {
   // ── Inventory Movement table ──
   const invWrap = document.getElementById('mr-inv-wrap');
   if (invWrap && invData.length) {
-    const totIn  = invData.reduce((s,r)=>s+(parseFloat(r.inbound_total)||0),0);
-    const totInP = invData.reduce((s,r)=>s+(parseFloat(r.inbound_period)||0),0);
-    const totOut = invData.reduce((s,r)=>s+(parseFloat(r.outbound_total)||0),0);
-    const totOutP= invData.reduce((s,r)=>s+(parseFloat(r.outbound_period)||0),0);
-    const totNet = invData.reduce((s,r)=>s+(parseFloat(r.net_stock)||0),0);
+    const totIn   = invData.reduce((s,r)=>s+(parseFloat(r.inbound_total)||0),0);
+    const totInP  = invData.reduce((s,r)=>s+(parseFloat(r.inbound_period)||0),0);
+    const totOut  = invData.reduce((s,r)=>s+(parseFloat(r.outbound_total)||0),0);
+    const totOutP = invData.reduce((s,r)=>s+(parseFloat(r.outbound_period)||0),0);
+    const totAdj  = invData.reduce((s,r)=>s+(parseFloat(r.adjustment_out_period)||0),0);
+    const totAdjT = invData.reduce((s,r)=>s+(parseFloat(r.adjustment_out_total)||0),0);
+    const totNet  = invData.reduce((s,r)=>s+(parseFloat(r.net_stock)||0),0);
 
     document.getElementById('mr-inv-tbody').innerHTML = invData.map(r=>`<tr>
       <td style="font-family:var(--mono);font-size:10px;color:var(--g400)">${_escRmd(r.item_code||'')}</td>
@@ -16040,6 +16042,7 @@ async function _mrLoadSKUDetail(brandId) {
       <td style="text-align:right;font-family:var(--mono);font-size:11px;color:#16a34a">${Math.round(r.inbound_period||0)||'—'}</td>
       <td style="text-align:right;font-family:var(--mono);font-size:11px">${Math.round(r.outbound_total||0)}</td>
       <td style="text-align:right;font-family:var(--mono);font-size:11px;color:#ea580c">${Math.round(r.outbound_period||0)||'—'}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:11px;color:#a66800">${Math.round(r.adjustment_out_period||0)||'—'}</td>
       <td style="text-align:right;font-family:var(--mono);font-size:11px;font-weight:600">${Math.round(r.net_stock||0)}</td>
     </tr>`).join('');
 
@@ -16049,6 +16052,7 @@ async function _mrLoadSKUDetail(brandId) {
       <td style="text-align:right;font-family:var(--mono);padding:6px 10px;color:#16a34a">${Math.round(totInP)||'—'}</td>
       <td style="text-align:right;font-family:var(--mono);padding:6px 10px">${Math.round(totOut)}</td>
       <td style="text-align:right;font-family:var(--mono);padding:6px 10px;color:#ea580c">${Math.round(totOutP)||'—'}</td>
+      <td style="text-align:right;font-family:var(--mono);padding:6px 10px;color:#a66800">${Math.round(totAdj)||'—'}</td>
       <td style="text-align:right;font-family:var(--mono);padding:6px 10px;font-weight:700">${Math.round(totNet)}</td>
     </tr>`;
     invWrap.style.display = '';

@@ -4389,11 +4389,12 @@
                 <table style="font-size:11px">
                   <thead><tr>
                     <th>SKU</th><th>Nama Item</th>
-                    <th style="text-align:right">Total In</th>
-                    <th style="text-align:right;color:#bbf7d0">In (period)</th>
-                    <th style="text-align:right">Total Out</th>
-                    <th style="text-align:right;color:#fed7aa">Out (period)</th>
-                    <th style="text-align:right">Net Stock</th>
+                    <th style="text-align:right" title="Total inbound (all time)">Total In</th>
+                    <th style="text-align:right;color:#bbf7d0" title="Inbound selama periode">In (period)</th>
+                    <th style="text-align:right" title="Total terjual (all time, sales only)">Total Sales</th>
+                    <th style="text-align:right;color:#fed7aa" title="Terjual selama periode (sales only)">Sales (period)</th>
+                    <th style="text-align:right;color:#fde68a" title="Adjustment OUT selama periode (freebies / defect / opname loss)">Adj OUT (period)</th>
+                    <th style="text-align:right" title="Stock saat ini (available)">Net Stock</th>
                   </tr></thead>
                   <tbody id="mr-inv-tbody"></tbody>
                   <tfoot id="mr-inv-tfoot"></tfoot>
