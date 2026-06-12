@@ -16248,14 +16248,73 @@ function _mrSummaryText(brandId, brandName) {
   };
 }
 
-function mrDownloadPDF(brandId, brandName) {
+async function mrDownloadPDF(brandId, brandName) {
   const s = _mrSummaryText(brandId, brandName);
   if (!s) { alert('Brand tidak ditemukan'); return; }
-  // Swiss-grid monochrome design system — hairline #e5e5e5 dividers, Geist
-  // (Inter fallback), display heading at 48px / -0.05em, numbers in mono.
-  // Single black "ask" block at the end as the only filled accent.
   const adjRow = (parseFloat(s.adjOutPer) || 0) > 0
     ? `<tr><td class="k">Adjustment OUT (periode)</td><td class="v">${s.adjOutPer}</td></tr>` : '';
+
+  // Fetch per-SKU breakdown (sales + inventory). Same RPCs as the detail
+  // modal — gives qty terjual & revenue per SKU plus stock movement.
+  let skuRowsHtml = '';
+  let skuFootHtml = '';
+  try {
+    const [year, month] = _mrPeriod.split('-').map(Number);
+    const startISO = `${_mrPeriod}-01T00:00:00+07:00`;
+    const endISO   = new Date(year, month, 1).toISOString().slice(0,10) + 'T00:00:00+07:00';
+    const [salesRes, invRes] = await Promise.all([
+      sb.rpc('get_marte_brand_detail',         { p_brand_id: brandId, p_start_date: startISO, p_end_date: endISO }),
+      sb.rpc('get_marte_brand_inventory_sku',  { p_brand_id: brandId, p_start_date: startISO, p_end_date: endISO }),
+    ]);
+    const sales = salesRes.data || [];
+    const inv   = invRes.data   || [];
+    // Index inventory by item_code so we can fold stock + movement into the
+    // same row as the sales line.
+    const invByCode = new Map();
+    for (const r of inv) invByCode.set(r.item_code, r);
+    // Build union row set — every SKU that appears in sales OR inventory.
+    const codes = new Set([...sales.map(r=>r.item_code), ...inv.map(r=>r.item_code)]);
+    const rows = [...codes].sort().map(code => {
+      const sl = sales.find(r => r.item_code === code) || {};
+      const iv = invByCode.get(code) || {};
+      return {
+        code,
+        name:     sl.item_name || iv.item_name || '—',
+        qtySold:  parseInt(sl.total_qty || iv.outbound_period || 0) || 0,
+        revenue:  parseFloat(sl.subtotal   || 0) || 0,
+        fee:      parseFloat(sl.fee_amount || 0) || 0,
+        stockNow: parseFloat(iv.net_stock  || 0) || 0,
+      };
+    }).filter(r => r.qtySold > 0 || r.stockNow > 0); // skip rows with nothing to show
+
+    if (rows.length) {
+      const fmtRp = n => 'Rp ' + Math.round(Number(n)||0).toLocaleString('id-ID');
+      const totQty   = rows.reduce((a,r)=>a+r.qtySold, 0);
+      const totRev   = rows.reduce((a,r)=>a+r.revenue, 0);
+      const totFee   = rows.reduce((a,r)=>a+r.fee, 0);
+      const totStock = rows.reduce((a,r)=>a+r.stockNow, 0);
+      skuRowsHtml = rows.map(r => `<tr>
+        <td class="sku-code">${r.code}</td>
+        <td class="sku-name">${r.name}</td>
+        <td class="sku-num">${r.qtySold||'—'}</td>
+        <td class="sku-num">${r.revenue?fmtRp(r.revenue):'—'}</td>
+        <td class="sku-num">${r.fee?'−'+fmtRp(r.fee):'—'}</td>
+        <td class="sku-num">${Math.round(r.stockNow).toLocaleString('id-ID')}</td>
+      </tr>`).join('');
+      skuFootHtml = `<tr class="sku-total">
+        <td colspan="2">TOTAL</td>
+        <td class="sku-num">${totQty}</td>
+        <td class="sku-num">${fmtRp(totRev)}</td>
+        <td class="sku-num">−${fmtRp(totFee)}</td>
+        <td class="sku-num">${Math.round(totStock).toLocaleString('id-ID')}</td>
+      </tr>`;
+    } else {
+      skuRowsHtml = `<tr><td colspan="6" class="sku-empty">Tidak ada data SKU.</td></tr>`;
+    }
+  } catch (e) {
+    skuRowsHtml = `<tr><td colspan="6" class="sku-empty">Gagal memuat: ${e.message||e}</td></tr>`;
+  }
+
   const w = window.open('', '_blank');
   if (!w) { alert('Pop-up diblokir browser'); return; }
   w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${s.brandName} · ${s.periodLabel}</title>
@@ -16306,6 +16365,18 @@ function mrDownloadPDF(brandId, brandName) {
       a{color:var(--graphite);text-decoration:underline;text-underline-offset:2px}
       .mono-small{font-family:var(--mono);font-size:12px;color:var(--concrete)}
 
+      /* Per-SKU breakdown table */
+      .sku-table{width:100%;border-collapse:collapse;font-size:13px;table-layout:auto}
+      .sku-table thead th{font-size:11px;letter-spacing:0;text-transform:uppercase;color:var(--concrete);font-weight:500;padding:8px 8px;border-bottom:1px solid var(--hairline);text-align:left}
+      .sku-table thead th:nth-child(n+3){text-align:right}
+      .sku-table tbody td{padding:10px 8px;border-bottom:1px solid var(--hairline);font-size:13px;vertical-align:top}
+      .sku-table .sku-code{font-family:var(--mono);font-size:11px;color:var(--concrete);white-space:nowrap}
+      .sku-table .sku-name{color:var(--graphite);max-width:280px}
+      .sku-table .sku-num{font-family:var(--mono);text-align:right;white-space:nowrap}
+      .sku-table .sku-total td{padding:12px 8px;border-bottom:0;border-top:1px solid var(--graphite);font-weight:600;color:var(--graphite)}
+      .sku-table .sku-total td:first-child{font-family:var(--sans);font-size:12px;text-transform:uppercase;letter-spacing:0}
+      .sku-table .sku-empty{text-align:center;color:var(--concrete);padding:24px 8px;font-style:italic}
+
       @media print{
         .page{padding:48px 40px}
         @page{margin:0}
@@ -16338,6 +16409,21 @@ function mrDownloadPDF(brandId, brandName) {
         <div class="ask-eyebrow">Action Required</div>
         <div class="ask-body">Silahkan dari ${s.brandName} untuk mengirimkan invoice penagihan sesuai dengan nilai net payout <span class="ask-amount">${s.net}</span>.</div>
       </div>
+
+      <hr class="rule">
+      <div class="section-label">Per Product Breakdown</div>
+      <table class="sku-table">
+        <thead><tr>
+          <th>SKU</th>
+          <th>Nama Item</th>
+          <th>Qty</th>
+          <th>Revenue</th>
+          <th>Fee</th>
+          <th>Stock Now</th>
+        </tr></thead>
+        <tbody>${skuRowsHtml}</tbody>
+        <tfoot>${skuFootHtml}</tfoot>
+      </table>
 
       <hr class="rule">
       <div class="section-label">Status</div>
