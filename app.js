@@ -10459,10 +10459,12 @@ function computeAgeBucket(days) {
   for (const b of INV_AGE_BUCKETS) if (days <= b.max) return b.key;
   return 'vintage';
 }
-// Cross-reference for IP / Revenue Stream filters — built from ip_master +
-// brand_master joined on (case-insensitive) name. Each group inherits its
-// brand's IP and revenue stream via brand_name lookup.
-let invBrandMeta = {};        // brand_name_lower -> { ip, revenue }
+// Cross-reference for IP / Revenue / Brand filters. Primary source is
+// product_mappings (curated, 1 row per jubelio item), joined to ip_master /
+// brand_master via FK to inherit revenue_stream. Falls back to the older
+// brand_name → master name-match only when there's no PM entry for the item.
+let invPMByItemId = {};       // jubelio_item_id -> { brand, ip, revenue }
+let invBrandMeta  = {};       // brand_name_lower -> { ip, revenue }  (fallback)
 let invFilterIP      = new Set();
 let invFilterRevenue = new Set();
 let invFilterBrand   = new Set();
@@ -10489,11 +10491,35 @@ function annotateInvGroupsWithDIO() {
       g._dio = stockUnits / (soldUnits / INV_DIO_WINDOW);
       g._dioBucket = computeDIOBucket(g._dio);
     }
-    // IP + Revenue lookup via brand_name
-    const k = (g.brand_name || '').toLowerCase().trim();
-    const meta = invBrandMeta[k];
-    g._ip      = meta?.ip      || '';
-    g._revenue = meta?.revenue || '';
+    // IP / Revenue / Brand classification — primary source is product_mappings
+    // (curated table linking jubelio_item_id → brand_master/ip_master via FK).
+    // For each child SKU in the group, walk its mapping; take the first
+    // non-empty value across SKUs so partial mappings still resolve.
+    let pmBrand = '', pmIP = '', pmRevenue = '', pmFound = false;
+    for (const sku of g.skus) {
+      const pm = invPMByItemId[sku.item_id];
+      if (!pm) continue;
+      pmFound = true;
+      if (!pmBrand   && pm.brand)   pmBrand   = pm.brand;
+      if (!pmIP      && pm.ip)      pmIP      = pm.ip;
+      if (!pmRevenue && pm.revenue) pmRevenue = pm.revenue;
+      if (pmBrand && pmIP && pmRevenue) break;
+    }
+    // Fallback to brand_name → master name-match ONLY when there's no PM
+    // entry for any SKU in this group (legacy/unmapped items).
+    let fbIP = '', fbRevenue = '';
+    if (!pmFound) {
+      const k = (g.brand_name || '').toLowerCase().trim();
+      const meta = invBrandMeta[k];
+      fbIP = meta?.ip || '';
+      fbRevenue = meta?.revenue || '';
+    }
+    g._ip      = pmIP || fbIP || '';
+    g._revenue = pmRevenue || fbRevenue || '';
+    // Prefer the curated brand from product_mappings when present, since
+    // brand_master.name is the canonical spelling (e.g. 'ATSIRI' vs jubelio's
+    // 'Atsiri'). Falls back to whatever jubelio_items had.
+    if (pmBrand) g.brand_name = pmBrand;
     // Aging: take the earliest "first seen" across the group's child SKUs.
     // Cascade source (putaway/sale/adjustment/sync) is the source of THAT
     // earliest row — meaning the parent inherits the proxy of whichever SKU
@@ -10537,23 +10563,38 @@ async function loadInvCheck(){
     // 2. Read from fresh jubelio_inventory_stocks (synced by sync-jubelio-inventory),
     //    joining item metadata (name/brand/group) from jubelio_items client-side.
     //    by_location was stale (separate, un-synced table) so we no longer use it.
-    const [stockRows, itemRows, dioRes, ageRes, ipRes, bmRes] = locIds.length ? await Promise.all([
+    const [stockRows, itemRows, dioRes, ageRes, ipRes, bmRes, pmRes] = locIds.length ? await Promise.all([
       _fetchAllPages('jubelio_inventory_stocks','location_id,item_id,on_hand,available,synced_at',
         q=>q.in('location_id',locIds).neq('on_hand',0)),
       _fetchAllPages('jubelio_items','item_id,item_code,item_name,item_group_id,brand_name,thumbnail'),
       sb.rpc('inv_sales_velocity', { window_days: INV_DIO_WINDOW }),
       sb.rpc('inv_first_seen_date'),
-      sb.from('ip_master').select('name,revenue_stream'),
-      sb.from('brand_master').select('name,revenue_stream'),
-    ]) : [[],[],{data:[]},{data:[]},{data:[]},{data:[]}];
+      sb.from('ip_master').select('id,name,revenue_stream'),
+      sb.from('brand_master').select('id,name,revenue_stream'),
+      _fetchAllPages('product_mappings','jubelio_item_id,brand,ip,brand_master_id,ip_master_id'),
+    ]) : [[],[],{data:[]},{data:[]},{data:[]},{data:[]},[]];
     invDioByItemId = {};
     for (const r of (dioRes?.data || [])) invDioByItemId[r.item_id] = Number(r.qty_sold) || 0;
     invFirstSeenByItemId = {};
     for (const r of (ageRes?.data || [])) invFirstSeenByItemId[r.item_id] = { date: r.first_seen, source: r.source };
-    // Build brand → {ip, revenue} cross-reference. Both IP Master and Brand
-    // Master keyed by name (lowercase) — Brand Master wins if there's overlap
-    // because the brand_master entry is more likely to match a jubelio_items
-    // brand_name verbatim.
+    // Build by-id lookups for master tables so product_mappings FK can hop
+    // to revenue_stream / canonical name.
+    const ipById = {}, bmById = {};
+    for (const r of (ipRes.data||[])) ipById[r.id] = r;
+    for (const r of (bmRes.data||[])) bmById[r.id] = r;
+    // Primary classifier: product_mappings (curated, 1 row per jubelio item).
+    invPMByItemId = {};
+    for (const r of (pmRes||[])) {
+      if (!r.jubelio_item_id) continue;
+      const bm = r.brand_master_id ? bmById[r.brand_master_id] : null;
+      const im = r.ip_master_id    ? ipById[r.ip_master_id]    : null;
+      invPMByItemId[r.jubelio_item_id] = {
+        brand:   bm?.name || r.brand || '',
+        ip:      im?.name || r.ip    || '',
+        revenue: bm?.revenue_stream || im?.revenue_stream || '',
+      };
+    }
+    // Fallback name-match (used when an item has no product_mappings entry).
     invBrandMeta = {};
     for (const r of (ipRes.data||[])) {
       const k = (r.name||'').toLowerCase().trim();
