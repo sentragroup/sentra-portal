@@ -16251,51 +16251,108 @@ function _mrSummaryText(brandId, brandName) {
 function mrDownloadPDF(brandId, brandName) {
   const s = _mrSummaryText(brandId, brandName);
   if (!s) { alert('Brand tidak ditemukan'); return; }
+  // Swiss-grid monochrome design system — hairline #e5e5e5 dividers, Geist
+  // (Inter fallback), display heading at 48px / -0.05em, numbers in mono.
+  // Single black "ask" block at the end as the only filled accent.
   const adjRow = (parseFloat(s.adjOutPer) || 0) > 0
-    ? `<tr><td class="k">Adjustment OUT (periode)</td><td class="v" style="color:#a66800">${s.adjOutPer}</td></tr>` : '';
+    ? `<tr><td class="k">Adjustment OUT (periode)</td><td class="v">${s.adjOutPer}</td></tr>` : '';
   const w = window.open('', '_blank');
   if (!w) { alert('Pop-up diblokir browser'); return; }
   w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${s.brandName} · ${s.periodLabel}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400&family=Geist:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
-      body{font-family:'Helvetica',sans-serif;max-width:700px;margin:40px auto;padding:0 24px;color:#111}
-      h1{font-size:22px;margin:0 0 4px} .sub{color:#666;font-size:13px;margin-bottom:24px}
-      h2{font-size:13px;text-transform:uppercase;letter-spacing:0.06em;color:#555;margin:24px 0 8px;font-weight:600}
-      table{width:100%;border-collapse:collapse;margin-bottom:12px}
-      td{padding:8px 10px;border-bottom:1px solid #eee;font-size:13px}
-      td.k{color:#666;width:240px} td.v{font-family:monospace;text-align:right;font-weight:600}
-      .note{background:#f8f5ec;padding:12px 14px;border-radius:6px;font-size:12px;margin-top:18px;line-height:1.5}
-      .footer{margin-top:32px;color:#999;font-size:11px;text-align:center}
+      :root {
+        --graphite:#0a0a0a; --concrete:#737373; --hairline:#e5e5e5;
+        --mist:#f2f2f2; --chalk:#ffffff;
+        --sans:'Geist','Inter',ui-sans-serif,system-ui,-apple-system,sans-serif;
+        --mono:'Geist Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+      }
+      *{box-sizing:border-box}
+      html,body{margin:0;padding:0;background:var(--chalk);color:var(--graphite);font-family:var(--sans);font-size:14px;line-height:1.43;font-feature-settings:"cv11","ss01";-webkit-font-smoothing:antialiased}
+      .page{max-width:760px;margin:0 auto;padding:80px 40px}
+
+      .eyebrow{font-size:12px;letter-spacing:0;color:var(--concrete);font-weight:500;text-transform:uppercase}
+      h1{font-family:var(--sans);font-size:48px;line-height:1.1;letter-spacing:-2.4px;font-weight:600;margin:8px 0 0;color:var(--graphite)}
+      .sub{font-size:14px;color:var(--concrete);margin-top:12px;letter-spacing:-0.25px}
+
+      /* Hairline rule — the structural element */
+      .rule{height:1px;background:var(--hairline);margin:48px 0 24px;border:0}
+
+      .section-label{font-size:12px;color:var(--concrete);font-weight:500;text-transform:uppercase;letter-spacing:0;margin-bottom:12px}
+
+      table{width:100%;border-collapse:collapse;margin-bottom:8px}
+      td{padding:12px 0;border-bottom:1px solid var(--hairline);font-size:14px}
+      tr:last-child td{border-bottom:0}
+      td.k{color:var(--concrete);font-weight:400}
+      td.v{font-family:var(--mono);text-align:right;color:var(--graphite);font-weight:400}
+      td.v-strong{font-family:var(--sans);text-align:right;color:var(--graphite);font-weight:600;font-size:18px;letter-spacing:-0.45px}
+
+      /* Single filled accent — the "ask" block */
+      .ask{margin-top:32px;background:var(--graphite);color:var(--chalk);padding:24px;border-radius:14px}
+      .ask-eyebrow{font-size:12px;color:var(--concrete);text-transform:uppercase;letter-spacing:0;font-weight:500;margin-bottom:8px}
+      .ask-body{font-size:18px;line-height:1.5;letter-spacing:-0.45px;font-weight:500;color:var(--chalk)}
+      .ask-amount{font-family:var(--mono);font-weight:600;color:var(--chalk)}
+
+      /* Status pills sit on their own row, hairline-bordered */
+      .pill-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+      .pill{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border:1px solid var(--hairline);border-radius:9999px;font-size:12px;color:var(--graphite);background:var(--chalk);font-weight:500}
+      .pill .dot{width:6px;height:6px;border-radius:9999px;background:var(--graphite)}
+      .pill.muted{color:var(--concrete)}
+      .pill.muted .dot{background:var(--concrete)}
+
+      .meta{margin-top:48px;display:flex;justify-content:space-between;align-items:center;padding-top:16px;border-top:1px solid var(--hairline);font-size:12px;color:var(--concrete)}
+      a{color:var(--graphite);text-decoration:underline;text-underline-offset:2px}
+      .mono-small{font-family:var(--mono);font-size:12px;color:var(--concrete)}
+
+      @media print{
+        .page{padding:48px 40px}
+        @page{margin:0}
+      }
     </style></head><body>
-    <h1>${s.brandName}</h1>
-    <div class="sub">Consignment Summary · Periode ${s.periodLabel}</div>
+    <div class="page">
+      <div class="eyebrow">Consignment Summary</div>
+      <h1>${s.brandName}</h1>
+      <div class="sub">${s.periodLabel}</div>
 
-    <h2>Movement</h2>
-    <table>
-      <tr><td class="k">Inbound (periode)</td><td class="v">${s.inboundPer}</td></tr>
-      <tr><td class="k">Terjual (periode)</td><td class="v">${s.soldPer}</td></tr>
-      ${adjRow}
-      <tr><td class="k">Terjual (all time)</td><td class="v">${s.soldAll}</td></tr>
-      <tr><td class="k">Stock now</td><td class="v">${s.stockNow}</td></tr>
-    </table>
+      <hr class="rule">
+      <div class="section-label">Movement</div>
+      <table>
+        <tr><td class="k">Inbound (periode)</td><td class="v">${s.inboundPer}</td></tr>
+        <tr><td class="k">Terjual (periode)</td><td class="v">${s.soldPer}</td></tr>
+        ${adjRow}
+        <tr><td class="k">Terjual (all time)</td><td class="v">${s.soldAll}</td></tr>
+        <tr><td class="k">Stock now</td><td class="v">${s.stockNow}</td></tr>
+      </table>
 
-    <h2>Financial</h2>
-    <table>
-      <tr><td class="k">Gross Sales</td><td class="v">${s.gross}</td></tr>
-      <tr><td class="k">Konsinyasi Fee</td><td class="v" style="color:#b91c1c">−${s.fee}</td></tr>
-      <tr><td class="k"><b>Net Payout</b></td><td class="v" style="color:#15803d"><b>${s.net}</b></td></tr>
-    </table>
+      <hr class="rule">
+      <div class="section-label">Financial</div>
+      <table>
+        <tr><td class="k">Gross Sales</td><td class="v">${s.gross}</td></tr>
+        <tr><td class="k">Konsinyasi Fee</td><td class="v">−${s.fee}</td></tr>
+        <tr><td class="k">Net Payout</td><td class="v-strong">${s.net}</td></tr>
+      </table>
 
-    <div class="note">Silahkan dari <b>${s.brandName}</b> untuk mengirimkan invoice penagihan sesuai dengan nilai net payout <b>${s.net}</b>.</div>
+      <div class="ask">
+        <div class="ask-eyebrow">Action Required</div>
+        <div class="ask-body">Silahkan dari ${s.brandName} untuk mengirimkan invoice penagihan sesuai dengan nilai net payout <span class="ask-amount">${s.net}</span>.</div>
+      </div>
 
-    <h2>Status</h2>
-    <table>
-      <tr><td class="k">Sales Report</td><td class="v">${s.reportSent ? '✓ Sent ' + _mrShort(s.reportSent) : 'Not Started'}</td></tr>
-      <tr><td class="k">Pembayaran</td><td class="v">${s.paid ? '✓ Paid ' + _mrShort(s.paid) : 'Not Paid'}</td></tr>
-      ${s.invUrl ? `<tr><td class="k">Invoice File</td><td class="v"><a href="${s.invUrl}">📎 Open</a></td></tr>` : ''}
-    </table>
+      <hr class="rule">
+      <div class="section-label">Status</div>
+      <div class="pill-row">
+        <span class="pill ${s.reportSent?'':'muted'}"><span class="dot"></span>Sales Report ${s.reportSent ? '· Sent ' + _mrShort(s.reportSent) : '· Not Started'}</span>
+        <span class="pill ${s.paid?'':'muted'}"><span class="dot"></span>Pembayaran ${s.paid ? '· Paid ' + _mrShort(s.paid) : '· Not Paid'}</span>
+        ${s.invUrl ? `<a class="pill" href="${s.invUrl}" target="_blank" style="text-decoration:none"><span class="dot"></span>Invoice File · Open</a>` : ''}
+      </div>
 
-    <div class="footer">Generated ${new Date().toLocaleString('id-ID')}</div>
-    <script>window.onload=()=>setTimeout(()=>window.print(),300)<\/script>
+      <div class="meta">
+        <span>Sentra</span>
+        <span class="mono-small">Generated ${new Date().toLocaleString('id-ID')}</span>
+      </div>
+    </div>
+    <script>window.onload=()=>setTimeout(()=>window.print(),400)<\/script>
     </body></html>`);
   w.document.close();
 }
