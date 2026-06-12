@@ -16341,11 +16341,11 @@ function mrDownloadPDF(brandId, brandName) {
 
       <hr class="rule">
       <div class="section-label">Status</div>
-      <div class="pill-row">
-        <span class="pill ${s.reportSent?'':'muted'}"><span class="dot"></span>Sales Report ${s.reportSent ? '· Sent ' + _mrShort(s.reportSent) : '· Not Started'}</span>
-        <span class="pill ${s.paid?'':'muted'}"><span class="dot"></span>Pembayaran ${s.paid ? '· Paid ' + _mrShort(s.paid) : '· Not Paid'}</span>
-        ${s.invUrl ? `<a class="pill" href="${s.invUrl}" target="_blank" style="text-decoration:none"><span class="dot"></span>Invoice File · Open</a>` : ''}
-      </div>
+      <table>
+        <tr><td class="k">Sales Report</td><td class="v">${s.reportSent ? '✓ Sent · ' + _mrShort(s.reportSent) : 'Not Started'}</td></tr>
+        <tr><td class="k">Pembayaran</td><td class="v">${s.paid ? '✓ Paid · ' + _mrShort(s.paid) : 'Not Paid'}</td></tr>
+        <tr><td class="k">Invoice File</td><td class="v">${s.invUrl ? `<a href="${s.invUrl}" target="_blank">Open ↗</a>` : '—'}</td></tr>
+      </table>
 
       <div class="meta">
         <span>Sentra</span>
