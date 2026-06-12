@@ -10583,6 +10583,12 @@ async function loadInvCheck(){
     for (const r of (ipRes.data||[])) ipById[r.id] = r;
     for (const r of (bmRes.data||[])) bmById[r.id] = r;
     // Primary classifier: product_mappings (curated, 1 row per jubelio item).
+    // Business rule for revenue stream:
+    //   - linked to ip_master    → use ip_master.revenue_stream (SD&Y or Lagaa)
+    //   - linked to brand_master → 'Marte' (consignment business, hardcoded —
+    //                              brand_master.revenue_stream column has
+    //                              1 SD&Y outlier we treat as a data anomaly)
+    //   - neither                → empty
     invPMByItemId = {};
     for (const r of (pmRes||[])) {
       if (!r.jubelio_item_id) continue;
@@ -10591,10 +10597,12 @@ async function loadInvCheck(){
       invPMByItemId[r.jubelio_item_id] = {
         brand:   bm?.name || r.brand || '',
         ip:      im?.name || r.ip    || '',
-        revenue: bm?.revenue_stream || im?.revenue_stream || '',
+        revenue: im ? (im.revenue_stream || '') : (bm ? 'Marte' : ''),
       };
     }
     // Fallback name-match (used when an item has no product_mappings entry).
+    // Same business rule for revenue: ip_master → its revenue_stream,
+    // brand_master → Marte. brand_master pass writes last so it wins ties.
     invBrandMeta = {};
     for (const r of (ipRes.data||[])) {
       const k = (r.name||'').toLowerCase().trim();
@@ -10602,7 +10610,7 @@ async function loadInvCheck(){
     }
     for (const r of (bmRes.data||[])) {
       const k = (r.name||'').toLowerCase().trim();
-      if (k) invBrandMeta[k] = { ip: r.name, revenue: r.revenue_stream || '' };
+      if (k) invBrandMeta[k] = { ip: r.name, revenue: 'Marte' };
     }
     const itemMeta={};
     for(const it of (itemRows||[])) itemMeta[it.item_id]=it;
