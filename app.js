@@ -16281,6 +16281,10 @@ async function mrDownloadPDF(brandId, brandName) {
     const fmtRp = n => 'Rp ' + Math.round(Number(n)||0).toLocaleString('id-ID');
 
     // ── Table 1: Product Sold During Period ──
+    // Total row lives INSIDE tbody with a tr.total class so it renders
+    // exactly once even when the table breaks across pages. Browser
+    // print engines repeat <tfoot> on every page break — that was the
+    // earlier 'TOTAL muncul 2x' bug.
     if (sales.length) {
       const sorted = [...sales].sort((a,b) => (a.item_code||'').localeCompare(b.item_code||''));
       const totQty = sorted.reduce((a,x)=>a+(parseInt(x.total_qty)||0), 0);
@@ -16291,8 +16295,8 @@ async function mrDownloadPDF(brandId, brandName) {
         <td>${_escRmd(x.item_name||'')}</td>
         <td class="sku-num">${parseInt(x.total_qty)||0}</td>
         <td class="sku-num">${fmtRp(x.subtotal)}</td>
-      </tr>`).join('');
-      soldFootHtml = `<tr><td colspan="2">TOTAL</td><td class="sku-num">${totQty}</td><td class="sku-num">${fmtRp(totRev)}</td></tr>`;
+      </tr>`).join('')
+      + `<tr class="total"><td colspan="2">TOTAL</td><td class="sku-num">${totQty}</td><td class="sku-num">${fmtRp(totRev)}</td></tr>`;
     } else {
       soldRowsHtml = `<tr><td colspan="4" class="sku-empty">Tidak ada penjualan di periode ini.</td></tr>`;
     }
@@ -16312,8 +16316,8 @@ async function mrDownloadPDF(brandId, brandName) {
         <td class="sku-num">${Math.round(x.outbound_total)||'—'}</td>
         <td class="sku-num">${Math.round(x.adjustment_out_total)||'—'}</td>
         <td class="sku-num">${Math.round(x.net_stock||0).toLocaleString('id-ID')}</td>
-      </tr>`).join('');
-      invFootHtml = `<tr><td colspan="2">TOTAL</td>
+      </tr>`).join('')
+      + `<tr class="total"><td colspan="2">TOTAL</td>
         <td class="sku-num">${Math.round(tIn)}</td>
         <td class="sku-num">${Math.round(tOut)}</td>
         <td class="sku-num">${Math.round(tAdj)||'—'}</td>
@@ -16395,7 +16399,7 @@ async function mrDownloadPDF(brandId, brandName) {
       .sku-table td{padding:12px 16px;border-bottom:1px solid var(--cream);font-size:13px;vertical-align:top}
       .sku-table .sku-code{font-family:var(--font-mono);font-weight:700;color:var(--blue);font-size:11px;white-space:nowrap}
       .sku-table .sku-num{font-family:var(--font-mono);text-align:right;font-weight:700}
-      .sku-table tfoot td{background:var(--yellow);border-top:3px solid var(--ink);border-bottom:0;font-family:var(--font-display);font-weight:400;font-size:18px;padding:14px 16px}
+      .sku-table tr.total td{background:var(--yellow);border-top:3px solid var(--ink);border-bottom:0;font-family:var(--font-display);font-weight:400;font-size:18px;padding:14px 16px}
       .sku-empty{text-align:center;color:var(--green-deep);padding:24px 16px;font-style:italic;font-family:var(--font-body)}
 
       /* Footer with logo */
@@ -16448,7 +16452,6 @@ async function mrDownloadPDF(brandId, brandName) {
         <table class="sku-table">
           <thead><tr><th>SKU</th><th>Nama Item</th><th>Qty</th><th>Gross Sales</th></tr></thead>
           <tbody>${soldRowsHtml}</tbody>
-          <tfoot>${soldFootHtml}</tfoot>
         </table>
       </div>
 
@@ -16458,7 +16461,6 @@ async function mrDownloadPDF(brandId, brandName) {
         <table class="sku-table">
           <thead><tr><th>SKU</th><th>Nama Item</th><th>Total Inbound</th><th>Total Sold</th><th>Total Adj OUT</th><th>Stock Now</th></tr></thead>
           <tbody>${invRowsHtml}</tbody>
-          <tfoot>${invFootHtml}</tfoot>
         </table>
       </div>
 
