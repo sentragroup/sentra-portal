@@ -3297,7 +3297,10 @@
             <div class="page-title">Stock Adjustment</div>
             <div class="page-sub">Kategorisasi adjustment · 2026</div>
           </div>
-          <button class="btn-refresh" onclick="loadSAData()">↻ Refresh</button>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+            <button class="btn-refresh" id="sa-sync-btn" onclick="syncAndReloadSA()">↻ Sync Jubelio</button>
+            <div id="sa-sync-status" style="font-family:var(--mono);font-size:10px;color:var(--g400)">—</div>
+          </div>
         </div>
 
         <!-- KPI cards -->
