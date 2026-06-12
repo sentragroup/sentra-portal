@@ -15962,7 +15962,8 @@ function _mrRenderTable() {
       <td style="text-align:center">${cells[0]}</td>
       <td style="text-align:center">${cells[1]}</td>
       <td style="text-align:center">${cells[2]}</td>
-      <td style="text-align:center"><button onclick="event.stopPropagation();mrDownloadPDF('${bid}','${bname}')" style="font-size:11px;padding:3px 10px;background:none;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-family:var(--mono);color:var(--black)" title="Download summary PDF">📄 PDF</button></td>
+      <td style="text-align:center"><button onclick="event.stopPropagation();mrDownloadPDF('${bid}','${bname}')" style="font-size:11px;padding:3px 10px;background:none;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-family:var(--mono);color:var(--black)" title="Download Marté Sales Report PDF">📄 Sales Report</button></td>
+      <td style="text-align:center"><button onclick="event.stopPropagation();mrDownloadInvoice('${bid}','${bname}')" style="font-size:11px;padding:3px 10px;background:none;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-family:var(--mono);color:var(--black)" title="Download Invoice + PAID stamp">📋 Invoice</button></td>
       <td style="text-align:center"><button onclick="event.stopPropagation();mrSendEmail('${bid}','${bname}')" style="font-size:11px;padding:3px 10px;background:none;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-family:var(--mono);color:var(--black)" title="Send summary email ke brand">✉ Send</button></td>
       <td><button class="btn-edit" onclick="event.stopPropagation();openMRDetail('${bid}','${bname}')">Detail</button></td>
     </tr>`;
@@ -16470,6 +16471,220 @@ async function mrDownloadPDF(brandId, brandName) {
       </div>
     </div>
     <script>window.onload=()=>setTimeout(()=>window.print(),600)<\/script>
+    </body></html>`);
+  w.document.close();
+}
+
+// Generate an Indonesian-format consignment invoice for the brand. Issuer is
+// PT Sandang Dunia Yuwana (Marté's parent). One line item with description
+// 'Consignment Fee Marte <Brand> <Period>'. PAID stamp rendered as a rotated
+// red bordered block on the signature panel — looks like a stamped invoice
+// even though it's print-to-PDF only.
+async function mrDownloadInvoice(brandId, brandName) {
+  const s = _mrSummaryText(brandId, brandName);
+  if (!s) { alert('Brand tidak ditemukan'); return; }
+
+  const today = new Date();
+  const dd = String(today.getDate()).padStart(2,'0');
+  const mm = String(today.getMonth()+1).padStart(2,'0');
+  const yyyy = today.getFullYear();
+  const monthNames = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+
+  // Invoice number: SDY-INV-{YYMM of period}-{deterministic seq from brand id}
+  const periodMatch = /^(\d{4})-(\d{2})$/.exec(s.period || '');
+  const periodYY = periodMatch ? periodMatch[1].slice(-2) : String(yyyy).slice(-2);
+  const periodMM = periodMatch ? periodMatch[2] : mm;
+  const brandSeq = String(brandId).split('').reduce((a,c)=>a + c.charCodeAt(0), 0) % 100;
+  const seqStr = String(brandSeq).padStart(2,'0');
+  const invoiceNo = `SDY-INV-${periodYY}${periodMM}-${seqStr}-01`;
+
+  // Amount = Net Payout (what the brand should receive)
+  const amount = s.netNum || 0;
+  const amountStr = 'Rp ' + Math.round(amount).toLocaleString('id-ID');
+
+  // Terbilang — Indonesian number to words
+  const terbilang = (n) => {
+    const a = ['','satu','dua','tiga','empat','lima','enam','tujuh','delapan','sembilan','sepuluh','sebelas'];
+    n = Math.round(Math.abs(n));
+    if (n < 12) return a[n];
+    if (n < 20) return a[n - 10] + ' belas';
+    if (n < 100) return a[Math.floor(n/10)] + ' puluh' + (n % 10 ? ' ' + a[n % 10] : '');
+    if (n < 200) return 'seratus' + (n - 100 ? ' ' + terbilang(n - 100) : '');
+    if (n < 1000) return a[Math.floor(n/100)] + ' ratus' + (n % 100 ? ' ' + terbilang(n % 100) : '');
+    if (n < 2000) return 'seribu' + (n - 1000 ? ' ' + terbilang(n - 1000) : '');
+    if (n < 1000000) return terbilang(Math.floor(n/1000)) + ' ribu' + (n % 1000 ? ' ' + terbilang(n % 1000) : '');
+    if (n < 1000000000) return terbilang(Math.floor(n/1000000)) + ' juta' + (n % 1000000 ? ' ' + terbilang(n % 1000000) : '');
+    return terbilang(Math.floor(n/1000000000)) + ' milyar' + (n % 1000000000 ? ' ' + terbilang(n % 1000000000) : '');
+  };
+  const terbilangStr = (terbilang(amount) + ' rupiah').replace(/\b\w/g, c => c.toUpperCase());
+
+  const description = `Consignment Fee Marte ${s.brandName} ${s.periodLabel}`;
+
+  const LOGO_URL = 'https://sentragroup.github.io/sentra-portal/assets/logo-marte.png';
+
+  const w = window.open('', '_blank');
+  if (!w) { alert('Pop-up diblokir browser'); return; }
+  w.document.write(`<!doctype html><html lang="id"><head><meta charset="utf-8">
+    <title>Invoice ${invoiceNo} · ${s.brandName}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+      *{box-sizing:border-box}
+      html,body{margin:0;padding:0;background:#fff;color:#111;font-family:'Inter',system-ui,sans-serif;font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased}
+      .page{max-width:780px;margin:0 auto;padding:48px 56px;position:relative}
+
+      .top{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #111;padding-bottom:20px;margin-bottom:32px}
+      .issuer{max-width:420px}
+      .issuer img{height:38px;margin-bottom:10px}
+      .issuer h2{margin:0 0 4px;font-size:15px;font-weight:700}
+      .issuer p{margin:0;font-size:11px;color:#333;line-height:1.5}
+      .doc-meta{text-align:right}
+      .doc-meta h1{margin:0;font-family:'Space Mono',monospace;font-size:28px;letter-spacing:0.1em;color:#111;font-weight:700}
+      .doc-meta .label{font-family:'Space Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#666;margin-top:8px}
+      .doc-meta .val{font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:#111;margin-top:2px}
+
+      .recipient{margin-bottom:32px;padding:14px 18px;background:#f7f6f0;border-radius:8px}
+      .recipient .lbl{font-family:'Space Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#666;margin-bottom:4px}
+      .recipient .name{font-size:18px;font-weight:700;color:#111}
+      .recipient .sub{font-size:12px;color:#555;margin-top:2px}
+
+      table.line{width:100%;border-collapse:collapse;margin-bottom:24px}
+      table.line th{font-family:'Space Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#666;font-weight:700;text-align:left;padding:10px 12px;border-bottom:2px solid #111}
+      table.line th.r{text-align:right}
+      table.line td{padding:14px 12px;border-bottom:1px solid #e5e5e5;vertical-align:top;font-size:13px}
+      table.line td.r{text-align:right;font-family:'Space Mono',monospace;font-weight:700}
+      table.line td.no{font-family:'Space Mono',monospace;color:#666;width:36px}
+      table.line td.qty{text-align:center;font-family:'Space Mono',monospace;width:60px}
+
+      .totals{display:flex;justify-content:flex-end;margin-bottom:24px}
+      .totals table{border-collapse:collapse;min-width:260px}
+      .totals td{padding:8px 14px;font-size:13px}
+      .totals td.k{color:#555}
+      .totals td.v{font-family:'Space Mono',monospace;text-align:right;font-weight:700}
+      .totals tr.grand td{border-top:2px solid #111;font-size:16px;padding-top:14px}
+      .totals tr.grand td.k{font-weight:700;color:#111}
+
+      .terbilang{padding:14px 18px;background:#f7f6f0;border-radius:8px;font-size:12px;margin-bottom:32px}
+      .terbilang strong{font-weight:700}
+
+      .bank{margin-bottom:48px}
+      .bank .lbl{font-family:'Space Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#666;margin-bottom:8px}
+      .bank table{border-collapse:collapse;font-size:12px}
+      .bank td{padding:4px 12px 4px 0;color:#333}
+      .bank td.k{color:#666;width:120px}
+
+      .sign-row{display:grid;grid-template-columns:1fr 1fr;gap:48px;margin-top:48px}
+      .sign{position:relative;text-align:center;min-height:140px}
+      .sign .role{font-family:'Space Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#666;margin-bottom:74px}
+      .sign .line{border-top:1px solid #111;padding-top:6px;font-size:12px;font-weight:600}
+
+      /* PAID stamp — rotated red bordered block, looks like a rubber stamp */
+      .stamp{
+        position:absolute;
+        top:14px;
+        left:50%;
+        transform:translateX(-50%) rotate(-12deg);
+        border:4px double #c0392b;
+        color:#c0392b;
+        font-family:'Space Mono',monospace;
+        font-weight:700;
+        font-size:36px;
+        letter-spacing:0.08em;
+        padding:8px 24px;
+        border-radius:8px;
+        opacity:0.92;
+        background:rgba(255,255,255,0.4);
+        pointer-events:none;
+      }
+      .stamp .meta{display:block;font-size:9px;letter-spacing:0.18em;font-weight:700;margin-top:2px}
+
+      .footer{margin-top:48px;padding-top:16px;border-top:1px solid #e5e5e5;display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#666}
+      .footer .left{font-family:'Space Mono',monospace;letter-spacing:0.06em;text-transform:uppercase}
+
+      @page{margin:0;size:A4}
+      @media print{.page{padding:36px 48px}}
+    </style></head><body>
+    <div class="page">
+
+      <div class="top">
+        <div class="issuer">
+          <img src="${LOGO_URL}" alt="Marté">
+          <h2>PT Sandang Dunia Yuwana</h2>
+          <p>M Bloc, Jl. Panglima Polim No.37<br>Jakarta Selatan 12160<br>finance@martegeneralstore.com</p>
+        </div>
+        <div class="doc-meta">
+          <h1>INVOICE</h1>
+          <div class="label">No. Invoice</div>
+          <div class="val">${invoiceNo}</div>
+          <div class="label">Tanggal</div>
+          <div class="val">${dd} ${monthNames[parseInt(mm,10)-1]} ${yyyy}</div>
+        </div>
+      </div>
+
+      <div class="recipient">
+        <div class="lbl">Kepada</div>
+        <div class="name">${_escRmd(s.brandName)}</div>
+        <div class="sub">Mitra Konsinyasi Marté General Store</div>
+      </div>
+
+      <table class="line">
+        <thead>
+          <tr>
+            <th>No</th>
+            <th>Keterangan</th>
+            <th class="r">Qty</th>
+            <th class="r">Jumlah</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="no">1</td>
+            <td>${_escRmd(description)}</td>
+            <td class="qty">1</td>
+            <td class="r">${amountStr}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="totals">
+        <table>
+          <tr><td class="k">Subtotal</td><td class="v">${amountStr}</td></tr>
+          <tr><td class="k">PPN</td><td class="v">—</td></tr>
+          <tr class="grand"><td class="k">Total</td><td class="v">${amountStr}</td></tr>
+        </table>
+      </div>
+
+      <div class="terbilang"><strong>Terbilang:</strong> ${terbilangStr}</div>
+
+      <div class="bank">
+        <div class="lbl">Pembayaran ke</div>
+        <table>
+          <tr><td class="k">Bank</td><td>BCA</td></tr>
+          <tr><td class="k">A/N</td><td>PT Sandang Dunia Yuwana</td></tr>
+          <tr><td class="k">No. Rekening</td><td>—</td></tr>
+        </table>
+      </div>
+
+      <div class="sign-row">
+        <div class="sign">
+          <div class="role">Penerima</div>
+          <div class="line">${_escRmd(s.brandName)}</div>
+        </div>
+        <div class="sign">
+          <div class="role">Hormat Kami</div>
+          <div class="stamp">PAID<span class="meta">${dd}/${mm}/${yyyy}</span></div>
+          <div class="line">PT Sandang Dunia Yuwana</div>
+        </div>
+      </div>
+
+      <div class="footer">
+        <span class="left">Consignment Invoice · Sentra</span>
+        <span>Generated ${new Date().toLocaleString('id-ID')}</span>
+      </div>
+
+    </div>
+    <script>window.onload=()=>setTimeout(()=>window.print(),500)<\/script>
     </body></html>`);
   w.document.close();
 }
