@@ -15911,41 +15911,29 @@ async function loadMarteReport() {
   _mrRenderTable();
 }
 
-function _mrStatusPill(trk) {
-  // Returns array of 4 pills: [report, invoice, payment, buktipotong]
-  if (!trk) return [
-    `<span class="pill p-inactive" style="font-size:10px">—</span>`,
-    `<span class="pill p-inactive" style="font-size:10px">—</span>`,
-    `<span class="pill p-inactive" style="font-size:10px">—</span>`,
-    `<span class="pill p-inactive" style="font-size:10px">—</span>`
-  ];
-  const reportPill = trk.report_sent_at
-    ? `<span class="pill p-active" style="font-size:10px">✓ ${_mrShort(trk.report_sent_at)}</span>`
-    : `<span class="pill p-draft" style="font-size:10px">Belum</span>`;
-  const invPill = trk.invoice_number
-    ? `<span class="pill p-review" style="font-size:10px;white-space:nowrap">${_escRmd(trk.invoice_number)}</span>`
-    : `<span class="pill p-draft" style="font-size:10px">Belum</span>`;
-  const payPill = trk.payment_received_at
-    ? `<span class="pill p-active" style="font-size:10px">✓ Lunas ${_mrShort(trk.payment_received_at)}</span>`
-    : `<span class="pill p-draft" style="font-size:10px">Belum</span>`;
-  let bpPill;
-  if (trk.brand_type === 'Individu') {
-    bpPill = `<span class="pill p-inactive" style="font-size:10px">N/A</span>`;
-  } else if (trk.brand_type === 'PT') {
-    bpPill = trk.bukti_potong_received_at
-      ? `<span class="pill p-active" style="font-size:10px">✓ ${_mrShort(trk.bukti_potong_received_at)}</span>`
-      : `<span class="pill p-near" style="font-size:10px">Belum</span>`;
-  } else {
-    bpPill = `<span class="pill p-inactive" style="font-size:10px">—</span>`;
-  }
-  return [reportPill, invPill, payPill, bpPill];
+// Render the 3 inline action cells: Sales Report toggle pill, Invoice file
+// upload/link, Pembayaran toggle pill. Buatkan brandId so the click handlers
+// can find their settlement row.
+function _mrStatusCells(brandId, trk) {
+  // Sales Report — Not Started / Sent toggle
+  const reportSent = !!trk?.report_sent_at;
+  const reportPill = `<span onclick="event.stopPropagation();mrToggleReport('${_escRmd(brandId)}')" style="display:inline-block;cursor:pointer;font-size:10px;padding:3px 9px;border-radius:99px;font-family:var(--mono);font-weight:500;background:${reportSent?'#dcfce7':'var(--off)'};color:${reportSent?'#15803d':'var(--g600)'};border:1px solid ${reportSent?'#86efac':'var(--g200)'}" title="${reportSent?'Klik untuk Not Started':'Klik untuk Sent'}">${reportSent?`✓ Sent · ${_mrShort(trk.report_sent_at)}`:'Not Started'}</span>`;
+  // Invoice file — upload picker or link
+  const hasInv = !!trk?.invoice_file_url;
+  const invCell = hasInv
+    ? `<div style="display:flex;align-items:center;gap:4px;justify-content:center"><a href="${_escRmd(trk.invoice_file_url)}" target="_blank" onclick="event.stopPropagation()" style="font-size:10px;color:#3C3489;text-decoration:none;font-family:var(--mono)">📎 lihat</a><button onclick="event.stopPropagation();mrRemoveInvoice('${_escRmd(brandId)}')" style="font-size:10px;padding:1px 5px;background:none;border:1px solid var(--g200);border-radius:3px;cursor:pointer;color:var(--g600)" title="Hapus">×</button></div>`
+    : `<label onclick="event.stopPropagation()" style="display:inline-block;cursor:pointer;font-size:10px;padding:3px 9px;border-radius:4px;background:#3C3489;color:white;font-family:var(--mono);font-weight:500" title="Upload PDF/JPG/PNG">📤 Upload<input type="file" accept="application/pdf,image/*" style="display:none" onchange="mrUploadInvoice('${_escRmd(brandId)}',this)"></label>`;
+  // Pembayaran — Not Paid / Paid toggle
+  const paid = !!trk?.payment_received_at;
+  const payPill = `<span onclick="event.stopPropagation();mrTogglePayment('${_escRmd(brandId)}')" style="display:inline-block;cursor:pointer;font-size:10px;padding:3px 9px;border-radius:99px;font-family:var(--mono);font-weight:500;background:${paid?'#dcfce7':'var(--off)'};color:${paid?'#15803d':'var(--g600)'};border:1px solid ${paid?'#86efac':'var(--g200)'}" title="${paid?'Klik untuk Not Paid':'Klik untuk Paid'}">${paid?`✓ Paid · ${_mrShort(trk.payment_received_at)}`:'Not Paid'}</span>`;
+  return [reportPill, invCell, payPill];
 }
 
 function _mrRenderTable() {
   const tb = document.getElementById('mr-tbody');
   tb.innerHTML = _mrAllRows.map(r => {
     const trk     = _mrTracking[r.brand_id] || null;
-    const pills   = _mrStatusPill(trk);
+    const cells   = _mrStatusCells(r.brand_id, trk);
     // brand_type: from Brand Master first, fallback to tracking row
     const tipe    = r._bm_brand_type || trk?.brand_type || '—';
     const vatSt   = r._bm_vat_status || '—';
@@ -15971,10 +15959,11 @@ function _mrRenderTable() {
       <td style="text-align:right">${hasSales ? `<span style="font-family:var(--mono);font-size:12px">${_mrRpFull(r.total_sales)}</span>` : zeroCell}</td>
       <td style="text-align:right">${hasSales ? `<span style="font-family:var(--mono);font-size:12px;color:#c05">${_mrRpFull(r.total_fee)}</span>` : zeroCell}</td>
       <td style="text-align:right">${hasSales ? `<span style="font-family:var(--mono);font-size:12px;font-weight:600">${_mrRpFull(r.net_payout)}</span>` : zeroCell}</td>
-      <td style="text-align:center">${pills[0]}</td>
-      <td style="text-align:center">${pills[1]}</td>
-      <td style="text-align:center">${pills[2]}</td>
-      <td style="text-align:center">${pills[3]}</td>
+      <td style="text-align:center">${cells[0]}</td>
+      <td style="text-align:center">${cells[1]}</td>
+      <td style="text-align:center">${cells[2]}</td>
+      <td style="text-align:center"><button onclick="event.stopPropagation();mrDownloadPDF('${bid}','${bname}')" style="font-size:11px;padding:3px 10px;background:none;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-family:var(--mono);color:var(--black)" title="Download summary PDF">📄 PDF</button></td>
+      <td style="text-align:center"><button onclick="event.stopPropagation();mrSendEmail('${bid}','${bname}')" style="font-size:11px;padding:3px 10px;background:none;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-family:var(--mono);color:var(--black)" title="Send summary email ke brand">✉ Send</button></td>
       <td><button class="btn-edit" onclick="event.stopPropagation();openMRDetail('${bid}','${bname}')">Detail</button></td>
     </tr>`;
   }).join('');
@@ -16147,6 +16136,161 @@ function closeMRModal(e) {
 }
 
 // ── Save tracking ──
+// ── Inline action handlers for the Consignment Report table ──
+// Helpers for the new inline-toggle UI. Each finds (or creates) the
+// settlement row for the current brand+period, mutates one field, and
+// re-renders. Shared by ① Sales Report toggle, ② Invoice upload/remove,
+// ③ Pembayaran toggle.
+
+async function _mrUpsertSettlement(brandId, patch) {
+  const r = _mrAllRows.find(x => x.brand_id === brandId);
+  if (!r) return null;
+  const trk = _mrTracking[brandId];
+  const base = {
+    brand_id: brandId,
+    brand_name: r.brand_name,
+    period: _mrPeriod,
+    date_range_from: _mrPeriod + '-01',
+    date_range_to: new Date(parseInt(_mrPeriod.split('-')[0]), parseInt(_mrPeriod.split('-')[1]), 0).toISOString().slice(0,10),
+    total_sales:  parseFloat(r.total_sales) || 0,
+    consign_fee:  parseFloat(r.total_fee)   || 0,
+    net_to_brand: parseFloat(r.net_payout)  || 0,
+    updated_at: new Date().toISOString(),
+    updated_by: currentUser,
+  };
+  const payload = { ...base, ...patch };
+  let row = trk;
+  if (trk) {
+    const { error } = await sb.from('marte_settlements').update(payload).eq('id', trk.id);
+    if (error) { alert('Gagal save: '+error.message); return null; }
+    row = { ...trk, ...payload };
+  } else {
+    payload.id = genId('MST');
+    payload.created_by = currentUser;
+    payload.created_at = new Date().toISOString();
+    const { error } = await sb.from('marte_settlements').insert(payload);
+    if (error) { alert('Gagal save: '+error.message); return null; }
+    row = payload;
+  }
+  _mrTracking[brandId] = row;
+  _mrRenderTable();
+  return row;
+}
+
+async function mrToggleReport(brandId) {
+  const trk = _mrTracking[brandId];
+  const newVal = trk?.report_sent_at ? null : new Date().toISOString();
+  await _mrUpsertSettlement(brandId, { report_sent_at: newVal });
+}
+
+async function mrTogglePayment(brandId) {
+  const trk = _mrTracking[brandId];
+  const newVal = trk?.payment_received_at ? null : new Date().toISOString();
+  await _mrUpsertSettlement(brandId, { payment_received_at: newVal });
+}
+
+async function mrUploadInvoice(brandId, inputEl) {
+  const f = inputEl?.files?.[0];
+  if (!f) return;
+  inputEl.disabled = true;
+  try {
+    const ext = (f.name.split('.').pop() || 'pdf').toLowerCase();
+    const safeName = f.name.replace(/[^a-zA-Z0-9._-]+/g,'_');
+    const path = `${_mrPeriod}/${brandId}_${Date.now()}_${safeName}`.replace(/[^a-zA-Z0-9./_-]+/g, '_');
+    const { error: upErr } = await sb.storage.from('marte-invoices').upload(path, f, { contentType: f.type, upsert: false });
+    if (upErr) throw upErr;
+    const { data: pub } = sb.storage.from('marte-invoices').getPublicUrl(path);
+    await _mrUpsertSettlement(brandId, { invoice_file_url: pub.publicUrl });
+  } catch (e) { alert('Upload gagal: '+(e.message||e)); }
+  finally { inputEl.disabled = false; inputEl.value = ''; }
+}
+
+async function mrRemoveInvoice(brandId) {
+  if (!confirm('Hapus file invoice yang sudah diupload?')) return;
+  await _mrUpsertSettlement(brandId, { invoice_file_url: null });
+}
+
+// PDF + Email actions — summary buat finance + brand
+function _mrSummaryText(brandId, brandName) {
+  const r = _mrAllRows.find(x => x.brand_id === brandId);
+  if (!r) return null;
+  const trk = _mrTracking[brandId] || {};
+  const fmt = n => 'Rp ' + Math.round(Number(n)||0).toLocaleString('id-ID');
+  return {
+    brandName,
+    period: _mrPeriod,
+    gross:    fmt(r.total_sales),
+    fee:      fmt(r.total_fee),
+    net:      fmt(r.net_payout),
+    stockQty: Math.round(r._stock_qty||0).toLocaleString('id-ID') + ' pcs',
+    invUrl:   trk.invoice_file_url || '',
+    reportSent: trk.report_sent_at,
+    paid:       trk.payment_received_at,
+  };
+}
+
+function mrDownloadPDF(brandId, brandName) {
+  const s = _mrSummaryText(brandId, brandName);
+  if (!s) { alert('Brand tidak ditemukan'); return; }
+  // Plain HTML print-to-PDF flow — opens a new window with a styled
+  // single-page summary; user picks 'Save as PDF' from the browser
+  // print dialog. No external lib needed.
+  const w = window.open('', '_blank');
+  if (!w) { alert('Pop-up diblokir browser'); return; }
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${s.brandName} · ${s.period}</title>
+    <style>
+      body{font-family:'Helvetica',sans-serif;max-width:700px;margin:40px auto;padding:0 24px;color:#111}
+      h1{font-size:22px;margin:0 0 4px} .sub{color:#666;font-size:13px;margin-bottom:24px}
+      table{width:100%;border-collapse:collapse;margin-bottom:20px}
+      td{padding:8px 10px;border-bottom:1px solid #eee;font-size:13px}
+      td.k{color:#666;width:200px} td.v{font-family:monospace;text-align:right;font-weight:600}
+      .footer{margin-top:32px;color:#999;font-size:11px;text-align:center}
+    </style></head><body>
+    <h1>${s.brandName}</h1>
+    <div class="sub">Consignment Summary · Periode ${s.period}</div>
+    <table>
+      <tr><td class="k">Gross Sales</td><td class="v">${s.gross}</td></tr>
+      <tr><td class="k">Konsinyasi Fee</td><td class="v" style="color:#b91c1c">−${s.fee}</td></tr>
+      <tr><td class="k"><b>Net Payout</b></td><td class="v" style="color:#15803d"><b>${s.net}</b></td></tr>
+      <tr><td class="k">Stock (akhir periode)</td><td class="v">${s.stockQty}</td></tr>
+      <tr><td class="k">Sales Report</td><td class="v">${s.reportSent ? '✓ Sent ' + _mrShort(s.reportSent) : 'Not Started'}</td></tr>
+      <tr><td class="k">Pembayaran</td><td class="v">${s.paid ? '✓ Paid ' + _mrShort(s.paid) : 'Not Paid'}</td></tr>
+      ${s.invUrl ? `<tr><td class="k">Invoice File</td><td class="v"><a href="${s.invUrl}">📎 Open</a></td></tr>` : ''}
+    </table>
+    <div class="footer">Generated ${new Date().toLocaleString('id-ID')}</div>
+    <script>window.onload=()=>setTimeout(()=>window.print(),300)<\/script>
+    </body></html>`);
+  w.document.close();
+}
+
+function mrSendEmail(brandId, brandName) {
+  const s = _mrSummaryText(brandId, brandName);
+  if (!s) { alert('Brand tidak ditemukan'); return; }
+  const bm = (allBMRows||[]).find(b => (b.name||'').toLowerCase().trim() === (brandName||'').toLowerCase().trim());
+  const email = bm?.email || '';
+  if (!email) {
+    if (!confirm(`Email brand belum di-set di Brand Master.\nLanjut buka draft email (tanpa to)?`)) return;
+  }
+  const subject = `Consignment Summary ${s.brandName} · ${s.period}`;
+  const body = [
+    `Halo ${s.brandName} team,`,
+    ``,
+    `Berikut summary konsinyasi periode ${s.period}:`,
+    ``,
+    `  Gross Sales     : ${s.gross}`,
+    `  Konsinyasi Fee  : -${s.fee}`,
+    `  Net Payout      : ${s.net}`,
+    `  Stock akhir     : ${s.stockQty}`,
+    ``,
+    s.invUrl ? `Invoice: ${s.invUrl}` : `(Invoice akan menyusul)`,
+    ``,
+    `Terima kasih,`,
+    `Sentra`,
+  ].join('\n');
+  const mailto = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  window.location.href = mailto;
+}
+
 async function saveMRTracking() {
   if (!_mrModal) return;
   const fb = document.getElementById('mr-f-feedback');
