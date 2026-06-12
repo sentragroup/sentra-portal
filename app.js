@@ -9720,10 +9720,12 @@ let saUserCats    = [];   // user-added category strings (collected from DB)
 let saPage        = 0;
 let saEvents      = [];   // popup_booths events for Event Ref dropdown
 
-// Trigger sync-jubelio-inventory-adjustments edge function first so the user
-// gets fresh data from Jubelio (not just a re-read of yesterday's cron).
-// Then refresh the table from the DB. Single cooldown shared with the page
-// so user can't hammer it; ~10–20s typical run.
+// Trigger BOTH sync-jubelio-inventory-adjustments + sync-jubelio-inventory in
+// parallel so the user gets fresh data from Jubelio (not just a re-read of
+// yesterday's cron). The adjustment sync alone isn't enough because the
+// 'available' column in jubelio_inventory_stocks is what the Consignment
+// Report / Inventory Check / Stock Adjustment downstream consumers read,
+// and that only refreshes via the inventory sync. ~10–20s typical run.
 let _saSyncCooldownUntil = 0;
 async function syncAndReloadSA() {
   const btn    = document.getElementById('sa-sync-btn');
@@ -9736,14 +9738,20 @@ async function syncAndReloadSA() {
     return;
   }
   if (btn) { btn.disabled = true; btn.textContent = '⟳ Syncing...'; }
-  if (status) status.textContent = 'syncing dari Jubelio...';
+  if (status) status.textContent = 'syncing adjustment + inventory dari Jubelio...';
   const t0 = Date.now();
   try {
-    const j = await callEdgeFunction('sync-jubelio-inventory-adjustments');
+    const [adjRes, invRes] = await Promise.allSettled([
+      callEdgeFunction('sync-jubelio-inventory-adjustments'),
+      callEdgeFunction('sync-jubelio-inventory'),
+    ]);
     const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
-    const note = j?.detailFetched > 0
-      ? `synced · ${j.detailFetched} record baru · ${elapsed}s`
-      : `synced · 0 record baru · ${elapsed}s`;
+    const adjOK = adjRes.status === 'fulfilled';
+    const invOK = invRes.status === 'fulfilled';
+    const newAdj = adjOK ? (adjRes.value?.detailFetched || 0) : '?';
+    const note = (adjOK && invOK)
+      ? `synced · ${newAdj} adj baru + stock fresh · ${elapsed}s`
+      : `partial · adj ${adjOK?'✓':'✗'} · inv ${invOK?'✓':'✗'} · ${elapsed}s`;
     if (status) status.textContent = note;
     _saSyncCooldownUntil = Date.now() + 60_000;  // 60s cooldown to avoid hammering Jubelio
   } catch (e) {
@@ -15788,6 +15796,45 @@ async function loadMarteTimeline() {
 }
 
 // ── Load period data ──
+// Same shape as syncAndReloadSA — pulls fresh adjustments + inventory so the
+// Net Stock column (which reads inventory_stocks.available) reflects today's
+// Jubelio state, not yesterday's cron snapshot. Net stock was missing same-
+// day adjustments before this was wired.
+let _mrSyncCooldownUntil = 0;
+async function syncAndReloadMR() {
+  const btn    = document.getElementById('mr-sync-btn');
+  const status = document.getElementById('mr-sync-status');
+  const now = Date.now();
+  if (now < _mrSyncCooldownUntil) {
+    const remaining = Math.ceil((_mrSyncCooldownUntil - now) / 1000);
+    if (status) status.textContent = `tunggu ${remaining}s`;
+    await loadMarteReport();
+    return;
+  }
+  if (btn) { btn.disabled = true; btn.textContent = '⟳ Syncing...'; }
+  if (status) status.textContent = 'syncing adjustment + inventory...';
+  const t0 = Date.now();
+  try {
+    const [adjRes, invRes] = await Promise.allSettled([
+      callEdgeFunction('sync-jubelio-inventory-adjustments'),
+      callEdgeFunction('sync-jubelio-inventory'),
+    ]);
+    const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+    const adjOK = adjRes.status === 'fulfilled';
+    const invOK = invRes.status === 'fulfilled';
+    const newAdj = adjOK ? (adjRes.value?.detailFetched || 0) : '?';
+    if (status) status.textContent = (adjOK && invOK)
+      ? `synced · ${newAdj} adj baru + stock fresh · ${elapsed}s`
+      : `partial · adj ${adjOK?'✓':'✗'} · inv ${invOK?'✓':'✗'} · ${elapsed}s`;
+    _mrSyncCooldownUntil = Date.now() + 60_000;
+  } catch (e) {
+    if (status) status.textContent = `gagal: ${e.message||e}`;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '↻ Sync Jubelio'; }
+  }
+  await loadMarteReport();
+}
+
 async function loadMarteReport() {
   const period = document.getElementById('mr-period').value;
   const fb  = document.getElementById('mr-feedback');
