@@ -16251,13 +16251,23 @@ function _mrSummaryText(brandId, brandName) {
 async function mrDownloadPDF(brandId, brandName) {
   const s = _mrSummaryText(brandId, brandName);
   if (!s) { alert('Brand tidak ditemukan'); return; }
-  const adjRow = (parseFloat(s.adjOutPer) || 0) > 0
-    ? `<tr><td class="k">Adjustment OUT (periode)</td><td class="v">${s.adjOutPer}</td></tr>` : '';
+  const r = _mrAllRows.find(x => x.brand_id === brandId);
 
-  // Fetch per-SKU breakdown (sales + inventory). Same RPCs as the detail
-  // modal — gives qty terjual & revenue per SKU plus stock movement.
-  let skuRowsHtml = '';
-  let skuFootHtml = '';
+  // Inventory summary numbers
+  const fmt = n => Math.round(Number(n)||0).toLocaleString('id-ID');
+  const totalInbound  = fmt(r?._inbound_total || 0);
+  const inboundPer    = fmt(r?._inbound_period || 0);
+  const soldPer       = fmt(r?._outbound_period || 0);
+  const totalSold     = fmt(r?._outbound_total || 0);
+  const currentStock  = fmt(r?._stock_qty || 0);
+
+  // Fetch per-SKU breakdown (sales + inventory all-time). Same RPCs as the
+  // detail modal. Sales table = SKU yang kejual periode ini. Inventory
+  // movement table = semua SKU dengan all-time totals.
+  let soldRowsHtml = '', soldFootHtml = '';
+  let invRowsHtml = '', invFootHtml = '';
+  let soldHeaderCount = '0 SKU TERJUAL · 0 PCS';
+  let invHeaderCount  = '0 SKU · 0 PCS CURRENT STOCK';
   try {
     const [year, month] = _mrPeriod.split('-').map(Number);
     const startISO = `${_mrPeriod}-01T00:00:00+07:00`;
@@ -16266,179 +16276,198 @@ async function mrDownloadPDF(brandId, brandName) {
       sb.rpc('get_marte_brand_detail',         { p_brand_id: brandId, p_start_date: startISO, p_end_date: endISO }),
       sb.rpc('get_marte_brand_inventory_sku',  { p_brand_id: brandId, p_start_date: startISO, p_end_date: endISO }),
     ]);
-    const sales = salesRes.data || [];
+    const sales = (salesRes.data || []).filter(x => (parseInt(x.total_qty)||0) > 0);
     const inv   = invRes.data   || [];
-    // Index inventory by item_code so we can fold stock + movement into the
-    // same row as the sales line.
-    const invByCode = new Map();
-    for (const r of inv) invByCode.set(r.item_code, r);
-    // Build union row set — every SKU that appears in sales OR inventory.
-    const codes = new Set([...sales.map(r=>r.item_code), ...inv.map(r=>r.item_code)]);
-    const rows = [...codes].sort().map(code => {
-      const sl = sales.find(r => r.item_code === code) || {};
-      const iv = invByCode.get(code) || {};
-      return {
-        code,
-        name:     sl.item_name || iv.item_name || '—',
-        qtySold:  parseInt(sl.total_qty || iv.outbound_period || 0) || 0,
-        revenue:  parseFloat(sl.subtotal   || 0) || 0,
-        fee:      parseFloat(sl.fee_amount || 0) || 0,
-        stockNow: parseFloat(iv.net_stock  || 0) || 0,
-      };
-    }).filter(r => r.qtySold > 0 || r.stockNow > 0); // skip rows with nothing to show
+    const fmtRp = n => 'Rp ' + Math.round(Number(n)||0).toLocaleString('id-ID');
 
-    if (rows.length) {
-      const fmtRp = n => 'Rp ' + Math.round(Number(n)||0).toLocaleString('id-ID');
-      const totQty   = rows.reduce((a,r)=>a+r.qtySold, 0);
-      const totRev   = rows.reduce((a,r)=>a+r.revenue, 0);
-      const totFee   = rows.reduce((a,r)=>a+r.fee, 0);
-      const totStock = rows.reduce((a,r)=>a+r.stockNow, 0);
-      skuRowsHtml = rows.map(r => `<tr>
-        <td class="sku-code">${r.code}</td>
-        <td class="sku-name">${r.name}</td>
-        <td class="sku-num">${r.qtySold||'—'}</td>
-        <td class="sku-num">${r.revenue?fmtRp(r.revenue):'—'}</td>
-        <td class="sku-num">${r.fee?'−'+fmtRp(r.fee):'—'}</td>
-        <td class="sku-num">${Math.round(r.stockNow).toLocaleString('id-ID')}</td>
+    // ── Table 1: Product Sold During Period ──
+    if (sales.length) {
+      const sorted = [...sales].sort((a,b) => (a.item_code||'').localeCompare(b.item_code||''));
+      const totQty = sorted.reduce((a,x)=>a+(parseInt(x.total_qty)||0), 0);
+      const totRev = sorted.reduce((a,x)=>a+(parseFloat(x.subtotal)||0), 0);
+      soldHeaderCount = `${sorted.length} SKU TERJUAL · ${totQty} PCS`;
+      soldRowsHtml = sorted.map(x => `<tr>
+        <td class="sku-code">${_escRmd(x.item_code||'')}</td>
+        <td>${_escRmd(x.item_name||'')}</td>
+        <td class="sku-num">${parseInt(x.total_qty)||0}</td>
+        <td class="sku-num">${fmtRp(x.subtotal)}</td>
       </tr>`).join('');
-      skuFootHtml = `<tr class="sku-total">
-        <td colspan="2">TOTAL</td>
-        <td class="sku-num">${totQty}</td>
-        <td class="sku-num">${fmtRp(totRev)}</td>
-        <td class="sku-num">−${fmtRp(totFee)}</td>
-        <td class="sku-num">${Math.round(totStock).toLocaleString('id-ID')}</td>
-      </tr>`;
+      soldFootHtml = `<tr><td colspan="2">TOTAL</td><td class="sku-num">${totQty}</td><td class="sku-num">${fmtRp(totRev)}</td></tr>`;
     } else {
-      skuRowsHtml = `<tr><td colspan="6" class="sku-empty">Tidak ada data SKU.</td></tr>`;
+      soldRowsHtml = `<tr><td colspan="4" class="sku-empty">Tidak ada penjualan di periode ini.</td></tr>`;
+    }
+
+    // ── Table 2: Inventory Movement (all-time) ──
+    if (inv.length) {
+      const sorted = [...inv].sort((a,b) => (a.item_code||'').localeCompare(b.item_code||''));
+      const tIn   = sorted.reduce((a,x)=>a+(parseFloat(x.inbound_total)||0), 0);
+      const tOut  = sorted.reduce((a,x)=>a+(parseFloat(x.outbound_total)||0), 0);
+      const tAdj  = sorted.reduce((a,x)=>a+(parseFloat(x.adjustment_out_total)||0), 0);
+      const tStk  = sorted.reduce((a,x)=>a+(parseFloat(x.net_stock)||0), 0);
+      invHeaderCount = `${sorted.length} SKU · ${Math.round(tStk).toLocaleString('id-ID')} PCS CURRENT STOCK`;
+      invRowsHtml = sorted.map(x => `<tr>
+        <td class="sku-code">${_escRmd(x.item_code||'')}</td>
+        <td>${_escRmd(x.item_name||'')}</td>
+        <td class="sku-num">${Math.round(x.inbound_total)||'—'}</td>
+        <td class="sku-num">${Math.round(x.outbound_total)||'—'}</td>
+        <td class="sku-num">${Math.round(x.adjustment_out_total)||'—'}</td>
+        <td class="sku-num">${Math.round(x.net_stock||0).toLocaleString('id-ID')}</td>
+      </tr>`).join('');
+      invFootHtml = `<tr><td colspan="2">TOTAL</td>
+        <td class="sku-num">${Math.round(tIn)}</td>
+        <td class="sku-num">${Math.round(tOut)}</td>
+        <td class="sku-num">${Math.round(tAdj)||'—'}</td>
+        <td class="sku-num">${Math.round(tStk).toLocaleString('id-ID')}</td></tr>`;
+    } else {
+      invRowsHtml = `<tr><td colspan="6" class="sku-empty">Tidak ada data inventory.</td></tr>`;
     }
   } catch (e) {
-    skuRowsHtml = `<tr><td colspan="6" class="sku-empty">Gagal memuat: ${e.message||e}</td></tr>`;
+    soldRowsHtml = `<tr><td colspan="4" class="sku-empty">Gagal memuat: ${_escRmd(e.message||String(e))}</td></tr>`;
+    invRowsHtml = `<tr><td colspan="6" class="sku-empty">Gagal memuat: ${_escRmd(e.message||String(e))}</td></tr>`;
   }
+
+  // Marté brand logo — absolute URL so it loads inside the new window
+  // (window.open('', '_blank') has no base URL, relative paths fail).
+  const LOGO_URL = 'https://sentragroup.github.io/sentra-portal/assets/logo-marte.png';
 
   const w = window.open('', '_blank');
   if (!w) { alert('Pop-up diblokir browser'); return; }
-  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${s.brandName} · ${s.periodLabel}</title>
+  w.document.write(`<!doctype html><html lang="id"><head><meta charset="utf-8">
+    <title>Consignment Report · ${s.brandName} · ${s.periodLabel}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400&family=Geist:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Bagel+Fat+One&family=Fredoka:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
     <style>
       :root {
-        --graphite:#0a0a0a; --concrete:#737373; --hairline:#e5e5e5;
-        --mist:#f2f2f2; --chalk:#ffffff;
-        --sans:'Geist','Inter',ui-sans-serif,system-ui,-apple-system,sans-serif;
-        --mono:'Geist Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+        --cream:#F1F0D4; --yellow:#FCEE18; --green:#06911A; --green-deep:#0C731A;
+        --blue:#0201FD; --red:#ED2024; --ink:#111111; --white:#FFFFFF;
+        --font-display:"Bagel Fat One","Fredoka",system-ui,sans-serif;
+        --font-mono:"Space Mono","JetBrains Mono",monospace;
+        --font-body:"Inter","Space Grotesk",system-ui,sans-serif;
+        --radius:20px; --border:4px;
       }
       *{box-sizing:border-box}
-      html,body{margin:0;padding:0;background:var(--chalk);color:var(--graphite);font-family:var(--sans);font-size:14px;line-height:1.43;font-feature-settings:"cv11","ss01";-webkit-font-smoothing:antialiased}
-      .page{max-width:760px;margin:0 auto;padding:80px 40px}
+      html,body{margin:0;padding:0;background:var(--cream);color:var(--ink);font-family:var(--font-body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+      .page{position:relative;max-width:820px;margin:0 auto;padding:36px 56px 80px;overflow:hidden}
+      .wedge{position:absolute;top:-120px;right:-120px;width:380px;height:380px;background:var(--yellow);transform:rotate(18deg);z-index:0;pointer-events:none}
 
-      .eyebrow{font-size:12px;letter-spacing:0;color:var(--concrete);font-weight:500;text-transform:uppercase}
-      h1{font-family:var(--sans);font-size:48px;line-height:1.1;letter-spacing:-2.4px;font-weight:600;margin:8px 0 0;color:var(--graphite)}
-      .sub{font-size:14px;color:var(--concrete);margin-top:12px;letter-spacing:-0.25px}
+      .brand-bar{display:flex;align-items:center;justify-content:space-between;padding-bottom:20px;border-bottom:3px solid var(--blue);margin-bottom:32px;position:relative;z-index:1}
+      .brand-bar img{height:32px;width:auto}
+      .brand-bar .doc-title{font-family:var(--font-mono);color:var(--blue);text-transform:uppercase;letter-spacing:0.14em;font-size:12px;font-weight:700}
 
-      /* Hairline rule — the structural element */
-      .rule{height:1px;background:var(--hairline);margin:48px 0 24px;border:0}
+      .kicker{font-family:var(--font-mono);text-transform:uppercase;letter-spacing:0.12em;color:var(--blue);font-size:12px;font-weight:700;position:relative;z-index:1}
+      h1{font-family:var(--font-display);font-weight:400;color:var(--green);font-size:88px;line-height:.95;margin:8px 0 6px;letter-spacing:-0.02em;position:relative;z-index:1}
+      .h-sub{font-family:var(--font-mono);color:var(--blue);font-size:14px;text-transform:uppercase;letter-spacing:0.08em;font-weight:700;position:relative;z-index:1;margin-bottom:40px}
 
-      .section-label{font-size:12px;color:var(--concrete);font-weight:500;text-transform:uppercase;letter-spacing:0;margin-bottom:12px}
+      .section-title{font-family:var(--font-mono);color:var(--red);text-transform:uppercase;letter-spacing:0.12em;font-weight:700;font-size:14px;line-height:1;margin:0 0 16px;position:relative;z-index:1}
+      .section-title::before{content:"★ "}
+      .page-break{break-before:page;page-break-before:always}
 
-      table{width:100%;border-collapse:collapse;margin-bottom:8px}
-      td{padding:12px 0;border-bottom:1px solid var(--hairline);font-size:14px}
-      tr:last-child td{border-bottom:0}
-      td.k{color:var(--concrete);font-weight:400}
-      td.v{font-family:var(--mono);text-align:right;color:var(--graphite);font-weight:400}
-      td.v-strong{font-family:var(--sans);text-align:right;color:var(--graphite);font-weight:600;font-size:18px;letter-spacing:-0.45px}
+      /* 5 stat blocks */
+      .stat-row{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:48px;position:relative;z-index:1}
+      .stat{background:var(--white);border:var(--border) solid var(--green-deep);border-radius:var(--radius);padding:16px 14px}
+      .stat-num{font-family:var(--font-display);color:var(--ink);font-size:40px;line-height:1;letter-spacing:-0.02em}
+      .stat-lbl{font-family:var(--font-mono);color:var(--blue);text-transform:uppercase;letter-spacing:0.06em;font-size:10px;font-weight:700;margin-top:10px;line-height:1.3}
 
-      /* Single filled accent — the "ask" block */
-      .ask{margin-top:32px;background:var(--graphite);color:var(--chalk);padding:24px;border-radius:14px}
-      .ask-eyebrow{font-size:12px;color:var(--concrete);text-transform:uppercase;letter-spacing:0;font-weight:500;margin-bottom:8px}
-      .ask-body{font-size:18px;line-height:1.5;letter-spacing:-0.45px;font-weight:500;color:var(--chalk)}
-      .ask-amount{font-family:var(--mono);font-weight:600;color:var(--chalk)}
+      /* Financial yellow panel */
+      .panel{background:var(--yellow);border:var(--border) solid var(--green-deep);border-radius:var(--radius);overflow:hidden;margin-bottom:48px;position:relative;z-index:1}
+      .panel-header{background:var(--green-deep);color:var(--white);font-family:var(--font-mono);font-weight:700;text-transform:uppercase;letter-spacing:0.1em;font-size:13px;padding:10px 20px}
+      .panel-body{padding:20px 24px}
+      .row{display:flex;justify-content:space-between;align-items:baseline;padding:10px 0;border-bottom:2px solid var(--green-deep)}
+      .row:last-child{border-bottom:0}
+      .row .k{font-family:var(--font-body);color:var(--ink);font-size:14px;font-weight:500}
+      .row .v{font-family:var(--font-mono);color:var(--ink);font-weight:700;font-size:15px}
+      .row.big .k{font-size:16px;font-weight:700}
+      .row.big .v{font-family:var(--font-display);font-size:32px;letter-spacing:-0.02em}
 
-      /* Status pills sit on their own row, hairline-bordered */
-      .pill-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
-      .pill{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border:1px solid var(--hairline);border-radius:9999px;font-size:12px;color:var(--graphite);background:var(--chalk);font-weight:500}
-      .pill .dot{width:6px;height:6px;border-radius:9999px;background:var(--graphite)}
-      .pill.muted{color:var(--concrete)}
-      .pill.muted .dot{background:var(--concrete)}
+      /* Action Required panel */
+      .action{background:var(--yellow);border:var(--border) solid var(--ink);border-radius:var(--radius);padding:24px 28px;margin-bottom:48px;position:relative;z-index:1}
+      .action-eyebrow{font-family:var(--font-mono);color:var(--red);text-transform:uppercase;letter-spacing:0.12em;font-size:12px;font-weight:700;margin-bottom:12px}
+      .action-body{font-family:var(--font-body);font-size:18px;line-height:1.5;color:var(--ink);font-weight:600}
+      .action-body .amount{color:var(--green);font-weight:700}
 
-      .meta{margin-top:48px;display:flex;justify-content:space-between;align-items:center;padding-top:16px;border-top:1px solid var(--hairline);font-size:12px;color:var(--concrete)}
-      a{color:var(--graphite);text-decoration:underline;text-underline-offset:2px}
-      .mono-small{font-family:var(--mono);font-size:12px;color:var(--concrete)}
+      /* SKU panel + table */
+      .sku-panel{background:var(--white);border:var(--border) solid var(--blue);border-radius:var(--radius);overflow:hidden;margin-bottom:48px;position:relative;z-index:1}
+      .sku-panel .panel-header{background:var(--blue);color:var(--yellow)}
+      .sku-table{width:100%;border-collapse:collapse}
+      .sku-table th{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--blue);font-weight:700;text-align:left;padding:12px 16px;border-bottom:2px solid var(--ink)}
+      .sku-table th:nth-child(n+3){text-align:right}
+      .sku-table td{padding:12px 16px;border-bottom:1px solid var(--cream);font-size:13px;vertical-align:top}
+      .sku-table .sku-code{font-family:var(--font-mono);font-weight:700;color:var(--blue);font-size:11px;white-space:nowrap}
+      .sku-table .sku-num{font-family:var(--font-mono);text-align:right;font-weight:700}
+      .sku-table tfoot td{background:var(--yellow);border-top:3px solid var(--ink);border-bottom:0;font-family:var(--font-display);font-weight:400;font-size:18px;padding:14px 16px}
+      .sku-empty{text-align:center;color:var(--green-deep);padding:24px 16px;font-style:italic;font-family:var(--font-body)}
 
-      /* Per-SKU breakdown table */
-      .sku-table{width:100%;border-collapse:collapse;font-size:13px;table-layout:auto}
-      .sku-table thead th{font-size:11px;letter-spacing:0;text-transform:uppercase;color:var(--concrete);font-weight:500;padding:8px 8px;border-bottom:1px solid var(--hairline);text-align:left}
-      .sku-table thead th:nth-child(n+3){text-align:right}
-      .sku-table tbody td{padding:10px 8px;border-bottom:1px solid var(--hairline);font-size:13px;vertical-align:top}
-      .sku-table .sku-code{font-family:var(--mono);font-size:11px;color:var(--concrete);white-space:nowrap}
-      .sku-table .sku-name{color:var(--graphite);max-width:280px}
-      .sku-table .sku-num{font-family:var(--mono);text-align:right;white-space:nowrap}
-      .sku-table .sku-total td{padding:12px 8px;border-bottom:0;border-top:1px solid var(--graphite);font-weight:600;color:var(--graphite)}
-      .sku-table .sku-total td:first-child{font-family:var(--sans);font-size:12px;text-transform:uppercase;letter-spacing:0}
-      .sku-table .sku-empty{text-align:center;color:var(--concrete);padding:24px 8px;font-style:italic}
+      /* Footer with logo */
+      .footer{display:flex;justify-content:space-between;align-items:center;padding-top:24px;border-top:3px solid var(--blue);position:relative;z-index:1}
+      .footer img{height:28px;width:auto}
+      .footer-label{font-family:var(--font-mono);color:var(--blue);text-transform:uppercase;letter-spacing:0.12em;font-size:12px;font-weight:700}
 
-      @media print{
-        .page{padding:48px 40px}
-        @page{margin:0}
-      }
+      @page{margin:0;size:A4}
+      @media print{.page{padding:32px 40px 56px}}
     </style></head><body>
     <div class="page">
-      <div class="eyebrow">Consignment Summary</div>
-      <h1>${s.brandName}</h1>
-      <div class="sub">${s.periodLabel}</div>
+      <div class="wedge"></div>
 
-      <hr class="rule">
-      <div class="section-label">Movement</div>
-      <table>
-        <tr><td class="k">Inbound (periode)</td><td class="v">${s.inboundPer}</td></tr>
-        <tr><td class="k">Terjual (periode)</td><td class="v">${s.soldPer}</td></tr>
-        ${adjRow}
-        <tr><td class="k">Terjual (all time)</td><td class="v">${s.soldAll}</td></tr>
-        <tr><td class="k">Stock now</td><td class="v">${s.stockNow}</td></tr>
-      </table>
-
-      <hr class="rule">
-      <div class="section-label">Financial</div>
-      <table>
-        <tr><td class="k">Gross Sales</td><td class="v">${s.gross}</td></tr>
-        <tr><td class="k">Konsinyasi Fee</td><td class="v">−${s.fee}</td></tr>
-        <tr><td class="k">Net Payout</td><td class="v-strong">${s.net}</td></tr>
-      </table>
-
-      <div class="ask">
-        <div class="ask-eyebrow">Action Required</div>
-        <div class="ask-body">Silahkan dari ${s.brandName} untuk mengirimkan invoice penagihan sesuai dengan nilai net payout <span class="ask-amount">${s.net}</span>.</div>
+      <div class="brand-bar">
+        <img src="${LOGO_URL}" alt="Marté" crossorigin="anonymous">
+        <div class="doc-title">Consignment Report</div>
       </div>
 
-      <hr class="rule">
-      <div class="section-label">Per Product Breakdown</div>
-      <table class="sku-table">
-        <thead><tr>
-          <th>SKU</th>
-          <th>Nama Item</th>
-          <th>Qty</th>
-          <th>Revenue</th>
-          <th>Fee</th>
-          <th>Stock Now</th>
-        </tr></thead>
-        <tbody>${skuRowsHtml}</tbody>
-        <tfoot>${skuFootHtml}</tfoot>
-      </table>
+      <div class="kicker">For Brand</div>
+      <h1>${_escRmd(s.brandName)}</h1>
+      <div class="h-sub">${_escRmd(s.periodLabel)} · Marté General Store</div>
 
-      <hr class="rule">
-      <div class="section-label">Status</div>
-      <table>
-        <tr><td class="k">Sales Report</td><td class="v">${s.reportSent ? '✓ Sent · ' + _mrShort(s.reportSent) : 'Not Started'}</td></tr>
-        <tr><td class="k">Pembayaran</td><td class="v">${s.paid ? '✓ Paid · ' + _mrShort(s.paid) : 'Not Paid'}</td></tr>
-        <tr><td class="k">Invoice File</td><td class="v">${s.invUrl ? `<a href="${s.invUrl}" target="_blank">Open ↗</a>` : '—'}</td></tr>
-      </table>
+      <h2 class="section-title">Inventory</h2>
+      <div class="stat-row">
+        <div class="stat"><div class="stat-num">${totalInbound}</div><div class="stat-lbl">Total Inbound</div></div>
+        <div class="stat"><div class="stat-num">${inboundPer}</div><div class="stat-lbl">Inbound (Periode)</div></div>
+        <div class="stat"><div class="stat-num">${soldPer}</div><div class="stat-lbl">Terjual (Periode)</div></div>
+        <div class="stat"><div class="stat-num">${totalSold}</div><div class="stat-lbl">Total Terjual</div></div>
+        <div class="stat"><div class="stat-num">${currentStock}</div><div class="stat-lbl">Current Stock</div></div>
+      </div>
 
-      <div class="meta">
-        <span>Sentra</span>
-        <span class="mono-small">Generated ${new Date().toLocaleString('id-ID')}</span>
+      <h2 class="section-title">Financial</h2>
+      <div class="panel">
+        <div class="panel-header">Period ${_escRmd(s.period)}</div>
+        <div class="panel-body">
+          <div class="row"><span class="k">Gross Sales</span><span class="v">${s.gross}</span></div>
+          <div class="row"><span class="k">Konsinyasi Fee</span><span class="v">−${s.fee}</span></div>
+          <div class="row big"><span class="k">Net Payout</span><span class="v">${s.net}</span></div>
+        </div>
+      </div>
+
+      <div class="action">
+        <div class="action-eyebrow">★ Action Required</div>
+        <div class="action-body">Silahkan dari ${_escRmd(s.brandName)} untuk mengirimkan invoice penagihan sesuai dengan nilai net payout <span class="amount">${s.net}</span>.</div>
+      </div>
+
+      <h2 class="section-title page-break">Product Sold During Period</h2>
+      <div class="sku-panel">
+        <div class="panel-header">${soldHeaderCount}</div>
+        <table class="sku-table">
+          <thead><tr><th>SKU</th><th>Nama Item</th><th>Qty</th><th>Gross Sales</th></tr></thead>
+          <tbody>${soldRowsHtml}</tbody>
+          <tfoot>${soldFootHtml}</tfoot>
+        </table>
+      </div>
+
+      <h2 class="section-title page-break">Inventory Movement (All Time)</h2>
+      <div class="sku-panel">
+        <div class="panel-header">${invHeaderCount}</div>
+        <table class="sku-table">
+          <thead><tr><th>SKU</th><th>Nama Item</th><th>Total Inbound</th><th>Total Sold</th><th>Total Adj OUT</th><th>Stock Now</th></tr></thead>
+          <tbody>${invRowsHtml}</tbody>
+          <tfoot>${invFootHtml}</tfoot>
+        </table>
+      </div>
+
+      <div class="footer">
+        <img src="${LOGO_URL}" alt="Marté" crossorigin="anonymous">
+        <span class="footer-label">Consignment Report</span>
       </div>
     </div>
-    <script>window.onload=()=>setTimeout(()=>window.print(),400)<\/script>
+    <script>window.onload=()=>setTimeout(()=>window.print(),600)<\/script>
     </body></html>`);
   w.document.close();
 }
