@@ -16210,20 +16210,39 @@ async function mrRemoveInvoice(brandId) {
   await _mrUpsertSettlement(brandId, { invoice_file_url: null });
 }
 
-// PDF + Email actions — summary buat finance + brand
+// PDF + Email actions — summary buat finance + brand. Includes both period
+// metrics (inbound/terjual selama bulan ini) AND all-time totals + current
+// stock so the brand sees the full movement picture, not just bulan ini.
 function _mrSummaryText(brandId, brandName) {
   const r = _mrAllRows.find(x => x.brand_id === brandId);
   if (!r) return null;
   const trk = _mrTracking[brandId] || {};
   const fmt = n => 'Rp ' + Math.round(Number(n)||0).toLocaleString('id-ID');
+  const pcs = n => Math.round(Number(n)||0).toLocaleString('id-ID') + ' pcs';
+  // Period label "2026-06" → "Juni 2026" — more natural in Indonesian email.
+  const monthNames = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+  let periodLabel = _mrPeriod;
+  const m = /^(\d{4})-(\d{2})$/.exec(_mrPeriod || '');
+  if (m) {
+    const mIdx = parseInt(m[2],10) - 1;
+    if (mIdx >= 0 && mIdx < 12) periodLabel = `${monthNames[mIdx]} ${m[1]}`;
+  }
   return {
     brandName,
-    period: _mrPeriod,
-    gross:    fmt(r.total_sales),
-    fee:      fmt(r.total_fee),
-    net:      fmt(r.net_payout),
-    stockQty: Math.round(r._stock_qty||0).toLocaleString('id-ID') + ' pcs',
-    invUrl:   trk.invoice_file_url || '',
+    period:     _mrPeriod,
+    periodLabel,
+    grossNum:   parseFloat(r.total_sales) || 0,
+    feeNum:     parseFloat(r.total_fee)   || 0,
+    netNum:     parseFloat(r.net_payout)  || 0,
+    gross:      fmt(r.total_sales),
+    fee:        fmt(r.total_fee),
+    net:        fmt(r.net_payout),
+    inboundPer: pcs(r._inbound_period),
+    soldPer:    pcs(r._outbound_period),
+    soldAll:    pcs(r._outbound_total),
+    stockNow:   pcs(r._stock_qty),
+    adjOutPer:  pcs(r._adj_out_period),
+    invUrl:     trk.invoice_file_url || '',
     reportSent: trk.report_sent_at,
     paid:       trk.payment_received_at,
   };
@@ -16232,31 +16251,49 @@ function _mrSummaryText(brandId, brandName) {
 function mrDownloadPDF(brandId, brandName) {
   const s = _mrSummaryText(brandId, brandName);
   if (!s) { alert('Brand tidak ditemukan'); return; }
-  // Plain HTML print-to-PDF flow — opens a new window with a styled
-  // single-page summary; user picks 'Save as PDF' from the browser
-  // print dialog. No external lib needed.
+  const adjRow = (parseFloat(s.adjOutPer) || 0) > 0
+    ? `<tr><td class="k">Adjustment OUT (periode)</td><td class="v" style="color:#a66800">${s.adjOutPer}</td></tr>` : '';
   const w = window.open('', '_blank');
   if (!w) { alert('Pop-up diblokir browser'); return; }
-  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${s.brandName} · ${s.period}</title>
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${s.brandName} · ${s.periodLabel}</title>
     <style>
       body{font-family:'Helvetica',sans-serif;max-width:700px;margin:40px auto;padding:0 24px;color:#111}
       h1{font-size:22px;margin:0 0 4px} .sub{color:#666;font-size:13px;margin-bottom:24px}
-      table{width:100%;border-collapse:collapse;margin-bottom:20px}
+      h2{font-size:13px;text-transform:uppercase;letter-spacing:0.06em;color:#555;margin:24px 0 8px;font-weight:600}
+      table{width:100%;border-collapse:collapse;margin-bottom:12px}
       td{padding:8px 10px;border-bottom:1px solid #eee;font-size:13px}
-      td.k{color:#666;width:200px} td.v{font-family:monospace;text-align:right;font-weight:600}
+      td.k{color:#666;width:240px} td.v{font-family:monospace;text-align:right;font-weight:600}
+      .note{background:#f8f5ec;padding:12px 14px;border-radius:6px;font-size:12px;margin-top:18px;line-height:1.5}
       .footer{margin-top:32px;color:#999;font-size:11px;text-align:center}
     </style></head><body>
     <h1>${s.brandName}</h1>
-    <div class="sub">Consignment Summary · Periode ${s.period}</div>
+    <div class="sub">Consignment Summary · Periode ${s.periodLabel}</div>
+
+    <h2>Movement</h2>
+    <table>
+      <tr><td class="k">Inbound (periode)</td><td class="v">${s.inboundPer}</td></tr>
+      <tr><td class="k">Terjual (periode)</td><td class="v">${s.soldPer}</td></tr>
+      ${adjRow}
+      <tr><td class="k">Terjual (all time)</td><td class="v">${s.soldAll}</td></tr>
+      <tr><td class="k">Stock now</td><td class="v">${s.stockNow}</td></tr>
+    </table>
+
+    <h2>Financial</h2>
     <table>
       <tr><td class="k">Gross Sales</td><td class="v">${s.gross}</td></tr>
       <tr><td class="k">Konsinyasi Fee</td><td class="v" style="color:#b91c1c">−${s.fee}</td></tr>
       <tr><td class="k"><b>Net Payout</b></td><td class="v" style="color:#15803d"><b>${s.net}</b></td></tr>
-      <tr><td class="k">Stock (akhir periode)</td><td class="v">${s.stockQty}</td></tr>
+    </table>
+
+    <div class="note">Silahkan dari <b>${s.brandName}</b> untuk mengirimkan invoice penagihan sesuai dengan nilai net payout <b>${s.net}</b>.</div>
+
+    <h2>Status</h2>
+    <table>
       <tr><td class="k">Sales Report</td><td class="v">${s.reportSent ? '✓ Sent ' + _mrShort(s.reportSent) : 'Not Started'}</td></tr>
       <tr><td class="k">Pembayaran</td><td class="v">${s.paid ? '✓ Paid ' + _mrShort(s.paid) : 'Not Paid'}</td></tr>
       ${s.invUrl ? `<tr><td class="k">Invoice File</td><td class="v"><a href="${s.invUrl}">📎 Open</a></td></tr>` : ''}
     </table>
+
     <div class="footer">Generated ${new Date().toLocaleString('id-ID')}</div>
     <script>window.onload=()=>setTimeout(()=>window.print(),300)<\/script>
     </body></html>`);
@@ -16271,22 +16308,36 @@ function mrSendEmail(brandId, brandName) {
   if (!email) {
     if (!confirm(`Email brand belum di-set di Brand Master.\nLanjut buka draft email (tanpa to)?`)) return;
   }
-  const subject = `Consignment Summary ${s.brandName} · ${s.period}`;
-  const body = [
+  const subject = `Consignment Summary ${s.brandName} · ${s.periodLabel}`;
+  // Column-aligned plain text — looks decent in Gmail / Outlook draft.
+  const lines = [
     `Halo ${s.brandName} team,`,
     ``,
-    `Berikut summary konsinyasi periode ${s.period}:`,
+    `Berikut summary konsinyasi periode ${s.periodLabel}:`,
     ``,
-    `  Gross Sales     : ${s.gross}`,
-    `  Konsinyasi Fee  : -${s.fee}`,
-    `  Net Payout      : ${s.net}`,
-    `  Stock akhir     : ${s.stockQty}`,
+    `Movement`,
+    `  Inbound (periode)    : ${s.inboundPer}`,
+    `  Terjual (periode)    : ${s.soldPer}`,
+  ];
+  if ((parseFloat(s.adjOutPer)||0) > 0) lines.push(`  Adjustment OUT       : ${s.adjOutPer}`);
+  lines.push(
+    `  Terjual (all time)   : ${s.soldAll}`,
+    `  Stock now            : ${s.stockNow}`,
     ``,
-    s.invUrl ? `Invoice: ${s.invUrl}` : `(Invoice akan menyusul)`,
+    `Financial`,
+    `  Gross Sales          : ${s.gross}`,
+    `  Konsinyasi Fee       : -${s.fee}`,
+    `  Net Payout           : ${s.net}`,
     ``,
+    `Silahkan dari ${s.brandName} untuk mengirimkan invoice penagihan sesuai dengan nilai net payout ${s.net}.`,
+    ``,
+  );
+  if (s.invUrl) lines.push(`Invoice (referensi): ${s.invUrl}`, ``);
+  lines.push(
     `Terima kasih,`,
     `Sentra`,
-  ].join('\n');
+  );
+  const body = lines.join('\n');
   const mailto = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   window.location.href = mailto;
 }
