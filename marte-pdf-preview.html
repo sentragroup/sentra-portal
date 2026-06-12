@@ -1,0 +1,619 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <title>Consignment Report · ATSIRI · Juni 2026</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bagel+Fat+One&family=Fredoka:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --cream:      #F1F0D4;
+      --yellow:     #FCEE18;
+      --green:      #06911A;
+      --green-deep: #0C731A;
+      --blue:       #0201FD;
+      --red:        #ED2024;
+      --ink:        #111111;
+      --white:      #FFFFFF;
+
+      --font-display: "Bagel Fat One", "Fredoka", system-ui, sans-serif;
+      --font-mono:    "Space Mono", "JetBrains Mono", monospace;
+      --font-body:    "Inter", "Space Grotesk", system-ui, sans-serif;
+
+      --radius: 20px;
+      --border: 4px;
+    }
+
+    *{ box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--cream); color: var(--ink); font-family: var(--font-body); font-size: 16px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+
+    /* Page wrapper — mimic the deck 16:9 vibe but in portrait-A4-ish flow */
+    .page {
+      position: relative;
+      max-width: 820px;
+      margin: 0 auto;
+      padding: 36px 56px 80px;
+      overflow: hidden;
+    }
+
+    /* Top brand bar — Marté logo + report title kicker */
+    .brand-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-bottom: 20px;
+      border-bottom: 3px solid var(--blue);
+      margin-bottom: 32px;
+      position: relative;
+      z-index: 1;
+    }
+    .brand-bar img {
+      height: 32px;
+      width: auto;
+    }
+    .brand-bar .doc-title {
+      font-family: var(--font-mono);
+      color: var(--blue);
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    /* Force a fresh page before big tables when printing so the panel
+       header doesn't get orphaned at the bottom of a page. */
+    .page-break {
+      break-before: page;
+      page-break-before: always;
+    }
+
+    /* Signature diagonal yellow wedge bleeding off the top-right corner. */
+    .wedge {
+      position: absolute;
+      top: -120px;
+      right: -120px;
+      width: 380px;
+      height: 380px;
+      background: var(--yellow);
+      transform: rotate(18deg);
+      z-index: 0;
+      pointer-events: none;
+    }
+
+    /* ── Header lockup ───────────────────────────────────────────── */
+    .kicker {
+      font-family: var(--font-mono);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--blue);
+      font-size: 12px;
+      font-weight: 700;
+      position: relative;
+      z-index: 1;
+    }
+    h1 {
+      font-family: var(--font-display);
+      font-weight: 400;
+      color: var(--green);
+      font-size: 88px;
+      line-height: 0.95;
+      margin: 8px 0 6px;
+      letter-spacing: -0.02em;
+      position: relative;
+      z-index: 1;
+    }
+    .h-sub {
+      font-family: var(--font-mono);
+      color: var(--blue);
+      font-size: 14px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-weight: 700;
+      position: relative;
+      z-index: 1;
+      margin-bottom: 40px;
+    }
+
+    /* ── Stat row: big number + mono label ───────────────────────── */
+    .stat-row {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 14px;
+      margin-bottom: 48px;
+      position: relative;
+      z-index: 1;
+    }
+    .stat {
+      background: var(--white);
+      border: var(--border) solid var(--green-deep);
+      border-radius: var(--radius);
+      padding: 16px 14px;
+    }
+    .stat-num {
+      font-family: var(--font-display);
+      color: var(--ink);
+      font-size: 40px;
+      line-height: 1;
+      letter-spacing: -0.02em;
+    }
+    .stat-lbl {
+      font-family: var(--font-mono);
+      color: var(--blue);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      font-size: 10px;
+      font-weight: 700;
+      margin-top: 10px;
+      line-height: 1.3;
+    }
+
+    /* ── Section title — mono red star eyebrow style ─────────────── */
+    .section-title {
+      font-family: var(--font-mono);
+      color: var(--red);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      font-weight: 700;
+      font-size: 14px;
+      line-height: 1;
+      margin: 0 0 16px;
+      position: relative;
+      z-index: 1;
+    }
+    .section-title::before { content: "★ "; }
+
+    /* ── Yellow Financial panel — the signature look ─────────────── */
+    .panel {
+      background: var(--yellow);
+      border: var(--border) solid var(--green-deep);
+      border-radius: var(--radius);
+      overflow: hidden;
+      margin-bottom: 48px;
+      position: relative;
+      z-index: 1;
+    }
+    .panel-header {
+      background: var(--green-deep);
+      color: var(--white);
+      font-family: var(--font-mono);
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      font-size: 13px;
+      padding: 10px 20px;
+    }
+    .panel-body { padding: 20px 24px; }
+    .row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding: 10px 0;
+      border-bottom: 2px solid var(--green-deep);
+    }
+    .row:last-child { border-bottom: 0; }
+    .row .k {
+      font-family: var(--font-body);
+      color: var(--ink);
+      font-size: 14px;
+      font-weight: 500;
+    }
+    .row .v {
+      font-family: var(--font-mono);
+      color: var(--ink);
+      font-weight: 700;
+      font-size: 15px;
+    }
+    .row.big .k { font-size: 16px; font-weight: 700; }
+    .row.big .v {
+      font-family: var(--font-display);
+      font-size: 32px;
+      letter-spacing: -0.02em;
+    }
+
+    /* ── Action Required — yellow panel with sticker-outlined text */
+    .action {
+      background: var(--yellow);
+      border: var(--border) solid var(--ink);
+      border-radius: var(--radius);
+      padding: 24px 28px;
+      margin-bottom: 48px;
+      position: relative;
+      z-index: 1;
+    }
+    .action-eyebrow {
+      font-family: var(--font-mono);
+      color: var(--red);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      font-size: 12px;
+      font-weight: 700;
+      margin-bottom: 12px;
+    }
+    .action-body {
+      font-family: var(--font-body);
+      font-size: 18px;
+      line-height: 1.5;
+      color: var(--ink);
+      font-weight: 600;
+    }
+    .action-body .amount { color: var(--green); font-weight: 700; }
+
+    /* ── Per-product table inside a panel with green header bar ─── */
+    .sku-panel {
+      background: var(--white);
+      border: var(--border) solid var(--blue);
+      border-radius: var(--radius);
+      overflow: hidden;
+      margin-bottom: 48px;
+      position: relative;
+      z-index: 1;
+    }
+    .sku-panel .panel-header {
+      background: var(--blue);
+      color: var(--yellow);
+    }
+    .sku-table { width: 100%; border-collapse: collapse; }
+    .sku-table th {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--blue);
+      font-weight: 700;
+      text-align: left;
+      padding: 12px 16px;
+      border-bottom: 2px solid var(--ink);
+    }
+    .sku-table th:nth-child(n+3) { text-align: right; }
+    .sku-table td {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--cream);
+      font-size: 13px;
+      vertical-align: top;
+    }
+    .sku-table .sku-code {
+      font-family: var(--font-mono);
+      font-weight: 700;
+      color: var(--blue);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    .sku-table .sku-num {
+      font-family: var(--font-mono);
+      text-align: right;
+      font-weight: 700;
+    }
+    .sku-table tfoot td {
+      background: var(--yellow);
+      border-top: 3px solid var(--ink);
+      border-bottom: 0;
+      font-family: var(--font-display);
+      font-weight: 400;
+      font-size: 18px;
+      padding: 14px 16px;
+    }
+
+    /* ── Status sticker chips ────────────────────────────────────── */
+    .stickers { display:flex; gap:12px; flex-wrap:wrap; margin-bottom: 64px; position: relative; z-index: 1; }
+    .sticker {
+      background: var(--yellow);
+      border: 3px solid var(--ink);
+      border-radius: 999px;
+      padding: 8px 18px;
+      font-family: var(--font-mono);
+      font-weight: 700;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--ink);
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .sticker.muted { background: var(--cream); border-color: var(--green-deep); color: var(--green-deep); }
+    .sticker.link { background: var(--red); color: var(--white); border-color: var(--ink); text-decoration: none; }
+    .dot { width:8px; height:8px; border-radius:9999px; background: var(--ink); display:inline-block; }
+    .muted .dot { background: var(--green-deep); }
+    .link .dot { background: var(--white); }
+
+    /* ── Footer lock-up — marté wordmark left, mono label right ── */
+    .footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-top: 24px;
+      border-top: 3px solid var(--blue);
+      position: relative;
+      z-index: 1;
+    }
+    .footer img { height: 28px; width: auto; }
+    .footer-label {
+      font-family: var(--font-mono);
+      color: var(--blue);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    /* Print: remove margins so the cream bleeds to the page edge */
+    @page { margin: 0; size: A4; }
+    @media print {
+      .page { padding: 40px 40px 56px; max-width: 100%; }
+      .wedge { display: block; }
+    }
+
+    /* Preview-only toolbar that won't be in the actual PDF */
+    .preview-bar {
+      position: fixed; top: 12px; right: 12px; z-index: 10;
+      background: var(--ink); color: var(--white);
+      font-family: var(--font-mono); font-size: 12px; padding: 8px 14px;
+      border-radius: 9999px; display:flex; gap:10px; align-items:center;
+    }
+    .preview-bar button {
+      background: var(--yellow); color: var(--ink); border: 0; border-radius: 9999px;
+      font-family: var(--font-mono); font-weight: 700; font-size: 11px; padding: 6px 12px; cursor: pointer;
+    }
+    @media print { .preview-bar { display: none; } }
+  </style>
+</head>
+<body>
+
+<div class="preview-bar">
+  <span>Preview · sample Atsiri</span>
+  <button onclick="window.print()">Print → PDF</button>
+</div>
+
+<div class="page">
+  <div class="wedge"></div>
+
+  <!-- Brand bar — logo + report name -->
+  <div class="brand-bar">
+    <img src="assets/logo-marte.png" alt="Marté">
+    <div class="doc-title">Consignment Report</div>
+  </div>
+
+  <!-- Header lockup -->
+  <div class="kicker">For Brand</div>
+  <h1>ATSIRI</h1>
+  <div class="h-sub">Juni 2026 · Marté General Store</div>
+
+  <!-- Inventory summary: 5 stat blocks -->
+  <h2 class="section-title">Inventory</h2>
+  <div class="stat-row">
+    <div class="stat">
+      <div class="stat-num">509</div>
+      <div class="stat-lbl">Total Inbound</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">0</div>
+      <div class="stat-lbl">Inbound (Periode)</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">14</div>
+      <div class="stat-lbl">Terjual (Periode)</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">388</div>
+      <div class="stat-lbl">Total Terjual</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">120</div>
+      <div class="stat-lbl">Current Stock</div>
+    </div>
+  </div>
+
+  <!-- Financial panel -->
+  <h2 class="section-title">Financial</h2>
+  <div class="panel">
+    <div class="panel-header">Period 2026-06</div>
+    <div class="panel-body">
+      <div class="row">
+        <span class="k">Gross Sales</span>
+        <span class="v">Rp 2.421.500</span>
+      </div>
+      <div class="row">
+        <span class="k">Konsinyasi Fee</span>
+        <span class="v">−Rp 484.300</span>
+      </div>
+      <div class="row big">
+        <span class="k">Net Payout</span>
+        <span class="v">Rp 1.937.200</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Action Required — the signature black-on-yellow + sticker-outlined call -->
+  <div class="action">
+    <div class="action-eyebrow">★ Action Required</div>
+    <div class="action-body">
+      Silahkan dari ATSIRI untuk mengirimkan invoice penagihan sesuai dengan nilai net payout
+      <span class="amount">Rp 1.937.200</span>.
+    </div>
+  </div>
+
+  <!-- Table 1: Product sold during period — fresh page so the header isn't orphaned -->
+  <h2 class="section-title page-break">Product Sold During Period</h2>
+  <div class="sku-panel">
+    <div class="panel-header">4 SKU TERJUAL · 14 PCS</div>
+    <table class="sku-table">
+      <thead>
+        <tr>
+          <th>SKU</th>
+          <th>Nama Item</th>
+          <th>Qty</th>
+          <th>Gross Sales</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="sku-code">1100150050</td>
+          <td>Eau de Parfum — Beksan</td>
+          <td class="sku-num">5</td>
+          <td class="sku-num">Rp 1.475.000</td>
+        </tr>
+        <tr>
+          <td class="sku-code">1100150060</td>
+          <td>Eau de Parfum — Buai</td>
+          <td class="sku-num">2</td>
+          <td class="sku-num">Rp 590.000</td>
+        </tr>
+        <tr>
+          <td class="sku-code">1100500012</td>
+          <td>Hand Sanitizer Pocket — 1963</td>
+          <td class="sku-num">4</td>
+          <td class="sku-num">Rp 180.000</td>
+        </tr>
+        <tr>
+          <td class="sku-code">1101000010</td>
+          <td>Reed Diffuser — 1963</td>
+          <td class="sku-num">3</td>
+          <td class="sku-num">Rp 176.500</td>
+        </tr>
+      </tbody>
+      <tfoot>
+        <tr>
+          <td colspan="2">TOTAL</td>
+          <td class="sku-num">14</td>
+          <td class="sku-num">Rp 2.421.500</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+
+  <!-- Table 2: Inventory movement — ALL TIME totals -->
+  <h2 class="section-title page-break">Inventory Movement (All Time)</h2>
+  <div class="sku-panel">
+    <div class="panel-header">12 SKU · 120 PCS CURRENT STOCK</div>
+    <table class="sku-table">
+      <thead>
+        <tr>
+          <th>SKU</th>
+          <th>Nama Item</th>
+          <th>Total Inbound</th>
+          <th>Total Sold</th>
+          <th>Total Adj OUT</th>
+          <th>Stock Now</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="sku-code">1100150050</td>
+          <td>Eau de Parfum — Beksan</td>
+          <td class="sku-num">40</td>
+          <td class="sku-num">25</td>
+          <td class="sku-num">—</td>
+          <td class="sku-num">15</td>
+        </tr>
+        <tr>
+          <td class="sku-code">1100150060</td>
+          <td>Eau de Parfum — Buai</td>
+          <td class="sku-num">40</td>
+          <td class="sku-num">39</td>
+          <td class="sku-num">—</td>
+          <td class="sku-num">1</td>
+        </tr>
+        <tr>
+          <td class="sku-code">1100150070</td>
+          <td>Eau de Parfum — Rayu</td>
+          <td class="sku-num">40</td>
+          <td class="sku-num">15</td>
+          <td class="sku-num">—</td>
+          <td class="sku-num">25</td>
+        </tr>
+        <tr>
+          <td class="sku-code">1100500012</td>
+          <td>Hand Sanitizer Pocket — 1963</td>
+          <td class="sku-num">25</td>
+          <td class="sku-num">19</td>
+          <td class="sku-num">—</td>
+          <td class="sku-num">6</td>
+        </tr>
+        <tr>
+          <td class="sku-code">1100500022</td>
+          <td>Hand Sanitizer Pocket — Rayu</td>
+          <td class="sku-num">30</td>
+          <td class="sku-num">27</td>
+          <td class="sku-num">—</td>
+          <td class="sku-num">3</td>
+        </tr>
+        <tr>
+          <td class="sku-code">1100500032</td>
+          <td>Hand Sanitizer Pocket — Buai</td>
+          <td class="sku-num">30</td>
+          <td class="sku-num">17</td>
+          <td class="sku-num">—</td>
+          <td class="sku-num">13</td>
+        </tr>
+        <tr>
+          <td class="sku-code">1100800011</td>
+          <td>Linen Spray — Nina</td>
+          <td class="sku-num">3</td>
+          <td class="sku-num">3</td>
+          <td class="sku-num">—</td>
+          <td class="sku-num">0</td>
+        </tr>
+        <tr>
+          <td class="sku-code">1100800021</td>
+          <td>Linen Spray — LeLa</td>
+          <td class="sku-num">5</td>
+          <td class="sku-num">2</td>
+          <td class="sku-num">1</td>
+          <td class="sku-num">2</td>
+        </tr>
+        <tr>
+          <td class="sku-code">1101000010</td>
+          <td>Reed Diffuser — 1963</td>
+          <td class="sku-num">5</td>
+          <td class="sku-num">4</td>
+          <td class="sku-num">—</td>
+          <td class="sku-num">1</td>
+        </tr>
+        <tr>
+          <td class="sku-code">1101000020</td>
+          <td>Reed Diffuser — Rayu</td>
+          <td class="sku-num">5</td>
+          <td class="sku-num">2</td>
+          <td class="sku-num">—</td>
+          <td class="sku-num">3</td>
+        </tr>
+        <tr>
+          <td class="sku-code">1101000030</td>
+          <td>Reed Diffuser — Buai</td>
+          <td class="sku-num">7</td>
+          <td class="sku-num">2</td>
+          <td class="sku-num">—</td>
+          <td class="sku-num">5</td>
+        </tr>
+        <tr>
+          <td class="sku-code">1101310001</td>
+          <td>Eau de Parfum 2015 TUKU</td>
+          <td class="sku-num">30</td>
+          <td class="sku-num">30</td>
+          <td class="sku-num">—</td>
+          <td class="sku-num">0</td>
+        </tr>
+      </tbody>
+      <tfoot>
+        <tr>
+          <td colspan="2">TOTAL</td>
+          <td class="sku-num">260</td>
+          <td class="sku-num">185</td>
+          <td class="sku-num">1</td>
+          <td class="sku-num">74</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+
+  <!-- Footer lock-up -->
+  <div class="footer">
+    <img src="assets/logo-marte.png" alt="Marté">
+    <span class="footer-label">Consignment Report</span>
+  </div>
+
+</div>
+
+</body>
+</html>
