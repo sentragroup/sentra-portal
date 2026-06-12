@@ -15801,13 +15801,20 @@ async function loadMarteReport() {
     const s   = salesMap[b.id] || { brand_id:b.id, brand_name:b.name, total_sales:0, total_fee:0, net_payout:0, others_sales:0 };
     const inv = invMap[b.id] || {};
     return { ...s, _bm_brand_type:b.brand_type||null, _bm_vat_status:b.vat_status||null,
+      // Net stock now reflects 'available' (on_hand minus reserved) — matches
+      // what user expected (e.g. Atsiri 121, not 123 on_hand).
       _stock_qty:       parseFloat(inv.net_stock)||0,
       _stock_value:     parseFloat(inv.stock_value_retail)||0,
       _inbound_period:  parseFloat(inv.inbound_period)||0,
-      // outbound_period = total_qty from sales report — single source of truth
+      // outbound_period = total_qty from sales report — sales only, no adjustment.
       _outbound_period: parseFloat(s.total_qty)||0,
       _inbound_total:   parseFloat(inv.inbound_total)||0,
-      _outbound_total:  parseFloat(inv.outbound_total)||0 };
+      // outbound_total is now SALES-ONLY (RPC was updated to split this).
+      _outbound_total:  parseFloat(inv.outbound_total)||0,
+      // Adjustment OUT (negative qty: freebies / defect / opname loss) shown
+      // as its own metric so finance can separate 'kejual' vs 'dikurangin'.
+      _adj_out_period:  parseFloat(inv.adjustment_out_period)||0,
+      _adj_out_total:   parseFloat(inv.adjustment_out_total)||0 };
   });
 
   // Stats (based on brands WITH sales only)
@@ -15879,6 +15886,7 @@ function _mrRenderTable() {
       <td style="text-align:right">${r._stock_value>0?`<span style="font-family:var(--mono);font-size:12px">${_mrRpFull(r._stock_value)}</span>`:zeroCell}</td>
       <td style="text-align:right">${fmtQty(r._inbound_period)}</td>
       <td style="text-align:right">${fmtQty(r._outbound_period)}</td>
+      <td style="text-align:right" title="Adjustment OUT (freebies / defect / opname loss)">${r._adj_out_period>0 ? `<span style="font-family:var(--mono);font-size:12px;color:#a66800">${Math.round(r._adj_out_period).toLocaleString('id-ID')}</span>` : zeroCell}</td>
       <td style="text-align:right">${hasSales ? `<span style="font-family:var(--mono);font-size:12px">${_mrRpFull(r.total_sales)}</span>` : zeroCell}</td>
       <td style="text-align:right">${hasSales ? `<span style="font-family:var(--mono);font-size:12px;color:#c05">${_mrRpFull(r.total_fee)}</span>` : zeroCell}</td>
       <td style="text-align:right">${hasSales ? `<span style="font-family:var(--mono);font-size:12px;font-weight:600">${_mrRpFull(r.net_payout)}</span>` : zeroCell}</td>
@@ -15910,8 +15918,12 @@ async function openMRDetail(brandId, brandName) {
   document.getElementById('mr-modal-stock-value').textContent  = (invRow?._stock_value||0)>0 ? _mrRpFull(invRow._stock_value) : '—';
   document.getElementById('mr-modal-inbound-total').textContent  = fmtQ(invRow?._inbound_total||0);
   document.getElementById('mr-modal-outbound-total').textContent = fmtQ(invRow?._outbound_total||0);
+  const _adjTotEl = document.getElementById('mr-modal-adj-out-total');
+  if (_adjTotEl) _adjTotEl.textContent = fmtQ(invRow?._adj_out_total||0);
   document.getElementById('mr-modal-inbound').textContent      = fmtQ(invRow?._inbound_period||0);
   document.getElementById('mr-modal-outbound').textContent     = fmtQ(invRow?._outbound_period||0);
+  const _adjPerEl = document.getElementById('mr-modal-adj-out');
+  if (_adjPerEl) _adjPerEl.textContent = fmtQ(invRow?._adj_out_period||0);
 
   // Status cards
   _mrRenderStatusCards(trkRow);
