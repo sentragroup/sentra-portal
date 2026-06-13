@@ -22096,14 +22096,30 @@ async function loadMarketingPlan() {
 
 async function _mpFetchAll() {
   try {
-    const [colsRes, mpRes] = await Promise.all([
-      sb.from('collections').select('id,collection_name,ip_related,revenue_stream,status,release_date,priority,pic').order('release_date',{ascending:false}),
+    const [colsRes, mpRes, psRes, cpRes, meRes, kolRes] = await Promise.all([
+      sb.from('collections').select('id,collection_name,ip_related,revenue_stream,status,release_date,priority,pic,mp_active').order('release_date',{ascending:false}),
       sb.from('marketing_plans').select('*'),
+      sb.from('photoshoots').select('collection_id'),
+      sb.from('content_planning').select('collection_id,content_type'),
+      sb.from('marketing_events').select('collection_id'),
+      sb.from('kol_placements').select('collection_id'),
     ]);
     _mpCols = colsRes.data || [];
     _mpRows = (mpRes.data||[]).map(mapMP);
-  } catch (e) { console.error('MP fetch failed:', e); _mpCols=[]; _mpRows=[]; }
+    // Aggregate execution counts per collection so grid can show progress
+    _mpExecCounts = {};
+    for (const c of _mpCols) _mpExecCounts[c.id] = {ps:0,video:0,content:0,me:0,kol:0};
+    (psRes.data||[]).forEach(r => { const o = _mpExecCounts[r.collection_id]; if (o) o.ps++; });
+    (cpRes.data||[]).forEach(r => {
+      const o = _mpExecCounts[r.collection_id]; if (!o) return;
+      if ((r.content_type||'').toLowerCase().includes('video')) o.video++;
+      else o.content++;
+    });
+    (meRes.data||[]).forEach(r => { const o = _mpExecCounts[r.collection_id]; if (o) o.me++; });
+    (kolRes.data||[]).forEach(r => { const o = _mpExecCounts[r.collection_id]; if (o) o.kol++; });
+  } catch (e) { console.error('MP fetch failed:', e); _mpCols=[]; _mpRows=[]; _mpExecCounts={}; }
 }
+let _mpExecCounts = {};
 
 function showMPGrid() {
   document.getElementById('mp-view-grid').style.display = '';
@@ -22132,43 +22148,102 @@ function renderMPGrid() {
   const revFil    = document.getElementById('mp-grid-rev')?.value || '';
   const q         = (document.getElementById('mp-grid-search')?.value || '').toLowerCase().trim();
   const planByCol = new Map(_mpRows.map(p => [p.collectionId, p]));
-  let rows = _mpCols.filter(c => c.status !== 'Done' || true);  // include all for now
+  // Urgency tone: enabled activities with execution entries vs total enabled
+  const urgencyTone = (executed, enabled) => {
+    if (!enabled)                  return {bg:'#e8e8e3', fg:'#666',     border:'#d6d5cc'};
+    if (executed >= enabled)       return {bg:'#daf3e0', fg:'#0a7d3a',  border:'#a7dab4'};
+    if (executed / enabled >= 0.5) return {bg:'#fef0d0', fg:'#a66800',  border:'#f1cf7a'};
+    return                                {bg:'#fde0e0', fg:'#b81d1d',  border:'#f3a8a8'};
+  };
+  let rows = _mpCols.slice();
   if (ipFil)  rows = rows.filter(c => (c.ip_related||'') === ipFil);
   if (revFil) rows = rows.filter(c => (c.revenue_stream||'') === revFil);
   if (q) rows = rows.filter(c => (c.collection_name||'').toLowerCase().includes(q) || (c.ip_related||'').toLowerCase().includes(q));
-  if (statusFil) rows = rows.filter(c => {
-    const p = planByCol.get(c.id);
-    return (p?.status||'Planning') === statusFil;
+  if (statusFil) rows = rows.filter(c => (planByCol.get(c.id)?.status||'Planning') === statusFil);
+  // Sort: active first, then upcoming launch first, then no-date last
+  rows.sort((a,b) => {
+    const aAct = a.mp_active !== false, bAct = b.mp_active !== false;
+    if (aAct !== bAct) return aAct ? -1 : 1;
+    const da = pdDaysUntil(a.release_date);
+    const db = pdDaysUntil(b.release_date);
+    if (da === null && db === null) return 0;
+    if (da === null) return 1;
+    if (db === null) return -1;
+    return da - db;
   });
   if (!rows.length) { list.innerHTML = `<div style="grid-column:1/-1;padding:32px;text-align:center;color:var(--g400);font-size:13px">Tidak ada collection cocok filter.</div>`; return; }
   list.innerHTML = rows.map(c => {
     const p = planByCol.get(c.id);
-    const activityCount = p ? [p.actPhotoshoot,p.actVideo,p.actContent,p.actActivation,p.actKol].filter(Boolean).length : 0;
-    const statusPill = {Planning:'p-draft','Approved':'p-signings','In Progress':'p-review','Done':'p-active'}[p?.status||'Planning']||'p-draft';
-    const release = c.release_date ? new Date(c.release_date+'T00:00:00') : null;
-    const today = new Date(); today.setHours(0,0,0,0);
-    const daysToRelease = release ? Math.round((release-today)/86400000) : null;
-    const launchPill = daysToRelease==null ? '' :
-      daysToRelease > 0 ? `<span class="pill p-draft" style="font-size:10px">T-${daysToRelease}d</span>` :
-      daysToRelease===0 ? `<span class="pill p-active" style="font-size:10px">Launches today</span>` :
-      `<span class="pill p-expired" style="font-size:10px">${-daysToRelease}d ago</span>`;
-    const concept = p?.concept ? `<div style="font-size:11px;color:var(--g600);font-style:italic;margin-top:6px;line-height:1.4">${p.concept.slice(0,120).replace(/</g,'&lt;')}${p.concept.length>120?'...':''}</div>` : '';
-    return `<div class="form-card" style="padding:14px;cursor:pointer;border:1px solid var(--g100);transition:border-color 0.15s" onmouseover="this.style.borderColor='#3C3489'" onmouseout="this.style.borderColor='var(--g100)'" onclick="openMPDetail('${c.id.replace(/'/g,"\\'")}')">
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:6px">
+    // Enabled activities (the 5 toggles) — only count when plan exists
+    const enabled = p ? [p.actPhotoshoot,p.actVideo,p.actContent,p.actActivation,p.actKol].filter(Boolean).length : 0;
+    // Executed = how many of the ENABLED activities have ≥1 entry in their source module
+    const xc = _mpExecCounts[c.id] || {ps:0,video:0,content:0,me:0,kol:0};
+    const executed = p
+      ? (p.actPhotoshoot&&xc.ps?1:0)+(p.actVideo&&xc.video?1:0)+(p.actContent&&xc.content?1:0)+(p.actActivation&&xc.me?1:0)+(p.actKol&&xc.kol?1:0)
+      : 0;
+    const tone = urgencyTone(executed, enabled);
+    const pct = enabled ? Math.round((executed/enabled)*100) : 0;
+    const progressLabel = !p
+      ? 'Belum ada plan'
+      : !enabled
+        ? 'Belum pilih aktivitas'
+        : `${executed}/${enabled} aktivitas jalan${enabled?` · ${pct}%`:''}`;
+    const name = (c.collection_name||c.id).replace(/</g,'&lt;');
+    const ip   = (c.ip_related||'').trim();
+    const rev  = (c.revenue_stream||'').trim();
+    const active = c.mp_active !== false;
+    const days = pdDaysUntil(c.release_date);
+    const launchTone = pdLaunchTone(days);
+    const launchDate = pdFmtLaunchDate(c.release_date);
+    const barFill = enabled ? Math.min(100, pct) : 0;
+    const barColor = enabled ? tone.fg : 'var(--g100)';
+    const progressBar = `<div style="height:4px;background:var(--g100);border-radius:2px;overflow:hidden">
+      <div style="height:100%;width:${barFill}%;background:${barColor};transition:width 0.2s"></div>
+    </div>`;
+    const revStyle = pdRevChipStyle(rev);
+    const revChip = rev
+      ? `<span style="font-size:9px;font-weight:700;font-family:var(--mono);padding:2px 8px;border-radius:99px;background:${revStyle.bg};color:${revStyle.fg};border:1px solid ${revStyle.border};white-space:nowrap">${rev.replace(/</g,'&lt;')}</span>`
+      : '';
+    const toggle = `<button onclick="event.stopPropagation();toggleMPActive('${c.id}',${active?'false':'true'})"
+      title="${active?'Tandai inactive':'Tandai active'}"
+      style="font-size:9px;font-weight:600;font-family:var(--mono);padding:2px 8px;border-radius:99px;cursor:pointer;white-space:nowrap;border:1px solid ${active?'#a7dab4':'#e0a8a8'};background:${active?'#daf3e0':'#fbe6e6'};color:${active?'#0a7d3a':'#b81d1d'}">${active?'● Active':'○ Inactive'}</button>`;
+    return `<div class="tool-card" onclick="openMPDetail('${c.id.replace(/'/g,"\\'")}')" style="cursor:pointer;padding:14px 16px;display:flex;flex-direction:column;gap:10px;height:100%;box-sizing:border-box;${active?'':'opacity:0.55'}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
         <div style="min-width:0">
-          <div style="font-size:10px;font-family:var(--mono);color:var(--g400);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:2px">${(c.ip_related||'—').replace(/</g,'&lt;')}</div>
-          <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;line-height:1.3">${(c.collection_name||'(Untitled)').replace(/</g,'&lt;')}</div>
+          ${ip
+            ? `<div style="font-size:14px;font-weight:700;color:var(--black);font-family:var(--syne,var(--sans));letter-spacing:0.3px">${ip.replace(/</g,'&lt;')}</div>`
+            : `<div style="font-size:11px;color:var(--g400);font-style:italic">No IP set</div>`}
+          <div style="font-size:12px;color:var(--g600);margin-top:2px">${name}</div>
         </div>
-        ${launchPill}
+        ${revChip}
       </div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px">
-        <span class="pill ${statusPill}" style="font-size:10px">${p?.status||'Planning'}</span>
-        ${activityCount?`<span style="font-size:10px;padding:2px 6px;background:var(--off);border-radius:3px;color:var(--g600);border:1px solid var(--g100);font-weight:500">📦 ${activityCount}/5 aktivitas</span>`:'<span style="font-size:10px;color:var(--g400);font-style:italic">belum ada aktivitas</span>'}
-        ${p?.budget?`<span style="font-size:10px;padding:2px 6px;background:var(--off);border-radius:3px;color:var(--g600);border:1px solid var(--g100);font-weight:500">💰 Rp ${Math.round(p.budget).toLocaleString('id-ID')}</span>`:''}
+      <div style="display:flex;flex-direction:column;align-items:stretch;gap:6px;margin-top:auto">
+        <span style="display:block;text-align:center;font-size:11px;font-weight:600;padding:5px 10px;border-radius:4px;font-family:var(--mono);background:${tone.bg};color:${tone.fg};border:1px solid ${tone.border};box-sizing:border-box;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${progressLabel}</span>
+        <span style="display:flex;flex-direction:column;align-items:center;gap:1px;line-height:1.25;font-size:11px;font-weight:600;padding:5px 10px;border-radius:4px;font-family:var(--mono);background:${launchTone.bg};color:${launchTone.fg};border:1px solid ${launchTone.border};box-sizing:border-box">
+          <span>📅 ${launchTone.label}</span>${launchDate?`<span style="font-weight:500;opacity:0.85">${launchDate}</span>`:''}
+        </span>
+        <div style="display:flex;justify-content:center">${toggle}</div>
       </div>
-      ${concept}
+      ${progressBar}
     </div>`;
   }).join('');
+}
+
+// Toggle MP active state — mirrors togglePDActive. Inactive sinks to bottom.
+async function toggleMPActive(collectionId, newActive) {
+  const active = newActive === true || newActive === 'true';
+  const c = _mpCols.find(x => x.id === collectionId);
+  if (c) c.mp_active = active;
+  renderMPGrid();
+  try {
+    const {error} = await sb.from('collections').update({mp_active: active}).eq('id', collectionId);
+    if (error) throw error;
+  } catch (e) {
+    console.error('toggleMPActive:', e);
+    if (c) c.mp_active = !active;
+    renderMPGrid();
+    alert('Gagal: ' + (e.message||e));
+  }
 }
 
 function openMPDetail(colId) {
@@ -22350,10 +22425,132 @@ async function _mpLoadActivitySummary(activity, cid, expanded) {
   } catch (e) { console.warn('MP activity load failed for '+activity.key, e); }
   if (countEl) countEl.textContent = rows.length ? `${rows.length} entri` : 'belum ada';
   if (bodyEl && expanded) {
-    bodyEl.innerHTML = rows.length
-      ? `<div style="font-size:11px;color:var(--g400);margin-bottom:6px">Read-only mirror — edit di modul ${activity.source}.</div>` + rows.map(fmtRow).join('')
-      : `<div style="text-align:center;padding:14px;color:var(--g400);font-size:12px">Belum ada entri ${activity.label.toLowerCase()} untuk collection ini. <a href="#${activity.moduleHref}" onclick="showPage('${activity.moduleHref}',null);return false" style="color:#3C3489;text-decoration:underline">↗ Tambah di ${activity.source.split(' module')[0]}</a></div>`;
+    const quickAddForm = `<div id="mp-qa-${activity.key}" style="display:none;background:var(--off);border:1px solid var(--g100);border-radius:6px;padding:10px 12px;margin-bottom:10px">
+      <div style="font-size:11px;color:var(--g600);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px;font-weight:600;margin-bottom:8px">+ Tambah ${activity.label}</div>
+      ${_mpQuickAddFormHTML(activity)}
+      <div style="display:flex;gap:6px;margin-top:8px">
+        <button onclick="_mpQuickAddSubmit('${activity.key}','${cid}')" style="padding:6px 14px;background:#3C3489;color:white;border:none;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600">💾 Simpan</button>
+        <button onclick="document.getElementById('mp-qa-${activity.key}').style.display='none'" style="padding:6px 14px;background:none;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-size:11px">Batal</button>
+        <div id="mp-qa-fb-${activity.key}" style="margin-left:auto;font-size:11px;align-self:center"></div>
+      </div>
+    </div>`;
+    const toolbar = `<div style="display:flex;align-items:center;gap:8px;padding-bottom:8px;margin-bottom:8px;border-bottom:1px solid var(--g100)">
+      <div style="font-size:11px;color:var(--g400)">Read-only mirror — edit lengkap di modul ${activity.source}.</div>
+      <button onclick="document.getElementById('mp-qa-${activity.key}').style.display='block'" style="margin-left:auto;padding:5px 12px;background:var(--white);border:1px solid #3C3489;color:#3C3489;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600">+ Tambah cepat</button>
+    </div>`;
+    bodyEl.innerHTML = quickAddForm + toolbar + (rows.length
+      ? rows.map(fmtRow).join('')
+      : `<div style="text-align:center;padding:14px;color:var(--g400);font-size:12px">Belum ada entri ${activity.label.toLowerCase()}. Klik <strong>+ Tambah cepat</strong> di atas atau <a href="#${activity.moduleHref}" onclick="showPage('${activity.moduleHref}',null);return false" style="color:#3C3489;text-decoration:underline">buka modul lengkap</a>.</div>`);
   }
+}
+
+// Per-activity quick-add mini form HTML. Cuma field critical — full detail
+// editing tetap di modul masing-masing.
+function _mpQuickAddFormHTML(activity) {
+  if (activity.key === 'photoshoot') {
+    return `<div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:6px">
+      <input type="text" id="mpqa-ps-name" placeholder="Nama shoot *" style="font-size:12px;padding:5px 8px">
+      <input type="date" id="mpqa-ps-date" placeholder="Tanggal" style="font-size:12px;padding:5px 8px">
+      <input type="text" id="mpqa-ps-location" placeholder="Lokasi" style="font-size:12px;padding:5px 8px">
+    </div>`;
+  } else if (activity.key === 'video' || activity.key === 'content') {
+    return `<div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:6px">
+      <input type="text" id="mpqa-${activity.key}-title" placeholder="Judul konten *" style="font-size:12px;padding:5px 8px">
+      <input type="text" id="mpqa-${activity.key}-channel" placeholder="IG/TikTok/YT..." style="font-size:12px;padding:5px 8px">
+      <input type="date" id="mpqa-${activity.key}-publish" placeholder="Publish date" style="font-size:12px;padding:5px 8px">
+      <input type="text" id="mpqa-${activity.key}-owner" placeholder="Owner" style="font-size:12px;padding:5px 8px">
+    </div>`;
+  } else if (activity.key === 'activation') {
+    return `<div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:6px">
+      <input type="text" id="mpqa-me-name" placeholder="Nama event *" style="font-size:12px;padding:5px 8px">
+      <input type="text" id="mpqa-me-type" placeholder="Type (Popup/Launch/...)" style="font-size:12px;padding:5px 8px">
+      <input type="date" id="mpqa-me-date" placeholder="Tanggal" style="font-size:12px;padding:5px 8px">
+      <input type="text" id="mpqa-me-venue" placeholder="Venue" style="font-size:12px;padding:5px 8px">
+    </div>`;
+  } else if (activity.key === 'kol') {
+    return `<div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:6px">
+      <input type="text" id="mpqa-kol-name" placeholder="Nama KOL *" style="font-size:12px;padding:5px 8px">
+      <input type="text" id="mpqa-kol-handle" placeholder="@handle" style="font-size:12px;padding:5px 8px">
+      <input type="text" id="mpqa-kol-platform" placeholder="IG/TikTok/YT" style="font-size:12px;padding:5px 8px">
+      <input type="number" id="mpqa-kol-fee" placeholder="Fee (Rp)" style="font-size:12px;padding:5px 8px">
+    </div>`;
+  }
+  return '';
+}
+
+async function _mpQuickAddSubmit(key, cid) {
+  const fb = document.getElementById(`mp-qa-fb-${key}`);
+  const setFB = (msg, ok) => { if (fb) { fb.style.color = ok?'#0a7d3a':'#c0392b'; fb.textContent = msg; } };
+  try {
+    let payload = null, table = '';
+    if (key === 'photoshoot') {
+      const name = document.getElementById('mpqa-ps-name')?.value.trim();
+      if (!name) { setFB('Nama wajib', false); return; }
+      payload = { id: genId('PS'), collection_id: cid, shoot_name: name,
+        shoot_date: document.getElementById('mpqa-ps-date')?.value || null,
+        location: document.getElementById('mpqa-ps-location')?.value || null,
+        status: 'Planning', added_by: currentUser, date_added: new Date().toISOString().slice(0,10),
+        last_updated: new Date().toISOString(), last_updated_by: currentUser };
+      table = 'photoshoots';
+    } else if (key === 'video' || key === 'content') {
+      const title = document.getElementById(`mpqa-${key}-title`)?.value.trim();
+      if (!title) { setFB('Judul wajib', false); return; }
+      payload = { id: genId('CP'), collection_id: cid, title,
+        content_type: key === 'video' ? 'Video' : 'Image',
+        channel: document.getElementById(`mpqa-${key}-channel`)?.value || null,
+        publish_date: document.getElementById(`mpqa-${key}-publish`)?.value || null,
+        owner: document.getElementById(`mpqa-${key}-owner`)?.value || null,
+        status: 'Draft', added_by: currentUser, date_added: new Date().toISOString().slice(0,10),
+        last_updated: new Date().toISOString(), last_updated_by: currentUser };
+      table = 'content_planning';
+    } else if (key === 'activation') {
+      const name = document.getElementById('mpqa-me-name')?.value.trim();
+      if (!name) { setFB('Nama wajib', false); return; }
+      payload = { id: genId('ME'), collection_id: cid, event_name: name,
+        event_type: document.getElementById('mpqa-me-type')?.value || null,
+        event_date: document.getElementById('mpqa-me-date')?.value || null,
+        venue: document.getElementById('mpqa-me-venue')?.value || null,
+        status: 'Planning', added_by: currentUser, date_added: new Date().toISOString().slice(0,10),
+        last_updated: new Date().toISOString(), last_updated_by: currentUser };
+      table = 'marketing_events';
+    } else if (key === 'kol') {
+      const name = document.getElementById('mpqa-kol-name')?.value.trim();
+      if (!name) { setFB('Nama KOL wajib', false); return; }
+      const fee = parseFloat(document.getElementById('mpqa-kol-fee')?.value);
+      payload = { id: genId('KOL'), collection_id: cid, kol_name: name,
+        handle: document.getElementById('mpqa-kol-handle')?.value || null,
+        platform: document.getElementById('mpqa-kol-platform')?.value || null,
+        fee: isNaN(fee) ? null : fee,
+        status: 'Booked', added_by: currentUser, date_added: new Date().toISOString().slice(0,10),
+        last_updated: new Date().toISOString(), last_updated_by: currentUser };
+      table = 'kol_placements';
+    }
+    if (!payload || !table) return;
+    const {error} = await sb.from(table).insert(payload);
+    if (error) throw error;
+    setFB('✓ Tersimpan', true);
+    // Refresh both the activity summary AND the exec counts cache (so grid stays right next time)
+    const activities = [
+      { key:'photoshoot',  source:'Photoshoot Planning', moduleHref:'photoshoot', label:'Photoshoot' },
+      { key:'video',       source:'Content Planning', moduleHref:'contentplan', label:'Video Production' },
+      { key:'content',     source:'Content Planning', moduleHref:'contentplan', label:'Content Production' },
+      { key:'activation',  source:'Marketing Activation', moduleHref:'mktactivation', label:'Marketing Activation' },
+      { key:'kol',         source:'KOL Management', moduleHref:'kolmgmt', label:'KOL Placement' },
+    ];
+    const act = activities.find(a => a.key === key);
+    if (act) await _mpLoadActivitySummary(act, cid, true);
+    // Hide the form
+    const form = document.getElementById(`mp-qa-${key}`);
+    if (form) setTimeout(() => { form.style.display='none'; if (fb) fb.textContent=''; }, 1500);
+    // Update grid cache
+    if (_mpExecCounts[cid]) {
+      if (key === 'photoshoot') _mpExecCounts[cid].ps++;
+      else if (key === 'video') _mpExecCounts[cid].video++;
+      else if (key === 'content') _mpExecCounts[cid].content++;
+      else if (key === 'activation') _mpExecCounts[cid].me++;
+      else if (key === 'kol') _mpExecCounts[cid].kol++;
+    }
+  } catch (e) { setFB('Gagal: ' + (e.message||e), false); }
 }
 
 function toggleMPExpand(key) {
