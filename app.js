@@ -22355,12 +22355,9 @@ function renderMPDetailBody(col, plan) {
       </div>
     </div>
     <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.3px;color:var(--g400);font-weight:600;margin-bottom:6px">📋 Logistik Campaign</div>
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
-      <div class="fg" style="margin:0"><label style="font-size:11px"><strong>Total Budget (Rp)</strong></label>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+      <div class="fg" style="margin:0"><label style="font-size:11px"><strong>Estimate Budget (Rp)</strong></label>
         <input type="number" id="mp-budget" min="0" step="1000" value="${plan.budget!=null?plan.budget:''}" placeholder="0" onblur="saveMPField('budget',this.value)" style="font-size:13px;font-family:var(--mono)">
-      </div>
-      <div class="fg" style="margin:0"><label style="font-size:11px"><strong>PIC Marketing</strong></label>
-        <input type="text" id="mp-pic" value="${esc(plan.pic)}" placeholder="Nama PIC" onblur="saveMPField('pic',this.value)" style="font-size:13px">
       </div>
       <div class="fg" style="margin:0"><label style="font-size:11px">Campaign Mulai</label>
         <input type="date" id="mp-campaign-start" value="${plan.campaignStart||''}" onchange="saveMPField('campaign_start',this.value)" style="font-size:13px">
