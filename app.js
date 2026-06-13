@@ -25409,7 +25409,7 @@ async function loadRestockProjects() {
       sb.from('restock_projects').select('*').order('date_created', {ascending:false}),
       sb.from('jubelio_purchase_orders').select('purchaseorder_id,purchaseorder_no,supplier_name,transaction_date,contact_id,is_closed,status'),
       sb.from('jubelio_purchase_bills').select('bill_id,bill_no,purchaseorder_id,is_putaway,transaction_date'),
-      sb.from('jubelio_purchase_bill_items').select('bill_id,item_id,qty'),
+      sb.from('jubelio_purchase_order_items').select('purchaseorder_id,item_id,qty'),
     ]);
     if (pRes.error) throw pRes.error;
     _rpRows = pRes.data || [];
@@ -25419,10 +25419,12 @@ async function loadRestockProjects() {
       if (!billsByPo.has(b.purchaseorder_id)) billsByPo.set(b.purchaseorder_id, []);
       billsByPo.get(b.purchaseorder_id).push(b);
     });
-    const itemsByBill = new Map();
+    // PO line items grouped by purchaseorder_id — used to count qty already ordered (in PO),
+    // which is the progress metric (NOT bill receipts / putaway).
+    const poItemsByPo = new Map();
     (billItemsRes.data||[]).forEach(it => {
-      if (!itemsByBill.has(it.bill_id)) itemsByBill.set(it.bill_id, []);
-      itemsByBill.get(it.bill_id).push(it);
+      if (!poItemsByPo.has(it.purchaseorder_id)) poItemsByPo.set(it.purchaseorder_id, []);
+      poItemsByPo.get(it.purchaseorder_id).push(it);
     });
 
     // Compute progress + render
@@ -25444,7 +25446,7 @@ async function loadRestockProjects() {
     }
 
     listEl.innerHTML = _rpRows.map(p => {
-      const progress = _rpComputeProgress(p, poById, billsByPo, itemsByBill);
+      const progress = _rpComputeProgress(p, poById, poItemsByPo);
       return _rpRenderProjectCard(p, progress);
     }).join('');
   } catch (e) {
@@ -25452,7 +25454,10 @@ async function loadRestockProjects() {
   }
 }
 
-function _rpComputeProgress(project, poById, billsByPo, itemsByBill) {
+// Progress tracks qty yang sudah masuk PO (sum dari jubelio_purchase_order_items)
+// untuk PO yang ter-link ke project ini, dibatasi hanya item_id yang ada di project.items.
+// (BUKAN qty yang sudah putaway/diterima via bill — itu metric berbeda.)
+function _rpComputeProgress(project, poById, poItemsByPo) {
   const items = Array.isArray(project.items) ? project.items : [];
   const planned = items.reduce((s, it) => s + (Number(it.qty_planned)||0), 0);
   const plannedByItemId = new Map();
@@ -25460,20 +25465,17 @@ function _rpComputeProgress(project, poById, billsByPo, itemsByBill) {
     const k = String(it.item_id);
     plannedByItemId.set(k, (plannedByItemId.get(k) || 0) + (Number(it.qty_planned)||0));
   }
-  let received = 0;
+  let inPo = 0;
   for (const poId of (project.linked_po_ids || [])) {
-    const bills = billsByPo.get(poId) || [];
-    for (const b of bills) {
-      const billItems = itemsByBill.get(b.bill_id) || [];
-      for (const bi of billItems) {
-        if (plannedByItemId.has(String(bi.item_id))) {
-          received += Number(bi.qty) || 0;
-        }
+    const poItems = poItemsByPo.get(poId) || [];
+    for (const pi of poItems) {
+      if (plannedByItemId.has(String(pi.item_id))) {
+        inPo += Number(pi.qty) || 0;
       }
     }
   }
-  const pct = planned > 0 ? Math.min(100, Math.round(received / planned * 100)) : 0;
-  return { planned, received, pct, linkedCount: (project.linked_po_ids||[]).length };
+  const pct = planned > 0 ? Math.min(100, Math.round(inPo / planned * 100)) : 0;
+  return { planned, inPo, pct, linkedCount: (project.linked_po_ids||[]).length };
 }
 
 function _rpStatusPill(status, pct) {
@@ -25513,7 +25515,7 @@ function _rpRenderProjectCard(p, progress) {
       <div style="flex:1;background:var(--g100);height:8px;border-radius:4px;overflow:hidden">
         <div style="height:100%;width:${progress.pct}%;background:${pctClr};transition:width 0.3s"></div>
       </div>
-      <div style="font-size:11px;color:var(--g600);font-family:'DM Mono',monospace;white-space:nowrap">${progress.received}/${progress.planned} pcs · ${progress.pct}%${progress.linkedCount>0?` · 🔗 ${progress.linkedCount} PO`:''}</div>
+      <div style="font-size:11px;color:var(--g600);font-family:'DM Mono',monospace;white-space:nowrap" title="Qty sudah masuk PO / qty plan">${progress.inPo}/${progress.planned} pcs · ${progress.pct}%${progress.linkedCount>0?` · 🔗 ${progress.linkedCount} PO`:''}</div>
     </div>
   </div>`;
 }
@@ -25699,24 +25701,18 @@ async function _rpUpdateProgressPanel() {
   // Re-fetch progress data (it's already cached if loadRestockProjects ran)
   const p = _rpRows.find(r => r.id === _rpCurrentId);
   if (!p) return;
-  const [poRes, billsRes, billItemsRes] = await Promise.all([
+  const [poRes, poItemsRes] = await Promise.all([
     sb.from('jubelio_purchase_orders').select('purchaseorder_id,purchaseorder_no,supplier_name,transaction_date,is_closed,status'),
-    sb.from('jubelio_purchase_bills').select('bill_id,purchaseorder_id'),
-    sb.from('jubelio_purchase_bill_items').select('bill_id,item_id,qty'),
+    sb.from('jubelio_purchase_order_items').select('purchaseorder_id,item_id,qty'),
   ]);
   const poById = new Map((poRes.data||[]).map(po => [po.purchaseorder_id, po]));
-  const billsByPo = new Map();
-  (billsRes.data||[]).forEach(b => {
-    if (!billsByPo.has(b.purchaseorder_id)) billsByPo.set(b.purchaseorder_id, []);
-    billsByPo.get(b.purchaseorder_id).push(b);
+  const poItemsByPo = new Map();
+  (poItemsRes.data||[]).forEach(it => {
+    if (!poItemsByPo.has(it.purchaseorder_id)) poItemsByPo.set(it.purchaseorder_id, []);
+    poItemsByPo.get(it.purchaseorder_id).push(it);
   });
-  const itemsByBill = new Map();
-  (billItemsRes.data||[]).forEach(it => {
-    if (!itemsByBill.has(it.bill_id)) itemsByBill.set(it.bill_id, []);
-    itemsByBill.get(it.bill_id).push(it);
-  });
-  const progress = _rpComputeProgress(p, poById, billsByPo, itemsByBill);
-  document.getElementById('rp-progress-text').textContent = `${progress.received} / ${progress.planned} pcs · ${progress.pct}%`;
+  const progress = _rpComputeProgress(p, poById, poItemsByPo);
+  document.getElementById('rp-progress-text').textContent = `${progress.inPo} / ${progress.planned} pcs sudah masuk PO · ${progress.pct}%`;
   document.getElementById('rp-progress-bar').style.width = progress.pct + '%';
   document.getElementById('rp-progress-bar').style.background = progress.pct >= 100 ? '#1e8f4e' : '#3C3489';
   // Render linked POs
@@ -26157,7 +26153,10 @@ function _rstRenderProductCard(p) {
           ${lastPOHint}
         </div>
       </div>
-      <button onclick="_rstRemoveProduct('${safeParentName}')" style="background:none;border:1px solid var(--g200);border-radius:4px;color:#c0392b;cursor:pointer;font-size:11px;padding:4px 8px;white-space:nowrap">✕</button>
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <button onclick="_rstOpenMoveSku('${safeParentName}')" title="Pindahkan / salin SKU ini ke project restock lain" style="background:none;border:1px solid var(--g200);border-radius:4px;color:#3C3489;cursor:pointer;font-size:11px;padding:4px 8px;white-space:nowrap">↗ Pindah</button>
+        <button onclick="_rstRemoveProduct('${safeParentName}')" style="background:none;border:1px solid var(--g200);border-radius:4px;color:#c0392b;cursor:pointer;font-size:11px;padding:4px 8px;white-space:nowrap">✕ Hapus</button>
+      </div>
     </div>
     <div style="overflow-x:auto">
       <table style="width:100%;border-collapse:collapse;font-size:11px">
@@ -26235,6 +26234,163 @@ function _rstRemoveProduct(parentName) {
   }
   if (typeof _rpMarkDirty === 'function') _rpMarkDirty();
   _rstRenderAddedProducts();
+}
+
+// ── Move/Copy a SKU (parent product) to another restock project ──
+// Reads the LIVE builder state for this parent (selected variants + qty + vendor + price)
+// then merges it into the target project's items[] and persists via Supabase.
+// Mode 'move'  → removes the SKU from current builder + clears its qty/vendor/price.
+// Mode 'copy'  → leaves the current builder untouched.
+//
+// Note: works even when the current project is unsaved (we don't touch current row in DB —
+// the save handler will pick up the cleaned state on next Save).
+async function _rstOpenMoveSku(parentName) {
+  if (!_rstData) return;
+  const p = _rstData.products.find(pp => pp.name === parentName);
+  if (!p) { alert('Produk tidak ditemukan di data.'); return; }
+  // Build candidate target list (other Draft/Active projects, exclude current)
+  let projects = (_rpRows || []).filter(r => r.id !== _rpCurrentId && (r.status === 'Draft' || r.status === 'Active'));
+  // Fallback: refresh _rpRows if empty
+  if (!projects.length && (!_rpRows || !_rpRows.length)) {
+    try {
+      const {data} = await sb.from('restock_projects').select('*').order('date_created', {ascending:false});
+      _rpRows = data || [];
+      projects = _rpRows.filter(r => r.id !== _rpCurrentId && (r.status === 'Draft' || r.status === 'Active'));
+    } catch(_) {}
+  }
+  // Count selected variants in current state for this parent
+  const selVariants = p.variants.filter(v => _rstSelectedItems.has(v.itemId));
+  const totalQty = selVariants.reduce((s,v) => s + (Number(_rstQtyMap[v.itemId])||0), 0);
+  if (!selVariants.length || totalQty <= 0) {
+    alert('⚠️ SKU ini belum ada variant yang dipilih + qty > 0. Centang + isi qty dulu sebelum pindah.');
+    return;
+  }
+  // Build modal
+  let modal = document.getElementById('rst-move-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'rst-move-modal';
+    modal.style.cssText = 'display:flex;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:8500;align-items:center;justify-content:center;padding:20px';
+    document.body.appendChild(modal);
+  }
+  const projOpts = projects.length
+    ? projects.map(r => `<option value="${r.id}">${(r.name||r.id).replace(/</g,'&lt;')} · ${r.status} · ${(r.items||[]).length} SKU</option>`).join('')
+    : '<option value="">(Tidak ada project lain yang Draft/Active)</option>';
+  modal.innerHTML = `<div style="background:white;border-radius:10px;max-width:480px;width:100%;box-shadow:0 12px 40px rgba(0,0,0,0.25)">
+    <div style="padding:14px 18px;border-bottom:1px solid var(--g100);display:flex;justify-content:space-between;align-items:center">
+      <div style="font-weight:700;font-size:14px">Pindahkan / Salin SKU</div>
+      <button onclick="_rstCloseMoveSku()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--g600);line-height:1">×</button>
+    </div>
+    <div style="padding:16px 18px;font-size:13px">
+      <div style="margin-bottom:12px;padding:10px 12px;background:var(--off);border:1px solid var(--g100);border-radius:6px">
+        <div style="font-weight:700;font-size:13px">${p.name.replace(/</g,'&lt;')}</div>
+        <div style="font-size:11px;color:var(--g600);margin-top:3px">${selVariants.length} variant · ${totalQty.toLocaleString('id-ID')} pcs total</div>
+      </div>
+      <label style="display:block;font-size:11px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600;margin-bottom:4px">Target Project</label>
+      <select id="rst-move-target" style="width:100%;padding:8px 10px;border:1px solid var(--g200);border-radius:6px;font-size:13px;margin-bottom:12px" ${projects.length?'':'disabled'}>${projOpts}</select>
+      <label style="display:block;font-size:11px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600;margin-bottom:4px">Aksi</label>
+      <div style="display:flex;gap:14px;font-size:13px;margin-bottom:8px">
+        <label style="display:flex;gap:6px;align-items:center;cursor:pointer">
+          <input type="radio" name="rst-move-mode" value="move" checked> Pindahkan (hapus dari sini)
+        </label>
+        <label style="display:flex;gap:6px;align-items:center;cursor:pointer">
+          <input type="radio" name="rst-move-mode" value="copy"> Salin (tetap di sini)
+        </label>
+      </div>
+      <div style="font-size:11px;color:var(--g400);margin-bottom:14px">Variant + qty + vendor + harga ikut terbawa ke project target.${_rpCurrentId?'':' Project ini belum disimpan — perubahan di-builder saja, target tetap akan ter-update di DB.'}</div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button onclick="_rstCloseMoveSku()" style="padding:8px 14px;background:white;border:1px solid var(--g200);border-radius:6px;cursor:pointer;font-size:13px">Batal</button>
+        <button onclick="_rstConfirmMoveSku('${(parentName||'').replace(/'/g,"\\'")}')" ${projects.length?'':'disabled'} style="padding:8px 14px;background:#3C3489;color:white;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;${projects.length?'':'opacity:0.4;cursor:not-allowed'}">Konfirmasi</button>
+      </div>
+    </div>
+  </div>`;
+  modal.style.display = 'flex';
+}
+
+function _rstCloseMoveSku() {
+  const m = document.getElementById('rst-move-modal');
+  if (m) m.style.display = 'none';
+}
+
+async function _rstConfirmMoveSku(parentName) {
+  if (!_rstData) return;
+  const p = _rstData.products.find(pp => pp.name === parentName);
+  if (!p) { alert('Produk tidak ditemukan.'); return; }
+  const targetId = document.getElementById('rst-move-target')?.value;
+  if (!targetId) { alert('Pilih project target dulu.'); return; }
+  const mode = (document.querySelector('input[name="rst-move-mode"]:checked')||{}).value || 'move';
+  const target = _rpRows.find(r => r.id === targetId);
+  if (!target) { alert('Project target tidak ditemukan.'); return; }
+  // Build lines for selected variants of this parent from live builder state
+  const vmId = _rstParentVendorMap[parentName] || null;
+  const price = _rstParentPriceMap[parentName] != null ? Number(_rstParentPriceMap[parentName]) : null;
+  const lines = [];
+  for (const v of p.variants) {
+    if (!_rstSelectedItems.has(v.itemId)) continue;
+    const qty = Number(_rstQtyMap[v.itemId]) || 0;
+    if (qty <= 0) continue;
+    lines.push({
+      item_id: v.itemId, item_code: v.sku, parent_name: p.name,
+      brand: p.brand, ip: p.ip, collection: p.collection,
+      size: v.size, thumbnail: v.thumbnail,
+      vendor_master_id: vmId, qty_planned: qty, price_planned: price,
+    });
+  }
+  if (!lines.length) { alert('⚠️ Tidak ada variant valid (semua qty 0).'); return; }
+  // Merge into target.items — if same item_id already exists in target, replace with new line
+  // (avoids double-counting + lets user override vendor/price by re-moving).
+  const existing = Array.isArray(target.items) ? target.items.slice() : [];
+  const newItemIds = new Set(lines.map(l => String(l.item_id)));
+  const filtered = existing.filter(it => !newItemIds.has(String(it.item_id)));
+  const mergedItems = filtered.concat(lines);
+  try {
+    const {error} = await sb.from('restock_projects').update({
+      items: mergedItems,
+      last_updated: new Date().toISOString(),
+      last_updated_by: currentUser,
+    }).eq('id', targetId);
+    if (error) throw error;
+    target.items = mergedItems; // update local cache
+  } catch (e) {
+    alert('❌ Gagal update project target: ' + (e.message||e));
+    return;
+  }
+  // If mode = move, clear from current builder state
+  if (mode === 'move') {
+    _rstAddedProducts.delete(parentName);
+    delete _rstParentVendorMap[parentName];
+    delete _rstParentPriceMap[parentName];
+    for (const v of p.variants) {
+      _rstSelectedItems.delete(v.itemId);
+      delete _rstQtyMap[v.itemId];
+    }
+    if (typeof _rpMarkDirty === 'function') _rpMarkDirty();
+    _rstRenderAddedProducts();
+  }
+  _rstCloseMoveSku();
+  const verb = mode === 'move' ? 'Dipindahkan' : 'Disalin';
+  _rpFlashMessage(`✓ ${verb} ke "${target.name||target.id}" · ${lines.length} variant`, 'ok');
+  // If we moved, current builder must be persisted so the SKU removal sticks.
+  // Auto-save current project if it exists (silently, no activate change).
+  if (mode === 'move' && _rpCurrentId) {
+    try {
+      const itemsPayload = _rstCollectSelectedLines().map(l => ({
+        item_id: l.itemId, item_code: l.sku, parent_name: l.parentName,
+        brand: l.brand, ip: l.ip, collection: l.collection,
+        size: l.size, thumbnail: l.thumbnail,
+        vendor_master_id: l.vmId, qty_planned: l.qty, price_planned: l.price,
+      }));
+      await sb.from('restock_projects').update({
+        items: itemsPayload,
+        last_updated: new Date().toISOString(),
+        last_updated_by: currentUser,
+      }).eq('id', _rpCurrentId);
+      _rpDirty = false;
+    } catch (e) {
+      console.warn('Auto-save current project after move failed:', e);
+      // Non-fatal — user can save manually.
+    }
+  }
 }
 
 function _rstToggleVariant(itemId, checked) {
