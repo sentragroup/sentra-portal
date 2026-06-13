@@ -6387,19 +6387,12 @@ function renderColDetail(col, items) {
 
 
   // ── Sampling rows ──
-  const samplingContent=items.length?`
-    <table style="width:100%">
-      <thead><tr style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">
-        <th style="padding:6px 10px;text-align:left">SKU</th>
-        <th style="padding:6px 10px;text-align:left">Status</th>
-        <th style="padding:6px 10px;text-align:left">Notes</th>
-      </tr></thead>
-      <tbody>${items.map(i=>`<tr style="border-top:1px solid var(--g100)">
-        <td style="padding:8px 10px"><strong style="font-size:13px">${i.skuName}</strong>${i.category?` <span class="pill p-signings" style="font-size:9px">${i.category}</span>`:""}</td>
-        <td style="padding:8px 10px">${cdSkuStatusSelect(i.id,col.id,"sampling",i.samplingStatus)}</td>
-        <td style="padding:8px 10px"><input type="text" value="${(i.samplingNotes||"").replace(/"/g,"&quot;")}" placeholder="Notes..." style="font-size:11px;padding:3px 8px;border:1px solid var(--g100);border-radius:4px;width:100%;min-width:140px" onblur="saveSkuStageNote('${i.id}','${col.id}','sampling',this.value)"></td>
-      </tr>`).join("")}</tbody>
-    </table>`:`<div style="color:var(--g400);font-size:12px">Belum ada SKU.</div>`;
+  // Sampling section: summary from the NEW Sampling module (sampling_skus +
+  // sampling_versions + sampling_images + sampling_annotations). Body is
+  // fetched async after render — see _cdLoadSamplingSummary().
+  const samplingContent = items.length
+    ? `<div id="col-sampling-body-${col.id}" style="font-size:12px"><div style="padding:14px;color:var(--g400);font-size:11px;text-align:center">Memuat sampling...</div></div>`
+    : `<div style="color:var(--g400);font-size:12px">Belum ada SKU.</div>`;
 
   // ── Production: PO cards ──
   const productionContent=renderColPOCards(col.id);
@@ -6508,22 +6501,11 @@ function renderColDetail(col, items) {
 
         <!-- ─────────── 🛠 DELIVERY TAB ─────────── -->
         <div id="cd-tab-delivery-${col.id}" class="cd-tab-content" style="display:none">
-        <!-- Sampling -->
+        <!-- Sampling — mirror from the dedicated Sampling module -->
         ${cdStageBox("🧵","Sampling",`
-          ${cdStageBadge(items.length?items.every(i=>i.samplingStatus==="Done")?"Done":items.some(i=>i.samplingStatus!=="Not Started")?"In Progress":"Not Started":"Not Started",`col-sampling-badge-${col.id}`)}
-          <div id="sl-disp-${col.id}" style="display:inline-flex;align-items:center;gap:4px;margin-left:4px">
-            ${col.samplingDriveUrl
-              ?`<a href="${col.samplingDriveUrl}" target="_blank" style="font-size:11px;color:#3C3489;text-decoration:none;font-family:'DM Mono',monospace">↗ Drive</a>
-                <button class="btn-icon" style="font-size:10px" onclick="openSamplingLink('${col.id}')">✏</button>`
-              :`<button class="btn-icon" style="font-size:10px" onclick="openSamplingLink('${col.id}')">+ Drive</button>`}
-          </div>
-          <div id="sl-edit-${col.id}" style="display:none;align-items:center;gap:4px;margin-left:4px">
-            <input type="url" id="sl-inp-${col.id}" value="${(col.samplingDriveUrl||"").replace(/"/g,"&quot;")}"
-              placeholder="https://drive.google.com/..."
-              style="font-size:11px;padding:2px 6px;border:1px solid var(--g200);border-radius:4px;width:200px"
-              onblur="saveSamplingLink('${col.id}',this.value)"
-              onkeydown="if(event.key==='Enter')this.blur();if(event.key==='Escape'){document.getElementById('sl-edit-${col.id}').style.display='none';document.getElementById('sl-disp-${col.id}').style.display='inline-flex';}">
-          </div>`,samplingContent)}
+          <span id="col-sampling-badge-${col.id}" style="font-family:var(--mono);font-size:10px;color:var(--g400);margin-left:auto">Memuat...</span>
+          <a href="#sampling/${col.id}" onclick="cdOpenInSampling('${col.id}');return false" style="font-family:var(--mono);font-size:11px;color:#3C3489;text-decoration:none;margin-left:10px">↗ Open in Sampling</a>`,
+          samplingContent)}
         <!-- Product Development (loops from PD module) -->
         ${cdStageBox("🧪","Product Development",
           `<span id="col-pd-badge-${col.id}" style="font-family:var(--mono);font-size:10px;color:var(--g400);margin-left:auto">Memuat...</span>
@@ -6616,6 +6598,117 @@ function renderColDetail(col, items) {
   loadColSalesMonitor(col);
   // Load Product Development data for the Delivery tab
   loadColPDSection(col);
+  // Load Sampling summary (mirror from the dedicated Sampling module)
+  loadColSamplingSection(col);
+}
+
+// ── Sampling section inside Collection Detail (Delivery tab) ──
+// Mirrors the data shape of the Sampling module so Collection Dev stays in
+// sync with whatever the sampling team is doing — per-SKU status pill,
+// version count, photo count, open-comment count, latest sample thumbnail.
+async function loadColSamplingSection(col) {
+  const body  = document.getElementById(`col-sampling-body-${col.id}`);
+  const badge = document.getElementById(`col-sampling-badge-${col.id}`);
+  if (!body) return;
+  const items = allColItems.filter(i => i.collectionId === col.id);
+  if (!items.length) {
+    if (badge) badge.textContent = 'No SKU';
+    body.innerHTML = `<div style="color:var(--g400);font-size:12px;padding:8px">Belum ada SKU.</div>`;
+    return;
+  }
+  const itemIds = items.map(i => i.id);
+  try {
+    const { data: skus } = await sb.from('sampling_skus').select('id,collection_item_id,status,expected_date,notes').in('collection_item_id', itemIds);
+    const skuByItem = new Map(); (skus||[]).forEach(s => skuByItem.set(s.collection_item_id, s));
+    const skuIds = (skus||[]).map(s => s.id);
+    let versions = [], images = [], annotations = [];
+    if (skuIds.length) {
+      const vr = await sb.from('sampling_versions').select('id,sampling_sku_id,version_no').in('sampling_sku_id', skuIds);
+      versions = vr.data || [];
+      const vIds = versions.map(v => v.id);
+      if (vIds.length) {
+        const ir = await sb.from('sampling_images').select('id,version_id,image_url,position').in('version_id', vIds).order('position');
+        images = ir.data || [];
+        const iIds = images.map(im => im.id);
+        if (iIds.length) {
+          const ar = await sb.from('sampling_annotations').select('id,image_id,status,parent_id').in('image_id', iIds);
+          annotations = ar.data || [];
+        }
+      }
+    }
+    const versionsBySku = new Map();
+    versions.forEach(v => { const arr = versionsBySku.get(v.sampling_sku_id) || []; arr.push(v); versionsBySku.set(v.sampling_sku_id, arr); });
+    const imagesByVer = new Map();
+    images.forEach(im => { const arr = imagesByVer.get(im.version_id) || []; arr.push(im); imagesByVer.set(im.version_id, arr); });
+    const annosByImg = new Map();
+    annotations.forEach(a => { const arr = annosByImg.get(a.image_id) || []; arr.push(a); annosByImg.set(a.image_id, arr); });
+
+    // Per-row rendering
+    let approved = 0, inProgress = 0;
+    const rowsHtml = items.map(it => {
+      const samp = skuByItem.get(it.id);
+      const status = samp?.status || 'Pending';
+      if (status === 'Approved') approved++;
+      else if (status === 'In Progress') inProgress++;
+      const vers = samp ? (versionsBySku.get(samp.id) || []) : [];
+      let totalImgs = 0, openComments = 0, latestThumb = null, latestVer = 0;
+      for (const v of vers) {
+        const imgs = imagesByVer.get(v.id) || [];
+        totalImgs += imgs.length;
+        for (const im of imgs) {
+          const annos = annosByImg.get(im.id) || [];
+          openComments += annos.filter(a => a.status === 'Open').length;
+          if (v.version_no >= latestVer) { latestVer = v.version_no; if (im.image_url) latestThumb = im.image_url; }
+        }
+      }
+      const statusClr = {Pending:'p-draft','In Progress':'p-review',Approved:'p-active',Rejected:'p-expired'}[status] || 'p-draft';
+      const thumb = latestThumb
+        ? `<img src="${latestThumb}" style="width:32px;height:32px;object-fit:cover;border-radius:4px;border:1px solid var(--g100);flex-shrink:0">`
+        : `<div style="width:32px;height:32px;background:var(--off);border-radius:4px;border:1px solid var(--g100);flex-shrink:0"></div>`;
+      const skuEsc = String(it.skuName||'—').replace(/</g,'&lt;');
+      const proper = it.skuProper ? `<div style="font-size:10px;color:var(--g400);font-family:var(--mono)">${String(it.skuProper).replace(/</g,'&lt;')}</div>` : '';
+      return `<tr style="border-top:1px solid var(--g100)">
+        <td style="padding:8px 10px;vertical-align:middle">
+          <div style="display:flex;align-items:center;gap:8px">${thumb}<div><div style="font-size:13px;font-weight:600">${skuEsc}</div>${proper}</div></div>
+        </td>
+        <td style="padding:8px 10px;vertical-align:middle"><span class="pill ${statusClr}" style="font-size:10px">${status}</span></td>
+        <td style="padding:8px 10px;vertical-align:middle;font-family:var(--mono);font-size:11px;color:var(--g600)">${vers.length ? `${vers.length} version${vers.length===1?'':'s'}` : '—'}</td>
+        <td style="padding:8px 10px;vertical-align:middle;font-family:var(--mono);font-size:11px;color:var(--g600)">${totalImgs ? `${totalImgs} foto${openComments?` · <span style="color:#c33">${openComments} open</span>`:''}` : '—'}</td>
+        <td style="padding:8px 10px;vertical-align:middle;font-size:11px;color:var(--g600)">${samp?.expected_date || '—'}</td>
+      </tr>`;
+    }).join('');
+    const pct = items.length ? Math.round(approved/items.length*100) : 0;
+    if (badge) badge.textContent = `${approved}/${items.length} approved · ${pct}%`;
+    body.innerHTML = `<div style="background:var(--off);padding:8px 12px;font-size:11px;color:var(--g600);font-family:var(--mono);display:flex;gap:14px;flex-wrap:wrap">
+        <span><b>${approved}</b> approved</span>
+        <span><b>${inProgress}</b> in progress</span>
+        <span><b>${items.length - approved - inProgress}</b> pending</span>
+      </div>
+      <table style="width:100%">
+        <thead><tr style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);background:var(--white)">
+          <th style="padding:6px 10px;text-align:left">SKU</th>
+          <th style="padding:6px 10px;text-align:left">Status</th>
+          <th style="padding:6px 10px;text-align:left">Versions</th>
+          <th style="padding:6px 10px;text-align:left">Photos</th>
+          <th style="padding:6px 10px;text-align:left">Expected</th>
+        </tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>`;
+  } catch (e) {
+    body.innerHTML = `<div style="color:#c33;font-size:11px;padding:8px">Gagal load sampling: ${(e.message||e).replace(/</g,'&lt;')}</div>`;
+  }
+}
+
+// Navigate to Sampling module and open this collection's detail. Used by
+// the '↗ Open in Sampling' link inside Collection Dev.
+async function cdOpenInSampling(colId) {
+  showPage('sampling', null);
+  // Wait for loadSampling to populate allSmpCollections (max 3s).
+  for (let i = 0; i < 30; i++) {
+    if (typeof allSmpCollections !== 'undefined' && allSmpCollections.length) break;
+    await new Promise(r => setTimeout(r, 100));
+  }
+  if (typeof openSmpDetail === 'function') openSmpDetail(colId);
 }
 
 const SIZE_ORDER = ['XS','S','M','L','XL','XXL','XXXL','XXXXL','4XL','5XL','FREE SIZE','FREE'];
