@@ -18606,11 +18606,23 @@ async function _pdLoadDesignMirror(cid) {
   body.innerHTML = `<div style="padding:14px;text-align:center;color:var(--g400);font-size:11px">Memuat...</div>`;
   try {
     const {data, error} = await sb.from('collection_items')
-      .select('id,sku_name,designer,approval_status,design_preview_url,deadline,category,qty,srp')
+      .select('id,sku_name,designer,approval_status,design_preview_url,deadline,category,qty,srp,is_freebie')
       .eq('collection_id', cid)
       .order('sku_name', {ascending:true,nullsFirst:false});
     if (error) throw error;
     _pdDesignRows = data || [];
+    // Hydrate components per CI so PD parent card can show 📎 badge w/o re-querying
+    const ciIds = _pdDesignRows.map(r => r.id);
+    if (ciIds.length) {
+      const {data: comps} = await sb.from('collection_item_components')
+        .select('collection_item_id,name,qty_per_unit,notes').in('collection_item_id', ciIds);
+      const byCi = new Map();
+      (comps||[]).forEach(c => {
+        const arr = byCi.get(c.collection_item_id) || [];
+        arr.push(c); byCi.set(c.collection_item_id, arr);
+      });
+      _pdDesignRows.forEach(r => { r._components = byCi.get(r.id) || []; });
+    }
     _pdRenderDesignMirror();
     if (cnt) cnt.textContent = `${_pdDesignRows.length} SKU`;
     // Mirror finished loading after the cards already rendered with empty
@@ -18723,9 +18735,18 @@ function _pdUseDesign(ciId) {
   const dispName = d.sku_name || '';
   const nameInp = document.getElementById('pd-sku-name');
   if (nameInp) nameInp.value = dispName;
-  // Auto-prefill SRP from collection_items so production team doesn't need to retype it
+  // Auto-prefill SRP from collection_items + lock — Collection Dev is now the
+  // source of truth for SRP, so PD shouldn't let user override silently.
   const srpInp = document.getElementById('pd-srp');
-  if (srpInp && d.srp != null) srpInp.value = d.srp;
+  if (srpInp && d.srp != null) {
+    srpInp.value = d.srp;
+    srpInp.readOnly = true;
+    srpInp.style.background = '#eef0f8';
+    const srcBadge = document.getElementById('pd-srp-source');
+    const hint     = document.getElementById('pd-srp-hint');
+    if (srcBadge) srcBadge.style.display = 'inline-block';
+    if (hint)     hint.style.display     = 'block';
+  }
   // Reuse existing hidden inputs — they map straight onto product_dev.design_* fields
   document.getElementById('pd-design-workflow-id').value = ''; // unused for CI source
   document.getElementById('pd-design-url').value         = d.design_preview_url || '';
@@ -18748,6 +18769,50 @@ function _pdUseDesign(ciId) {
   updatePDCodePreview();
   // Scroll to the form so user sees prefilled
   document.getElementById('pd-add-card')?.scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+// Auto-sync SRP field with the matching collection_items row when user picks
+// or types a SKU name in the add form. Locks the field + shows hint so BM
+// doesn't bother typing it twice (the source of truth is Collection Dev).
+function _pdSyncSrpFromCD() {
+  const nameInp  = document.getElementById('pd-sku-name');
+  const srpInp   = document.getElementById('pd-srp');
+  const srcBadge = document.getElementById('pd-srp-source');
+  const hint     = document.getElementById('pd-srp-hint');
+  if (!nameInp || !srpInp) return;
+  const name = nameInp.value.trim().toLowerCase();
+  if (!name || !Array.isArray(_pdDesignRows)) {
+    srpInp.readOnly = false; srpInp.style.background = '';
+    if (srcBadge) srcBadge.style.display = 'none';
+    if (hint) hint.style.display = 'none';
+    return;
+  }
+  const match = _pdDesignRows.find(r => (r.sku_name||'').trim().toLowerCase() === name);
+  if (match && match.srp != null) {
+    srpInp.value = match.srp;
+    srpInp.readOnly = true;
+    srpInp.style.background = '#eef0f8';
+    if (srcBadge) srcBadge.style.display = 'inline-block';
+    if (hint)     hint.style.display     = 'block';
+  } else {
+    srpInp.readOnly = false; srpInp.style.background = '';
+    if (srcBadge) srcBadge.style.display = 'none';
+    if (hint)     hint.style.display     = 'none';
+  }
+}
+
+// Escape hatch: allow manual SRP override even when CI linked. Used rarely
+// (e.g. one-off promo) — under normal flow BM edits SRP in Collection Dev.
+function _pdOverrideSrp() {
+  const srpInp = document.getElementById('pd-srp');
+  const hint   = document.getElementById('pd-srp-hint');
+  const src    = document.getElementById('pd-srp-source');
+  if (!srpInp) return;
+  srpInp.readOnly = false;
+  srpInp.style.background = '';
+  if (hint) hint.style.display = 'none';
+  if (src)  src.style.display  = 'none';
+  srpInp.focus();
 }
 
 function _pdClearDesignLink() {
@@ -19115,12 +19180,16 @@ function _pdResolveParentDesign(p) {
 }
 
 // Resolve a parent SKU's business target reference from collection_items.
-// Returns {qtyTarget, srpTarget} when this PD parent is linked to a CI row.
+// Returns {qtyTarget, srpTarget, isFreebie, components} when this PD parent
+// is linked to a CI row. Freebie + components are propagated for badge display.
 function _pdResolveParentBusiness(p) {
   if (!p?.collectionItemId || !Array.isArray(_pdDesignRows)) return null;
   const ci = _pdDesignRows.find(r => r.id === p.collectionItemId);
   if (!ci) return null;
-  return { qtyTarget: ci.qty || null, srpTarget: ci.srp || null };
+  return {
+    qtyTarget: ci.qty || null, srpTarget: ci.srp || null,
+    isFreebie: !!ci.is_freebie, components: ci._components || [],
+  };
 }
 
 function renderPDParentCard(p, allChildren) {
@@ -19137,9 +19206,21 @@ function renderPDParentCard(p, allChildren) {
   const designChip = dz?.url
     ? `<a href="${dz.url.replace(/"/g,'&quot;')}" target="_blank" title="${(dz.designer||'').replace(/"/g,'&quot;')} · ${(dz.status||'').replace(/"/g,'&quot;')}" style="font-size:10px;padding:2px 6px;background:#eef0f8;border-radius:3px;color:#3C3489;border:1px solid #3C3489;font-weight:500;text-decoration:none;display:inline-flex;align-items:center;gap:3px">🎨 Design${dz.designer?` · ${dz.designer.replace(/</g,'&lt;')}`:''}</a>`
     : '';
+  // Freebie + sub-components badges inherited from Collection Dev — production team
+  // needs to see "this is a giveaway" / "this product has a packaging" at a glance.
+  const _biz = _pdResolveParentBusiness(p);
+  const freebieBadge = _biz?.isFreebie
+    ? `<span style="font-size:10px;padding:2px 6px;background:#dff0d8;color:#2d6f2a;border-radius:3px;border:1px solid #b8d9b3;font-weight:600" title="Freebie / giveaway dari Collection Dev — qty tetap diproduksi tapi tidak masuk sales target.">🎁 Freebie</span>`
+    : '';
+  const _comps = _biz?.components || [];
+  const compBadge = _comps.length
+    ? `<span style="font-size:10px;padding:2px 6px;background:#ede8ff;color:#3C3489;border-radius:3px;border:1px solid #c9bdf0;font-weight:600" title="${_comps.length} komponen tambahan: ${_comps.map(c=>c.name).join(', ').replace(/"/g,'&quot;')}">📎 ${_comps.length} Komp</span>`
+    : '';
   const pills = [
     subs.length        ? `<span style="font-size:10px;padding:2px 6px;background:var(--white);border-radius:3px;color:var(--g600);border:1px solid var(--g100);font-weight:500">${subs.length} variant${subs.length===1?'':'s'}</span>` : '',
     bundleItems.length ? `<span style="font-size:10px;padding:2px 6px;background:var(--white);border-radius:3px;color:var(--g600);border:1px solid var(--g100);font-weight:500">📦 ${bundleItems.length} bundle item${bundleItems.length===1?'':'s'}</span>` : '',
+    freebieBadge,
+    compBadge,
     designChip,
   ].filter(Boolean).join(' ');
   const ratioPill = ratio ? `<span class="pill ${ratio>=2.5?'p-active':(ratio>=1.8?'p-review':'p-near')}" style="font-size:10px">${ratio.toFixed(2)}×</span>` : '<span style="color:var(--g400);font-size:11px">—</span>';
@@ -19193,9 +19274,12 @@ function renderPDParentCard(p, allChildren) {
       </div>
       ${(() => {
         const biz = _pdResolveParentBusiness(p);
-        // SRP: prefer the explicit value saved on PD; fall back to Business target from CI
-        const effectiveSrp = p.srp || biz?.srpTarget || null;
-        const srpFromBiz = !p.srp && biz?.srpTarget;
+        // SRP semantics changed: when this PD parent is linked to a CI row,
+        // CI's SRP is the source of truth (BM already set it in Collection Dev).
+        // Only fall back to PD's local srp when no CI link exists (legacy rows).
+        const linkedSrp = biz?.srpTarget != null ? biz.srpTarget : null;
+        const effectiveSrp = linkedSrp != null ? linkedSrp : (p.srp || null);
+        const srpFromBiz = linkedSrp != null;
         // Target qty: only meaningful when CI has it set
         const qtyTarget = biz?.qtyTarget || null;
         const plannedQty = totalQty || 0;
@@ -19207,7 +19291,7 @@ function renderPDParentCard(p, allChildren) {
         return `<div style="display:flex;flex-wrap:wrap;gap:16px;font-size:12px;color:var(--g600)">
           <span>Vendor: <b style="color:var(--black)">${vendorTxt.replace(/</g,'&lt;')}</b></span>
           <span>HPP/unit: <span class="mono"><b style="color:var(--black)">${proj.unitCost?pdFmtIDR(Math.round(proj.unitCost)):'—'}</b></span></span>
-          <span title="${srpFromBiz?'Diambil dari target SRP di Business tab Collection Dev':'Tersimpan di PD'}">SRP: <span class="mono"><b style="color:var(--black)">${effectiveSrp?pdFmtIDR(effectiveSrp):'—'}</b></span>${srpFromBiz?' <span style="font-size:9px;color:#3C3489;background:#eef0f8;padding:1px 5px;border-radius:3px;margin-left:3px">from Biz</span>':''}</span>
+          <span title="${srpFromBiz?'Inherited dari SRP di Collection Dev (Business tab). Edit di sana.':'Manual SRP di PD (tidak ter-link ke Collection Dev).'}">SRP: <span class="mono"><b style="color:var(--black)">${effectiveSrp?pdFmtIDR(effectiveSrp):'—'}</b></span>${srpFromBiz?' <span style="font-size:9px;color:#3C3489;background:#eef0f8;padding:1px 5px;border-radius:3px;margin-left:3px">🔗 from CD</span>':''}</span>
           <span>Ratio: ${ratioPill}</span>
           ${targetCell}
           ${dz?.url
@@ -19216,6 +19300,10 @@ function renderPDParentCard(p, allChildren) {
         </div>`;
       })()}
       ${renderPDProjectionRow(proj)}
+      ${_comps.length ? `<div style="margin-top:8px;padding:8px 12px;background:#fbf9ff;border:1px dashed #d9d2f0;border-radius:6px;font-size:11px">
+        <div style="font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px;color:#3C3489;font-weight:700;font-size:10px;margin-bottom:4px">📎 Komponen ikut produksi (dari Collection Dev)</div>
+        ${_comps.map(c => `<div style="color:var(--g600)">↳ <b>${(c.name||'').replace(/</g,'&lt;')}</b> <span style="font-family:var(--mono);color:var(--g400)">×${c.qty_per_unit||1}${totalQty?` = ${Math.round((c.qty_per_unit||1)*totalQty).toLocaleString('id-ID')} unit`:''}</span>${c.notes?` <span style="color:var(--g400);font-style:italic">— ${(c.notes||'').replace(/</g,'&lt;')}</span>`:''}</div>`).join('')}
+      </div>` : ''}
       ${p.notes ? `<div style="margin-top:6px;font-size:11px;color:var(--g600);font-style:italic">${p.notes.replace(/</g,'&lt;')}</div>` : ''}
       ${childrenBlock}
     </div>
@@ -19385,13 +19473,19 @@ async function savePDBundleItemEdit(id, parentId) {
 
 // ── Inline edit cards (replace the prompt() popups) ─────────────────
 function renderPDParentEditCard(p) {
+  // When PD parent is linked to a CI row that already has SRP, prefer that and
+  // lock the field — Collection Dev is the source of truth.
+  const _biz = _pdResolveParentBusiness(p);
+  const linkedSrp = _biz?.srpTarget != null ? _biz.srpTarget : null;
+  const srpDisplay = linkedSrp != null ? linkedSrp : (p.srp == null ? '' : p.srp);
+  const srpLocked = linkedSrp != null;
   return `<div class="pd-card" style="display:flex;gap:14px;align-items:flex-start;border:2px solid var(--black);border-radius:6px;padding:12px;background:var(--white);margin-bottom:10px">
     <div style="flex:0 0 110px">${renderPDPicsLeft(p, 110)}</div>
     <div style="flex:1;min-width:0">
       <div style="font-family:var(--mono);font-size:11px;color:var(--g400);font-weight:600;margin-bottom:8px">EDITING · ${(p.displayCode||p.id).replace(/</g,'&lt;')}</div>
       <div class="form-grid" style="grid-template-columns:2fr 1fr;gap:8px">
         <div class="fg"><label style="font-size:11px">Nama Produk *</label><input id="pde-name-${p.id}" type="text" value="${(p.skuName||'').replace(/"/g,'&quot;')}" style="font-size:12px;padding:5px 8px"></div>
-        <div class="fg"><label style="font-size:11px">SRP (Rp) *</label><input id="pde-srp-${p.id}" type="number" min="0" value="${p.srp==null?'':p.srp}" style="font-size:12px;padding:5px 8px"></div>
+        <div class="fg"><label style="font-size:11px">SRP (Rp) *${srpLocked?' <span style="font-size:9px;color:#3C3489;background:#eef0f8;padding:1px 5px;border-radius:3px;margin-left:4px">🔗 dari Collection Dev</span>':''}</label><input id="pde-srp-${p.id}" type="number" min="0" value="${srpDisplay}" style="font-size:12px;padding:5px 8px${srpLocked?';background:#eef0f8':''}" ${srpLocked?'readonly':''}>${srpLocked?`<div style="font-size:10px;color:var(--g600);margin-top:3px">SRP inherit dari Collection Dev (edit di sana). <a href="#" onclick="document.getElementById('pde-srp-${p.id}').readOnly=false;document.getElementById('pde-srp-${p.id}').style.background='';this.parentNode.style.display='none';return false" style="color:var(--g600);text-decoration:underline">Override manual</a></div>`:''}</div>
         <div class="fg full"><label style="font-size:11px">Notes (internal)</label><input id="pde-notes-${p.id}" type="text" value="${(p.notes||'').replace(/"/g,'&quot;')}" style="font-size:12px;padding:5px 8px"></div>
       </div>
 
@@ -24423,10 +24517,11 @@ async function loadSampling() {
   document.getElementById('smp-view-detail').style.display = 'none';
   document.getElementById('smp-grid-list').innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:32px;color:var(--g400);font-size:13px">⟳ Memuat sampling...</div>`;
   try {
-    const [colsRes, itemsRes, skusRes] = await Promise.all([
+    const [colsRes, itemsRes, skusRes, compsRes] = await Promise.all([
       sb.from('collections').select('id, collection_name, ip_related, revenue_stream, status, release_date, smp_active, sampling_links').order('date_added',{ascending:false}),
-      sb.from('collection_items').select('id, collection_id, sku_name, sku_proper, category, sub_category, treatment, color, qty, srp, approval_status'),
+      sb.from('collection_items').select('id, collection_id, sku_name, sku_proper, category, sub_category, treatment, color, qty, srp, approval_status, is_freebie'),
       sb.from('sampling_skus').select('id, collection_item_id, expected_date, notes, status'),
+      sb.from('collection_item_components').select('collection_item_id, name, qty_per_unit, notes').order('id'),
     ]);
     if (colsRes.error) throw colsRes.error;
     if (itemsRes.error) throw itemsRes.error;
@@ -24434,7 +24529,17 @@ async function loadSampling() {
 
     const skusByItem = new Map();
     (skusRes.data||[]).forEach(s => skusByItem.set(s.collection_item_id, s));
-    allSmpItems = (itemsRes.data||[]).map(it => ({ ...it, sampling: skusByItem.get(it.id) || null }));
+    // Group components per parent SKU so card can show packaging/freebies info
+    const compsByItem = new Map();
+    (compsRes.data||[]).forEach(c => {
+      const arr = compsByItem.get(c.collection_item_id) || [];
+      arr.push(c); compsByItem.set(c.collection_item_id, arr);
+    });
+    allSmpItems = (itemsRes.data||[]).map(it => ({
+      ...it,
+      sampling: skusByItem.get(it.id) || null,
+      _components: compsByItem.get(it.id) || [],
+    }));
 
     // Build collection stats
     const itemsByCol = new Map();
@@ -24776,13 +24881,18 @@ async function renderSmpDetailSKUs(col) {
       'Pending':'p-draft', 'In Progress':'p-review', 'Approved':'p-active', 'Rejected':'p-expired',
     }[samp.status || 'Pending'] || 'p-draft';
     const checked = _smpSelectedSkus.has(it.id) ? 'checked' : '';
-    return `<div class="form-card" style="padding:14px;border:1px solid var(--g100)" id="smp-card-${_smpEsc(it.id)}">
+    const comps = it._components || [];
+    const freebieBadge = it.is_freebie ? `<span style="display:inline-block;padding:1px 6px;background:#dff0d8;color:#2d6f2a;border:1px solid #b8d9b3;border-radius:3px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;vertical-align:middle;margin-left:6px" title="Freebie / giveaway — qty masuk produksi tapi tidak dijual">🎁 Freebie</span>` : '';
+    const compBadge = comps.length ? `<span style="display:inline-block;padding:1px 6px;background:#ede8ff;color:#3C3489;border:1px solid #c9bdf0;border-radius:3px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;vertical-align:middle;margin-left:6px" title="${comps.length} komponen tambahan dari Collection Dev">📎 ${comps.length} Komp</span>` : '';
+    const compsLine = comps.length ? `<div style="font-size:11px;color:var(--g600);margin-top:6px;padding:6px 8px;background:#fbf9ff;border:1px dashed #d9d2f0;border-radius:4px">Komponen yang ikut disampling: ${comps.map(c => `<span style="margin-right:10px"><b>${_smpEsc(c.name)}</b> <span style="color:var(--g400);font-family:var(--mono)">×${c.qty_per_unit||1}${it.qty?` = ${Math.round((c.qty_per_unit||1)*(it.qty||0)).toLocaleString('id-ID')}`:''}</span>${c.notes?` <span style="color:var(--g400)">(${_smpEsc(c.notes)})</span>`:''}</span>`).join('')}</div>` : '';
+    return `<div class="form-card" style="padding:14px;border:1px solid var(--g100)${it.is_freebie?';background:#f6fbf5':''}" id="smp-card-${_smpEsc(it.id)}">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px">
         <div style="display:flex;align-items:flex-start;gap:10px;min-width:0">
           <input type="checkbox" ${checked} onchange="smpToggleSkuSelection('${_smpEsc(it.id)}',this.checked)" style="margin-top:4px;cursor:pointer" title="Pilih untuk multi-PDF download">
           <div style="min-width:0">
-            <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:14px">${_smpEsc(it.sku_name||'(SKU)')}</div>
+            <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:14px">${_smpEsc(it.sku_name||'(SKU)')}${freebieBadge}${compBadge}</div>
             <div style="font-size:11px;color:var(--g600);font-family:var(--mono);margin-top:2px">${_smpEsc(it.sku_proper||'')}${it.category?' · '+_smpEsc(it.category):''}${it.treatment?' · '+_smpEsc(it.treatment):''}${it.color?' · '+_smpEsc(it.color):''}</div>
+            ${compsLine}
           </div>
         </div>
         <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
