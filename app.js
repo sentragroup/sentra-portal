@@ -23945,7 +23945,7 @@ async function loadSampling() {
   document.getElementById('smp-grid-list').innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:32px;color:var(--g400);font-size:13px">⟳ Memuat sampling...</div>`;
   try {
     const [colsRes, itemsRes, skusRes] = await Promise.all([
-      sb.from('collections').select('id, collection_name, ip_related, revenue_stream, status, release_date, smp_active, sampling_drive_url').order('date_added',{ascending:false}),
+      sb.from('collections').select('id, collection_name, ip_related, revenue_stream, status, release_date, smp_active, sampling_links').order('date_added',{ascending:false}),
       sb.from('collection_items').select('id, collection_id, sku_name, sku_proper, category, sub_category, treatment, color, qty, srp, approval_status'),
       sb.from('sampling_skus').select('id, collection_item_id, expected_date, notes, status'),
     ]);
@@ -24125,14 +24125,8 @@ async function openSmpDetail(colId) {
   document.getElementById('smp-view-detail').style.display = 'block';
   document.getElementById('smp-detail-title').textContent = col.collection_name || '(Tanpa nama)';
   document.getElementById('smp-detail-sub').textContent = [col.ip_related, col.revenue_stream, col.release_date ? `Release: ${col.release_date}` : null].filter(Boolean).join(' · ');
-  // Collection-level sampling drive link
-  const linkInput = document.getElementById('smp-detail-link-input');
-  const linkOpen  = document.getElementById('smp-detail-link-open');
-  if (linkInput) linkInput.value = col.sampling_drive_url || '';
-  if (linkOpen) {
-    if (col.sampling_drive_url) { linkOpen.href = col.sampling_drive_url; linkOpen.style.display = 'inline-block'; }
-    else { linkOpen.style.display = 'none'; }
-  }
+  // Collection-level sampling links (multi-link, JSONB array)
+  smpRenderLinks();
   // Reset multi-select state when switching collections
   _smpSelectedSkus.clear();
   smpToggleSkuSelection(null, false); // refresh button label
@@ -24140,23 +24134,103 @@ async function openSmpDetail(colId) {
   await renderSmpDetailSKUs(col);
 }
 
-// Persist collection-level sampling drive URL (onblur from the header input).
-async function smpSaveCollectionLink(value) {
-  if (!_smpCurrentCol) return;
-  const url = (value || '').trim() || null;
-  if ((url||'') === (_smpCurrentCol.sampling_drive_url||'')) return; // no change
-  try {
-    const { error } = await sb.from('collections').update({ sampling_drive_url: url }).eq('id', _smpCurrentCol.id);
-    if (error) throw error;
-    _smpCurrentCol.sampling_drive_url = url;
-    const c = allSmpCollections.find(x => x.id === _smpCurrentCol.id);
-    if (c) c.sampling_drive_url = url;
-    const linkOpen = document.getElementById('smp-detail-link-open');
-    if (linkOpen) {
-      if (url) { linkOpen.href = url; linkOpen.style.display = 'inline-block'; }
-      else { linkOpen.style.display = 'none'; }
+// ── Collection-level multi-links (Drive / Figma / Notion / dll) ──
+// Stored as JSONB array on collections.sampling_links: [{label, url}, ...]
+let _smpAddingLink = false;   // true when the inline "+ Add Link" form is open
+let _smpEditingLinkIdx = -1;  // index of link being edited inline, -1 if none
+
+function _smpLinks() {
+  return Array.isArray(_smpCurrentCol?.sampling_links) ? _smpCurrentCol.sampling_links : [];
+}
+
+function smpRenderLinks() {
+  const el = document.getElementById('smp-detail-links');
+  if (!el || !_smpCurrentCol) return;
+  const links = _smpLinks();
+  const chipsHtml = links.map((lnk, i) => {
+    if (i === _smpEditingLinkIdx) {
+      return `<div style="display:flex;gap:6px;align-items:center;background:var(--white);border:1px dashed var(--g400);border-radius:4px;padding:4px 6px">
+        <input id="smp-link-edit-label-${i}" type="text" value="${_smpEsc(lnk.label||'')}" placeholder="Label" style="width:100px;font-size:11px;padding:3px 6px;border:1px solid var(--g100);border-radius:3px">
+        <input id="smp-link-edit-url-${i}" type="url" value="${_smpEsc(lnk.url||'')}" placeholder="https://..." style="flex:1;min-width:200px;font-size:11px;padding:3px 6px;border:1px solid var(--g100);border-radius:3px">
+        <button onclick="smpSaveLinkEdit(${i})" style="font-size:10px;padding:3px 8px;background:#3C3489;color:white;border:none;border-radius:3px;cursor:pointer">Save</button>
+        <button onclick="smpCancelLinkEdit()" style="font-size:10px;padding:3px 8px;background:transparent;color:var(--g600);border:1px solid var(--g100);border-radius:3px;cursor:pointer">Cancel</button>
+      </div>`;
     }
-  } catch (e) { alert('Gagal save link: '+(e.message||e)); }
+    return `<span style="display:inline-flex;align-items:center;gap:4px;background:var(--white);border:1px solid var(--g100);border-radius:99px;padding:3px 4px 3px 10px;font-size:11px;font-family:var(--mono)">
+      <a href="${_smpEsc(lnk.url||'#')}" target="_blank" style="color:#3C3489;text-decoration:none">🔗 ${_smpEsc(lnk.label||'Link')}</a>
+      <button onclick="smpStartLinkEdit(${i})" title="Edit" style="font-size:10px;padding:1px 5px;background:transparent;color:var(--g400);border:none;cursor:pointer">✎</button>
+      <button onclick="smpDelLink(${i})" title="Hapus" style="font-size:10px;padding:1px 5px;background:transparent;color:#c33;border:none;cursor:pointer">×</button>
+    </span>`;
+  }).join('');
+  const addForm = _smpAddingLink
+    ? `<div style="display:flex;gap:6px;align-items:center;background:var(--white);border:1px dashed var(--g400);border-radius:4px;padding:4px 6px">
+        <input id="smp-link-new-label" type="text" placeholder="Label (Drive / Figma / dll)" style="width:140px;font-size:11px;padding:3px 6px;border:1px solid var(--g100);border-radius:3px">
+        <input id="smp-link-new-url" type="url" placeholder="https://..." style="flex:1;min-width:200px;font-size:11px;padding:3px 6px;border:1px solid var(--g100);border-radius:3px">
+        <button onclick="smpAddLink()" style="font-size:10px;padding:3px 8px;background:#3C3489;color:white;border:none;border-radius:3px;cursor:pointer">Add</button>
+        <button onclick="smpCancelAddLink()" style="font-size:10px;padding:3px 8px;background:transparent;color:var(--g600);border:1px solid var(--g100);border-radius:3px;cursor:pointer">Cancel</button>
+      </div>`
+    : `<button onclick="smpStartAddLink()" style="font-size:11px;padding:3px 10px;background:var(--white);color:var(--g600);border:1px dashed var(--g200);border-radius:99px;cursor:pointer;font-family:var(--mono)">+ Add Link</button>`;
+  el.innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+    <span style="font-size:10px;color:var(--g600);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.05em;flex-shrink:0;margin-right:4px">🔗 Links</span>
+    ${chipsHtml}
+    ${addForm}
+  </div>`;
+  if (_smpAddingLink) document.getElementById('smp-link-new-label')?.focus();
+  if (_smpEditingLinkIdx >= 0) document.getElementById(`smp-link-edit-label-${_smpEditingLinkIdx}`)?.focus();
+}
+
+async function _smpSaveLinks(newLinks) {
+  try {
+    const { error } = await sb.from('collections').update({ sampling_links: newLinks }).eq('id', _smpCurrentCol.id);
+    if (error) throw error;
+    _smpCurrentCol.sampling_links = newLinks;
+    const c = allSmpCollections.find(x => x.id === _smpCurrentCol.id);
+    if (c) c.sampling_links = newLinks;
+    return true;
+  } catch (e) { alert('Gagal save link: '+(e.message||e)); return false; }
+}
+
+function smpStartAddLink() {
+  _smpAddingLink = true; _smpEditingLinkIdx = -1;
+  smpRenderLinks();
+}
+function smpCancelAddLink() {
+  _smpAddingLink = false; smpRenderLinks();
+}
+async function smpAddLink() {
+  const label = (document.getElementById('smp-link-new-label')?.value || '').trim() || 'Link';
+  const url   = (document.getElementById('smp-link-new-url')?.value || '').trim();
+  if (!url) { document.getElementById('smp-link-new-url')?.focus(); return; }
+  const newLinks = [..._smpLinks(), { label, url }];
+  const ok = await _smpSaveLinks(newLinks);
+  if (ok) { _smpAddingLink = false; smpRenderLinks(); }
+}
+
+function smpStartLinkEdit(idx) {
+  _smpEditingLinkIdx = idx; _smpAddingLink = false;
+  smpRenderLinks();
+}
+function smpCancelLinkEdit() {
+  _smpEditingLinkIdx = -1; smpRenderLinks();
+}
+async function smpSaveLinkEdit(idx) {
+  const label = (document.getElementById(`smp-link-edit-label-${idx}`)?.value || '').trim() || 'Link';
+  const url   = (document.getElementById(`smp-link-edit-url-${idx}`)?.value || '').trim();
+  if (!url) { document.getElementById(`smp-link-edit-url-${idx}`)?.focus(); return; }
+  const newLinks = [..._smpLinks()];
+  newLinks[idx] = { label, url };
+  const ok = await _smpSaveLinks(newLinks);
+  if (ok) { _smpEditingLinkIdx = -1; smpRenderLinks(); }
+}
+
+async function smpDelLink(idx) {
+  const links = _smpLinks();
+  const lnk = links[idx];
+  if (!lnk) return;
+  if (!confirm(`Hapus link "${lnk.label||'Link'}"?`)) return;
+  const newLinks = links.filter((_, i) => i !== idx);
+  const ok = await _smpSaveLinks(newLinks);
+  if (ok) smpRenderLinks();
 }
 
 function smpBackToGrid() {
