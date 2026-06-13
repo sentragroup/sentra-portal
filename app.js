@@ -22171,6 +22171,8 @@ function renderMPGrid() {
     if (db === null) return -1;
     return da - db;
   });
+  const cnt = document.getElementById('mp-grid-tcount');
+  if (cnt) cnt.textContent = `${rows.length} collection`;
   if (!rows.length) { list.innerHTML = `<div style="grid-column:1/-1;padding:32px;text-align:center;color:var(--g400);font-size:13px">Tidak ada collection cocok filter.</div>`; return; }
   list.innerHTML = rows.map(c => {
     const p = planByCol.get(c.id);
