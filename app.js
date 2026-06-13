@@ -5108,7 +5108,15 @@ function mapCol(r) {
     targetWindowDays: r.target_window_days!=null ? Number(r.target_window_days) : 90,
     targetNotes:   r.target_notes||"",
     targetSetBy:   r.target_set_by||"",
-    targetSetAt:   r.target_set_at||""
+    targetSetAt:   r.target_set_at||"",
+    // Post-mortem retrospective (Post Mortem tab — structured template)
+    pmWhatWorked:     r.postmortem_what_worked     || "",
+    pmWhatDidnt:      r.postmortem_what_didnt      || "",
+    pmImprovements:   r.postmortem_improvements    || "",
+    pmActionItems:    r.postmortem_action_items    || "",
+    pmStatus:         r.postmortem_status          || "Pending",
+    pmLastUpdated:    r.postmortem_last_updated    || "",
+    pmLastUpdatedBy:  r.postmortem_last_updated_by || ""
   };
 }
 
@@ -5634,6 +5642,111 @@ function toggleColEditPanel() {
 }
 
 // ── helpers for collection detail boxes ──
+// ── Post-Mortem section: structured retrospective template ──
+// Fields: What worked, What didn't work, What to improve, Action items + status pill.
+// All free-text; saved into collections.postmortem_* columns. One entry per
+// collection (overwrite-on-save model — discussion notes belong elsewhere).
+function renderColPostMortemSection(col) {
+  const cid = col.id;
+  const stat = col.pmStatus || 'Pending';
+  const statClr = stat === 'Done' ? 'p-active' : stat === 'In Progress' ? 'p-review' : 'p-draft';
+  const lastUpd = col.pmLastUpdated
+    ? `Diupdate ${new Date(col.pmLastUpdated).toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})}${col.pmLastUpdatedBy?` oleh ${col.pmLastUpdatedBy}`:''}`
+    : 'Belum pernah diisi';
+  const header = `
+    <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
+      <select id="pm-status-${cid}" onchange="savePostMortemStatus('${cid}',this.value)" style="font-size:11px;padding:3px 8px;border:1px solid var(--g100);border-radius:4px;cursor:pointer">
+        <option value="Pending" ${stat==='Pending'?'selected':''}>Pending</option>
+        <option value="In Progress" ${stat==='In Progress'?'selected':''}>In Progress</option>
+        <option value="Done" ${stat==='Done'?'selected':''}>Done</option>
+      </select>
+      <span class="pill ${statClr}" id="pm-pill-${cid}" style="font-size:10px">${stat}</span>
+    </div>`;
+  const body = `
+    <div style="font-size:11px;color:var(--g600);margin-bottom:14px;font-style:italic">${lastUpd}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+      <div class="fg" style="margin:0">
+        <label style="font-size:11px;color:#0a7d3a"><strong>✅ What worked well</strong></label>
+        <textarea id="pm-worked-${cid}" rows="5" placeholder="Apa yang berjalan baik di collection ini? E.g. design hit, channel mix oke, partner KOL deliver..." style="resize:vertical;font-size:12px;width:100%;border:1px solid #b8d9b3;border-radius:6px;padding:8px 10px;background:#f6fbf5">${(col.pmWhatWorked||'').replace(/</g,'&lt;')}</textarea>
+      </div>
+      <div class="fg" style="margin:0">
+        <label style="font-size:11px;color:#c0392b"><strong>❌ What didn't work</strong></label>
+        <textarea id="pm-didnt-${cid}" rows="5" placeholder="Apa yang kurang / gagal? E.g. timeline meleset, SKU X stuck, vendor delay..." style="resize:vertical;font-size:12px;width:100%;border:1px solid #f3a8a8;border-radius:6px;padding:8px 10px;background:#fef3f3">${(col.pmWhatDidnt||'').replace(/</g,'&lt;')}</textarea>
+      </div>
+      <div class="fg" style="margin:0">
+        <label style="font-size:11px;color:#a66800"><strong>🔧 What to improve next time</strong></label>
+        <textarea id="pm-improve-${cid}" rows="5" placeholder="Pelajaran untuk collection berikutnya. E.g. mulai sampling lebih awal, set buffer 1 minggu, swap vendor..." style="resize:vertical;font-size:12px;width:100%;border:1px solid #f3cf7a;border-radius:6px;padding:8px 10px;background:#fef9ef">${(col.pmImprovements||'').replace(/</g,'&lt;')}</textarea>
+      </div>
+      <div class="fg" style="margin:0">
+        <label style="font-size:11px;color:#3C3489"><strong>📌 Action items</strong></label>
+        <textarea id="pm-actions-${cid}" rows="5" placeholder="Tindak lanjut konkret + owner. E.g.&#10;1. Cari vendor packaging baru — Ali, by 30 Jun&#10;2. Audit photoshoot brief — Tim, by 15 Jun" style="resize:vertical;font-size:12px;width:100%;border:1px solid #c9bdf0;border-radius:6px;padding:8px 10px;background:#f7f4ff">${(col.pmActionItems||'').replace(/</g,'&lt;')}</textarea>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button class="btn-primary" onclick="savePostMortem('${cid}')" style="padding:7px 16px;font-size:12px">💾 Simpan Post-Mortem</button>
+      <span id="pm-feedback-${cid}" style="font-size:11px;color:var(--g600)"></span>
+    </div>`;
+  return cdStageBox("📝","Post-Mortem Retrospective", header, body);
+}
+
+async function savePostMortem(cid) {
+  const fb = document.getElementById(`pm-feedback-${cid}`);
+  if (fb) fb.textContent = '⟳ Menyimpan...';
+  try {
+    const payload = {
+      postmortem_what_worked:   document.getElementById(`pm-worked-${cid}`)?.value.trim()  || null,
+      postmortem_what_didnt:    document.getElementById(`pm-didnt-${cid}`)?.value.trim()   || null,
+      postmortem_improvements:  document.getElementById(`pm-improve-${cid}`)?.value.trim() || null,
+      postmortem_action_items:  document.getElementById(`pm-actions-${cid}`)?.value.trim() || null,
+      postmortem_last_updated:  new Date().toISOString(),
+      postmortem_last_updated_by: currentUser || '',
+    };
+    const {error} = await sb.from('collections').update(payload).eq('id', cid);
+    if (error) throw error;
+    // Refresh local cache so the next re-render shows the fresh values
+    const idx = allColRows.findIndex(r => r.id === cid);
+    if (idx >= 0) {
+      allColRows[idx].pmWhatWorked    = payload.postmortem_what_worked    || '';
+      allColRows[idx].pmWhatDidnt     = payload.postmortem_what_didnt     || '';
+      allColRows[idx].pmImprovements  = payload.postmortem_improvements   || '';
+      allColRows[idx].pmActionItems   = payload.postmortem_action_items   || '';
+      allColRows[idx].pmLastUpdated   = payload.postmortem_last_updated;
+      allColRows[idx].pmLastUpdatedBy = payload.postmortem_last_updated_by;
+    }
+    if (fb) { fb.style.color = '#0a7d3a'; fb.textContent = '✓ Tersimpan'; }
+    setTimeout(() => { if (fb) fb.textContent = ''; }, 3000);
+    logActivity("Collections", "edit", cid, `Post-mortem updated`);
+  } catch (e) {
+    if (fb) { fb.style.color = '#c0392b'; fb.textContent = '❌ Gagal: ' + (e.message || e); }
+  }
+}
+
+async function savePostMortemStatus(cid, status) {
+  try {
+    const {error} = await sb.from('collections').update({
+      postmortem_status: status,
+      postmortem_last_updated: new Date().toISOString(),
+      postmortem_last_updated_by: currentUser || '',
+    }).eq('id', cid);
+    if (error) throw error;
+    const idx = allColRows.findIndex(r => r.id === cid);
+    if (idx >= 0) allColRows[idx].pmStatus = status;
+    // Update the visible pill inline
+    const pill = document.getElementById(`pm-pill-${cid}`);
+    if (pill) {
+      pill.textContent = status;
+      pill.className = 'pill ' + (status === 'Done' ? 'p-active' : status === 'In Progress' ? 'p-review' : 'p-draft');
+    }
+    // Refresh tab bar sub-label
+    const bar = document.getElementById(`cd-tab-bar-${cid}`);
+    if (bar) {
+      const pmBtn = bar.querySelector('[data-tab="postmortem"] span:last-child');
+      if (pmBtn) pmBtn.textContent = status;
+    }
+    logActivity("Collections", "edit", cid, `Post-mortem status → ${status}`);
+  } catch (e) { alert('Gagal update status: ' + (e.message || e)); }
+}
+
 function cdStageBox(icon, title, badgeHTML, contentHTML) {
   return `<div style="border:1px solid var(--g100);border-radius:8px;margin-bottom:16px;overflow:hidden">
     <div style="padding:10px 16px;background:var(--off);border-bottom:1px solid var(--g100);display:flex;align-items:center;gap:8px">
@@ -5662,14 +5775,22 @@ function renderColTabBar(col, items) {
   // Default tab: persist via sessionStorage so user returns to same tab on reload
   const lastTab = sessionStorage.getItem(`cd-tab-${cid}`) || 'business';
 
-  return `<div class="cd-tab-bar" id="cd-tab-bar-${cid}" style="display:flex;gap:0;margin:0 0 16px;border-bottom:1px solid var(--g100);background:var(--off);border-radius:8px 8px 0 0;overflow:hidden">
+  // Marketing/Performance/Post-Mortem sub-status strings (lightweight — main
+  // status surface is the section header inside each tab).
+  const mktStatus  = ps.marketing === 'done' ? 'Done' : ps.marketing === 'in-progress' ? 'In Progress' : 'Not Started';
+  const perfStatus = (col.releaseDate && new Date(col.releaseDate) <= new Date()) ? 'Live' : 'Pre-launch';
+  const pmStatus   = col.pmStatus || 'Pending';
+  return `<div class="cd-tab-bar" id="cd-tab-bar-${cid}" style="display:flex;gap:0;margin:0 0 16px;border-bottom:1px solid var(--g100);background:var(--off);border-radius:8px 8px 0 0;overflow:hidden;flex-wrap:wrap">
     ${[
       ['business','📊','Business', bizStatus],
       ['creative','🎨','Creative', creStatus],
       ['delivery','🛠','Delivery', delStatus],
+      ['marketing','📣','Marketing', mktStatus],
+      ['performance','📈','Performance', perfStatus],
+      ['postmortem','📝','Post Mortem', pmStatus],
     ].map(([k,ic,label,sub]) => {
       const active = k === lastTab;
-      return `<button class="cd-tab-btn${active?' active':''}" data-tab="${k}" onclick="cdSwitchTab('${cid}','${k}')" style="flex:1;display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:12px 16px;border:0;border-bottom:2px solid ${active?'var(--black)':'transparent'};background:${active?'var(--white)':'transparent'};color:${active?'var(--black)':'var(--g600)'};cursor:pointer;text-align:left">
+      return `<button class="cd-tab-btn${active?' active':''}" data-tab="${k}" onclick="cdSwitchTab('${cid}','${k}')" style="flex:1;min-width:120px;display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:12px 16px;border:0;border-bottom:2px solid ${active?'var(--black)':'transparent'};background:${active?'var(--white)':'transparent'};color:${active?'var(--black)':'var(--g600)'};cursor:pointer;text-align:left">
         <span style="font-size:13px;font-weight:600">${ic} ${label}</span>
         <span style="font-family:var(--mono);font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px">${sub.replace(/</g,'&lt;')}</span>
       </button>`;
@@ -5678,7 +5799,7 @@ function renderColTabBar(col, items) {
 }
 
 function cdSwitchTab(colId, tab) {
-  ['business','creative','delivery'].forEach(t => {
+  ['business','creative','delivery','marketing','performance','postmortem'].forEach(t => {
     const pane = document.getElementById(`cd-tab-${t}-${colId}`);
     if (pane) pane.style.display = (t === tab) ? '' : 'none';
   });
@@ -6580,13 +6701,31 @@ function renderColDetail(col, items) {
         <!-- ─────────── 📊 BUSINESS TAB ─────────── -->
         <div id="cd-tab-business-${col.id}" class="cd-tab-content">
         ${renderColTargetSection(col, items)}
-        <!-- Marketing -->
-        ${cdStageBox("📣","Marketing",cdStageBadge(ps.marketing==="done"?"Done":ps.marketing==="in-progress"?"In Progress":"Not Started",`col-marketing-badge-${col.id}`),`
-          <div id="col-mkt-body-${col.id}">${renderMktBodyHTML(col.id)}</div>`)}
-        <!-- Product Performance -->
+        <!-- Product Performance + Stock Rekon kept here (live tracking) -->
         ${cdStageBox("📊","Product Performance","",`<div id="col-perf-${col.id}" style="color:var(--g400);font-size:12px">Memuat...</div>`)}
         ${cdStageBox("📦","Stock Rekonsiliasi","",`<div id="col-stock-${col.id}" style="color:var(--g400);font-size:12px">Memuat...</div>`)}
         </div><!-- /Business tab -->
+
+        <!-- ─────────── 📣 MARKETING TAB ─────────── -->
+        <div id="cd-tab-marketing-${col.id}" class="cd-tab-content" style="display:none">
+        ${cdStageBox("📣","Marketing",cdStageBadge(ps.marketing==="done"?"Done":ps.marketing==="in-progress"?"In Progress":"Not Started",`col-marketing-badge-${col.id}`),`
+          <div id="col-mkt-body-${col.id}">${renderMktBodyHTML(col.id)}</div>`)}
+        </div><!-- /Marketing tab -->
+
+        <!-- ─────────── 📈 PERFORMANCE TAB ─────────── -->
+        <div id="cd-tab-performance-${col.id}" class="cd-tab-content" style="display:none">
+        ${cdStageBox("📈","Performance","",`
+          <div style="padding:32px 24px;text-align:center;background:var(--off);border:1px dashed var(--g200);border-radius:8px">
+            <div style="font-size:32px;margin-bottom:10px">📈</div>
+            <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:var(--g600);margin-bottom:4px">Performance dashboard — Coming Soon</div>
+            <div style="font-size:12px;color:var(--g400);max-width:480px;margin:0 auto">Tab ini nanti akan menampilkan: aktual vs target revenue/units, sales velocity, top SKU, channel breakdown, ROAS marketing — semua post-launch tracking.</div>
+          </div>`)}
+        </div><!-- /Performance tab -->
+
+        <!-- ─────────── 📝 POST MORTEM TAB ─────────── -->
+        <div id="cd-tab-postmortem-${col.id}" class="cd-tab-content" style="display:none">
+        ${renderColPostMortemSection(col)}
+        </div><!-- /Post Mortem tab -->
       </div>
       <!-- Right sidebar: Notes + Activity -->
       <div style="width:280px;flex-shrink:0;position:sticky;top:20px;max-height:calc(100vh - 80px);overflow-y:auto;display:flex;flex-direction:column;gap:12px">
