@@ -6642,6 +6642,9 @@ async function loadColSamplingSection(col) {
     images.forEach(im => { const arr = imagesByVer.get(im.version_id) || []; arr.push(im); imagesByVer.set(im.version_id, arr); });
     const annosByImg = new Map();
     annotations.forEach(a => { const arr = annosByImg.get(a.image_id) || []; arr.push(a); annosByImg.set(a.image_id, arr); });
+    // Per-version discussion comments — share the same cache as the Sampling
+    // module so writing here updates there and vice versa.
+    await smpFetchVerDiscussion(versions.map(v => v.id));
 
     // Per-row rendering — each SKU gets a compact summary row + a hidden
     // detail row beneath. Click chevron / row to toggle the detail visibility.
@@ -6694,11 +6697,10 @@ async function loadColSamplingSection(col) {
               </div>`;
             }).join('')
           : `<span style="font-size:11px;color:var(--g400)">Belum ada foto</span>`;
-        const verNotes = String(v.notes||'').replace(/</g,'&lt;').replace(/"/g,'&quot;');
         return `<div style="background:var(--white);border:1px solid var(--g100);border-radius:6px;padding:10px;margin-bottom:8px" onclick="event.stopPropagation()">
           <div style="font-size:12px;font-weight:600;margin-bottom:8px">Sample ${v.version_no}${v.label?` · ${String(v.label).replace(/</g,'&lt;')}`:''}</div>
-          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">${imgsHtml}</div>
-          <textarea onblur="smpSetVersionNotes(${v.id},this.value)" placeholder="Catatan untuk Sample ${v.version_no}... (revisi, feedback, alasan, dll)" rows="2" style="width:100%;font-size:11px;font-family:inherit;padding:6px 8px;border:1px solid var(--g100);border-radius:4px;resize:vertical;box-sizing:border-box;background:var(--white)">${verNotes}</textarea>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">${imgsHtml}</div>
+          ${_smpRenderVerDiscussion(v.id)}
         </div>`;
       }).join('');
 
@@ -24507,6 +24509,9 @@ async function renderSmpDetailSKUs(col) {
   images.forEach(im => { const arr = imagesByVer.get(im.version_id) || []; arr.push(im); imagesByVer.set(im.version_id, arr); });
   const annosByImg = new Map();
   annotations.forEach(a => { const arr = annosByImg.get(a.image_id) || []; arr.push(a); annosByImg.set(a.image_id, arr); });
+  // Fetch per-version discussion comments in one batch and stash in the
+  // module-wide cache so _smpRenderVerDiscussion(v.id) has data to render.
+  await smpFetchVerDiscussion(versions.map(v => v.id));
 
   const sizeOrder = ['XS','S','M','L','XL','XXL','XXXL'];
   items.sort((a,b) => {
@@ -24556,17 +24561,15 @@ async function renderSmpDetailSKUs(col) {
                 <button onclick="smpDelVersion(${v.id})" style="font-size:10px;padding:3px 8px;background:transparent;color:#c33;border:1px solid var(--g100);border-radius:3px;cursor:pointer">Hapus</button>
               </div>
             </div>
-            <div style="margin-bottom:8px">
-              <textarea id="smp-ver-notes-${v.id}" rows="2" placeholder="Catatan untuk Sample ${v.version_no}... (revisi, feedback, alasan, dll)" onblur="smpSetVersionNotes(${v.id},this.value)" style="width:100%;font-size:11px;font-family:inherit;padding:6px 8px;border:1px solid var(--g100);border-radius:4px;resize:vertical;box-sizing:border-box;background:var(--white)">${_smpEsc(v.notes||'')}</textarea>
-            </div>
-            ${imgs.length ? `<div style="display:flex;gap:8px;flex-wrap:wrap">${imgs.map(im => {
+            ${imgs.length ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">${imgs.map(im => {
               const annos = annosByImg.get(im.id) || [];
               const openCount = annos.filter(a => a.status === 'Open').length;
               return `<div style="position:relative;cursor:pointer" onclick="smpOpenAnnoModal(${im.id},'${_smpEsc(im.image_url)}')">
                 <img src="${_smpEsc(im.image_url)}" style="width:120px;height:120px;object-fit:cover;border-radius:4px;border:1px solid var(--g100)">
                 ${annos.length?`<span style="position:absolute;top:4px;right:4px;background:${openCount?'#c33':'#1c7a3b'};color:white;font-size:10px;padding:2px 6px;border-radius:10px;font-weight:600">${annos.length}${openCount?` · ${openCount} open`:''}</span>`:''}
               </div>`;
-            }).join('')}</div>` : `<div style="font-size:11px;color:var(--g400)">Belum ada foto. Klik "+ Foto" buat upload — atau pakai catatan di atas aja kalau update tanpa gambar.</div>`}
+            }).join('')}</div>` : `<div style="font-size:11px;color:var(--g400);margin-bottom:10px">Belum ada foto. Klik "+ Foto" buat upload — atau pakai diskusi di bawah aja kalau update tanpa gambar.</div>`}
+            ${_smpRenderVerDiscussion(v.id)}
           </div>`;
         }).join('') : `<div style="font-size:11px;color:var(--g400);padding:8px 0">Belum ada sample. Klik "+ Sample 1" untuk mulai.</div>`}
       </div>
@@ -24611,6 +24614,191 @@ async function smpAddVersion(samplingSkuId) {
     it.sampling.status = 'In Progress';
   }
   renderSmpDetailSKUs(_smpCurrentCol);
+}
+
+// ── Per-version discussion thread (sampling_version_comments) ──
+// Same shape as image annotations but anchored to a sampling_versions row.
+// Rendered as `<div id="smp-ver-disc-${verId}">` so the same DOM target
+// works whether the call originated from the Sampling module or from
+// Collection Dev's expanded SKU detail row.
+let _smpVerDiscByVer    = new Map(); // versionId → comments[] (cached)
+let _smpVerDiscDraftFor = null;      // versionId opening a new top-level draft
+let _smpVerDiscReplyTo  = null;      // commentId currently being replied to
+let _smpVerDiscEditId   = null;      // commentId currently in edit mode
+
+async function smpFetchVerDiscussion(versionIds) {
+  if (!versionIds.length) return new Map();
+  const { data, error } = await sb.from('sampling_version_comments').select('*').in('sampling_version_id', versionIds).order('created_at');
+  if (error) { console.warn('Gagal fetch discussion:', error.message); return new Map(); }
+  const byVer = new Map();
+  for (const c of (data||[])) {
+    const arr = byVer.get(c.sampling_version_id) || [];
+    arr.push(c); byVer.set(c.sampling_version_id, arr);
+  }
+  for (const [k,v] of byVer) _smpVerDiscByVer.set(k, v);
+  return byVer;
+}
+
+function _smpRenderVerDiscussion(versionId) {
+  const comments = _smpVerDiscByVer.get(versionId) || [];
+  const top = comments.filter(c => !c.parent_id);
+  const repliesOf = id => comments.filter(c => c.parent_id === id).sort((a,b)=>(a.created_at||'').localeCompare(b.created_at||''));
+  const fmtTime = t => t ? new Date(t).toLocaleString('id-ID',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '';
+  const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+  const cardsHtml = top.length ? top.map(c => {
+    const dotColor = c.status === 'Resolved' ? '#1c7a3b' : '#3C3489';
+    const bodyHtml = (_smpVerDiscEditId === c.id)
+      ? `<textarea id="smp-vd-edit-${c.id}" rows="2" style="width:100%;font-size:11px;font-family:inherit;padding:6px 8px;border:1px solid var(--g100);border-radius:4px;resize:vertical;box-sizing:border-box">${esc(c.comment_text)}</textarea>
+         <div style="display:flex;gap:6px;margin-top:6px">
+           <button onclick="smpSaveVerDiscEdit(${c.id},${versionId})" style="font-size:10px;padding:3px 10px;background:#3C3489;color:white;border:none;border-radius:3px;cursor:pointer">Save</button>
+           <button onclick="smpCancelVerDiscEdit(${versionId})" style="font-size:10px;padding:3px 10px;background:transparent;color:var(--g600);border:1px solid var(--g100);border-radius:3px;cursor:pointer">Cancel</button>
+         </div>`
+      : `<div style="font-size:12px;line-height:1.5;white-space:pre-wrap">${esc(c.comment_text)}</div>`;
+    const replies = repliesOf(c.id);
+    const replyHtml = replies.map(r => `<div style="margin-left:18px;border-left:2px solid var(--g100);padding:6px 10px;margin-top:4px;background:var(--white);border-radius:0 4px 4px 0">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
+          <span style="font-size:10px;color:var(--g400)">↳</span>
+          <span style="font-size:10px;color:var(--g400);font-family:var(--mono)">${esc(r.created_by||'—')} · ${fmtTime(r.created_at)}</span>
+          <button onclick="smpDelVerDisc(${r.id},${versionId})" title="Hapus" style="font-size:9px;padding:1px 5px;background:transparent;color:#c33;border:1px solid var(--g100);border-radius:3px;cursor:pointer;margin-left:auto">×</button>
+        </div>
+        <div style="font-size:11px;line-height:1.5;white-space:pre-wrap">${esc(r.comment_text)}</div>
+      </div>`).join('');
+    const replyBox = (_smpVerDiscReplyTo === c.id)
+      ? `<div style="margin-left:18px;border-left:2px solid var(--g100);padding:6px 10px;margin-top:4px">
+          <textarea id="smp-vd-reply-${c.id}" rows="2" placeholder="Tulis reply..." style="width:100%;font-size:11px;font-family:inherit;padding:6px 8px;border:1px solid var(--g100);border-radius:4px;resize:vertical;box-sizing:border-box"></textarea>
+          <div style="display:flex;gap:6px;margin-top:4px">
+            <button onclick="smpSaveVerDiscReply(${c.id},${versionId})" style="font-size:10px;padding:3px 10px;background:#3C3489;color:white;border:none;border-radius:3px;cursor:pointer">Send</button>
+            <button onclick="smpCancelVerDiscReply(${versionId})" style="font-size:10px;padding:3px 10px;background:transparent;color:var(--g600);border:1px solid var(--g100);border-radius:3px;cursor:pointer">Cancel</button>
+          </div>
+        </div>`
+      : '';
+    const actionRow = (_smpVerDiscEditId === c.id) ? '' : `<div style="display:flex;gap:6px;margin-top:6px">
+      ${c.status==='Open'
+        ? `<button onclick="smpResolveVerDisc(${c.id},${versionId})" style="font-size:10px;padding:2px 8px;background:#1c7a3b;color:white;border:none;border-radius:3px;cursor:pointer">✓ Resolve</button>`
+        : `<button onclick="smpReopenVerDisc(${c.id},${versionId})" style="font-size:10px;padding:2px 8px;background:var(--white);color:var(--g600);border:1px solid var(--g100);border-radius:3px;cursor:pointer">Reopen</button>`}
+      <button onclick="smpStartVerDiscReply(${c.id},${versionId})" style="font-size:10px;padding:2px 8px;background:transparent;color:var(--g600);border:1px solid var(--g100);border-radius:3px;cursor:pointer">↳ Reply</button>
+      <button onclick="smpStartVerDiscEdit(${c.id},${versionId})" style="font-size:10px;padding:2px 8px;background:transparent;color:var(--g600);border:1px solid var(--g100);border-radius:3px;cursor:pointer">Edit</button>
+      <button onclick="smpDelVerDisc(${c.id},${versionId})" style="font-size:10px;padding:2px 8px;background:transparent;color:#c33;border:1px solid var(--g100);border-radius:3px;cursor:pointer;margin-left:auto">Hapus</button>
+    </div>`;
+    return `<div style="background:var(--white);border-radius:6px;padding:8px 10px;margin-bottom:6px;border:1px solid var(--g100)">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+        <span style="width:7px;height:7px;background:${dotColor};border-radius:50%;display:inline-block"></span>
+        <span style="font-size:11px;font-weight:600">${esc(c.created_by||'—')}</span>
+        <span style="font-size:10px;color:var(--g400);font-family:var(--mono)">· ${fmtTime(c.created_at)}</span>
+        <span class="pill ${c.status==='Resolved'?'p-active':'p-review'}" style="font-size:9px;padding:1px 6px;margin-left:auto">${c.status}</span>
+      </div>
+      ${bodyHtml}
+      ${actionRow}
+      ${replyHtml}
+      ${replyBox}
+    </div>`;
+  }).join('') : `<div style="font-size:11px;color:var(--g400);padding:4px 0">Belum ada diskusi.</div>`;
+  const newDraft = (_smpVerDiscDraftFor === versionId)
+    ? `<div style="background:#fff8e1;border:1px dashed var(--g400);border-radius:6px;padding:8px 10px;margin-top:6px">
+        <textarea id="smp-vd-new-${versionId}" rows="2" placeholder="Tulis komentar baru..." style="width:100%;font-size:11px;font-family:inherit;padding:6px 8px;border:1px solid var(--g100);border-radius:4px;resize:vertical;box-sizing:border-box"></textarea>
+        <div style="display:flex;gap:6px;margin-top:6px">
+          <button onclick="smpSaveVerDiscNew(${versionId})" style="font-size:10px;padding:3px 10px;background:#3C3489;color:white;border:none;border-radius:3px;cursor:pointer">Send</button>
+          <button onclick="smpCancelVerDiscNew(${versionId})" style="font-size:10px;padding:3px 10px;background:transparent;color:var(--g600);border:1px solid var(--g100);border-radius:3px;cursor:pointer">Cancel</button>
+        </div>
+      </div>`
+    : `<button onclick="smpStartVerDiscNew(${versionId})" style="font-size:10px;padding:3px 10px;background:var(--white);color:var(--g600);border:1px dashed var(--g200);border-radius:99px;cursor:pointer;font-family:var(--mono);margin-top:4px">+ Tambah Komentar</button>`;
+  return `<div id="smp-ver-disc-${versionId}">
+    <div style="font-size:10px;color:var(--g600);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px">💬 Diskusi (${top.length})</div>
+    ${cardsHtml}
+    ${newDraft}
+  </div>`;
+}
+
+// Re-render only one version's discussion block in place (no full SKU refresh).
+function _smpRedrawVerDiscussion(versionId) {
+  const el = document.getElementById(`smp-ver-disc-${versionId}`);
+  if (!el) return;
+  el.outerHTML = _smpRenderVerDiscussion(versionId);
+}
+
+async function _smpReloadVerDiscussion(versionId) {
+  const { data, error } = await sb.from('sampling_version_comments').select('*').eq('sampling_version_id', versionId).order('created_at');
+  if (!error) _smpVerDiscByVer.set(versionId, data || []);
+  _smpRedrawVerDiscussion(versionId);
+}
+
+function smpStartVerDiscNew(versionId) {
+  _smpVerDiscDraftFor = versionId;
+  _smpVerDiscReplyTo = null; _smpVerDiscEditId = null;
+  _smpRedrawVerDiscussion(versionId);
+  setTimeout(() => document.getElementById(`smp-vd-new-${versionId}`)?.focus(), 0);
+}
+function smpCancelVerDiscNew(versionId) {
+  _smpVerDiscDraftFor = null;
+  _smpRedrawVerDiscussion(versionId);
+}
+async function smpSaveVerDiscNew(versionId) {
+  const ta = document.getElementById(`smp-vd-new-${versionId}`);
+  const txt = (ta?.value || '').trim();
+  if (!txt) { ta?.focus(); return; }
+  const { error } = await sb.from('sampling_version_comments').insert({
+    sampling_version_id: versionId, comment_text: txt, status: 'Open', created_by: currentUser,
+  });
+  if (error) { alert('Gagal: '+error.message); return; }
+  _smpVerDiscDraftFor = null;
+  await _smpReloadVerDiscussion(versionId);
+}
+
+function smpStartVerDiscReply(commentId, versionId) {
+  _smpVerDiscReplyTo = commentId;
+  _smpVerDiscDraftFor = null; _smpVerDiscEditId = null;
+  _smpRedrawVerDiscussion(versionId);
+  setTimeout(() => document.getElementById(`smp-vd-reply-${commentId}`)?.focus(), 0);
+}
+function smpCancelVerDiscReply(versionId) {
+  _smpVerDiscReplyTo = null;
+  _smpRedrawVerDiscussion(versionId);
+}
+async function smpSaveVerDiscReply(parentId, versionId) {
+  const ta = document.getElementById(`smp-vd-reply-${parentId}`);
+  const txt = (ta?.value || '').trim();
+  if (!txt) { ta?.focus(); return; }
+  const { error } = await sb.from('sampling_version_comments').insert({
+    sampling_version_id: versionId, parent_id: parentId, comment_text: txt, status: 'Open', created_by: currentUser,
+  });
+  if (error) { alert('Gagal: '+error.message); return; }
+  _smpVerDiscReplyTo = null;
+  await _smpReloadVerDiscussion(versionId);
+}
+
+function smpStartVerDiscEdit(commentId, versionId) {
+  _smpVerDiscEditId = commentId;
+  _smpVerDiscDraftFor = null; _smpVerDiscReplyTo = null;
+  _smpRedrawVerDiscussion(versionId);
+  setTimeout(() => document.getElementById(`smp-vd-edit-${commentId}`)?.focus(), 0);
+}
+function smpCancelVerDiscEdit(versionId) {
+  _smpVerDiscEditId = null;
+  _smpRedrawVerDiscussion(versionId);
+}
+async function smpSaveVerDiscEdit(commentId, versionId) {
+  const ta = document.getElementById(`smp-vd-edit-${commentId}`);
+  const txt = (ta?.value || '').trim();
+  if (!txt) { ta?.focus(); return; }
+  const { error } = await sb.from('sampling_version_comments').update({ comment_text: txt }).eq('id', commentId);
+  if (error) { alert('Gagal: '+error.message); return; }
+  _smpVerDiscEditId = null;
+  await _smpReloadVerDiscussion(versionId);
+}
+
+async function smpResolveVerDisc(commentId, versionId) {
+  await sb.from('sampling_version_comments').update({ status: 'Resolved', resolved_at: new Date().toISOString(), resolved_by: currentUser }).eq('id', commentId);
+  await _smpReloadVerDiscussion(versionId);
+}
+async function smpReopenVerDisc(commentId, versionId) {
+  await sb.from('sampling_version_comments').update({ status: 'Open', resolved_at: null, resolved_by: null }).eq('id', commentId);
+  await _smpReloadVerDiscussion(versionId);
+}
+async function smpDelVerDisc(commentId, versionId) {
+  if (!confirm('Hapus komentar ini? Reply ikut terhapus.')) return;
+  await sb.from('sampling_version_comments').delete().eq('id', commentId);
+  await _smpReloadVerDiscussion(versionId);
 }
 
 // onblur save — lets the user type a sample update without needing to upload
