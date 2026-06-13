@@ -2218,9 +2218,13 @@
               <span style="color:var(--g400);font-weight:400;margin-left:8px">· Variant SKU code dibuat per-variant nanti</span>
             </div>
             <div class="form-grid">
-              <div class="fg"><label>Nama Produk <span class="req">*</span></label>
-                <input type="text" id="pd-sku-name" list="pd-sku-datalist" placeholder="Pilih dari collection items, klik 'Pakai' di design, atau ketik baru..." oninput="_pdSyncSrpFromCD()">
-                <datalist id="pd-sku-datalist"></datalist>
+              <div class="fg"><label>Nama Produk <span class="req">*</span> <span style="font-size:10px;color:#3C3489;background:#eef0f8;padding:1px 6px;border-radius:3px;margin-left:6px">🔗 dari Collection Dev</span></label>
+                <select id="pd-sku-name" onchange="_pdSyncSrpFromCD()">
+                  <option value="">— Pilih SKU yang sudah di-request BM —</option>
+                </select>
+                <div id="pd-sku-empty-hint" style="display:none;margin-top:4px;font-size:11px;color:var(--g600)">
+                  ⚠️ Belum ada SKU di Collection Dev (atau semua sudah di-mapping). Tambah dulu di <a href="#collections" onclick="showPage('collections',null);return false" style="color:var(--g600);text-decoration:underline">Collection Development</a> → tab Business.
+                </div>
                 <input type="hidden" id="pd-design-workflow-id" value="">
                 <input type="hidden" id="pd-design-url" value="">
                 <input type="hidden" id="pd-design-designer" value="">

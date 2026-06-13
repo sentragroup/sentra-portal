@@ -18584,11 +18584,10 @@ function renderPDDetail() {
   setupPDPicInput();
   onPDTypeChange(); // ensure solo fields visible
   updatePDCodePreview();
-  // Populate SKU name autocomplete
-  loadPDCollectionItems(cid).then(items => {
-    const dl = document.getElementById('pd-sku-datalist');
-    if (dl) dl.innerHTML = items.map(it => `<option value="${(it.sku_name||'').replace(/"/g,'&quot;')}" data-id="${it.id}">`).join('');
-  });
+  // Populate SKU name dropdown with CD items not yet linked to a PD parent
+  // in this collection. Strict picker — production team must pick a SKU that
+  // BM already requested in Collection Dev; no free-text typing.
+  _pdRefreshSkuPicker(cid);
   // Mirror designer_workflow rows for this collection above the add form
   _pdLoadDesignMirror(cid);
 
@@ -18631,6 +18630,9 @@ async function _pdLoadDesignMirror(cid) {
     if (typeof renderPDDetailTable === 'function' && pdCurrentCollectionId === cid) {
       try { renderPDDetailTable(); } catch(_) {}
     }
+    // If a SKU is already picked in the form, backfill its SRP now that
+    // _pdDesignRows has the srp/is_freebie data loaded.
+    try { _pdSyncSrpFromCD(); } catch(_) {}
   } catch (e) {
     body.innerHTML = `<div style="padding:14px;color:#c0392b;font-size:11px">Gagal: ${e.message||e}</div>`;
   }
@@ -18733,20 +18735,24 @@ function _pdUseDesign(ciId) {
   const d = _pdDesignRows.find(x => x.id === ciId);
   if (!d) return;
   const dispName = d.sku_name || '';
-  const nameInp = document.getElementById('pd-sku-name');
-  if (nameInp) nameInp.value = dispName;
-  // Auto-prefill SRP from collection_items + lock — Collection Dev is now the
-  // source of truth for SRP, so PD shouldn't let user override silently.
-  const srpInp = document.getElementById('pd-srp');
-  if (srpInp && d.srp != null) {
-    srpInp.value = d.srp;
-    srpInp.readOnly = true;
-    srpInp.style.background = '#eef0f8';
-    const srcBadge = document.getElementById('pd-srp-source');
-    const hint     = document.getElementById('pd-srp-hint');
-    if (srcBadge) srcBadge.style.display = 'inline-block';
-    if (hint)     hint.style.display     = 'block';
+  const nameSel = document.getElementById('pd-sku-name');
+  if (nameSel) {
+    // If option already exists in dropdown (CI not yet claimed), select it.
+    // If claimed (option missing), prepend a synthetic option so user sees
+    // what they're trying to add — submit logic still resolves via CI id.
+    let opt = Array.from(nameSel.options).find(o => o.value === ciId);
+    if (!opt) {
+      opt = document.createElement('option');
+      opt.value = ciId; opt.textContent = dispName + ' (sudah di-mapping)';
+      nameSel.appendChild(opt);
+    }
+    nameSel.value = ciId;
+    nameSel.disabled = false;
+    const hint = document.getElementById('pd-sku-empty-hint');
+    if (hint) hint.style.display = 'none';
   }
+  // _pdSyncSrpFromCD will handle the lock + auto-fill from the dropdown value
+  _pdSyncSrpFromCD();
   // Reuse existing hidden inputs — they map straight onto product_dev.design_* fields
   document.getElementById('pd-design-workflow-id').value = ''; // unused for CI source
   document.getElementById('pd-design-url').value         = d.design_preview_url || '';
@@ -18771,23 +18777,57 @@ function _pdUseDesign(ciId) {
   document.getElementById('pd-add-card')?.scrollIntoView({behavior:'smooth', block:'start'});
 }
 
-// Auto-sync SRP field with the matching collection_items row when user picks
-// or types a SKU name in the add form. Locks the field + shows hint so BM
-// doesn't bother typing it twice (the source of truth is Collection Dev).
+// Populate the strict SKU picker with CD items in this collection that
+// haven't been mapped to a PD parent yet. Skips claimed ones so BM can see
+// at-a-glance what's left to produce. Disables the dropdown + shows hint
+// when there are no available picks.
+async function _pdRefreshSkuPicker(cid) {
+  const sel  = document.getElementById('pd-sku-name');
+  const hint = document.getElementById('pd-sku-empty-hint');
+  if (!sel) return;
+  // CD items in this collection
+  let items = [];
+  try { items = await loadPDCollectionItems(cid); } catch(_) {}
+  // Filter out CD items already linked to a PD parent (parent_id IS NULL)
+  const claimed = new Set(
+    (allPDRows||[])
+      .filter(r => r.collectionId === cid && !r.parentId && r.collectionItemId)
+      .map(r => r.collectionItemId)
+  );
+  const available = items.filter(it => !claimed.has(it.id));
+  // Render
+  sel.innerHTML = `<option value="">— Pilih SKU yang sudah di-request BM —</option>` +
+    available.map(it => `<option value="${it.id}">${(it.sku_name||'').replace(/</g,'&lt;')}</option>`).join('');
+  // Empty state
+  if (!available.length) {
+    sel.disabled = true;
+    if (hint) hint.style.display = 'block';
+  } else {
+    sel.disabled = false;
+    if (hint) hint.style.display = 'none';
+  }
+  // Reset linked SRP/design state since the picker just reloaded
+  _pdSyncSrpFromCD();
+}
+
+// Auto-sync SRP field when user picks a SKU from the dropdown. The selected
+// option's value is the CI id (we know it deterministically), so lookup is
+// direct — no name-based fuzzy match needed.
 function _pdSyncSrpFromCD() {
-  const nameInp  = document.getElementById('pd-sku-name');
+  const sel      = document.getElementById('pd-sku-name');
   const srpInp   = document.getElementById('pd-srp');
   const srcBadge = document.getElementById('pd-srp-source');
   const hint     = document.getElementById('pd-srp-hint');
-  if (!nameInp || !srpInp) return;
-  const name = nameInp.value.trim().toLowerCase();
-  if (!name || !Array.isArray(_pdDesignRows)) {
+  if (!sel || !srpInp) return;
+  const ciId = sel.value;
+  if (!ciId || !Array.isArray(_pdDesignRows)) {
+    srpInp.value = '';
     srpInp.readOnly = false; srpInp.style.background = '';
     if (srcBadge) srcBadge.style.display = 'none';
     if (hint) hint.style.display = 'none';
     return;
   }
-  const match = _pdDesignRows.find(r => (r.sku_name||'').trim().toLowerCase() === name);
+  const match = _pdDesignRows.find(r => r.id === ciId);
   if (match && match.srp != null) {
     srpInp.value = match.srp;
     srpInp.readOnly = true;
@@ -18795,6 +18835,8 @@ function _pdSyncSrpFromCD() {
     if (srcBadge) srcBadge.style.display = 'inline-block';
     if (hint)     hint.style.display     = 'block';
   } else {
+    // CI exists but no SRP set yet → unlock so user can type (rare; BM forgot SRP)
+    srpInp.value = '';
     srpInp.readOnly = false; srpInp.style.background = '';
     if (srcBadge) srcBadge.style.display = 'none';
     if (hint)     hint.style.display     = 'none';
@@ -18898,6 +18940,13 @@ function clearPDForm() {
   const fb = document.getElementById('pd-feedback');
   if (fb) fb.textContent = '';
   _pdClearDesignLink();
+  // Unlock SRP field + hide pills (since picker reset to empty)
+  const srpInp = document.getElementById('pd-srp');
+  if (srpInp) { srpInp.readOnly = false; srpInp.style.background = ''; }
+  const srcBadge = document.getElementById('pd-srp-source');
+  const hint     = document.getElementById('pd-srp-hint');
+  if (srcBadge) srcBadge.style.display = 'none';
+  if (hint)     hint.style.display     = 'none';
   updatePDCodePreview();
 }
 
@@ -18971,7 +19020,13 @@ async function submitPD() {
   const btn = document.getElementById('pdSubmitBtn');
   const cid = pdCurrentCollectionId;
   if (!cid) { fb.textContent='⚠️ Buka detail collection dulu.'; return; }
-  const skuName = document.getElementById('pd-sku-name').value.trim();
+  // pd-sku-name is now a strict <select> picker — value is the CI id, the
+  // option text carries the SKU name BM defined in Collection Dev.
+  const skuSel = document.getElementById('pd-sku-name');
+  const selectedCiId = skuSel?.value || '';
+  const skuName = selectedCiId
+    ? (skuSel.options[skuSel.selectedIndex]?.text || '').replace(/\s*\(sudah di-mapping\)$/, '').trim()
+    : '';
   const srp = parseFloat(document.getElementById('pd-srp').value);
   const notes = document.getElementById('pd-notes').value.trim();
   // Jubelio config
@@ -18995,11 +19050,8 @@ async function submitPD() {
   // Auto-generate parent product code: {IP}-{COL}-{NN}
   const displayCode = generateNextParentCode(cid);
 
-  // Resolve collection_item_id from chosen SKU name (if match)
-  let collItemId = null;
-  const items = await loadPDCollectionItems(cid);
-  const match = items.find(it => (it.sku_name||'').trim().toLowerCase() === skuName.toLowerCase());
-  if (match) collItemId = match.id;
+  // collection_item_id is the selected dropdown value (CI id directly — strict picker).
+  const collItemId = selectedCiId || null;
 
   btn.disabled = true; fb.textContent = 'Menyimpan...';
   try {
@@ -19047,6 +19099,8 @@ async function submitPD() {
     fb.textContent = '✅ Produk tersimpan. Scroll ke bawah untuk tambah variants / bundle items.';
     await fetchPDRows();
     clearPDForm();
+    // Refresh picker — the SKU we just claimed should disappear from the dropdown
+    _pdRefreshSkuPicker(cid);
     // Re-render the design mirror so the freshly-mapped CI gets its "✓ Mapped" badge
     _pdRenderDesignMirror();
     try { renderPDDetailTable(); } catch(rerr) {
