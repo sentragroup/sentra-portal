@@ -2235,9 +2235,11 @@
                   <button type="button" onclick="_pdClearDesignLink()" style="margin-left:6px;background:none;border:none;color:#c0392b;cursor:pointer;font-size:11px">✕</button>
                 </div>
               </div>
-              <div class="fg"><label>SRP (Rp) <span id="pd-srp-source" style="font-size:10px;color:#3C3489;background:#eef0f8;padding:1px 6px;border-radius:3px;margin-left:6px;display:none">🔗 dari Collection Dev</span></label>
-                <input type="number" id="pd-srp" min="0" step="1" placeholder="cth: 250000">
-                <div id="pd-srp-hint" style="display:none;margin-top:3px;font-size:11px;color:var(--g600)">SRP inherit dari Collection Dev. Edit di sana kalau perlu diubah. <a href="#" onclick="_pdOverrideSrp();return false" style="color:var(--g600);text-decoration:underline">Override manual</a></div>
+              <div class="fg"><label>SRP (Rp)</label>
+                <div id="pd-srp-display" style="padding:7px 12px;border:1px dashed var(--g200);border-radius:4px;background:var(--off);font-size:13px;color:var(--g600);min-height:36px;display:flex;align-items:center;gap:8px">
+                  <span id="pd-srp-display-text">Pilih SKU dulu — SRP auto dari Collection Dev</span>
+                </div>
+                <input type="hidden" id="pd-srp" value="">
               </div>
               <div class="fg full"><label>Notes (internal)</label><input type="text" id="pd-notes" placeholder="Catatan opsional, gak ke-export"></div>
             </div>

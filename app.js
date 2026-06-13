@@ -18810,51 +18810,39 @@ async function _pdRefreshSkuPicker(cid) {
   _pdSyncSrpFromCD();
 }
 
-// Auto-sync SRP field when user picks a SKU from the dropdown. The selected
-// option's value is the CI id (we know it deterministically), so lookup is
-// direct — no name-based fuzzy match needed.
+// Display-only SRP chip — the input is gone; SRP is always inherited from
+// the picked CI. Submit pulls srp straight from _pdDesignRows so even legacy
+// rows can never drift from Collection Dev's authoritative value.
 function _pdSyncSrpFromCD() {
-  const sel      = document.getElementById('pd-sku-name');
-  const srpInp   = document.getElementById('pd-srp');
-  const srcBadge = document.getElementById('pd-srp-source');
-  const hint     = document.getElementById('pd-srp-hint');
-  if (!sel || !srpInp) return;
+  const sel     = document.getElementById('pd-sku-name');
+  const srpInp  = document.getElementById('pd-srp');
+  const disp    = document.getElementById('pd-srp-display');
+  const dispTxt = document.getElementById('pd-srp-display-text');
+  if (!sel || !srpInp || !disp || !dispTxt) return;
   const ciId = sel.value;
-  if (!ciId || !Array.isArray(_pdDesignRows)) {
+  if (!ciId) {
     srpInp.value = '';
-    srpInp.readOnly = false; srpInp.style.background = '';
-    if (srcBadge) srcBadge.style.display = 'none';
-    if (hint) hint.style.display = 'none';
+    disp.style.background = 'var(--off)';
+    disp.style.borderColor = 'var(--g200)';
+    disp.style.color = 'var(--g600)';
+    dispTxt.textContent = 'Pilih SKU dulu — SRP auto dari Collection Dev';
     return;
   }
-  const match = _pdDesignRows.find(r => r.id === ciId);
+  const match = Array.isArray(_pdDesignRows) ? _pdDesignRows.find(r => r.id === ciId) : null;
   if (match && match.srp != null) {
     srpInp.value = match.srp;
-    srpInp.readOnly = true;
-    srpInp.style.background = '#eef0f8';
-    if (srcBadge) srcBadge.style.display = 'inline-block';
-    if (hint)     hint.style.display     = 'block';
+    disp.style.background = '#eef0f8';
+    disp.style.borderColor = '#3C3489';
+    disp.style.color = '#3C3489';
+    dispTxt.innerHTML = `<strong style="font-family:var(--mono);font-size:14px">Rp ${Number(match.srp).toLocaleString('id-ID')}</strong> <span style="font-size:11px;color:#3C3489;background:white;padding:1px 6px;border-radius:3px;border:1px solid #c9bdf0">🔗 dari Collection Dev</span>`;
   } else {
-    // CI exists but no SRP set yet → unlock so user can type (rare; BM forgot SRP)
+    // CI ditemukan tapi SRP belum di-set → block submit + link ke CD
     srpInp.value = '';
-    srpInp.readOnly = false; srpInp.style.background = '';
-    if (srcBadge) srcBadge.style.display = 'none';
-    if (hint)     hint.style.display     = 'none';
+    disp.style.background = '#fef5e0';
+    disp.style.borderColor = '#f3cf7a';
+    disp.style.color = '#a66800';
+    dispTxt.innerHTML = `⚠️ SRP belum di-set di Collection Dev untuk SKU ini. <a href="#collections" onclick="showPage('collections',null);return false" style="color:#a66800;text-decoration:underline;font-weight:600">Set di sana →</a>`;
   }
-}
-
-// Escape hatch: allow manual SRP override even when CI linked. Used rarely
-// (e.g. one-off promo) — under normal flow BM edits SRP in Collection Dev.
-function _pdOverrideSrp() {
-  const srpInp = document.getElementById('pd-srp');
-  const hint   = document.getElementById('pd-srp-hint');
-  const src    = document.getElementById('pd-srp-source');
-  if (!srpInp) return;
-  srpInp.readOnly = false;
-  srpInp.style.background = '';
-  if (hint) hint.style.display = 'none';
-  if (src)  src.style.display  = 'none';
-  srpInp.focus();
 }
 
 function _pdClearDesignLink() {
@@ -18940,13 +18928,8 @@ function clearPDForm() {
   const fb = document.getElementById('pd-feedback');
   if (fb) fb.textContent = '';
   _pdClearDesignLink();
-  // Unlock SRP field + hide pills (since picker reset to empty)
-  const srpInp = document.getElementById('pd-srp');
-  if (srpInp) { srpInp.readOnly = false; srpInp.style.background = ''; }
-  const srcBadge = document.getElementById('pd-srp-source');
-  const hint     = document.getElementById('pd-srp-hint');
-  if (srcBadge) srcBadge.style.display = 'none';
-  if (hint)     hint.style.display     = 'none';
+  // SRP chip resets via _pdSyncSrpFromCD (called after picker reset)
+  _pdSyncSrpFromCD();
   updatePDCodePreview();
 }
 
@@ -19027,7 +19010,10 @@ async function submitPD() {
   const skuName = selectedCiId
     ? (skuSel.options[skuSel.selectedIndex]?.text || '').replace(/\s*\(sudah di-mapping\)$/, '').trim()
     : '';
-  const srp = parseFloat(document.getElementById('pd-srp').value);
+  // SRP comes straight from the linked CI — there is no manual SRP input
+  // anymore. If BM hasn't set it in Collection Dev, block save with a hint.
+  const ciMatch = selectedCiId && Array.isArray(_pdDesignRows) ? _pdDesignRows.find(r => r.id === selectedCiId) : null;
+  const srp = ciMatch?.srp != null ? Number(ciMatch.srp) : NaN;
   const notes = document.getElementById('pd-notes').value.trim();
   // Jubelio config
   const jubCategory  = document.getElementById('pd-jub-category')?.value.trim() || '';
@@ -19043,6 +19029,7 @@ async function submitPD() {
   // export). If category was typed, try to resolve its id (silently null if
   // not recognized — export will warn at that point).
   if (!skuName) { fb.textContent='⚠️ Nama produk wajib.'; return; }
+  if (isNaN(srp)) { fb.textContent='⚠️ SRP SKU ini belum di-set di Collection Dev. Set dulu di sana sebelum mapping ke PD.'; return; }
   // Prefer the id from the hidden input (set by picker) so user-edited path
   // strings can't sneak in; fall back to resolver for backward-compat.
   const jubCategoryId = parseInt(jubCategoryIdRaw, 10) || _pdResolveJubCategoryId(jubCategory);
@@ -19527,19 +19514,25 @@ async function savePDBundleItemEdit(id, parentId) {
 
 // ── Inline edit cards (replace the prompt() popups) ─────────────────
 function renderPDParentEditCard(p) {
-  // When PD parent is linked to a CI row that already has SRP, prefer that and
-  // lock the field — Collection Dev is the source of truth.
+  // SRP display-only: always inherit from CI when linked, fall back to PD's
+  // stored value (legacy rows pre-link). No editable input — edit di CD.
   const _biz = _pdResolveParentBusiness(p);
   const linkedSrp = _biz?.srpTarget != null ? _biz.srpTarget : null;
-  const srpDisplay = linkedSrp != null ? linkedSrp : (p.srp == null ? '' : p.srp);
-  const srpLocked = linkedSrp != null;
+  const effectiveSrp = linkedSrp != null ? linkedSrp : (p.srp == null ? null : p.srp);
+  const srpFromCD = linkedSrp != null;
+  const srpChipHtml = effectiveSrp != null
+    ? `<div style="padding:7px 12px;border:1px dashed ${srpFromCD?'#3C3489':'var(--g200)'};border-radius:4px;background:${srpFromCD?'#eef0f8':'var(--off)'};color:${srpFromCD?'#3C3489':'var(--g600)'};font-size:13px;display:flex;align-items:center;gap:8px">
+        <strong style="font-family:var(--mono);font-size:14px">Rp ${Number(effectiveSrp).toLocaleString('id-ID')}</strong>
+        ${srpFromCD?`<span style="font-size:10px;color:#3C3489;background:white;padding:1px 6px;border-radius:3px;border:1px solid #c9bdf0">🔗 dari Collection Dev</span>`:`<span style="font-size:10px;color:var(--g400);font-style:italic">legacy · belum ter-link</span>`}
+      </div>`
+    : `<div style="padding:7px 12px;border:1px dashed #f3cf7a;border-radius:4px;background:#fef5e0;color:#a66800;font-size:12px">⚠️ SRP belum di-set di Collection Dev. <a href="#collections" onclick="showPage('collections',null);return false" style="color:#a66800;text-decoration:underline;font-weight:600">Set di sana →</a></div>`;
   return `<div class="pd-card" style="display:flex;gap:14px;align-items:flex-start;border:2px solid var(--black);border-radius:6px;padding:12px;background:var(--white);margin-bottom:10px">
     <div style="flex:0 0 110px">${renderPDPicsLeft(p, 110)}</div>
     <div style="flex:1;min-width:0">
       <div style="font-family:var(--mono);font-size:11px;color:var(--g400);font-weight:600;margin-bottom:8px">EDITING · ${(p.displayCode||p.id).replace(/</g,'&lt;')}</div>
       <div class="form-grid" style="grid-template-columns:2fr 1fr;gap:8px">
         <div class="fg"><label style="font-size:11px">Nama Produk *</label><input id="pde-name-${p.id}" type="text" value="${(p.skuName||'').replace(/"/g,'&quot;')}" style="font-size:12px;padding:5px 8px"></div>
-        <div class="fg"><label style="font-size:11px">SRP (Rp) *${srpLocked?' <span style="font-size:9px;color:#3C3489;background:#eef0f8;padding:1px 5px;border-radius:3px;margin-left:4px">🔗 dari Collection Dev</span>':''}</label><input id="pde-srp-${p.id}" type="number" min="0" value="${srpDisplay}" style="font-size:12px;padding:5px 8px${srpLocked?';background:#eef0f8':''}" ${srpLocked?'readonly':''}>${srpLocked?`<div style="font-size:10px;color:var(--g600);margin-top:3px">SRP inherit dari Collection Dev (edit di sana). <a href="#" onclick="document.getElementById('pde-srp-${p.id}').readOnly=false;document.getElementById('pde-srp-${p.id}').style.background='';this.parentNode.style.display='none';return false" style="color:var(--g600);text-decoration:underline">Override manual</a></div>`:''}</div>
+        <div class="fg"><label style="font-size:11px">SRP (Rp)</label>${srpChipHtml}<input type="hidden" id="pde-srp-${p.id}" value="${effectiveSrp!=null?effectiveSrp:''}"></div>
         <div class="fg full"><label style="font-size:11px">Notes (internal)</label><input id="pde-notes-${p.id}" type="text" value="${(p.notes||'').replace(/"/g,'&quot;')}" style="font-size:12px;padding:5px 8px"></div>
       </div>
 
