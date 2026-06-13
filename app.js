@@ -23944,7 +23944,7 @@ async function loadSampling() {
   document.getElementById('smp-grid-list').innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:32px;color:var(--g400);font-size:13px">⟳ Memuat sampling...</div>`;
   try {
     const [colsRes, itemsRes, skusRes] = await Promise.all([
-      sb.from('collections').select('id, collection_name, ip_related, revenue_stream, status, release_date').order('date_added',{ascending:false}),
+      sb.from('collections').select('id, collection_name, ip_related, revenue_stream, status, release_date, smp_active').order('date_added',{ascending:false}),
       sb.from('collection_items').select('id, collection_id, sku_name, sku_proper, category, sub_category, treatment, color, qty, srp, approval_status'),
       sb.from('sampling_skus').select('id, collection_item_id, expected_date, notes, status'),
     ]);
@@ -24012,8 +24012,11 @@ function renderSmpGrid() {
     return true;
   });
 
-  // Sort closest release-date first, mirroring PD grid behaviour.
+  // Sort active first (inactive sinks to the bottom), then closest
+  // release-date — same comparator as PD's grid.
   rows.sort((a,b) => {
+    const aActive = a.smp_active !== false, bActive = b.smp_active !== false;
+    if (aActive !== bActive) return aActive ? -1 : 1;
     const da = pdDaysUntil(a.release_date);
     const db = pdDaysUntil(b.release_date);
     const rank = d => d === null ? 3 : d < 0 ? 2 : 1;
@@ -24048,6 +24051,7 @@ function renderSmpGrid() {
     const name = _smpEsc(c.collection_name || c.id);
     const ip   = (c.ip_related || '').trim();
     const rev  = (c.revenue_stream || '').trim();
+    const active = c.smp_active !== false;
 
     const days = pdDaysUntil(c.release_date);
     const launchTone = pdLaunchTone(days);
@@ -24063,13 +24067,16 @@ function renderSmpGrid() {
     const revChip = rev
       ? `<span style="font-size:9px;font-weight:700;font-family:var(--mono);padding:2px 8px;border-radius:99px;background:${revStyle.bg};color:${revStyle.fg};border:1px solid ${revStyle.border};white-space:nowrap">${_smpEsc(rev)}</span>`
       : '';
+    const toggle = `<button onclick="event.stopPropagation();toggleSmpActive('${_smpEsc(c.id)}',${active?'false':'true'})"
+      title="${active?'Tandai inactive':'Tandai active'}"
+      style="font-size:9px;font-weight:600;font-family:var(--mono);padding:2px 8px;border-radius:99px;cursor:pointer;white-space:nowrap;border:1px solid ${active?'#a7dab4':'#e0a8a8'};background:${active?'#daf3e0':'#fbe6e6'};color:${active?'#0a7d3a':'#b81d1d'}">${active?'● Active':'○ Inactive'}</button>`;
 
-    // Sub-counts under the IP / collection — show in-progress + rejected snapshots.
+    // Sub-counts under the IP / collection — show in-progress + total snapshots.
     const subCounts = total
       ? `<span style="font-size:11px;color:var(--g600);margin-top:6px;display:block">${inProg ? `${inProg} in progress · ` : ''}${total} SKU total</span>`
       : '';
 
-    return `<div class="tool-card" onclick="openSmpDetail('${_smpEsc(c.id)}')" style="cursor:pointer;padding:14px 16px;display:flex;flex-direction:column;gap:10px;height:100%;box-sizing:border-box">
+    return `<div class="tool-card" onclick="openSmpDetail('${_smpEsc(c.id)}')" style="cursor:pointer;padding:14px 16px;display:flex;flex-direction:column;gap:10px;height:100%;box-sizing:border-box;${active?'':'opacity:0.55'}">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
         <div style="min-width:0">
           ${ip
@@ -24085,10 +24092,28 @@ function renderSmpGrid() {
         <span style="display:flex;flex-direction:column;align-items:center;gap:1px;line-height:1.25;font-size:11px;font-weight:600;padding:5px 10px;border-radius:4px;font-family:var(--mono);background:${launchTone.bg};color:${launchTone.fg};border:1px solid ${launchTone.border};box-sizing:border-box">
           <span>📅 ${launchTone.label}</span>${launchDate?`<span style="font-weight:500;opacity:0.85">${launchDate}</span>`:''}
         </span>
+        <div style="display:flex;justify-content:center">${toggle}</div>
       </div>
       ${progressBar}
     </div>`;
   }).join('');
+}
+
+// Flip the smp_active flag on a collection. Inactive collections sink to the
+// bottom of the grid (see sort in renderSmpGrid) and render dimmed.
+async function toggleSmpActive(colId, makeActive) {
+  const newVal = makeActive === true || makeActive === 'true';
+  const c = allSmpCollections.find(x => String(x.id) === String(colId));
+  if (c) c.smp_active = newVal;
+  renderSmpGrid();
+  try {
+    const { error } = await sb.from('collections').update({ smp_active: newVal }).eq('id', colId);
+    if (error) throw error;
+  } catch (e) {
+    if (c) c.smp_active = !newVal;
+    renderSmpGrid();
+    alert('Gagal update: ' + (e.message || e));
+  }
 }
 
 async function openSmpDetail(colId) {
