@@ -5122,6 +5122,10 @@ function mapCI(r) {
     treatment:r.treatment||"", color:r.color||"",
     qty:r.qty!=null?Number(r.qty):null,
     srp:r.srp!=null?Number(r.srp):null,
+    // Bundle fields — bundle is just 1 SKU line w/ paket qty + paket SRP;
+    // components stored as free-text reference (not separate tracked SKUs).
+    isBundle: !!r.is_bundle,
+    bundleComponents: r.bundle_components || "",
     // Creative-tab fields
     designer:r.designer||"",
     deadline:r.deadline||"", designPreviewUrl:r.design_preview_url||"",
@@ -5728,17 +5732,30 @@ function renderColTargetSection(col, items) {
   // SKU add form — naming + commercial fields. Lives in the Business tab now.
   const ip = col.ipRelated || 'IP';
   const skuFormHTML = `<div style="background:var(--off);border:1px solid var(--g100);border-radius:8px;padding:14px;margin-bottom:14px">
-    <div style="font-family:var(--syne);font-size:14px;font-weight:700;margin-bottom:6px">+ Tambah SKU</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:12px;flex-wrap:wrap">
+      <div style="font-family:var(--syne);font-size:14px;font-weight:700">+ Tambah SKU</div>
+      <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;background:var(--white);border:1px solid var(--g200);border-radius:6px;padding:4px 10px" title="Centang jika ini bundle/combo (e.g. paket Album + Tote Bag). Qty = jumlah paket, SRP = harga 1 paket.">
+        <input type="checkbox" id="ci-dp-isbundle-${cid}" onchange="toggleCIBundleMode('${cid}')" style="margin:0">
+        <span>📦 Bundle / Combo SKU</span>
+      </label>
+    </div>
     <div style="font-size:11px;color:var(--g600);margin-bottom:10px">Auto-build SKU name: <b id="ci-dp-preview-${cid}" style="color:var(--black);font-family:var(--mono)">${ip.replace(/</g,'&lt;')} - ...</b></div>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px">
-      <div class="fg" style="margin:0"><label style="font-size:11px">Nama SKU <span class="req">*</span></label><input type="text" id="ci-dp-name-${cid}" placeholder="cth: Calligraphic" oninput="updateCIDpPreview('${cid}')"></div>
-      <div class="fg" style="margin:0;position:relative"><label style="font-size:11px">Kategori</label><input type="text" id="ci-dp-cat-${cid}" placeholder="T-Shirt, Cap..." autocomplete="off" oninput="updateCIDpPreview('${cid}')"><div class="ac-list" id="ac-ci-dp-cat-${cid}"></div></div>
-      <div class="fg" style="margin:0;position:relative"><label style="font-size:11px">Sub-Kategori</label><input type="text" id="ci-dp-subcat-${cid}" placeholder="Sleeveless, Regular..." autocomplete="off" oninput="updateCIDpPreview('${cid}')"><div class="ac-list" id="ac-ci-dp-subcat-${cid}"></div></div>
-      <div class="fg" style="margin:0"><label style="font-size:11px">Treatment</label><input type="text" id="ci-dp-treat-${cid}" placeholder="DTG, Sablon, Embroidery..." oninput="updateCIDpPreview('${cid}')"></div>
-      <div class="fg" style="margin:0"><label style="font-size:11px">Color</label><input type="text" id="ci-dp-color-${cid}" placeholder="Black, White, Navy..." oninput="updateCIDpPreview('${cid}')"></div>
+      <div class="fg" style="margin:0"><label style="font-size:11px"><span id="ci-dp-name-lbl-${cid}">Nama SKU</span> <span class="req">*</span></label><input type="text" id="ci-dp-name-${cid}" placeholder="cth: Calligraphic" oninput="updateCIDpPreview('${cid}')"></div>
+      <div class="fg ci-nonbundle-${cid}" style="margin:0;position:relative"><label style="font-size:11px">Kategori</label><input type="text" id="ci-dp-cat-${cid}" placeholder="T-Shirt, Cap..." autocomplete="off" oninput="updateCIDpPreview('${cid}')"><div class="ac-list" id="ac-ci-dp-cat-${cid}"></div></div>
+      <div class="fg ci-nonbundle-${cid}" style="margin:0;position:relative"><label style="font-size:11px">Sub-Kategori</label><input type="text" id="ci-dp-subcat-${cid}" placeholder="Sleeveless, Regular..." autocomplete="off" oninput="updateCIDpPreview('${cid}')"><div class="ac-list" id="ac-ci-dp-subcat-${cid}"></div></div>
+      <div class="fg ci-nonbundle-${cid}" style="margin:0"><label style="font-size:11px">Treatment</label><input type="text" id="ci-dp-treat-${cid}" placeholder="DTG, Sablon, Embroidery..." oninput="updateCIDpPreview('${cid}')"></div>
+      <div class="fg ci-nonbundle-${cid}" style="margin:0"><label style="font-size:11px">Color</label><input type="text" id="ci-dp-color-${cid}" placeholder="Black, White, Navy..." oninput="updateCIDpPreview('${cid}')"></div>
       <div style="display:grid;grid-template-columns:1fr 1.4fr;gap:8px">
-        <div class="fg" style="margin:0"><label style="font-size:11px">Qty</label><input type="number" id="ci-dp-qty-${cid}" min="0" step="1" placeholder="200" oninput="updateCIDpPreview('${cid}')"></div>
-        <div class="fg" style="margin:0"><label style="font-size:11px">SRP (Rp)</label><input type="number" id="ci-dp-srp-${cid}" min="0" step="1000" placeholder="120000" oninput="updateCIDpPreview('${cid}')"></div>
+        <div class="fg" style="margin:0"><label style="font-size:11px"><span id="ci-dp-qty-lbl-${cid}">Qty</span></label><input type="number" id="ci-dp-qty-${cid}" min="0" step="1" placeholder="200" oninput="updateCIDpPreview('${cid}')"></div>
+        <div class="fg" style="margin:0"><label style="font-size:11px"><span id="ci-dp-srp-lbl-${cid}">SRP (Rp)</span></label><input type="number" id="ci-dp-srp-${cid}" min="0" step="1000" placeholder="120000" oninput="updateCIDpPreview('${cid}')"></div>
+      </div>
+    </div>
+    <div class="ci-bundle-${cid}" style="display:none;margin-bottom:10px">
+      <div class="fg" style="margin:0">
+        <label style="font-size:11px">Komponen / Isi Paket <span style="color:var(--g400);font-weight:400">(reference produksi)</span></label>
+        <textarea id="ci-dp-bundlec-${cid}" rows="2" placeholder="cth: 1× Album CD, 1× Tote Bag Black, 1× Photocard Pack" style="resize:vertical;font-size:12px"></textarea>
+        <div style="font-size:10px;color:var(--g400);margin-top:3px">Cuma catatan untuk planning produksi — nggak ditrack sebagai SKU terpisah.</div>
       </div>
     </div>
     <div style="display:flex;align-items:center;gap:12px">
@@ -5823,11 +5840,15 @@ function renderColTargetSection(col, items) {
           <th style="padding:6px 10px;text-align:left">Aksi</th>
         </tr></thead>
         <tbody>
-          ${items.map(i => `<tr id="ci-row-biz-${i.id}" style="border-top:1px solid var(--g100)">
-            <td style="padding:7px 10px"><strong style="font-size:12px">${(i.skuName||'').replace(/</g,'&lt;')}</strong></td>
-            <td style="padding:7px 10px;font-size:11px;color:var(--g600)">${i.category?`${i.category}${i.subCategory?' · '+i.subCategory:''}`:'—'}</td>
-            <td style="padding:7px 10px;font-size:11px;color:var(--g600)">${i.treatment||'—'}</td>
-            <td style="padding:7px 10px;font-size:11px;color:var(--g600)">${i.color||'—'}</td>
+          ${items.map(i => `<tr id="ci-row-biz-${i.id}" style="border-top:1px solid var(--g100)${i.isBundle?';background:#fff8e8':''}">
+            <td style="padding:7px 10px">
+              <strong style="font-size:12px">${(i.skuName||'').replace(/</g,'&lt;')}</strong>
+              ${i.isBundle?`<span style="margin-left:6px;display:inline-block;padding:1px 6px;background:#f0e6d4;color:#7a5a1d;border:1px solid #d9c79b;border-radius:3px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;vertical-align:middle" title="${(i.bundleComponents||'Bundle').replace(/"/g,'&quot;')}">📦 Bundle</span>`:''}
+              ${i.isBundle && i.bundleComponents?`<div style="font-size:10px;color:var(--g600);margin-top:3px;font-style:italic">Isi: ${(i.bundleComponents||'').replace(/</g,'&lt;')}</div>`:''}
+            </td>
+            <td style="padding:7px 10px;font-size:11px;color:var(--g600)">${i.isBundle?'<span style="color:var(--g400)">(bundle)</span>':(i.category?`${i.category}${i.subCategory?' · '+i.subCategory:''}`:'—')}</td>
+            <td style="padding:7px 10px;font-size:11px;color:var(--g600)">${i.isBundle?'—':(i.treatment||'—')}</td>
+            <td style="padding:7px 10px;font-size:11px;color:var(--g600)">${i.isBundle?'—':(i.color||'—')}</td>
             <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px">${i.qty||'—'}</td>
             <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px">${fmtRp2(i.srp)}</td>
             <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px;font-weight:600">${(i.qty&&i.srp)?fmtRp2(i.qty*i.srp):'—'}</td>
@@ -5839,15 +5860,24 @@ function renderColTargetSection(col, items) {
           <tr id="ci-edit-biz-${i.id}" style="display:none;border-top:1px solid var(--g100)">
             <td colspan="8" style="padding:8px 10px 12px">
               <div class="edit-row-form" style="background:var(--off)">
-                <div style="font-size:10px;color:var(--g400);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Naming &amp; Commercial</div>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px;flex-wrap:wrap">
+                  <div style="font-size:10px;color:var(--g400);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.5px">Naming &amp; Commercial</div>
+                  <label style="display:inline-flex;align-items:center;gap:6px;font-size:11px;cursor:pointer;background:var(--white);border:1px solid var(--g200);border-radius:4px;padding:3px 8px">
+                    <input type="checkbox" id="cieb-isbundle-${i.id}" ${i.isBundle?'checked':''} onchange="toggleCIBundleEdit('${i.id}')" style="margin:0"> 📦 Bundle / Combo
+                  </label>
+                </div>
                 <div class="edit-row-grid">
-                  <div class="fg"><label style="font-size:11px">Nama SKU (proper)</label><input type="text" id="cieb-prop-${i.id}" value="${(i.skuProper||i.skuName||'').replace(/"/g,'&quot;')}"></div>
-                  <div class="fg" style="position:relative"><label style="font-size:11px">Kategori</label><input type="text" id="cieb-cat-${i.id}" value="${(i.category||'').replace(/"/g,'&quot;')}" autocomplete="off"><div class="ac-list" id="ac-cieb-cat-${i.id}"></div></div>
-                  <div class="fg" style="position:relative"><label style="font-size:11px">Sub-Kategori</label><input type="text" id="cieb-subcat-${i.id}" value="${(i.subCategory||'').replace(/"/g,'&quot;')}" autocomplete="off"><div class="ac-list" id="ac-cieb-subcat-${i.id}"></div></div>
-                  <div class="fg"><label style="font-size:11px">Treatment</label><input type="text" id="cieb-treat-${i.id}" value="${(i.treatment||'').replace(/"/g,'&quot;')}"></div>
-                  <div class="fg"><label style="font-size:11px">Color</label><input type="text" id="cieb-color-${i.id}" value="${(i.color||'').replace(/"/g,'&quot;')}"></div>
-                  <div class="fg"><label style="font-size:11px">Qty</label><input type="number" id="cieb-qty-${i.id}" min="0" step="1" value="${i.qty!=null?i.qty:''}"></div>
-                  <div class="fg"><label style="font-size:11px">SRP (Rp)</label><input type="number" id="cieb-srp-${i.id}" min="0" step="1000" value="${i.srp!=null?i.srp:''}"></div>
+                  <div class="fg"><label style="font-size:11px"><span id="cieb-prop-lbl-${i.id}">${i.isBundle?'Nama Bundle':'Nama SKU (proper)'}</span></label><input type="text" id="cieb-prop-${i.id}" value="${(i.skuProper||i.skuName||'').replace(/"/g,'&quot;')}"></div>
+                  <div class="fg cieb-nonbundle-${i.id}" style="position:relative;${i.isBundle?'display:none':''}"><label style="font-size:11px">Kategori</label><input type="text" id="cieb-cat-${i.id}" value="${(i.category||'').replace(/"/g,'&quot;')}" autocomplete="off"><div class="ac-list" id="ac-cieb-cat-${i.id}"></div></div>
+                  <div class="fg cieb-nonbundle-${i.id}" style="position:relative;${i.isBundle?'display:none':''}"><label style="font-size:11px">Sub-Kategori</label><input type="text" id="cieb-subcat-${i.id}" value="${(i.subCategory||'').replace(/"/g,'&quot;')}" autocomplete="off"><div class="ac-list" id="ac-cieb-subcat-${i.id}"></div></div>
+                  <div class="fg cieb-nonbundle-${i.id}" style="${i.isBundle?'display:none':''}"><label style="font-size:11px">Treatment</label><input type="text" id="cieb-treat-${i.id}" value="${(i.treatment||'').replace(/"/g,'&quot;')}"></div>
+                  <div class="fg cieb-nonbundle-${i.id}" style="${i.isBundle?'display:none':''}"><label style="font-size:11px">Color</label><input type="text" id="cieb-color-${i.id}" value="${(i.color||'').replace(/"/g,'&quot;')}"></div>
+                  <div class="fg"><label style="font-size:11px">${i.isBundle?'Qty (paket)':'Qty'}</label><input type="number" id="cieb-qty-${i.id}" min="0" step="1" value="${i.qty!=null?i.qty:''}"></div>
+                  <div class="fg"><label style="font-size:11px">${i.isBundle?'SRP / paket (Rp)':'SRP (Rp)'}</label><input type="number" id="cieb-srp-${i.id}" min="0" step="1000" value="${i.srp!=null?i.srp:''}"></div>
+                </div>
+                <div class="fg cieb-bundle-${i.id}" style="${i.isBundle?'':'display:none'};margin-top:8px">
+                  <label style="font-size:11px">Komponen / Isi Paket <span style="color:var(--g400);font-weight:400">(reference produksi)</span></label>
+                  <textarea id="cieb-bundlec-${i.id}" rows="2" placeholder="cth: 1× Album CD, 1× Tote Bag Black, 1× Photocard Pack" style="resize:vertical;font-size:12px">${(i.bundleComponents||'').replace(/</g,'&lt;')}</textarea>
                 </div>
                 <div class="edit-row-btns">
                   <button class="btn-save" onclick="saveSKUEditBiz('${i.id}','${cid}')">Simpan</button>
@@ -7569,37 +7599,77 @@ async function handleRemoveCPLink(linkId, colId){
   }catch(e){alert("Gagal: "+(e.message||e));}
 }
 
+// Toggle add form between single-SKU and bundle mode. Bundle mode hides
+// the size/color/treatment/kategori fields (a bundle usually doesn't have
+// a single size/color/treatment) and shows a Komponen textarea instead.
+function toggleCIBundleMode(colId) {
+  const isBundle = !!document.getElementById(`ci-dp-isbundle-${colId}`)?.checked;
+  document.querySelectorAll(`.ci-nonbundle-${colId}`).forEach(el => {
+    el.style.display = isBundle ? 'none' : '';
+  });
+  document.querySelectorAll(`.ci-bundle-${colId}`).forEach(el => {
+    el.style.display = isBundle ? 'block' : 'none';
+  });
+  // Relabel name/qty/srp to clarify paket-level semantics
+  const nameLbl = document.getElementById(`ci-dp-name-lbl-${colId}`);
+  const qtyLbl  = document.getElementById(`ci-dp-qty-lbl-${colId}`);
+  const srpLbl  = document.getElementById(`ci-dp-srp-lbl-${colId}`);
+  if (nameLbl) nameLbl.textContent = isBundle ? 'Nama Bundle' : 'Nama SKU';
+  if (qtyLbl)  qtyLbl.textContent  = isBundle ? 'Qty (paket)' : 'Qty';
+  if (srpLbl)  srpLbl.textContent  = isBundle ? 'SRP / paket (Rp)' : 'SRP (Rp)';
+  // Clear hidden fields so they don't pollute composed name
+  if (isBundle) {
+    ['cat','subcat','treat','color'].forEach(k => {
+      const el = document.getElementById(`ci-dp-${k}-${colId}`);
+      if (el) el.value = '';
+    });
+  }
+  updateCIDpPreview(colId);
+}
+
 // Live preview of the composed SKU name in the add form
 function updateCIDpPreview(colId) {
   const col = allColRows.find(r => r.id === colId);
   const ip  = col?.ipRelated || 'IP';
+  const isBundle = !!document.getElementById(`ci-dp-isbundle-${colId}`)?.checked;
   const prop = document.getElementById(`ci-dp-name-${colId}`)?.value.trim() || '';
   const cat  = document.getElementById(`ci-dp-cat-${colId}`)?.value.trim() || '';
   const sub  = document.getElementById(`ci-dp-subcat-${colId}`)?.value.trim() || '';
   const treat= document.getElementById(`ci-dp-treat-${colId}`)?.value.trim() || '';
   const clr  = document.getElementById(`ci-dp-color-${colId}`)?.value.trim() || '';
-  const preview = composeSkuName(ip, prop || '…', cat, sub, treat, clr);
+  // For bundle: skip kategori/treatment/color, append "Bundle" suffix
+  const preview = isBundle
+    ? composeSkuName(ip, prop || '…', '', '', '', '') + ' - Bundle'
+    : composeSkuName(ip, prop || '…', cat, sub, treat, clr);
   const el = document.getElementById(`ci-dp-preview-${colId}`);
   if (el) el.textContent = preview;
   // Live update the auto sales target preview from qty × srp
   const qty = parseFloat(document.getElementById(`ci-dp-qty-${colId}`)?.value) || 0;
   const srp = parseFloat(document.getElementById(`ci-dp-srp-${colId}`)?.value) || 0;
   const lineEl = document.getElementById(`ci-dp-line-${colId}`);
-  if (lineEl) lineEl.textContent = (qty && srp) ? 'Line revenue: Rp ' + (qty*srp).toLocaleString('id-ID') : '';
+  if (lineEl) lineEl.textContent = (qty && srp) ? `${isBundle?'Bundle ':''}Line revenue: Rp ${(qty*srp).toLocaleString('id-ID')}` : '';
 }
 
 async function addCollectionItem(colId) {
   const prop = document.getElementById(`ci-dp-name-${colId}`)?.value.trim();
   if(!prop){alert("Nama SKU wajib diisi.");return;}
-  const cat  = document.getElementById(`ci-dp-cat-${colId}`)?.value.trim() || '';
-  const sub  = document.getElementById(`ci-dp-subcat-${colId}`)?.value.trim() || '';
-  const treat= document.getElementById(`ci-dp-treat-${colId}`)?.value.trim() || '';
-  const clr  = document.getElementById(`ci-dp-color-${colId}`)?.value.trim() || '';
+  const isBundle = !!document.getElementById(`ci-dp-isbundle-${colId}`)?.checked;
+  // For bundles we ignore size/treatment/color fields entirely — the toggle
+  // hides them in UI; values would be empty anyway but we skip composing them.
+  const cat  = isBundle ? '' : (document.getElementById(`ci-dp-cat-${colId}`)?.value.trim() || '');
+  const sub  = isBundle ? '' : (document.getElementById(`ci-dp-subcat-${colId}`)?.value.trim() || '');
+  const treat= isBundle ? '' : (document.getElementById(`ci-dp-treat-${colId}`)?.value.trim() || '');
+  const clr  = isBundle ? '' : (document.getElementById(`ci-dp-color-${colId}`)?.value.trim() || '');
   const qty  = parseInt(document.getElementById(`ci-dp-qty-${colId}`)?.value, 10);
   const srp  = parseFloat(document.getElementById(`ci-dp-srp-${colId}`)?.value);
+  const components = isBundle ? (document.getElementById(`ci-dp-bundlec-${colId}`)?.value.trim() || '') : '';
   const col  = allColRows.find(r => r.id === colId);
   const ip   = col?.ipRelated || '';
-  const composedName = composeSkuName(ip, prop, cat, sub, treat, clr);
+  // Bundle SKU gets an explicit " - Bundle" suffix so it's distinguishable
+  // in lists/exports without needing to inspect the flag every time.
+  const composedName = isBundle
+    ? composeSkuName(ip, prop, '', '', '', '') + ' - Bundle'
+    : composeSkuName(ip, prop, cat, sub, treat, clr);
   try {
     const id=genId("CI");
     const {error}=await sb.from("collection_items").insert({
@@ -7612,12 +7682,16 @@ async function addCollectionItem(colId) {
       color: clr || null,
       qty: isNaN(qty) ? null : qty,
       srp: isNaN(srp) ? null : srp,
+      is_bundle: isBundle,
+      bundle_components: components || null,
       approval_status:"Pending",
       date_added:new Date().toISOString().slice(0,10), added_by:currentUser,
       last_updated:new Date().toISOString(), last_updated_by:currentUser
     });
     if(error)throw error;
-    [`ci-dp-name-${colId}`,`ci-dp-cat-${colId}`,`ci-dp-subcat-${colId}`,`ci-dp-treat-${colId}`,`ci-dp-color-${colId}`,`ci-dp-qty-${colId}`,`ci-dp-srp-${colId}`].forEach(eid=>{const el=document.getElementById(eid);if(el)el.value="";});
+    [`ci-dp-name-${colId}`,`ci-dp-cat-${colId}`,`ci-dp-subcat-${colId}`,`ci-dp-treat-${colId}`,`ci-dp-color-${colId}`,`ci-dp-qty-${colId}`,`ci-dp-srp-${colId}`,`ci-dp-bundlec-${colId}`].forEach(eid=>{const el=document.getElementById(eid);if(el)el.value="";});
+    const isBundleCb = document.getElementById(`ci-dp-isbundle-${colId}`);
+    if (isBundleCb && isBundleCb.checked) { isBundleCb.checked = false; toggleCIBundleMode(colId); }
     logActivity("Collections","create",id,`SKU: ${composedName}`);
     const {data}=await sb.from("collection_items").select("*").eq("collection_id",colId);
     allColItems=allColItems.filter(i=>i.collectionId!==colId).concat((data||[]).map(mapCI));
@@ -8021,21 +8095,42 @@ async function colNotesSave(colId, stage, el) {
 }
 
 // Save: Business inline edit (naming + commercial). Recomputes sku_name.
+// Toggle bundle mode in the inline edit form (mirrors toggleCIBundleMode for the add form)
+function toggleCIBundleEdit(itemId) {
+  const isBundle = !!document.getElementById(`cieb-isbundle-${itemId}`)?.checked;
+  document.querySelectorAll(`.cieb-nonbundle-${itemId}`).forEach(el => {
+    el.style.display = isBundle ? 'none' : '';
+  });
+  document.querySelectorAll(`.cieb-bundle-${itemId}`).forEach(el => {
+    el.style.display = isBundle ? 'block' : 'none';
+  });
+  if (isBundle) {
+    ['cat','subcat','treat','color'].forEach(k => {
+      const el = document.getElementById(`cieb-${k}-${itemId}`);
+      if (el) el.value = '';
+    });
+  }
+}
+
 async function saveSKUEditBiz(itemId, colId) {
   const btn=document.querySelector(`#ci-edit-biz-${itemId} .btn-save`);
   if(btn){btn.disabled=true;btn.textContent="Menyimpan...";}
   try {
     const prop = document.getElementById(`cieb-prop-${itemId}`)?.value.trim();
     if(!prop){if(btn){btn.disabled=false;btn.textContent="Simpan";}alert("Nama SKU wajib diisi.");return;}
-    const cat   = document.getElementById(`cieb-cat-${itemId}`)?.value.trim() || '';
-    const sub   = document.getElementById(`cieb-subcat-${itemId}`)?.value.trim() || '';
-    const treat = document.getElementById(`cieb-treat-${itemId}`)?.value.trim() || '';
-    const clr   = document.getElementById(`cieb-color-${itemId}`)?.value.trim() || '';
+    const isBundle = !!document.getElementById(`cieb-isbundle-${itemId}`)?.checked;
+    const cat   = isBundle ? '' : (document.getElementById(`cieb-cat-${itemId}`)?.value.trim() || '');
+    const sub   = isBundle ? '' : (document.getElementById(`cieb-subcat-${itemId}`)?.value.trim() || '');
+    const treat = isBundle ? '' : (document.getElementById(`cieb-treat-${itemId}`)?.value.trim() || '');
+    const clr   = isBundle ? '' : (document.getElementById(`cieb-color-${itemId}`)?.value.trim() || '');
     const qty   = parseInt(document.getElementById(`cieb-qty-${itemId}`)?.value, 10);
     const srp   = parseFloat(document.getElementById(`cieb-srp-${itemId}`)?.value);
+    const components = isBundle ? (document.getElementById(`cieb-bundlec-${itemId}`)?.value.trim() || '') : '';
     const col   = allColRows.find(r => r.id === colId);
     const ip    = col?.ipRelated || '';
-    const composedName = composeSkuName(ip, prop, cat, sub, treat, clr);
+    const composedName = isBundle
+      ? composeSkuName(ip, prop, '', '', '', '') + ' - Bundle'
+      : composeSkuName(ip, prop, cat, sub, treat, clr);
     const {error}=await sb.from("collection_items").update({
       sku_name: composedName,
       sku_proper: prop,
@@ -8045,6 +8140,8 @@ async function saveSKUEditBiz(itemId, colId) {
       color: clr || null,
       qty: isNaN(qty) ? null : qty,
       srp: isNaN(srp) ? null : srp,
+      is_bundle: isBundle,
+      bundle_components: components || null,
       last_updated: new Date().toISOString(), last_updated_by: currentUser
     }).eq("id",itemId);
     if(error)throw error;
@@ -8053,6 +8150,7 @@ async function saveSKUEditBiz(itemId, colId) {
       skuName: composedName, skuProper: prop,
       category: cat, subCategory: sub, treatment: treat, color: clr,
       qty: isNaN(qty)?null:qty, srp: isNaN(srp)?null:srp,
+      isBundle, bundleComponents: components,
     };
     // Refresh parent collection (trigger updated target_revenue/units)
     const {data: c2} = await sb.from("collections").select("*").eq("id", colId).single();
