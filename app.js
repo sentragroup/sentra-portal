@@ -22248,12 +22248,19 @@ async function toggleMPActive(collectionId, newActive) {
   }
 }
 
-function openMPDetail(colId) {
-  location.hash = `mktplan/${encodeURIComponent(colId)}`;
+// PD-style direct dispatch — bypass hashchange (no listener) so the click
+// always wins. Hash gets updated for deep-link / refresh / back-button.
+async function openMPDetail(colId) {
+  _mpCurrentColId = colId;
+  history.replaceState(null,'',`#mktplan/${encodeURIComponent(colId)}`);
+  if (!_mpCols.length) await _mpFetchAll();
+  await showMPDetail();
 }
 
 function mpBackToGrid() {
-  location.hash = 'mktplan';
+  _mpCurrentColId = '';
+  history.replaceState(null,'','#mktplan');
+  showMPGrid();
 }
 
 async function showMPDetail() {
