@@ -6250,12 +6250,9 @@ function renderColTargetSection(col, items) {
     </div>
   </div>`;
 
-  // Monitor panel — placeholder, will be populated by loadColSalesMonitor
-  const monitorPanel = hasTarget ? `<div id="ct-monitor-${cid}" style="margin-top:14px">
-    <div style="padding:14px;background:var(--off);border:1px dashed var(--g200);border-radius:6px;font-size:12px;color:var(--g400);text-align:center">
-      📊 Loading target monitoring...
-    </div>
-  </div>` : '';
+  // Monitor panel moved to Performance tab — leave empty here so callers can
+  // still concatenate `monitorPanel` without changing the signature.
+  const monitorPanel = '';
 
   // Viability panel — only shown if target is set AND PD has data
   let viability = '';
@@ -7049,6 +7046,12 @@ function renderColDetail(col, items) {
 
         <!-- ─────────── 📈 PERFORMANCE TAB ─────────── -->
         <div id="cd-tab-performance-${col.id}" class="cd-tab-content" style="display:none">
+        ${cdStageBox("🎯","Sales Target Monitoring","",
+          ((col.targetRevenue!=null||col.targetUnits!=null)
+            ? `<div id="ct-monitor-${col.id}">
+                <div style="padding:14px;background:var(--off);border:1px dashed var(--g200);border-radius:6px;font-size:12px;color:var(--g400);text-align:center">📊 Loading target monitoring...</div>
+              </div>`
+            : `<div style="padding:14px;background:var(--off);border:1px dashed var(--g200);border-radius:6px;font-size:12px;color:var(--g400);text-align:center">Belum set target. Tambah SKU dengan qty + SRP di Business tab untuk activate monitoring.</div>`))}
         ${cdStageBox("📊","Product Performance","",`<div id="col-perf-${col.id}" style="color:var(--g400);font-size:12px">Memuat...</div>`)}
         ${cdStageBox("📦","Stock Rekonsiliasi","",`<div id="col-stock-${col.id}" style="color:var(--g400);font-size:12px">Memuat...</div>`)}
         </div><!-- /Performance tab -->
