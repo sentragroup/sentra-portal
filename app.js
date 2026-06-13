@@ -6675,7 +6675,7 @@ async function loadColSamplingSection(col) {
       // Clicking a thumbnail opens the existing smpOpenAnnoModal (full
       // edit/reply UX), so Collection Dev users can add comments without
       // leaving the page.
-      const expansionHtml = vers.map(v => {
+      const versHtml = vers.map(v => {
         const imgs = imagesByVer.get(v.id) || [];
         const imgsHtml = imgs.length
           ? imgs.map(im => {
@@ -6694,14 +6694,33 @@ async function loadColSamplingSection(col) {
               </div>`;
             }).join('')
           : `<span style="font-size:11px;color:var(--g400)">Belum ada foto</span>`;
-        const notesLine = v.notes ? `<div style="font-size:11px;color:var(--g600);margin-top:6px;font-style:italic">📝 ${String(v.notes).replace(/</g,'&lt;')}</div>` : '';
-        return `<div style="background:var(--white);border:1px solid var(--g100);border-radius:6px;padding:10px;margin-bottom:8px">
+        const verNotes = String(v.notes||'').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+        return `<div style="background:var(--white);border:1px solid var(--g100);border-radius:6px;padding:10px;margin-bottom:8px" onclick="event.stopPropagation()">
           <div style="font-size:12px;font-weight:600;margin-bottom:8px">Sample ${v.version_no}${v.label?` · ${String(v.label).replace(/</g,'&lt;')}`:''}</div>
-          <div style="display:flex;gap:6px;flex-wrap:wrap">${imgsHtml}</div>
-          ${notesLine}
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">${imgsHtml}</div>
+          <textarea onblur="smpSetVersionNotes(${v.id},this.value)" placeholder="Catatan untuk Sample ${v.version_no}... (revisi, feedback, alasan, dll)" rows="2" style="width:100%;font-size:11px;font-family:inherit;padding:6px 8px;border:1px solid var(--g100);border-radius:4px;resize:vertical;box-sizing:border-box;background:var(--white)">${verNotes}</textarea>
         </div>`;
-      }).join('') || `<div style="font-size:11px;color:var(--g400);padding:8px">Belum ada sample. <a href="#sampling/${col.id}" onclick="cdOpenInSampling('${col.id}');return false" style="color:#3C3489">Mulai di modul Sampling</a></div>`;
-      const expansion = `<div style="padding:10px 14px;background:var(--off);border-top:1px dashed var(--g100)">${expansionHtml}</div>`;
+      }).join('');
+
+      // Per-SKU editable header (expected date + sku-level notes) — only when a
+      // sampling row exists; clicking + Sample 1 in the Sampling module creates
+      // it on demand otherwise.
+      const sampId = samp?.id;
+      const editableSkuHeader = sampId
+        ? `<div style="display:grid;grid-template-columns:160px 1fr;gap:8px;margin-bottom:10px" onclick="event.stopPropagation()">
+            <div>
+              <label style="font-size:10px;color:var(--g400);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.05em">Expected</label>
+              <input type="date" value="${samp.expected_date||''}" onchange="smpSetField(${sampId},'expected_date',this.value)" style="width:100%;font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:4px;box-sizing:border-box">
+            </div>
+            <div>
+              <label style="font-size:10px;color:var(--g400);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.05em">SKU Notes</label>
+              <input type="text" value="${String(samp.notes||'').replace(/"/g,'&quot;')}" onblur="smpSetField(${sampId},'notes',this.value)" placeholder="Catatan untuk SKU ini..." style="width:100%;font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:4px;box-sizing:border-box">
+            </div>
+          </div>`
+        : `<div style="font-size:11px;color:var(--g400);padding:6px 0">Sampling belum di-start. Buka modul Sampling buat kasih expected date / notes.</div>`;
+
+      const versSection = versHtml || `<div style="font-size:11px;color:var(--g400);padding:8px">Belum ada sample. <a href="#sampling/${col.id}" onclick="cdOpenInSampling('${col.id}');return false" style="color:#3C3489">Mulai di modul Sampling</a></div>`;
+      const expansion = `<div style="padding:10px 14px;background:var(--off);border-top:1px dashed var(--g100)">${editableSkuHeader}${versSection}</div>`;
 
       const chevron = hasDetail
         ? `<button onclick="event.stopPropagation();cdToggleSmpRow('${it.id}',this)" style="background:none;border:1px solid var(--g100);border-radius:4px;padding:2px 8px;font-size:10px;cursor:pointer;font-family:var(--mono);color:var(--g600)" data-expanded="0">▾</button>`
@@ -6719,9 +6738,31 @@ async function loadColSamplingSection(col) {
         </tr>
         ${hasDetail ? `<tr id="${detailId}" style="display:none"><td colspan="6" style="padding:0">${expansion}</td></tr>` : ''}`;
     }).join('');
+    // Collection-level multi-link strip (mirrors the Sampling module's chips).
+    // Fetch fresh from DB so we see the latest set even if the Collection Dev
+    // in-memory cache hasn't propagated yet.
+    let colLinks = Array.isArray(col.samplingLinks) ? col.samplingLinks
+                 : Array.isArray(col.sampling_links) ? col.sampling_links
+                 : null;
+    if (colLinks === null) {
+      const { data: lnkRow } = await sb.from('collections').select('sampling_links').eq('id', col.id).single();
+      colLinks = Array.isArray(lnkRow?.sampling_links) ? lnkRow.sampling_links : [];
+      col.sampling_links = colLinks;
+    }
+    const linksChipsHtml = colLinks.map((lnk,i) => `<span style="display:inline-flex;align-items:center;gap:4px;background:var(--white);border:1px solid var(--g100);border-radius:99px;padding:2px 4px 2px 10px;font-size:11px;font-family:var(--mono)">
+      <a href="${String(lnk.url||'#').replace(/"/g,'&quot;')}" target="_blank" style="color:#3C3489;text-decoration:none">🔗 ${String(lnk.label||'Link').replace(/</g,'&lt;')}</a>
+      <button onclick="cdDelSmpLink('${col.id}',${i})" title="Hapus" style="font-size:10px;padding:1px 5px;background:transparent;color:#c33;border:none;cursor:pointer">×</button>
+    </span>`).join('');
+    const addLinkBtn = `<button onclick="cdAddSmpLinkPrompt('${col.id}')" style="font-size:11px;padding:3px 10px;background:var(--white);color:var(--g600);border:1px dashed var(--g200);border-radius:99px;cursor:pointer;font-family:var(--mono)">+ Add Link</button>`;
+    const linksRow = `<div style="background:var(--off);padding:8px 12px;border-bottom:1px solid var(--g100);display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <span style="font-size:10px;color:var(--g600);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.05em;flex-shrink:0;margin-right:4px">🔗 Links</span>
+        ${linksChipsHtml}
+        ${addLinkBtn}
+      </div>`;
+
     const pct = items.length ? Math.round(approved/items.length*100) : 0;
     if (badge) badge.textContent = `${approved}/${items.length} approved · ${pct}%`;
-    body.innerHTML = `<div style="background:var(--off);padding:8px 12px;font-size:11px;color:var(--g600);font-family:var(--mono);display:flex;gap:14px;flex-wrap:wrap;align-items:center">
+    body.innerHTML = linksRow + `<div style="background:var(--off);padding:8px 12px;font-size:11px;color:var(--g600);font-family:var(--mono);display:flex;gap:14px;flex-wrap:wrap;align-items:center">
         <span><b>${approved}</b> approved</span>
         <span><b>${inProgress}</b> in progress</span>
         <span><b>${items.length - approved - inProgress}</b> pending</span>
@@ -6741,6 +6782,41 @@ async function loadColSamplingSection(col) {
   } catch (e) {
     body.innerHTML = `<div style="color:#c33;font-size:11px;padding:8px">Gagal load sampling: ${(e.message||e).replace(/</g,'&lt;')}</div>`;
   }
+}
+
+// Add a sampling link from Collection Dev's Sampling section. Two prompts
+// because we don't want to render an inline form inside the stage box
+// header — it would push the table around. Cleaner UX is in the Sampling
+// module itself; this is the quick-add path.
+async function cdAddSmpLinkPrompt(colId) {
+  const label = (prompt('Label link (Drive / Figma / Notion / dll):', 'Drive') || '').trim() || 'Link';
+  const url   = (prompt('URL:', 'https://') || '').trim();
+  if (!url) return;
+  await _cdMutateSmpLinks(colId, links => [...links, { label, url }]);
+}
+
+async function cdDelSmpLink(colId, idx) {
+  await _cdMutateSmpLinks(colId, links => links.filter((_,i)=>i!==idx), 'Hapus link ini?');
+}
+
+async function _cdMutateSmpLinks(colId, mutator, confirmMsg) {
+  if (confirmMsg && !confirm(confirmMsg)) return;
+  try {
+    const { data: cur, error: e1 } = await sb.from('collections').select('sampling_links').eq('id', colId).single();
+    if (e1) throw e1;
+    const links = Array.isArray(cur?.sampling_links) ? cur.sampling_links : [];
+    const next = mutator(links);
+    const { error: e2 } = await sb.from('collections').update({ sampling_links: next }).eq('id', colId);
+    if (e2) throw e2;
+    // Reflect in the in-memory Collection Dev cache so re-render keeps state.
+    const col = allCollections.find(c => c.id === colId);
+    if (col) { col.samplingLinks = next; col.sampling_links = next; }
+    const col2 = allSmpCollections?.find(c => c.id === colId);
+    if (col2) col2.sampling_links = next;
+    // Re-render only the section
+    const colObj = col || { id: colId };
+    loadColSamplingSection(colObj);
+  } catch (e) { alert('Gagal: '+(e.message||e)); }
 }
 
 // Toggle the hidden detail row for a SKU in the Collection Dev Sampling
