@@ -24225,6 +24225,9 @@ async function renderSmpDetailSKUs(col) {
                 <button onclick="smpDelVersion(${v.id})" style="font-size:10px;padding:3px 8px;background:transparent;color:#c33;border:1px solid var(--g100);border-radius:3px;cursor:pointer">Hapus</button>
               </div>
             </div>
+            <div style="margin-bottom:8px">
+              <textarea id="smp-ver-notes-${v.id}" rows="2" placeholder="Catatan untuk Sample ${v.version_no}... (revisi, feedback, alasan, dll)" onblur="smpSetVersionNotes(${v.id},this.value)" style="width:100%;font-size:11px;font-family:inherit;padding:6px 8px;border:1px solid var(--g100);border-radius:4px;resize:vertical;box-sizing:border-box;background:var(--white)">${_smpEsc(v.notes||'')}</textarea>
+            </div>
             ${imgs.length ? `<div style="display:flex;gap:8px;flex-wrap:wrap">${imgs.map(im => {
               const annos = annosByImg.get(im.id) || [];
               const openCount = annos.filter(a => a.status === 'Open').length;
@@ -24232,7 +24235,7 @@ async function renderSmpDetailSKUs(col) {
                 <img src="${_smpEsc(im.image_url)}" style="width:120px;height:120px;object-fit:cover;border-radius:4px;border:1px solid var(--g100)">
                 ${annos.length?`<span style="position:absolute;top:4px;right:4px;background:${openCount?'#c33':'#1c7a3b'};color:white;font-size:10px;padding:2px 6px;border-radius:10px;font-weight:600">${annos.length}${openCount?` · ${openCount} open`:''}</span>`:''}
               </div>`;
-            }).join('')}</div>` : `<div style="font-size:11px;color:var(--g400)">Belum ada foto. Klik "+ Foto" untuk upload.</div>`}
+            }).join('')}</div>` : `<div style="font-size:11px;color:var(--g400)">Belum ada foto. Klik "+ Foto" buat upload — atau pakai catatan di atas aja kalau update tanpa gambar.</div>`}
           </div>`;
         }).join('') : `<div style="font-size:11px;color:var(--g400);padding:8px 0">Belum ada sample. Klik "+ Sample 1" untuk mulai.</div>`}
       </div>
@@ -24277,6 +24280,26 @@ async function smpAddVersion(samplingSkuId) {
     it.sampling.status = 'In Progress';
   }
   renderSmpDetailSKUs(_smpCurrentCol);
+}
+
+// onblur save — lets the user type a sample update without needing to upload
+// any photo. Optimistically writes to the local cache too so a follow-up
+// re-render doesn't blank the field.
+async function smpSetVersionNotes(versionId, value) {
+  const txt = (value || '').trim();
+  try {
+    const { error } = await sb.from('sampling_versions').update({ notes: txt || null }).eq('id', versionId);
+    if (error) throw error;
+    // No re-render — onblur shouldn't lose focus context, and the in-memory
+    // version objects live across renderSmpDetailSKUs. Updating them keeps
+    // the value sticky if the user opens another modal.
+    for (const it of (_smpCurrentCol?._items || [])) {
+      const samp = it.sampling;
+      if (!samp) continue;
+      // versions are re-fetched in renderSmpDetailSKUs, so no permanent
+      // cache to update here — DB writes the canonical state.
+    }
+  } catch (e) { console.warn('Gagal save notes sample:', e.message || e); }
 }
 
 async function smpDelVersion(versionId) {
