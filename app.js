@@ -22530,8 +22530,10 @@ async function _mpLoadActivitySummary(activity, cid, expanded) {
   }
 }
 
-// Render one row of the mirror — name (clickable to module deeplink), meta,
-// status pill (inline-editable), ✎ edit, 🗑 delete buttons.
+// Render one row of the mirror — name (clickable to module deeplink),
+// inline date input, status pill, ✎ edit, 🗑 delete buttons.
+// All right-side controls get flex-shrink:0 so name never gets squeezed
+// into a vertical word-tower.
 function _mpRenderActRow(key, r, cid) {
   const def = _MP_ACTIVITY_DEFS[key];
   if (!def) return '';
@@ -22541,9 +22543,9 @@ function _mpRenderActRow(key, r, cid) {
   const date = r[def.dateField] || '';
   const status = r[def.statusField] || def.defaultStatus;
   const statusTone = _mpStatusTone(key, status);
-  // Build meta line
+  // Build meta — exclude date (date has its own inline input now) — only
+  // show the extras (location, channel, owner, etc.) under the name.
   const metaParts = [];
-  if (date) metaParts.push(date);
   for (const ex of def.extras) {
     const v = r[ex.f];
     if (!v) continue;
@@ -22551,19 +22553,19 @@ function _mpRenderActRow(key, r, cid) {
     else metaParts.push(esc(v));
   }
   const meta = metaParts.join(' · ');
-  // External link on the resource itself (deliverables_url / asset_url / post_url) → opens in new tab
   const extLink = def.linkField && r[def.linkField] ? r[def.linkField] : null;
-  return `<div id="mp-row-${key}-${id}" style="padding:8px 4px;border-bottom:1px solid var(--g100);font-size:12px;display:flex;gap:10px;align-items:center">
-    <div style="flex:1;min-width:0;cursor:pointer" onclick="_mpJumpToModule('${key}','${id}')" title="↗ Buka di ${def.moduleHref}">
-      <div style="font-weight:600;color:#3C3489;text-decoration:underline">${esc(name)}</div>
-      ${meta?`<div style="color:var(--g600);font-size:11px;margin-top:2px">${meta}</div>`:''}
+  return `<div id="mp-row-${key}-${id}" style="padding:8px 4px;border-bottom:1px solid var(--g100);font-size:12px;display:flex;gap:8px;align-items:center;min-width:0">
+    <div style="flex:1;min-width:0;cursor:pointer;overflow:hidden" onclick="_mpJumpToModule('${key}','${id}')" title="↗ Buka di ${def.moduleHref}">
+      <div style="font-weight:600;color:#3C3489;text-decoration:underline;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(name)}</div>
+      ${meta?`<div style="color:var(--g600);font-size:11px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${meta}</div>`:''}
     </div>
-    ${extLink?`<a href="${esc(extLink)}" target="_blank" title="Buka asset/link" style="font-size:13px;color:var(--g600);text-decoration:none;padding:4px 6px">↗</a>`:''}
-    <select onchange="_mpSaveActField('${key}','${id}','${def.statusField}',this.value)" class="pill ${statusTone}" style="font-size:10px;padding:3px 8px;border-radius:99px;cursor:pointer;border:1px solid transparent">
+    <input type="date" value="${date}" onchange="_mpSaveActField('${key}','${id}','${def.dateField}',this.value)" title="${def.dateLabel}" style="font-size:11px;padding:3px 6px;border:1px solid var(--g200);border-radius:4px;width:140px;flex-shrink:0;background:var(--white)">
+    ${extLink?`<a href="${esc(extLink)}" target="_blank" title="Buka asset/link" style="font-size:13px;color:var(--g600);text-decoration:none;padding:4px 6px;flex-shrink:0">↗</a>`:''}
+    <select onchange="_mpSaveActField('${key}','${id}','${def.statusField}',this.value)" class="pill ${statusTone}" style="font-size:10px;padding:3px 8px;border-radius:99px;cursor:pointer;border:1px solid transparent;flex-shrink:0">
       ${def.statusOpts.map(s => `<option value="${s}"${s===status?' selected':''}>${s}</option>`).join('')}
     </select>
-    <button onclick="_mpEditRow('${key}','${id}')" title="Edit inline" style="background:none;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-size:11px;padding:3px 8px">✎</button>
-    <button onclick="_mpDeleteRow('${key}','${id}','${cid}')" title="Hapus" style="background:none;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-size:11px;padding:3px 8px;color:#c0392b">🗑</button>
+    <button onclick="_mpEditRow('${key}','${id}')" title="Edit inline (semua field)" style="background:none;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-size:11px;padding:3px 8px;flex-shrink:0">✎</button>
+    <button onclick="_mpDeleteRow('${key}','${id}','${cid}')" title="Hapus" style="background:none;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-size:11px;padding:3px 8px;color:#c0392b;flex-shrink:0">🗑</button>
   </div>`;
 }
 
