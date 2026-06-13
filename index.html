@@ -2080,10 +2080,11 @@
         <div class="table-toolbar" style="gap:8px;margin-top:1rem">
           <button class="btn-refresh" onclick="loadSampling()">↻ Refresh</button>
           <select id="smp-grid-ip" onchange="renderSmpGrid()" style="padding:5px 10px;font-size:12px;border:1px solid var(--g100);border-radius:6px;outline:none;background:var(--white)"><option value="">Semua IP / Artist</option></select>
+          <select id="smp-grid-rev" onchange="renderSmpGrid()" style="padding:5px 10px;font-size:12px;border:1px solid var(--g100);border-radius:6px;outline:none;background:var(--white)"><option value="">Semua Revenue Stream</option></select>
           <input type="text" id="smp-grid-search" placeholder="Cari collection..." style="padding:5px 10px;font-size:12px;border:1px solid var(--g100);border-radius:6px;width:220px;outline:none" oninput="renderSmpGrid()">
           <div class="tcount" id="smp-grid-tcount" style="margin-left:auto">— collection</div>
         </div>
-        <div id="smp-grid-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;margin-top:14px"></div>
+        <div id="smp-grid-list" class="home-grid" style="margin-top:1rem"></div>
       </div>
 
       <!-- VIEW 2: Detail -->
