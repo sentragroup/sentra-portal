@@ -202,6 +202,7 @@
 
         <div class="sb-label" style="margin-bottom:0.6rem">Marketing Ops</div>
         <div class="home-grid" style="margin-bottom:1.5rem">
+          <div class="tool-card" onclick="showPage('mktplan',null)"><span class="tc-icon">🗺️</span><div class="tc-name">Marketing Planning</div><div class="tc-desc">Umbrella planning per collection — brief, KPI, budget, activity mix. Execution tetap di modul masing-masing.</div></div>
           <div class="tool-card" onclick="showPage('contentplan',null)"><span class="tc-icon">📝</span><div class="tc-name">Content Planning</div><div class="tc-desc">Plan content per piece — IG, TikTok, YouTube, blog. Owner, deadline, draft &amp; publish schedule.</div></div>
           <div class="tool-card" onclick="showPage('adsmgmt',null)"><span class="tc-icon">🎯</span><div class="tc-name">Ads Management</div><div class="tc-desc">Track campaigns paid ads — Meta, TikTok, Google. Budget vs spend, period, dan PIC.</div></div>
           <div class="tool-card" onclick="showPage('mktactivation',null)"><span class="tc-icon">🎪</span><div class="tc-name">Marketing Activation</div><div class="tc-desc">Manage events &amp; activations — pop-up, fan meet, launch party. Venue, budget, PIC.</div></div>
@@ -2295,6 +2296,32 @@
         <div id="pdListBody" style="margin-top:1rem"><div class="empty-td" style="padding:32px;text-align:center;color:var(--g400);font-size:12px">Belum ada SKU. Tambah pakai form di atas.</div></div>
       </div>
 
+    </div>
+
+    <!-- MARKETING PLANNING (umbrella for photoshoot/video/content/activation/KOL) -->
+    <div class="page" id="page-mktplan">
+      <!-- Grid view: one card per collection (PD-style: IP-emphasis, progress chip) -->
+      <div id="mp-view-grid">
+        <div class="page-header">
+          <div><div class="page-title">Marketing Planning</div><div class="page-sub">Per-collection planning surface — brief, KPI, budget, activity mix. Execution data tetap di modul masing-masing.</div></div>
+        </div>
+        <div class="filter-panel" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:1rem">
+          <select id="mp-grid-status" class="f-select" onchange="renderMPGrid()" style="min-width:140px"><option value="">Semua Status</option><option>Planning</option><option>Approved</option><option>In Progress</option><option>Done</option></select>
+          <select id="mp-grid-ip" class="f-select" onchange="renderMPGrid()" style="min-width:160px"><option value="">Semua IP / Artist</option></select>
+          <select id="mp-grid-rev" class="f-select" onchange="renderMPGrid()" style="min-width:160px"><option value="">Semua Revenue Stream</option></select>
+          <input type="text" id="mp-grid-search" placeholder="Cari collection / IP..." onkeyup="renderMPGrid()" style="flex:1;min-width:200px;padding:8px 12px;border:1px solid var(--g100);border-radius:4px;font-size:13px">
+        </div>
+        <div id="mp-grid-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px"></div>
+      </div>
+      <!-- Detail view: brief + 5 expandable activity sections -->
+      <div id="mp-view-detail" style="display:none">
+        <div class="page-header" style="display:flex;gap:12px;align-items:flex-start">
+          <button onclick="mpBackToGrid()" style="padding:6px 12px;background:none;border:1px solid var(--g100);border-radius:4px;cursor:pointer;font-size:12px;color:var(--g600)">← Kembali</button>
+          <div style="flex:1"><div class="page-title" id="mp-detail-title">Marketing Plan</div><div class="page-sub" id="mp-detail-sub">—</div></div>
+          <select id="mp-detail-status" onchange="saveMPField('status',this.value)" style="padding:6px 12px;border:1px solid var(--g100);border-radius:4px;font-size:12px;background:var(--white)"><option>Planning</option><option>Approved</option><option>In Progress</option><option>Done</option></select>
+        </div>
+        <div id="mp-detail-body" style="display:flex;flex-direction:column;gap:14px"></div>
+      </div>
     </div>
 
     <!-- CONTENT PLANNING -->

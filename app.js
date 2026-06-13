@@ -253,7 +253,7 @@ function showPage(name, el) {
   document.getElementById("page-"+_pageId).classList.add("active");
   if (el) el.classList.add("active");
   const _c = document.querySelector('.content'); if (_c) _c.scrollTop = 0;
-  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",sampling:"Sampling",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",txmap:"Transaction Mapping",intpurchase:"Internal Purchase",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)",vendormaster:"Vendor Master",rnd:"R&D Product"};
+  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",sampling:"Sampling",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",mktplan:"Marketing Planning",txmap:"Transaction Mapping",intpurchase:"Internal Purchase",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)",vendormaster:"Vendor Master",rnd:"R&D Product"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -286,6 +286,7 @@ function showPage(name, el) {
   if (name==="publication") loadPublication();
   if (name==="photoshoot") loadPhotoshoot();
   if (name==="kolmgmt") loadKolMgmt();
+  if (name==="mktplan") loadMarketingPlan();
   if (name==="txmap") {
     // Default date range: last 30 days
     const _now=new Date(), _to=_now.toISOString().slice(0,10);
@@ -5973,6 +5974,73 @@ async function loadColTimelinePanel(col, items) {
   }, 200);
 }
 
+// ── Mirror Marketing Plan into CD Marketing tab ──
+// Pull marketing_plans + execution counts (photoshoots, content_planning,
+// marketing_events, kol_placements) for this collection. Render summary
+// strip + per-activity count chips. Edit lives in Marketing Planning module.
+async function loadColMPMirror(cid) {
+  const host = document.getElementById(`col-mp-mirror-${cid}`);
+  if (!host) return;
+  try {
+    const [planRes, psRes, cpRes, meRes, kolRes] = await Promise.all([
+      sb.from('marketing_plans').select('*').eq('collection_id', cid).maybeSingle(),
+      sb.from('photoshoots').select('id,status').eq('collection_id', cid),
+      sb.from('content_planning').select('id,content_type,status').eq('collection_id', cid),
+      sb.from('marketing_events').select('id,status').eq('collection_id', cid),
+      sb.from('kol_placements').select('id,status,fee').eq('collection_id', cid),
+    ]);
+    const plan = planRes.data ? mapMP(planRes.data) : null;
+    if (!plan) {
+      host.innerHTML = `<div style="padding:16px;text-align:center;background:var(--off);border:1px dashed var(--g200);border-radius:6px;font-size:13px;color:var(--g600)">
+        Belum ada marketing plan untuk collection ini.
+        <br><a href="#mktplan/${cid}" onclick="openMPDetail('${cid}');return false" style="display:inline-block;margin-top:8px;padding:6px 14px;background:#3C3489;color:white;border-radius:4px;text-decoration:none;font-size:12px">+ Buat Marketing Plan</a>
+      </div>`;
+      return;
+    }
+    const psItems  = psRes.data || [];
+    const cpItems  = cpRes.data || [];
+    const meItems  = meRes.data || [];
+    const kolItems = kolRes.data || [];
+    const videoItems   = cpItems.filter(c => (c.content_type||'').toLowerCase().includes('video'));
+    const contentItems = cpItems.filter(c => !(c.content_type||'').toLowerCase().includes('video'));
+    const kolSpend = kolItems.reduce((s,k) => s + (Number(k.fee)||0), 0);
+    const cards = [
+      { on: plan.actPhotoshoot,  icon:'📸', label:'Photoshoot',          count: psItems.length,      module:'photoshoot' },
+      { on: plan.actVideo,       icon:'🎬', label:'Video Production',    count: videoItems.length,   module:'contentplan' },
+      { on: plan.actContent,     icon:'📱', label:'Content Production',  count: contentItems.length, module:'contentplan' },
+      { on: plan.actActivation,  icon:'🎪', label:'Marketing Activation', count: meItems.length,     module:'mktactivation' },
+      { on: plan.actKol,         icon:'⭐', label:'KOL Placement',       count: kolItems.length,     module:'kolmgmt' },
+    ];
+    const activeCount = cards.filter(c => c.on).length;
+    const statusPill = {Planning:'p-draft','Approved':'p-signings','In Progress':'p-review','Done':'p-active'}[plan.status||'Planning']||'p-draft';
+    const fmtRp = v => 'Rp ' + Math.round(v||0).toLocaleString('id-ID');
+    host.innerHTML = `
+      <div style="background:var(--off);border:1px solid var(--g100);border-radius:8px;padding:14px;margin-bottom:12px">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+          <span class="pill ${statusPill}" style="font-size:11px">${plan.status||'Planning'}</span>
+          ${plan.pic?`<span style="font-size:11px;color:var(--g600)">PIC: <strong>${plan.pic.replace(/</g,'&lt;')}</strong></span>`:''}
+          ${plan.budget?`<span style="font-size:11px;color:var(--g600)">Budget: <strong style="font-family:var(--mono)">${fmtRp(plan.budget)}</strong></span>`:''}
+          <span style="font-size:11px;color:var(--g400);margin-left:auto">${activeCount}/5 aktivitas aktif</span>
+        </div>
+        ${plan.concept?`<div style="font-size:12px;color:var(--g600);font-style:italic;line-height:1.4;border-left:3px solid #3C3489;padding-left:10px;margin-bottom:6px">"${plan.concept.replace(/</g,'&lt;')}"</div>`:''}
+        ${plan.objective?`<div style="font-size:11px;color:var(--g600);line-height:1.4"><strong>Objective:</strong> ${plan.objective.replace(/</g,'&lt;')}</div>`:''}
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px">
+        ${cards.map(c => `<div style="background:${c.on?'var(--white)':'var(--off)'};border:1px solid ${c.on?'var(--g100)':'var(--g100)'};border-radius:6px;padding:10px 12px;${c.on?'cursor:pointer':''}" ${c.on?`onclick="showPage('${c.module}',null)"`:''}>
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+            <span style="font-size:14px">${c.icon}</span>
+            <strong style="font-size:11px;color:${c.on?'var(--black)':'var(--g400)'}">${c.label}</strong>
+          </div>
+          <div style="font-family:var(--mono);font-size:13px;font-weight:700;color:${c.on?'#3C3489':'var(--g400)'}">${c.on?`${c.count} entri`:'⊘ off'}</div>
+        </div>`).join('')}
+      </div>
+      ${kolSpend?`<div style="margin-top:8px;font-size:11px;color:var(--g600);text-align:right">KOL spend so far: <strong style="font-family:var(--mono)">${fmtRp(kolSpend)}</strong></div>`:''}
+      <div style="margin-top:10px;font-size:10px;color:var(--g400);text-align:right;padding-top:6px;border-top:1px solid var(--g100)">Edit di <a href="#mktplan/${cid}" onclick="openMPDetail('${cid}');return false" style="color:var(--g600);text-decoration:underline">Marketing Planning module</a></div>`;
+  } catch (e) {
+    host.innerHTML = `<div style="padding:14px;color:#c0392b;font-size:12px">Gagal load: ${(e.message||e).replace(/</g,'&lt;')}</div>`;
+  }
+}
+
 // ── Post-Mortem section: structured retrospective template ──
 // Fields: What worked, What didn't work, What to improve, Action items + status pill.
 // All free-text; saved into collections.postmortem_* columns. One entry per
@@ -7040,7 +7108,10 @@ function renderColDetail(col, items) {
 
         <!-- ─────────── 📣 MARKETING TAB ─────────── -->
         <div id="cd-tab-marketing-${col.id}" class="cd-tab-content" style="display:none">
-        ${cdStageBox("📣","Marketing",cdStageBadge(ps.marketing==="done"?"Done":ps.marketing==="in-progress"?"In Progress":"Not Started",`col-marketing-badge-${col.id}`),`
+        ${cdStageBox("📣","Marketing Plan",
+          `<a href="#mktplan/${col.id}" onclick="openMPDetail('${col.id}');return false" style="font-family:var(--mono);font-size:11px;color:#3C3489;text-decoration:none;margin-left:auto">↗ Open in Marketing Planning</a>`,
+          `<div id="col-mp-mirror-${col.id}"><div style="padding:14px;color:var(--g400);font-size:12px;text-align:center">Memuat marketing plan...</div></div>`)}
+        ${cdStageBox("⚙️","Marketing Config (legacy)",cdStageBadge(ps.marketing==="done"?"Done":ps.marketing==="in-progress"?"In Progress":"Not Started",`col-marketing-badge-${col.id}`),`
           <div id="col-mkt-body-${col.id}">${renderMktBodyHTML(col.id)}</div>`)}
         </div><!-- /Marketing tab -->
 
@@ -7115,6 +7186,8 @@ function renderColDetail(col, items) {
   loadColAgreementPanel(col);
   loadColTimelinePanel(col, items);
   setupAC(`col-agr-input-${col.id}`,`ac-col-agr-${col.id}`,()=>acAgrOptions.map(o=>o.id),()=>acAgrOptions);
+  // Marketing tab: mirror marketing_plans + activity execution counts
+  loadColMPMirror(col.id);
   // Activate the persisted tab (Business by default)
   const _lastTab = sessionStorage.getItem(`cd-tab-${col.id}`) || 'business';
   cdSwitchTab(col.id, _lastTab);
@@ -21979,6 +22052,350 @@ function mapPs(r) {
     location:r.location||'', deliveryDue:r.delivery_due||'', deliverablesUrl:r.deliverables_url||'',
     budget:r.budget, pic:r.pic||'', status:r.status||'Planning'};
 }
+// ── MARKETING PLANNING ──
+// Umbrella module per collection: brief + KPI + budget + activity-mix flags.
+// PD-style grid → detail UX. Each of the 5 activities is an expandable card
+// in detail view that mirrors execution from the existing modules (photoshoots,
+// content_planning [non-Video], content_planning [Video], marketing_events,
+// kol_placements). No data duplication — MP only holds planning fields.
+let _mpRows = [], _mpCurrentColId = '', _mpCurrentPlan = null, _mpExpanded = new Set();
+let _mpCols = []; // collections cache
+
+function mapMP(r) {
+  return {
+    id: r.id, collectionId: r.collection_id,
+    concept: r.concept||'', objective: r.objective||'',
+    budget: r.budget!=null ? Number(r.budget) : null,
+    kpiTargets: r.kpi_targets||'',
+    campaignStart: r.campaign_start||'', campaignEnd: r.campaign_end||'',
+    actPhotoshoot:  !!r.activity_photoshoot,
+    actVideo:       !!r.activity_video,
+    actContent:     !!r.activity_content,
+    actActivation:  !!r.activity_activation,
+    actKol:         !!r.activity_kol,
+    status: r.status||'Planning', pic: r.pic||'', notes: r.notes||'',
+    dateAdded: r.date_added||'', addedBy: r.added_by||'',
+    lastUpdated: r.last_updated||'', lastUpdatedBy: r.last_updated_by||'',
+  };
+}
+
+async function loadMarketingPlan() {
+  // Route: #mktplan → grid, #mktplan/{cid} → detail
+  const hash = location.hash.slice(1);
+  const m = hash.match(/^mktplan\/(.+)$/);
+  if (m) {
+    _mpCurrentColId = decodeURIComponent(m[1]);
+    await _mpFetchAll();
+    showMPDetail();
+  } else {
+    _mpCurrentColId = '';
+    await _mpFetchAll();
+    showMPGrid();
+  }
+}
+
+async function _mpFetchAll() {
+  try {
+    const [colsRes, mpRes] = await Promise.all([
+      sb.from('collections').select('id,collection_name,ip_related,revenue_stream,status,release_date,priority,pic').order('release_date',{ascending:false}),
+      sb.from('marketing_plans').select('*'),
+    ]);
+    _mpCols = colsRes.data || [];
+    _mpRows = (mpRes.data||[]).map(mapMP);
+  } catch (e) { console.error('MP fetch failed:', e); _mpCols=[]; _mpRows=[]; }
+}
+
+function showMPGrid() {
+  document.getElementById('mp-view-grid').style.display = '';
+  document.getElementById('mp-view-detail').style.display = 'none';
+  // Populate filter dropdowns
+  const ipSel = document.getElementById('mp-grid-ip');
+  if (ipSel) {
+    const cur = ipSel.value;
+    const ips = [...new Set(_mpCols.map(c => c.ip_related).filter(Boolean))].sort();
+    ipSel.innerHTML = `<option value="">Semua IP / Artist</option>` + ips.map(ip => `<option value="${ip.replace(/"/g,'&quot;')}"${ip===cur?' selected':''}>${ip.replace(/</g,'&lt;')}</option>`).join('');
+  }
+  const revSel = document.getElementById('mp-grid-rev');
+  if (revSel) {
+    const cur = revSel.value;
+    const revs = [...new Set(_mpCols.map(c => c.revenue_stream).filter(Boolean))].sort();
+    revSel.innerHTML = `<option value="">Semua Revenue Stream</option>` + revs.map(r => `<option value="${r.replace(/"/g,'&quot;')}"${r===cur?' selected':''}>${r.replace(/</g,'&lt;')}</option>`).join('');
+  }
+  renderMPGrid();
+}
+
+function renderMPGrid() {
+  const list = document.getElementById('mp-grid-list');
+  if (!list) return;
+  const statusFil = document.getElementById('mp-grid-status')?.value || '';
+  const ipFil     = document.getElementById('mp-grid-ip')?.value || '';
+  const revFil    = document.getElementById('mp-grid-rev')?.value || '';
+  const q         = (document.getElementById('mp-grid-search')?.value || '').toLowerCase().trim();
+  const planByCol = new Map(_mpRows.map(p => [p.collectionId, p]));
+  let rows = _mpCols.filter(c => c.status !== 'Done' || true);  // include all for now
+  if (ipFil)  rows = rows.filter(c => (c.ip_related||'') === ipFil);
+  if (revFil) rows = rows.filter(c => (c.revenue_stream||'') === revFil);
+  if (q) rows = rows.filter(c => (c.collection_name||'').toLowerCase().includes(q) || (c.ip_related||'').toLowerCase().includes(q));
+  if (statusFil) rows = rows.filter(c => {
+    const p = planByCol.get(c.id);
+    return (p?.status||'Planning') === statusFil;
+  });
+  if (!rows.length) { list.innerHTML = `<div style="grid-column:1/-1;padding:32px;text-align:center;color:var(--g400);font-size:13px">Tidak ada collection cocok filter.</div>`; return; }
+  list.innerHTML = rows.map(c => {
+    const p = planByCol.get(c.id);
+    const activityCount = p ? [p.actPhotoshoot,p.actVideo,p.actContent,p.actActivation,p.actKol].filter(Boolean).length : 0;
+    const statusPill = {Planning:'p-draft','Approved':'p-signings','In Progress':'p-review','Done':'p-active'}[p?.status||'Planning']||'p-draft';
+    const release = c.release_date ? new Date(c.release_date+'T00:00:00') : null;
+    const today = new Date(); today.setHours(0,0,0,0);
+    const daysToRelease = release ? Math.round((release-today)/86400000) : null;
+    const launchPill = daysToRelease==null ? '' :
+      daysToRelease > 0 ? `<span class="pill p-draft" style="font-size:10px">T-${daysToRelease}d</span>` :
+      daysToRelease===0 ? `<span class="pill p-active" style="font-size:10px">Launches today</span>` :
+      `<span class="pill p-expired" style="font-size:10px">${-daysToRelease}d ago</span>`;
+    const concept = p?.concept ? `<div style="font-size:11px;color:var(--g600);font-style:italic;margin-top:6px;line-height:1.4">${p.concept.slice(0,120).replace(/</g,'&lt;')}${p.concept.length>120?'...':''}</div>` : '';
+    return `<div class="form-card" style="padding:14px;cursor:pointer;border:1px solid var(--g100);transition:border-color 0.15s" onmouseover="this.style.borderColor='#3C3489'" onmouseout="this.style.borderColor='var(--g100)'" onclick="openMPDetail('${c.id.replace(/'/g,"\\'")}')">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:6px">
+        <div style="min-width:0">
+          <div style="font-size:10px;font-family:var(--mono);color:var(--g400);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:2px">${(c.ip_related||'—').replace(/</g,'&lt;')}</div>
+          <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;line-height:1.3">${(c.collection_name||'(Untitled)').replace(/</g,'&lt;')}</div>
+        </div>
+        ${launchPill}
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px">
+        <span class="pill ${statusPill}" style="font-size:10px">${p?.status||'Planning'}</span>
+        ${activityCount?`<span style="font-size:10px;padding:2px 6px;background:var(--off);border-radius:3px;color:var(--g600);border:1px solid var(--g100);font-weight:500">📦 ${activityCount}/5 aktivitas</span>`:'<span style="font-size:10px;color:var(--g400);font-style:italic">belum ada aktivitas</span>'}
+        ${p?.budget?`<span style="font-size:10px;padding:2px 6px;background:var(--off);border-radius:3px;color:var(--g600);border:1px solid var(--g100);font-weight:500">💰 Rp ${Math.round(p.budget).toLocaleString('id-ID')}</span>`:''}
+      </div>
+      ${concept}
+    </div>`;
+  }).join('');
+}
+
+function openMPDetail(colId) {
+  location.hash = `mktplan/${encodeURIComponent(colId)}`;
+}
+
+function mpBackToGrid() {
+  location.hash = 'mktplan';
+}
+
+async function showMPDetail() {
+  const col = _mpCols.find(c => c.id === _mpCurrentColId);
+  if (!col) { document.getElementById('mp-view-grid').style.display = ''; document.getElementById('mp-view-detail').style.display = 'none'; alert('Collection tidak ditemukan'); return; }
+  // Ensure a marketing_plans row exists for this collection
+  let plan = _mpRows.find(p => p.collectionId === _mpCurrentColId);
+  if (!plan) {
+    const newId = genId('MP');
+    const {data, error} = await sb.from('marketing_plans').insert({
+      id: newId, collection_id: _mpCurrentColId,
+      added_by: currentUser, last_updated_by: currentUser,
+    }).select().single();
+    if (error) { alert('Gagal init plan: ' + error.message); return; }
+    plan = mapMP(data);
+    _mpRows.push(plan);
+  }
+  _mpCurrentPlan = plan;
+  document.getElementById('mp-view-grid').style.display = 'none';
+  document.getElementById('mp-view-detail').style.display = '';
+  document.getElementById('mp-detail-title').textContent = `${col.collection_name||'—'} · Marketing Plan`;
+  document.getElementById('mp-detail-sub').textContent = `${col.ip_related||'—'} · Release ${col.release_date||'—'}${plan.lastUpdated?` · Diupdate ${new Date(plan.lastUpdated).toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'})}`:''}`;
+  document.getElementById('mp-detail-status').value = plan.status||'Planning';
+  // Build the detail body
+  renderMPDetailBody(col, plan);
+}
+
+function renderMPDetailBody(col, plan) {
+  const host = document.getElementById('mp-detail-body');
+  const esc = s => (s||'').replace(/</g,'&lt;');
+  // Reference card (from Business tab — read-only)
+  const refCard = `<div style="background:var(--off);border:1px solid var(--g100);border-radius:8px;padding:14px">
+    <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:var(--g400);font-weight:600;margin-bottom:8px">📋 Reference dari Business tab (read-only)</div>
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;font-size:12px">
+      <div><div style="font-size:10px;color:var(--g400);text-transform:uppercase">Target Audience</div><div style="color:var(--g600);font-style:italic">${esc(col._brief_audience)||'<span style="color:var(--g400)">(belum di-set)</span>'}</div></div>
+      <div><div style="font-size:10px;color:var(--g400);text-transform:uppercase">Story / Theme</div><div style="color:var(--g600);font-style:italic">${esc(col._brief_story)||'<span style="color:var(--g400)">(belum di-set)</span>'}</div></div>
+      <div style="grid-column:1/-1"><div style="font-size:10px;color:var(--g400);text-transform:uppercase">Key Selling Points</div><div style="color:var(--g600);font-style:italic;white-space:pre-wrap">${esc(col._brief_ksp)||'<span style="color:var(--g400)">(belum di-set)</span>'}</div></div>
+      <div><div style="font-size:10px;color:var(--g400);text-transform:uppercase">Release Date</div><div style="color:var(--g600);font-weight:600">${col.release_date||'—'}</div></div>
+      <div><div style="font-size:10px;color:var(--g400);text-transform:uppercase">Sales Target</div><div style="color:var(--g600);font-weight:600" id="mp-ref-target">—</div></div>
+    </div>
+    <div style="margin-top:10px;font-size:11px;color:var(--g400)"><a href="#collections/${col.id}" onclick="showPage('collections',null);return false" style="color:var(--g600);text-decoration:underline">↗ Buka Business tab buat edit reference</a></div>
+  </div>`;
+  // Brief & strategy (editable)
+  const briefCard = `<div class="form-card" style="padding:14px">
+    <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;margin-bottom:10px">🎯 Marketing Brief & Strategy</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="fg full" style="margin:0;grid-column:1/-1"><label style="font-size:11px"><strong>Big Idea / Marketing Concept</strong></label>
+        <textarea id="mp-concept" rows="3" placeholder="Narrative kampanye. E.g. 'Limited launch dgn drama serial X — angle exclusivity + collectibility'" style="resize:vertical;font-size:12px;width:100%" onblur="saveMPField('concept',this.value)">${esc(plan.concept)}</textarea>
+      </div>
+      <div class="fg" style="margin:0"><label style="font-size:11px"><strong>Marketing Objective</strong></label>
+        <textarea id="mp-objective" rows="3" placeholder="E.g. 'Awareness + 30% conversion in 60d'" style="resize:vertical;font-size:12px;width:100%" onblur="saveMPField('objective',this.value)">${esc(plan.objective)}</textarea>
+      </div>
+      <div class="fg" style="margin:0"><label style="font-size:11px"><strong>Target KPI</strong></label>
+        <textarea id="mp-kpi" rows="3" placeholder="Bullet KPI:&#10;• Reach 500k&#10;• 5% engagement rate&#10;• 10% awareness lift" style="resize:vertical;font-size:12px;width:100%" onblur="saveMPField('kpi_targets',this.value)">${esc(plan.kpiTargets)}</textarea>
+      </div>
+      <div class="fg" style="margin:0"><label style="font-size:11px"><strong>Total Budget (Rp)</strong></label>
+        <input type="number" id="mp-budget" min="0" step="1000" value="${plan.budget!=null?plan.budget:''}" placeholder="0" onblur="saveMPField('budget',this.value)" style="font-size:13px;font-family:var(--mono)">
+      </div>
+      <div class="fg" style="margin:0"><label style="font-size:11px"><strong>PIC Marketing</strong></label>
+        <input type="text" id="mp-pic" value="${esc(plan.pic)}" placeholder="Nama PIC" onblur="saveMPField('pic',this.value)" style="font-size:13px">
+      </div>
+      <div class="fg" style="margin:0"><label style="font-size:11px">Campaign Window — Mulai</label>
+        <input type="date" id="mp-campaign-start" value="${plan.campaignStart||''}" onchange="saveMPField('campaign_start',this.value)" style="font-size:13px">
+      </div>
+      <div class="fg" style="margin:0"><label style="font-size:11px">Campaign Window — Selesai</label>
+        <input type="date" id="mp-campaign-end" value="${plan.campaignEnd||''}" onchange="saveMPField('campaign_end',this.value)" style="font-size:13px">
+      </div>
+    </div>
+  </div>`;
+  // Activity mix toggles + expandable cards
+  const activities = [
+    { key:'photoshoot',  flag:'actPhotoshoot',  dbFlag:'activity_photoshoot',  icon:'📸', label:'Photoshoot',          source:'Photoshoot Planning module', moduleHref:'photoshoot' },
+    { key:'video',       flag:'actVideo',       dbFlag:'activity_video',       icon:'🎬', label:'Video Production',    source:'Content Planning module (filter type=Video)', moduleHref:'contentplan' },
+    { key:'content',     flag:'actContent',     dbFlag:'activity_content',     icon:'📱', label:'Content Production',  source:'Content Planning module (non-video)', moduleHref:'contentplan' },
+    { key:'activation',  flag:'actActivation',  dbFlag:'activity_activation',  icon:'🎪', label:'Marketing Activation', source:'Marketing Activation module', moduleHref:'mktactivation' },
+    { key:'kol',         flag:'actKol',         dbFlag:'activity_kol',         icon:'⭐', label:'KOL Placement',       source:'KOL Management module', moduleHref:'kolmgmt' },
+  ];
+  const activityCards = activities.map(a => {
+    const on = !!plan[a.flag];
+    const expanded = _mpExpanded.has(a.key);
+    return `<div class="form-card" style="padding:0;border:1px solid var(--g100);overflow:hidden">
+      <div style="padding:12px 14px;display:flex;align-items:center;gap:12px;background:${on?'var(--white)':'var(--off)'};border-bottom:${expanded&&on?'1px solid var(--g100)':'0'}">
+        <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;flex:1">
+          <input type="checkbox" ${on?'checked':''} onchange="toggleMPActivity('${a.key}','${a.dbFlag}',this.checked)" style="margin:0">
+          <span style="font-size:18px">${a.icon}</span>
+          <strong>${a.label}</strong>
+          ${on?'':'<span style="font-size:11px;color:var(--g400);margin-left:6px">(belum diaktifkan)</span>'}
+        </label>
+        ${on ? `<span id="mp-act-count-${a.key}" style="font-size:11px;color:var(--g600);font-family:var(--mono)">memuat...</span>
+          <button onclick="toggleMPExpand('${a.key}')" style="padding:4px 12px;background:none;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-size:11px">${expanded?'▼ Tutup':'▶ Detail'}</button>
+          <a href="#${a.moduleHref}" onclick="showPage('${a.moduleHref}',null);return false" style="padding:4px 12px;background:#3C3489;color:white;border-radius:4px;font-size:11px;text-decoration:none">↗ Buka modul</a>` : ''}
+      </div>
+      ${on && expanded ? `<div id="mp-act-body-${a.key}" style="padding:12px 14px;background:var(--white)"><div style="color:var(--g400);font-size:12px;text-align:center;padding:8px">Memuat data...</div></div>` : ''}
+    </div>`;
+  }).join('');
+  const activitySection = `<div>
+    <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:var(--g400);font-weight:600;margin-bottom:8px">✅ ACTIVITY MIX — pilih yang dipakai untuk collection ini</div>
+    <div style="display:flex;flex-direction:column;gap:8px">${activityCards}</div>
+  </div>`;
+  // Notes
+  const notesCard = `<div class="form-card" style="padding:14px">
+    <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;margin-bottom:8px">📝 Catatan Marketing</div>
+    <textarea id="mp-notes" rows="3" placeholder="Catatan internal tim marketing — risk, dependensi, notes random." style="resize:vertical;font-size:12px;width:100%" onblur="saveMPField('notes',this.value)">${esc(plan.notes)}</textarea>
+  </div>`;
+  host.innerHTML = refCard + briefCard + activitySection + notesCard;
+  // Async-load reference card values from collections + activity counts
+  _mpLoadReference(col.id);
+  for (const a of activities) {
+    if (plan[a.flag]) _mpLoadActivitySummary(a, _mpCurrentColId, _mpExpanded.has(a.key));
+  }
+}
+
+async function _mpLoadReference(cid) {
+  try {
+    const {data} = await sb.from('collections').select('brief_audience,brief_story,brief_selling_points,target_revenue,target_units').eq('id', cid).single();
+    if (!data) return;
+    const targetEl = document.getElementById('mp-ref-target');
+    if (targetEl) {
+      const tv = data.target_revenue ? `Rp ${Math.round(data.target_revenue).toLocaleString('id-ID')}` : '—';
+      const tu = data.target_units ? `${data.target_units.toLocaleString('id-ID')} unit` : '—';
+      targetEl.textContent = `${tv} · ${tu}`;
+    }
+    // Re-render the reference text fields by updating the host's innerHTML for relevant divs
+    const body = document.getElementById('mp-detail-body');
+    if (body) {
+      const _esc = s => (s||'').replace(/</g,'&lt;');
+      body.innerHTML = body.innerHTML
+        .replace(/<div style="color:var\(--g600\);font-style:italic">\(belum di-set\)<\/div>/, `<div style="color:var(--g600);font-style:italic">${_esc(data.brief_audience)||'<span style="color:var(--g400)">(belum di-set)</span>'}</div>`)
+        ;
+    }
+    // Simpler: just reload the detail body fully so reference card has data
+    if (_mpCurrentPlan) {
+      const col = _mpCols.find(c => c.id === cid);
+      if (col) {
+        col._brief_audience = data.brief_audience||'';
+        col._brief_story    = data.brief_story||'';
+        col._brief_ksp      = data.brief_selling_points||'';
+        renderMPDetailBody(col, _mpCurrentPlan);
+      }
+    }
+  } catch(_) {}
+}
+
+async function _mpLoadActivitySummary(activity, cid, expanded) {
+  const countEl = document.getElementById(`mp-act-count-${activity.key}`);
+  const bodyEl  = document.getElementById(`mp-act-body-${activity.key}`);
+  // Define per-activity fetcher
+  let rows = [], fmtRow = null;
+  try {
+    if (activity.key === 'photoshoot') {
+      const {data} = await sb.from('photoshoots').select('id,shoot_name,shoot_date,location,status').eq('collection_id', cid).order('shoot_date');
+      rows = data||[];
+      fmtRow = r => `<div style="padding:6px 0;border-bottom:1px solid var(--g100);font-size:12px;display:flex;gap:10px;align-items:center"><span style="font-weight:600">${(r.shoot_name||'—').replace(/</g,'&lt;')}</span><span style="color:var(--g600)">${r.shoot_date||'—'}${r.location?` · ${r.location}`.replace(/</g,'&lt;'):''}</span><span class="pill ${(r.status==='Done'?'p-active':r.status==='In Progress'?'p-review':'p-draft')}" style="font-size:10px;margin-left:auto">${r.status||'Planning'}</span></div>`;
+    } else if (activity.key === 'video') {
+      const {data} = await sb.from('content_planning').select('id,title,content_type,publish_date,channel,status').eq('collection_id', cid).ilike('content_type','%video%').order('publish_date');
+      rows = data||[];
+      fmtRow = r => `<div style="padding:6px 0;border-bottom:1px solid var(--g100);font-size:12px;display:flex;gap:10px;align-items:center"><span style="font-weight:600">${(r.title||'—').replace(/</g,'&lt;')}</span><span style="color:var(--g600)">${r.publish_date||'—'}${r.channel?` · ${r.channel}`.replace(/</g,'&lt;'):''}</span><span class="pill ${(r.status==='Published'?'p-active':r.status==='Draft'?'p-draft':'p-review')}" style="font-size:10px;margin-left:auto">${r.status||'—'}</span></div>`;
+    } else if (activity.key === 'content') {
+      const {data} = await sb.from('content_planning').select('id,title,content_type,publish_date,channel,status').eq('collection_id', cid).order('publish_date');
+      rows = (data||[]).filter(r => !(r.content_type||'').toLowerCase().includes('video'));
+      fmtRow = r => `<div style="padding:6px 0;border-bottom:1px solid var(--g100);font-size:12px;display:flex;gap:10px;align-items:center"><span style="font-weight:600">${(r.title||'—').replace(/</g,'&lt;')}</span><span style="color:var(--g600)">${r.content_type||'—'} · ${r.publish_date||'—'}${r.channel?` · ${r.channel}`.replace(/</g,'&lt;'):''}</span><span class="pill ${(r.status==='Published'?'p-active':r.status==='Draft'?'p-draft':'p-review')}" style="font-size:10px;margin-left:auto">${r.status||'—'}</span></div>`;
+    } else if (activity.key === 'activation') {
+      const {data} = await sb.from('marketing_events').select('id,event_name,event_type,event_date,venue,status').eq('collection_id', cid).order('event_date');
+      rows = data||[];
+      fmtRow = r => `<div style="padding:6px 0;border-bottom:1px solid var(--g100);font-size:12px;display:flex;gap:10px;align-items:center"><span style="font-weight:600">${(r.event_name||'—').replace(/</g,'&lt;')}</span><span style="color:var(--g600)">${r.event_date||'—'}${r.venue?` · ${r.venue}`.replace(/</g,'&lt;'):''}</span><span class="pill ${(r.status==='Done'?'p-active':r.status==='Booked'?'p-signings':'p-draft')}" style="font-size:10px;margin-left:auto">${r.status||'Planning'}</span></div>`;
+    } else if (activity.key === 'kol') {
+      const {data} = await sb.from('kol_placements').select('id,kol_name,platform,tier,fee,post_date,status').eq('collection_id', cid).order('post_date');
+      rows = data||[];
+      fmtRow = r => `<div style="padding:6px 0;border-bottom:1px solid var(--g100);font-size:12px;display:flex;gap:10px;align-items:center"><span style="font-weight:600">${(r.kol_name||'—').replace(/</g,'&lt;')}</span><span style="color:var(--g600)">${r.platform||'—'}${r.tier?` · ${r.tier}`:''}${r.fee?` · Rp ${Math.round(r.fee).toLocaleString('id-ID')}`:''}${r.post_date?` · ${r.post_date}`:''}</span><span class="pill ${(r.status==='Posted'?'p-active':r.status==='Booked'?'p-signings':'p-draft')}" style="font-size:10px;margin-left:auto">${r.status||'—'}</span></div>`;
+    }
+  } catch (e) { console.warn('MP activity load failed for '+activity.key, e); }
+  if (countEl) countEl.textContent = rows.length ? `${rows.length} entri` : 'belum ada';
+  if (bodyEl && expanded) {
+    bodyEl.innerHTML = rows.length
+      ? `<div style="font-size:11px;color:var(--g400);margin-bottom:6px">Read-only mirror — edit di modul ${activity.source}.</div>` + rows.map(fmtRow).join('')
+      : `<div style="text-align:center;padding:14px;color:var(--g400);font-size:12px">Belum ada entri ${activity.label.toLowerCase()} untuk collection ini. <a href="#${activity.moduleHref}" onclick="showPage('${activity.moduleHref}',null);return false" style="color:#3C3489;text-decoration:underline">↗ Tambah di ${activity.source.split(' module')[0]}</a></div>`;
+  }
+}
+
+function toggleMPExpand(key) {
+  if (_mpExpanded.has(key)) _mpExpanded.delete(key);
+  else _mpExpanded.add(key);
+  const col = _mpCols.find(c => c.id === _mpCurrentColId);
+  if (col && _mpCurrentPlan) renderMPDetailBody(col, _mpCurrentPlan);
+}
+
+async function toggleMPActivity(key, dbFlag, on) {
+  if (!_mpCurrentPlan) return;
+  try {
+    const {error} = await sb.from('marketing_plans').update({
+      [dbFlag]: on,
+      last_updated: new Date().toISOString(), last_updated_by: currentUser||'',
+    }).eq('id', _mpCurrentPlan.id);
+    if (error) throw error;
+    const flagKey = {activity_photoshoot:'actPhotoshoot',activity_video:'actVideo',activity_content:'actContent',activity_activation:'actActivation',activity_kol:'actKol'}[dbFlag];
+    if (flagKey) _mpCurrentPlan[flagKey] = on;
+    if (on) _mpExpanded.add(key); else _mpExpanded.delete(key);
+    const col = _mpCols.find(c => c.id === _mpCurrentColId);
+    if (col) renderMPDetailBody(col, _mpCurrentPlan);
+  } catch (e) { alert('Gagal: ' + (e.message||e)); }
+}
+
+async function saveMPField(field, value) {
+  if (!_mpCurrentPlan) return;
+  const payload = {
+    last_updated: new Date().toISOString(), last_updated_by: currentUser||'',
+  };
+  if (field === 'budget') payload[field] = value === '' ? null : Number(value);
+  else if (field === 'campaign_start' || field === 'campaign_end') payload[field] = value || null;
+  else payload[field] = (value||'').trim() || null;
+  try {
+    const {error} = await sb.from('marketing_plans').update(payload).eq('id', _mpCurrentPlan.id);
+    if (error) throw error;
+    // Update local cache
+    const localKey = {concept:'concept',objective:'objective',budget:'budget',kpi_targets:'kpiTargets',campaign_start:'campaignStart',campaign_end:'campaignEnd',status:'status',pic:'pic',notes:'notes'}[field];
+    if (localKey) _mpCurrentPlan[localKey] = payload[field] || '';
+  } catch (e) { console.warn('Save MP field failed:', e); }
+}
+
 async function loadPhotoshoot() {
   await _moLoadColOptions('ps-collection');
   await _moLoadColOptions('ps-fil-collection');
