@@ -6704,9 +6704,6 @@ function renderColDetail(col, items) {
         <!-- ─────────── 📊 BUSINESS TAB ─────────── -->
         <div id="cd-tab-business-${col.id}" class="cd-tab-content">
         ${renderColTargetSection(col, items)}
-        <!-- Product Performance + Stock Rekon kept here (live tracking) -->
-        ${cdStageBox("📊","Product Performance","",`<div id="col-perf-${col.id}" style="color:var(--g400);font-size:12px">Memuat...</div>`)}
-        ${cdStageBox("📦","Stock Rekonsiliasi","",`<div id="col-stock-${col.id}" style="color:var(--g400);font-size:12px">Memuat...</div>`)}
         </div><!-- /Business tab -->
 
         <!-- ─────────── 📣 MARKETING TAB ─────────── -->
@@ -6717,12 +6714,8 @@ function renderColDetail(col, items) {
 
         <!-- ─────────── 📈 PERFORMANCE TAB ─────────── -->
         <div id="cd-tab-performance-${col.id}" class="cd-tab-content" style="display:none">
-        ${cdStageBox("📈","Performance","",`
-          <div style="padding:32px 24px;text-align:center;background:var(--off);border:1px dashed var(--g200);border-radius:8px">
-            <div style="font-size:32px;margin-bottom:10px">📈</div>
-            <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:var(--g600);margin-bottom:4px">Performance dashboard — Coming Soon</div>
-            <div style="font-size:12px;color:var(--g400);max-width:480px;margin:0 auto">Tab ini nanti akan menampilkan: aktual vs target revenue/units, sales velocity, top SKU, channel breakdown, ROAS marketing — semua post-launch tracking.</div>
-          </div>`)}
+        ${cdStageBox("📊","Product Performance","",`<div id="col-perf-${col.id}" style="color:var(--g400);font-size:12px">Memuat...</div>`)}
+        ${cdStageBox("📦","Stock Rekonsiliasi","",`<div id="col-stock-${col.id}" style="color:var(--g400);font-size:12px">Memuat...</div>`)}
         </div><!-- /Performance tab -->
 
         <!-- ─────────── 📝 POST MORTEM TAB ─────────── -->
