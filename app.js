@@ -22279,27 +22279,49 @@ async function showMPDetail() {
     _mpRows.push(plan);
   }
   _mpCurrentPlan = plan;
+  // Pre-fetch reference data (brief + target) ONCE so renderMPDetailBody can
+  // use it inline. No second render — that was the infinite-loop bug.
+  try {
+    const {data} = await sb.from('collections')
+      .select('brief_audience,brief_story,brief_selling_points,target_revenue,target_units')
+      .eq('id', _mpCurrentColId).single();
+    if (data) {
+      col._brief_audience = data.brief_audience||'';
+      col._brief_story    = data.brief_story||'';
+      col._brief_ksp      = data.brief_selling_points||'';
+      col._target_revenue = data.target_revenue;
+      col._target_units   = data.target_units;
+    }
+  } catch(_) {}
   document.getElementById('mp-view-grid').style.display = 'none';
   document.getElementById('mp-view-detail').style.display = '';
-  document.getElementById('mp-detail-title').textContent = `${col.collection_name||'—'} · Marketing Plan`;
+  // Title is just the collection name now (not "X · Marketing Plan")
+  document.getElementById('mp-detail-title').textContent = col.collection_name || '—';
   document.getElementById('mp-detail-sub').textContent = `${col.ip_related||'—'} · Release ${col.release_date||'—'}${plan.lastUpdated?` · Diupdate ${new Date(plan.lastUpdated).toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'})}`:''}`;
   document.getElementById('mp-detail-status').value = plan.status||'Planning';
-  // Build the detail body
   renderMPDetailBody(col, plan);
 }
 
 function renderMPDetailBody(col, plan) {
   const host = document.getElementById('mp-detail-body');
   const esc = s => (s||'').replace(/</g,'&lt;');
-  // Reference card (from Business tab — read-only)
+  const fmtRp = v => 'Rp ' + Math.round(v||0).toLocaleString('id-ID');
+  // Reference card — uses pre-fetched col._brief_* + col._target_* values
+  // populated by showMPDetail. No async fetch here, no re-render trigger.
+  const audTxt = col._brief_audience ? esc(col._brief_audience) : '<span style="color:var(--g400)">(belum di-set di Business tab)</span>';
+  const stoTxt = col._brief_story    ? esc(col._brief_story)    : '<span style="color:var(--g400)">(belum di-set)</span>';
+  const kspTxt = col._brief_ksp      ? esc(col._brief_ksp)      : '<span style="color:var(--g400)">(belum di-set)</span>';
+  const targetTxt = (col._target_revenue||col._target_units)
+    ? `${col._target_revenue?fmtRp(col._target_revenue):'—'} · ${col._target_units?col._target_units.toLocaleString('id-ID')+' unit':'—'}`
+    : '<span style="color:var(--g400)">(belum di-set)</span>';
   const refCard = `<div style="background:var(--off);border:1px solid var(--g100);border-radius:8px;padding:14px">
     <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:var(--g400);font-weight:600;margin-bottom:8px">📋 Reference dari Business tab (read-only)</div>
     <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;font-size:12px">
-      <div><div style="font-size:10px;color:var(--g400);text-transform:uppercase">Target Audience</div><div style="color:var(--g600);font-style:italic">${esc(col._brief_audience)||'<span style="color:var(--g400)">(belum di-set)</span>'}</div></div>
-      <div><div style="font-size:10px;color:var(--g400);text-transform:uppercase">Story / Theme</div><div style="color:var(--g600);font-style:italic">${esc(col._brief_story)||'<span style="color:var(--g400)">(belum di-set)</span>'}</div></div>
-      <div style="grid-column:1/-1"><div style="font-size:10px;color:var(--g400);text-transform:uppercase">Key Selling Points</div><div style="color:var(--g600);font-style:italic;white-space:pre-wrap">${esc(col._brief_ksp)||'<span style="color:var(--g400)">(belum di-set)</span>'}</div></div>
+      <div><div style="font-size:10px;color:var(--g400);text-transform:uppercase">Target Audience</div><div style="color:var(--g600);font-style:italic">${audTxt}</div></div>
+      <div><div style="font-size:10px;color:var(--g400);text-transform:uppercase">Story / Theme</div><div style="color:var(--g600);font-style:italic">${stoTxt}</div></div>
+      <div style="grid-column:1/-1"><div style="font-size:10px;color:var(--g400);text-transform:uppercase">Key Selling Points</div><div style="color:var(--g600);font-style:italic;white-space:pre-wrap">${kspTxt}</div></div>
       <div><div style="font-size:10px;color:var(--g400);text-transform:uppercase">Release Date</div><div style="color:var(--g600);font-weight:600">${col.release_date||'—'}</div></div>
-      <div><div style="font-size:10px;color:var(--g400);text-transform:uppercase">Sales Target</div><div style="color:var(--g600);font-weight:600" id="mp-ref-target">—</div></div>
+      <div><div style="font-size:10px;color:var(--g400);text-transform:uppercase">Sales Target</div><div style="color:var(--g600);font-weight:600">${targetTxt}</div></div>
     </div>
     <div style="margin-top:10px;font-size:11px;color:var(--g400)"><a href="#collections/${col.id}" onclick="showPage('collections',null);return false" style="color:var(--g600);text-decoration:underline">↗ Buka Business tab buat edit reference</a></div>
   </div>`;
@@ -22366,42 +22388,10 @@ function renderMPDetailBody(col, plan) {
     <textarea id="mp-notes" rows="3" placeholder="Catatan internal tim marketing — risk, dependensi, notes random." style="resize:vertical;font-size:12px;width:100%" onblur="saveMPField('notes',this.value)">${esc(plan.notes)}</textarea>
   </div>`;
   host.innerHTML = refCard + briefCard + activitySection + notesCard;
-  // Async-load reference card values from collections + activity counts
-  _mpLoadReference(col.id);
+  // Load per-activity summaries (single pass — no re-render trigger)
   for (const a of activities) {
     if (plan[a.flag]) _mpLoadActivitySummary(a, _mpCurrentColId, _mpExpanded.has(a.key));
   }
-}
-
-async function _mpLoadReference(cid) {
-  try {
-    const {data} = await sb.from('collections').select('brief_audience,brief_story,brief_selling_points,target_revenue,target_units').eq('id', cid).single();
-    if (!data) return;
-    const targetEl = document.getElementById('mp-ref-target');
-    if (targetEl) {
-      const tv = data.target_revenue ? `Rp ${Math.round(data.target_revenue).toLocaleString('id-ID')}` : '—';
-      const tu = data.target_units ? `${data.target_units.toLocaleString('id-ID')} unit` : '—';
-      targetEl.textContent = `${tv} · ${tu}`;
-    }
-    // Re-render the reference text fields by updating the host's innerHTML for relevant divs
-    const body = document.getElementById('mp-detail-body');
-    if (body) {
-      const _esc = s => (s||'').replace(/</g,'&lt;');
-      body.innerHTML = body.innerHTML
-        .replace(/<div style="color:var\(--g600\);font-style:italic">\(belum di-set\)<\/div>/, `<div style="color:var(--g600);font-style:italic">${_esc(data.brief_audience)||'<span style="color:var(--g400)">(belum di-set)</span>'}</div>`)
-        ;
-    }
-    // Simpler: just reload the detail body fully so reference card has data
-    if (_mpCurrentPlan) {
-      const col = _mpCols.find(c => c.id === cid);
-      if (col) {
-        col._brief_audience = data.brief_audience||'';
-        col._brief_story    = data.brief_story||'';
-        col._brief_ksp      = data.brief_selling_points||'';
-        renderMPDetailBody(col, _mpCurrentPlan);
-      }
-    }
-  } catch(_) {}
 }
 
 async function _mpLoadActivitySummary(activity, cid, expanded) {
