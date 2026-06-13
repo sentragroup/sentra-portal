@@ -22067,6 +22067,11 @@ function mapMP(r) {
     concept: r.concept||'', objective: r.objective||'',
     budget: r.budget!=null ? Number(r.budget) : null,
     kpiTargets: r.kpi_targets||'',
+    // Structured high-level KPIs (replace objective + kpi_targets textareas
+    // in UI; old TEXT cols kept for legacy data, no UI input)
+    targetReach: r.target_reach != null ? Number(r.target_reach) : null,
+    targetEngagementRate: r.target_engagement_rate != null ? Number(r.target_engagement_rate) : null,
+    targetRoi: r.target_roi != null ? Number(r.target_roi) : null,
     campaignStart: r.campaign_start||'', campaignEnd: r.campaign_end||'',
     actPhotoshoot:  !!r.activity_photoshoot,
     actVideo:       !!r.activity_video,
@@ -22325,29 +22330,42 @@ function renderMPDetailBody(col, plan) {
     </div>
     <div style="margin-top:10px;font-size:11px;color:var(--g400)"><a href="#collections/${col.id}" onclick="showPage('collections',null);return false" style="color:var(--g600);text-decoration:underline">↗ Buka Business tab buat edit reference</a></div>
   </div>`;
-  // Brief & strategy (editable)
+  // Brief & strategy (editable). 3 high-level KPI targets replace the old
+  // free-form Objective + Target KPI textareas — tracker Phase 2 will compare
+  // actuals against these. Concept stays free-form for the narrative.
+  const fmtNum = v => v != null ? Number(v).toLocaleString('id-ID') : '';
   const briefCard = `<div class="form-card" style="padding:14px">
     <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;margin-bottom:10px">🎯 Marketing Brief & Strategy</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-      <div class="fg full" style="margin:0;grid-column:1/-1"><label style="font-size:11px"><strong>Big Idea / Marketing Concept</strong></label>
-        <textarea id="mp-concept" rows="3" placeholder="Narrative kampanye. E.g. 'Limited launch dgn drama serial X — angle exclusivity + collectibility'" style="resize:vertical;font-size:12px;width:100%" onblur="saveMPField('concept',this.value)">${esc(plan.concept)}</textarea>
+    <div class="fg full" style="margin:0 0 14px"><label style="font-size:11px"><strong>Big Idea / Marketing Concept</strong></label>
+      <textarea id="mp-concept" rows="3" placeholder="Narrative kampanye. E.g. 'Limited launch dgn drama serial X — angle exclusivity + collectibility'" style="resize:vertical;font-size:12px;width:100%" onblur="saveMPField('concept',this.value)">${esc(plan.concept)}</textarea>
+    </div>
+    <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.3px;color:var(--g400);font-weight:600;margin-bottom:6px">🎯 Target High-Level KPI</div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px">
+      <div class="fg" style="margin:0"><label style="font-size:11px" title="Total orang yang lihat content/ads campaign ini">👥 Target Reach</label>
+        <input type="number" id="mp-target-reach" min="0" step="1000" value="${plan.targetReach!=null?plan.targetReach:''}" placeholder="cth: 500000" onblur="saveMPField('target_reach',this.value)" style="font-size:13px;font-family:var(--mono)">
+        <div style="font-size:10px;color:var(--g400);margin-top:3px">jumlah orang</div>
       </div>
-      <div class="fg" style="margin:0"><label style="font-size:11px"><strong>Marketing Objective</strong></label>
-        <textarea id="mp-objective" rows="3" placeholder="E.g. 'Awareness + 30% conversion in 60d'" style="resize:vertical;font-size:12px;width:100%" onblur="saveMPField('objective',this.value)">${esc(plan.objective)}</textarea>
+      <div class="fg" style="margin:0"><label style="font-size:11px" title="Engagement rate target (%). Engagement = like+comment+share / reach">💬 Engagement Rate</label>
+        <input type="number" id="mp-target-er" min="0" max="100" step="0.1" value="${plan.targetEngagementRate!=null?plan.targetEngagementRate:''}" placeholder="cth: 5.0" onblur="saveMPField('target_engagement_rate',this.value)" style="font-size:13px;font-family:var(--mono)">
+        <div style="font-size:10px;color:var(--g400);margin-top:3px">persen (%)</div>
       </div>
-      <div class="fg" style="margin:0"><label style="font-size:11px"><strong>Target KPI</strong></label>
-        <textarea id="mp-kpi" rows="3" placeholder="Bullet KPI:&#10;• Reach 500k&#10;• 5% engagement rate&#10;• 10% awareness lift" style="resize:vertical;font-size:12px;width:100%" onblur="saveMPField('kpi_targets',this.value)">${esc(plan.kpiTargets)}</textarea>
+      <div class="fg" style="margin:0"><label style="font-size:11px" title="ROI / ROAS target: revenue dari marketing / total marketing spend. 3x = balik modal + 200% profit.">💰 Target ROI</label>
+        <input type="number" id="mp-target-roi" min="0" step="0.1" value="${plan.targetRoi!=null?plan.targetRoi:''}" placeholder="cth: 3.0" onblur="saveMPField('target_roi',this.value)" style="font-size:13px;font-family:var(--mono)">
+        <div style="font-size:10px;color:var(--g400);margin-top:3px">multiplier (×)</div>
       </div>
+    </div>
+    <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.3px;color:var(--g400);font-weight:600;margin-bottom:6px">📋 Logistik Campaign</div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
       <div class="fg" style="margin:0"><label style="font-size:11px"><strong>Total Budget (Rp)</strong></label>
         <input type="number" id="mp-budget" min="0" step="1000" value="${plan.budget!=null?plan.budget:''}" placeholder="0" onblur="saveMPField('budget',this.value)" style="font-size:13px;font-family:var(--mono)">
       </div>
       <div class="fg" style="margin:0"><label style="font-size:11px"><strong>PIC Marketing</strong></label>
         <input type="text" id="mp-pic" value="${esc(plan.pic)}" placeholder="Nama PIC" onblur="saveMPField('pic',this.value)" style="font-size:13px">
       </div>
-      <div class="fg" style="margin:0"><label style="font-size:11px">Campaign Window — Mulai</label>
+      <div class="fg" style="margin:0"><label style="font-size:11px">Campaign Mulai</label>
         <input type="date" id="mp-campaign-start" value="${plan.campaignStart||''}" onchange="saveMPField('campaign_start',this.value)" style="font-size:13px">
       </div>
-      <div class="fg" style="margin:0"><label style="font-size:11px">Campaign Window — Selesai</label>
+      <div class="fg" style="margin:0"><label style="font-size:11px">Campaign Selesai</label>
         <input type="date" id="mp-campaign-end" value="${plan.campaignEnd||''}" onchange="saveMPField('campaign_end',this.value)" style="font-size:13px">
       </div>
     </div>
@@ -22580,15 +22598,16 @@ async function saveMPField(field, value) {
   const payload = {
     last_updated: new Date().toISOString(), last_updated_by: currentUser||'',
   };
-  if (field === 'budget') payload[field] = value === '' ? null : Number(value);
-  else if (field === 'campaign_start' || field === 'campaign_end') payload[field] = value || null;
+  const numericFields = ['budget','target_reach','target_engagement_rate','target_roi'];
+  const dateFields = ['campaign_start','campaign_end'];
+  if (numericFields.includes(field)) payload[field] = value === '' ? null : Number(value);
+  else if (dateFields.includes(field)) payload[field] = value || null;
   else payload[field] = (value||'').trim() || null;
   try {
     const {error} = await sb.from('marketing_plans').update(payload).eq('id', _mpCurrentPlan.id);
     if (error) throw error;
-    // Update local cache
-    const localKey = {concept:'concept',objective:'objective',budget:'budget',kpi_targets:'kpiTargets',campaign_start:'campaignStart',campaign_end:'campaignEnd',status:'status',pic:'pic',notes:'notes'}[field];
-    if (localKey) _mpCurrentPlan[localKey] = payload[field] || '';
+    const localKey = {concept:'concept',objective:'objective',budget:'budget',kpi_targets:'kpiTargets',campaign_start:'campaignStart',campaign_end:'campaignEnd',status:'status',pic:'pic',notes:'notes',target_reach:'targetReach',target_engagement_rate:'targetEngagementRate',target_roi:'targetRoi'}[field];
+    if (localKey) _mpCurrentPlan[localKey] = payload[field];
   } catch (e) { console.warn('Save MP field failed:', e); }
 }
 
