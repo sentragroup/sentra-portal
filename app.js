@@ -6643,14 +6643,15 @@ async function loadColSamplingSection(col) {
     const annosByImg = new Map();
     annotations.forEach(a => { const arr = annosByImg.get(a.image_id) || []; arr.push(a); annosByImg.set(a.image_id, arr); });
 
-    // Per-row rendering
+    // Per-row rendering — each SKU gets a compact summary row + a hidden
+    // detail row beneath. Click chevron / row to toggle the detail visibility.
     let approved = 0, inProgress = 0;
     const rowsHtml = items.map(it => {
       const samp = skuByItem.get(it.id);
       const status = samp?.status || 'Pending';
       if (status === 'Approved') approved++;
       else if (status === 'In Progress') inProgress++;
-      const vers = samp ? (versionsBySku.get(samp.id) || []) : [];
+      const vers = samp ? (versionsBySku.get(samp.id) || []).sort((a,b)=>a.version_no-b.version_no) : [];
       let totalImgs = 0, openComments = 0, latestThumb = null, latestVer = 0;
       for (const v of vers) {
         const imgs = imagesByVer.get(v.id) || [];
@@ -6667,22 +6668,64 @@ async function loadColSamplingSection(col) {
         : `<div style="width:32px;height:32px;background:var(--off);border-radius:4px;border:1px solid var(--g100);flex-shrink:0"></div>`;
       const skuEsc = String(it.skuName||'—').replace(/</g,'&lt;');
       const proper = it.skuProper ? `<div style="font-size:10px;color:var(--g400);font-family:var(--mono)">${String(it.skuProper).replace(/</g,'&lt;')}</div>` : '';
-      return `<tr style="border-top:1px solid var(--g100)">
-        <td style="padding:8px 10px;vertical-align:middle">
-          <div style="display:flex;align-items:center;gap:8px">${thumb}<div><div style="font-size:13px;font-weight:600">${skuEsc}</div>${proper}</div></div>
-        </td>
-        <td style="padding:8px 10px;vertical-align:middle"><span class="pill ${statusClr}" style="font-size:10px">${status}</span></td>
-        <td style="padding:8px 10px;vertical-align:middle;font-family:var(--mono);font-size:11px;color:var(--g600)">${vers.length ? `${vers.length} version${vers.length===1?'':'s'}` : '—'}</td>
-        <td style="padding:8px 10px;vertical-align:middle;font-family:var(--mono);font-size:11px;color:var(--g600)">${totalImgs ? `${totalImgs} foto${openComments?` · <span style="color:#c33">${openComments} open</span>`:''}` : '—'}</td>
-        <td style="padding:8px 10px;vertical-align:middle;font-size:11px;color:var(--g600)">${samp?.expected_date || '—'}</td>
-      </tr>`;
+      const detailId = `cd-smp-detail-${it.id}`;
+      const hasDetail = vers.length > 0;
+
+      // Expanded section — version blocks with image thumbs + comment threads.
+      // Clicking a thumbnail opens the existing smpOpenAnnoModal (full
+      // edit/reply UX), so Collection Dev users can add comments without
+      // leaving the page.
+      const expansionHtml = vers.map(v => {
+        const imgs = imagesByVer.get(v.id) || [];
+        const imgsHtml = imgs.length
+          ? imgs.map(im => {
+              const annos = (annosByImg.get(im.id) || []);
+              const topAnnos = annos.filter(a => !a.parent_id);
+              const openCnt = annos.filter(a => a.status === 'Open').length;
+              const pins = topAnnos.map((a,i) => {
+                if (a.x_pct == null || a.y_pct == null) return '';
+                const color = a.status === 'Resolved' ? '#1c7a3b' : '#c33';
+                return `<span style="position:absolute;left:${a.x_pct}%;top:${a.y_pct}%;transform:translate(-50%,-50%);width:18px;height:18px;background:${color};color:white;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;border:2px solid white;box-shadow:0 1px 3px rgba(0,0,0,0.4);pointer-events:none">${i+1}</span>`;
+              }).join('');
+              return `<div style="position:relative;cursor:pointer;display:inline-block" onclick="event.stopPropagation();smpOpenAnnoModal(${im.id},'${(im.image_url||'').replace(/'/g,"\\\\'")}');" title="Klik untuk lihat + tambah komentar">
+                <img src="${im.image_url}" style="width:90px;height:90px;object-fit:cover;border-radius:4px;border:1px solid var(--g100)">
+                ${pins}
+                ${annos.length?`<span style="position:absolute;top:3px;right:3px;background:${openCnt?'#c33':'#1c7a3b'};color:white;font-size:9px;padding:1px 5px;border-radius:99px;font-weight:600">${annos.length}${openCnt?` · ${openCnt}o`:''}</span>`:''}
+              </div>`;
+            }).join('')
+          : `<span style="font-size:11px;color:var(--g400)">Belum ada foto</span>`;
+        const notesLine = v.notes ? `<div style="font-size:11px;color:var(--g600);margin-top:6px;font-style:italic">📝 ${String(v.notes).replace(/</g,'&lt;')}</div>` : '';
+        return `<div style="background:var(--white);border:1px solid var(--g100);border-radius:6px;padding:10px;margin-bottom:8px">
+          <div style="font-size:12px;font-weight:600;margin-bottom:8px">Sample ${v.version_no}${v.label?` · ${String(v.label).replace(/</g,'&lt;')}`:''}</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">${imgsHtml}</div>
+          ${notesLine}
+        </div>`;
+      }).join('') || `<div style="font-size:11px;color:var(--g400);padding:8px">Belum ada sample. <a href="#sampling/${colId}" onclick="cdOpenInSampling('${colId}');return false" style="color:#3C3489">Mulai di modul Sampling</a></div>`;
+      const expansion = `<div style="padding:10px 14px;background:var(--off);border-top:1px dashed var(--g100)">${expansionHtml}</div>`;
+
+      const chevron = hasDetail
+        ? `<button onclick="event.stopPropagation();cdToggleSmpRow('${it.id}',this)" style="background:none;border:1px solid var(--g100);border-radius:4px;padding:2px 8px;font-size:10px;cursor:pointer;font-family:var(--mono);color:var(--g600)" data-expanded="0">▾</button>`
+        : `<span style="font-size:11px;color:var(--g400)">—</span>`;
+
+      return `<tr style="border-top:1px solid var(--g100);cursor:${hasDetail?'pointer':'default'}" ${hasDetail?`onclick="cdToggleSmpRow('${it.id}',this.querySelector('button'))"`:''}>
+          <td style="padding:8px 10px;vertical-align:middle">
+            <div style="display:flex;align-items:center;gap:8px">${thumb}<div><div style="font-size:13px;font-weight:600">${skuEsc}</div>${proper}</div></div>
+          </td>
+          <td style="padding:8px 10px;vertical-align:middle"><span class="pill ${statusClr}" style="font-size:10px">${status}</span></td>
+          <td style="padding:8px 10px;vertical-align:middle;font-family:var(--mono);font-size:11px;color:var(--g600)">${vers.length ? `${vers.length} version${vers.length===1?'':'s'}` : '—'}</td>
+          <td style="padding:8px 10px;vertical-align:middle;font-family:var(--mono);font-size:11px;color:var(--g600)">${totalImgs ? `${totalImgs} foto${openComments?` · <span style="color:#c33">${openComments} open</span>`:''}` : '—'}</td>
+          <td style="padding:8px 10px;vertical-align:middle;font-size:11px;color:var(--g600)">${samp?.expected_date || '—'}</td>
+          <td style="padding:8px 10px;vertical-align:middle;text-align:center">${chevron}</td>
+        </tr>
+        ${hasDetail ? `<tr id="${detailId}" style="display:none"><td colspan="6" style="padding:0">${expansion}</td></tr>` : ''}`;
     }).join('');
     const pct = items.length ? Math.round(approved/items.length*100) : 0;
     if (badge) badge.textContent = `${approved}/${items.length} approved · ${pct}%`;
-    body.innerHTML = `<div style="background:var(--off);padding:8px 12px;font-size:11px;color:var(--g600);font-family:var(--mono);display:flex;gap:14px;flex-wrap:wrap">
+    body.innerHTML = `<div style="background:var(--off);padding:8px 12px;font-size:11px;color:var(--g600);font-family:var(--mono);display:flex;gap:14px;flex-wrap:wrap;align-items:center">
         <span><b>${approved}</b> approved</span>
         <span><b>${inProgress}</b> in progress</span>
         <span><b>${items.length - approved - inProgress}</b> pending</span>
+        <span style="margin-left:auto;color:var(--g400)">Klik row untuk lihat detail · klik gambar untuk komen</span>
       </div>
       <table style="width:100%">
         <thead><tr style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);background:var(--white)">
@@ -6691,11 +6734,26 @@ async function loadColSamplingSection(col) {
           <th style="padding:6px 10px;text-align:left">Versions</th>
           <th style="padding:6px 10px;text-align:left">Photos</th>
           <th style="padding:6px 10px;text-align:left">Expected</th>
+          <th style="padding:6px 10px;text-align:center;width:40px"></th>
         </tr></thead>
         <tbody>${rowsHtml}</tbody>
       </table>`;
   } catch (e) {
     body.innerHTML = `<div style="color:#c33;font-size:11px;padding:8px">Gagal load sampling: ${(e.message||e).replace(/</g,'&lt;')}</div>`;
+  }
+}
+
+// Toggle the hidden detail row for a SKU in the Collection Dev Sampling
+// summary table. Mirrors the chevron icon between ▾/▴ so the user sees
+// which rows are open.
+function cdToggleSmpRow(itemId, btn) {
+  const row = document.getElementById(`cd-smp-detail-${itemId}`);
+  if (!row) return;
+  const open = row.style.display !== 'none';
+  row.style.display = open ? 'none' : 'table-row';
+  if (btn) {
+    btn.textContent = open ? '▾' : '▴';
+    btn.dataset.expanded = open ? '0' : '1';
   }
 }
 
