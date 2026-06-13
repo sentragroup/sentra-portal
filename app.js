@@ -23981,28 +23981,112 @@ async function loadSampling() {
 }
 
 function renderSmpGrid() {
-  const ipFilter = document.getElementById('smp-grid-ip').value;
-  const q = (document.getElementById('smp-grid-search').value || '').toLowerCase();
-  let rows = allSmpCollections;
-  if (ipFilter) rows = rows.filter(c => c.ip_related === ipFilter);
-  if (q) rows = rows.filter(c => (c.collection_name||'').toLowerCase().includes(q) || (c.ip_related||'').toLowerCase().includes(q));
+  // Mirror Product Dev grid: IP-emphasis card, revenue chip, urgency-coloured
+  // progress pill, launch-date pill, sort by upcoming-first. Reuses pdDaysUntil
+  // / pdFmtLaunchDate / pdRevChipStyle / pdLaunchTone so the visual language
+  // is identical across modules.
+  const ipSel  = document.getElementById('smp-grid-ip');
+  const revSel = document.getElementById('smp-grid-rev');
+  const q = (document.getElementById('smp-grid-search')?.value || '').trim().toLowerCase();
+
+  // Populate filter dropdowns (preserve current selection)
+  if (ipSel) {
+    const ips = [...new Set(allSmpCollections.map(c => (c.ip_related||'').trim()).filter(Boolean))].sort();
+    const cur = ipSel.value;
+    ipSel.innerHTML = `<option value="">Semua IP / Artist</option>` +
+      ips.map(ip => `<option value="${_smpEsc(ip)}"${ip===cur?' selected':''}>${_smpEsc(ip)}</option>`).join('');
+  }
+  if (revSel) {
+    const revs = [...new Set(allSmpCollections.map(c => (c.revenue_stream||'').trim()).filter(Boolean))].sort();
+    const cur = revSel.value;
+    revSel.innerHTML = `<option value="">Semua Revenue Stream</option>` +
+      revs.map(r => `<option value="${_smpEsc(r)}"${r===cur?' selected':''}>${_smpEsc(r)}</option>`).join('');
+  }
+  const ipFilter  = (ipSel?.value || '').trim();
+  const revFilter = (revSel?.value || '').trim();
+
+  let rows = allSmpCollections.filter(c => {
+    if (ipFilter  && (c.ip_related||'').toLowerCase()    !== ipFilter.toLowerCase())  return false;
+    if (revFilter && (c.revenue_stream||'').toLowerCase()!== revFilter.toLowerCase()) return false;
+    if (q && !(c.collection_name||'').toLowerCase().includes(q) && !(c.ip_related||'').toLowerCase().includes(q)) return false;
+    return true;
+  });
+
+  // Sort closest release-date first, mirroring PD grid behaviour.
+  rows.sort((a,b) => {
+    const da = pdDaysUntil(a.release_date);
+    const db = pdDaysUntil(b.release_date);
+    const rank = d => d === null ? 3 : d < 0 ? 2 : 1;
+    const ra = rank(da), rb = rank(db);
+    if (ra !== rb) return ra - rb;
+    if (ra === 1) return da - db;          // both upcoming → soonest first
+    if (ra === 2) return db - da;          // both past → most recent first
+    return (a.collection_name||'').localeCompare(b.collection_name||'');
+  });
   document.getElementById('smp-grid-tcount').textContent = `${rows.length} collection`;
 
   const list = document.getElementById('smp-grid-list');
-  if (!rows.length) { list.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:32px;color:var(--g400);font-size:13px">Belum ada collection.</div>`; return; }
+  if (!list) return;
+  if (!rows.length) { list.innerHTML = `<div class="empty-td" style="grid-column:1/-1">${allSmpCollections.length ? 'Tidak ada collection cocok filter.' : 'Belum ada collection. Buat collection dulu di Collection Development.'}</div>`; return; }
+
+  // Approval progress urgency (matches PD's request-fulfillment colours)
+  const urgencyTone = (approved, total) => {
+    if (!total)                  return {bg:'#e8e8e3', fg:'#666',     border:'#d6d5cc'};
+    if (approved >= total)       return {bg:'#daf3e0', fg:'#0a7d3a',  border:'#a7dab4'};
+    if (approved/total >= 0.5)   return {bg:'#fef0d0', fg:'#a66800',  border:'#f1cf7a'};
+    return                              {bg:'#fde0e0', fg:'#b81d1d',  border:'#f3a8a8'};
+  };
+
   list.innerHTML = rows.map(c => {
-    const pct = c._total ? Math.round(c._approved/c._total*100) : 0;
-    const barColor = pct >= 80 ? '#1c7a3b' : pct >= 40 ? '#a66800' : 'var(--g400)';
-    return `<div class="tool-card" style="cursor:pointer;padding:14px" onclick="openSmpDetail('${_smpEsc(c.id)}')">
-      <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:14px;margin-bottom:4px">${_smpEsc(c.collection_name||'(Tanpa nama)')}</div>
-      <div style="font-size:11px;color:var(--g600);font-family:var(--mono);margin-bottom:8px">${_smpEsc(c.ip_related||'—')}${c.revenue_stream?' · '+_smpEsc(c.revenue_stream):''}</div>
-      <div style="display:flex;gap:8px;margin-bottom:8px;font-size:11px">
-        <span style="color:var(--g600)"><b>${c._total}</b> SKU</span>
-        <span style="color:#1c7a3b"><b>${c._approved}</b> approved</span>
-        <span style="color:#a66800"><b>${c._inProgress}</b> in progress</span>
+    const total    = c._total || 0;
+    const approved = c._approved || 0;
+    const inProg   = c._inProgress || 0;
+    const tone = urgencyTone(approved, total);
+    const pct  = total ? Math.round((approved/total)*100) : 0;
+    const progressLabel = total ? `${approved}/${total} SKU approved · ${pct}%` : 'Belum ada SKU';
+
+    const name = _smpEsc(c.collection_name || c.id);
+    const ip   = (c.ip_related || '').trim();
+    const rev  = (c.revenue_stream || '').trim();
+
+    const days = pdDaysUntil(c.release_date);
+    const launchTone = pdLaunchTone(days);
+    const launchDate = pdFmtLaunchDate(c.release_date);
+
+    const barFill  = total ? Math.min(100, pct) : 0;
+    const barColor = total ? tone.fg : 'var(--g100)';
+    const progressBar = `<div style="height:4px;background:var(--g100);border-radius:2px;overflow:hidden">
+      <div style="height:100%;width:${barFill}%;background:${barColor};transition:width 0.2s"></div>
+    </div>`;
+
+    const revStyle = pdRevChipStyle(rev);
+    const revChip = rev
+      ? `<span style="font-size:9px;font-weight:700;font-family:var(--mono);padding:2px 8px;border-radius:99px;background:${revStyle.bg};color:${revStyle.fg};border:1px solid ${revStyle.border};white-space:nowrap">${_smpEsc(rev)}</span>`
+      : '';
+
+    // Sub-counts under the IP / collection — show in-progress + rejected snapshots.
+    const subCounts = total
+      ? `<span style="font-size:11px;color:var(--g600);margin-top:6px;display:block">${inProg ? `${inProg} in progress · ` : ''}${total} SKU total</span>`
+      : '';
+
+    return `<div class="tool-card" onclick="openSmpDetail('${_smpEsc(c.id)}')" style="cursor:pointer;padding:14px 16px;display:flex;flex-direction:column;gap:10px;height:100%;box-sizing:border-box">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+        <div style="min-width:0">
+          ${ip
+            ? `<div style="font-size:14px;font-weight:700;color:var(--black);font-family:var(--syne,var(--sans));letter-spacing:0.3px">${_smpEsc(ip)}</div>`
+            : `<div style="font-size:11px;color:var(--g400);font-style:italic">No IP set</div>`}
+          <div style="font-size:12px;color:var(--g600);margin-top:2px">${name}</div>
+          ${subCounts}
+        </div>
+        ${revChip}
       </div>
-      <div style="background:var(--g100);border-radius:3px;height:6px;overflow:hidden"><div style="background:${barColor};height:100%;width:${pct}%"></div></div>
-      <div style="font-size:10px;color:var(--g400);margin-top:4px;font-family:var(--mono)">${pct}% approved</div>
+      <div style="display:flex;flex-direction:column;align-items:stretch;gap:6px;margin-top:auto">
+        <span style="display:block;text-align:center;font-size:11px;font-weight:600;padding:5px 10px;border-radius:4px;font-family:var(--mono);background:${tone.bg};color:${tone.fg};border:1px solid ${tone.border};box-sizing:border-box;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${progressLabel}</span>
+        <span style="display:flex;flex-direction:column;align-items:center;gap:1px;line-height:1.25;font-size:11px;font-weight:600;padding:5px 10px;border-radius:4px;font-family:var(--mono);background:${launchTone.bg};color:${launchTone.fg};border:1px solid ${launchTone.border};box-sizing:border-box">
+          <span>📅 ${launchTone.label}</span>${launchDate?`<span style="font-weight:500;opacity:0.85">${launchDate}</span>`:''}
+        </span>
+      </div>
+      ${progressBar}
     </div>`;
   }).join('');
 }
