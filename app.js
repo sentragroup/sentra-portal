@@ -5089,7 +5089,7 @@ function clearDsgForm() {
 }
 
 // ── COLLECTIONS ──
-let allColRows = [], allColItems = [];
+let allColRows = [], allColItems = [], allColItemComponents = [];
 let colSort = {col:null,dir:'asc'};
 const SKU_CATEGORIES_DEFAULT = ["T-Shirt","Shirt","Hoodie","Jacket","Dress","Pants","Shorts","Tote Bag","Bag Charm","Keychain","Poster","Sticker","Cap","Accessories","Others"];
 function sortColBy(c){colSort.dir=colSort.col===c?(colSort.dir==='asc'?'desc':'asc'):'asc';colSort.col=c;applyColFilters();}
@@ -5122,10 +5122,10 @@ function mapCI(r) {
     treatment:r.treatment||"", color:r.color||"",
     qty:r.qty!=null?Number(r.qty):null,
     srp:r.srp!=null?Number(r.srp):null,
-    // Bundle fields — bundle is just 1 SKU line w/ paket qty + paket SRP;
-    // components stored as free-text reference (not separate tracked SKUs).
-    isBundle: !!r.is_bundle,
-    bundleComponents: r.bundle_components || "",
+    // Freebie: qty masuk production planning, SRP biasa NULL, dan
+    // sales target compute (trigger-side) skip baris freebie.
+    isFreebie: !!r.is_freebie,
+    // Components — loaded separately into allColItemComponents.
     // Creative-tab fields
     designer:r.designer||"",
     deadline:r.deadline||"", designPreviewUrl:r.design_preview_url||"",
@@ -5188,16 +5188,22 @@ async function loadCollections() {
       sb.from("collections").select("*").order("release_date",{ascending:false}),
       sb.from("collection_items").select("*").order("date_added",{ascending:true}),
       sb.from("designer_workflow").select("*").not("collection_id","is",null),
-      sb.from("collection_stages").select("*")
+      sb.from("collection_stages").select("*"),
+      sb.from("collection_item_components").select("*").order("id",{ascending:true})
     ];
     if(!allDsgRows.length) fetches.push(sb.from("designer_master").select("*").order("name"));
     const results=await Promise.all(fetches);
-    const [{data,error},{data:ciData},{data:dwData},{data:csData}]=results;
+    const [{data,error},{data:ciData},{data:dwData},{data:csData},{data:cicData}]=results;
     if(error)throw error;
     allColRows=(data||[]).map(mapCol);
     allColItems=(ciData||[]).map(mapCI);
+    allColItemComponents = (cicData||[]).map(r => ({
+      id: r.id, collectionItemId: r.collection_item_id,
+      name: r.name||'', qtyPerUnit: Number(r.qty_per_unit)||1,
+      notes: r.notes||'', createdAt: r.created_at, createdBy: r.created_by||''
+    }));
     allColStages=(csData||[]).map(mapCS);
-    if(results[4]?.data) allDsgRows=results[4].data.map(mapDsg);
+    if(results[5]?.data) allDsgRows=results[5].data.map(mapDsg);
     // Populate allDwRows with full data (payment, URL, agreement, etc.)
     allDwRows=(dwData||[]).filter(r=>r.locked).map(r=>{
       const row=mapDw(r);
@@ -5734,29 +5740,30 @@ function renderColTargetSection(col, items) {
   const skuFormHTML = `<div style="background:var(--off);border:1px solid var(--g100);border-radius:8px;padding:14px;margin-bottom:14px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:12px;flex-wrap:wrap">
       <div style="font-family:var(--syne);font-size:14px;font-weight:700">+ Tambah SKU</div>
-      <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;background:var(--white);border:1px solid var(--g200);border-radius:6px;padding:4px 10px" title="Centang jika ini bundle/combo (e.g. paket Album + Tote Bag). Qty = jumlah paket, SRP = harga 1 paket.">
-        <input type="checkbox" id="ci-dp-isbundle-${cid}" onchange="toggleCIBundleMode('${cid}')" style="margin:0">
-        <span>📦 Bundle / Combo SKU</span>
+      <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;background:var(--white);border:1px solid var(--g200);border-radius:6px;padding:4px 10px" title="Centang jika ini freebie/giveaway — qty masuk produksi tapi SRP kosong + dikecualikan dari sales target.">
+        <input type="checkbox" id="ci-dp-isfreebie-${cid}" onchange="toggleCIFreebieMode('${cid}')" style="margin:0">
+        <span>🎁 Freebie (no SRP)</span>
       </label>
     </div>
     <div style="font-size:11px;color:var(--g600);margin-bottom:10px">Auto-build SKU name: <b id="ci-dp-preview-${cid}" style="color:var(--black);font-family:var(--mono)">${ip.replace(/</g,'&lt;')} - ...</b></div>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px">
-      <div class="fg" style="margin:0"><label style="font-size:11px"><span id="ci-dp-name-lbl-${cid}">Nama SKU</span> <span class="req">*</span></label><input type="text" id="ci-dp-name-${cid}" placeholder="cth: Calligraphic" oninput="updateCIDpPreview('${cid}')"></div>
-      <div class="fg ci-nonbundle-${cid}" style="margin:0;position:relative"><label style="font-size:11px">Kategori</label><input type="text" id="ci-dp-cat-${cid}" placeholder="T-Shirt, Cap..." autocomplete="off" oninput="updateCIDpPreview('${cid}')"><div class="ac-list" id="ac-ci-dp-cat-${cid}"></div></div>
-      <div class="fg ci-nonbundle-${cid}" style="margin:0;position:relative"><label style="font-size:11px">Sub-Kategori</label><input type="text" id="ci-dp-subcat-${cid}" placeholder="Sleeveless, Regular..." autocomplete="off" oninput="updateCIDpPreview('${cid}')"><div class="ac-list" id="ac-ci-dp-subcat-${cid}"></div></div>
-      <div class="fg ci-nonbundle-${cid}" style="margin:0"><label style="font-size:11px">Treatment</label><input type="text" id="ci-dp-treat-${cid}" placeholder="DTG, Sablon, Embroidery..." oninput="updateCIDpPreview('${cid}')"></div>
-      <div class="fg ci-nonbundle-${cid}" style="margin:0"><label style="font-size:11px">Color</label><input type="text" id="ci-dp-color-${cid}" placeholder="Black, White, Navy..." oninput="updateCIDpPreview('${cid}')"></div>
+      <div class="fg" style="margin:0"><label style="font-size:11px">Nama SKU <span class="req">*</span></label><input type="text" id="ci-dp-name-${cid}" placeholder="cth: Calligraphic" oninput="updateCIDpPreview('${cid}')"></div>
+      <div class="fg" style="margin:0;position:relative"><label style="font-size:11px">Kategori</label><input type="text" id="ci-dp-cat-${cid}" placeholder="T-Shirt, Cap, Keychain..." autocomplete="off" oninput="updateCIDpPreview('${cid}')"><div class="ac-list" id="ac-ci-dp-cat-${cid}"></div></div>
+      <div class="fg" style="margin:0;position:relative"><label style="font-size:11px">Sub-Kategori</label><input type="text" id="ci-dp-subcat-${cid}" placeholder="Sleeveless, Regular..." autocomplete="off" oninput="updateCIDpPreview('${cid}')"><div class="ac-list" id="ac-ci-dp-subcat-${cid}"></div></div>
+      <div class="fg" style="margin:0"><label style="font-size:11px">Treatment</label><input type="text" id="ci-dp-treat-${cid}" placeholder="DTG, Sablon, Embroidery..." oninput="updateCIDpPreview('${cid}')"></div>
+      <div class="fg" style="margin:0"><label style="font-size:11px">Color</label><input type="text" id="ci-dp-color-${cid}" placeholder="Black, White, Navy..." oninput="updateCIDpPreview('${cid}')"></div>
       <div style="display:grid;grid-template-columns:1fr 1.4fr;gap:8px">
-        <div class="fg" style="margin:0"><label style="font-size:11px"><span id="ci-dp-qty-lbl-${cid}">Qty</span></label><input type="number" id="ci-dp-qty-${cid}" min="0" step="1" placeholder="200" oninput="updateCIDpPreview('${cid}')"></div>
-        <div class="fg" style="margin:0"><label style="font-size:11px"><span id="ci-dp-srp-lbl-${cid}">SRP (Rp)</span></label><input type="number" id="ci-dp-srp-${cid}" min="0" step="1000" placeholder="120000" oninput="updateCIDpPreview('${cid}')"></div>
+        <div class="fg" style="margin:0"><label style="font-size:11px">Qty</label><input type="number" id="ci-dp-qty-${cid}" min="0" step="1" placeholder="200" oninput="updateCIDpPreview('${cid}')"></div>
+        <div class="fg ci-nonfreebie-${cid}" style="margin:0"><label style="font-size:11px">SRP (Rp)</label><input type="number" id="ci-dp-srp-${cid}" min="0" step="1000" placeholder="120000" oninput="updateCIDpPreview('${cid}')"></div>
       </div>
     </div>
-    <div class="ci-bundle-${cid}" style="display:none;margin-bottom:10px">
-      <div class="fg" style="margin:0">
-        <label style="font-size:11px">Komponen / Isi Paket <span style="color:var(--g400);font-weight:400">(reference produksi)</span></label>
-        <textarea id="ci-dp-bundlec-${cid}" rows="2" placeholder="cth: 1× Album CD, 1× Tote Bag Black, 1× Photocard Pack" style="resize:vertical;font-size:12px"></textarea>
-        <div style="font-size:10px;color:var(--g400);margin-top:3px">Cuma catatan untuk planning produksi — nggak ditrack sebagai SKU terpisah.</div>
+    <div style="background:var(--white);border:1px dashed var(--g200);border-radius:6px;padding:10px 12px;margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+        <div style="font-size:11px;color:var(--g600);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">📎 Komponen Tambahan <span style="font-weight:400;color:var(--g400);text-transform:none;letter-spacing:0">— packaging, hangtag, dll. (opsional)</span></div>
+        <button type="button" onclick="addCIPendingComponent('${cid}')" style="font-size:11px;padding:3px 10px;background:var(--white);border:1px solid var(--g200);border-radius:4px;cursor:pointer">+ Komponen</button>
       </div>
+      <div id="ci-dp-comps-${cid}" style="display:flex;flex-direction:column;gap:6px"></div>
+      <div id="ci-dp-comps-empty-${cid}" style="font-size:11px;color:var(--g400);text-align:center;padding:4px 0">Belum ada komponen tambahan.</div>
     </div>
     <div style="display:flex;align-items:center;gap:12px">
       <button class="btn-primary" style="padding:7px 14px;font-size:12px" onclick="addCollectionItem('${cid}')">+ Tambah SKU</button>
@@ -5840,18 +5847,24 @@ function renderColTargetSection(col, items) {
           <th style="padding:6px 10px;text-align:left">Aksi</th>
         </tr></thead>
         <tbody>
-          ${items.map(i => `<tr id="ci-row-biz-${i.id}" style="border-top:1px solid var(--g100)${i.isBundle?';background:#fff8e8':''}">
+          ${items.map(i => {
+            const comps = _componentsForItem(i.id);
+            const tintStyle = i.isFreebie ? ';background:#f1f8ef' : (comps.length ? ';background:#f7f4ff' : '');
+            const freebieBadge = i.isFreebie ? `<span style="margin-left:6px;display:inline-block;padding:1px 6px;background:#dff0d8;color:#2d6f2a;border:1px solid #b8d9b3;border-radius:3px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;vertical-align:middle" title="Freebie / giveaway — qty masuk produksi tapi tidak masuk sales target">🎁 Freebie</span>` : '';
+            const compBadge = comps.length ? `<span style="margin-left:6px;display:inline-block;padding:1px 6px;background:#ede8ff;color:#3C3489;border:1px solid #c9bdf0;border-radius:3px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;vertical-align:middle" title="${comps.length} komponen tambahan">📎 ${comps.length} Komp</span>` : '';
+            const compsLine = comps.length ? `<div style="font-size:10px;color:var(--g600);margin-top:3px">${comps.map(c => `<span title="${(c.notes||'').replace(/"/g,'&quot;')}" style="display:inline-block;margin-right:8px">↳ ${(c.name||'').replace(/</g,'&lt;')} <span style="color:var(--g400);font-family:var(--mono)">×${c.qtyPerUnit||1}${i.qty?` = ${Math.round((c.qtyPerUnit||1)*(i.qty||0)).toLocaleString('id-ID')}`:''}</span></span>`).join('')}</div>` : '';
+            return `<tr id="ci-row-biz-${i.id}" style="border-top:1px solid var(--g100)${tintStyle}">
             <td style="padding:7px 10px">
               <strong style="font-size:12px">${(i.skuName||'').replace(/</g,'&lt;')}</strong>
-              ${i.isBundle?`<span style="margin-left:6px;display:inline-block;padding:1px 6px;background:#f0e6d4;color:#7a5a1d;border:1px solid #d9c79b;border-radius:3px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;vertical-align:middle" title="${(i.bundleComponents||'Bundle').replace(/"/g,'&quot;')}">📦 Bundle</span>`:''}
-              ${i.isBundle && i.bundleComponents?`<div style="font-size:10px;color:var(--g600);margin-top:3px;font-style:italic">Isi: ${(i.bundleComponents||'').replace(/</g,'&lt;')}</div>`:''}
+              ${freebieBadge}${compBadge}
+              ${compsLine}
             </td>
-            <td style="padding:7px 10px;font-size:11px;color:var(--g600)">${i.isBundle?'<span style="color:var(--g400)">(bundle)</span>':(i.category?`${i.category}${i.subCategory?' · '+i.subCategory:''}`:'—')}</td>
-            <td style="padding:7px 10px;font-size:11px;color:var(--g600)">${i.isBundle?'—':(i.treatment||'—')}</td>
-            <td style="padding:7px 10px;font-size:11px;color:var(--g600)">${i.isBundle?'—':(i.color||'—')}</td>
+            <td style="padding:7px 10px;font-size:11px;color:var(--g600)">${i.category?`${i.category}${i.subCategory?' · '+i.subCategory:''}`:'—'}</td>
+            <td style="padding:7px 10px;font-size:11px;color:var(--g600)">${i.treatment||'—'}</td>
+            <td style="padding:7px 10px;font-size:11px;color:var(--g600)">${i.color||'—'}</td>
             <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px">${i.qty||'—'}</td>
-            <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px">${fmtRp2(i.srp)}</td>
-            <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px;font-weight:600">${(i.qty&&i.srp)?fmtRp2(i.qty*i.srp):'—'}</td>
+            <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px">${i.isFreebie?'<span style="color:var(--g400);font-style:italic">freebie</span>':fmtRp2(i.srp)}</td>
+            <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px;font-weight:600">${i.isFreebie?'—':((i.qty&&i.srp)?fmtRp2(i.qty*i.srp):'—')}</td>
             <td style="padding:7px 10px;white-space:nowrap">
               <button class="btn-icon" style="font-size:11px" onclick="openSKUEditBiz('${i.id}')">Edit</button>
               <button class="btn-icon" style="color:#c0392b;font-size:11px" onclick="deleteSKU('${i.id}','${cid}')">Del</button>
@@ -5862,22 +5875,25 @@ function renderColTargetSection(col, items) {
               <div class="edit-row-form" style="background:var(--off)">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px;flex-wrap:wrap">
                   <div style="font-size:10px;color:var(--g400);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.5px">Naming &amp; Commercial</div>
-                  <label style="display:inline-flex;align-items:center;gap:6px;font-size:11px;cursor:pointer;background:var(--white);border:1px solid var(--g200);border-radius:4px;padding:3px 8px">
-                    <input type="checkbox" id="cieb-isbundle-${i.id}" ${i.isBundle?'checked':''} onchange="toggleCIBundleEdit('${i.id}')" style="margin:0"> 📦 Bundle / Combo
+                  <label style="display:inline-flex;align-items:center;gap:6px;font-size:11px;cursor:pointer;background:var(--white);border:1px solid var(--g200);border-radius:4px;padding:3px 8px" title="Freebie: qty masuk produksi tapi SRP kosong, tidak dihitung ke sales target.">
+                    <input type="checkbox" id="cieb-isfreebie-${i.id}" ${i.isFreebie?'checked':''} onchange="toggleCIFreebieEdit('${i.id}')" style="margin:0"> 🎁 Freebie
                   </label>
                 </div>
                 <div class="edit-row-grid">
-                  <div class="fg"><label style="font-size:11px"><span id="cieb-prop-lbl-${i.id}">${i.isBundle?'Nama Bundle':'Nama SKU (proper)'}</span></label><input type="text" id="cieb-prop-${i.id}" value="${(i.skuProper||i.skuName||'').replace(/"/g,'&quot;')}"></div>
-                  <div class="fg cieb-nonbundle-${i.id}" style="position:relative;${i.isBundle?'display:none':''}"><label style="font-size:11px">Kategori</label><input type="text" id="cieb-cat-${i.id}" value="${(i.category||'').replace(/"/g,'&quot;')}" autocomplete="off"><div class="ac-list" id="ac-cieb-cat-${i.id}"></div></div>
-                  <div class="fg cieb-nonbundle-${i.id}" style="position:relative;${i.isBundle?'display:none':''}"><label style="font-size:11px">Sub-Kategori</label><input type="text" id="cieb-subcat-${i.id}" value="${(i.subCategory||'').replace(/"/g,'&quot;')}" autocomplete="off"><div class="ac-list" id="ac-cieb-subcat-${i.id}"></div></div>
-                  <div class="fg cieb-nonbundle-${i.id}" style="${i.isBundle?'display:none':''}"><label style="font-size:11px">Treatment</label><input type="text" id="cieb-treat-${i.id}" value="${(i.treatment||'').replace(/"/g,'&quot;')}"></div>
-                  <div class="fg cieb-nonbundle-${i.id}" style="${i.isBundle?'display:none':''}"><label style="font-size:11px">Color</label><input type="text" id="cieb-color-${i.id}" value="${(i.color||'').replace(/"/g,'&quot;')}"></div>
-                  <div class="fg"><label style="font-size:11px">${i.isBundle?'Qty (paket)':'Qty'}</label><input type="number" id="cieb-qty-${i.id}" min="0" step="1" value="${i.qty!=null?i.qty:''}"></div>
-                  <div class="fg"><label style="font-size:11px">${i.isBundle?'SRP / paket (Rp)':'SRP (Rp)'}</label><input type="number" id="cieb-srp-${i.id}" min="0" step="1000" value="${i.srp!=null?i.srp:''}"></div>
+                  <div class="fg"><label style="font-size:11px">Nama SKU (proper)</label><input type="text" id="cieb-prop-${i.id}" value="${(i.skuProper||i.skuName||'').replace(/"/g,'&quot;')}"></div>
+                  <div class="fg" style="position:relative"><label style="font-size:11px">Kategori</label><input type="text" id="cieb-cat-${i.id}" value="${(i.category||'').replace(/"/g,'&quot;')}" autocomplete="off"><div class="ac-list" id="ac-cieb-cat-${i.id}"></div></div>
+                  <div class="fg" style="position:relative"><label style="font-size:11px">Sub-Kategori</label><input type="text" id="cieb-subcat-${i.id}" value="${(i.subCategory||'').replace(/"/g,'&quot;')}" autocomplete="off"><div class="ac-list" id="ac-cieb-subcat-${i.id}"></div></div>
+                  <div class="fg"><label style="font-size:11px">Treatment</label><input type="text" id="cieb-treat-${i.id}" value="${(i.treatment||'').replace(/"/g,'&quot;')}"></div>
+                  <div class="fg"><label style="font-size:11px">Color</label><input type="text" id="cieb-color-${i.id}" value="${(i.color||'').replace(/"/g,'&quot;')}"></div>
+                  <div class="fg"><label style="font-size:11px">Qty</label><input type="number" id="cieb-qty-${i.id}" min="0" step="1" value="${i.qty!=null?i.qty:''}"></div>
+                  <div class="fg cieb-nonfreebie-${i.id}" style="${i.isFreebie?'display:none':''}"><label style="font-size:11px">SRP (Rp)</label><input type="number" id="cieb-srp-${i.id}" min="0" step="1000" value="${i.srp!=null?i.srp:''}"></div>
                 </div>
-                <div class="fg cieb-bundle-${i.id}" style="${i.isBundle?'':'display:none'};margin-top:8px">
-                  <label style="font-size:11px">Komponen / Isi Paket <span style="color:var(--g400);font-weight:400">(reference produksi)</span></label>
-                  <textarea id="cieb-bundlec-${i.id}" rows="2" placeholder="cth: 1× Album CD, 1× Tote Bag Black, 1× Photocard Pack" style="resize:vertical;font-size:12px">${(i.bundleComponents||'').replace(/</g,'&lt;')}</textarea>
+                <div style="margin-top:10px;background:var(--white);border:1px dashed var(--g200);border-radius:6px;padding:10px 12px">
+                  <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+                    <div style="font-size:10px;color:var(--g600);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">📎 Komponen Tambahan <span style="font-weight:400;color:var(--g400);text-transform:none;letter-spacing:0">— packaging, hangtag, dll.</span></div>
+                    <button type="button" onclick="addCIEditComponent('${i.id}','${cid}')" style="font-size:11px;padding:3px 10px;background:var(--white);border:1px solid var(--g200);border-radius:4px;cursor:pointer">+ Komponen</button>
+                  </div>
+                  <div id="cieb-comps-${i.id}" style="display:flex;flex-direction:column;gap:6px"></div>
                 </div>
                 <div class="edit-row-btns">
                   <button class="btn-save" onclick="saveSKUEditBiz('${i.id}','${cid}')">Simpan</button>
@@ -5885,7 +5901,8 @@ function renderColTargetSection(col, items) {
                 </div>
               </div>
             </td>
-          </tr>`).join('')}
+          </tr>`;
+          }).join('')}
         </tbody>
       </table></div>`
     : '<div style="color:var(--g400);font-size:12px;padding:12px;text-align:center">Belum ada SKU. Tambah pakai form di atas.</div>';
@@ -7599,30 +7616,66 @@ async function handleRemoveCPLink(linkId, colId){
   }catch(e){alert("Gagal: "+(e.message||e));}
 }
 
-// Toggle add form between single-SKU and bundle mode. Bundle mode hides
-// the size/color/treatment/kategori fields (a bundle usually doesn't have
-// a single size/color/treatment) and shows a Komponen textarea instead.
-function toggleCIBundleMode(colId) {
-  const isBundle = !!document.getElementById(`ci-dp-isbundle-${colId}`)?.checked;
-  document.querySelectorAll(`.ci-nonbundle-${colId}`).forEach(el => {
-    el.style.display = isBundle ? 'none' : '';
+// Pending-components state for the add form, keyed by collection id.
+// User can pile up multiple components inline before submitting the SKU;
+// they're inserted into collection_item_components after the parent SKU
+// row is created (so we have its id to reference).
+const _ciPendingComps = {};
+
+function _ciEnsurePending(colId) {
+  if (!_ciPendingComps[colId]) _ciPendingComps[colId] = [];
+  return _ciPendingComps[colId];
+}
+
+function addCIPendingComponent(colId) {
+  const list = _ciEnsurePending(colId);
+  list.push({ name: '', qtyPerUnit: 1, notes: '' });
+  renderCIPendingComponents(colId);
+}
+
+function removeCIPendingComponent(colId, idx) {
+  const list = _ciEnsurePending(colId);
+  list.splice(idx, 1);
+  renderCIPendingComponents(colId);
+}
+
+function updateCIPendingComponent(colId, idx, field, value) {
+  const list = _ciEnsurePending(colId);
+  if (!list[idx]) return;
+  if (field === 'qtyPerUnit') list[idx][field] = parseFloat(value) || 0;
+  else list[idx][field] = value;
+}
+
+function renderCIPendingComponents(colId) {
+  const wrap = document.getElementById(`ci-dp-comps-${colId}`);
+  const empty = document.getElementById(`ci-dp-comps-empty-${colId}`);
+  if (!wrap) return;
+  const list = _ciEnsurePending(colId);
+  if (!list.length) {
+    wrap.innerHTML = '';
+    if (empty) empty.style.display = 'block';
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+  wrap.innerHTML = list.map((c, i) => `<div style="display:grid;grid-template-columns:2fr 90px 1.5fr auto;gap:6px;align-items:center">
+    <input type="text" value="${(c.name||'').replace(/"/g,'&quot;')}" oninput="updateCIPendingComponent('${colId}',${i},'name',this.value)" placeholder="Nama komponen (e.g. Packaging Box)" style="font-size:11px;padding:5px 8px">
+    <input type="number" min="0" step="0.01" value="${c.qtyPerUnit||1}" oninput="updateCIPendingComponent('${colId}',${i},'qtyPerUnit',this.value)" title="Qty per parent unit (e.g. 1 packaging per 1 keychain)" style="font-size:11px;padding:5px 8px;text-align:right;font-family:var(--mono)">
+    <input type="text" value="${(c.notes||'').replace(/"/g,'&quot;')}" oninput="updateCIPendingComponent('${colId}',${i},'notes',this.value)" placeholder="Notes (opsional)" style="font-size:11px;padding:5px 8px">
+    <button type="button" onclick="removeCIPendingComponent('${colId}',${i})" title="Hapus" style="background:none;border:1px solid var(--g200);border-radius:4px;color:#c0392b;cursor:pointer;font-size:11px;padding:4px 8px">✕</button>
+  </div>`).join('');
+}
+
+// Toggle Freebie mode in the add form: SRP field hidden (freebie sets srp=NULL),
+// preview gets " - Freebie" suffix to disambiguate, line preview shows production
+// qty instead of revenue.
+function toggleCIFreebieMode(colId) {
+  const isFreebie = !!document.getElementById(`ci-dp-isfreebie-${colId}`)?.checked;
+  document.querySelectorAll(`.ci-nonfreebie-${colId}`).forEach(el => {
+    el.style.display = isFreebie ? 'none' : '';
   });
-  document.querySelectorAll(`.ci-bundle-${colId}`).forEach(el => {
-    el.style.display = isBundle ? 'block' : 'none';
-  });
-  // Relabel name/qty/srp to clarify paket-level semantics
-  const nameLbl = document.getElementById(`ci-dp-name-lbl-${colId}`);
-  const qtyLbl  = document.getElementById(`ci-dp-qty-lbl-${colId}`);
-  const srpLbl  = document.getElementById(`ci-dp-srp-lbl-${colId}`);
-  if (nameLbl) nameLbl.textContent = isBundle ? 'Nama Bundle' : 'Nama SKU';
-  if (qtyLbl)  qtyLbl.textContent  = isBundle ? 'Qty (paket)' : 'Qty';
-  if (srpLbl)  srpLbl.textContent  = isBundle ? 'SRP / paket (Rp)' : 'SRP (Rp)';
-  // Clear hidden fields so they don't pollute composed name
-  if (isBundle) {
-    ['cat','subcat','treat','color'].forEach(k => {
-      const el = document.getElementById(`ci-dp-${k}-${colId}`);
-      if (el) el.value = '';
-    });
+  if (isFreebie) {
+    const srpEl = document.getElementById(`ci-dp-srp-${colId}`);
+    if (srpEl) srpEl.value = '';
   }
   updateCIDpPreview(colId);
 }
@@ -7631,45 +7684,43 @@ function toggleCIBundleMode(colId) {
 function updateCIDpPreview(colId) {
   const col = allColRows.find(r => r.id === colId);
   const ip  = col?.ipRelated || 'IP';
-  const isBundle = !!document.getElementById(`ci-dp-isbundle-${colId}`)?.checked;
+  const isFreebie = !!document.getElementById(`ci-dp-isfreebie-${colId}`)?.checked;
   const prop = document.getElementById(`ci-dp-name-${colId}`)?.value.trim() || '';
   const cat  = document.getElementById(`ci-dp-cat-${colId}`)?.value.trim() || '';
   const sub  = document.getElementById(`ci-dp-subcat-${colId}`)?.value.trim() || '';
   const treat= document.getElementById(`ci-dp-treat-${colId}`)?.value.trim() || '';
   const clr  = document.getElementById(`ci-dp-color-${colId}`)?.value.trim() || '';
-  // For bundle: skip kategori/treatment/color, append "Bundle" suffix
-  const preview = isBundle
-    ? composeSkuName(ip, prop || '…', '', '', '', '') + ' - Bundle'
-    : composeSkuName(ip, prop || '…', cat, sub, treat, clr);
+  const base = composeSkuName(ip, prop || '…', cat, sub, treat, clr);
+  const preview = isFreebie ? `${base} - Freebie` : base;
   const el = document.getElementById(`ci-dp-preview-${colId}`);
   if (el) el.textContent = preview;
-  // Live update the auto sales target preview from qty × srp
   const qty = parseFloat(document.getElementById(`ci-dp-qty-${colId}`)?.value) || 0;
   const srp = parseFloat(document.getElementById(`ci-dp-srp-${colId}`)?.value) || 0;
   const lineEl = document.getElementById(`ci-dp-line-${colId}`);
-  if (lineEl) lineEl.textContent = (qty && srp) ? `${isBundle?'Bundle ':''}Line revenue: Rp ${(qty*srp).toLocaleString('id-ID')}` : '';
+  if (lineEl) {
+    if (isFreebie && qty) lineEl.textContent = `🎁 ${qty.toLocaleString('id-ID')} pcs production-only (skip target)`;
+    else if (qty && srp) lineEl.textContent = `Line revenue: Rp ${(qty*srp).toLocaleString('id-ID')}`;
+    else lineEl.textContent = '';
+  }
 }
 
 async function addCollectionItem(colId) {
   const prop = document.getElementById(`ci-dp-name-${colId}`)?.value.trim();
   if(!prop){alert("Nama SKU wajib diisi.");return;}
-  const isBundle = !!document.getElementById(`ci-dp-isbundle-${colId}`)?.checked;
-  // For bundles we ignore size/treatment/color fields entirely — the toggle
-  // hides them in UI; values would be empty anyway but we skip composing them.
-  const cat  = isBundle ? '' : (document.getElementById(`ci-dp-cat-${colId}`)?.value.trim() || '');
-  const sub  = isBundle ? '' : (document.getElementById(`ci-dp-subcat-${colId}`)?.value.trim() || '');
-  const treat= isBundle ? '' : (document.getElementById(`ci-dp-treat-${colId}`)?.value.trim() || '');
-  const clr  = isBundle ? '' : (document.getElementById(`ci-dp-color-${colId}`)?.value.trim() || '');
+  const isFreebie = !!document.getElementById(`ci-dp-isfreebie-${colId}`)?.checked;
+  const cat  = document.getElementById(`ci-dp-cat-${colId}`)?.value.trim() || '';
+  const sub  = document.getElementById(`ci-dp-subcat-${colId}`)?.value.trim() || '';
+  const treat= document.getElementById(`ci-dp-treat-${colId}`)?.value.trim() || '';
+  const clr  = document.getElementById(`ci-dp-color-${colId}`)?.value.trim() || '';
   const qty  = parseInt(document.getElementById(`ci-dp-qty-${colId}`)?.value, 10);
-  const srp  = parseFloat(document.getElementById(`ci-dp-srp-${colId}`)?.value);
-  const components = isBundle ? (document.getElementById(`ci-dp-bundlec-${colId}`)?.value.trim() || '') : '';
+  // Freebie always has srp = NULL (trigger excludes is_freebie rows from target compute anyway)
+  const srp  = isFreebie ? NaN : parseFloat(document.getElementById(`ci-dp-srp-${colId}`)?.value);
   const col  = allColRows.find(r => r.id === colId);
   const ip   = col?.ipRelated || '';
-  // Bundle SKU gets an explicit " - Bundle" suffix so it's distinguishable
-  // in lists/exports without needing to inspect the flag every time.
-  const composedName = isBundle
-    ? composeSkuName(ip, prop, '', '', '', '') + ' - Bundle'
-    : composeSkuName(ip, prop, cat, sub, treat, clr);
+  const baseName = composeSkuName(ip, prop, cat, sub, treat, clr);
+  const composedName = isFreebie ? `${baseName} - Freebie` : baseName;
+  // Snapshot pending components for this form before clearing state
+  const pendingComps = (_ciPendingComps[colId] || []).slice().filter(c => (c.name||'').trim());
   try {
     const id=genId("CI");
     const {error}=await sb.from("collection_items").insert({
@@ -7682,19 +7733,34 @@ async function addCollectionItem(colId) {
       color: clr || null,
       qty: isNaN(qty) ? null : qty,
       srp: isNaN(srp) ? null : srp,
-      is_bundle: isBundle,
-      bundle_components: components || null,
+      is_freebie: isFreebie,
       approval_status:"Pending",
       date_added:new Date().toISOString().slice(0,10), added_by:currentUser,
       last_updated:new Date().toISOString(), last_updated_by:currentUser
     });
     if(error)throw error;
-    [`ci-dp-name-${colId}`,`ci-dp-cat-${colId}`,`ci-dp-subcat-${colId}`,`ci-dp-treat-${colId}`,`ci-dp-color-${colId}`,`ci-dp-qty-${colId}`,`ci-dp-srp-${colId}`,`ci-dp-bundlec-${colId}`].forEach(eid=>{const el=document.getElementById(eid);if(el)el.value="";});
-    const isBundleCb = document.getElementById(`ci-dp-isbundle-${colId}`);
-    if (isBundleCb && isBundleCb.checked) { isBundleCb.checked = false; toggleCIBundleMode(colId); }
+    // Insert any pending sub-components for this new SKU
+    if (pendingComps.length) {
+      const {error: ce} = await sb.from('collection_item_components').insert(
+        pendingComps.map(c => ({
+          collection_item_id: id, name: c.name.trim(),
+          qty_per_unit: Number(c.qtyPerUnit) || 1,
+          notes: (c.notes||'').trim() || null,
+          created_by: currentUser,
+        }))
+      );
+      if (ce) console.warn('Failed to insert components:', ce);
+    }
+    [`ci-dp-name-${colId}`,`ci-dp-cat-${colId}`,`ci-dp-subcat-${colId}`,`ci-dp-treat-${colId}`,`ci-dp-color-${colId}`,`ci-dp-qty-${colId}`,`ci-dp-srp-${colId}`].forEach(eid=>{const el=document.getElementById(eid);if(el)el.value="";});
+    _ciPendingComps[colId] = [];
+    renderCIPendingComponents(colId);
+    const isFreebieCb = document.getElementById(`ci-dp-isfreebie-${colId}`);
+    if (isFreebieCb && isFreebieCb.checked) { isFreebieCb.checked = false; toggleCIFreebieMode(colId); }
     logActivity("Collections","create",id,`SKU: ${composedName}`);
     const {data}=await sb.from("collection_items").select("*").eq("collection_id",colId);
     allColItems=allColItems.filter(i=>i.collectionId!==colId).concat((data||[]).map(mapCI));
+    // Refresh components cache for the SKUs in this collection
+    await _reloadColComponents(colId);
     // Also refresh the parent collection row (target_revenue/units were auto-updated by trigger)
     const {data: c2} = await sb.from("collections").select("*").eq("id", colId).single();
     if (c2) {
@@ -7705,6 +7771,28 @@ async function addCollectionItem(colId) {
     if(col2) renderColDetail(col2, allColItems.filter(i=>i.collectionId===colId));
     applyColFilters();
   } catch(e){alert("Gagal: "+(e.message||e));}
+}
+
+// Reload components for all SKUs in a given collection (after insert/edit/delete).
+async function _reloadColComponents(colId) {
+  const itemIds = allColItems.filter(i => i.collectionId === colId).map(i => i.id);
+  if (!itemIds.length) {
+    allColItemComponents = allColItemComponents.filter(c => !itemIds.includes(c.collectionItemId));
+    return;
+  }
+  const {data, error} = await sb.from('collection_item_components')
+    .select('*').in('collection_item_id', itemIds).order('id', {ascending:true});
+  if (error) { console.warn('reload components failed:', error); return; }
+  allColItemComponents = allColItemComponents.filter(c => !itemIds.includes(c.collectionItemId))
+    .concat((data||[]).map(r => ({
+      id: r.id, collectionItemId: r.collection_item_id,
+      name: r.name||'', qtyPerUnit: Number(r.qty_per_unit)||1,
+      notes: r.notes||'', createdAt: r.created_at, createdBy: r.created_by||''
+    })));
+}
+
+function _componentsForItem(itemId) {
+  return allColItemComponents.filter(c => c.collectionItemId === itemId);
 }
 
 async function pushToDesignerWorkflow(colId) {
@@ -7738,10 +7826,22 @@ function openSKUEditBiz(itemId) {
   const row = document.getElementById("ci-edit-biz-"+itemId);
   if (!row) return;
   document.querySelectorAll("[id^='ci-edit-biz-']").forEach(el=>{if(el.id!=="ci-edit-biz-"+itemId)el.style.display="none";});
-  row.style.display = row.style.display === "table-row" ? "none" : "table-row";
+  const wasOpen = row.style.display === "table-row";
+  row.style.display = wasOpen ? "none" : "table-row";
+  if (!wasOpen) {
+    // Seed pending-edit components state from current DB rows so user can mutate freely
+    _ciEditPendingComps[itemId] = _componentsForItem(itemId).map(c => ({
+      id: c.id, name: c.name, qtyPerUnit: c.qtyPerUnit, notes: c.notes,
+    }));
+    renderCIEditComponents(itemId);
+  }
   setTimeout(()=>row.scrollIntoView({behavior:'smooth',block:'center'}), 50);
 }
-function closeSKUEditBiz(itemId){const r=document.getElementById("ci-edit-biz-"+itemId);if(r)r.style.display="none";}
+function closeSKUEditBiz(itemId){
+  const r=document.getElementById("ci-edit-biz-"+itemId);
+  if(r)r.style.display="none";
+  delete _ciEditPendingComps[itemId];
+}
 
 function openSKUEditCre(itemId) {
   const row = document.getElementById("ci-edit-cre-"+itemId);
@@ -8095,21 +8195,55 @@ async function colNotesSave(colId, stage, el) {
 }
 
 // Save: Business inline edit (naming + commercial). Recomputes sku_name.
-// Toggle bundle mode in the inline edit form (mirrors toggleCIBundleMode for the add form)
-function toggleCIBundleEdit(itemId) {
-  const isBundle = !!document.getElementById(`cieb-isbundle-${itemId}`)?.checked;
-  document.querySelectorAll(`.cieb-nonbundle-${itemId}`).forEach(el => {
-    el.style.display = isBundle ? 'none' : '';
+// Toggle Freebie in the inline edit form — mirrors toggleCIFreebieMode for the add form
+function toggleCIFreebieEdit(itemId) {
+  const isFreebie = !!document.getElementById(`cieb-isfreebie-${itemId}`)?.checked;
+  document.querySelectorAll(`.cieb-nonfreebie-${itemId}`).forEach(el => {
+    el.style.display = isFreebie ? 'none' : '';
   });
-  document.querySelectorAll(`.cieb-bundle-${itemId}`).forEach(el => {
-    el.style.display = isBundle ? 'block' : 'none';
-  });
-  if (isBundle) {
-    ['cat','subcat','treat','color'].forEach(k => {
-      const el = document.getElementById(`cieb-${k}-${itemId}`);
-      if (el) el.value = '';
-    });
+  if (isFreebie) {
+    const srpEl = document.getElementById(`cieb-srp-${itemId}`);
+    if (srpEl) srpEl.value = '';
   }
+}
+
+// In-flight components state during inline edit, keyed by item id.
+// Includes id (DB row id) for existing components; new rows have id=null.
+const _ciEditPendingComps = {};
+
+function addCIEditComponent(itemId, colId) {
+  if (!_ciEditPendingComps[itemId]) _ciEditPendingComps[itemId] = [];
+  _ciEditPendingComps[itemId].push({ id: null, name: '', qtyPerUnit: 1, notes: '' });
+  renderCIEditComponents(itemId);
+}
+
+function removeCIEditComponent(itemId, idx) {
+  const list = _ciEditPendingComps[itemId] || [];
+  list.splice(idx, 1);
+  renderCIEditComponents(itemId);
+}
+
+function updateCIEditComponent(itemId, idx, field, value) {
+  const list = _ciEditPendingComps[itemId] || [];
+  if (!list[idx]) return;
+  if (field === 'qtyPerUnit') list[idx][field] = parseFloat(value) || 0;
+  else list[idx][field] = value;
+}
+
+function renderCIEditComponents(itemId) {
+  const wrap = document.getElementById(`cieb-comps-${itemId}`);
+  if (!wrap) return;
+  const list = _ciEditPendingComps[itemId] || [];
+  if (!list.length) {
+    wrap.innerHTML = `<div style="font-size:11px;color:var(--g400);text-align:center;padding:4px 0">Belum ada komponen tambahan.</div>`;
+    return;
+  }
+  wrap.innerHTML = list.map((c, i) => `<div style="display:grid;grid-template-columns:2fr 90px 1.5fr auto;gap:6px;align-items:center">
+    <input type="text" value="${(c.name||'').replace(/"/g,'&quot;')}" oninput="updateCIEditComponent('${itemId}',${i},'name',this.value)" placeholder="Nama komponen" style="font-size:11px;padding:5px 8px">
+    <input type="number" min="0" step="0.01" value="${c.qtyPerUnit||1}" oninput="updateCIEditComponent('${itemId}',${i},'qtyPerUnit',this.value)" title="Qty per parent unit" style="font-size:11px;padding:5px 8px;text-align:right;font-family:var(--mono)">
+    <input type="text" value="${(c.notes||'').replace(/"/g,'&quot;')}" oninput="updateCIEditComponent('${itemId}',${i},'notes',this.value)" placeholder="Notes" style="font-size:11px;padding:5px 8px">
+    <button type="button" onclick="removeCIEditComponent('${itemId}',${i})" title="Hapus" style="background:none;border:1px solid var(--g200);border-radius:4px;color:#c0392b;cursor:pointer;font-size:11px;padding:4px 8px">✕</button>
+  </div>`).join('');
 }
 
 async function saveSKUEditBiz(itemId, colId) {
@@ -8118,19 +8252,17 @@ async function saveSKUEditBiz(itemId, colId) {
   try {
     const prop = document.getElementById(`cieb-prop-${itemId}`)?.value.trim();
     if(!prop){if(btn){btn.disabled=false;btn.textContent="Simpan";}alert("Nama SKU wajib diisi.");return;}
-    const isBundle = !!document.getElementById(`cieb-isbundle-${itemId}`)?.checked;
-    const cat   = isBundle ? '' : (document.getElementById(`cieb-cat-${itemId}`)?.value.trim() || '');
-    const sub   = isBundle ? '' : (document.getElementById(`cieb-subcat-${itemId}`)?.value.trim() || '');
-    const treat = isBundle ? '' : (document.getElementById(`cieb-treat-${itemId}`)?.value.trim() || '');
-    const clr   = isBundle ? '' : (document.getElementById(`cieb-color-${itemId}`)?.value.trim() || '');
+    const isFreebie = !!document.getElementById(`cieb-isfreebie-${itemId}`)?.checked;
+    const cat   = document.getElementById(`cieb-cat-${itemId}`)?.value.trim() || '';
+    const sub   = document.getElementById(`cieb-subcat-${itemId}`)?.value.trim() || '';
+    const treat = document.getElementById(`cieb-treat-${itemId}`)?.value.trim() || '';
+    const clr   = document.getElementById(`cieb-color-${itemId}`)?.value.trim() || '';
     const qty   = parseInt(document.getElementById(`cieb-qty-${itemId}`)?.value, 10);
-    const srp   = parseFloat(document.getElementById(`cieb-srp-${itemId}`)?.value);
-    const components = isBundle ? (document.getElementById(`cieb-bundlec-${itemId}`)?.value.trim() || '') : '';
+    const srp   = isFreebie ? NaN : parseFloat(document.getElementById(`cieb-srp-${itemId}`)?.value);
     const col   = allColRows.find(r => r.id === colId);
     const ip    = col?.ipRelated || '';
-    const composedName = isBundle
-      ? composeSkuName(ip, prop, '', '', '', '') + ' - Bundle'
-      : composeSkuName(ip, prop, cat, sub, treat, clr);
+    const baseName = composeSkuName(ip, prop, cat, sub, treat, clr);
+    const composedName = isFreebie ? `${baseName} - Freebie` : baseName;
     const {error}=await sb.from("collection_items").update({
       sku_name: composedName,
       sku_proper: prop,
@@ -8140,17 +8272,35 @@ async function saveSKUEditBiz(itemId, colId) {
       color: clr || null,
       qty: isNaN(qty) ? null : qty,
       srp: isNaN(srp) ? null : srp,
-      is_bundle: isBundle,
-      bundle_components: components || null,
+      is_freebie: isFreebie,
       last_updated: new Date().toISOString(), last_updated_by: currentUser
     }).eq("id",itemId);
     if(error)throw error;
+    // Reconcile components: delete existing rows not in pending, update existing, insert new.
+    const pending = (_ciEditPendingComps[itemId] || []).filter(c => (c.name||'').trim());
+    const existingIds = _componentsForItem(itemId).map(c => c.id);
+    const keptIds = pending.filter(c => c.id != null).map(c => c.id);
+    const toDelete = existingIds.filter(id => !keptIds.includes(id));
+    if (toDelete.length) {
+      const {error: de} = await sb.from('collection_item_components').delete().in('id', toDelete);
+      if (de) console.warn('Component delete failed:', de);
+    }
+    for (const c of pending) {
+      const payload = { name: c.name.trim(), qty_per_unit: Number(c.qtyPerUnit) || 1, notes: (c.notes||'').trim() || null };
+      if (c.id != null) {
+        await sb.from('collection_item_components').update(payload).eq('id', c.id);
+      } else {
+        await sb.from('collection_item_components').insert({...payload, collection_item_id: itemId, created_by: currentUser});
+      }
+    }
+    await _reloadColComponents(colId);
+    delete _ciEditPendingComps[itemId];
     const idx=allColItems.findIndex(i=>i.id===itemId);
     if(idx>-1) allColItems[idx]={...allColItems[idx],
       skuName: composedName, skuProper: prop,
       category: cat, subCategory: sub, treatment: treat, color: clr,
       qty: isNaN(qty)?null:qty, srp: isNaN(srp)?null:srp,
-      isBundle, bundleComponents: components,
+      isFreebie,
     };
     // Refresh parent collection (trigger updated target_revenue/units)
     const {data: c2} = await sb.from("collections").select("*").eq("id", colId).single();
@@ -8247,6 +8397,8 @@ async function deleteSKU(itemId, colId) {
     const {error}=await sb.from("collection_items").delete().eq("id",itemId);
     if(error)throw error;
     allColItems=allColItems.filter(i=>i.id!==itemId);
+    // Components are FK CASCADE-deleted in DB — drop from local cache too
+    allColItemComponents = allColItemComponents.filter(c => c.collectionItemId !== itemId);
     const col=allColRows.find(r=>r.id===colId);
     if(col) renderColDetail(col, allColItems.filter(i=>i.collectionId===colId));
     applyColFilters();
