@@ -24739,6 +24739,7 @@ async function smpDownloadPDF(scope, itemId) {
 
   const col = _smpCurrentCol;
   const fmtDate = d => d ? new Date(d).toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'numeric'}) : '—';
+  const colLinks = Array.isArray(col.sampling_links) ? col.sampling_links : [];
 
   const skuSections = items.map(it => {
     const samp = it.sampling || {};
@@ -24809,24 +24810,34 @@ async function smpDownloadPDF(scope, itemId) {
       *{box-sizing:border-box}
       html,body{margin:0;padding:0;background:#fff;color:#111;font-family:'Inter',system-ui,sans-serif;font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased}
       .page{max-width:840px;margin:0 auto;padding:40px 48px 64px}
-      .head{border-bottom:2px solid #111;padding-bottom:16px;margin-bottom:24px;display:flex;justify-content:space-between;align-items:flex-end}
+      .head{border-bottom:2px solid #111;padding-bottom:16px;margin-bottom:24px}
+      .head-top{display:flex;justify-content:space-between;align-items:flex-end;gap:24px}
       .head h1{margin:0;font-size:24px;font-weight:700}
       .head .sub{font-size:12px;color:#666;margin-top:4px}
       .head .meta{font-family:'Space Mono',monospace;font-size:11px;color:#666;text-align:right;text-transform:uppercase;letter-spacing:0.08em}
+      .head-links{margin-top:12px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+      .head-links .kicker{font-family:'Space Mono',monospace;font-size:10px;color:#666;text-transform:uppercase;letter-spacing:0.08em;margin-right:4px}
+      .head-links a{display:inline-block;font-family:'Space Mono',monospace;font-size:11px;color:#3C3489;text-decoration:none;background:#fff;border:1px solid #e5e5e5;border-radius:99px;padding:3px 10px}
       @page{margin:0;size:A4}
       @media print{.page{padding:32px 36px 48px}}
     </style></head><body>
     <div class="page">
       <div class="head">
-        <div>
-          <h1>${_smpEsc(col.collection_name||'(Collection)')}</h1>
-          <div class="sub">${_smpEsc(col.ip_related||'—')}${col.revenue_stream?' · '+_smpEsc(col.revenue_stream):''}${col.release_date?' · Release '+fmtDate(col.release_date):''}</div>
+        <div class="head-top">
+          <div>
+            <h1>${_smpEsc(col.collection_name||'(Collection)')}</h1>
+            <div class="sub">${_smpEsc(col.ip_related||'—')}${col.revenue_stream?' · '+_smpEsc(col.revenue_stream):''}${col.release_date?' · Release '+fmtDate(col.release_date):''}</div>
+          </div>
+          <div class="meta">
+            <div>Sampling Report</div>
+            <div>${_smpEsc(scopeLabel)}</div>
+            <div>${new Date().toLocaleString('id-ID')}</div>
+          </div>
         </div>
-        <div class="meta">
-          <div>Sampling Report</div>
-          <div>${_smpEsc(scopeLabel)}</div>
-          <div>${new Date().toLocaleString('id-ID')}</div>
-        </div>
+        ${colLinks.length ? `<div class="head-links">
+          <span class="kicker">🔗 Links</span>
+          ${colLinks.map(l => `<a href="${_smpEsc(l.url||'#')}" target="_blank">${_smpEsc(l.label||'Link')} ↗</a>`).join('')}
+        </div>` : ''}
       </div>
       ${skuSections}
     </div>
