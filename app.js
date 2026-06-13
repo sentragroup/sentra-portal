@@ -6700,7 +6700,7 @@ async function loadColSamplingSection(col) {
           <div style="display:flex;gap:6px;flex-wrap:wrap">${imgsHtml}</div>
           ${notesLine}
         </div>`;
-      }).join('') || `<div style="font-size:11px;color:var(--g400);padding:8px">Belum ada sample. <a href="#sampling/${colId}" onclick="cdOpenInSampling('${colId}');return false" style="color:#3C3489">Mulai di modul Sampling</a></div>`;
+      }).join('') || `<div style="font-size:11px;color:var(--g400);padding:8px">Belum ada sample. <a href="#sampling/${col.id}" onclick="cdOpenInSampling('${col.id}');return false" style="color:#3C3489">Mulai di modul Sampling</a></div>`;
       const expansion = `<div style="padding:10px 14px;background:var(--off);border-top:1px dashed var(--g100)">${expansionHtml}</div>`;
 
       const chevron = hasDetail
