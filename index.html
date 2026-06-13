@@ -2100,6 +2100,11 @@
             <button class="btn-ghost" style="font-size:12px;padding:5px 12px;background:#eef0f8;border-color:#3C3489;color:#3C3489" onclick="smpDownloadPDF('all')" title="Download semua SKU di collection ini">📥 Download All SKUs (PDF)</button>
           </div>
         </div>
+        <div id="smp-detail-link-row" style="margin-top:0.5rem;display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--off);border-radius:6px">
+          <span style="font-size:10px;color:var(--g600);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.05em;flex-shrink:0">🔗 Sampling Drive</span>
+          <input type="url" id="smp-detail-link-input" placeholder="https://drive.google.com/..." onblur="smpSaveCollectionLink(this.value)" style="flex:1;font-size:12px;padding:4px 8px;border:1px solid var(--g100);border-radius:4px;background:var(--white)">
+          <a id="smp-detail-link-open" href="#" target="_blank" style="font-size:11px;color:#3C3489;text-decoration:none;font-family:var(--mono);display:none;flex-shrink:0">Open ↗</a>
+        </div>
         <div id="smp-detail-skus" style="margin-top:1rem;display:flex;flex-direction:column;gap:14px"></div>
       </div>
     </div>
