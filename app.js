@@ -23945,7 +23945,7 @@ async function loadSampling() {
   document.getElementById('smp-grid-list').innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:32px;color:var(--g400);font-size:13px">⟳ Memuat sampling...</div>`;
   try {
     const [colsRes, itemsRes, skusRes] = await Promise.all([
-      sb.from('collections').select('id, collection_name, ip_related, revenue_stream, status, release_date, smp_active').order('date_added',{ascending:false}),
+      sb.from('collections').select('id, collection_name, ip_related, revenue_stream, status, release_date, smp_active, sampling_drive_url').order('date_added',{ascending:false}),
       sb.from('collection_items').select('id, collection_id, sku_name, sku_proper, category, sub_category, treatment, color, qty, srp, approval_status'),
       sb.from('sampling_skus').select('id, collection_item_id, expected_date, notes, status'),
     ]);
@@ -24125,8 +24125,38 @@ async function openSmpDetail(colId) {
   document.getElementById('smp-view-detail').style.display = 'block';
   document.getElementById('smp-detail-title').textContent = col.collection_name || '(Tanpa nama)';
   document.getElementById('smp-detail-sub').textContent = [col.ip_related, col.revenue_stream, col.release_date ? `Release: ${col.release_date}` : null].filter(Boolean).join(' · ');
+  // Collection-level sampling drive link
+  const linkInput = document.getElementById('smp-detail-link-input');
+  const linkOpen  = document.getElementById('smp-detail-link-open');
+  if (linkInput) linkInput.value = col.sampling_drive_url || '';
+  if (linkOpen) {
+    if (col.sampling_drive_url) { linkOpen.href = col.sampling_drive_url; linkOpen.style.display = 'inline-block'; }
+    else { linkOpen.style.display = 'none'; }
+  }
+  // Reset multi-select state when switching collections
+  _smpSelectedSkus.clear();
+  smpToggleSkuSelection(null, false); // refresh button label
   document.getElementById('smp-detail-skus').innerHTML = `<div style="text-align:center;padding:32px;color:var(--g400)">⟳ Memuat SKUs...</div>`;
   await renderSmpDetailSKUs(col);
+}
+
+// Persist collection-level sampling drive URL (onblur from the header input).
+async function smpSaveCollectionLink(value) {
+  if (!_smpCurrentCol) return;
+  const url = (value || '').trim() || null;
+  if ((url||'') === (_smpCurrentCol.sampling_drive_url||'')) return; // no change
+  try {
+    const { error } = await sb.from('collections').update({ sampling_drive_url: url }).eq('id', _smpCurrentCol.id);
+    if (error) throw error;
+    _smpCurrentCol.sampling_drive_url = url;
+    const c = allSmpCollections.find(x => x.id === _smpCurrentCol.id);
+    if (c) c.sampling_drive_url = url;
+    const linkOpen = document.getElementById('smp-detail-link-open');
+    if (linkOpen) {
+      if (url) { linkOpen.href = url; linkOpen.style.display = 'inline-block'; }
+      else { linkOpen.style.display = 'none'; }
+    }
+  } catch (e) { alert('Gagal save link: '+(e.message||e)); }
 }
 
 function smpBackToGrid() {
