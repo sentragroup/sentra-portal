@@ -23935,6 +23935,7 @@ let allSmpItems = [];         // collection_items joined with sampling_skus
 let _smpCurrentCol = null;    // currently opened collection
 let _smpAnnoImage = null;     // image currently in annotation modal {imageId,url}
 let _smpAnnoList = [];        // annotations for the open image
+let _smpSelectedSkus = new Set(); // collection_item ids checked for multi-PDF
 
 function _smpEsc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
@@ -24188,15 +24189,22 @@ async function renderSmpDetailSKUs(col) {
     const statusPill = {
       'Pending':'p-draft', 'In Progress':'p-review', 'Approved':'p-active', 'Rejected':'p-expired',
     }[samp.status || 'Pending'] || 'p-draft';
-    return `<div class="form-card" style="padding:14px;border:1px solid var(--g100)">
+    const checked = _smpSelectedSkus.has(it.id) ? 'checked' : '';
+    return `<div class="form-card" style="padding:14px;border:1px solid var(--g100)" id="smp-card-${_smpEsc(it.id)}">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px">
-        <div>
-          <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:14px">${_smpEsc(it.sku_name||'(SKU)')}</div>
-          <div style="font-size:11px;color:var(--g600);font-family:var(--mono);margin-top:2px">${_smpEsc(it.sku_proper||'')}${it.category?' · '+_smpEsc(it.category):''}${it.treatment?' · '+_smpEsc(it.treatment):''}${it.color?' · '+_smpEsc(it.color):''}</div>
+        <div style="display:flex;align-items:flex-start;gap:10px;min-width:0">
+          <input type="checkbox" ${checked} onchange="smpToggleSkuSelection('${_smpEsc(it.id)}',this.checked)" style="margin-top:4px;cursor:pointer" title="Pilih untuk multi-PDF download">
+          <div style="min-width:0">
+            <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:14px">${_smpEsc(it.sku_name||'(SKU)')}</div>
+            <div style="font-size:11px;color:var(--g600);font-family:var(--mono);margin-top:2px">${_smpEsc(it.sku_proper||'')}${it.category?' · '+_smpEsc(it.category):''}${it.treatment?' · '+_smpEsc(it.treatment):''}${it.color?' · '+_smpEsc(it.color):''}</div>
+          </div>
         </div>
-        <select onchange="smpSetStatus(${samp.id},this.value)" class="pill ${statusPill}" style="font-size:11px;padding:3px 8px;border-radius:12px;cursor:pointer;border:1px solid transparent">
-          ${['Pending','In Progress','Approved','Rejected'].map(s => `<option value="${s}" ${s===(samp.status||'Pending')?'selected':''}>${s}</option>`).join('')}
-        </select>
+        <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+          <button onclick="smpDownloadPDF('sku','${_smpEsc(it.id)}')" title="Download PDF SKU ini" style="font-size:11px;padding:3px 10px;background:none;border:1px solid var(--g100);border-radius:4px;cursor:pointer;font-family:var(--mono);color:var(--g600)">📄 PDF</button>
+          <select onchange="smpSetStatus(${samp.id},this.value)" class="pill ${statusPill}" style="font-size:11px;padding:3px 8px;border-radius:12px;cursor:pointer;border:1px solid transparent">
+            ${['Pending','In Progress','Approved','Rejected'].map(s => `<option value="${s}" ${s===(samp.status||'Pending')?'selected':''}>${s}</option>`).join('')}
+          </select>
+        </div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
         <div class="fg" style="margin:0"><label style="font-size:10px">Expected Date</label><input type="date" value="${samp.expected_date||''}" onchange="smpSetField(${samp.id},'expected_date',this.value)" style="font-size:12px"></div>
@@ -24324,6 +24332,13 @@ function smpCloseAnnoModal() {
   if (_smpCurrentCol) renderSmpDetailSKUs(_smpCurrentCol);
 }
 
+// Draft state for the inline-textarea UX. When user clicks the image we
+// stash the coords here and render a 'ghost' pin + draft card in the list
+// panel. Save flushes to Supabase. Cancel discards.
+let _smpAnnoDraft     = null;   // { x_pct, y_pct } for an unsaved new comment
+let _smpAnnoEditingId = null;   // id of comment currently in edit mode
+let _smpAnnoReplyTo   = null;   // parent_id of comment with an open reply box
+
 async function smpReloadAnnos() {
   if (!_smpAnnoImage) return;
   const { data, error } = await sb.from('sampling_annotations').select('*').eq('image_id', _smpAnnoImage.imageId).order('created_at');
@@ -24332,45 +24347,201 @@ async function smpReloadAnnos() {
   smpRenderPinsAndList();
 }
 
+// Top-level comments only — replies live in childrenOf(id).
+function _smpTopLevelAnnos() {
+  return _smpAnnoList.filter(a => !a.parent_id);
+}
+function _smpChildren(id) {
+  return _smpAnnoList.filter(a => a.parent_id === id).sort((a,b) => (a.created_at||'').localeCompare(b.created_at||''));
+}
+
 function smpRenderPinsAndList() {
   const pinsWrap = document.getElementById('smp-anno-pins');
   const list = document.getElementById('smp-anno-list');
-  document.getElementById('smp-anno-count').textContent = _smpAnnoList.length;
   if (!pinsWrap || !list) return;
-  pinsWrap.innerHTML = _smpAnnoList.map((a,i) => {
+
+  const topAnnos = _smpTopLevelAnnos();
+  document.getElementById('smp-anno-count').textContent = _smpAnnoList.length;
+
+  // Pins (existing + ghost for draft).
+  const pinHtml = topAnnos.map((a,i) => {
     const color = a.status === 'Resolved' ? '#1c7a3b' : '#c33';
     return `<div style="position:absolute;left:${a.x_pct}%;top:${a.y_pct}%;transform:translate(-50%,-50%);width:24px;height:24px;background:${color};color:white;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;border:2px solid white;box-shadow:0 1px 3px rgba(0,0,0,0.4);pointer-events:auto;cursor:pointer" onclick="document.getElementById('smp-anno-card-${a.id}').scrollIntoView({behavior:'smooth',block:'center'})">${i+1}</div>`;
   }).join('');
-  list.innerHTML = _smpAnnoList.length ? _smpAnnoList.map((a,i) => {
-    const dotColor = a.status === 'Resolved' ? '#1c7a3b' : '#c33';
-    return `<div id="smp-anno-card-${a.id}" style="background:var(--off);border-radius:6px;padding:10px;margin-bottom:8px;font-size:12px">
-      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
-        <span style="width:20px;height:20px;background:${dotColor};color:white;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:600">${i+1}</span>
-        <span style="font-size:10px;color:var(--g400);font-family:var(--mono)">${_smpEsc(a.created_by||'—')} · ${a.created_at?new Date(a.created_at).toLocaleString('id-ID',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}):''}</span>
-        <span class="pill ${a.status==='Resolved'?'p-active':'p-review'}" style="font-size:9px;padding:1px 6px;margin-left:auto">${a.status}</span>
-      </div>
-      <div style="line-height:1.5">${_smpEsc(a.comment_text)}</div>
-      <div style="display:flex;gap:6px;margin-top:6px">
-        ${a.status==='Open' ? `<button onclick="smpResolveAnno(${a.id})" style="font-size:10px;padding:2px 8px;background:#1c7a3b;color:white;border:none;border-radius:3px;cursor:pointer">✓ Resolve</button>` : `<button onclick="smpReopenAnno(${a.id})" style="font-size:10px;padding:2px 8px;background:var(--white);color:var(--g600);border:1px solid var(--g100);border-radius:3px;cursor:pointer">Reopen</button>`}
-        <button onclick="smpDelAnno(${a.id})" style="font-size:10px;padding:2px 8px;background:transparent;color:#c33;border:1px solid var(--g100);border-radius:3px;cursor:pointer">Hapus</button>
-      </div>
-    </div>`;
-  }).join('') : `<div style="color:var(--g400);font-size:11px;padding:8px 0">Belum ada komentar. Klik di gambar untuk taruh pin.</div>`;
+  const ghostPin = _smpAnnoDraft
+    ? `<div style="position:absolute;left:${_smpAnnoDraft.x_pct}%;top:${_smpAnnoDraft.y_pct}%;transform:translate(-50%,-50%);width:24px;height:24px;background:var(--g400);color:white;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600;border:2px dashed white;box-shadow:0 1px 3px rgba(0,0,0,0.4)">+</div>`
+    : '';
+  pinsWrap.innerHTML = pinHtml + ghostPin;
+
+  // List panel — render top-level comments with reply trees beneath.
+  const cardsHtml = topAnnos.map((a,i) => _smpRenderAnnoCard(a, i+1)).join('');
+  const draftCard = _smpAnnoDraft ? _smpRenderDraftCard(topAnnos.length + 1) : '';
+  const empty = (topAnnos.length === 0 && !_smpAnnoDraft)
+    ? `<div style="color:var(--g400);font-size:11px;padding:8px 0">Belum ada komentar. Klik di gambar untuk taruh pin.</div>`
+    : '';
+  list.innerHTML = empty + cardsHtml + draftCard;
+
+  // Auto-focus the draft textarea so user can type right away.
+  if (_smpAnnoDraft) {
+    const ta = document.getElementById('smp-anno-draft-text');
+    if (ta) { ta.focus(); ta.scrollIntoView({behavior:'smooth',block:'center'}); }
+  }
+  if (_smpAnnoEditingId) {
+    const ta = document.getElementById(`smp-anno-edit-${_smpAnnoEditingId}`);
+    if (ta) ta.focus();
+  }
+  if (_smpAnnoReplyTo) {
+    const ta = document.getElementById(`smp-anno-reply-${_smpAnnoReplyTo}`);
+    if (ta) ta.focus();
+  }
 }
 
-async function smpAddAnnoFromClick(e) {
+function _smpRenderAnnoCard(a, pinNo) {
+  const dotColor = a.status === 'Resolved' ? '#1c7a3b' : '#c33';
+  const meta = `${_smpEsc(a.created_by||'—')} · ${a.created_at?new Date(a.created_at).toLocaleString('id-ID',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}):''}`;
+  const bodyHtml = (_smpAnnoEditingId === a.id)
+    ? `<textarea id="smp-anno-edit-${a.id}" rows="3" style="width:100%;font-size:12px;font-family:inherit;padding:6px 8px;border:1px solid var(--g100);border-radius:4px;resize:vertical;box-sizing:border-box">${_smpEsc(a.comment_text||'')}</textarea>
+       <div style="display:flex;gap:6px;margin-top:6px">
+         <button onclick="smpSaveAnnoEdit(${a.id})" style="font-size:10px;padding:3px 10px;background:#3C3489;color:white;border:none;border-radius:3px;cursor:pointer">Save</button>
+         <button onclick="smpCancelAnnoEdit()" style="font-size:10px;padding:3px 10px;background:transparent;color:var(--g600);border:1px solid var(--g100);border-radius:3px;cursor:pointer">Cancel</button>
+       </div>`
+    : `<div style="line-height:1.5;white-space:pre-wrap">${_smpEsc(a.comment_text||'')}</div>`;
+  // Reply list
+  const replies = _smpChildren(a.id);
+  const replyHtml = replies.map(r => `<div style="margin-left:14px;border-left:2px solid var(--g100);padding:8px 10px;margin-top:6px;background:var(--white);border-radius:0 4px 4px 0">
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+      <span style="font-size:10px;color:var(--g400)">↳</span>
+      <span style="font-size:10px;color:var(--g400);font-family:var(--mono)">${_smpEsc(r.created_by||'—')} · ${r.created_at?new Date(r.created_at).toLocaleString('id-ID',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}):''}</span>
+      <button onclick="smpDelAnno(${r.id})" style="font-size:9px;padding:1px 6px;background:transparent;color:#c33;border:1px solid var(--g100);border-radius:3px;cursor:pointer;margin-left:auto">×</button>
+    </div>
+    <div style="font-size:12px;line-height:1.5;white-space:pre-wrap">${_smpEsc(r.comment_text||'')}</div>
+  </div>`).join('');
+  const replyBox = (_smpAnnoReplyTo === a.id)
+    ? `<div style="margin-left:14px;border-left:2px solid var(--g100);padding:8px 10px;margin-top:6px">
+         <textarea id="smp-anno-reply-${a.id}" rows="2" placeholder="Tulis reply..." style="width:100%;font-size:12px;font-family:inherit;padding:6px 8px;border:1px solid var(--g100);border-radius:4px;resize:vertical;box-sizing:border-box"></textarea>
+         <div style="display:flex;gap:6px;margin-top:6px">
+           <button onclick="smpSaveReply(${a.id})" style="font-size:10px;padding:3px 10px;background:#3C3489;color:white;border:none;border-radius:3px;cursor:pointer">Send</button>
+           <button onclick="smpCancelReply()" style="font-size:10px;padding:3px 10px;background:transparent;color:var(--g600);border:1px solid var(--g100);border-radius:3px;cursor:pointer">Cancel</button>
+         </div>
+       </div>`
+    : '';
+  const actionRow = (_smpAnnoEditingId === a.id) ? '' : `<div style="display:flex;gap:6px;margin-top:6px">
+    ${a.status==='Open' ? `<button onclick="smpResolveAnno(${a.id})" style="font-size:10px;padding:2px 8px;background:#1c7a3b;color:white;border:none;border-radius:3px;cursor:pointer">✓ Resolve</button>` : `<button onclick="smpReopenAnno(${a.id})" style="font-size:10px;padding:2px 8px;background:var(--white);color:var(--g600);border:1px solid var(--g100);border-radius:3px;cursor:pointer">Reopen</button>`}
+    <button onclick="smpStartReply(${a.id})" style="font-size:10px;padding:2px 8px;background:transparent;color:var(--g600);border:1px solid var(--g100);border-radius:3px;cursor:pointer">↳ Reply</button>
+    <button onclick="smpStartAnnoEdit(${a.id})" style="font-size:10px;padding:2px 8px;background:transparent;color:var(--g600);border:1px solid var(--g100);border-radius:3px;cursor:pointer">Edit</button>
+    <button onclick="smpDelAnno(${a.id})" style="font-size:10px;padding:2px 8px;background:transparent;color:#c33;border:1px solid var(--g100);border-radius:3px;cursor:pointer;margin-left:auto">Hapus</button>
+  </div>`;
+  return `<div id="smp-anno-card-${a.id}" style="background:var(--off);border-radius:6px;padding:10px;margin-bottom:8px;font-size:12px">
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+      <span style="width:20px;height:20px;background:${dotColor};color:white;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:600">${pinNo}</span>
+      <span style="font-size:10px;color:var(--g400);font-family:var(--mono)">${meta}</span>
+      <span class="pill ${a.status==='Resolved'?'p-active':'p-review'}" style="font-size:9px;padding:1px 6px;margin-left:auto">${a.status}</span>
+    </div>
+    ${bodyHtml}
+    ${actionRow}
+    ${replyHtml}
+    ${replyBox}
+  </div>`;
+}
+
+function _smpRenderDraftCard(pinNo) {
+  return `<div style="background:#fff8e1;border:2px dashed var(--g400);border-radius:6px;padding:10px;margin-bottom:8px;font-size:12px">
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+      <span style="width:20px;height:20px;background:var(--g400);color:white;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:600">+</span>
+      <span style="font-size:10px;color:var(--g400);font-family:var(--mono)">Komentar baru di area ini</span>
+    </div>
+    <textarea id="smp-anno-draft-text" rows="3" placeholder="Tulis komentar di area ini..." style="width:100%;font-size:12px;font-family:inherit;padding:6px 8px;border:1px solid var(--g100);border-radius:4px;resize:vertical;box-sizing:border-box"></textarea>
+    <div style="display:flex;gap:6px;margin-top:6px">
+      <button onclick="smpSaveAnnoDraft()" style="font-size:10px;padding:3px 10px;background:#3C3489;color:white;border:none;border-radius:3px;cursor:pointer">Save</button>
+      <button onclick="smpCancelAnnoDraft()" style="font-size:10px;padding:3px 10px;background:transparent;color:var(--g600);border:1px solid var(--g100);border-radius:3px;cursor:pointer">Cancel</button>
+    </div>
+  </div>`;
+}
+
+// Click image → stash coords, render draft card with auto-focused textarea.
+function smpAddAnnoFromClick(e) {
   if (!_smpAnnoImage) return;
   const img = document.getElementById('smp-anno-img');
   const rect = img.getBoundingClientRect();
   const xPct = ((e.clientX - rect.left) / rect.width) * 100;
   const yPct = ((e.clientY - rect.top) / rect.height) * 100;
-  const txt = prompt('Komentar untuk area ini:');
-  if (!txt || !txt.trim()) return;
+  _smpAnnoDraft = { x_pct: Number(xPct.toFixed(2)), y_pct: Number(yPct.toFixed(2)) };
+  // Cancel any other inline editor when starting a new pin.
+  _smpAnnoEditingId = null; _smpAnnoReplyTo = null;
+  smpRenderPinsAndList();
+}
+
+async function smpSaveAnnoDraft() {
+  if (!_smpAnnoDraft || !_smpAnnoImage) return;
+  const ta = document.getElementById('smp-anno-draft-text');
+  const txt = (ta?.value || '').trim();
+  if (!txt) { ta?.focus(); return; }
   const { error } = await sb.from('sampling_annotations').insert({
-    image_id: _smpAnnoImage.imageId, x_pct: Number(xPct.toFixed(2)), y_pct: Number(yPct.toFixed(2)),
-    comment_text: txt.trim(), status: 'Open', created_by: currentUser,
+    image_id:  _smpAnnoImage.imageId,
+    x_pct:     _smpAnnoDraft.x_pct,
+    y_pct:     _smpAnnoDraft.y_pct,
+    comment_text: txt,
+    status:    'Open',
+    created_by: currentUser,
   });
   if (error) { alert('Gagal: '+error.message); return; }
+  _smpAnnoDraft = null;
+  await smpReloadAnnos();
+}
+
+function smpCancelAnnoDraft() {
+  _smpAnnoDraft = null;
+  smpRenderPinsAndList();
+}
+
+function smpStartAnnoEdit(id) {
+  _smpAnnoEditingId = id;
+  _smpAnnoReplyTo = null; _smpAnnoDraft = null;
+  smpRenderPinsAndList();
+}
+
+function smpCancelAnnoEdit() {
+  _smpAnnoEditingId = null;
+  smpRenderPinsAndList();
+}
+
+async function smpSaveAnnoEdit(id) {
+  const ta = document.getElementById(`smp-anno-edit-${id}`);
+  const txt = (ta?.value || '').trim();
+  if (!txt) { ta?.focus(); return; }
+  const { error } = await sb.from('sampling_annotations').update({ comment_text: txt }).eq('id', id);
+  if (error) { alert('Gagal: '+error.message); return; }
+  _smpAnnoEditingId = null;
+  await smpReloadAnnos();
+}
+
+function smpStartReply(parentId) {
+  _smpAnnoReplyTo = parentId;
+  _smpAnnoEditingId = null; _smpAnnoDraft = null;
+  smpRenderPinsAndList();
+}
+
+function smpCancelReply() {
+  _smpAnnoReplyTo = null;
+  smpRenderPinsAndList();
+}
+
+async function smpSaveReply(parentId) {
+  if (!_smpAnnoImage) return;
+  const ta = document.getElementById(`smp-anno-reply-${parentId}`);
+  const txt = (ta?.value || '').trim();
+  if (!txt) { ta?.focus(); return; }
+  const { error } = await sb.from('sampling_annotations').insert({
+    image_id:  _smpAnnoImage.imageId,
+    parent_id: parentId,
+    x_pct:     null,
+    y_pct:     null,
+    comment_text: txt,
+    status:    'Open',
+    created_by: currentUser,
+  });
+  if (error) { alert('Gagal: '+error.message); return; }
+  _smpAnnoReplyTo = null;
   await smpReloadAnnos();
 }
 
@@ -24383,9 +24554,172 @@ async function smpReopenAnno(id) {
   await smpReloadAnnos();
 }
 async function smpDelAnno(id) {
-  if (!confirm('Hapus komentar ini?')) return;
+  if (!confirm('Hapus komentar ini? Reply yang ada juga ikut terhapus.')) return;
   await sb.from('sampling_annotations').delete().eq('id', id);
   await smpReloadAnnos();
+}
+
+// ── Multi-select toggle + PDF download ──
+function smpToggleSkuSelection(itemId, checked) {
+  if (checked) _smpSelectedSkus.add(itemId);
+  else _smpSelectedSkus.delete(itemId);
+  const btn = document.getElementById('smp-pdf-selected-btn');
+  if (btn) {
+    const n = _smpSelectedSkus.size;
+    btn.textContent = `📄 Download Selected (${n})`;
+    btn.disabled = n === 0;
+    btn.title = n ? `Download PDF buat ${n} SKU terpilih` : 'Pilih SKU dengan checkbox dulu';
+  }
+}
+
+// scope: 'sku' (single, itemId required) | 'selected' | 'all'
+async function smpDownloadPDF(scope, itemId) {
+  if (!_smpCurrentCol) { alert('Buka collection dulu'); return; }
+  let items;
+  if (scope === 'sku') {
+    items = _smpCurrentCol._items.filter(it => String(it.id) === String(itemId));
+  } else if (scope === 'selected') {
+    if (_smpSelectedSkus.size === 0) { alert('Pilih SKU dulu dengan checkbox'); return; }
+    items = _smpCurrentCol._items.filter(it => _smpSelectedSkus.has(it.id));
+  } else {
+    items = _smpCurrentCol._items;
+  }
+  if (!items.length) { alert('Tidak ada SKU untuk di-export.'); return; }
+
+  // Fetch full version/image/annotation tree for chosen SKUs in one go.
+  const skuIds = items.map(it => it.sampling?.id).filter(Boolean);
+  let versions = [], images = [], annotations = [];
+  if (skuIds.length) {
+    const vRes = await sb.from('sampling_versions').select('*').in('sampling_sku_id', skuIds).order('version_no');
+    versions = vRes.data || [];
+    const verIds = versions.map(v => v.id);
+    if (verIds.length) {
+      const iRes = await sb.from('sampling_images').select('*').in('version_id', verIds).order('position');
+      images = iRes.data || [];
+      const imgIds = images.map(im => im.id);
+      if (imgIds.length) {
+        const aRes = await sb.from('sampling_annotations').select('*').in('image_id', imgIds).order('created_at');
+        annotations = aRes.data || [];
+      }
+    }
+  }
+  const versionsBySku = new Map();
+  versions.forEach(v => { const arr = versionsBySku.get(v.sampling_sku_id) || []; arr.push(v); versionsBySku.set(v.sampling_sku_id, arr); });
+  const imagesByVer = new Map();
+  images.forEach(im => { const arr = imagesByVer.get(im.version_id) || []; arr.push(im); imagesByVer.set(im.version_id, arr); });
+  const annosByImg = new Map();
+  annotations.forEach(a => { const arr = annosByImg.get(a.image_id) || []; arr.push(a); annosByImg.set(a.image_id, arr); });
+
+  const col = _smpCurrentCol;
+  const fmtDate = d => d ? new Date(d).toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'numeric'}) : '—';
+
+  const skuSections = items.map(it => {
+    const samp = it.sampling || {};
+    const vers = (versionsBySku.get(samp.id) || []).sort((a,b)=>a.version_no - b.version_no);
+    const versHtml = vers.map(v => {
+      const imgs = imagesByVer.get(v.id) || [];
+      const imgsHtml = imgs.length ? imgs.map(im => {
+        const annosFull = annosByImg.get(im.id) || [];
+        const topAnnos = annosFull.filter(a => !a.parent_id);
+        const childrenOf = id => annosFull.filter(a => a.parent_id === id).sort((a,b)=>(a.created_at||'').localeCompare(b.created_at||''));
+        const pins = topAnnos.map((a,i) => {
+          const color = a.status === 'Resolved' ? '#1c7a3b' : '#c33';
+          return `<div style="position:absolute;left:${a.x_pct}%;top:${a.y_pct}%;transform:translate(-50%,-50%);width:22px;height:22px;background:${color};color:white;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;border:2px solid white;box-shadow:0 1px 3px rgba(0,0,0,0.4)">${i+1}</div>`;
+        }).join('');
+        const commentsList = topAnnos.length ? topAnnos.map((a,i) => {
+          const dotColor = a.status === 'Resolved' ? '#1c7a3b' : '#c33';
+          const replies = childrenOf(a.id);
+          const repliesHtml = replies.map(r => `<div style="margin-left:18px;border-left:2px solid #e5e5e5;padding:6px 10px;margin-top:4px;font-size:11px"><span style="color:#999;font-size:10px;font-family:monospace">↳ ${_smpEsc(r.created_by||'')} ·</span> ${_smpEsc(r.comment_text||'')}</div>`).join('');
+          return `<div style="background:#f8f7f4;border-radius:6px;padding:8px 10px;margin-bottom:6px;font-size:11px">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+              <span style="width:18px;height:18px;background:${dotColor};color:white;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:9px;font-weight:600">${i+1}</span>
+              <span style="font-size:10px;color:#999;font-family:monospace">${_smpEsc(a.created_by||'—')} · ${a.created_at?new Date(a.created_at).toLocaleString('id-ID',{day:'2-digit',month:'short'}):''}</span>
+              <span style="font-size:9px;padding:1px 6px;border-radius:99px;background:${a.status==='Resolved'?'#daf3e0':'#fff3cd'};color:${a.status==='Resolved'?'#0a7d3a':'#a66800'};margin-left:auto">${a.status}</span>
+            </div>
+            <div style="line-height:1.4;white-space:pre-wrap">${_smpEsc(a.comment_text||'')}</div>
+            ${repliesHtml}
+          </div>`;
+        }).join('') : '';
+        return `<div style="break-inside:avoid;margin-bottom:14px">
+          <div style="position:relative;display:inline-block;max-width:100%;border:1px solid #e5e5e5;border-radius:6px;overflow:hidden">
+            <img src="${_smpEsc(im.image_url)}" crossorigin="anonymous" style="max-width:100%;max-height:400px;display:block">
+            ${pins}
+          </div>
+          ${commentsList ? `<div style="margin-top:6px">${commentsList}</div>` : ''}
+        </div>`;
+      }).join('') : `<div style="color:#999;font-size:11px;padding:6px 0">Belum ada foto.</div>`;
+      return `<div style="background:#f5f3eb;border-radius:8px;padding:10px;margin-bottom:10px;break-inside:avoid">
+        <div style="font-size:12px;font-weight:700;margin-bottom:8px">Sample ${v.version_no}${v.label?` · ${_smpEsc(v.label)}`:''}${v.notes?` <span style="font-weight:400;color:#666;font-size:11px">— ${_smpEsc(v.notes)}</span>`:''}</div>
+        ${imgsHtml}
+      </div>`;
+    }).join('') || `<div style="color:#999;font-size:11px;padding:6px 0">Belum ada sample.</div>`;
+    const statusColor = {Pending:'#999','In Progress':'#a66800','Approved':'#0a7d3a','Rejected':'#b81d1d'}[samp.status||'Pending']||'#666';
+    return `<div style="break-inside:avoid;page-break-inside:avoid;border:1px solid #e5e5e5;border-radius:10px;padding:16px;margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:10px">
+        <div>
+          <div style="font-size:16px;font-weight:700">${_smpEsc(it.sku_name||'(SKU)')}</div>
+          <div style="font-size:11px;color:#666;font-family:monospace;margin-top:2px">${_smpEsc(it.sku_proper||'')}${it.category?' · '+_smpEsc(it.category):''}${it.treatment?' · '+_smpEsc(it.treatment):''}${it.color?' · '+_smpEsc(it.color):''}</div>
+        </div>
+        <div style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px;background:${statusColor}1a;color:${statusColor}">${samp.status||'Pending'}</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;font-size:11px;color:#444">
+        <div><span style="color:#999">Expected:</span> ${fmtDate(samp.expected_date)}</div>
+        <div><span style="color:#999">Notes:</span> ${_smpEsc(samp.notes||'—')}</div>
+      </div>
+      ${versHtml}
+    </div>`;
+  }).join('');
+
+  const w = window.open('', '_blank');
+  if (!w) { alert('Pop-up diblokir browser'); return; }
+  const scopeLabel = scope === 'sku' ? items[0].sku_name : scope === 'selected' ? `${items.length} SKU` : 'All SKUs';
+  w.document.write(`<!doctype html><html lang="id"><head><meta charset="utf-8">
+    <title>Sampling Report · ${_smpEsc(col.collection_name||'(Collection)')} · ${_smpEsc(scopeLabel)}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+      *{box-sizing:border-box}
+      html,body{margin:0;padding:0;background:#fff;color:#111;font-family:'Inter',system-ui,sans-serif;font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased}
+      .page{max-width:840px;margin:0 auto;padding:40px 48px 64px}
+      .head{border-bottom:2px solid #111;padding-bottom:16px;margin-bottom:24px;display:flex;justify-content:space-between;align-items:flex-end}
+      .head h1{margin:0;font-size:24px;font-weight:700}
+      .head .sub{font-size:12px;color:#666;margin-top:4px}
+      .head .meta{font-family:'Space Mono',monospace;font-size:11px;color:#666;text-align:right;text-transform:uppercase;letter-spacing:0.08em}
+      @page{margin:0;size:A4}
+      @media print{.page{padding:32px 36px 48px}}
+    </style></head><body>
+    <div class="page">
+      <div class="head">
+        <div>
+          <h1>${_smpEsc(col.collection_name||'(Collection)')}</h1>
+          <div class="sub">${_smpEsc(col.ip_related||'—')}${col.revenue_stream?' · '+_smpEsc(col.revenue_stream):''}${col.release_date?' · Release '+fmtDate(col.release_date):''}</div>
+        </div>
+        <div class="meta">
+          <div>Sampling Report</div>
+          <div>${_smpEsc(scopeLabel)}</div>
+          <div>${new Date().toLocaleString('id-ID')}</div>
+        </div>
+      </div>
+      ${skuSections}
+    </div>
+    <script>
+      const imgs = document.images;
+      let loaded = 0;
+      const print = () => { setTimeout(()=>window.print(), 200); };
+      if (!imgs.length) { print(); }
+      else {
+        for (const img of imgs) {
+          if (img.complete) { loaded++; }
+          else {
+            img.onload = img.onerror = () => { if (++loaded === imgs.length) print(); };
+          }
+        }
+        if (loaded === imgs.length) print();
+      }
+    <\/script>
+    </body></html>`);
+  w.document.close();
 }
 
 // ── DUPLICATE CHECK ──

@@ -2089,11 +2089,15 @@
 
       <!-- VIEW 2: Detail -->
       <div id="smp-view-detail" style="display:none">
-        <div class="page-header">
+        <div class="page-header" style="flex-wrap:wrap;gap:8px">
           <div>
             <button class="btn-ghost" onclick="smpBackToGrid()" style="padding:4px 12px;font-size:12px;margin-bottom:6px">← Kembali ke list</button>
             <div class="page-title" id="smp-detail-title">—</div>
             <div class="page-sub" id="smp-detail-sub">—</div>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+            <button class="btn-ghost" style="font-size:12px;padding:5px 12px" onclick="smpDownloadPDF('selected')" id="smp-pdf-selected-btn" disabled title="Pilih SKU dengan checkbox dulu">📄 Download Selected (0)</button>
+            <button class="btn-ghost" style="font-size:12px;padding:5px 12px;background:#eef0f8;border-color:#3C3489;color:#3C3489" onclick="smpDownloadPDF('all')" title="Download semua SKU di collection ini">📥 Download All SKUs (PDF)</button>
           </div>
         </div>
         <div id="smp-detail-skus" style="margin-top:1rem;display:flex;flex-direction:column;gap:14px"></div>
