@@ -5776,8 +5776,11 @@ function renderColTabBar(col, items) {
   const lastTab = sessionStorage.getItem(`cd-tab-${cid}`) || 'business';
 
   // Marketing/Performance/Post-Mortem sub-status strings (lightweight — main
-  // status surface is the section header inside each tab).
-  const mktStatus  = ps.marketing === 'done' ? 'Done' : ps.marketing === 'in-progress' ? 'In Progress' : 'Not Started';
+  // status surface is the section header inside each tab). Compute pipeline
+  // status locally; renderColDetail computes it again but we can't reach its
+  // scope from here.
+  const _ps = (typeof getPipelineStatuses === 'function') ? getPipelineStatuses(cid) : {};
+  const mktStatus  = _ps.marketing === 'done' ? 'Done' : _ps.marketing === 'in-progress' ? 'In Progress' : 'Not Started';
   const perfStatus = (col.releaseDate && new Date(col.releaseDate) <= new Date()) ? 'Live' : 'Pre-launch';
   const pmStatus   = col.pmStatus || 'Pending';
   return `<div class="cd-tab-bar" id="cd-tab-bar-${cid}" style="display:flex;gap:0;margin:0 0 16px;border-bottom:1px solid var(--g100);background:var(--off);border-radius:8px 8px 0 0;overflow:hidden;flex-wrap:wrap">
