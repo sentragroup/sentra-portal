@@ -22446,14 +22446,17 @@ const _MP_ACTIVITY_DEFS = {
     nameField: 'title', nameLabel: 'Judul konten',
     dateField: 'publish_date', dateLabel: 'Publish date',
     extras: [
-      {f:'channel', placeholder:'IG/TikTok/YT...', type:'text'},
+      {f:'channel_category', placeholder:'Channel Kategori', type:'datalist', options:['Instagram','TikTok','Youtube']},
+      {f:'channel', placeholder:'Channel spesifik', type:'datalist', options:['SD&Y Instagram','Lagaa Instagram','Marte Instagram','People of Marte Instagram']},
+      {f:'content_category', placeholder:'Kategori Konten', type:'datalist', options:['Promotional','Snackable']},
+      {f:'content_format', placeholder:'Format', type:'datalist', options:['Reels','Stories','Post','Video']},
       {f:'owner', placeholder:'Owner', type:'text'},
     ],
     statusField: 'status', statusOpts: ['Draft','In Progress','For Review','Approved','Published','Cancelled'],
     statusToneFor: s => s==='Published'?'p-active' : s==='Approved'?'p-signings' : s==='Cancelled'?'p-expired' : s==='Draft'?'p-draft' : 'p-review',
     defaultStatus: 'Draft',
     fixed: {content_type: 'Image'},
-    selectCols: 'id,title,content_type,publish_date,channel,owner,status,asset_url',
+    selectCols: 'id,title,content_type,publish_date,channel,channel_category,content_category,content_format,owner,status,asset_url',
     orderBy: 'publish_date',
     linkField: 'asset_url',
     extraFilterClient: r => !(r.content_type||'').toLowerCase().includes('video'),
@@ -22618,17 +22621,14 @@ async function _mpEditRow(key, id) {
 function _mpRenderEditFormFields(key, r) {
   const def = _MP_ACTIVITY_DEFS[key];
   const esc = s => (s==null?'':String(s)).replace(/"/g,'&quot;');
-  const cols = ['name','date',...def.extras.map(e=>e.f),'status'];
-  const colsCount = cols.length;
-  // Compose inline form: name(2x) | date | extras | status
   const fields = [];
   fields.push(`<input type="text" id="mpedit-${key}-name" value="${esc(r[def.nameField])}" placeholder="${def.nameLabel} *" style="font-size:12px;padding:5px 8px">`);
   fields.push(`<input type="date" id="mpedit-${key}-date" value="${r[def.dateField]||''}" style="font-size:12px;padding:5px 8px">`);
   for (const ex of def.extras) {
-    fields.push(`<input type="${ex.type}" id="mpedit-${key}-${ex.f}" value="${esc(r[ex.f])}" placeholder="${ex.placeholder}" style="font-size:12px;padding:5px 8px">`);
+    fields.push(_mpFieldInputHTML(key, ex, r[ex.f]||'', 'mpedit'));
   }
   fields.push(`<select id="mpedit-${key}-status" style="font-size:12px;padding:5px 8px">${def.statusOpts.map(s => `<option value="${s}"${s===r[def.statusField]?' selected':''}>${s}</option>`).join('')}</select>`);
-  return `<div style="display:grid;grid-template-columns:repeat(${Math.min(colsCount,4)},1fr);gap:6px">${fields.join('')}</div>`;
+  return `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px">${fields.join('')}</div>`;
 }
 
 async function _mpSaveRowEdit(key, id) {
@@ -22707,6 +22707,9 @@ async function _mpDeleteRow(key, id, cid) {
 
 // Per-activity quick-add mini form HTML — driven by _MP_ACTIVITY_DEFS so
 // every activity gets the same field set: name * | date | extras | status.
+// 'datalist' extra type renders <input list> + <datalist> for picker-with-
+// free-text — user can choose from suggestions OR type new value (saved as
+// free text so the list grows organically).
 function _mpQuickAddFormHTML(activity) {
   const def = _MP_ACTIVITY_DEFS[activity.key];
   if (!def) return '';
@@ -22714,11 +22717,23 @@ function _mpQuickAddFormHTML(activity) {
   fields.push(`<input type="text" id="mpqa-${activity.key}-name" placeholder="${def.nameLabel} *" style="font-size:12px;padding:5px 8px">`);
   fields.push(`<input type="date" id="mpqa-${activity.key}-date" placeholder="${def.dateLabel}" style="font-size:12px;padding:5px 8px">`);
   for (const ex of def.extras) {
-    fields.push(`<input type="${ex.type}" id="mpqa-${activity.key}-${ex.f}" placeholder="${ex.placeholder}" style="font-size:12px;padding:5px 8px">`);
+    fields.push(_mpFieldInputHTML(activity.key, ex, '', 'mpqa'));
   }
   fields.push(`<select id="mpqa-${activity.key}-status" style="font-size:12px;padding:5px 8px">${def.statusOpts.map(s => `<option value="${s}"${s===def.defaultStatus?' selected':''}>${s}</option>`).join('')}</select>`);
   const cols = Math.min(fields.length, 4);
   return `<div style="display:grid;grid-template-columns:repeat(${cols},1fr);gap:6px">${fields.join('')}</div>`;
+}
+
+// Render a single extra field input given its type. Used by both quick-add
+// and inline-edit so they stay in sync.
+function _mpFieldInputHTML(actKey, ex, value, prefix) {
+  const esc = s => (s==null?'':String(s)).replace(/"/g,'&quot;');
+  if (ex.type === 'datalist') {
+    const listId = `${prefix}-${actKey}-${ex.f}-list`;
+    const opts = (ex.options||[]).map(o => `<option value="${esc(o)}">`).join('');
+    return `<input type="text" id="${prefix}-${actKey}-${ex.f}" list="${listId}" value="${esc(value)}" placeholder="${ex.placeholder}" style="font-size:12px;padding:5px 8px"><datalist id="${listId}">${opts}</datalist>`;
+  }
+  return `<input type="${ex.type}" id="${prefix}-${actKey}-${ex.f}" value="${esc(value)}" placeholder="${ex.placeholder}" style="font-size:12px;padding:5px 8px">`;
 }
 
 async function _mpQuickAddSubmit(key, cid) {
