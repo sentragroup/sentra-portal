@@ -22554,9 +22554,9 @@ function _mpRenderActRow(key, r, cid) {
   }
   const meta = metaParts.join(' · ');
   const extLink = def.linkField && r[def.linkField] ? r[def.linkField] : null;
-  return `<div id="mp-row-${key}-${id}" style="padding:8px 4px;border-bottom:1px solid var(--g100);font-size:12px;display:flex;gap:8px;align-items:center;min-width:0">
-    <div style="flex:1;min-width:0;cursor:pointer;overflow:hidden" onclick="_mpJumpToModule('${key}','${id}')" title="↗ Buka di ${def.moduleHref}">
-      <div style="font-weight:600;color:#3C3489;text-decoration:underline;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(name)}</div>
+  return `<div id="mp-row-${key}-${id}" style="padding:8px 4px;border-bottom:1px solid var(--g100);font-size:12px;display:flex;gap:8px;align-items:center;width:100%;box-sizing:border-box">
+    <div style="flex:1 1 200px;min-width:160px;overflow:hidden">
+      <div style="font-weight:600;color:#3C3489;cursor:pointer;text-decoration:underline;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" onclick="_mpJumpToModule('${key}','${id}')" title="↗ Buka di modul ${def.moduleHref}">${esc(name)}</div>
       ${meta?`<div style="color:var(--g600);font-size:11px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${meta}</div>`:''}
     </div>
     <input type="date" value="${date}" onchange="_mpSaveActField('${key}','${id}','${def.dateField}',this.value)" title="${def.dateLabel}" style="font-size:11px;padding:3px 6px;border:1px solid var(--g200);border-radius:4px;width:140px;flex-shrink:0;background:var(--white)">
