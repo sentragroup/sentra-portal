@@ -22561,11 +22561,11 @@ function _mpRenderActRow(key, r, cid) {
     </div>
     <input type="date" value="${date}" onchange="_mpSaveActField('${key}','${id}','${def.dateField}',this.value)" title="${def.dateLabel}" style="font-size:11px;padding:3px 6px;border:1px solid var(--g200);border-radius:4px;width:140px;flex-shrink:0;background:var(--white)">
     ${extLink?`<a href="${esc(extLink)}" target="_blank" title="Buka asset/link" style="font-size:13px;color:var(--g600);text-decoration:none;padding:4px 6px;flex-shrink:0">↗</a>`:''}
-    <select onchange="_mpSaveActField('${key}','${id}','${def.statusField}',this.value)" class="pill ${statusTone}" style="font-size:10px;padding:3px 8px;border-radius:99px;cursor:pointer;border:1px solid transparent;flex-shrink:0">
+    <select onchange="_mpSaveActField('${key}','${id}','${def.statusField}',this.value)" class="pill ${statusTone}" style="font-size:10px;padding:3px 8px;border-radius:99px;cursor:pointer;border:1px solid transparent;flex-shrink:0;width:130px;max-width:130px">
       ${def.statusOpts.map(s => `<option value="${s}"${s===status?' selected':''}>${s}</option>`).join('')}
     </select>
-    <button onclick="_mpEditRow('${key}','${id}')" title="Edit inline (semua field)" style="background:none;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-size:11px;padding:3px 8px;flex-shrink:0">✎</button>
-    <button onclick="_mpDeleteRow('${key}','${id}','${cid}')" title="Hapus" style="background:none;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-size:11px;padding:3px 8px;color:#c0392b;flex-shrink:0">🗑</button>
+    <button onclick="_mpEditRow('${key}','${id}')" title="Edit inline (semua field)" style="background:none;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-size:13px;padding:3px 8px;flex-shrink:0;line-height:1">✎</button>
+    <button onclick="_mpDeleteRow('${key}','${id}','${cid}')" title="Hapus" style="background:none;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-size:13px;padding:3px 8px;color:#c0392b;flex-shrink:0;line-height:1">🗑</button>
   </div>`;
 }
 
