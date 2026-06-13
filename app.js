@@ -22409,33 +22409,105 @@ function renderMPDetailBody(col, plan) {
   }
 }
 
+// Per-activity definition — table, fields, status options. Single source of
+// truth for quick-add form / inline edit / save / delete.
+const _MP_ACTIVITY_DEFS = {
+  photoshoot: {
+    table: 'photoshoots', idPrefix: 'PS', moduleHref: 'photoshoot',
+    nameField: 'shoot_name', nameLabel: 'Nama shoot',
+    dateField: 'shoot_date', dateLabel: 'Tanggal',
+    extras: [{f:'location', placeholder:'Lokasi', type:'text'}],
+    statusField: 'status', statusOpts: ['Planning','Confirmed','In Progress','Done','Cancelled'],
+    statusToneFor: s => s==='Done'?'p-active' : s==='In Progress'?'p-review' : s==='Cancelled'?'p-expired' : 'p-draft',
+    defaultStatus: 'Planning',
+    selectCols: 'id,shoot_name,shoot_date,location,status,deliverables_url',
+    orderBy: 'shoot_date',
+    linkField: 'deliverables_url',
+  },
+  video: {
+    table: 'content_planning', idPrefix: 'CP', moduleHref: 'contentplan',
+    nameField: 'title', nameLabel: 'Judul video',
+    dateField: 'publish_date', dateLabel: 'Publish date',
+    extras: [
+      {f:'channel', placeholder:'IG/TikTok/YT...', type:'text'},
+      {f:'owner', placeholder:'Owner', type:'text'},
+    ],
+    statusField: 'status', statusOpts: ['Draft','In Progress','For Review','Approved','Published','Cancelled'],
+    statusToneFor: s => s==='Published'?'p-active' : s==='Approved'?'p-signings' : s==='Cancelled'?'p-expired' : s==='Draft'?'p-draft' : 'p-review',
+    defaultStatus: 'Draft',
+    fixed: {content_type: 'Video'},
+    selectCols: 'id,title,content_type,publish_date,channel,owner,status,asset_url',
+    orderBy: 'publish_date',
+    linkField: 'asset_url',
+    extraFilter: 'content_type ilike %video%',
+  },
+  content: {
+    table: 'content_planning', idPrefix: 'CP', moduleHref: 'contentplan',
+    nameField: 'title', nameLabel: 'Judul konten',
+    dateField: 'publish_date', dateLabel: 'Publish date',
+    extras: [
+      {f:'channel', placeholder:'IG/TikTok/YT...', type:'text'},
+      {f:'owner', placeholder:'Owner', type:'text'},
+    ],
+    statusField: 'status', statusOpts: ['Draft','In Progress','For Review','Approved','Published','Cancelled'],
+    statusToneFor: s => s==='Published'?'p-active' : s==='Approved'?'p-signings' : s==='Cancelled'?'p-expired' : s==='Draft'?'p-draft' : 'p-review',
+    defaultStatus: 'Draft',
+    fixed: {content_type: 'Image'},
+    selectCols: 'id,title,content_type,publish_date,channel,owner,status,asset_url',
+    orderBy: 'publish_date',
+    linkField: 'asset_url',
+    extraFilterClient: r => !(r.content_type||'').toLowerCase().includes('video'),
+  },
+  activation: {
+    table: 'marketing_events', idPrefix: 'ME', moduleHref: 'mktactivation',
+    nameField: 'event_name', nameLabel: 'Nama event',
+    dateField: 'event_date', dateLabel: 'Tanggal',
+    extras: [
+      {f:'event_type', placeholder:'Type (Popup/Launch/...)', type:'text'},
+      {f:'venue', placeholder:'Venue', type:'text'},
+    ],
+    statusField: 'status', statusOpts: ['Planning','Booked','In Progress','Done','Cancelled'],
+    statusToneFor: s => s==='Done'?'p-active' : s==='Booked'?'p-signings' : s==='Cancelled'?'p-expired' : s==='In Progress'?'p-review' : 'p-draft',
+    defaultStatus: 'Planning',
+    selectCols: 'id,event_name,event_type,event_date,venue,status',
+    orderBy: 'event_date',
+  },
+  kol: {
+    table: 'kol_placements', idPrefix: 'KOL', moduleHref: 'kolmgmt',
+    nameField: 'kol_name', nameLabel: 'Nama KOL',
+    dateField: 'post_date', dateLabel: 'Post date',
+    extras: [
+      {f:'handle', placeholder:'@handle', type:'text'},
+      {f:'platform', placeholder:'IG/TikTok/YT', type:'text'},
+      {f:'fee', placeholder:'Fee (Rp)', type:'number'},
+    ],
+    statusField: 'status', statusOpts: ['Outreach','Booked','In Progress','Posted','Cancelled'],
+    statusToneFor: s => s==='Posted'?'p-active' : s==='Booked'?'p-signings' : s==='Cancelled'?'p-expired' : s==='In Progress'?'p-review' : 'p-draft',
+    defaultStatus: 'Outreach',
+    selectCols: 'id,kol_name,handle,platform,tier,fee,post_date,status,post_url',
+    orderBy: 'post_date',
+    linkField: 'post_url',
+  },
+};
+
+function _mpStatusTone(act, status) {
+  const def = _MP_ACTIVITY_DEFS[act];
+  return def?.statusToneFor ? def.statusToneFor(status) : 'p-draft';
+}
+
 async function _mpLoadActivitySummary(activity, cid, expanded) {
   const countEl = document.getElementById(`mp-act-count-${activity.key}`);
   const bodyEl  = document.getElementById(`mp-act-body-${activity.key}`);
-  // Define per-activity fetcher
-  let rows = [], fmtRow = null;
+  const def = _MP_ACTIVITY_DEFS[activity.key];
+  if (!def) return;
+  let rows = [];
   try {
-    if (activity.key === 'photoshoot') {
-      const {data} = await sb.from('photoshoots').select('id,shoot_name,shoot_date,location,status').eq('collection_id', cid).order('shoot_date');
-      rows = data||[];
-      fmtRow = r => `<div style="padding:6px 0;border-bottom:1px solid var(--g100);font-size:12px;display:flex;gap:10px;align-items:center"><span style="font-weight:600">${(r.shoot_name||'—').replace(/</g,'&lt;')}</span><span style="color:var(--g600)">${r.shoot_date||'—'}${r.location?` · ${r.location}`.replace(/</g,'&lt;'):''}</span><span class="pill ${(r.status==='Done'?'p-active':r.status==='In Progress'?'p-review':'p-draft')}" style="font-size:10px;margin-left:auto">${r.status||'Planning'}</span></div>`;
-    } else if (activity.key === 'video') {
-      const {data} = await sb.from('content_planning').select('id,title,content_type,publish_date,channel,status').eq('collection_id', cid).ilike('content_type','%video%').order('publish_date');
-      rows = data||[];
-      fmtRow = r => `<div style="padding:6px 0;border-bottom:1px solid var(--g100);font-size:12px;display:flex;gap:10px;align-items:center"><span style="font-weight:600">${(r.title||'—').replace(/</g,'&lt;')}</span><span style="color:var(--g600)">${r.publish_date||'—'}${r.channel?` · ${r.channel}`.replace(/</g,'&lt;'):''}</span><span class="pill ${(r.status==='Published'?'p-active':r.status==='Draft'?'p-draft':'p-review')}" style="font-size:10px;margin-left:auto">${r.status||'—'}</span></div>`;
-    } else if (activity.key === 'content') {
-      const {data} = await sb.from('content_planning').select('id,title,content_type,publish_date,channel,status').eq('collection_id', cid).order('publish_date');
-      rows = (data||[]).filter(r => !(r.content_type||'').toLowerCase().includes('video'));
-      fmtRow = r => `<div style="padding:6px 0;border-bottom:1px solid var(--g100);font-size:12px;display:flex;gap:10px;align-items:center"><span style="font-weight:600">${(r.title||'—').replace(/</g,'&lt;')}</span><span style="color:var(--g600)">${r.content_type||'—'} · ${r.publish_date||'—'}${r.channel?` · ${r.channel}`.replace(/</g,'&lt;'):''}</span><span class="pill ${(r.status==='Published'?'p-active':r.status==='Draft'?'p-draft':'p-review')}" style="font-size:10px;margin-left:auto">${r.status||'—'}</span></div>`;
-    } else if (activity.key === 'activation') {
-      const {data} = await sb.from('marketing_events').select('id,event_name,event_type,event_date,venue,status').eq('collection_id', cid).order('event_date');
-      rows = data||[];
-      fmtRow = r => `<div style="padding:6px 0;border-bottom:1px solid var(--g100);font-size:12px;display:flex;gap:10px;align-items:center"><span style="font-weight:600">${(r.event_name||'—').replace(/</g,'&lt;')}</span><span style="color:var(--g600)">${r.event_date||'—'}${r.venue?` · ${r.venue}`.replace(/</g,'&lt;'):''}</span><span class="pill ${(r.status==='Done'?'p-active':r.status==='Booked'?'p-signings':'p-draft')}" style="font-size:10px;margin-left:auto">${r.status||'Planning'}</span></div>`;
-    } else if (activity.key === 'kol') {
-      const {data} = await sb.from('kol_placements').select('id,kol_name,platform,tier,fee,post_date,status').eq('collection_id', cid).order('post_date');
-      rows = data||[];
-      fmtRow = r => `<div style="padding:6px 0;border-bottom:1px solid var(--g100);font-size:12px;display:flex;gap:10px;align-items:center"><span style="font-weight:600">${(r.kol_name||'—').replace(/</g,'&lt;')}</span><span style="color:var(--g600)">${r.platform||'—'}${r.tier?` · ${r.tier}`:''}${r.fee?` · Rp ${Math.round(r.fee).toLocaleString('id-ID')}`:''}${r.post_date?` · ${r.post_date}`:''}</span><span class="pill ${(r.status==='Posted'?'p-active':r.status==='Booked'?'p-signings':'p-draft')}" style="font-size:10px;margin-left:auto">${r.status||'—'}</span></div>`;
-    }
+    let q = sb.from(def.table).select(def.selectCols).eq('collection_id', cid);
+    if (def.extraFilter && def.extraFilter.includes('ilike')) q = q.ilike('content_type','%video%');
+    q = q.order(def.orderBy, {ascending:true, nullsFirst:false});
+    const {data} = await q;
+    rows = data || [];
+    if (def.extraFilterClient) rows = rows.filter(def.extraFilterClient);
   } catch (e) { console.warn('MP activity load failed for '+activity.key, e); }
   if (countEl) countEl.textContent = rows.length ? `${rows.length} entri` : 'belum ada';
   if (bodyEl && expanded) {
@@ -22449,101 +22521,176 @@ async function _mpLoadActivitySummary(activity, cid, expanded) {
       </div>
     </div>`;
     const toolbar = `<div style="display:flex;align-items:center;gap:8px;padding-bottom:8px;margin-bottom:8px;border-bottom:1px solid var(--g100)">
-      <div style="font-size:11px;color:var(--g400)">Read-only mirror — edit lengkap di modul ${activity.source}.</div>
+      <div style="font-size:11px;color:var(--g400)">Klik baris untuk buka di modul lengkap. ✎ inline edit · 🗑 hapus.</div>
       <button onclick="document.getElementById('mp-qa-${activity.key}').style.display='block'" style="margin-left:auto;padding:5px 12px;background:var(--white);border:1px solid #3C3489;color:#3C3489;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600">+ Tambah cepat</button>
     </div>`;
     bodyEl.innerHTML = quickAddForm + toolbar + (rows.length
-      ? rows.map(fmtRow).join('')
+      ? rows.map(r => _mpRenderActRow(activity.key, r, cid)).join('')
       : `<div style="text-align:center;padding:14px;color:var(--g400);font-size:12px">Belum ada entri ${activity.label.toLowerCase()}. Klik <strong>+ Tambah cepat</strong> di atas atau <a href="#${activity.moduleHref}" onclick="showPage('${activity.moduleHref}',null);return false" style="color:#3C3489;text-decoration:underline">buka modul lengkap</a>.</div>`);
   }
 }
 
-// Per-activity quick-add mini form HTML. Cuma field critical — full detail
-// editing tetap di modul masing-masing.
-function _mpQuickAddFormHTML(activity) {
-  if (activity.key === 'photoshoot') {
-    return `<div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:6px">
-      <input type="text" id="mpqa-ps-name" placeholder="Nama shoot *" style="font-size:12px;padding:5px 8px">
-      <input type="date" id="mpqa-ps-date" placeholder="Tanggal" style="font-size:12px;padding:5px 8px">
-      <input type="text" id="mpqa-ps-location" placeholder="Lokasi" style="font-size:12px;padding:5px 8px">
-    </div>`;
-  } else if (activity.key === 'video' || activity.key === 'content') {
-    return `<div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:6px">
-      <input type="text" id="mpqa-${activity.key}-title" placeholder="Judul konten *" style="font-size:12px;padding:5px 8px">
-      <input type="text" id="mpqa-${activity.key}-channel" placeholder="IG/TikTok/YT..." style="font-size:12px;padding:5px 8px">
-      <input type="date" id="mpqa-${activity.key}-publish" placeholder="Publish date" style="font-size:12px;padding:5px 8px">
-      <input type="text" id="mpqa-${activity.key}-owner" placeholder="Owner" style="font-size:12px;padding:5px 8px">
-    </div>`;
-  } else if (activity.key === 'activation') {
-    return `<div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:6px">
-      <input type="text" id="mpqa-me-name" placeholder="Nama event *" style="font-size:12px;padding:5px 8px">
-      <input type="text" id="mpqa-me-type" placeholder="Type (Popup/Launch/...)" style="font-size:12px;padding:5px 8px">
-      <input type="date" id="mpqa-me-date" placeholder="Tanggal" style="font-size:12px;padding:5px 8px">
-      <input type="text" id="mpqa-me-venue" placeholder="Venue" style="font-size:12px;padding:5px 8px">
-    </div>`;
-  } else if (activity.key === 'kol') {
-    return `<div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:6px">
-      <input type="text" id="mpqa-kol-name" placeholder="Nama KOL *" style="font-size:12px;padding:5px 8px">
-      <input type="text" id="mpqa-kol-handle" placeholder="@handle" style="font-size:12px;padding:5px 8px">
-      <input type="text" id="mpqa-kol-platform" placeholder="IG/TikTok/YT" style="font-size:12px;padding:5px 8px">
-      <input type="number" id="mpqa-kol-fee" placeholder="Fee (Rp)" style="font-size:12px;padding:5px 8px">
-    </div>`;
+// Render one row of the mirror — name (clickable to module deeplink), meta,
+// status pill (inline-editable), ✎ edit, 🗑 delete buttons.
+function _mpRenderActRow(key, r, cid) {
+  const def = _MP_ACTIVITY_DEFS[key];
+  if (!def) return '';
+  const esc = s => (s==null?'':String(s)).replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  const id = r.id;
+  const name = r[def.nameField] || '—';
+  const date = r[def.dateField] || '';
+  const status = r[def.statusField] || def.defaultStatus;
+  const statusTone = _mpStatusTone(key, status);
+  // Build meta line
+  const metaParts = [];
+  if (date) metaParts.push(date);
+  for (const ex of def.extras) {
+    const v = r[ex.f];
+    if (!v) continue;
+    if (ex.f === 'fee') metaParts.push(`Rp ${Math.round(v).toLocaleString('id-ID')}`);
+    else metaParts.push(esc(v));
   }
-  return '';
+  const meta = metaParts.join(' · ');
+  // External link on the resource itself (deliverables_url / asset_url / post_url) → opens in new tab
+  const extLink = def.linkField && r[def.linkField] ? r[def.linkField] : null;
+  return `<div id="mp-row-${key}-${id}" style="padding:8px 4px;border-bottom:1px solid var(--g100);font-size:12px;display:flex;gap:10px;align-items:center">
+    <div style="flex:1;min-width:0;cursor:pointer" onclick="_mpJumpToModule('${key}','${id}')" title="↗ Buka di ${def.moduleHref}">
+      <div style="font-weight:600;color:#3C3489;text-decoration:underline">${esc(name)}</div>
+      ${meta?`<div style="color:var(--g600);font-size:11px;margin-top:2px">${meta}</div>`:''}
+    </div>
+    ${extLink?`<a href="${esc(extLink)}" target="_blank" title="Buka asset/link" style="font-size:13px;color:var(--g600);text-decoration:none;padding:4px 6px">↗</a>`:''}
+    <select onchange="_mpSaveActField('${key}','${id}','${def.statusField}',this.value)" class="pill ${statusTone}" style="font-size:10px;padding:3px 8px;border-radius:99px;cursor:pointer;border:1px solid transparent">
+      ${def.statusOpts.map(s => `<option value="${s}"${s===status?' selected':''}>${s}</option>`).join('')}
+    </select>
+    <button onclick="_mpEditRow('${key}','${id}')" title="Edit inline" style="background:none;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-size:11px;padding:3px 8px">✎</button>
+    <button onclick="_mpDeleteRow('${key}','${id}','${cid}')" title="Hapus" style="background:none;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-size:11px;padding:3px 8px;color:#c0392b">🗑</button>
+  </div>`;
 }
 
-async function _mpQuickAddSubmit(key, cid) {
-  const fb = document.getElementById(`mp-qa-fb-${key}`);
-  const setFB = (msg, ok) => { if (fb) { fb.style.color = ok?'#0a7d3a':'#c0392b'; fb.textContent = msg; } };
+// Navigate to source module page — user can then find the specific row there.
+function _mpJumpToModule(key, id) {
+  const def = _MP_ACTIVITY_DEFS[key];
+  if (!def) return;
+  showPage(def.moduleHref, null);
+}
+
+// Status pill is editable inline — fire small update without re-render.
+async function _mpSaveActField(key, id, field, value) {
+  const def = _MP_ACTIVITY_DEFS[key];
+  if (!def) return;
   try {
-    let payload = null, table = '';
-    if (key === 'photoshoot') {
-      const name = document.getElementById('mpqa-ps-name')?.value.trim();
-      if (!name) { setFB('Nama wajib', false); return; }
-      payload = { id: genId('PS'), collection_id: cid, shoot_name: name,
-        shoot_date: document.getElementById('mpqa-ps-date')?.value || null,
-        location: document.getElementById('mpqa-ps-location')?.value || null,
-        status: 'Planning', added_by: currentUser, date_added: new Date().toISOString().slice(0,10),
-        last_updated: new Date().toISOString(), last_updated_by: currentUser };
-      table = 'photoshoots';
-    } else if (key === 'video' || key === 'content') {
-      const title = document.getElementById(`mpqa-${key}-title`)?.value.trim();
-      if (!title) { setFB('Judul wajib', false); return; }
-      payload = { id: genId('CP'), collection_id: cid, title,
-        content_type: key === 'video' ? 'Video' : 'Image',
-        channel: document.getElementById(`mpqa-${key}-channel`)?.value || null,
-        publish_date: document.getElementById(`mpqa-${key}-publish`)?.value || null,
-        owner: document.getElementById(`mpqa-${key}-owner`)?.value || null,
-        status: 'Draft', added_by: currentUser, date_added: new Date().toISOString().slice(0,10),
-        last_updated: new Date().toISOString(), last_updated_by: currentUser };
-      table = 'content_planning';
-    } else if (key === 'activation') {
-      const name = document.getElementById('mpqa-me-name')?.value.trim();
-      if (!name) { setFB('Nama wajib', false); return; }
-      payload = { id: genId('ME'), collection_id: cid, event_name: name,
-        event_type: document.getElementById('mpqa-me-type')?.value || null,
-        event_date: document.getElementById('mpqa-me-date')?.value || null,
-        venue: document.getElementById('mpqa-me-venue')?.value || null,
-        status: 'Planning', added_by: currentUser, date_added: new Date().toISOString().slice(0,10),
-        last_updated: new Date().toISOString(), last_updated_by: currentUser };
-      table = 'marketing_events';
-    } else if (key === 'kol') {
-      const name = document.getElementById('mpqa-kol-name')?.value.trim();
-      if (!name) { setFB('Nama KOL wajib', false); return; }
-      const fee = parseFloat(document.getElementById('mpqa-kol-fee')?.value);
-      payload = { id: genId('KOL'), collection_id: cid, kol_name: name,
-        handle: document.getElementById('mpqa-kol-handle')?.value || null,
-        platform: document.getElementById('mpqa-kol-platform')?.value || null,
-        fee: isNaN(fee) ? null : fee,
-        status: 'Booked', added_by: currentUser, date_added: new Date().toISOString().slice(0,10),
-        last_updated: new Date().toISOString(), last_updated_by: currentUser };
-      table = 'kol_placements';
+    const payload = { [field]: value || null,
+      last_updated: new Date().toISOString(), last_updated_by: currentUser||'' };
+    const {error} = await sb.from(def.table).update(payload).eq('id', id);
+    if (error) throw error;
+    // Update pill tone live
+    const row = document.getElementById(`mp-row-${key}-${id}`);
+    if (row && field === 'status') {
+      const sel = row.querySelector('select');
+      if (sel) sel.className = 'pill ' + _mpStatusTone(key, value);
     }
-    if (!payload || !table) return;
-    const {error} = await sb.from(table).insert(payload);
+  } catch (e) { console.warn('Save activity field failed:', e); }
+}
+
+// Inline edit: replace row with mini form (same fields as quick-add, pre-filled).
+async function _mpEditRow(key, id) {
+  const def = _MP_ACTIVITY_DEFS[key];
+  if (!def) return;
+  // Fetch the row fresh — selectCols already covers what we need
+  const {data, error} = await sb.from(def.table).select(def.selectCols).eq('id', id).single();
+  if (error || !data) { alert('Gagal load row: ' + (error?.message||'not found')); return; }
+  const r = data;
+  const rowEl = document.getElementById(`mp-row-${key}-${id}`);
+  if (!rowEl) return;
+  rowEl.outerHTML = `<div id="mp-row-${key}-${id}" style="padding:10px 12px;border-bottom:1px solid var(--g100);background:var(--off);border-radius:4px;margin-bottom:4px">
+    <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.3px;color:var(--g400);font-weight:600;margin-bottom:6px">✎ Edit ${def.nameLabel}</div>
+    ${_mpRenderEditFormFields(key, r)}
+    <div style="display:flex;gap:6px;margin-top:8px">
+      <button onclick="_mpSaveRowEdit('${key}','${id}')" style="padding:6px 14px;background:#3C3489;color:white;border:none;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600">💾 Simpan</button>
+      <button onclick="_mpCancelRowEdit('${key}','${id}')" style="padding:6px 14px;background:none;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-size:11px">Batal</button>
+      <div id="mp-rowedit-fb-${key}-${id}" style="margin-left:auto;font-size:11px;align-self:center"></div>
+    </div>
+  </div>`;
+}
+
+function _mpRenderEditFormFields(key, r) {
+  const def = _MP_ACTIVITY_DEFS[key];
+  const esc = s => (s==null?'':String(s)).replace(/"/g,'&quot;');
+  const cols = ['name','date',...def.extras.map(e=>e.f),'status'];
+  const colsCount = cols.length;
+  // Compose inline form: name(2x) | date | extras | status
+  const fields = [];
+  fields.push(`<input type="text" id="mpedit-${key}-name" value="${esc(r[def.nameField])}" placeholder="${def.nameLabel} *" style="font-size:12px;padding:5px 8px">`);
+  fields.push(`<input type="date" id="mpedit-${key}-date" value="${r[def.dateField]||''}" style="font-size:12px;padding:5px 8px">`);
+  for (const ex of def.extras) {
+    fields.push(`<input type="${ex.type}" id="mpedit-${key}-${ex.f}" value="${esc(r[ex.f])}" placeholder="${ex.placeholder}" style="font-size:12px;padding:5px 8px">`);
+  }
+  fields.push(`<select id="mpedit-${key}-status" style="font-size:12px;padding:5px 8px">${def.statusOpts.map(s => `<option value="${s}"${s===r[def.statusField]?' selected':''}>${s}</option>`).join('')}</select>`);
+  return `<div style="display:grid;grid-template-columns:repeat(${Math.min(colsCount,4)},1fr);gap:6px">${fields.join('')}</div>`;
+}
+
+async function _mpSaveRowEdit(key, id) {
+  const def = _MP_ACTIVITY_DEFS[key];
+  if (!def) return;
+  const fb = document.getElementById(`mp-rowedit-fb-${key}-${id}`);
+  const setFB = (msg, ok) => { if (fb) { fb.style.color = ok?'#0a7d3a':'#c0392b'; fb.textContent = msg; } };
+  const name = document.getElementById(`mpedit-${key}-name`)?.value.trim();
+  if (!name) { setFB('Nama wajib', false); return; }
+  const payload = {
+    [def.nameField]: name,
+    [def.dateField]: document.getElementById(`mpedit-${key}-date`)?.value || null,
+    [def.statusField]: document.getElementById(`mpedit-${key}-status`)?.value || def.defaultStatus,
+    last_updated: new Date().toISOString(), last_updated_by: currentUser||'',
+  };
+  for (const ex of def.extras) {
+    const v = document.getElementById(`mpedit-${key}-${ex.f}`)?.value;
+    payload[ex.f] = ex.type === 'number' ? (v===''?null:Number(v)) : (v||null);
+  }
+  try {
+    const {error} = await sb.from(def.table).update(payload).eq('id', id);
     if (error) throw error;
     setFB('✓ Tersimpan', true);
-    // Refresh both the activity summary AND the exec counts cache (so grid stays right next time)
+    // Refresh the activity card so the edited row re-renders correctly
+    const cid = _mpCurrentColId;
+    const activities = [
+      { key:'photoshoot',  source:'Photoshoot Planning', moduleHref:'photoshoot', label:'Photoshoot' },
+      { key:'video',       source:'Content Planning', moduleHref:'contentplan', label:'Video Production' },
+      { key:'content',     source:'Content Planning', moduleHref:'contentplan', label:'Content Production' },
+      { key:'activation',  source:'Marketing Activation', moduleHref:'mktactivation', label:'Marketing Activation' },
+      { key:'kol',         source:'KOL Management', moduleHref:'kolmgmt', label:'KOL Placement' },
+    ];
+    const act = activities.find(a => a.key === key);
+    if (act) setTimeout(() => _mpLoadActivitySummary(act, cid, true), 300);
+  } catch (e) { setFB('Gagal: ' + (e.message||e), false); }
+}
+
+async function _mpCancelRowEdit(key, id) {
+  const activities = [
+    { key:'photoshoot',  source:'Photoshoot Planning', moduleHref:'photoshoot', label:'Photoshoot' },
+    { key:'video',       source:'Content Planning', moduleHref:'contentplan', label:'Video Production' },
+    { key:'content',     source:'Content Planning', moduleHref:'contentplan', label:'Content Production' },
+    { key:'activation',  source:'Marketing Activation', moduleHref:'mktactivation', label:'Marketing Activation' },
+    { key:'kol',         source:'KOL Management', moduleHref:'kolmgmt', label:'KOL Placement' },
+  ];
+  const act = activities.find(a => a.key === key);
+  if (act) await _mpLoadActivitySummary(act, _mpCurrentColId, true);
+}
+
+async function _mpDeleteRow(key, id, cid) {
+  const def = _MP_ACTIVITY_DEFS[key];
+  if (!def) return;
+  if (!confirm('Hapus entri ini?')) return;
+  try {
+    const {error} = await sb.from(def.table).delete().eq('id', id);
+    if (error) throw error;
+    // Update grid cache
+    if (_mpExecCounts[cid]) {
+      if (key === 'photoshoot') _mpExecCounts[cid].ps = Math.max(0, _mpExecCounts[cid].ps - 1);
+      else if (key === 'video') _mpExecCounts[cid].video = Math.max(0, _mpExecCounts[cid].video - 1);
+      else if (key === 'content') _mpExecCounts[cid].content = Math.max(0, _mpExecCounts[cid].content - 1);
+      else if (key === 'activation') _mpExecCounts[cid].me = Math.max(0, _mpExecCounts[cid].me - 1);
+      else if (key === 'kol') _mpExecCounts[cid].kol = Math.max(0, _mpExecCounts[cid].kol - 1);
+    }
     const activities = [
       { key:'photoshoot',  source:'Photoshoot Planning', moduleHref:'photoshoot', label:'Photoshoot' },
       { key:'video',       source:'Content Planning', moduleHref:'contentplan', label:'Video Production' },
@@ -22553,10 +22700,60 @@ async function _mpQuickAddSubmit(key, cid) {
     ];
     const act = activities.find(a => a.key === key);
     if (act) await _mpLoadActivitySummary(act, cid, true);
-    // Hide the form
+  } catch (e) { alert('Gagal hapus: ' + (e.message||e)); }
+}
+
+// Per-activity quick-add mini form HTML — driven by _MP_ACTIVITY_DEFS so
+// every activity gets the same field set: name * | date | extras | status.
+function _mpQuickAddFormHTML(activity) {
+  const def = _MP_ACTIVITY_DEFS[activity.key];
+  if (!def) return '';
+  const fields = [];
+  fields.push(`<input type="text" id="mpqa-${activity.key}-name" placeholder="${def.nameLabel} *" style="font-size:12px;padding:5px 8px">`);
+  fields.push(`<input type="date" id="mpqa-${activity.key}-date" placeholder="${def.dateLabel}" style="font-size:12px;padding:5px 8px">`);
+  for (const ex of def.extras) {
+    fields.push(`<input type="${ex.type}" id="mpqa-${activity.key}-${ex.f}" placeholder="${ex.placeholder}" style="font-size:12px;padding:5px 8px">`);
+  }
+  fields.push(`<select id="mpqa-${activity.key}-status" style="font-size:12px;padding:5px 8px">${def.statusOpts.map(s => `<option value="${s}"${s===def.defaultStatus?' selected':''}>${s}</option>`).join('')}</select>`);
+  const cols = Math.min(fields.length, 4);
+  return `<div style="display:grid;grid-template-columns:repeat(${cols},1fr);gap:6px">${fields.join('')}</div>`;
+}
+
+async function _mpQuickAddSubmit(key, cid) {
+  const def = _MP_ACTIVITY_DEFS[key];
+  if (!def) return;
+  const fb = document.getElementById(`mp-qa-fb-${key}`);
+  const setFB = (msg, ok) => { if (fb) { fb.style.color = ok?'#0a7d3a':'#c0392b'; fb.textContent = msg; } };
+  const name = document.getElementById(`mpqa-${key}-name`)?.value.trim();
+  if (!name) { setFB('Nama wajib', false); return; }
+  try {
+    const payload = {
+      id: genId(def.idPrefix), collection_id: cid,
+      [def.nameField]: name,
+      [def.dateField]: document.getElementById(`mpqa-${key}-date`)?.value || null,
+      [def.statusField]: document.getElementById(`mpqa-${key}-status`)?.value || def.defaultStatus,
+      added_by: currentUser, date_added: new Date().toISOString().slice(0,10),
+      last_updated: new Date().toISOString(), last_updated_by: currentUser,
+    };
+    for (const ex of def.extras) {
+      const v = document.getElementById(`mpqa-${key}-${ex.f}`)?.value;
+      payload[ex.f] = ex.type === 'number' ? (v===''?null:Number(v)) : (v||null);
+    }
+    if (def.fixed) Object.assign(payload, def.fixed);
+    const {error} = await sb.from(def.table).insert(payload);
+    if (error) throw error;
+    setFB('✓ Tersimpan', true);
+    const activities = [
+      { key:'photoshoot',  source:'Photoshoot Planning', moduleHref:'photoshoot', label:'Photoshoot' },
+      { key:'video',       source:'Content Planning', moduleHref:'contentplan', label:'Video Production' },
+      { key:'content',     source:'Content Planning', moduleHref:'contentplan', label:'Content Production' },
+      { key:'activation',  source:'Marketing Activation', moduleHref:'mktactivation', label:'Marketing Activation' },
+      { key:'kol',         source:'KOL Management', moduleHref:'kolmgmt', label:'KOL Placement' },
+    ];
+    const act = activities.find(a => a.key === key);
+    if (act) await _mpLoadActivitySummary(act, cid, true);
     const form = document.getElementById(`mp-qa-${key}`);
     if (form) setTimeout(() => { form.style.display='none'; if (fb) fb.textContent=''; }, 1500);
-    // Update grid cache
     if (_mpExecCounts[cid]) {
       if (key === 'photoshoot') _mpExecCounts[cid].ps++;
       else if (key === 'video') _mpExecCounts[cid].video++;
