@@ -5109,6 +5109,12 @@ function mapCol(r) {
     targetNotes:   r.target_notes||"",
     targetSetBy:   r.target_set_by||"",
     targetSetAt:   r.target_set_at||"",
+    // Brand brief (Business tab — narrative / positioning for the collection)
+    briefAudience:     r.brief_audience       || "",
+    briefStory:        r.brief_story          || "",
+    briefSellingPoints:r.brief_selling_points || "",
+    // Linked IP license / PKS reference (Business tab — compliance + traceability)
+    linkedAgreementId: r.linked_agreement_id  || "",
     // Post-mortem retrospective (Post Mortem tab — structured template)
     pmWhatWorked:     r.postmortem_what_worked     || "",
     pmWhatDidnt:      r.postmortem_what_didnt      || "",
@@ -5642,6 +5648,331 @@ function toggleColEditPanel() {
 }
 
 // ── helpers for collection detail boxes ──
+// ── Business tab: Collection Brief ──
+// 3 textareas: target audience, theme/story, key selling points. Free text
+// — saves to collections.brief_* on blur (per-field) so no submit button.
+function renderColBriefSection(col) {
+  const cid = col.id;
+  const esc = s => (s||'').replace(/</g,'&lt;');
+  return cdStageBox("📋","Collection Brief","",`
+    <div style="font-size:11px;color:var(--g600);margin-bottom:10px">Auto-save tiap field di-blur. Brief ini di-share ke designer, sampling, dan PD team supaya semua align.</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="fg" style="margin:0">
+        <label style="font-size:11px"><strong>🎯 Target Audience / Persona</strong></label>
+        <textarea id="col-brief-aud-${cid}" rows="3" placeholder="Siapa target pembelinya? E.g. Female 20-30, urban, fans drama Korea, follower IP ini di TikTok..." style="resize:vertical;font-size:12px;width:100%" onblur="saveColBriefField('${cid}','brief_audience',this.value)">${esc(col.briefAudience)}</textarea>
+      </div>
+      <div class="fg" style="margin:0">
+        <label style="font-size:11px"><strong>📖 Story / Theme</strong></label>
+        <textarea id="col-brief-story-${cid}" rows="3" placeholder="Kenapa collection ini ada? Narrative/inspirasi/cerita di baliknya." style="resize:vertical;font-size:12px;width:100%" onblur="saveColBriefField('${cid}','brief_story',this.value)">${esc(col.briefStory)}</textarea>
+      </div>
+      <div class="fg full" style="margin:0;grid-column:1/-1">
+        <label style="font-size:11px"><strong>⭐ Key Selling Points</strong></label>
+        <textarea id="col-brief-ksp-${cid}" rows="3" placeholder="3-5 bullet kenapa pembeli harus beli. E.g.&#10;• Limited edition 500 pcs&#10;• Eksklusif design dari artist X&#10;• Premium fabric 240gsm cotton" style="resize:vertical;font-size:12px;width:100%" onblur="saveColBriefField('${cid}','brief_selling_points',this.value)">${esc(col.briefSellingPoints)}</textarea>
+      </div>
+    </div>`);
+}
+
+async function saveColBriefField(cid, dbField, value) {
+  const payload = { [dbField]: value.trim() || null,
+    last_updated: new Date().toISOString(), last_updated_by: currentUser||'' };
+  try {
+    const {error} = await sb.from('collections').update(payload).eq('id', cid);
+    if (error) throw error;
+    const idx = allColRows.findIndex(r => r.id === cid);
+    if (idx >= 0) {
+      const localKey = {brief_audience:'briefAudience',brief_story:'briefStory',brief_selling_points:'briefSellingPoints'}[dbField];
+      if (localKey) allColRows[idx][localKey] = value.trim() || '';
+    }
+  } catch (e) { console.warn('Save brief failed:', e); }
+}
+
+// ── Business tab: Margin Quick-View ──
+// Auto-compute: revenue (sum qty*srp), HPP (sum product_dev hpp×qty for variants
+// linked to this collection), gross margin Rp + %. Color-coded health pill.
+function renderColMarginSection(col, items) {
+  const cid = col.id;
+  return cdStageBox("💰","Margin & Profitability",
+    `<span style="font-family:var(--mono);font-size:10px;color:var(--g400);margin-left:auto" id="col-margin-source-${cid}">Auto-compute</span>`,
+    `<div id="col-margin-body-${cid}"><div style="padding:14px;color:var(--g400);font-size:12px;text-align:center">Menghitung margin...</div></div>`);
+}
+
+async function loadColMarginPanel(col, items) {
+  const cid = col.id;
+  const host = document.getElementById(`col-margin-body-${cid}`);
+  if (!host) return;
+  if (!items.length) {
+    host.innerHTML = `<div style="padding:14px;color:var(--g400);font-size:12px;text-align:center">Belum ada SKU. Tambah dulu di section Sales Target.</div>`;
+    return;
+  }
+  // Sellable items only (skip freebies — they have qty but no SRP)
+  const sellable = items.filter(i => !i.isFreebie);
+  const revenue = sellable.reduce((s,i) => s + (Number(i.qty)||0)*(Number(i.srp)||0), 0);
+  // Fetch product_dev variants linked to this collection → sum HPP × qty
+  let hpp = 0;
+  try {
+    const {data} = await sb.from('product_dev')
+      .select('collection_id,sku_type,hpp,qty')
+      .eq('collection_id', cid)
+      .eq('sku_type','variant');
+    for (const v of (data||[])) {
+      hpp += (Number(v.hpp)||0) * (Number(v.qty)||0);
+    }
+  } catch (e) { console.warn('Margin HPP fetch failed:', e); }
+  const margin = revenue - hpp;
+  const marginPct = revenue > 0 ? (margin / revenue * 100) : null;
+  const tone = marginPct == null ? {clr:'#999', bg:'#f5f5f5', lbl:'—'}
+    : marginPct >= 50 ? {clr:'#0a7d3a', bg:'#daf3e0', lbl:'Excellent'}
+    : marginPct >= 30 ? {clr:'#3C3489', bg:'#eef0f8', lbl:'Healthy'}
+    : marginPct >= 15 ? {clr:'#a66800', bg:'#fef5e0', lbl:'Tight'}
+    : {clr:'#c0392b', bg:'#fde0e0', lbl:'Low'};
+  const fmt = v => 'Rp ' + Math.round(v).toLocaleString('id-ID');
+  host.innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+      <div style="background:var(--off);border:1px solid var(--g100);border-radius:6px;padding:10px 14px">
+        <div style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:4px">Revenue @ 100% Sold</div>
+        <div style="font-family:var(--mono);font-size:18px;font-weight:700">${revenue?fmt(revenue):'—'}</div>
+      </div>
+      <div style="background:var(--off);border:1px solid var(--g100);border-radius:6px;padding:10px 14px">
+        <div style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:4px">Total HPP (dari PD)</div>
+        <div style="font-family:var(--mono);font-size:18px;font-weight:700">${hpp?fmt(hpp):'—'}</div>
+      </div>
+      <div style="background:var(--off);border:1px solid var(--g100);border-radius:6px;padding:10px 14px">
+        <div style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:4px">Gross Profit</div>
+        <div style="font-family:var(--mono);font-size:18px;font-weight:700;color:${margin>=0?'#0a7d3a':'#c0392b'}">${margin?fmt(margin):'—'}</div>
+      </div>
+      <div style="background:${tone.bg};border:1px solid ${tone.clr};border-radius:6px;padding:10px 14px">
+        <div style="font-size:10px;color:${tone.clr};text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:4px">Gross Margin %</div>
+        <div style="font-family:var(--mono);font-size:18px;font-weight:700;color:${tone.clr}">${marginPct!=null?marginPct.toFixed(1)+'%':'—'} <span style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.3px">${tone.lbl}</span></div>
+      </div>
+    </div>
+    ${hpp===0 ? `<div style="margin-top:10px;font-size:11px;color:var(--g600);background:#fef5e0;border:1px dashed #f3cf7a;padding:8px 12px;border-radius:4px">⚠️ HPP belum di-isi di Product Development. Margin tidak bisa dihitung — set vendor + HPP per variant SKU di PD untuk activate.</div>`:''}`;
+}
+
+// ── Business tab: Linked Agreement ──
+// Picker linked ke Agreement Tracker (autocomplete). Stores AGR id on collection.
+function renderColAgreementSection(col) {
+  const cid = col.id;
+  const linkedId = col.linkedAgreementId || '';
+  return cdStageBox("📑","Linked IP License / PKS","",`
+    <div style="font-size:11px;color:var(--g600);margin-bottom:10px">Compliance + traceability — link PKS yang scope-nya cover collection ini. Auto-load detail dari Agreement Tracker.</div>
+    <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+      <div class="fg" style="flex:1;min-width:220px;margin:0;position:relative">
+        <label style="font-size:11px">Cari Agreement (PKS ID atau partner)</label>
+        <input type="text" id="col-agr-input-${cid}" value="${(linkedId||'').replace(/"/g,'&quot;')}" placeholder="Mulai ketik AGR-... atau nama partner" autocomplete="off">
+        <div class="ac-list" id="ac-col-agr-${cid}"></div>
+      </div>
+      <button class="btn-primary" style="padding:7px 14px;font-size:12px" onclick="saveColLinkedAgreement('${cid}')">💾 Simpan Link</button>
+      ${linkedId ? `<button class="btn-ghost" style="padding:7px 14px;font-size:12px;color:#c0392b" onclick="clearColLinkedAgreement('${cid}')">✕ Hapus Link</button>` : ''}
+    </div>
+    <div id="col-agr-detail-${cid}" style="margin-top:10px"></div>`);
+}
+
+async function loadColAgreementPanel(col) {
+  const cid = col.id;
+  const host = document.getElementById(`col-agr-detail-${cid}`);
+  if (!host) return;
+  const linkedId = col.linkedAgreementId || '';
+  if (!linkedId) {
+    host.innerHTML = `<div style="padding:10px 12px;background:var(--off);border:1px dashed var(--g200);border-radius:6px;font-size:12px;color:var(--g400);text-align:center">Belum link ke PKS apapun.</div>`;
+    return;
+  }
+  try {
+    const {data, error} = await sb.from('agreements').select('*').eq('id', linkedId).single();
+    if (error || !data) {
+      host.innerHTML = `<div style="padding:10px 12px;background:#fef5e0;border:1px dashed #f3cf7a;border-radius:6px;font-size:12px;color:#a66800">⚠️ Agreement "${linkedId}" tidak ditemukan — sudah dihapus di Agreement Tracker?</div>`;
+      return;
+    }
+    const a = data;
+    const fmt = v => v ? new Date(v).toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'}) : '—';
+    const statusPill = {
+      'Active':'p-active','Signed':'p-active','Signings':'p-signings',
+      'Draft':'p-draft','Under Review':'p-review','Near Expiring':'p-near','Expired':'p-expired',
+    }[a.status]||'p-draft';
+    host.innerHTML = `<div style="background:var(--off);border:1px solid var(--g100);border-radius:6px;padding:12px 14px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px">
+        <strong style="font-family:var(--mono);font-size:13px">${(a.id||'').replace(/</g,'&lt;')}</strong>
+        <span class="pill ${statusPill}" style="font-size:10px">${(a.status||'').replace(/</g,'&lt;')}</span>
+        ${a.link?`<a href="${a.link.replace(/"/g,'&quot;')}" target="_blank" style="font-size:11px;color:#3C3489;text-decoration:none;margin-left:auto">↗ Buka PKS</a>`:''}
+      </div>
+      <div style="font-size:13px;font-weight:600;margin-bottom:6px">${(a.title||'—').replace(/</g,'&lt;')}</div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;font-size:11px;color:var(--g600)">
+        <div><div style="color:var(--g400);text-transform:uppercase;letter-spacing:0.3px;font-size:10px">Partner</div><div style="color:var(--black);font-weight:600">${(a.partner||'—').replace(/</g,'&lt;')}</div></div>
+        <div><div style="color:var(--g400);text-transform:uppercase;letter-spacing:0.3px;font-size:10px">Type</div><div style="color:var(--black);font-weight:600">${(a.type||'—').replace(/</g,'&lt;')}</div></div>
+        <div><div style="color:var(--g400);text-transform:uppercase;letter-spacing:0.3px;font-size:10px">Mulai</div><div style="color:var(--black);font-weight:600">${fmt(a.start_date)}</div></div>
+        <div><div style="color:var(--g400);text-transform:uppercase;letter-spacing:0.3px;font-size:10px">Berakhir</div><div style="color:var(--black);font-weight:600">${fmt(a.end_date)}</div></div>
+      </div>
+    </div>`;
+  } catch (e) {
+    host.innerHTML = `<div style="padding:10px;color:#c0392b;font-size:12px">Gagal load: ${(e.message||e).replace(/</g,'&lt;')}</div>`;
+  }
+}
+
+async function saveColLinkedAgreement(cid) {
+  const input = document.getElementById(`col-agr-input-${cid}`);
+  if (!input) return;
+  const val = input.value.trim();
+  try {
+    const {error} = await sb.from('collections').update({
+      linked_agreement_id: val || null,
+      last_updated: new Date().toISOString(), last_updated_by: currentUser||'',
+    }).eq('id', cid);
+    if (error) throw error;
+    const idx = allColRows.findIndex(r => r.id === cid);
+    if (idx >= 0) {
+      allColRows[idx].linkedAgreementId = val || '';
+      await loadColAgreementPanel(allColRows[idx]);
+    }
+    logActivity("Collections","edit",cid,`Linked agreement → ${val||'(cleared)'}`);
+  } catch (e) { alert('Gagal: ' + (e.message||e)); }
+}
+
+async function clearColLinkedAgreement(cid) {
+  const input = document.getElementById(`col-agr-input-${cid}`);
+  if (input) input.value = '';
+  await saveColLinkedAgreement(cid);
+  // Re-render the section so the "✕ Hapus Link" button disappears
+  const idx = allColRows.findIndex(r => r.id === cid);
+  if (idx >= 0) renderColDetail(allColRows[idx], allColItems.filter(i => i.collectionId === cid));
+}
+
+// ── Business tab: Timeline Calendar ──
+// Aggregates all dates that relate to this collection — release, design
+// deadlines, sampling expected, PO transactions, marketing events, content
+// publish, photoshoots, ads campaigns. Renders as a vertical timeline grouped
+// by day, with TODAY marker for orientation.
+function renderColTimelineSection(col, items) {
+  const cid = col.id;
+  return cdStageBox("📅","Collection Timeline",
+    `<span style="font-family:var(--mono);font-size:10px;color:var(--g400);margin-left:auto" id="col-timeline-count-${cid}">Memuat...</span>`,
+    `<div id="col-timeline-body-${cid}"><div style="padding:14px;color:var(--g400);font-size:12px;text-align:center">Mengumpulkan tanggal...</div></div>`);
+}
+
+async function loadColTimelinePanel(col, items) {
+  const cid = col.id;
+  const host = document.getElementById(`col-timeline-body-${cid}`);
+  const cnt  = document.getElementById(`col-timeline-count-${cid}`);
+  if (!host) return;
+  const events = [];
+  // 1. Release date (anchor)
+  if (col.releaseDate) {
+    events.push({ date: col.releaseDate, type: 'release', icon: '🚀', label: 'Release date', detail: col.collectionName, tone: '#3C3489' });
+  }
+  // 2. Per-SKU design deadlines
+  for (const it of items) {
+    if (it.deadline) events.push({ date: it.deadline, type: 'design', icon: '🎨', label: 'Design deadline', detail: it.skuName||it.skuProper||'(SKU)', tone: '#7a5a1d' });
+  }
+  // 3. Sampling expected dates (per CI)
+  const itemIds = items.map(i => i.id);
+  try {
+    if (itemIds.length) {
+      const {data: samps} = await sb.from('sampling_skus')
+        .select('collection_item_id,expected_date,status').in('collection_item_id', itemIds);
+      const byCi = new Map(); items.forEach(i => byCi.set(i.id, i));
+      (samps||[]).forEach(s => {
+        if (!s.expected_date) return;
+        const ci = byCi.get(s.collection_item_id);
+        events.push({ date: s.expected_date, type: 'sampling', icon: '🧵', label: `Sampling expected (${s.status||'Pending'})`, detail: ci?.skuName||'(SKU)', tone: '#1e8f4e' });
+      });
+    }
+  } catch(_) {}
+  // 4. Linked POs — transaction_date + first putaway expected
+  try {
+    const {data: cps} = await sb.from('collection_pos').select('po_id').eq('collection_id', cid);
+    const poIds = (cps||[]).map(c => c.po_id).filter(Boolean);
+    if (poIds.length) {
+      const {data: pos} = await sb.from('jubelio_purchase_orders')
+        .select('purchaseorder_id,purchaseorder_no,supplier_name,transaction_date,expected_date')
+        .in('purchaseorder_id', poIds);
+      (pos||[]).forEach(p => {
+        if (p.transaction_date) events.push({ date: p.transaction_date.slice(0,10), type: 'po', icon: '📦', label: 'PO created', detail: `${p.purchaseorder_no||'—'} · ${p.supplier_name||'?'}`, tone: '#0a7d3a' });
+        if (p.expected_date)   events.push({ date: p.expected_date.slice(0,10),   type: 'po', icon: '🚚', label: 'PO expected delivery', detail: `${p.purchaseorder_no||'—'} · ${p.supplier_name||'?'}`, tone: '#0a7d3a' });
+      });
+    }
+  } catch(_) {}
+  // 5. Marketing events
+  try {
+    const {data: me} = await sb.from('marketing_events').select('name,event_date,location').eq('collection_id', cid);
+    (me||[]).forEach(m => { if (m.event_date) events.push({ date: m.event_date, type: 'mkt', icon: '🎪', label: 'Marketing event', detail: `${m.name||'—'}${m.location?` · ${m.location}`:''}`, tone: '#c0392b' }); });
+  } catch(_) {}
+  // 6. Content planning
+  try {
+    const {data: cp} = await sb.from('content_planning').select('title,publish_date,platform,deadline').eq('collection_id', cid);
+    (cp||[]).forEach(c => {
+      if (c.publish_date) events.push({ date: c.publish_date, type: 'content', icon: '📱', label: `Content publish${c.platform?` (${c.platform})`:''}`, detail: c.title||'—', tone: '#a66800' });
+      if (c.deadline)     events.push({ date: c.deadline,     type: 'content', icon: '✍️', label: 'Content deadline', detail: c.title||'—', tone: '#a66800' });
+    });
+  } catch(_) {}
+  // 7. Photoshoots
+  try {
+    const {data: ph} = await sb.from('photoshoots').select('title,shoot_date,location').eq('collection_id', cid);
+    (ph||[]).forEach(p => { if (p.shoot_date) events.push({ date: p.shoot_date, type: 'shoot', icon: '📸', label: 'Photoshoot', detail: `${p.title||'—'}${p.location?` · ${p.location}`:''}`, tone: '#3C3489' }); });
+  } catch(_) {}
+  // 8. Publications
+  try {
+    const {data: pb} = await sb.from('publications').select('title,publish_date,outlet').eq('collection_id', cid);
+    (pb||[]).forEach(p => { if (p.publish_date) events.push({ date: p.publish_date, type: 'pub', icon: '📰', label: `Publication${p.outlet?` (${p.outlet})`:''}`, detail: p.title||'—', tone: '#c0392b' }); });
+  } catch(_) {}
+  // 9. Ads campaigns
+  try {
+    const {data: ad} = await sb.from('ads_campaigns').select('name,start_date,end_date,platform').eq('collection_id', cid);
+    (ad||[]).forEach(a => {
+      if (a.start_date) events.push({ date: a.start_date, type: 'ads', icon: '📢', label: `Ads start${a.platform?` (${a.platform})`:''}`, detail: a.name||'—', tone: '#c0392b' });
+      if (a.end_date)   events.push({ date: a.end_date,   type: 'ads', icon: '🏁', label: `Ads end${a.platform?` (${a.platform})`:''}`,   detail: a.name||'—', tone: '#c0392b' });
+    });
+  } catch(_) {}
+  // Render
+  if (!events.length) {
+    if (cnt) cnt.textContent = '0 events';
+    host.innerHTML = `<div style="padding:14px;color:var(--g400);font-size:12px;text-align:center;background:var(--off);border-radius:6px">Belum ada tanggal apapun. Set release date, deadline SKU, sampling expected, PO, marketing events, dll. di modul-modul masing-masing untuk muncul di sini.</div>`;
+    return;
+  }
+  // Group by date
+  events.sort((a,b) => a.date.localeCompare(b.date));
+  const byDate = new Map();
+  events.forEach(e => { const arr = byDate.get(e.date)||[]; arr.push(e); byDate.set(e.date, arr); });
+  if (cnt) cnt.textContent = `${events.length} events · ${byDate.size} hari`;
+  const today = new Date().toISOString().slice(0,10);
+  const todayInserted = byDate.has(today);
+  if (!todayInserted) { byDate.set(today, []); /* phantom marker */ }
+  const sortedDates = [...byDate.keys()].sort();
+  // Filter chips (optional, simple toggle by type for now via inline data attr; can add UI later)
+  const fmtDate = d => {
+    const dt = new Date(d+'T00:00:00');
+    return dt.toLocaleDateString('id-ID',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
+  };
+  const dayDiff = (a,b) => Math.round((new Date(a) - new Date(b)) / 86400000);
+  host.innerHTML = `<div style="display:flex;flex-direction:column;gap:0;position:relative">
+    ${sortedDates.map(d => {
+      const arr = byDate.get(d) || [];
+      const isToday = d === today;
+      const diff = dayDiff(d, today);
+      const dayLabel = isToday ? 'HARI INI' : diff > 0 ? `+${diff}d` : `${diff}d`;
+      const dayClr  = isToday ? '#c0392b' : diff < 0 ? 'var(--g400)' : 'var(--g600)';
+      return `<div style="display:flex;gap:14px;align-items:flex-start;padding:10px 0;border-bottom:1px dashed var(--g100);${isToday?'background:linear-gradient(to right, #fff5f0, transparent);':''}">
+        <div style="flex:0 0 130px;text-align:right;padding-top:4px">
+          <div style="font-family:var(--mono);font-size:11px;font-weight:600;color:${dayClr}">${fmtDate(d)}</div>
+          <div style="font-family:var(--mono);font-size:10px;color:${dayClr};text-transform:uppercase;letter-spacing:0.5px;margin-top:2px">${dayLabel}</div>
+        </div>
+        <div style="flex:0 0 16px;position:relative">
+          <div style="width:10px;height:10px;border-radius:50%;background:${isToday?'#c0392b':'#3C3489'};margin-top:7px;box-shadow:0 0 0 3px ${isToday?'#fff5f0':'var(--off)'}"></div>
+        </div>
+        <div style="flex:1;min-width:0">
+          ${arr.length ? arr.map(e => `<div style="display:inline-flex;align-items:center;gap:6px;background:${e.tone}15;border:1px solid ${e.tone}40;color:${e.tone};border-radius:4px;padding:4px 10px;margin:2px 6px 2px 0;font-size:11px">
+            <span>${e.icon}</span>
+            <strong>${e.label}</strong>
+            <span style="color:var(--g600)">· ${(e.detail||'').replace(/</g,'&lt;')}</span>
+          </div>`).join('') : `<div style="font-size:10px;color:var(--g400);font-style:italic;padding:5px 0">(belum ada event hari ini)</div>`}
+        </div>
+      </div>`;
+    }).join('')}
+  </div>`;
+  // Auto-scroll to today marker if it's in view
+  setTimeout(() => {
+    const todayEl = host.querySelector('[style*="HARI INI"]');
+    if (todayEl) todayEl.scrollIntoView({behavior:'smooth', block:'center'});
+  }, 200);
+}
+
 // ── Post-Mortem section: structured retrospective template ──
 // Fields: What worked, What didn't work, What to improve, Action items + status pill.
 // All free-text; saved into collections.postmortem_* columns. One entry per
@@ -6703,7 +7034,11 @@ function renderColDetail(col, items) {
 
         <!-- ─────────── 📊 BUSINESS TAB ─────────── -->
         <div id="cd-tab-business-${col.id}" class="cd-tab-content">
+        ${renderColBriefSection(col)}
+        ${renderColMarginSection(col, items)}
+        ${renderColAgreementSection(col)}
         ${renderColTargetSection(col, items)}
+        ${renderColTimelineSection(col, items)}
         </div><!-- /Business tab -->
 
         <!-- ─────────── 📣 MARKETING TAB ─────────── -->
@@ -6772,6 +7107,11 @@ function renderColDetail(col, items) {
   setupNoteAC(col.id);
   loadColProductPerf(col.id, col.collectionName, col.revenueStream||"", col.ipRelated||"");
   loadColStockRecon(col.id, col.collectionName);
+  // Business tab async loaders
+  loadColMarginPanel(col, items);
+  loadColAgreementPanel(col);
+  loadColTimelinePanel(col, items);
+  setupAC(`col-agr-input-${col.id}`,`ac-col-agr-${col.id}`,()=>acAgrOptions.map(o=>o.id),()=>acAgrOptions);
   // Activate the persisted tab (Business by default)
   const _lastTab = sessionStorage.getItem(`cd-tab-${col.id}`) || 'business';
   cdSwitchTab(col.id, _lastTab);
