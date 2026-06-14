@@ -23866,16 +23866,17 @@ function addKolDeliverableRow(platform, url) {
   host.insertAdjacentHTML('beforeend', _kolDeliverableRowHTML(platform || 'Instagram', url || '', 'kol-deliv'));
 }
 
-function _kolReadDeliverables() {
-  const rows = document.querySelectorAll('#kol-deliverables-rows .kol-deliv-row');
+function _kolReadDelivFrom(containerId, prefix) {
+  const rows = document.querySelectorAll(`#${containerId} .kol-deliv-row`);
   const out = [];
   rows.forEach(r => {
-    const platform = r.querySelector('.kol-deliv-platform')?.value || '';
-    const url = (r.querySelector('.kol-deliv-url')?.value || '').trim();
+    const platform = r.querySelector(`.${prefix}-platform`)?.value || '';
+    const url = (r.querySelector(`.${prefix}-url`)?.value || '').trim();
     if (platform && url) out.push({platform, url});
   });
   return out;
 }
+function _kolReadDeliverables() { return _kolReadDelivFrom('kol-deliverables-rows', 'kol-deliv'); }
 
 // Multi-row picker: freebie items (SKU from product_mappings + qty)
 function _kolFreebieRowHTML(item, prefix) {
@@ -23939,17 +23940,18 @@ function _kolFrbRenderAC(display, ac) {
   });
 }
 
-function _kolReadFreebieItems() {
-  const rows = document.querySelectorAll('#kol-freebie-rows .kol-frb-row');
+function _kolReadFreebieFrom(containerId, prefix) {
+  const rows = document.querySelectorAll(`#${containerId} .kol-frb-row`);
   const out = [];
   rows.forEach(r => {
-    const sku = r.querySelector('.kol-frb-sku')?.value || '';
-    const item_name = r.querySelector('.kol-frb-name')?.value || '';
-    const qty = parseInt(r.querySelector('.kol-frb-qty')?.value, 10) || 1;
+    const sku = r.querySelector(`.${prefix}-sku`)?.value || '';
+    const item_name = r.querySelector(`.${prefix}-name`)?.value || '';
+    const qty = parseInt(r.querySelector(`.${prefix}-qty`)?.value, 10) || 1;
     if (sku) out.push({sku, item_name, qty});
   });
   return out;
 }
+function _kolReadFreebieItems() { return _kolReadFreebieFrom('kol-freebie-rows', 'kol-frb'); }
 
 // Toggle visibility of Fee field + Barter section based on payment_category
 function toggleKolPaymentSections() {
@@ -24118,7 +24120,15 @@ async function loadKolMgmt() {
             ${_KOL_STATUS_OPTS.map(s => `<option value="${s}"${s===r.status?' selected':''}>${s}</option>`).join('')}
           </select>
         </td>
-        <td style="white-space:nowrap"><button class="btn-icon" onclick="deleteKol('${r.id}')" title="Hapus" style="color:#c0392b">🗑</button></td>
+        <td style="white-space:nowrap">
+          <button class="btn-icon" onclick="openKolEdit('${r.id}')" title="Edit">✎</button>
+          <button class="btn-icon" onclick="deleteKol('${r.id}')" title="Hapus" style="color:#c0392b">🗑</button>
+        </td>
+      </tr>
+      <tr id="kol-edit-row-${r.id}" style="display:none">
+        <td colspan="9" style="padding:0 8px 8px;background:var(--off)">
+          <div id="kol-edit-body-${r.id}"></div>
+        </td>
       </tr>`;
     }).join('');
   } catch(e) { if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="9">Gagal: ${e.message||e}</td></tr>`; }
@@ -24184,6 +24194,209 @@ async function requestKolShipment(placementId) {
     alert(`✓ Ticket ${obId} dibuat. Buka modul Outbond Request buat track delivery & set biaya kirim.`);
     loadKolMgmt();
   } catch(e) { alert('Gagal: '+(e.message||e)); }
+}
+
+// Inline edit — expands row, builds full form scoped to this row's id
+function openKolEdit(id) {
+  const r = _kolRows.find(x => x.id === id);
+  if (!r) return;
+  const tr = document.getElementById(`kol-edit-row-${id}`);
+  if (!tr) return;
+  if (tr.style.display !== 'none') { closeKolEdit(id); return; }
+  const body = document.getElementById(`kol-edit-body-${id}`);
+  body.innerHTML = _kolEditFormHTML(r);
+  tr.style.display = '';
+  // Wire AC + freebie picker after DOM is set
+  _kolEditAttachAC(id);
+  _kolEditToggleSections(id);
+}
+
+function closeKolEdit(id) {
+  const tr = document.getElementById(`kol-edit-row-${id}`);
+  if (tr) tr.style.display = 'none';
+}
+
+function _kolEditFormHTML(r) {
+  const esc = s => (s==null?'':String(s)).replace(/"/g,'&quot;');
+  const colName = allColRows.find(c => c.id === r.collectionId)?.collectionName || '';
+  const cat = r.paymentCategory || 'Barter';
+  const id = r.id;
+  const delivRowsHTML = (r.deliverablesList && r.deliverablesList.length)
+    ? r.deliverablesList.map(d => _kolDeliverableRowHTML(d.platform || 'Instagram', d.url || '', `kole-deliv-${id}`)).join('')
+    : _kolDeliverableRowHTML('Instagram', '', `kole-deliv-${id}`);
+  const freebieRowsHTML = (r.freebieItems && r.freebieItems.length)
+    ? r.freebieItems.map(it => _kolFreebieRowHTML(it, `kole-frb-${id}`)).join('')
+    : '';
+  return `<div style="padding:12px;border:1px solid var(--g100);border-radius:6px;background:var(--white)">
+    <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.3px;color:var(--g600);margin-bottom:8px">✎ Edit Placement · <span style="font-family:var(--mono);font-size:10px">${esc(id)}</span></div>
+
+    <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.3px;color:var(--g600);margin-bottom:4px">Identitas</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+      <div class="fg" style="position:relative;margin:0">
+        <label style="font-size:11px">Collection</label>
+        <input type="text" id="kole-collection-${id}" value="${esc(colName)}" placeholder="—" autocomplete="off" style="font-size:12px;padding:5px 8px">
+        <div class="ac-list" id="ac-kole-collection-${id}"></div>
+      </div>
+      <div class="fg" style="position:relative;margin:0">
+        <label style="font-size:11px">Nama KOL *</label>
+        <input type="text" id="kole-name-${id}" value="${esc(r.name)}" autocomplete="off" style="font-size:12px;padding:5px 8px">
+        <div class="ac-list" id="ac-kole-name-${id}"></div>
+      </div>
+    </div>
+
+    <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.3px;color:var(--g600);margin-bottom:4px">Deliverables</div>
+    <div id="kole-deliv-${id}" style="display:flex;flex-direction:column;gap:6px;margin-bottom:6px">${delivRowsHTML}</div>
+    <button class="btn-ghost" type="button" onclick="_kolEditAddDelivRow('${id}')" style="padding:4px 10px;font-size:11px;margin-bottom:10px">+ Tambah Deliverable</button>
+
+    <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.3px;color:var(--g600);margin-bottom:4px;margin-top:4px">Payment</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+      <div class="fg" style="margin:0">
+        <label style="font-size:11px">Kategori</label>
+        <select id="kole-cat-${id}" onchange="_kolEditToggleSections('${id}')" style="font-size:12px;padding:5px 8px">
+          ${_KOL_PAY_CATS.map(c => `<option value="${c}"${c===cat?' selected':''}>${c}</option>`).join('')}
+        </select>
+      </div>
+      <div class="fg" id="kole-fee-fg-${id}" style="margin:0;display:none">
+        <label style="font-size:11px">Fee KOL (Rp)</label>
+        <input type="number" id="kole-fee-${id}" min="0" value="${r.fee==null?'':r.fee}" style="font-size:12px;padding:5px 8px">
+      </div>
+    </div>
+
+    <div id="kole-barter-${id}" style="display:none;border:1px dashed var(--g200);padding:10px;border-radius:6px;margin-bottom:10px">
+      <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.3px;color:var(--g600);margin-bottom:6px">Pengiriman Freebie</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">
+        <div class="fg" style="margin:0"><label style="font-size:11px">Phone</label><input type="text" id="kole-rec-phone-${id}" value="${esc(r.recipientPhone)}" style="font-size:12px;padding:5px 8px"></div>
+        <div class="fg" style="margin:0"><label style="font-size:11px">Tgl Kirim</label><input type="date" id="kole-ship-date-${id}" value="${r.requestedShipDate||''}" style="font-size:12px;padding:5px 8px"></div>
+        <div class="fg" style="margin:0"><label style="font-size:11px">Outbound</label><div style="font-size:11px;padding:5px 0;color:var(--g600)">${r.outboundRequestId?`<a href="#" onclick="event.preventDefault();showPage('outbound',null)" style="color:#3C3489;text-decoration:underline">✓ ${esc(r.outboundRequestId)}</a>`:'<span style="color:var(--g400)">Belum di-request</span>'}</div></div>
+      </div>
+      <div class="fg" style="margin:0 0 8px"><label style="font-size:11px">Alamat lengkap</label><textarea id="kole-rec-address-${id}" rows="2" style="font-size:12px;padding:5px 8px;resize:vertical">${esc(r.recipientAddress)}</textarea></div>
+      <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.3px;color:var(--g600);margin-bottom:4px">Items</div>
+      <div id="kole-frb-${id}" style="display:flex;flex-direction:column;gap:6px;margin-bottom:6px">${freebieRowsHTML}</div>
+      <button class="btn-ghost" type="button" onclick="_kolEditAddFreebieRow('${id}')" style="padding:4px 10px;font-size:11px">+ Tambah Item</button>
+    </div>
+
+    <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.3px;color:var(--g600);margin-bottom:4px">Status &amp; Meta</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">
+      <div class="fg" style="margin:0">
+        <label style="font-size:11px">Status</label>
+        <select id="kole-status-${id}" style="font-size:12px;padding:5px 8px">
+          ${_KOL_STATUS_OPTS.map(s => `<option value="${s}"${s===r.status?' selected':''}>${s}</option>`).join('')}
+        </select>
+      </div>
+      <div class="fg" style="margin:0"><label style="font-size:11px">Post Date</label><input type="date" id="kole-post-date-${id}" value="${r.postDate||''}" style="font-size:12px;padding:5px 8px"></div>
+      <div class="fg" style="margin:0"><label style="font-size:11px">PIC</label><input type="text" id="kole-pic-${id}" value="${esc(r.pic)}" style="font-size:12px;padding:5px 8px"></div>
+    </div>
+    <div class="fg" style="margin:0 0 10px"><label style="font-size:11px">Notes</label><textarea id="kole-notes-${id}" rows="2" style="font-size:12px;padding:5px 8px;resize:vertical">${esc(r.notes)}</textarea></div>
+
+    <div style="display:flex;gap:6px">
+      <button class="btn-save" onclick="saveKolEdit('${id}')">💾 Simpan</button>
+      <button class="btn-cancel" onclick="closeKolEdit('${id}')">Batal</button>
+      <div id="kole-fb-${id}" style="margin-left:auto;font-size:11px;align-self:center"></div>
+    </div>
+  </div>`;
+}
+
+// Wire setupAC for the per-row collection + KOL name inputs
+function _kolEditAttachAC(id) {
+  setupAC(`kole-collection-${id}`, `ac-kole-collection-${id}`, () => allColRows.map(c => c.collectionName).filter(Boolean));
+  setupAC(`kole-name-${id}`, `ac-kole-name-${id}`, () => allKolDbRows.map(k => k.name).filter(Boolean));
+  // Wire AC for existing freebie rows (when reopening with prefilled items)
+  const host = document.getElementById(`kole-frb-${id}`);
+  if (host) {
+    host.querySelectorAll(`.kol-frb-row`).forEach(row => {
+      const display = row.querySelector(`.kole-frb-${id}-display`);
+      const ac = row.querySelector(`.kole-frb-${id}-ac`);
+      if (!display || !ac) return;
+      display.addEventListener('input', () => _kolFrbRenderAC(display, ac));
+      display.addEventListener('focus', () => _kolFrbRenderAC(display, ac));
+      document.addEventListener('click', e => {
+        if (!display.contains(e.target) && !ac.contains(e.target)) ac.style.display = 'none';
+      });
+    });
+  }
+}
+
+function _kolEditAddDelivRow(id) {
+  const host = document.getElementById(`kole-deliv-${id}`);
+  host.insertAdjacentHTML('beforeend', _kolDeliverableRowHTML('Instagram', '', `kole-deliv-${id}`));
+}
+
+function _kolEditAddFreebieRow(id) {
+  const host = document.getElementById(`kole-frb-${id}`);
+  host.insertAdjacentHTML('beforeend', _kolFreebieRowHTML(null, `kole-frb-${id}`));
+  const row = host.lastElementChild;
+  const display = row.querySelector(`.kole-frb-${id}-display`);
+  const ac = row.querySelector(`.kole-frb-${id}-ac`);
+  display.addEventListener('input', () => _kolFrbRenderAC(display, ac));
+  display.addEventListener('focus', () => _kolFrbRenderAC(display, ac));
+  document.addEventListener('click', e => {
+    if (!display.contains(e.target) && !ac.contains(e.target)) ac.style.display = 'none';
+  });
+}
+
+function _kolEditToggleSections(id) {
+  const cat = document.getElementById(`kole-cat-${id}`)?.value || 'Barter';
+  const feeFg = document.getElementById(`kole-fee-fg-${id}`);
+  const barter = document.getElementById(`kole-barter-${id}`);
+  if (feeFg) feeFg.style.display = (cat === 'Pay' || cat === 'Pay+Barter') ? '' : 'none';
+  if (barter) barter.style.display = (cat === 'Barter' || cat === 'Pay+Barter') ? '' : 'none';
+}
+
+async function saveKolEdit(id) {
+  const fb = document.getElementById(`kole-fb-${id}`);
+  const setFB = (msg, ok) => { if (fb) { fb.style.color = ok?'#0a7d3a':'#c0392b'; fb.textContent = msg; } };
+  const r = _kolRows.find(x => x.id === id);
+  if (!r) return;
+  const name = (document.getElementById(`kole-name-${id}`).value || '').trim();
+  if (!name) { setFB('Nama KOL wajib', false); return; }
+  const cat = document.getElementById(`kole-cat-${id}`).value || 'Barter';
+  const fee = (cat === 'Pay' || cat === 'Pay+Barter')
+    ? (parseFloat(document.getElementById(`kole-fee-${id}`).value) || null) : null;
+  // Resolve collection name → id
+  const colName = (document.getElementById(`kole-collection-${id}`).value || '').trim().toLowerCase();
+  const colMatch = allColRows.find(c => (c.collectionName||'').toLowerCase() === colName);
+  const collection_id = colMatch ? colMatch.id : null;
+  // Resolve KOL name → kol_db_id
+  const kolMatch = allKolDbRows.find(k => (k.name||'').toLowerCase() === name.toLowerCase());
+  const kol_db_id = kolMatch ? kolMatch.id : null;
+  const deliverables = _kolReadDelivFrom(`kole-deliv-${id}`, `kole-deliv-${id}`);
+  const freebieItems = (cat === 'Barter' || cat === 'Pay+Barter') ? _kolReadFreebieFrom(`kole-frb-${id}`, `kole-frb-${id}`) : [];
+  const payload = {
+    kol_name: name,
+    kol_db_id,
+    collection_id,
+    payment_category: cat,
+    fee,
+    deliverables_list: deliverables,
+    freebie_items: freebieItems,
+    recipient_address: (document.getElementById(`kole-rec-address-${id}`)?.value || '').trim() || null,
+    recipient_phone: (document.getElementById(`kole-rec-phone-${id}`)?.value || '').trim() || null,
+    requested_ship_date: document.getElementById(`kole-ship-date-${id}`)?.value || null,
+    status: document.getElementById(`kole-status-${id}`).value || 'Planning',
+    post_date: document.getElementById(`kole-post-date-${id}`).value || null,
+    pic: (document.getElementById(`kole-pic-${id}`).value || '').trim() || null,
+    notes: (document.getElementById(`kole-notes-${id}`).value || '').trim() || null,
+    last_updated: new Date().toISOString(), last_updated_by: currentUser || '',
+  };
+  try {
+    const {error} = await sb.from('kol_placements').update(payload).eq('id', id);
+    if (error) throw error;
+    // Auto-seed kol_database if new name
+    if (!kol_db_id) {
+      try {
+        const kdId = genId('KD');
+        await sb.from('kol_database').insert({
+          id: kdId, name,
+          added_by: currentUser, date_added: new Date().toISOString().slice(0,10),
+          last_updated: new Date().toISOString(), last_updated_by: currentUser,
+        });
+      } catch (e) { console.warn('Auto-seed kol_database failed:', e); }
+    }
+    logActivity('KolManagement','edit',id,`Edit: ${name} · ${cat}`);
+    setFB('✓ Tersimpan', true);
+    closeKolEdit(id);
+    loadKolMgmt();
+  } catch(e) { setFB('Gagal: ' + (e.message||e), false); }
 }
 
 // ── 7. TRANSACTION MAPPING ──
