@@ -21650,6 +21650,14 @@ const _CP_KANBAN_COLS = [
 const _CP_CANCELLED_TONE = {bg:'#fbe6e6',head:'#b81d1d',border:'#e0a8a8'};
 // Status options shown in card status select (Scheduled removed)
 const _CP_STATUS_OPTS = ['Planning','Draft','Drafting','In Progress','Review','For Review','Approved','Published','Cancelled'];
+// VP uses a slimmer status set per user — no Planning/Approved/Published/Cancelled.
+const _VP_STATUS_OPTS = ['Drafting','In Progress','Review','Done'];
+const _VP_KANBAN_COLS = [
+  { key:'Drafting',     label:'✍️ Drafting',     match:['Drafting'],    tone:{bg:'#eef0f8',head:'#3C3489',border:'#c9bdf0'} },
+  { key:'In Progress',  label:'⚙️ In Progress',  match:['In Progress'], tone:{bg:'#fef0d0',head:'#a66800',border:'#f1cf7a'} },
+  { key:'Review',       label:'👀 Review',       match:['Review'],      tone:{bg:'#fef5e0',head:'#a66800',border:'#f3cf7a'} },
+  { key:'Done',         label:'✅ Done',         match:['Done'],        tone:{bg:'#daf3e0',head:'#0a7d3a',border:'#a7dab4'} },
+];
 
 let _cpView = 'kanban';
 let _cpColById = new Map();
@@ -21724,29 +21732,30 @@ async function loadContentPlan() {
       board.innerHTML = `<div style="text-align:center;padding:32px;color:var(--g400);font-size:13px;flex:1">Tidak ada data.</div>`;
       return;
     }
-    // Bucket rows by kanban column.
-    const buckets = new Map(_CP_KANBAN_COLS.map(c => [c.key, []]));
+    // VP uses its own column set (Drafting/In Progress/Review/Done); CP uses
+    // the legacy multi-bucket flow.
+    const cols = _cpVideoMode ? _VP_KANBAN_COLS : _CP_KANBAN_COLS;
+    const buckets = new Map(cols.map(c => [c.key, []]));
     const cancelledBucket = [];
     const otherBucket = [];
     for (const r of rows) {
       if (r.status === 'Cancelled') { cancelledBucket.push(r); continue; }
-      if (r.status === 'Scheduled') { buckets.get('Approved').push(r); continue; }
-      const col = _CP_KANBAN_COLS.find(c => c.match.includes(r.status));
+      if (!_cpVideoMode && r.status === 'Scheduled') { buckets.get('Approved').push(r); continue; }
+      const col = cols.find(c => c.match.includes(r.status));
       if (col) buckets.get(col.key).push(r);
       else otherBucket.push(r);
     }
-    // Main board — use Project Board kanban classes for identical look.
     let html = `<div class="kanban-board">`;
-    html += _CP_KANBAN_COLS.map(col => _cpKanbanColumnHTML(col, buckets.get(col.key)||[], colById)).join('');
+    html += cols.map(col => _cpKanbanColumnHTML(col, buckets.get(col.key)||[], colById)).join('');
     if (otherBucket.length) {
       html += _cpKanbanColumnHTML({key:'Other', label:'Other', dotColor:'#999'}, otherBucket, colById);
     }
     html += `</div>`;
     board.innerHTML = html;
-    // Cancelled section rendered separately below in cpCancelled host
+    // Cancelled hidden in VP mode (status set doesn't include Cancelled)
     const cancelHost = _cpEl('cpCancelled');
     if (cancelHost) {
-      if (cancelledBucket.length) {
+      if (cancelledBucket.length && !_cpVideoMode) {
         cancelHost.innerHTML = `<div class="kanban-board">${_cpKanbanColumnHTML({key:'Cancelled', label:'Cancelled', dotColor:'#c0392b'}, cancelledBucket, colById, true)}</div>`;
       } else {
         cancelHost.innerHTML = '';
@@ -21766,12 +21775,14 @@ function _cpKanbanColumnHTML(col, items, colById, wide) {
   // Dot colors mirror calendar chip's PERCEIVED color (the saturated background
   // tone, not the dark text color) so visual identity is identical across views.
   const dotMap = {
-    Planning:  '#ec4899', // pink chip
-    Drafting:  '#3b82f6', // blue chip
-    Review:    '#eab308', // yellow chip
-    Approved:  '#8b5cf6', // purple chip
-    Published: '#10b981', // green chip
-    Cancelled: '#ef4444', // red chip
+    Planning:      '#ec4899', // pink
+    Drafting:      '#3b82f6', // blue
+    'In Progress': '#eab308', // amber (VP column)
+    Review:        '#eab308', // yellow
+    Approved:      '#8b5cf6', // purple
+    Published:     '#10b981', // green
+    Done:          '#10b981', // green (VP column)
+    Cancelled:     '#ef4444', // red
   };
   const dot = col.dotColor || dotMap[col.key] || '#888';
   const label = (col.label||col.key).replace(/^[^\w]+\s*/, '');
@@ -21965,7 +21976,14 @@ const _CP_DEFAULTS = {
   contentCat: ['Promotional','Snackable'],
   contentFormat: ['Reels','Stories','Post','Video'],
 };
-let _cpChannelCats = [], _cpChannels = [], _cpContentCats = [], _cpContentFormats = [], _cpPics = [];
+// Seeded with defaults so other modules (Marketing Planning) can use these
+// caches before Content Planning has been opened. _cpRebuildVocab merges DB
+// values in afterwards.
+let _cpChannelCats    = [..._CP_DEFAULTS.channelCat];
+let _cpChannels       = [..._CP_DEFAULTS.channel];
+let _cpContentCats    = [..._CP_DEFAULTS.contentCat];
+let _cpContentFormats = [..._CP_DEFAULTS.contentFormat];
+let _cpPics = [];
 
 function _cpRebuildVocab(rows) {
   const uniq = (arr) => [...new Set(arr.map(v=>(v||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
@@ -22069,7 +22087,7 @@ function _vpDrawerFormHTML(r, colOpts) {
       <textarea id="cpd-caption" rows="4" placeholder="Catatan produksi, brief, script, dll." style="font-size:12px;padding:7px 10px;resize:vertical">${esc(r.caption)}</textarea>
     </div>
     <div class="fg" style="margin:0"><label style="font-size:11px">Status</label>
-      <select id="cpd-status" style="font-size:12px;padding:7px 10px;background:var(--white)">${_CP_STATUS_OPTS.map(s=>`<option${r.status===s?' selected':''}>${s}</option>`).join('')}</select>
+      <select id="cpd-status" style="font-size:12px;padding:7px 10px;background:var(--white)">${_VP_STATUS_OPTS.map(s=>`<option${r.status===s?' selected':''}>${s}</option>`).join('')}</select>
     </div>
   </div>`;
 }
@@ -22098,7 +22116,7 @@ async function submitCPDrawer() {
     deadline: get('deadline') || null,
     content_url: get('contenturl')?.trim() || null,
     caption: get('caption')?.trim() || null,
-    status: get('status') || 'Planning',
+    status: get('status') || 'Drafting',
     last_updated: new Date().toISOString(), last_updated_by: currentUser,
   } : {
     title,
@@ -22962,6 +22980,56 @@ function renderMPDetailBody(col, plan) {
 
 // Per-activity definition — table, fields, status options. Single source of
 // truth for quick-add form / inline edit / save / delete.
+// Ads channel vocab — separate from content channel (which reuses CP cache).
+// Seeded with defaults; new values typed via setupAC's "+ Tambah" get appended
+// so the dropdown grows organically per-session.
+const _MP_ADS_CHANNEL_DEFAULTS = ['Meta','Google Ads','TikTok Ads','YouTube Ads','Twitter Ads'];
+let _mpAdsChannels = [..._MP_ADS_CHANNEL_DEFAULTS];
+
+// Map (activity key, field name) → vocab cache. Content fields reuse the CP
+// caches; ads.channel has its own. Returns null when the field isn't a
+// datalist picker, so callers can no-op.
+function _mpVocabFor(actKey, field) {
+  if (actKey === 'content') {
+    if (field === 'channel_category') return () => _cpChannelCats;
+    if (field === 'channel')          return () => _cpChannels;
+    if (field === 'content_category') return () => _cpContentCats;
+    if (field === 'content_format')   return () => _cpContentFormats;
+  }
+  if (actKey === 'ads' && field === 'channel') return () => _mpAdsChannels;
+  return null;
+}
+
+// Push a freshly-typed value into the appropriate cache so it persists for
+// this session. Called after quick-add submit / inline edit save.
+function _mpPushVocab(actKey, field, val) {
+  const v = (val||'').trim();
+  if (!v) return;
+  const push = (arr) => { if (!arr.includes(v)) { arr.push(v); arr.sort((a,b)=>a.localeCompare(b)); } };
+  if (actKey === 'content') {
+    if (field === 'channel_category') push(_cpChannelCats);
+    else if (field === 'channel')     push(_cpChannels);
+    else if (field === 'content_category') push(_cpContentCats);
+    else if (field === 'content_format')   push(_cpContentFormats);
+  } else if (actKey === 'ads' && field === 'channel') {
+    push(_mpAdsChannels);
+  }
+}
+
+// After a form HTML block is inserted (quick-add or inline edit), wire setupAC
+// to each datalist field. Caller passes the activity key + the id prefix used
+// when generating the field ids (mpqa for quick-add, mpedit for inline edit).
+function _mpWireDatalistAC(actKey, prefix) {
+  const def = _MP_ACTIVITY_DEFS[actKey];
+  if (!def) return;
+  for (const ex of def.extras) {
+    if (ex.type !== 'datalist') continue;
+    const getter = _mpVocabFor(actKey, ex.f);
+    if (!getter) continue;
+    setupAC(`${prefix}-${actKey}-${ex.f}`, `ac-${prefix}-${actKey}-${ex.f}`, getter);
+  }
+}
+
 const _MP_ACTIVITY_DEFS = {
   photoshoot: {
     table: 'photoshoots', idPrefix: 'PS', moduleHref: 'photoshoot',
@@ -23099,6 +23167,7 @@ async function _mpLoadActivitySummary(activity, cid, expanded) {
     bodyEl.innerHTML = quickAddForm + toolbar + (rows.length
       ? rows.map(r => _mpRenderActRow(activity.key, r, cid)).join('')
       : `<div style="text-align:center;padding:14px;color:var(--g400);font-size:12px">Belum ada entri ${activity.label.toLowerCase()}. Klik <strong>+ Tambah cepat</strong> di atas atau <a href="#${activity.moduleHref}" onclick="showPage('${activity.moduleHref}',null);return false" style="color:#3C3489;text-decoration:underline">buka modul lengkap</a>.</div>`);
+    _mpWireDatalistAC(activity.key, 'mpqa');
   }
 }
 
@@ -23185,6 +23254,7 @@ async function _mpEditRow(key, id) {
       <div id="mp-rowedit-fb-${key}-${id}" style="margin-left:auto;font-size:11px;align-self:center"></div>
     </div>
   </div>`;
+  _mpWireDatalistAC(key, 'mpedit');
 }
 
 function _mpRenderEditFormFields(key, r) {
@@ -23216,6 +23286,7 @@ async function _mpSaveRowEdit(key, id) {
   for (const ex of def.extras) {
     const v = document.getElementById(`mpedit-${key}-${ex.f}`)?.value;
     payload[ex.f] = ex.type === 'number' ? (v===''?null:Number(v)) : (v||null);
+    if (ex.type === 'datalist' && v) _mpPushVocab(key, ex.f, v);
   }
   try {
     const {error} = await sb.from(def.table).update(payload).eq('id', id);
@@ -23298,13 +23369,18 @@ function _mpQuickAddFormHTML(activity) {
 }
 
 // Render a single extra field input given its type. Used by both quick-add
-// and inline-edit so they stay in sync.
+// and inline-edit so they stay in sync. For 'datalist' we render the custom
+// setupAC pattern (input + .ac-list div) — caller MUST invoke
+// _mpWireDatalistAC after the HTML is inserted into the DOM.
 function _mpFieldInputHTML(actKey, ex, value, prefix) {
   const esc = s => (s==null?'':String(s)).replace(/"/g,'&quot;');
   if (ex.type === 'datalist') {
-    const listId = `${prefix}-${actKey}-${ex.f}-list`;
-    const opts = (ex.options||[]).map(o => `<option value="${esc(o)}">`).join('');
-    return `<input type="text" id="${prefix}-${actKey}-${ex.f}" list="${listId}" value="${esc(value)}" placeholder="${ex.placeholder}" style="font-size:12px;padding:5px 8px"><datalist id="${listId}">${opts}</datalist>`;
+    const inpId = `${prefix}-${actKey}-${ex.f}`;
+    const lstId = `ac-${prefix}-${actKey}-${ex.f}`;
+    return `<div style="position:relative">
+      <input type="text" id="${inpId}" value="${esc(value)}" placeholder="${ex.placeholder}" autocomplete="off" style="font-size:12px;padding:5px 8px;width:100%;box-sizing:border-box">
+      <div class="ac-list" id="${lstId}"></div>
+    </div>`;
   }
   return `<input type="${ex.type}" id="${prefix}-${actKey}-${ex.f}" value="${esc(value)}" placeholder="${ex.placeholder}" style="font-size:12px;padding:5px 8px">`;
 }
@@ -23328,6 +23404,7 @@ async function _mpQuickAddSubmit(key, cid) {
     for (const ex of def.extras) {
       const v = document.getElementById(`mpqa-${key}-${ex.f}`)?.value;
       payload[ex.f] = ex.type === 'number' ? (v===''?null:Number(v)) : (v||null);
+      if (ex.type === 'datalist' && v) _mpPushVocab(key, ex.f, v);
     }
     if (def.fixed) Object.assign(payload, def.fixed);
     const {error} = await sb.from(def.table).insert(payload);
