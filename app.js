@@ -21721,7 +21721,6 @@ async function loadContentPlan() {
 // classes so look matches exactly. dotColor = the 8px round indicator
 // next to the column name (mirrors STAGE_COLORS dots in Project Board).
 function _cpKanbanColumnHTML(col, items, colById, wide) {
-  // Map our column key → a dot color. Falls back to col.dotColor if provided.
   const dotMap = {
     Planning:  '#5a5850',
     Drafting:  '#3C3489',
@@ -21731,12 +21730,12 @@ function _cpKanbanColumnHTML(col, items, colById, wide) {
     Cancelled: '#c0392b',
   };
   const dot = col.dotColor || dotMap[col.key] || '#888';
-  const label = (col.label||col.key).replace(/^[^\w]+\s*/, ''); // strip emoji prefix if any
+  const label = (col.label||col.key).replace(/^[^\w]+\s*/, '');
   const cards = items.length
     ? items.map(r => _cpKanbanCardHTML(r, colById)).join('')
     : `<div class="kanban-empty"><span style="font-size:11px;color:var(--g200);font-family:var(--mono)">kosong</span></div>`;
-  // Cancelled gets wider column when on its own — easier to scan.
   const styleAttr = wide ? ' style="flex:0 0 100%;min-width:100%"' : '';
+  // Add button per column — opens drawer with status pre-set (Project Board pattern)
   return `<div class="kanban-col"${styleAttr}>
     <div class="kanban-col-header">
       <div style="display:flex;align-items:center;gap:7px">
@@ -21745,6 +21744,7 @@ function _cpKanbanColumnHTML(col, items, colById, wide) {
       </div>
       <div style="display:flex;align-items:center;gap:6px">
         <span style="font-family:var(--mono);font-size:10px;color:var(--g400)">${items.length}</span>
+        <button class="kanban-add-btn" onclick="openCPDrawerAdd('${col.key}')" title="Tambah ke ${label}">+</button>
       </div>
     </div>
     <div class="kanban-cards">${cards}</div>
@@ -21752,7 +21752,8 @@ function _cpKanbanColumnHTML(col, items, colById, wide) {
 }
 
 function _cpKanbanCardHTML(r, colById) {
-  if (_cpEditingId === r.id) return _cpKanbanEditCardHTML(r, colById);
+  // Edit now opens in the right-sidebar drawer instead of replacing the
+  // card inline — _cpEditingId path kept null-safe so legacy callers don't break.
   const esc = s => _moEsc(s);
   const col = colById.get(r.collectionId);
   // Color-coded tags mirror Project Board's kcard-tag style.
@@ -21770,78 +21771,137 @@ function _cpKanbanCardHTML(r, colById) {
   const dateLine = (r.publishDate || r.deadline)
     ? `<span style="font-size:10px;font-family:var(--mono);color:var(--g400)">${r.publishDate?`📅 ${_moDate(r.publishDate)}`:''}${r.publishDate&&r.deadline?' · ':''}${r.deadline?`⏰ ${_moDate(r.deadline)}`:''}</span>`
     : '';
-  return `<div class="kanban-card" onclick="editCPCard('${r.id}')">
+  return `<div class="kanban-card" onclick="openCPDrawerEdit('${r.id}')">
     <div class="kcard-title">${esc(r.title)||'—'}</div>
     ${tags.length?`<div class="kcard-meta">${tags.join('')}</div>`:''}
     <div class="kcard-footer">
       <span style="font-size:11px;color:var(--g400)">${esc(r.owner)||''}</span>
       ${dateLine}
     </div>
-    <div onclick="event.stopPropagation()" style="display:flex;gap:4px;margin-top:8px;align-items:center">
-      <select onchange="updateCPStatus('${r.id}',this.value)" style="font-size:10px;padding:2px 6px;border:1px solid var(--g200);border-radius:4px;flex:1;background:var(--white)">${_CP_STATUS_OPTS.map(s=>`<option${r.status===s?' selected':''}>${s}</option>`).join('')}</select>
-      ${r.assetUrl?`<a href="${esc(r.assetUrl)}" target="_blank" title="Buka asset" style="font-size:13px;color:#3C3489;text-decoration:none;padding:2px 6px;border:1px solid var(--g200);border-radius:4px">↗</a>`:''}
-      <button onclick="deleteCP('${r.id}')" title="Hapus" style="background:none;border:1px solid var(--g200);border-radius:4px;color:#c0392b;cursor:pointer;font-size:11px;padding:2px 6px">🗑</button>
-    </div>
   </div>`;
 }
 
-// Inline edit form — replaces the card in place. All fields editable, save
-// writes back to content_planning then re-loads the board.
-function _cpKanbanEditCardHTML(r, colById) {
+// ── Right-sidebar drawer for add / edit ──
+// Drawer holds the full form. openCPDrawerAdd('Planning') opens blank with
+// the status preset; openCPDrawerEdit(id) loads the row and fills inputs.
+// submitCPDrawer inserts (when no _cpDrawerEditId) or updates.
+let _cpDrawerEditId = '';
+
+function openCPDrawer() {
+  document.getElementById('cpDrawer').style.display = 'flex';
+  document.getElementById('cpDrawerBackdrop').style.display = 'block';
+  document.body.style.overflow = 'hidden';
+}
+
+function closeCPDrawer() {
+  document.getElementById('cpDrawer').style.display = 'none';
+  document.getElementById('cpDrawerBackdrop').style.display = 'none';
+  document.body.style.overflow = '';
+  _cpDrawerEditId = '';
+}
+
+async function openCPDrawerAdd(statusKey) {
+  _cpDrawerEditId = '';
+  // Collection dropdown options
+  const {data: cols} = await sb.from('collections').select('id,collection_name').order('collection_name');
+  const colOpts = (cols||[]).map(c => `<option value="${(c.id||'').replace(/"/g,'&quot;')}">${(c.collection_name||'').replace(/</g,'&lt;')}</option>`).join('');
+  document.getElementById('cpDrawerTitle').textContent = `+ Tambah Content${statusKey?` · ${statusKey}`:''}`;
+  document.getElementById('cpDrawerBody').innerHTML = _cpDrawerFormHTML({status: statusKey||'Planning'}, colOpts);
+  document.getElementById('cpDrawerSaveBtn').textContent = '💾 Simpan';
+  openCPDrawer();
+  setTimeout(() => document.getElementById('cpd-title')?.focus(), 50);
+}
+
+async function openCPDrawerEdit(id) {
+  _cpDrawerEditId = id;
+  const [{data: row, error}, {data: cols}] = await Promise.all([
+    sb.from('content_planning').select('*').eq('id', id).single(),
+    sb.from('collections').select('id,collection_name').order('collection_name'),
+  ]);
+  if (error || !row) { alert('Gagal load: ' + (error?.message||'tidak ditemukan')); return; }
+  const r = mapCP(row);
+  const colOpts = (cols||[]).map(c => `<option value="${(c.id||'').replace(/"/g,'&quot;')}"${c.id===r.collectionId?' selected':''}>${(c.collection_name||'').replace(/</g,'&lt;')}</option>`).join('');
+  document.getElementById('cpDrawerTitle').textContent = `✎ Edit Content`;
+  document.getElementById('cpDrawerBody').innerHTML = _cpDrawerFormHTML(r, colOpts) + `<div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--g100)"><button onclick="if(confirm('Hapus content ini?')){deleteCP('${id}');closeCPDrawer();}" style="width:100%;padding:8px 16px;background:none;border:1px solid #e0a8a8;color:#c0392b;border-radius:6px;cursor:pointer;font-size:12px">🗑 Hapus Content</button></div>`;
+  document.getElementById('cpDrawerSaveBtn').textContent = '💾 Simpan Perubahan';
+  openCPDrawer();
+}
+
+function _cpDrawerFormHTML(r, colOpts) {
   const esc = s => (s==null?'':String(s)).replace(/"/g,'&quot;');
-  const colOpts = [...colById.values()].sort((a,b)=>(a.collection_name||'').localeCompare(b.collection_name||''));
-  return `<div style="background:white;border:2px solid #3C3489;border-radius:6px;padding:10px;font-size:12px;box-shadow:0 4px 12px rgba(60,52,137,0.15)">
-    <div style="font-family:var(--mono);font-size:10px;color:#3C3489;text-transform:uppercase;letter-spacing:0.3px;font-weight:600;margin-bottom:8px">✎ Edit content</div>
-    <input type="text" id="cpe-title-${r.id}" value="${esc(r.title)}" placeholder="Title *" style="width:100%;font-size:12px;padding:5px 8px;margin-bottom:6px;box-sizing:border-box;font-weight:600">
-    <select id="cpe-collection-${r.id}" style="width:100%;font-size:11px;padding:5px 8px;margin-bottom:6px;box-sizing:border-box;background:var(--white)">
-      <option value="">— Tanpa collection —</option>
-      ${colOpts.map(c => `<option value="${esc(c.id)}"${c.id===r.collectionId?' selected':''}>${esc(c.collection_name)}</option>`).join('')}
-    </select>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:6px">
-      <input type="text" id="cpe-type-${r.id}" value="${esc(r.contentType)}" placeholder="Type (Image/Video/...)" style="font-size:11px;padding:5px 8px">
-      <input type="text" id="cpe-channel-${r.id}" value="${esc(r.channel)}" placeholder="Channel" style="font-size:11px;padding:5px 8px">
+  return `<div style="display:flex;flex-direction:column;gap:10px">
+    <div class="fg" style="margin:0"><label style="font-size:11px"><strong>Title <span class="req">*</span></strong></label>
+      <input type="text" id="cpd-title" value="${esc(r.title)}" placeholder="cth: Lookbook IG carousel" style="font-size:13px;padding:7px 10px">
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:6px">
-      <input type="date" id="cpe-publish-${r.id}" value="${r.publishDate||''}" title="Publish date" style="font-size:11px;padding:5px 8px">
-      <input type="date" id="cpe-deadline-${r.id}" value="${r.deadline||''}" title="Deadline" style="font-size:11px;padding:5px 8px">
+    <div class="fg" style="margin:0"><label style="font-size:11px">Collection</label>
+      <select id="cpd-collection" style="font-size:12px;padding:7px 10px;background:var(--white)">
+        <option value="">— Tanpa collection —</option>
+        ${colOpts}
+      </select>
     </div>
-    <input type="text" id="cpe-owner-${r.id}" value="${esc(r.owner)}" placeholder="Owner" style="width:100%;font-size:11px;padding:5px 8px;margin-bottom:6px;box-sizing:border-box">
-    <input type="url" id="cpe-asseturl-${r.id}" value="${esc(r.assetUrl)}" placeholder="Asset URL (drive link...)" style="width:100%;font-size:11px;padding:5px 8px;margin-bottom:6px;box-sizing:border-box;font-family:var(--mono)">
-    <textarea id="cpe-caption-${r.id}" rows="2" placeholder="Caption..." style="width:100%;font-size:11px;padding:5px 8px;margin-bottom:6px;box-sizing:border-box;resize:vertical">${esc(r.caption)}</textarea>
-    <select id="cpe-status-${r.id}" style="width:100%;font-size:11px;padding:5px 8px;margin-bottom:8px;box-sizing:border-box;background:var(--white)">${_CP_STATUS_OPTS.map(s=>`<option${r.status===s?' selected':''}>${s}</option>`).join('')}</select>
-    <div style="display:flex;gap:4px">
-      <button onclick="saveCPCardEdit('${r.id}')" style="flex:1;padding:6px 12px;background:#3C3489;color:white;border:none;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600">💾 Simpan</button>
-      <button onclick="cancelCPCardEdit()" style="padding:6px 12px;background:none;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-size:11px">Batal</button>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div class="fg" style="margin:0"><label style="font-size:11px">Type</label>
+        <input type="text" id="cpd-type" value="${esc(r.contentType)}" placeholder="Image/Video/Reel..." style="font-size:12px;padding:7px 10px">
+      </div>
+      <div class="fg" style="margin:0"><label style="font-size:11px">Channel</label>
+        <input type="text" id="cpd-channel" value="${esc(r.channel)}" placeholder="IG/TikTok/..." style="font-size:12px;padding:7px 10px">
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div class="fg" style="margin:0"><label style="font-size:11px">Publish Date</label>
+        <input type="date" id="cpd-publish" value="${r.publishDate||''}" style="font-size:12px;padding:7px 10px">
+      </div>
+      <div class="fg" style="margin:0"><label style="font-size:11px">Deadline</label>
+        <input type="date" id="cpd-deadline" value="${r.deadline||''}" style="font-size:12px;padding:7px 10px">
+      </div>
+    </div>
+    <div class="fg" style="margin:0"><label style="font-size:11px">Owner / Creator</label>
+      <input type="text" id="cpd-owner" value="${esc(r.owner)}" placeholder="Nama PIC" style="font-size:12px;padding:7px 10px">
+    </div>
+    <div class="fg" style="margin:0"><label style="font-size:11px">Asset URL (Drive / link)</label>
+      <input type="url" id="cpd-asseturl" value="${esc(r.assetUrl)}" placeholder="https://drive.google.com/..." style="font-size:11px;padding:7px 10px;font-family:var(--mono)">
+    </div>
+    <div class="fg" style="margin:0"><label style="font-size:11px">Caption / Notes</label>
+      <textarea id="cpd-caption" rows="3" placeholder="Draft caption atau catatan" style="font-size:12px;padding:7px 10px;resize:vertical">${esc(r.caption)}</textarea>
+    </div>
+    <div class="fg" style="margin:0"><label style="font-size:11px">Status</label>
+      <select id="cpd-status" style="font-size:12px;padding:7px 10px;background:var(--white)">${_CP_STATUS_OPTS.map(s=>`<option${r.status===s?' selected':''}>${s}</option>`).join('')}</select>
     </div>
   </div>`;
 }
 
-let _cpEditingId = '';
-
-function editCPCard(id) { _cpEditingId = id; loadContentPlan(); }
-function cancelCPCardEdit() { _cpEditingId = ''; loadContentPlan(); }
-
-async function saveCPCardEdit(id) {
-  const get = k => document.getElementById(`cpe-${k}-${id}`)?.value;
+async function submitCPDrawer() {
+  const get = k => document.getElementById(`cpd-${k}`)?.value;
   const title = get('title')?.trim();
   if (!title) { alert('Title wajib'); return; }
+  const payload = {
+    title,
+    collection_id: get('collection') || null,
+    content_type: get('type')?.trim() || null,
+    channel: get('channel')?.trim() || null,
+    publish_date: get('publish') || null,
+    deadline: get('deadline') || null,
+    owner: get('owner')?.trim() || null,
+    asset_url: get('asseturl')?.trim() || null,
+    caption: get('caption')?.trim() || null,
+    status: get('status') || 'Planning',
+    last_updated: new Date().toISOString(), last_updated_by: currentUser,
+  };
   try {
-    const {error} = await sb.from('content_planning').update({
-      title,
-      collection_id: get('collection') || null,
-      content_type: get('type')?.trim() || null,
-      channel: get('channel')?.trim() || null,
-      publish_date: get('publish') || null,
-      deadline: get('deadline') || null,
-      owner: get('owner')?.trim() || null,
-      asset_url: get('asseturl')?.trim() || null,
-      caption: get('caption')?.trim() || null,
-      status: get('status') || 'Planning',
-      last_updated: new Date().toISOString(), last_updated_by: currentUser,
-    }).eq('id', id);
-    if (error) throw error;
-    logActivity('ContentPlanning','edit',id,`Content: ${title}`);
-    _cpEditingId = '';
+    if (_cpDrawerEditId) {
+      const {error} = await sb.from('content_planning').update(payload).eq('id', _cpDrawerEditId);
+      if (error) throw error;
+      logActivity('ContentPlanning','edit',_cpDrawerEditId,`Content: ${title}`);
+    } else {
+      const id = genId('CP');
+      const {error} = await sb.from('content_planning').insert({
+        ...payload, id,
+        added_by: currentUser, date_added: new Date().toISOString().slice(0,10),
+      });
+      if (error) throw error;
+      logActivity('ContentPlanning','create',id,`Content: ${title}`);
+    }
+    closeCPDrawer();
     loadContentPlan();
   } catch (e) { alert('Gagal: ' + (e.message||e)); }
 }
