@@ -23031,11 +23031,10 @@ function _maWireSampleRowsAC(id) {
     document.addEventListener('click', e => {
       if (!display.contains(e.target) && !ac.contains(e.target)) ac.style.display = 'none';
     });
-    // Sample qty edits → refresh budget total + MER
-    row.querySelector(`.mae-sam-${id}-qty`)?.addEventListener('input', () => {
-      _maBudgetSumUpdate(id);
-      _maRefreshSales(id);
-    });
+    // Sample qty / hpp edits → refresh budget total + MER
+    const refresh = () => { _maBudgetSumUpdate(id); _maRefreshSales(id); };
+    row.querySelector(`.mae-sam-${id}-qty`)?.addEventListener('input', refresh);
+    row.querySelector(`.mae-sam-${id}-hpp`)?.addEventListener('input', refresh);
   });
 }
 
@@ -24948,21 +24947,21 @@ function _kolFreebieRowHTML(item, prefix) {
       <input type="hidden" class="${prefix}-sku" value="${esc(sku)}">
       <input type="hidden" class="${prefix}-name" value="${esc(itemName)}">
       <input type="hidden" class="${prefix}-thumb" value="${esc(thumb)}">
-      <input type="hidden" class="${prefix}-hpp" value="${hpp}">
     </div>
     <input type="text" class="${prefix}-size" value="${esc(size)}" placeholder="Size" style="font-size:12px;padding:5px 8px;width:60px;text-align:center" title="Size">
     <input type="number" min="1" class="${prefix}-qty" value="${qty}" onchange="_kolFrbRecalcSub(this)" oninput="_kolFrbRecalcSub(this)" style="font-size:12px;padding:5px 8px;width:60px;text-align:right" title="Qty">
+    <input type="number" min="0" step="any" class="${prefix}-hpp" value="${hpp||''}" placeholder="HPP" onchange="_kolFrbRecalcSub(this)" oninput="_kolFrbRecalcSub(this)" style="font-size:12px;padding:5px 8px;width:90px;text-align:right;font-family:var(--mono)" title="HPP per unit (auto dari Jubelio, bisa di-override)">
     <span class="kol-frb-sub" style="font-size:10px;font-family:var(--mono);color:var(--g600);min-width:90px;text-align:right" title="HPP × qty">${subVal}</span>
     <button type="button" onclick="this.parentElement.remove()" style="background:none;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-size:13px;padding:3px 8px;color:#c0392b;line-height:1">🗑</button>
   </div>`;
 }
 
-// Live-update the HPP×qty subtotal label when qty changes
-function _kolFrbRecalcSub(qtyInp) {
-  const row = qtyInp.closest('.kol-frb-row');
+// Live-update the HPP×qty subtotal label when qty OR hpp changes
+function _kolFrbRecalcSub(inp) {
+  const row = inp.closest('.kol-frb-row');
   if (!row) return;
   const hpp = parseFloat(row.querySelector('[class$="-hpp"]')?.value) || 0;
-  const qty = parseInt(qtyInp.value, 10) || 1;
+  const qty = parseInt(row.querySelector('[class$="-qty"]')?.value, 10) || 1;
   const sub = row.querySelector('.kol-frb-sub');
   if (sub) sub.textContent = hpp > 0 ? _moRp(hpp * qty) : '—';
 }
