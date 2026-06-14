@@ -21630,7 +21630,9 @@ function mapCP(r) {
     publishDate:r.publish_date||'', channel:r.channel||'', status:r.status||'Planning',
     // Structured fields shared with MP Content Production (same DB columns)
     channelCategory: r.channel_category||'', contentCategory: r.content_category||'',
-    contentFormat: r.content_format||''};
+    contentFormat: r.content_format||'',
+    // Published content URL (separate from asset_url = working drive file)
+    contentUrl: r.content_url||''};
 }
 // Kanban columns — main flow only. Scheduled dropped per user (approved
 // langsung published). Cancelled rendered separately as a flat row below
@@ -21782,9 +21784,9 @@ function _cpKanbanCardHTML(r, colById) {
   if (r.contentCategory) {
     tags.push(`<span class="kcard-tag" style="color:#a66800;border-color:#f3cf7a;background:#fef5e0">${esc(r.contentCategory)}</span>`);
   }
-  // Date footer info — publish (primary) + deadline secondary
-  const dateLine = (r.publishDate || r.deadline)
-    ? `<span style="font-size:10px;font-family:var(--mono);color:var(--g400)">${r.publishDate?`📅 ${_moDate(r.publishDate)}`:''}${r.publishDate&&r.deadline?' · ':''}${r.deadline?`⏰ ${_moDate(r.deadline)}`:''}</span>`
+  // Date footer info — publish only (deadline field dropped per user)
+  const dateLine = r.publishDate
+    ? `<span style="font-size:10px;font-family:var(--mono);color:var(--g400)">📅 ${_moDate(r.publishDate)}</span>`
     : '';
   return `<div class="kanban-card" onclick="openCPDrawerEdit('${r.id}')">
     <div class="kcard-title">${esc(r.title)||'—'}</div>
@@ -21837,11 +21839,40 @@ async function openCPDrawerEdit(id) {
   if (error || !row) { alert('Gagal load: ' + (error?.message||'tidak ditemukan')); return; }
   const r = mapCP(row);
   const colOpts = (cols||[]).map(c => `<option value="${(c.id||'').replace(/"/g,'&quot;')}"${c.id===r.collectionId?' selected':''}>${(c.collection_name||'').replace(/</g,'&lt;')}</option>`).join('');
+  // Jump-links section — only when content has a collection_id. Plus a host
+  // for reference links from marketing_plans.links, loaded async after.
+  const jumpLinks = r.collectionId ? `<div style="background:#eef0f8;border:1px solid #c9bdf0;border-radius:6px;padding:10px 12px;margin-bottom:12px">
+    <div style="font-family:var(--mono);font-size:10px;color:#3C3489;text-transform:uppercase;letter-spacing:0.3px;font-weight:600;margin-bottom:6px">🔗 Buka di modul lain</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <a href="#mktplan/${r.collectionId}" onclick="closeCPDrawer();openMPDetail('${r.collectionId}');return false" style="display:inline-flex;align-items:center;gap:4px;padding:5px 10px;background:white;border:1px solid #3C3489;color:#3C3489;border-radius:4px;text-decoration:none;font-size:11px;font-weight:600">↗ Marketing Planning</a>
+      <a href="#collections/${r.collectionId}" onclick="closeCPDrawer();showPage('collections',null);location.hash='collections/${r.collectionId}';return false" style="display:inline-flex;align-items:center;gap:4px;padding:5px 10px;background:white;border:1px solid #3C3489;color:#3C3489;border-radius:4px;text-decoration:none;font-size:11px;font-weight:600">↗ Collection Development</a>
+    </div>
+    <div id="cpd-ref-links" style="margin-top:8px"></div>
+  </div>` : '';
   document.getElementById('cpDrawerTitle').textContent = `✎ Edit Content`;
-  document.getElementById('cpDrawerBody').innerHTML = _cpDrawerFormHTML(r, colOpts) + `<div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--g100)"><button onclick="if(confirm('Hapus content ini?')){deleteCP('${id}');closeCPDrawer();}" style="width:100%;padding:8px 16px;background:none;border:1px solid #e0a8a8;color:#c0392b;border-radius:6px;cursor:pointer;font-size:12px">🗑 Hapus Content</button></div>`;
+  document.getElementById('cpDrawerBody').innerHTML = jumpLinks + _cpDrawerFormHTML(r, colOpts) + `<div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--g100)"><button onclick="if(confirm('Hapus content ini?')){deleteCP('${id}');closeCPDrawer();}" style="width:100%;padding:8px 16px;background:none;border:1px solid #e0a8a8;color:#c0392b;border-radius:6px;cursor:pointer;font-size:12px">🗑 Hapus Content</button></div>`;
   document.getElementById('cpDrawerSaveBtn').textContent = '💾 Simpan Perubahan';
   _cpAttachDrawerAC();
   openCPDrawer();
+  // Async-load reference links from this collection's marketing_plans.links
+  if (r.collectionId) _cpLoadRefLinks(r.collectionId);
+}
+
+// Pull marketing_plans.links for the collection and render as compact chip
+// strip below the jump-link buttons. No-op if MP row doesn't exist yet.
+async function _cpLoadRefLinks(colId) {
+  const host = document.getElementById('cpd-ref-links');
+  if (!host) return;
+  try {
+    const {data} = await sb.from('marketing_plans').select('links').eq('collection_id', colId).maybeSingle();
+    const links = Array.isArray(data?.links) ? data.links.filter(l => l.url) : [];
+    if (!links.length) {
+      host.innerHTML = '';
+      return;
+    }
+    host.innerHTML = `<div style="font-family:var(--mono);font-size:10px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600;margin-top:8px;margin-bottom:4px">📎 Reference Links (dari Marketing Planning)</div>
+      <div style="display:flex;gap:5px;flex-wrap:wrap">${links.map(l => `<a href="${(l.url||'').replace(/"/g,'&quot;')}" target="_blank" style="display:inline-flex;align-items:center;gap:3px;padding:3px 8px;background:white;border:1px solid var(--g200);color:var(--g600);border-radius:4px;text-decoration:none;font-size:11px">↗ ${(l.label||l.url||'').replace(/</g,'&lt;').slice(0,40)}</a>`).join('')}</div>`;
+  } catch (e) { console.warn('Ref links load failed:', e); }
 }
 
 // Vocab caches — populated from distinct DB values + merged with defaults.
@@ -21905,20 +21936,18 @@ function _cpDrawerFormHTML(r, colOpts) {
         <option value="Video"${r.contentType==='Video'?' selected':''}>Video</option>
       </select>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-      <div class="fg" style="margin:0"><label style="font-size:11px">Publish Date</label>
-        <input type="date" id="cpd-publish" value="${r.publishDate||''}" style="font-size:12px;padding:7px 10px">
-      </div>
-      <div class="fg" style="margin:0"><label style="font-size:11px">Deadline</label>
-        <input type="date" id="cpd-deadline" value="${r.deadline||''}" style="font-size:12px;padding:7px 10px">
-      </div>
+    <div class="fg" style="margin:0"><label style="font-size:11px">Publish Date</label>
+      <input type="date" id="cpd-publish" value="${r.publishDate||''}" style="font-size:12px;padding:7px 10px">
     </div>
     <div class="fg" style="margin:0;position:relative"><label style="font-size:11px">PIC</label>
       <input type="text" id="cpd-owner" autocomplete="off" value="${esc(r.owner)}" placeholder="Pilih atau ketik baru..." style="font-size:12px;padding:7px 10px">
       <div class="ac-list" id="ac-cpd-owner"></div>
     </div>
-    <div class="fg" style="margin:0"><label style="font-size:11px">Asset URL (Drive / link)</label>
+    <div class="fg" style="margin:0"><label style="font-size:11px">Asset URL <span style="color:var(--g400);font-weight:400">(Drive / working file)</span></label>
       <input type="url" id="cpd-asseturl" value="${esc(r.assetUrl)}" placeholder="https://drive.google.com/..." style="font-size:11px;padding:7px 10px;font-family:var(--mono)">
+    </div>
+    <div class="fg" style="margin:0"><label style="font-size:11px">Content URL <span style="color:var(--g400);font-weight:400">(published — IG post / TikTok / YT link)</span></label>
+      <input type="url" id="cpd-contenturl" value="${esc(r.contentUrl)}" placeholder="https://instagram.com/p/..." style="font-size:11px;padding:7px 10px;font-family:var(--mono)">
     </div>
     <div class="fg" style="margin:0"><label style="font-size:11px">Caption / Notes</label>
       <textarea id="cpd-caption" rows="3" placeholder="Draft caption atau catatan" style="font-size:12px;padding:7px 10px;resize:vertical">${esc(r.caption)}</textarea>
@@ -21952,9 +21981,9 @@ async function submitCPDrawer() {
     content_category: get('content-cat')?.trim() || null,
     content_format: get('content-format')?.trim() || null,
     publish_date: get('publish') || null,
-    deadline: get('deadline') || null,
     owner: get('owner')?.trim() || null,
     asset_url: get('asseturl')?.trim() || null,
+    content_url: get('contenturl')?.trim() || null,
     caption: get('caption')?.trim() || null,
     status: get('status') || 'Planning',
     last_updated: new Date().toISOString(), last_updated_by: currentUser,
