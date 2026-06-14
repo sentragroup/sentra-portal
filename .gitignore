@@ -1,0 +1,20 @@
+# macOS
+.DS_Store
+
+# Local secrets — service role keys, API keys, etc.
+scripts/.env
+scripts/*.log
+
+# Supabase CLI temp
+supabase/.temp/
+
+# Local sandbox / experiment HTML — keep out of deploy
+client-dashboard-huddle.html
+client-dashboard.html
+echarts-demo.html
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
