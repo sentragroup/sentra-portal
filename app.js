@@ -21627,7 +21627,10 @@ function switchCPTab(tab, el) {
 function mapCP(r) {
   return {id:r.id, collectionId:r.collection_id, title:r.title||'', contentType:r.content_type||'',
     owner:r.owner||'', deadline:r.deadline||'', assetUrl:r.asset_url||'', caption:r.caption||'',
-    publishDate:r.publish_date||'', channel:r.channel||'', status:r.status||'Planning'};
+    publishDate:r.publish_date||'', channel:r.channel||'', status:r.status||'Planning',
+    // Structured fields shared with MP Content Production (same DB columns)
+    channelCategory: r.channel_category||'', contentCategory: r.content_category||'',
+    contentFormat: r.content_format||''};
 }
 // Kanban columns — main flow only. Scheduled dropped per user (approved
 // langsung published). Cancelled rendered separately as a flat row below
@@ -21761,11 +21764,21 @@ function _cpKanbanCardHTML(r, colById) {
   if (col) {
     tags.push(`<span class="kcard-tag" style="color:#3C3489;border-color:#AFA9EC;background:#EEEDFE" title="${esc(col.ip_related||'')}">📁 ${esc(col.collection_name||'—')}</span>`);
   }
-  if (r.contentType) {
+  // Format chip (Reels/Stories/Post/Video) — drives the type visualization
+  if (r.contentFormat) {
+    tags.push(`<span class="kcard-tag" style="color:#3C3489;border-color:#c9bdf0;background:#eef0f8">${esc(r.contentFormat)}</span>`);
+  } else if (r.contentType) {
     tags.push(`<span class="kcard-tag" style="color:var(--g600);border-color:var(--g200);background:var(--off)">${esc(r.contentType)}</span>`);
   }
+  // Channel chip — prefer specific channel; fallback to category
   if (r.channel) {
     tags.push(`<span class="kcard-tag" style="color:var(--g600);border-color:var(--g200);background:var(--off)">${esc(r.channel)}</span>`);
+  } else if (r.channelCategory) {
+    tags.push(`<span class="kcard-tag" style="color:var(--g600);border-color:var(--g200);background:var(--off)">${esc(r.channelCategory)}</span>`);
+  }
+  // Content category (Promotional/Snackable) — small tag
+  if (r.contentCategory) {
+    tags.push(`<span class="kcard-tag" style="color:#a66800;border-color:#f3cf7a;background:#fef5e0">${esc(r.contentCategory)}</span>`);
   }
   // Date footer info — publish (primary) + deadline secondary
   const dateLine = (r.publishDate || r.deadline)
@@ -21829,6 +21842,9 @@ async function openCPDrawerEdit(id) {
 
 function _cpDrawerFormHTML(r, colOpts) {
   const esc = s => (s==null?'':String(s)).replace(/"/g,'&quot;');
+  // Datalist options — match MP Content Production so the two surfaces
+  // share the same suggestion vocabulary.
+  const dl = (id, options) => `<datalist id="${id}">${options.map(o => `<option value="${o}">`).join('')}</datalist>`;
   return `<div style="display:flex;flex-direction:column;gap:10px">
     <div class="fg" style="margin:0"><label style="font-size:11px"><strong>Title <span class="req">*</span></strong></label>
       <input type="text" id="cpd-title" value="${esc(r.title)}" placeholder="cth: Lookbook IG carousel" style="font-size:13px;padding:7px 10px">
@@ -21840,12 +21856,31 @@ function _cpDrawerFormHTML(r, colOpts) {
       </select>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-      <div class="fg" style="margin:0"><label style="font-size:11px">Type</label>
-        <input type="text" id="cpd-type" value="${esc(r.contentType)}" placeholder="Image/Video/Reel..." style="font-size:12px;padding:7px 10px">
+      <div class="fg" style="margin:0"><label style="font-size:11px">Channel Kategori</label>
+        <input type="text" id="cpd-channel-cat" list="cpd-channel-cat-dl" value="${esc(r.channelCategory)}" placeholder="Instagram / TikTok / Youtube" style="font-size:12px;padding:7px 10px">
+        ${dl('cpd-channel-cat-dl', ['Instagram','TikTok','Youtube'])}
       </div>
       <div class="fg" style="margin:0"><label style="font-size:11px">Channel</label>
-        <input type="text" id="cpd-channel" value="${esc(r.channel)}" placeholder="IG/TikTok/..." style="font-size:12px;padding:7px 10px">
+        <input type="text" id="cpd-channel" list="cpd-channel-dl" value="${esc(r.channel)}" placeholder="SD&Y Instagram / Marte Instagram / ..." style="font-size:12px;padding:7px 10px">
+        ${dl('cpd-channel-dl', ['SD&Y Instagram','Lagaa Instagram','Marte Instagram','People of Marte Instagram'])}
       </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div class="fg" style="margin:0"><label style="font-size:11px">Kategori Konten</label>
+        <input type="text" id="cpd-content-cat" list="cpd-content-cat-dl" value="${esc(r.contentCategory)}" placeholder="Promotional / Snackable" style="font-size:12px;padding:7px 10px">
+        ${dl('cpd-content-cat-dl', ['Promotional','Snackable'])}
+      </div>
+      <div class="fg" style="margin:0"><label style="font-size:11px">Format</label>
+        <input type="text" id="cpd-content-format" list="cpd-format-dl" value="${esc(r.contentFormat)}" placeholder="Reels / Stories / Post / Video" style="font-size:12px;padding:7px 10px">
+        ${dl('cpd-format-dl', ['Reels','Stories','Post','Video'])}
+      </div>
+    </div>
+    <div class="fg" style="margin:0"><label style="font-size:11px">Type <span style="color:var(--g400);font-weight:400">(Video / Image — pisahin Content vs Video di MP)</span></label>
+      <select id="cpd-type" style="font-size:12px;padding:7px 10px;background:var(--white)">
+        <option value=""${!r.contentType?' selected':''}>—</option>
+        <option value="Image"${r.contentType==='Image'?' selected':''}>Image</option>
+        <option value="Video"${r.contentType==='Video'?' selected':''}>Video</option>
+      </select>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
       <div class="fg" style="margin:0"><label style="font-size:11px">Publish Date</label>
@@ -21878,7 +21913,10 @@ async function submitCPDrawer() {
     title,
     collection_id: get('collection') || null,
     content_type: get('type')?.trim() || null,
+    channel_category: get('channel-cat')?.trim() || null,
     channel: get('channel')?.trim() || null,
+    content_category: get('content-cat')?.trim() || null,
+    content_format: get('content-format')?.trim() || null,
     publish_date: get('publish') || null,
     deadline: get('deadline') || null,
     owner: get('owner')?.trim() || null,
