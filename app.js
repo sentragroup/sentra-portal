@@ -22489,6 +22489,8 @@ function mapMa(r) {
     popupBoothId: r.popup_booth_id || '',
     budgetBreakdown: Array.isArray(r.budget_breakdown) ? r.budget_breakdown : [],
     actionItems: Array.isArray(r.action_items) ? r.action_items : [],
+    sampleItems: Array.isArray(r.sample_items) ? r.sample_items : [],
+    sampleOutboundId: r.sample_outbound_id || '',
   };
 }
 
@@ -22608,7 +22610,7 @@ function clearMaFilters() {
   loadMktActivation();
 }
 function clearMaForm() {
-  ['ma-name','ma-type','ma-collection','ma-start-date','ma-end-date','ma-venue','ma-budget','ma-pic','ma-notes'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  ['ma-name','ma-type','ma-collection','ma-start-date','ma-end-date','ma-venue','ma-pic','ma-notes'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
   const stat = document.getElementById('ma-status'); if (stat) stat.value = 'Planning';
   const fb=document.getElementById('ma-feedback'); if(fb) fb.textContent='';
 }
@@ -22634,7 +22636,6 @@ async function submitMa() {
       event_date: document.getElementById('ma-start-date').value || null,
       end_date: document.getElementById('ma-end-date').value || null,
       venue: document.getElementById('ma-venue').value.trim() || null,
-      budget: parseFloat(document.getElementById('ma-budget').value) || null,
       pic: document.getElementById('ma-pic').value.trim() || null,
       notes: document.getElementById('ma-notes').value.trim() || null,
       status: document.getElementById('ma-status').value || 'Planning',
@@ -22672,6 +22673,9 @@ async function openMaDrawerEdit(id) {
   if (!r) return;
   if (!allColRows.length) await loadCollections().catch(()=>{});
   await _maLoadPopupCache();
+  // Ensure product_mappings cache (for Sample picker) + outbound cache (for badge)
+  // KOL's loader is generic; reusing keeps it loaded once across both modules.
+  await _kolMgmtEnsureRefData().catch(()=>{});
   document.getElementById('maDrawerTitle').textContent = `✎ ${r.name || id}`;
   document.getElementById('maDrawerBody').innerHTML = _maDrawerFormHTML(r);
   openMaDrawer();
@@ -22751,7 +22755,6 @@ function _maDrawerFormHTML(r) {
         <input type="text" id="mae-pic-${id}" value="${esc(r.pic)}" autocomplete="off" style="font-size:12px;padding:5px 8px">
         <div class="ac-list" id="ac-mae-pic-${id}"></div>
       </div>
-      <div class="fg" style="margin:0"><label style="font-size:11px">Budget Total (Rp)</label><input type="number" id="mae-budget-${id}" min="0" value="${r.budget==null?'':r.budget}" style="font-size:12px;padding:5px 8px"></div>
       <div class="fg" style="margin:0"><label style="font-size:11px">Status</label>
         <select id="mae-status-${id}" style="font-size:12px;padding:5px 8px">${_MA_STATUS_OPTS.map(s=>`<option${r.status===s?' selected':''}>${s}</option>`).join('')}</select>
       </div>
@@ -22767,8 +22770,8 @@ function _maDrawerFormHTML(r) {
 
     <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.3px;color:var(--g600);margin-bottom:4px;display:flex;align-items:center;gap:8px">
       💰 Budget Breakdown
-      <span style="text-transform:none;letter-spacing:0;font-weight:400;color:var(--g400)">— map alokasi budget per kategori</span>
-      <span style="margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--g600)">Σ <span id="mab-sum-${id}">${_moRp(0)}</span></span>
+      <span style="text-transform:none;letter-spacing:0;font-weight:400;color:var(--g400)">— budget total = Σ kategori</span>
+      <span style="margin-left:auto;font-family:var(--mono);font-size:12px;color:#0a7d3a;font-weight:600">Total <span id="mab-sum-${id}">${_moRp(0)}</span></span>
     </div>
     <div id="mae-bb-${id}">${budgetRows}</div>
     <button class="btn-ghost" type="button" onclick="addMaBudgetRow('${id}')" style="padding:4px 10px;font-size:11px;margin-top:4px;margin-bottom:12px">+ Tambah Budget Item</button>
@@ -22779,6 +22782,17 @@ function _maDrawerFormHTML(r) {
     </div>
     <div id="mae-act-${id}">${actionRows}</div>
     <button class="btn-ghost" type="button" onclick="addMaActionRow('${id}')" style="padding:4px 10px;font-size:11px;margin-top:4px;margin-bottom:12px">+ Tambah Action</button>
+
+    <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.3px;color:var(--g600);margin-bottom:4px;display:flex;align-items:center;gap:8px">
+      🎁 Sample / Freebie Request
+      <span style="text-transform:none;letter-spacing:0;font-weight:400;color:var(--g400)">— items yang perlu dikirim ke venue</span>
+    </div>
+    <div id="mae-sample-${id}" style="display:flex;flex-direction:column;gap:6px;margin-bottom:6px">${(r.sampleItems||[]).map(it => _kolFreebieRowHTML(it, `mae-sam-${id}`)).join('')}</div>
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:12px">
+      <button class="btn-ghost" type="button" onclick="addMaSampleRow('${id}')" style="padding:4px 10px;font-size:11px">+ Tambah Item</button>
+      <div id="mae-sample-ship-${id}" style="font-size:11px;color:var(--g600);margin-left:auto"></div>
+      <button class="btn-icon" type="button" onclick="requestMaSampleShipment('${id}')" id="mae-sample-btn-${id}" style="padding:4px 12px;font-size:11px;background:white;border:1px solid #c9bdf0;color:#3C3489;border-radius:4px">📦 Request Pengiriman</button>
+    </div>
 
     <div class="fg" style="margin:0 0 12px"><label style="font-size:11px">Notes</label><textarea id="mae-notes-${id}" rows="3" style="font-size:12px;padding:5px 8px;resize:vertical">${esc(r.notes)}</textarea></div>
 
@@ -22798,8 +22812,107 @@ function _maAttachDrawerAC(id) {
   _maWirePopupAC(id);
   _maWireBudgetRowsAC(id);
   _maWireActionRowsAC(id);
+  _maWireSampleRowsAC(id);
+  _maRenderSampleShipBadge(id);
   _maBudgetSumUpdate(id);
   _maRefreshSales(id);
+}
+
+function _maWireSampleRowsAC(id) {
+  const host = document.getElementById(`mae-sample-${id}`);
+  if (!host) return;
+  host.querySelectorAll('.kol-frb-row').forEach(row => {
+    const display = row.querySelector(`.mae-sam-${id}-display`);
+    const ac = row.querySelector(`.mae-sam-${id}-ac`);
+    if (!display || !ac) return;
+    display.addEventListener('input', () => _kolFrbRenderAC(display, ac));
+    display.addEventListener('focus', () => _kolFrbRenderAC(display, ac));
+    document.addEventListener('click', e => {
+      if (!display.contains(e.target) && !ac.contains(e.target)) ac.style.display = 'none';
+    });
+  });
+}
+
+function addMaSampleRow(id) {
+  const host = document.getElementById(`mae-sample-${id}`);
+  host.insertAdjacentHTML('beforeend', _kolFreebieRowHTML(null, `mae-sam-${id}`));
+  // Wire AC on the just-added row
+  const row = host.lastElementChild;
+  const display = row.querySelector(`.mae-sam-${id}-display`);
+  const ac = row.querySelector(`.mae-sam-${id}-ac`);
+  if (display && ac) {
+    display.addEventListener('input', () => _kolFrbRenderAC(display, ac));
+    display.addEventListener('focus', () => _kolFrbRenderAC(display, ac));
+    document.addEventListener('click', e => {
+      if (!display.contains(e.target) && !ac.contains(e.target)) ac.style.display = 'none';
+    });
+  }
+}
+
+// Show "✓ OB-XXX · status" badge or hide the Request button if already shipped
+function _maRenderSampleShipBadge(id) {
+  const r = _maRows.find(x => x.id === id);
+  if (!r) return;
+  const badge = document.getElementById(`mae-sample-ship-${id}`);
+  const btn = document.getElementById(`mae-sample-btn-${id}`);
+  if (!badge || !btn) return;
+  if (r.sampleOutboundId) {
+    const ob = allOutboundRows.find(x => x.id === r.sampleOutboundId);
+    const status = ob?.status ? ` · ${ob.status}` : '';
+    const ship = (typeof ob?.shippingCost === 'number') ? ` · 🚚 ${_moRp(ob.shippingCost)}` : '';
+    badge.innerHTML = `<a href="#" onclick="event.preventDefault();showPage('outbound',null)" style="color:#3C3489;text-decoration:underline">✓ ${(r.sampleOutboundId||'').replace(/</g,'&lt;')}</a><span style="color:var(--g600)">${status}${ship}</span>`;
+    btn.style.display = 'none';
+  } else {
+    badge.textContent = '';
+    btn.style.display = '';
+  }
+}
+
+async function requestMaSampleShipment(id) {
+  const r = _maRows.find(x => x.id === id);
+  if (!r) return;
+  if (r.sampleOutboundId) { alert('Sudah ada outbound request: ' + r.sampleOutboundId); return; }
+  // Read current form items (may include unsaved additions)
+  const items = _kolReadFreebieFrom(`mae-sample-${id}`, `mae-sam-${id}`);
+  if (!items.length) { alert('Belum ada item sample. Tambahkan dulu trus klik lagi.'); return; }
+  const venue = (document.getElementById(`mae-venue-${id}`)?.value || '').trim();
+  const sd = document.getElementById(`mae-start-date-${id}`)?.value || '';
+  const pic = (document.getElementById(`mae-pic-${id}`)?.value || '').trim();
+  if (!confirm(`Buat outbound ticket buat ${items.length} sample item ke "${venue||r.venue||'(no venue)'}"? Bisa di-track di modul Outbond Request.`)) return;
+  try {
+    // Persist items first so the snapshot used by the ticket matches what's on screen
+    await sb.from('marketing_events').update({
+      sample_items: items, last_updated: new Date().toISOString(), last_updated_by: currentUser||'',
+    }).eq('id', id);
+    const obId = genId('OB');
+    const payload = {
+      id: obId,
+      source_module: 'MarketingActivation',
+      source_id: id,
+      recipient_name: pic || r.name,
+      recipient_address: venue || null,
+      recipient_phone: null,
+      requested_ship_date: sd || null,
+      items,
+      status: 'Pending',
+      notes: `Auto-created from event ${id} (${r.name})`,
+      added_by: currentUser, date_added: new Date().toISOString().slice(0,10),
+      last_updated: new Date().toISOString(), last_updated_by: currentUser,
+    };
+    const {error: e1} = await sb.from('outbound_requests').insert(payload);
+    if (e1) throw e1;
+    const {error: e2} = await sb.from('marketing_events').update({
+      sample_outbound_id: obId, last_updated: new Date().toISOString(), last_updated_by: currentUser||'',
+    }).eq('id', id);
+    if (e2) throw e2;
+    // refresh local cache + UI
+    r.sampleItems = items;
+    r.sampleOutboundId = obId;
+    if (allOutboundRows.length) allOutboundRows.push({...mapOutbound(payload), id: obId});
+    _maRenderSampleShipBadge(id);
+    logActivity('MarketingActivation','request_sample',id,`→ ${obId}`);
+    alert(`✓ Ticket ${obId} dibuat. Buka modul Outbond Request buat track delivery.`);
+  } catch(e) { alert('Gagal: '+(e.message||e)); }
 }
 
 // Custom AC for Pop Up Booth picker — shows event name (date · location); on
@@ -22846,7 +22959,20 @@ function _maWirePopupAC(id) {
   });
 }
 
-// Refresh the sales callout based on popup link OR Marte Store venue
+// Render ROI line given revenue + budget. Returns HTML string or ''.
+function _maRoiLine(revenue, budget) {
+  if (!(revenue > 0) || !(budget > 0)) return '';
+  const profit = revenue - budget;
+  const roi = (profit / budget) * 100;
+  const color = roi >= 0 ? '#0a7d3a' : '#c0392b';
+  const sign = profit >= 0 ? '+' : '−';
+  return `<div style="margin-top:6px;font-family:var(--mono);font-size:12px">
+    <span style="color:var(--g600)">Profit ${sign}${_moRp(Math.abs(profit))}</span>
+    <span style="margin-left:10px;color:${color};font-weight:600">ROI ${roi>=0?'+':''}${roi.toFixed(1)}%</span>
+  </div>`;
+}
+
+// Refresh the sales callout based on popup link OR Marte Store venue, plus ROI
 async function _maRefreshSales(id) {
   const host = document.getElementById(`mae-sales-${id}`);
   if (!host) return;
@@ -22855,32 +22981,60 @@ async function _maRefreshSales(id) {
   const ed = document.getElementById(`mae-end-date-${id}`)?.value || '';
   const popupInp = document.getElementById(`mae-popup-${id}`);
   const popupId = (popupInp?.dataset?.id || '').trim();
+  // Live budget = current breakdown sum (fall back to stored r.budget if breakdown empty)
+  let budget = 0;
+  document.querySelectorAll(`#mae-bb-${id} .mab-amt-${id}`).forEach(inp => {
+    const v = parseFloat(inp.value);
+    if (!isNaN(v)) budget += v;
+  });
+  if (budget === 0) {
+    const r = _maRows.find(x => x.id === id);
+    if (r && typeof r.budget === 'number') budget = r.budget;
+  }
   const lines = [];
+  let totalRevenue = 0;
   // Pop Up Booth callback
   if (popupId) {
     const p = _maPopupCache.find(x => x.id === popupId);
     if (p) {
-      const sales = (typeof p.actualSales === 'number') ? _moRp(p.actualSales) : '—';
-      lines.push(`🛍 <strong>${(p.name||'').replace(/</g,'&lt;')}</strong> · ${(p.location||'—').replace(/</g,'&lt;')} · ${(p.date||'—').replace(/</g,'&lt;')}<br><span style="font-family:var(--mono);font-size:13px;color:#0a7d3a">Actual Sales: ${sales}</span>`);
+      const sales = (typeof p.actualSales === 'number') ? p.actualSales : null;
+      if (sales != null) totalRevenue += sales;
+      lines.push(`🛍 <strong>${(p.name||'').replace(/</g,'&lt;')}</strong> · ${(p.location||'—').replace(/</g,'&lt;')} · ${(p.date||'—').replace(/</g,'&lt;')}<br><span style="font-family:var(--mono);font-size:13px;color:#0a7d3a">Actual Sales: ${sales!=null?_moRp(sales):'—'}</span>`);
     }
   }
-  // Marte Store callback — auto-pull jubelio sales at Gudang Marte
-  if (/marte\s*store/i.test(venue)) {
+  // Marte Store callback — async, fires after initial render
+  const isMarte = /marte\s*store/i.test(venue);
+  if (isMarte) {
     if (sd) {
       lines.push(`🏪 <strong>Marte Store sales</strong> (${sd}${ed&&ed!==sd?` – ${ed}`:''})<br><span style="font-family:var(--mono);font-size:13px;color:var(--g400)" id="mae-marte-sum-${id}">Loading…</span>`);
-      host.style.display = '';
-      host.innerHTML = lines.join('<hr style="border:none;border-top:1px solid var(--g100);margin:8px 0">');
-      const total = await _maFetchMarteSales(sd, ed || sd);
-      const sumEl = document.getElementById(`mae-marte-sum-${id}`);
-      if (sumEl) sumEl.outerHTML = `<span style="font-family:var(--mono);font-size:13px;color:#0a7d3a">${total!=null?`Total: ${_moRp(total)}`:'(query failed)'}</span>`;
-      return;
     } else {
       lines.push(`🏪 <strong>Marte Store</strong> · <span style="color:var(--g400)">Set start date dulu buat narik aktual sales</span>`);
     }
   }
   if (!lines.length) { host.style.display = 'none'; host.innerHTML = ''; return; }
+  // Initial render — show whatever we have plus ROI from popup only (Marte may load later)
   host.style.display = '';
-  host.innerHTML = lines.join('<hr style="border:none;border-top:1px solid var(--g100);margin:8px 0">');
+  host.innerHTML = lines.join('<hr style="border:none;border-top:1px solid var(--g100);margin:8px 0">') + _maRoiLine(totalRevenue, budget);
+  // Now resolve Marte sales async, then re-render with combined ROI
+  if (isMarte && sd) {
+    const martelTotal = await _maFetchMarteSales(sd, ed || sd);
+    const sumEl = document.getElementById(`mae-marte-sum-${id}`);
+    if (sumEl) sumEl.outerHTML = `<span style="font-family:var(--mono);font-size:13px;color:#0a7d3a">${martelTotal!=null?`Total: ${_moRp(martelTotal)}`:'(query failed)'}</span>`;
+    if (martelTotal != null) {
+      // Update ROI with combined revenue (popup + Marte) inline
+      const combined = totalRevenue + martelTotal;
+      // Append/replace ROI line at the bottom
+      // Easiest: find last <div> with "Profit" — but simpler: regenerate from scratch is messier.
+      // Inject by appending a dedicated div if not already there.
+      const roiHtml = _maRoiLine(combined, budget);
+      // Strip any prior ROI block (the one appended after the joined lines) and append fresh
+      const marker = '<!--ma-roi-->';
+      let inner = host.innerHTML;
+      const i = inner.indexOf(marker);
+      if (i >= 0) inner = inner.slice(0, i);
+      host.innerHTML = inner + marker + roiHtml;
+    }
+  }
 }
 
 function _maWireBudgetRowsAC(id) {
@@ -22894,8 +23048,8 @@ function _maWireBudgetRowsAC(id) {
     inp.id = `mab-cat-inp-${id}-${idx}`;
     ac.id = `mab-cat-ac-${id}-${idx}`;
     setupAC(inp.id, ac.id, () => _maBudgetCats);
-    // Live sum update
-    row.querySelector(`.mab-amt-${id}`)?.addEventListener('input', () => _maBudgetSumUpdate(id));
+    // Live sum + ROI update
+    row.querySelector(`.mab-amt-${id}`)?.addEventListener('input', () => { _maBudgetSumUpdate(id); _maRefreshSales(id); });
   });
 }
 
@@ -22976,6 +23130,9 @@ async function saveMaEdit(id) {
   const colMatch = allColRows.find(c => (c.collectionName||'').toLowerCase() === colName);
   const popupInp = document.getElementById(`mae-popup-${id}`);
   const popupId = (popupInp?.dataset?.id || '').trim() || null;
+  const breakdown = _maReadBudget(id);
+  const budgetTotal = breakdown.reduce((s, b) => s + Number(b.amount||0), 0);
+  const sampleItems = _kolReadFreebieFrom(`mae-sample-${id}`, `mae-sam-${id}`);
   const payload = {
     event_name: name,
     event_type: (document.getElementById(`mae-type-${id}`).value || '').trim() || null,
@@ -22985,11 +23142,12 @@ async function saveMaEdit(id) {
     popup_booth_id: popupId,
     venue: (document.getElementById(`mae-venue-${id}`).value || '').trim() || null,
     pic: (document.getElementById(`mae-pic-${id}`).value || '').trim() || null,
-    budget: parseFloat(document.getElementById(`mae-budget-${id}`).value) || null,
+    budget: budgetTotal > 0 ? budgetTotal : null,
     status: document.getElementById(`mae-status-${id}`).value || 'Planning',
     notes: (document.getElementById(`mae-notes-${id}`).value || '').trim() || null,
-    budget_breakdown: _maReadBudget(id),
+    budget_breakdown: breakdown,
     action_items: _maReadActions(id),
+    sample_items: sampleItems,
     last_updated: new Date().toISOString(), last_updated_by: currentUser || '',
   };
   try {
