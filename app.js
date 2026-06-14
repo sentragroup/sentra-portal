@@ -21800,35 +21800,33 @@ function _cpKanbanColumnHTML(col, items, colById, wide) {
 }
 
 function _cpKanbanCardHTML(r, colById) {
-  // Edit now opens in the right-sidebar drawer instead of replacing the
-  // card inline — _cpEditingId path kept null-safe so legacy callers don't break.
   const esc = s => _moEsc(s);
   const col = colById.get(r.collectionId);
-  // Color-coded tags mirror Project Board's kcard-tag style.
   const tags = [];
   if (col) {
     tags.push(`<span class="kcard-tag" style="color:#3C3489;border-color:#AFA9EC;background:#EEEDFE" title="${esc(col.ip_related||'')}">📁 ${esc(col.collection_name||'—')}</span>`);
   }
-  // Format chip (Reels/Stories/Post/Video) — drives the type visualization
-  if (r.contentFormat) {
-    tags.push(`<span class="kcard-tag" style="color:#3C3489;border-color:#c9bdf0;background:#eef0f8">${esc(r.contentFormat)}</span>`);
-  } else if (r.contentType) {
-    tags.push(`<span class="kcard-tag" style="color:var(--g600);border-color:var(--g200);background:var(--off)">${esc(r.contentType)}</span>`);
+  // VP mode: hide format/channel/category chips (those fields don't exist on
+  // video entries). Show deadline instead of publish date.
+  if (!_cpVideoMode) {
+    if (r.contentFormat) {
+      tags.push(`<span class="kcard-tag" style="color:#3C3489;border-color:#c9bdf0;background:#eef0f8">${esc(r.contentFormat)}</span>`);
+    } else if (r.contentType) {
+      tags.push(`<span class="kcard-tag" style="color:var(--g600);border-color:var(--g200);background:var(--off)">${esc(r.contentType)}</span>`);
+    }
+    if (r.channel) {
+      tags.push(`<span class="kcard-tag" style="color:var(--g600);border-color:var(--g200);background:var(--off)">${esc(r.channel)}</span>`);
+    } else if (r.channelCategory) {
+      tags.push(`<span class="kcard-tag" style="color:var(--g600);border-color:var(--g200);background:var(--off)">${esc(r.channelCategory)}</span>`);
+    }
+    if (r.contentCategory) {
+      tags.push(`<span class="kcard-tag" style="color:#a66800;border-color:#f3cf7a;background:#fef5e0">${esc(r.contentCategory)}</span>`);
+    }
   }
-  // Channel chip — prefer specific channel; fallback to category
-  if (r.channel) {
-    tags.push(`<span class="kcard-tag" style="color:var(--g600);border-color:var(--g200);background:var(--off)">${esc(r.channel)}</span>`);
-  } else if (r.channelCategory) {
-    tags.push(`<span class="kcard-tag" style="color:var(--g600);border-color:var(--g200);background:var(--off)">${esc(r.channelCategory)}</span>`);
-  }
-  // Content category (Promotional/Snackable) — small tag
-  if (r.contentCategory) {
-    tags.push(`<span class="kcard-tag" style="color:#a66800;border-color:#f3cf7a;background:#fef5e0">${esc(r.contentCategory)}</span>`);
-  }
-  // Date footer info — publish only (deadline field dropped per user)
-  const dateLine = r.publishDate
-    ? `<span style="font-size:10px;font-family:var(--mono);color:var(--g400)">📅 ${_moDate(r.publishDate)}</span>`
-    : '';
+  // Date — VP uses deadline, CP uses publish_date
+  const dateLine = _cpVideoMode
+    ? (r.deadline ? `<span style="font-size:10px;font-family:var(--mono);color:var(--g400)">⏰ ${_moDate(r.deadline)}</span>` : '')
+    : (r.publishDate ? `<span style="font-size:10px;font-family:var(--mono);color:var(--g400)">📅 ${_moDate(r.publishDate)}</span>` : '');
   return `<div class="kanban-card" draggable="true"
        ondragstart="_cpKbDragStart(event,'${r.id}')"
        ondragend="this.classList.remove('dragging')"
@@ -21903,9 +21901,7 @@ async function openCPDrawerAdd(statusKey) {
   // Collection dropdown options
   const {data: cols} = await sb.from('collections').select('id,collection_name').order('collection_name');
   const colOpts = (cols||[]).map(c => `<option value="${(c.id||'').replace(/"/g,'&quot;')}">${(c.collection_name||'').replace(/</g,'&lt;')}</option>`).join('');
-  document.getElementById('cpDrawerTitle').textContent = `+ Tambah ${_cpVideoMode?'Video':'Content'}${statusKey?` · ${statusKey}`:''}`;
-  // Pre-set content_type to Video when in Video Production mode so user
-  // doesn't have to remember to flip the Type field.
+  document.getElementById('cpDrawerTitle').textContent = `+ Tambah ${_cpVideoMode?'Video Production':'Content'}${statusKey?` · ${statusKey}`:''}`;
   const seed = { status: statusKey || 'Planning' };
   if (_cpVideoMode) seed.contentType = 'Video';
   document.getElementById('cpDrawerBody').innerHTML = _cpDrawerFormHTML(seed, colOpts);
@@ -21934,7 +21930,7 @@ async function openCPDrawerEdit(id) {
     </div>
     <div id="cpd-ref-links" style="margin-top:8px"></div>
   </div>` : '';
-  document.getElementById('cpDrawerTitle').textContent = `✎ Edit Content`;
+  document.getElementById('cpDrawerTitle').textContent = `✎ Edit ${_cpVideoMode?'Video Production':'Content'}`;
   document.getElementById('cpDrawerBody').innerHTML = jumpLinks + _cpDrawerFormHTML(r, colOpts) + `<div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--g100)"><button onclick="if(confirm('Hapus content ini?')){deleteCP('${id}');closeCPDrawer();}" style="width:100%;padding:8px 16px;background:none;border:1px solid #e0a8a8;color:#c0392b;border-radius:6px;cursor:pointer;font-size:12px">🗑 Hapus Content</button></div>`;
   document.getElementById('cpDrawerSaveBtn').textContent = '💾 Simpan Perubahan';
   _cpAttachDrawerAC();
@@ -21982,6 +21978,10 @@ function _cpRebuildVocab(rows) {
 
 function _cpDrawerFormHTML(r, colOpts) {
   const esc = s => (s==null?'':String(s)).replace(/"/g,'&quot;');
+  // Video Production gets a slimmer form (no channel/format/category/PIC).
+  // Field rename: Publish date → Deadline (deadline col), Content URL →
+  // Deliverables Link (content_url col), Caption/Notes → Notes (caption col).
+  if (_cpVideoMode) return _vpDrawerFormHTML(r, colOpts);
   // Custom autocomplete: each field has its own .ac-list div for suggestions.
   // setupAC wired up in openCPDrawerAdd / openCPDrawerEdit after innerHTML set.
   return `<div style="display:flex;flex-direction:column;gap:10px">
@@ -22043,9 +22043,41 @@ function _cpDrawerFormHTML(r, colOpts) {
   </div>`;
 }
 
+// Video Production drawer form — slimmer than content_planning's.
+// Field map: title, collection_id, deadline (date col), content_url (renamed
+// "Deliverables Link"), caption (renamed "Notes"), status. No channel /
+// format / category / type / PIC / publish_date / asset_url.
+function _vpDrawerFormHTML(r, colOpts) {
+  const esc = s => (s==null?'':String(s)).replace(/"/g,'&quot;');
+  return `<div style="display:flex;flex-direction:column;gap:10px">
+    <div class="fg" style="margin:0"><label style="font-size:11px"><strong>Title <span class="req">*</span></strong></label>
+      <input type="text" id="cpd-title" value="${esc(r.title)}" placeholder="cth: Album launch teaser video" style="font-size:13px;padding:7px 10px">
+    </div>
+    <div class="fg" style="margin:0"><label style="font-size:11px">Collection</label>
+      <select id="cpd-collection" style="font-size:12px;padding:7px 10px;background:var(--white)">
+        <option value="">— Tanpa collection —</option>
+        ${colOpts}
+      </select>
+    </div>
+    <div class="fg" style="margin:0"><label style="font-size:11px">Deadline</label>
+      <input type="date" id="cpd-deadline" value="${r.deadline||''}" style="font-size:12px;padding:7px 10px">
+    </div>
+    <div class="fg" style="margin:0"><label style="font-size:11px">Deliverables Link <span style="color:var(--g400);font-weight:400">(video final / drive folder)</span></label>
+      <input type="url" id="cpd-contenturl" value="${esc(r.contentUrl)}" placeholder="https://drive.google.com/..." style="font-size:11px;padding:7px 10px;font-family:var(--mono)">
+    </div>
+    <div class="fg" style="margin:0"><label style="font-size:11px">Notes</label>
+      <textarea id="cpd-caption" rows="4" placeholder="Catatan produksi, brief, script, dll." style="font-size:12px;padding:7px 10px;resize:vertical">${esc(r.caption)}</textarea>
+    </div>
+    <div class="fg" style="margin:0"><label style="font-size:11px">Status</label>
+      <select id="cpd-status" style="font-size:12px;padding:7px 10px;background:var(--white)">${_CP_STATUS_OPTS.map(s=>`<option${r.status===s?' selected':''}>${s}</option>`).join('')}</select>
+    </div>
+  </div>`;
+}
+
 // Wire setupAC on all 5 autocomplete inputs in the drawer. Call after the
 // drawer body innerHTML has been set so the elements exist.
 function _cpAttachDrawerAC() {
+  if (_cpVideoMode) return; // VP form has no autocomplete fields
   setupAC('cpd-channel-cat',    'ac-cpd-channel-cat',    () => _cpChannelCats);
   setupAC('cpd-channel',        'ac-cpd-channel',        () => _cpChannels);
   setupAC('cpd-content-cat',    'ac-cpd-content-cat',    () => _cpContentCats);
@@ -22057,7 +22089,18 @@ async function submitCPDrawer() {
   const get = k => document.getElementById(`cpd-${k}`)?.value;
   const title = get('title')?.trim();
   if (!title) { alert('Title wajib'); return; }
-  const payload = {
+  // VP mode: slimmer payload, fixed content_type=Video, deadline instead of
+  // publish_date, content_url = deliverables link, caption = notes.
+  const payload = _cpVideoMode ? {
+    title,
+    collection_id: get('collection') || null,
+    content_type: 'Video',
+    deadline: get('deadline') || null,
+    content_url: get('contenturl')?.trim() || null,
+    caption: get('caption')?.trim() || null,
+    status: get('status') || 'Planning',
+    last_updated: new Date().toISOString(), last_updated_by: currentUser,
+  } : {
     title,
     collection_id: get('collection') || null,
     content_type: get('type')?.trim() || null,
@@ -22121,8 +22164,10 @@ function renderCPCalendar() {
   const fType = _cpVideoMode ? 'Video' : (_cpEl('cp-fil-type')?.value || '');
   const fCol  = _cpEl('cp-fil-collection')?.value || '';
   const search = (_cpEl('cp-search')?.value || '').trim().toLowerCase();
+  // VP groups by deadline, CP groups by publish_date
+  const dateField = _cpVideoMode ? 'deadline' : 'publishDate';
   const filteredRows = _cpRows.filter(r => {
-    if (!r.publishDate) return false;
+    if (!r[dateField]) return false;
     if (fType && r.contentType !== fType) return false;
     if (fCol && r.collectionId !== fCol) return false;
     if (search && !`${r.title} ${r.owner||''} ${r.channel||''}`.toLowerCase().includes(search)) return false;
@@ -22130,7 +22175,7 @@ function renderCPCalendar() {
   });
   const byDate = {};
   for (const r of filteredRows) {
-    const key = r.publishDate.slice(0,10);
+    const key = r[dateField].slice(0,10);
     (byDate[key] = byDate[key] || []).push(r);
   }
   let html = _CP_CAL_DAY_NAMES.map(d => `<div class="cal-dow">${d}</div>`).join('');
