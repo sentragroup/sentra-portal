@@ -17608,15 +17608,11 @@ async function mrDownloadInvoice(brandId, brandName) {
   const seqStr = String(brandSeq).padStart(2,'0');
   const invoiceNo = `SDY-INV-${periodYY}${periodMM}-${seqStr}-01`;
 
-  // Invoice = tagihan jasa consignment ke brand. Subtotal = full consignment
-  // fee (30% × gross). Untuk PT, PPh 23 2% potongan = pajak yang ditahan
-  // brand → total dibayar = fee − pph. Non-PT: total dibayar = fee.
+  // Invoice = tagihan jasa consignment ke brand. Subtotal = Total = full
+  // consignment fee (30% × gross). PPh 23 (kalau brand PT) gak ditampilin
+  // di invoice — mereka tau sendiri pasti potongannya berapa.
   const subtotalNum = s.feeNum || 0;
-  const pphNum      = s.pphNum || 0;
-  const payableNum  = subtotalNum - pphNum;
   const subtotalStr = 'Rp ' + Math.round(subtotalNum).toLocaleString('id-ID');
-  const pphStr      = 'Rp ' + Math.round(pphNum).toLocaleString('id-ID');
-  const payableStr  = 'Rp ' + Math.round(payableNum).toLocaleString('id-ID');
 
   // Terbilang — Indonesian number to words
   const terbilang = (n) => {
@@ -17632,7 +17628,7 @@ async function mrDownloadInvoice(brandId, brandName) {
     if (n < 1000000000) return terbilang(Math.floor(n/1000000)) + ' juta' + (n % 1000000 ? ' ' + terbilang(n % 1000000) : '');
     return terbilang(Math.floor(n/1000000000)) + ' milyar' + (n % 1000000000 ? ' ' + terbilang(n % 1000000000) : '');
   };
-  const terbilangStr = (terbilang(payableNum) + ' rupiah').replace(/\b\w/g, c => c.toUpperCase());
+  const terbilangStr = (terbilang(subtotalNum) + ' rupiah').replace(/\b\w/g, c => c.toUpperCase());
 
   const description = `Consignment Fee Marte ${s.brandName} ${s.periodLabel}`;
 
@@ -17766,8 +17762,7 @@ async function mrDownloadInvoice(brandId, brandName) {
       <div class="totals">
         <table>
           <tr><td class="k">Subtotal</td><td class="v">${subtotalStr}</td></tr>
-          ${s.isPT ? `<tr><td class="k">PPh 23 (2%)</td><td class="v">−${pphStr}</td></tr>` : ''}
-          <tr class="grand"><td class="k">Total Dibayar</td><td class="v">${payableStr}</td></tr>
+          <tr class="grand"><td class="k">Total</td><td class="v">${subtotalStr}</td></tr>
         </table>
       </div>
 
