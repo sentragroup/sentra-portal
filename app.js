@@ -27829,14 +27829,52 @@ function mapKolDb(r) {
     contactPhone: r.contact_phone||'',
     isBlacklisted: !!r.is_blacklisted,
     notes: r.notes||'',
+    followersByPlatform: (r.followers_by_platform && typeof r.followers_by_platform === 'object') ? r.followers_by_platform : {},
+    lastRefreshedAt: r.last_refreshed_at,
+    tier: r.tier||'',
     dateAdded: r.date_added, addedBy: r.added_by||'',
     lastUpdated: r.last_updated, lastUpdatedBy: r.last_updated_by||'',
   };
 }
 
+// Compact follower count: 12_300 → "12.3K", 4_200_000 → "4.2M"
+function _kolDbFmtFollowers(n) {
+  if (typeof n !== 'number' || n < 0) return '';
+  if (n >= 1_000_000) return (n/1_000_000).toFixed(n>=10_000_000?0:1).replace(/\.0$/,'') + 'M';
+  if (n >= 1_000)     return (n/1_000).toFixed(n>=10_000?0:1).replace(/\.0$/,'') + 'K';
+  return String(n);
+}
+
+// "3 hari lalu" — relative time for last_refreshed_at tooltip
+function _kolDbAgo(iso) {
+  if (!iso) return 'belum pernah';
+  const d = new Date(iso);
+  if (isNaN(d)) return 'belum pernah';
+  const sec = (Date.now() - d.getTime())/1000;
+  if (sec < 60) return 'baru saja';
+  if (sec < 3600) return `${Math.floor(sec/60)} menit lalu`;
+  if (sec < 86400) return `${Math.floor(sec/3600)} jam lalu`;
+  if (sec < 86400*7) return `${Math.floor(sec/86400)} hari lalu`;
+  if (sec < 86400*30) return `${Math.floor(sec/86400/7)} minggu lalu`;
+  return `${Math.floor(sec/86400/30)} bulan lalu`;
+}
+
+const _KOLDB_TIER_TONE = {
+  Mega:  {bg:'#fce7f3', border:'#f9a8d4', color:'#9d174d'},
+  Macro: {bg:'#ede9fe', border:'#c4b5fd', color:'#5b21b6'},
+  Mid:   {bg:'#dbeafe', border:'#93c5fd', color:'#1e40af'},
+  Micro: {bg:'#dcfce7', border:'#86efac', color:'#166534'},
+  Nano:  {bg:'#fef9c3', border:'#fde047', color:'#854d0e'},
+};
+function _kolDbTierBadge(tier) {
+  if (!tier) return '<span style="color:var(--g400);font-size:10px">—</span>';
+  const t = _KOLDB_TIER_TONE[tier] || _KOLDB_TIER_TONE.Nano;
+  return `<span style="display:inline-block;padding:2px 8px;background:${t.bg};border:1px solid ${t.border};color:${t.color};border-radius:99px;font-size:10px;font-weight:600">${tier}</span>`;
+}
+
 async function loadKolDb() {
   const tbody = document.getElementById('koldbTableBody');
-  if (tbody) tbody.innerHTML = '<tr><td class="empty-td" colspan="8">Memuat...</td></tr>';
+  if (tbody) tbody.innerHTML = '<tr><td class="empty-td" colspan="9">Memuat...</td></tr>';
   try {
     const {data, error} = await sb.from('kol_database').select('*').order('name');
     if (error) throw error;
@@ -27848,7 +27886,7 @@ async function loadKolDb() {
     _rebuildKolDbFilters();
     applyKolDbFilters();
   } catch(e) {
-    if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="8">Gagal: ${e.message||e}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="9">Gagal: ${e.message||e}</td></tr>`;
   }
 }
 
@@ -27894,23 +27932,29 @@ function _renderKolDbRows(rows) {
   const tbody = document.getElementById('koldbTableBody');
   const cnt = document.getElementById('koldb-tcount');
   cnt.textContent = `${rows.length} entri`;
-  if (!rows.length) { tbody.innerHTML = '<tr><td class="empty-td" colspan="8">Tidak ada KOL.</td></tr>'; return; }
+  if (!rows.length) { tbody.innerHTML = '<tr><td class="empty-td" colspan="9">Tidak ada KOL.</td></tr>'; return; }
   const esc = s => (s==null?'':String(s)).replace(/</g,'&lt;').replace(/"/g,'&quot;');
   tbody.innerHTML = rows.map(r => {
     const chips = (r.platforms||[]).map(p => {
       if (!p || !p.platform) return '';
       const url = p.url || '';
+      const key = (p.platform||'').toLowerCase();
+      const fol = r.followersByPlatform?.[key];
+      const folTxt = (typeof fol === 'number' && fol > 0) ? ` · ${_kolDbFmtFollowers(fol)}` : '';
+      const label = `${esc(p.platform)}${folTxt}`;
       return url
-        ? `<a href="${esc(url)}" target="_blank" style="display:inline-block;padding:2px 8px;background:#eef0f8;border:1px solid #c9bdf0;color:#3C3489;border-radius:99px;font-size:10px;text-decoration:none;margin:1px 2px">${esc(p.platform)} ↗</a>`
-        : `<span style="display:inline-block;padding:2px 8px;background:var(--g100);color:var(--g600);border-radius:99px;font-size:10px;margin:1px 2px">${esc(p.platform)}</span>`;
+        ? `<a href="${esc(url)}" target="_blank" style="display:inline-block;padding:2px 8px;background:#eef0f8;border:1px solid #c9bdf0;color:#3C3489;border-radius:99px;font-size:10px;text-decoration:none;margin:1px 2px" title="${esc(url)}">${label} ↗</a>`
+        : `<span style="display:inline-block;padding:2px 8px;background:var(--g100);color:var(--g600);border-radius:99px;font-size:10px;margin:1px 2px">${label}</span>`;
     }).join('');
     const rate = r.rateEstimate ? `Rp ${Number(r.rateEstimate).toLocaleString('id-ID')}` : '—';
     const statusPill = r.isBlacklisted
       ? `<span class="pill p-expired">🚫 Blacklist</span>`
       : `<span class="pill p-active">Aktif</span>`;
+    const refreshedTitle = r.lastRefreshedAt ? `Insights di-refresh ${_kolDbAgo(r.lastRefreshedAt)} (${new Date(r.lastRefreshedAt).toLocaleString('id-ID')})` : 'Insights belum pernah di-refresh';
     return `<tr id="koldb-row-${r.rowIndex}">
       <td><div style="font-weight:600">${esc(r.name)}</div></td>
       <td style="font-size:11px;color:var(--g600)">${esc(r.categories)||'—'}</td>
+      <td title="${esc(refreshedTitle)}">${_kolDbTierBadge(r.tier)}</td>
       <td>${chips||'<span style="color:var(--g400);font-size:11px">—</span>'}</td>
       <td>${esc(r.contactPerson)||'—'}</td>
       <td style="font-family:var(--mono);font-size:11px">${esc(r.contactPhone)||'—'}</td>
@@ -27923,7 +27967,7 @@ function _renderKolDbRows(rows) {
       </td>
     </tr>
     <tr id="koldb-edit-row-${r.rowIndex}" style="display:none">
-      <td colspan="8" style="padding:0 12px 12px;background:var(--off)">
+      <td colspan="9" style="padding:0 12px 12px;background:var(--off)">
         <div class="edit-row-form" id="koldb-edit-body-${r.rowIndex}"></div>
       </td>
     </tr>`;
