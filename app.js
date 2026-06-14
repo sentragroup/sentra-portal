@@ -24947,11 +24947,11 @@ function _kolFreebieRowHTML(item, prefix) {
       <input type="hidden" class="${prefix}-sku" value="${esc(sku)}">
       <input type="hidden" class="${prefix}-name" value="${esc(itemName)}">
       <input type="hidden" class="${prefix}-thumb" value="${esc(thumb)}">
+      <input type="hidden" class="${prefix}-hpp" value="${hpp}">
     </div>
     <input type="text" class="${prefix}-size" value="${esc(size)}" placeholder="Size" style="font-size:12px;padding:5px 8px;width:60px;text-align:center" title="Size">
     <input type="number" min="1" class="${prefix}-qty" value="${qty}" onchange="_kolFrbRecalcSub(this)" oninput="_kolFrbRecalcSub(this)" style="font-size:12px;padding:5px 8px;width:60px;text-align:right" title="Qty">
-    <input type="number" min="0" step="any" class="${prefix}-hpp" value="${hpp||''}" placeholder="HPP" onchange="_kolFrbRecalcSub(this)" oninput="_kolFrbRecalcSub(this)" style="font-size:12px;padding:5px 8px;width:90px;text-align:right;font-family:var(--mono)" title="HPP per unit (auto dari Jubelio, bisa di-override)">
-    <span class="kol-frb-sub" style="font-size:10px;font-family:var(--mono);color:var(--g600);min-width:90px;text-align:right" title="HPP × qty">${subVal}</span>
+    <span class="kol-frb-sub" style="font-size:10px;font-family:var(--mono);color:var(--g600);min-width:90px;text-align:right" title="HPP × qty — override di Outbond Request kalau kosong">${subVal}</span>
     <button type="button" onclick="this.parentElement.remove()" style="background:none;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-size:13px;padding:3px 8px;color:#c0392b;line-height:1">🗑</button>
   </div>`;
 }
@@ -29604,6 +29604,11 @@ function _renderOutboundRows(rows) {
     const sourceLabel = r.sourceModule === 'KolManagement' && r.sourceId
       ? `<a href="#" onclick="event.preventDefault();showPage('kolmgmt',null)" style="font-size:10px;color:#3C3489;text-decoration:underline" title="${esc(r.sourceId)}">KOL · ${esc(r.sourceId)}</a>`
       : `<span style="font-size:10px;color:var(--g600)">${esc(r.sourceModule)}</span>`;
+    // Total COGS preview from current items (HPP × qty)
+    const cogsTotal = _kolItemsCOGS(r.items);
+    const cogsLine = cogsTotal > 0
+      ? `<div style="font-size:9px;color:var(--g600);font-family:var(--mono);margin-top:2px">💰 Total HPP ${_kolFmtRp(cogsTotal)}</div>`
+      : `<div style="font-size:9px;color:#c0392b;font-family:var(--mono);margin-top:2px">⚠ HPP belum di-set — klik ✎ buat isi</div>`;
     return `<tr id="ob-row-${r.rowIndex}">
       <td style="font-family:var(--mono);font-size:10px">${esc(r.id)}</td>
       <td>
@@ -29612,8 +29617,14 @@ function _renderOutboundRows(rows) {
         ${r.recipientPhone?`<div style="font-size:10px;color:var(--g600);font-family:var(--mono)">${esc(r.recipientPhone)}</div>`:''}
       </td>
       <td style="font-size:11px;max-width:260px">
-        ${itemThumbs ? `<div style="display:flex;gap:3px;align-items:center;flex-wrap:wrap;margin-bottom:3px" title="${esc(itemsBrief)}">${itemThumbs}${itemMoreCount>0?`<span style="font-size:9px;color:var(--g400);margin-left:2px">+${itemMoreCount}</span>`:''}</div>` : ''}
-        <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(itemsBrief)}">${itemsBrief||'—'}</div>
+        <div style="display:flex;align-items:flex-start;gap:6px">
+          <div style="flex:1;min-width:0">
+            ${itemThumbs ? `<div style="display:flex;gap:3px;align-items:center;flex-wrap:wrap;margin-bottom:3px" title="${esc(itemsBrief)}">${itemThumbs}${itemMoreCount>0?`<span style="font-size:9px;color:var(--g400);margin-left:2px">+${itemMoreCount}</span>`:''}</div>` : ''}
+            <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(itemsBrief)}">${itemsBrief||'—'}</div>
+            ${cogsLine}
+          </div>
+          <button class="btn-icon" onclick="openObItemsEdit('${r.rowIndex}')" title="Edit items + HPP" style="font-size:13px;color:var(--g600);flex-shrink:0">✎</button>
+        </div>
       </td>
       <td style="font-family:var(--mono);font-size:11px;white-space:nowrap">${r.requestedShipDate||'—'}</td>
       <td style="font-family:var(--mono);font-size:11px;white-space:nowrap">${shipCost}</td>
@@ -29627,8 +29638,133 @@ function _renderOutboundRows(rows) {
       <td style="white-space:nowrap">
         <button class="btn-icon" onclick="deleteOutbound('${r.rowIndex}')" title="Hapus ticket" style="color:#c0392b">🗑</button>
       </td>
+    </tr>
+    <tr id="ob-items-row-${r.rowIndex}" style="display:none">
+      <td colspan="9" style="background:var(--off);padding:12px"><div id="ob-items-body-${r.rowIndex}"></div></td>
     </tr>`;
   }).join('');
+}
+
+// Inline editor for an outbound ticket's items — warehouse staff updates HPP
+// per item here. On save, writes back to outbound_requests AND syncs to the
+// source row (kol_placements.freebie_items / marketing_events.sample_items)
+// so MER/budget calcs upstream stay accurate.
+function openObItemsEdit(id) {
+  const r = allOutboundRows.find(x => x.rowIndex === id);
+  if (!r) return;
+  const tr = document.getElementById(`ob-items-row-${id}`);
+  if (!tr) return;
+  if (tr.style.display !== 'none') { closeObItemsEdit(id); return; }
+  document.getElementById(`ob-items-body-${id}`).innerHTML = _obItemsEditHTML(r);
+  tr.style.display = '';
+}
+
+function closeObItemsEdit(id) {
+  const tr = document.getElementById(`ob-items-row-${id}`);
+  if (tr) tr.style.display = 'none';
+}
+
+function _obItemsEditHTML(r) {
+  const esc = s => (s==null?'':String(s)).replace(/"/g,'&quot;').replace(/</g,'&lt;');
+  const id = r.rowIndex;
+  const items = r.items || [];
+  const rows = items.map((it, idx) => {
+    const hpp = Number(it.hpp || 0);
+    const qty = Number(it.qty || 1);
+    const sub = hpp > 0 ? _kolFmtRp(hpp * qty) : '—';
+    const thumb = it.thumbnail
+      ? `<img src="${esc(it.thumbnail)}" alt="" loading="lazy" style="width:32px;height:32px;border-radius:4px;object-fit:cover">`
+      : `<div style="width:32px;height:32px;border-radius:4px;background:var(--g100);display:flex;align-items:center;justify-content:center;color:var(--g400);font-size:14px">📦</div>`;
+    return `<div class="ob-itm-row" data-idx="${idx}" style="display:flex;gap:6px;align-items:center;padding:6px 4px;border-bottom:1px solid var(--g100)">
+      ${thumb}
+      <div style="flex:1;min-width:0">
+        <div style="font-family:var(--mono);font-size:10px;color:var(--g600)">${esc(it.sku||'')}</div>
+        <div style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(it.item_name||'')}</div>
+      </div>
+      <input type="text" class="ob-itm-size" value="${esc(it.size||'')}" placeholder="Size" style="font-size:12px;padding:4px 6px;width:56px;text-align:center" title="Size">
+      <input type="number" min="1" class="ob-itm-qty" value="${qty}" oninput="_obItemsRecalc('${id}')" style="font-size:12px;padding:4px 6px;width:56px;text-align:right" title="Qty">
+      <input type="number" min="0" step="any" class="ob-itm-hpp" value="${hpp || ''}" placeholder="HPP" oninput="_obItemsRecalc('${id}')" style="font-size:12px;padding:4px 6px;width:100px;text-align:right;font-family:var(--mono)" title="HPP per unit">
+      <span class="ob-itm-sub" style="font-size:10px;font-family:var(--mono);color:var(--g600);min-width:90px;text-align:right">${sub}</span>
+      <input type="hidden" class="ob-itm-sku" value="${esc(it.sku||'')}">
+      <input type="hidden" class="ob-itm-name" value="${esc(it.item_name||'')}">
+      <input type="hidden" class="ob-itm-thumb" value="${esc(it.thumbnail||'')}">
+    </div>`;
+  }).join('');
+  return `<div>
+    <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.3px;color:var(--g600);margin-bottom:8px;display:flex;align-items:center;gap:8px">
+      ✎ Items — HPP override
+      <span style="text-transform:none;letter-spacing:0;font-weight:400;color:var(--g400)">— update HPP per item kalau Jubelio belum punya cost-nya</span>
+      <span style="margin-left:auto;font-family:var(--mono);font-size:11px;color:#0a7d3a;font-weight:600">Total <span id="ob-itm-sum-${id}">${_kolFmtRp(_kolItemsCOGS(items))}</span></span>
+    </div>
+    <div id="ob-itm-list-${id}">${rows}</div>
+    <div style="display:flex;gap:6px;margin-top:10px;padding-top:10px;border-top:1px solid var(--g100)">
+      <button class="btn-primary" onclick="saveObItems('${id}')" style="padding:6px 14px;font-size:12px">💾 Simpan</button>
+      <button class="btn-ghost" onclick="closeObItemsEdit('${id}')" style="padding:6px 14px;font-size:12px">Batal</button>
+      <div id="ob-itm-fb-${id}" style="margin-left:auto;font-size:11px;align-self:center"></div>
+      <div style="font-size:10px;color:var(--g400);align-self:center">${r.sourceModule==='KolManagement'?'Auto-sync ke KOL placement':r.sourceModule==='MarketingActivation'?'Auto-sync ke MA event (budget + MER ikut update)':''}</div>
+    </div>
+  </div>`;
+}
+
+function _obItemsRecalc(id) {
+  let total = 0;
+  document.querySelectorAll(`#ob-itm-list-${id} .ob-itm-row`).forEach(row => {
+    const hpp = parseFloat(row.querySelector('.ob-itm-hpp')?.value) || 0;
+    const qty = parseInt(row.querySelector('.ob-itm-qty')?.value, 10) || 1;
+    const sub = hpp > 0 ? _kolFmtRp(hpp * qty) : '—';
+    const subEl = row.querySelector('.ob-itm-sub');
+    if (subEl) subEl.textContent = sub;
+    total += hpp * qty;
+  });
+  const sumEl = document.getElementById(`ob-itm-sum-${id}`);
+  if (sumEl) sumEl.textContent = _kolFmtRp(total);
+}
+
+function _obReadItems(id) {
+  const out = [];
+  document.querySelectorAll(`#ob-itm-list-${id} .ob-itm-row`).forEach(row => {
+    const sku = row.querySelector('.ob-itm-sku')?.value || '';
+    const item_name = row.querySelector('.ob-itm-name')?.value || '';
+    const thumbnail = row.querySelector('.ob-itm-thumb')?.value || '';
+    const size = (row.querySelector('.ob-itm-size')?.value || '').trim();
+    const qty = parseInt(row.querySelector('.ob-itm-qty')?.value, 10) || 1;
+    const hpp = parseFloat(row.querySelector('.ob-itm-hpp')?.value) || 0;
+    if (sku) out.push({sku, item_name, thumbnail, size, qty, hpp});
+  });
+  return out;
+}
+
+async function saveObItems(id) {
+  const r = allOutboundRows.find(x => x.rowIndex === id);
+  if (!r) return;
+  const fb = document.getElementById(`ob-itm-fb-${id}`);
+  const setFB = (msg, ok) => { if (fb) { fb.style.color = ok?'#0a7d3a':'#c0392b'; fb.textContent = msg; } };
+  const items = _obReadItems(id);
+  try {
+    await sb.from('outbound_requests').update({
+      items, last_updated: new Date().toISOString(), last_updated_by: currentUser||'',
+    }).eq('id', r.id);
+    // Back-sync to source so budget/MER upstream reflects the corrected HPP
+    if (r.sourceModule === 'KolManagement' && r.sourceId) {
+      await sb.from('kol_placements').update({
+        freebie_items: items,
+        last_updated: new Date().toISOString(), last_updated_by: currentUser||'',
+      }).eq('id', r.sourceId);
+    } else if (r.sourceModule === 'MarketingActivation' && r.sourceId) {
+      // Re-derive marketing_events.budget = breakdown sum + new sample COGS
+      const {data: me} = await sb.from('marketing_events').select('budget_breakdown').eq('id', r.sourceId).single();
+      const breakdownSum = (me?.budget_breakdown||[]).reduce((s, b) => s + Number(b.amount||0), 0);
+      const sampleCogs = _kolItemsCOGS(items);
+      await sb.from('marketing_events').update({
+        sample_items: items,
+        budget: (breakdownSum + sampleCogs) > 0 ? (breakdownSum + sampleCogs) : null,
+        last_updated: new Date().toISOString(), last_updated_by: currentUser||'',
+      }).eq('id', r.sourceId);
+    }
+    logActivity('OutboundRequest','edit_items',r.id,`${items.length} items, total HPP ${_kolFmtRp(_kolItemsCOGS(items))}`);
+    setFB('✓ Tersimpan', true);
+    setTimeout(() => { closeObItemsEdit(id); loadOutbound(); }, 600);
+  } catch(e) { setFB('Gagal: ' + (e.message||e), false); }
 }
 
 async function changeObStatus(id, status) {
