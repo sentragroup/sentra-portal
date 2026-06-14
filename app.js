@@ -23782,13 +23782,29 @@ async function _kolMgmtEnsureRefData() {
     if (!_kolDbCachePromise) _kolDbCachePromise = loadKolDb().catch(() => {});
     await _kolDbCachePromise;
   }
-  // product_mappings — picker source for freebie items
+  // product_mappings — picker source for freebie items. Joins thumbnail from
+  // jubelio_items so the AC dropdown + saved rows can show product photos.
   if (!_kolProdMapCache.length) {
     if (!_kolProdMapCachePromise) {
       _kolProdMapCachePromise = (async () => {
         try {
-          const {data} = await sb.from('product_mappings').select('id,item_name,brand').order('item_name').limit(20000);
-          _kolProdMapCache = (data || []).map(x => ({id: x.id, item_name: x.item_name || x.id, brand: x.brand || ''}));
+          const {data: pm} = await sb.from('product_mappings').select('id,item_name,brand,jubelio_item_id').order('item_name').limit(20000);
+          const rows = pm || [];
+          // Resolve thumbnails via jubelio_items.item_id — chunk to dodge .in() URL cap
+          const itemIds = [...new Set(rows.map(r => r.jubelio_item_id).filter(Boolean))];
+          const thumbMap = new Map();
+          const CHUNK = 500;
+          for (let i = 0; i < itemIds.length; i += CHUNK) {
+            const chunk = itemIds.slice(i, i + CHUNK);
+            const {data: items} = await sb.from('jubelio_items').select('item_id,thumbnail').in('item_id', chunk);
+            (items || []).forEach(it => { if (it.thumbnail) thumbMap.set(String(it.item_id), it.thumbnail); });
+          }
+          _kolProdMapCache = rows.map(x => ({
+            id: x.id,
+            item_name: x.item_name || x.id,
+            brand: x.brand || '',
+            thumbnail: x.jubelio_item_id ? (thumbMap.get(String(x.jubelio_item_id)) || '') : '',
+          }));
         } catch (e) { console.warn('product_mappings cache failed:', e); }
       })();
     }
@@ -23883,14 +23899,20 @@ function _kolFreebieRowHTML(item, prefix) {
   const esc = s => (s==null?'':String(s)).replace(/"/g,'&quot;');
   const sku = item?.sku || '';
   const itemName = item?.item_name || '';
+  const thumb = item?.thumbnail || '';
   const qty = item?.qty || 1;
   const display = sku ? `${sku} — ${itemName}` : '';
+  const previewInner = thumb
+    ? `<img src="${esc(thumb)}" alt="" style="width:32px;height:32px;border-radius:4px;object-fit:cover">`
+    : `<div style="width:32px;height:32px;border-radius:4px;background:var(--g100);display:flex;align-items:center;justify-content:center;color:var(--g400);font-size:14px">📦</div>`;
   return `<div class="kol-frb-row" style="display:flex;gap:6px;align-items:center">
+    <div class="kol-frb-preview" style="flex-shrink:0">${previewInner}</div>
     <div style="flex:1;position:relative">
       <input type="text" class="${prefix}-display" value="${esc(display)}" placeholder="Ketik nama / SKU buat search dari product master" autocomplete="off" style="font-size:12px;padding:5px 8px;width:100%;box-sizing:border-box">
       <div class="ac-list ${prefix}-ac"></div>
       <input type="hidden" class="${prefix}-sku" value="${esc(sku)}">
       <input type="hidden" class="${prefix}-name" value="${esc(itemName)}">
+      <input type="hidden" class="${prefix}-thumb" value="${esc(thumb)}">
     </div>
     <input type="number" min="1" class="${prefix}-qty" value="${qty}" style="font-size:12px;padding:5px 8px;width:70px;text-align:right">
     <button type="button" onclick="this.parentElement.remove()" style="background:none;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-size:13px;padding:3px 8px;color:#c0392b;line-height:1">🗑</button>
@@ -23918,23 +23940,42 @@ function _kolFrbRenderAC(display, ac) {
     p.id.toLowerCase().includes(q) || (p.item_name||'').toLowerCase().includes(q)
   ).slice(0, 20);
   if (!matches.length) { ac.style.display = 'none'; return; }
-  // position next to input
   const r = display.getBoundingClientRect();
   ac.style.position = 'fixed';
   ac.style.top = (r.bottom + 4) + 'px';
   ac.style.left = r.left + 'px';
-  ac.style.width = Math.max(r.width, 320) + 'px';
+  ac.style.width = Math.max(r.width, 360) + 'px';
   ac.style.right = 'auto';
-  ac.innerHTML = matches.map(m =>
-    `<div class="ac-item" data-sku="${m.id.replace(/"/g,'&quot;')}" data-name="${(m.item_name||'').replace(/"/g,'&quot;')}"><div>${m.id}</div><div class="ac-item-sub">${(m.item_name||'').replace(/</g,'&lt;')}</div></div>`
-  ).join('');
+  ac.innerHTML = matches.map(m => {
+    const esc = s => (s==null?'':String(s)).replace(/"/g,'&quot;').replace(/</g,'&lt;');
+    const thumb = m.thumbnail
+      ? `<img src="${esc(m.thumbnail)}" alt="" loading="lazy" style="width:36px;height:36px;border-radius:4px;object-fit:cover;background:var(--g100);flex-shrink:0">`
+      : `<div style="width:36px;height:36px;border-radius:4px;background:var(--g100);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:14px;color:var(--g400)">📦</div>`;
+    return `<div class="ac-item" data-sku="${esc(m.id)}" data-name="${esc(m.item_name)}" data-thumb="${esc(m.thumbnail)}" style="display:flex;align-items:center;gap:8px;padding:6px 10px">
+      ${thumb}
+      <div style="min-width:0;flex:1">
+        <div style="font-family:var(--mono);font-size:10px;color:var(--g600)">${esc(m.id)}</div>
+        <div style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(m.item_name)}</div>
+      </div>
+    </div>`;
+  }).join('');
   ac.style.display = 'block';
   ac.querySelectorAll('.ac-item').forEach(it => {
     it.addEventListener('click', () => {
-      const sku = it.dataset.sku, name = it.dataset.name;
+      const sku = it.dataset.sku, name = it.dataset.name, thumb = it.dataset.thumb;
       display.value = `${sku} — ${name}`;
-      display.closest('.kol-frb-row').querySelector('.kol-frb-sku').value = sku;
-      display.closest('.kol-frb-row').querySelector('.kol-frb-name').value = name;
+      const row = display.closest('.kol-frb-row');
+      row.querySelector('[class$="-sku"]').value = sku;
+      row.querySelector('[class$="-name"]').value = name;
+      const thumbInp = row.querySelector('[class$="-thumb"]');
+      if (thumbInp) thumbInp.value = thumb || '';
+      // update thumb preview in the row
+      const preview = row.querySelector('.kol-frb-preview');
+      if (preview) {
+        preview.innerHTML = thumb
+          ? `<img src="${thumb}" alt="" style="width:32px;height:32px;border-radius:4px;object-fit:cover">`
+          : `<div style="width:32px;height:32px;border-radius:4px;background:var(--g100);display:flex;align-items:center;justify-content:center;color:var(--g400);font-size:14px">📦</div>`;
+      }
       ac.style.display = 'none';
     });
   });
@@ -23946,8 +23987,9 @@ function _kolReadFreebieFrom(containerId, prefix) {
   rows.forEach(r => {
     const sku = r.querySelector(`.${prefix}-sku`)?.value || '';
     const item_name = r.querySelector(`.${prefix}-name`)?.value || '';
+    const thumbnail = r.querySelector(`.${prefix}-thumb`)?.value || '';
     const qty = parseInt(r.querySelector(`.${prefix}-qty`)?.value, 10) || 1;
-    if (sku) out.push({sku, item_name, qty});
+    if (sku) out.push({sku, item_name, thumbnail, qty});
   });
   return out;
 }
@@ -24101,6 +24143,11 @@ async function loadKolMgmt() {
             ? `<button class="btn-icon" style="font-size:10px;color:#3C3489;border:1px solid #c9bdf0;border-radius:4px;padding:3px 8px;background:white" onclick="requestKolShipment('${r.id}')" title="Create outbound ticket">📦 Request Pengiriman</button>`
             : '<span style="font-size:10px;color:var(--g400)">Items kosong</span>';
       const itemsBrief = (r.freebieItems||[]).map(it => `${esc(it.item_name||it.sku)}${it.qty?`×${it.qty}`:''}`).join(', ');
+      const itemThumbs = (r.freebieItems||[]).slice(0,4).map(it => it.thumbnail
+        ? `<img src="${esc(it.thumbnail)}" alt="" loading="lazy" style="width:24px;height:24px;border-radius:3px;object-fit:cover;border:1px solid var(--g100)" title="${esc(it.item_name||it.sku)}">`
+        : `<div style="width:24px;height:24px;border-radius:3px;background:var(--g100);display:inline-flex;align-items:center;justify-content:center;color:var(--g400);font-size:11px;border:1px solid var(--g100)" title="${esc(it.item_name||it.sku)}">📦</div>`
+      ).join('');
+      const itemMoreCount = (r.freebieItems||[]).length - 4;
       return `<tr>
         <td>
           <div style="display:flex;align-items:center;gap:6px"><strong>${esc(r.name)}</strong>${tierBadge}</div>
@@ -24109,8 +24156,9 @@ async function loadKolMgmt() {
         <td style="font-size:11px;color:var(--g600)">${esc(colName(r.collectionId))}</td>
         <td>${delivLinks || '<span style="color:var(--g400);font-size:10px">—</span>'}</td>
         <td>${payCatPill}${feeRow}</td>
-        <td style="font-size:11px;color:var(--g600);max-width:200px">
-          ${itemsBrief ? `<div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(itemsBrief)}">${itemsBrief}</div>` : ''}
+        <td style="font-size:11px;color:var(--g600);max-width:240px">
+          ${itemThumbs ? `<div style="display:flex;gap:3px;align-items:center;flex-wrap:wrap" title="${esc(itemsBrief)}">${itemThumbs}${itemMoreCount>0?`<span style="font-size:9px;color:var(--g400);margin-left:2px">+${itemMoreCount}</span>`:''}</div>` : ''}
+          ${itemsBrief ? `<div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:3px" title="${esc(itemsBrief)}">${itemsBrief}</div>` : ''}
           <div style="margin-top:3px">${shipCell}</div>
         </td>
         <td style="font-size:11px;white-space:nowrap">${r.postDate||'—'}</td>
@@ -28433,6 +28481,11 @@ function _renderOutboundRows(rows) {
   const esc = s => (s==null?'':String(s)).replace(/</g,'&lt;').replace(/"/g,'&quot;');
   tbody.innerHTML = rows.map(r => {
     const itemsBrief = (r.items||[]).map(it => `${esc(it.item_name||it.sku||'?')}${it.qty?` ×${it.qty}`:''}`).join(', ');
+    const itemThumbs = (r.items||[]).slice(0,5).map(it => it.thumbnail
+      ? `<img src="${esc(it.thumbnail)}" alt="" loading="lazy" style="width:24px;height:24px;border-radius:3px;object-fit:cover;border:1px solid var(--g100)" title="${esc(it.item_name||it.sku)}">`
+      : `<div style="width:24px;height:24px;border-radius:3px;background:var(--g100);display:inline-flex;align-items:center;justify-content:center;color:var(--g400);font-size:11px;border:1px solid var(--g100)" title="${esc(it.item_name||it.sku||'?')}">📦</div>`
+    ).join('');
+    const itemMoreCount = (r.items||[]).length - 5;
     const shipCost = (typeof r.shippingCost === 'number' && r.shippingCost >= 0)
       ? `Rp ${Math.round(r.shippingCost).toLocaleString('id-ID')}`
       : `<button class="btn-icon" onclick="promptObShipCost('${r.rowIndex}')" title="Set biaya kirim" style="font-size:11px;color:var(--g600)">+ Set</button>`;
@@ -28449,7 +28502,10 @@ function _renderOutboundRows(rows) {
         ${r.recipientAddress?`<div style="font-size:10px;color:var(--g600);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:240px" title="${esc(r.recipientAddress)}">${esc(r.recipientAddress)}</div>`:''}
         ${r.recipientPhone?`<div style="font-size:10px;color:var(--g600);font-family:var(--mono)">${esc(r.recipientPhone)}</div>`:''}
       </td>
-      <td style="font-size:11px;max-width:260px"><div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(itemsBrief)}">${itemsBrief||'—'}</div></td>
+      <td style="font-size:11px;max-width:260px">
+        ${itemThumbs ? `<div style="display:flex;gap:3px;align-items:center;flex-wrap:wrap;margin-bottom:3px" title="${esc(itemsBrief)}">${itemThumbs}${itemMoreCount>0?`<span style="font-size:9px;color:var(--g400);margin-left:2px">+${itemMoreCount}</span>`:''}</div>` : ''}
+        <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(itemsBrief)}">${itemsBrief||'—'}</div>
+      </td>
       <td style="font-family:var(--mono);font-size:11px;white-space:nowrap">${r.requestedShipDate||'—'}</td>
       <td style="font-family:var(--mono);font-size:11px;white-space:nowrap">${shipCost}</td>
       <td style="white-space:nowrap">${tracking}</td>
