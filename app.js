@@ -240,6 +240,30 @@ function enforceModuleAccess(){
   }
 }
 
+// Routing — flag set during popstate so handlers along the chain (showPage,
+// openXDetail, mpBackToGrid, etc.) skip mutating history. The browser's own
+// back/forward already moved the entry; we just need to re-render to match.
+let _suppressHistory = false;
+function _routeHash(newHash, push) {
+  if (_suppressHistory) return;
+  history[push ? 'pushState' : 'replaceState'](null, '', newHash);
+}
+
+// popstate fires on browser back/forward. Read the hash, infer the page,
+// re-dispatch through showPage. Loaders (loadCollections / loadProductDev /
+// loadMarketingPlan) re-read the hash and route to grid vs detail. The
+// _suppressHistory guard prevents any mutation along the way.
+window.addEventListener('popstate', () => {
+  _suppressHistory = true;
+  try {
+    const h = (location.hash || '').slice(1);
+    const name = h.split('/')[0] || 'home';
+    showPage(name, null);
+  } finally {
+    _suppressHistory = false;
+  }
+});
+
 function showPage(name, el) {
   // Access control: block modules the current user isn't allowed (admin/null = all)
   if (name !== 'home' && !_isAdmin && Array.isArray(_myAccess) && !_myAccess.includes(name)) {
@@ -257,9 +281,13 @@ function showPage(name, el) {
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
+  const _curPage = _curHash.split('/')[0];
+  const _samePage = (_curHash===name||_curHash.startsWith(name+'/'));
   const _newHash = name==="home" ? location.pathname
-    : (_curHash===name||_curHash.startsWith(name+'/')) ? location.hash : "#"+name;
-  history.replaceState(null, "", _newHash);
+    : _samePage ? location.hash : "#"+name;
+  // Push only when actually changing page (so browser back works); reload-style
+  // clicks on the current page just replace.
+  _routeHash(_newHash, !_samePage && _curPage !== name);
   // Save current page to sessionStorage as fallback for refresh restoration
   if (name !== "home") sessionStorage.setItem('snt_page', name);
   else sessionStorage.removeItem('snt_page');
@@ -318,14 +346,18 @@ function showPage(name, el) {
     switchInvTransferMode(_mode, null);
   }
   if (name==="collections") {
-    // If restoring a collection detail from URL, immediately switch to detail view
-    // to prevent the "new collection" form from flashing before data loads
+    // Pre-toggle view based on hash so the right one paints before async load
+    // resolves. Reset on bare #collections (e.g. popstate from detail) so the
+    // list shows instead of leaving detail orphaned.
     const _ch = location.hash.slice(1);
+    const lv=document.getElementById("col-list-view");
+    const dv=document.getElementById("col-detail-view");
     if (_ch.startsWith('collections/')) {
-      const lv=document.getElementById("col-list-view");
-      const dv=document.getElementById("col-detail-view");
       if(lv) lv.style.display="none";
       if(dv) dv.style.display="block";
+    } else {
+      if(lv) lv.style.display="";
+      if(dv) dv.style.display="none";
     }
     loadCollections();
     setupAC("col-ip","ac-col-ip",()=>allIPRows.map(r=>r.name).filter(Boolean));
@@ -5639,7 +5671,7 @@ function openCollectionDetail(colId) {
   document.getElementById("col-list-view").style.display="none";
   document.getElementById("col-detail-view").style.display="block";
   const _slug=slugifyCol(col.collectionName);
-  history.replaceState(null,"",`#collections/${_slug}`);
+  _routeHash(`#collections/${_slug}`, true);
   sessionStorage.setItem('snt_page','collections');
   renderColDetail(col, allColItems.filter(i=>i.collectionId===colId));
 }
@@ -5647,7 +5679,7 @@ function openCollectionDetail(colId) {
 function closeCollectionDetail() {
   document.getElementById("col-detail-view").style.display="none";
   document.getElementById("col-list-view").style.display="block";
-  history.replaceState(null,"","#collections");
+  _routeHash("#collections", false);
 }
 
 function toggleColEditPanel() {
@@ -18929,13 +18961,13 @@ function showPDDetailView() {
 
 function openPDGrid() {
   pdCurrentCollectionId = '';
-  history.replaceState(null,'','#productdev');
+  _routeHash('#productdev', false);
   showPDGridView();
 }
 
 function openPDDetail(collection_id) {
   pdCurrentCollectionId = collection_id;
-  history.replaceState(null,'',`#productdev/${encodeURIComponent(collection_id)}`);
+  _routeHash(`#productdev/${encodeURIComponent(collection_id)}`, true);
   showPDDetailView();
 }
 
@@ -22827,14 +22859,14 @@ async function toggleMPActive(collectionId, newActive) {
 // always wins. Hash gets updated for deep-link / refresh / back-button.
 async function openMPDetail(colId) {
   _mpCurrentColId = colId;
-  history.replaceState(null,'',`#mktplan/${encodeURIComponent(colId)}`);
+  _routeHash(`#mktplan/${encodeURIComponent(colId)}`, true);
   if (!_mpCols.length) await _mpFetchAll();
   await showMPDetail();
 }
 
 function mpBackToGrid() {
   _mpCurrentColId = '';
-  history.replaceState(null,'','#mktplan');
+  _routeHash('#mktplan', false);
   showMPGrid();
 }
 
