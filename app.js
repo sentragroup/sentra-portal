@@ -23072,6 +23072,10 @@ function _mpWireDatalistAC(actKey, prefix) {
     if (!getter) continue;
     setupAC(`${prefix}-${actKey}-${ex.f}`, `ac-${prefix}-${actKey}-${ex.f}`, getter);
   }
+  // Name AC for activities whose name picks from a master list (e.g. kol → KOL Database).
+  if (def.nameAC) {
+    setupAC(`${prefix}-${actKey}-name`, `ac-${prefix}-${actKey}-name`, def.nameAC);
+  }
 }
 
 const _MP_ACTIVITY_DEFS = {
@@ -23159,20 +23163,56 @@ const _MP_ACTIVITY_DEFS = {
   kol: {
     table: 'kol_placements', idPrefix: 'KOL', moduleHref: 'kolmgmt',
     nameField: 'kol_name', nameLabel: 'Nama KOL',
-    dateField: 'post_date', dateLabel: 'Post date',
-    extras: [
-      {f:'handle', placeholder:'@handle', type:'text'},
-      {f:'platform', placeholder:'IG/TikTok/YT', type:'text'},
-      {f:'fee', placeholder:'Fee (Rp)', type:'number'},
-    ],
-    statusField: 'status', statusOpts: ['Outreach','Booked','In Progress','Posted','Cancelled'],
-    statusToneFor: s => s==='Posted'?'p-active' : s==='Booked'?'p-signings' : s==='Cancelled'?'p-expired' : s==='In Progress'?'p-review' : 'p-draft',
-    defaultStatus: 'Outreach',
-    selectCols: 'id,kol_name,handle,platform,tier,fee,post_date,status,post_url',
+    dateField: 'post_date', dateLabel: 'Publish date',
+    extras: [],
+    statusField: 'status', statusOpts: ['Planning','Outreach','Publish'],
+    statusToneFor: s => s==='Publish'?'p-active' : s==='Outreach'?'p-review' : 'p-draft',
+    defaultStatus: 'Planning',
+    selectCols: 'id,kol_name,post_date,status,post_url',
     orderBy: 'post_date',
     linkField: 'post_url',
+    // Name autocomplete sources from kol_database — typing a fresh name also
+    // inserts a new KD row on submit so the roster grows organically.
+    nameAC: () => _mpKolNames,
+    nameAutoInsert: true,
   },
 };
+
+// KOL Database name cache for MP's kol activity quick-add — lazy loaded when
+// the kol activity first renders. Refreshed on auto-insert.
+let _mpKolNames = [];
+let _mpKolNamesLoaded = false;
+async function _mpLoadKolDbNames(force) {
+  if (_mpKolNamesLoaded && !force) return;
+  try {
+    const {data} = await sb.from('kol_database').select('name').order('name');
+    _mpKolNames = (data||[]).map(r => r.name).filter(Boolean);
+    _mpKolNamesLoaded = true;
+  } catch (e) { console.warn('Load KOL Database names failed:', e); }
+}
+
+// Master-list auto-seed — when MP quick-add or inline edit saves a name that
+// isn't yet in the corresponding master table, insert a stub there too so the
+// roster grows organically. Currently only wired for kol → kol_database.
+async function _mpEnsureMasterEntry(actKey, name) {
+  const n = (name||'').trim();
+  if (!n) return;
+  if (actKey === 'kol') {
+    await _mpLoadKolDbNames();
+    const exists = _mpKolNames.some(x => x.toLowerCase().trim() === n.toLowerCase());
+    if (exists) return;
+    try {
+      const id = genId('KD');
+      await sb.from('kol_database').insert({
+        id, name: n,
+        added_by: currentUser, date_added: new Date().toISOString().slice(0,10),
+        last_updated: new Date().toISOString(), last_updated_by: currentUser,
+      });
+      _mpKolNames.push(n);
+      _mpKolNames.sort((a,b)=>a.localeCompare(b));
+    } catch (e) { console.warn('Auto-seed KOL Database failed:', e); }
+  }
+}
 
 function _mpStatusTone(act, status) {
   const def = _MP_ACTIVITY_DEFS[act];
@@ -23184,6 +23224,8 @@ async function _mpLoadActivitySummary(activity, cid, expanded) {
   const bodyEl  = document.getElementById(`mp-act-body-${activity.key}`);
   const def = _MP_ACTIVITY_DEFS[activity.key];
   if (!def) return;
+  // Lazy load KOL Database names so the name AC has options when first rendered.
+  if (activity.key === 'kol' && !_mpKolNamesLoaded) await _mpLoadKolDbNames();
   let rows = [];
   try {
     let q = sb.from(def.table).select(def.selectCols).eq('collection_id', cid);
@@ -23305,13 +23347,23 @@ function _mpRenderEditFormFields(key, r) {
   const def = _MP_ACTIVITY_DEFS[key];
   const esc = s => (s==null?'':String(s)).replace(/"/g,'&quot;');
   const fields = [];
-  fields.push(`<input type="text" id="mpedit-${key}-name" value="${esc(r[def.nameField])}" placeholder="${def.nameLabel} *" style="font-size:12px;padding:5px 8px">`);
-  fields.push(`<input type="date" id="mpedit-${key}-date" value="${r[def.dateField]||''}" style="font-size:12px;padding:5px 8px">`);
+  if (def.nameAC) {
+    fields.push(`<div style="position:relative">
+      <input type="text" id="mpedit-${key}-name" value="${esc(r[def.nameField])}" placeholder="${def.nameLabel} *" autocomplete="off" style="font-size:12px;padding:5px 8px;width:100%;box-sizing:border-box">
+      <div class="ac-list" id="ac-mpedit-${key}-name"></div>
+    </div>`);
+  } else {
+    fields.push(`<input type="text" id="mpedit-${key}-name" value="${esc(r[def.nameField])}" placeholder="${def.nameLabel} *" style="font-size:12px;padding:5px 8px">`);
+  }
+  fields.push(`<div style="display:flex;flex-direction:column;gap:2px">
+    <span style="font-size:9px;color:var(--g600);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px">${def.dateLabel}</span>
+    <input type="date" id="mpedit-${key}-date" value="${r[def.dateField]||''}" style="font-size:12px;padding:5px 8px;width:100%;box-sizing:border-box">
+  </div>`);
   for (const ex of def.extras) {
     fields.push(_mpFieldInputHTML(key, ex, r[ex.f]||'', 'mpedit'));
   }
   fields.push(`<select id="mpedit-${key}-status" style="font-size:12px;padding:5px 8px">${def.statusOpts.map(s => `<option value="${s}"${s===r[def.statusField]?' selected':''}>${s}</option>`).join('')}</select>`);
-  return `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px">${fields.join('')}</div>`;
+  return `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;align-items:end">${fields.join('')}</div>`;
 }
 
 async function _mpSaveRowEdit(key, id) {
@@ -23335,6 +23387,7 @@ async function _mpSaveRowEdit(key, id) {
   try {
     const {error} = await sb.from(def.table).update(payload).eq('id', id);
     if (error) throw error;
+    if (def.nameAutoInsert) await _mpEnsureMasterEntry(key, name);
     setFB('✓ Tersimpan', true);
     // Refresh the activity card so the edited row re-renders correctly
     const cid = _mpCurrentColId;
@@ -23402,14 +23455,26 @@ function _mpQuickAddFormHTML(activity) {
   const def = _MP_ACTIVITY_DEFS[activity.key];
   if (!def) return '';
   const fields = [];
-  fields.push(`<input type="text" id="mpqa-${activity.key}-name" placeholder="${def.nameLabel} *" style="font-size:12px;padding:5px 8px">`);
-  fields.push(`<input type="date" id="mpqa-${activity.key}-date" placeholder="${def.dateLabel}" style="font-size:12px;padding:5px 8px">`);
+  // Name — AC pattern when def.nameAC, plain input otherwise.
+  if (def.nameAC) {
+    fields.push(`<div style="position:relative">
+      <input type="text" id="mpqa-${activity.key}-name" placeholder="${def.nameLabel} *" autocomplete="off" style="font-size:12px;padding:5px 8px;width:100%;box-sizing:border-box">
+      <div class="ac-list" id="ac-mpqa-${activity.key}-name"></div>
+    </div>`);
+  } else {
+    fields.push(`<input type="text" id="mpqa-${activity.key}-name" placeholder="${def.nameLabel} *" style="font-size:12px;padding:5px 8px">`);
+  }
+  // Date — wrap with mono caption so user knows what it represents.
+  fields.push(`<div style="display:flex;flex-direction:column;gap:2px">
+    <span style="font-size:9px;color:var(--g600);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px">${def.dateLabel}</span>
+    <input type="date" id="mpqa-${activity.key}-date" style="font-size:12px;padding:5px 8px;width:100%;box-sizing:border-box">
+  </div>`);
   for (const ex of def.extras) {
     fields.push(_mpFieldInputHTML(activity.key, ex, '', 'mpqa'));
   }
   fields.push(`<select id="mpqa-${activity.key}-status" style="font-size:12px;padding:5px 8px">${def.statusOpts.map(s => `<option value="${s}"${s===def.defaultStatus?' selected':''}>${s}</option>`).join('')}</select>`);
   const cols = Math.min(fields.length, 4);
-  return `<div style="display:grid;grid-template-columns:repeat(${cols},1fr);gap:6px">${fields.join('')}</div>`;
+  return `<div style="display:grid;grid-template-columns:repeat(${cols},1fr);gap:6px;align-items:end">${fields.join('')}</div>`;
 }
 
 // Render a single extra field input given its type. Used by both quick-add
@@ -23453,6 +23518,8 @@ async function _mpQuickAddSubmit(key, cid) {
     if (def.fixed) Object.assign(payload, def.fixed);
     const {error} = await sb.from(def.table).insert(payload);
     if (error) throw error;
+    // Auto-seed master list (e.g. kol → kol_database) when a brand-new name was typed.
+    if (def.nameAutoInsert) await _mpEnsureMasterEntry(key, name);
     setFB('✓ Tersimpan', true);
     const activities = [
       { key:'photoshoot',  source:'Photoshoot Planning', moduleHref:'photoshoot',    label:'Photoshoot' },
