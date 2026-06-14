@@ -2549,7 +2549,8 @@
               <input type="text" id="ma-collection" placeholder="Pilih collection (opsional)" autocomplete="off">
               <div class="ac-list" id="ac-ma-collection"></div>
             </div>
-            <div class="fg"><label>Event Date</label><input type="date" id="ma-date"></div>
+            <div class="fg"><label>Start Date</label><input type="date" id="ma-start-date"></div>
+            <div class="fg"><label>End Date <span style="color:var(--g400);font-weight:400">(opsional, kalau multi-day)</span></label><input type="date" id="ma-end-date"></div>
             <div class="fg" style="position:relative"><label>Venue</label>
               <input type="text" id="ma-venue" placeholder="Lokasi event" autocomplete="off">
               <div class="ac-list" id="ac-ma-venue"></div>
@@ -2586,7 +2587,7 @@
           <div class="tcount" id="ma-tcount" style="margin-left:auto">— entri</div>
         </div>
         <div class="table-wrap"><table>
-          <thead><tr><th>Event</th><th>Type</th><th>Collection</th><th>Date</th><th>Venue</th><th style="text-align:right">Budget</th><th>PIC</th><th>Actions</th><th>Status</th><th>Aksi</th></tr></thead>
+          <thead><tr><th>Collection</th><th>Event</th><th>Type</th><th>Date</th><th>Venue</th><th style="text-align:right">Budget</th><th>PIC</th><th>Actions</th><th>Status</th><th>Aksi</th></tr></thead>
           <tbody id="maTableBody"><tr><td class="empty-td" colspan="10">Klik Refresh.</td></tr></tbody>
         </table></div>
       </div>
@@ -2612,8 +2613,8 @@
           <div class="tcount" id="ma-act-tcount" style="margin-left:auto">— action</div>
         </div>
         <div class="table-wrap"><table>
-          <thead><tr><th style="width:30px"></th><th>Title</th><th>Event</th><th>PIC</th><th>Deadline</th><th style="width:60px"></th></tr></thead>
-          <tbody id="maActionsBody"><tr><td class="empty-td" colspan="6">Buka tab dulu buat liat action items.</td></tr></tbody>
+          <thead><tr><th>Collection</th><th style="width:30px"></th><th>Title</th><th>Event</th><th>PIC</th><th>Deadline</th><th style="width:60px"></th></tr></thead>
+          <tbody id="maActionsBody"><tr><td class="empty-td" colspan="7">Buka tab dulu buat liat action items.</td></tr></tbody>
         </table></div>
       </div>
     </div>
