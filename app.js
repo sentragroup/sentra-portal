@@ -17117,6 +17117,24 @@ async function openMRDetail(brandId, brandName) {
   _mrLoadSKUDetail(brandId);
 }
 
+// 4 read-only status pills for modal status grid + timeline view.
+// Order matches the labels used by callers: ① Sales Report, ② Invoice,
+// ③ Pembayaran, ④ Bukti Potong. Bukti Potong → N/A untuk non-PT.
+function _mrStatusPill(trk) {
+  const mk = (ok, label, neutral) => `<span style="display:inline-block;font-size:11px;padding:3px 9px;border-radius:99px;font-family:var(--mono);font-weight:500;background:${neutral?'var(--off)':(ok?'#dcfce7':'var(--off)')};color:${neutral?'var(--g400)':(ok?'#15803d':'var(--g600)')};border:1px solid ${neutral?'var(--g200)':(ok?'#86efac':'var(--g200)')}">${label}</span>`;
+  const reportOK = !!trk?.report_sent_at;
+  const invOK    = !!trk?.invoice_file_url;
+  const payOK    = !!trk?.payment_received_at;
+  const bpOK     = !!trk?.bukti_potong_received_at;
+  const isPT     = (trk?.brand_type || '') === 'PT';
+  return [
+    mk(reportOK, reportOK ? `✓ Sent · ${_mrShort(trk.report_sent_at)}` : 'Not Started'),
+    mk(invOK,    invOK    ? `✓ Uploaded` : 'Not Uploaded'),
+    mk(payOK,    payOK    ? `✓ Paid · ${_mrShort(trk.payment_received_at)}` : 'Not Paid'),
+    isPT ? mk(bpOK, bpOK ? `✓ Received · ${_mrShort(trk.bukti_potong_received_at)}` : 'Pending') : mk(false, 'N/A · Non-PT', true),
+  ];
+}
+
 function _mrRenderStatusCards(trk) {
   const pills = _mrStatusPill(trk);
   const labels = ['① Sales Report','② Invoice','③ Pembayaran','④ Bukti Potong'];
