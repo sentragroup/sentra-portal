@@ -2371,20 +2371,65 @@
           <div id="cp-cal-grid" class="cal-grid"></div>
         </div>
       </div>
-      <!-- Right-sidebar drawer for add / edit content card -->
-      <div id="cpDrawerBackdrop" onclick="closeCPDrawer()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.35);z-index:8900"></div>
-      <aside id="cpDrawer" style="display:none;position:fixed;top:0;right:0;bottom:0;width:420px;background:var(--white);box-shadow:-12px 0 40px rgba(0,0,0,0.15);z-index:9000;flex-direction:column;overflow:hidden">
-        <div style="padding:16px 20px;border-bottom:1px solid var(--g100);display:flex;justify-content:space-between;align-items:center">
-          <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:15px" id="cpDrawerTitle">Tambah Content</div>
-          <button onclick="closeCPDrawer()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--g600);line-height:1">×</button>
-        </div>
-        <div id="cpDrawerBody" style="flex:1;overflow-y:auto;padding:16px 20px"></div>
-        <div style="padding:14px 20px;border-top:1px solid var(--g100);display:flex;gap:8px;align-items:center">
-          <button class="btn-primary" id="cpDrawerSaveBtn" onclick="submitCPDrawer()" style="flex:1;padding:8px 16px;font-size:13px">💾 Simpan</button>
-          <button class="btn-ghost" onclick="closeCPDrawer()" style="padding:8px 16px;font-size:13px">Batal</button>
-        </div>
-      </aside>
     </div>
+
+    <!-- VIDEO PRODUCTION (clone of Content Planning with vp- prefixed IDs;
+         same backing DOM structure so the CP module's render functions can
+         target either page via _cpEl helper) -->
+    <div class="page" id="page-videoprod">
+      <div class="page-header">
+        <div><div class="page-title">Video Production</div><div class="page-sub">Plan & track video — script, shoot, edit, publish. Filter dari Content Planning (type=Video).</div></div>
+      </div>
+      <div class="stats-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:1.25rem">
+        <div class="stat-card"><div class="stat-num" id="vp-s-total">—</div><div class="stat-lbl">Total</div></div>
+        <div class="stat-card"><div class="stat-num" id="vp-s-planning">—</div><div class="stat-lbl">Planning</div></div>
+        <div class="stat-card"><div class="stat-num" id="vp-s-drafting">—</div><div class="stat-lbl">Drafting</div></div>
+        <div class="stat-card"><div class="stat-num" id="vp-s-scheduled">—</div><div class="stat-lbl">Scheduled</div></div>
+        <div class="stat-card"><div class="stat-num" id="vp-s-published">—</div><div class="stat-lbl">Published</div></div>
+      </div>
+      <div id="vptab-list">
+        <div class="filter-panel">
+          <select id="vp-fil-collection" onchange="loadContentPlan()"><option value="">Semua Collection</option></select>
+          <input type="text" id="vp-search" placeholder="Cari title, PIC..." style="padding:5px 10px;font-size:12px;border:1px solid var(--g100);border-radius:6px;width:220px;outline:none" oninput="loadContentPlan()">
+          <button class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="clearCPFilters()">✕ Reset</button>
+        </div>
+        <div class="table-toolbar" style="gap:8px">
+          <button class="btn-refresh" onclick="loadContentPlan()">↻ Refresh</button>
+          <div style="display:inline-flex;border:1px solid var(--g100);border-radius:6px;overflow:hidden">
+            <button id="vp-view-kanban-btn" onclick="switchCPView('kanban')" style="padding:5px 14px;background:var(--black);color:white;border:none;cursor:pointer;font-size:12px;font-family:var(--mono)">📋 Kanban</button>
+            <button id="vp-view-calendar-btn" onclick="switchCPView('calendar')" style="padding:5px 14px;background:var(--white);color:var(--g600);border:none;cursor:pointer;font-size:12px;font-family:var(--mono);border-left:1px solid var(--g100)">📅 Calendar</button>
+          </div>
+          <div class="tcount" id="vp-tcount" style="margin-left:auto">— entri</div>
+        </div>
+        <div id="vpKanban" style="padding:4px 0 16px;min-height:400px"></div>
+        <div id="vpCancelled" style="margin-top:14px"></div>
+        <div id="vpCalendar" style="display:none;padding:4px 0 16px">
+          <div style="display:flex;align-items:center;justify-content:center;gap:14px;padding:12px 0">
+            <button onclick="cpCalPrev()" style="padding:4px 10px;background:var(--white);border:1px solid var(--g100);border-radius:4px;cursor:pointer;font-size:13px">←</button>
+            <div id="vp-cal-title" style="font-family:'Syne',sans-serif;font-weight:700;font-size:15px;min-width:180px;text-align:center">—</div>
+            <button onclick="cpCalNext()" style="padding:4px 10px;background:var(--white);border:1px solid var(--g100);border-radius:4px;cursor:pointer;font-size:13px">→</button>
+            <button onclick="cpCalToday()" style="padding:4px 12px;background:var(--white);border:1px solid var(--g100);border-radius:4px;cursor:pointer;font-size:12px;margin-left:6px">Hari ini</button>
+          </div>
+          <div id="vp-cal-grid" class="cal-grid"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Shared right-sidebar drawer (used by both Content Planning + Video
+         Production). Moved outside the .page wrappers so it stays mounted
+         regardless of which page is active. -->
+    <div id="cpDrawerBackdrop" onclick="closeCPDrawer()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.35);z-index:8900"></div>
+    <aside id="cpDrawer" style="display:none;position:fixed;top:0;right:0;bottom:0;width:420px;background:var(--white);box-shadow:-12px 0 40px rgba(0,0,0,0.15);z-index:9000;flex-direction:column;overflow:hidden">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--g100);display:flex;justify-content:space-between;align-items:center">
+        <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:15px" id="cpDrawerTitle">Tambah Content</div>
+        <button onclick="closeCPDrawer()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--g600);line-height:1">×</button>
+      </div>
+      <div id="cpDrawerBody" style="flex:1;overflow-y:auto;padding:16px 20px"></div>
+      <div style="padding:14px 20px;border-top:1px solid var(--g100);display:flex;gap:8px;align-items:center">
+        <button class="btn-primary" id="cpDrawerSaveBtn" onclick="submitCPDrawer()" style="flex:1;padding:8px 16px;font-size:13px">💾 Simpan</button>
+        <button class="btn-ghost" onclick="closeCPDrawer()" style="padding:8px 16px;font-size:13px">Batal</button>
+      </div>
+    </aside>
 
     <!-- ADS MANAGEMENT -->
     <div class="page" id="page-adsmgmt">
