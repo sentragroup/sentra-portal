@@ -22446,11 +22446,54 @@ async function _maLoadPopupCache() {
   if (!_maPopupCachePromise) {
     _maPopupCachePromise = (async () => {
       try {
-        const {data} = await sb.from('popup_booths').select('id,event_name,event_date,location,actual_sales').order('event_date',{ascending:false,nullsFirst:false}).limit(2000);
-        _maPopupCache = (data||[]).map(p => ({
+        const {data: popups} = await sb.from('popup_booths').select('id,event_name,event_date,location,actual_sales').order('event_date',{ascending:false,nullsFirst:false}).limit(2000);
+        const rows = popups || [];
+        _maPopupCache = rows.map(p => ({
           id: p.id, name: p.event_name||'(no name)', date: p.event_date||'',
           location: p.location||'', actualSales: p.actual_sales,
         }));
+        // For popups missing actual_sales, compute via transaction_mappings →
+        // jubelio_sales_orders (same pattern as Pop Up Booth detail aggregation).
+        // Excludes canceled orders. Avoids the manual entry requirement on
+        // popup_booths.actual_sales — sales sync directly from Jubelio.
+        const needNames = rows.filter(p => p.actual_sales == null).map(p => p.event_name).filter(Boolean);
+        if (needNames.length) {
+          const totalByEvent = new Map();
+          const MAP_CHUNK = 100;
+          // transaction_mappings + jubelio_sales_orders in parallel chunks
+          for (let i = 0; i < needNames.length; i += MAP_CHUNK) {
+            const chunk = needNames.slice(i, i + MAP_CHUNK);
+            const {data: maps} = await sb.from('transaction_mappings')
+              .select('salesorder_id,project_ref')
+              .eq('category', 'Pop Up Booth')
+              .in('project_ref', chunk);
+            if (!maps || !maps.length) continue;
+            const soByEvent = new Map();
+            for (const m of maps) {
+              if (!m.salesorder_id) continue;
+              if (!soByEvent.has(m.salesorder_id)) soByEvent.set(m.salesorder_id, m.project_ref);
+            }
+            const soIds = [...soByEvent.keys()];
+            const SO_CHUNK = 200;
+            for (let j = 0; j < soIds.length; j += SO_CHUNK) {
+              const soChunk = soIds.slice(j, j + SO_CHUNK);
+              const {data: orders} = await sb.from('jubelio_sales_orders')
+                .select('salesorder_id,grand_total,is_canceled')
+                .in('salesorder_id', soChunk);
+              for (const o of (orders||[])) {
+                if (o.is_canceled) continue;
+                const evName = soByEvent.get(o.salesorder_id);
+                if (!evName) continue;
+                totalByEvent.set(evName, (totalByEvent.get(evName)||0) + Number(o.grand_total||0));
+              }
+            }
+          }
+          for (const r of _maPopupCache) {
+            if (r.actualSales == null && totalByEvent.has(r.name)) {
+              r.actualSales = totalByEvent.get(r.name);
+            }
+          }
+        }
       } catch(e) { console.warn('popup_booths cache failed:', e); }
     })();
   }
