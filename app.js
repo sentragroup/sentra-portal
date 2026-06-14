@@ -17723,7 +17723,7 @@ async function mrDownloadInvoice(brandId, brandName) {
         <div class="issuer">
           <img src="${LOGO_URL}" alt="Marté">
           <h2>PT Sandang Dunia Yuwana</h2>
-          <p>M Bloc, Jl. Panglima Polim No.37<br>Jakarta Selatan 12160<br>finance@martegeneralstore.com</p>
+          <p>M Bloc, Jl. Panglima Polim No.37<br>Jakarta Selatan 12160</p>
         </div>
         <div class="doc-meta">
           <h1>INVOICE</h1>
