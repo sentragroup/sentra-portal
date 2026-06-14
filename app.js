@@ -17046,8 +17046,8 @@ function _mrRenderTable() {
       <td style="text-align:right">${fmtQty(r._outbound_period)}</td>
       <td style="text-align:right" title="Adjustment OUT (freebies / defect / opname loss)">${r._adj_out_period>0 ? `<span style="font-family:var(--mono);font-size:12px;color:#a66800">${Math.round(r._adj_out_period).toLocaleString('id-ID')}</span>` : zeroCell}</td>
       <td style="text-align:right">${hasSales ? `<span style="font-family:var(--mono);font-size:12px">${_mrRpFull(r.total_sales)}</span>` : zeroCell}</td>
-      <td style="text-align:right">${hasSales ? `<span style="font-family:var(--mono);font-size:12px;color:#c05" title="${(r._pph23||0)>0?'Setelah PPh 23 (2%) brand tertahan '+_mrRpFull(r._pph23)+', net fee kita terima '+_mrRpFull((parseFloat(r.total_fee)||0)-(r._pph23||0)):''}">${_mrRpFull(r.total_fee)}${(r._pph23||0)>0?'<sup style="color:#3C3489;font-size:9px;margin-left:2px">PPh</sup>':''}</span>` : zeroCell}</td>
-      <td style="text-align:right">${hasSales ? `<span style="font-family:var(--mono);font-size:12px;font-weight:600" title="${(r._pph23||0)>0?'Termasuk PPh 23 2% ('+_mrRpFull(r._pph23)+') yang ditahan brand':''}">${_mrRpFull(r._net_payout_adj)}</span>` : zeroCell}</td>
+      <td style="text-align:right">${hasSales ? `<span style="font-family:var(--mono);font-size:12px;color:#c05" title="${(r._pph23||0)>0?'PPh 23 (2%) '+_mrRpFull(r._pph23)+' · net fee '+_mrRpFull((parseFloat(r.total_fee)||0)-(r._pph23||0)):''}">${_mrRpFull(r.total_fee)}${(r._pph23||0)>0?'<sup style="color:#3C3489;font-size:9px;margin-left:2px">PPh</sup>':''}</span>` : zeroCell}</td>
+      <td style="text-align:right">${hasSales ? `<span style="font-family:var(--mono);font-size:12px;font-weight:600" title="${(r._pph23||0)>0?'Termasuk PPh 23 2% ('+_mrRpFull(r._pph23)+')':''}">${_mrRpFull(r._net_payout_adj)}</span>` : zeroCell}</td>
       <td style="text-align:center">${cells[0]}</td>
       <td style="text-align:center">${cells[1]}</td>
       <td style="text-align:center">${cells[2]}</td>
@@ -17536,7 +17536,7 @@ async function mrDownloadPDF(brandId, brandName) {
         <div class="panel-body">
           <div class="row"><span class="k">Gross Sales</span><span class="v">${s.gross}</span></div>
           <div class="row"><span class="k">Konsinyasi Fee</span><span class="v">−${s.fee}</span></div>
-          ${s.isPT ? `<div class="row"><span class="k">PPh 23 (2%) <span style="color:var(--green-deep);font-size:11px">· ditahan brand</span></span><span class="v">+${s.pph}</span></div>` : ''}
+          ${s.isPT ? `<div class="row"><span class="k">PPh 23 (2%)</span><span class="v">+${s.pph}</span></div>` : ''}
           <div class="row big"><span class="k">Net Payout</span><span class="v">${s.net}</span></div>
         </div>
       </div>
@@ -17723,7 +17723,7 @@ async function mrDownloadInvoice(brandId, brandName) {
         <div class="issuer">
           <img src="${LOGO_URL}" alt="Marté">
           <h2>PT Sandang Dunia Yuwana</h2>
-          <p>M Bloc, Jl. Panglima Polim No.37<br>Jakarta Selatan 12160<br>NPWP: 63.875.986.0-021.000<br>finance@martegeneralstore.com</p>
+          <p>M Bloc, Jl. Panglima Polim No.37<br>Jakarta Selatan 12160<br>finance@martegeneralstore.com</p>
         </div>
         <div class="doc-meta">
           <h1>INVOICE</h1>
@@ -17769,11 +17769,10 @@ async function mrDownloadInvoice(brandId, brandName) {
       <div class="terbilang"><strong>Terbilang:</strong> ${terbilangStr}</div>
 
       <div class="bank">
-        <div class="lbl">Pembayaran ke</div>
+        <div class="lbl">Informasi Pajak</div>
         <table>
-          <tr><td class="k">Bank</td><td>BCA</td></tr>
+          <tr><td class="k">NPWP</td><td>63.875.986.0-021.000</td></tr>
           <tr><td class="k">A/N</td><td>PT Sandang Dunia Yuwana</td></tr>
-          <tr><td class="k">No. Rekening</td><td>—</td></tr>
         </table>
       </div>
 
@@ -17815,7 +17814,7 @@ function mrSendEmail(brandId, brandName) {
     `  Gross Sales          : ${s.gross}`,
     `  Konsinyasi Fee       : -${s.fee}`,
   ];
-  if (s.isPT) lines.push(`  PPh 23 (2%)          : +${s.pph}   (ditahan brand)`);
+  if (s.isPT) lines.push(`  PPh 23 (2%)          : +${s.pph}`);
   lines.push(
     `  Net Payout           : ${s.net}`,
     ``,
