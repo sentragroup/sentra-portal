@@ -21629,18 +21629,19 @@ function mapCP(r) {
     owner:r.owner||'', deadline:r.deadline||'', assetUrl:r.asset_url||'', caption:r.caption||'',
     publishDate:r.publish_date||'', channel:r.channel||'', status:r.status||'Planning'};
 }
-// Kanban columns — covers BOTH the legacy status enum (Planning/Drafting/
-// Scheduled) and the MP-created enum (Draft/In Progress/For Review).
-// Anything not matching falls into "Other".
+// Kanban columns — main flow only. Scheduled dropped per user (approved
+// langsung published). Cancelled rendered separately as a flat row below
+// the main board so the columns above don't get squeezed.
 const _CP_KANBAN_COLS = [
   { key:'Planning',    label:'📋 Planning',   match:['Planning','Draft'],                     tone:{bg:'#f0efe9',head:'#5a5850',border:'#d6d5cc'} },
   { key:'Drafting',    label:'✍️ Drafting',   match:['Drafting','In Progress'],               tone:{bg:'#eef0f8',head:'#3C3489',border:'#c9bdf0'} },
   { key:'Review',      label:'👀 Review',     match:['Review','For Review'],                  tone:{bg:'#fef5e0',head:'#a66800',border:'#f3cf7a'} },
   { key:'Approved',    label:'✅ Approved',   match:['Approved'],                             tone:{bg:'#daf3e0',head:'#0a7d3a',border:'#a7dab4'} },
-  { key:'Scheduled',   label:'📅 Scheduled',  match:['Scheduled'],                            tone:{bg:'#e0eef8',head:'#1a4a8a',border:'#a7c4dc'} },
   { key:'Published',   label:'🚀 Published',  match:['Published'],                            tone:{bg:'#e6f3e6',head:'#1c7a3b',border:'#9bcfa1'} },
-  { key:'Cancelled',   label:'⊘ Cancelled',   match:['Cancelled'],                            tone:{bg:'#fbe6e6',head:'#b81d1d',border:'#e0a8a8'} },
 ];
+const _CP_CANCELLED_TONE = {bg:'#fbe6e6',head:'#b81d1d',border:'#e0a8a8'};
+// Status options shown in card status select (Scheduled removed)
+const _CP_STATUS_OPTS = ['Planning','Draft','Drafting','In Progress','Review','For Review','Approved','Published','Cancelled'];
 
 async function loadContentPlan() {
   await _moLoadColOptions('cp-collection');
@@ -21683,20 +21684,39 @@ async function loadContentPlan() {
       board.innerHTML = `<div style="text-align:center;padding:32px;color:var(--g400);font-size:13px;flex:1">Tidak ada data.</div>`;
       return;
     }
-    // Bucket rows by kanban column
+    // Bucket rows by kanban column. Scheduled rolls into Approved (per user
+    // — flow goes approved → published directly). Cancelled goes to its own
+    // bucket rendered separately below the board so the active columns
+    // don't get squeezed.
     const buckets = new Map(_CP_KANBAN_COLS.map(c => [c.key, []]));
+    const cancelledBucket = [];
     const otherBucket = [];
     for (const r of rows) {
+      if (r.status === 'Cancelled') { cancelledBucket.push(r); continue; }
+      if (r.status === 'Scheduled') { buckets.get('Approved').push(r); continue; }
       const col = _CP_KANBAN_COLS.find(c => c.match.includes(r.status));
       if (col) buckets.get(col.key).push(r);
       else otherBucket.push(r);
     }
-    if (otherBucket.length) buckets.set('Other', otherBucket);
-    // Render kanban
-    board.innerHTML = _CP_KANBAN_COLS.map(col => {
-      const items = buckets.get(col.key) || [];
-      return _cpKanbanColumnHTML(col, items, colById);
-    }).join('') + (otherBucket.length ? _cpKanbanColumnHTML({key:'Other', label:'❓ Other', tone:{bg:'#f0efe9',head:'#5a5850',border:'#d6d5cc'}}, otherBucket, colById) : '');
+    // Main board (active flow)
+    let html = `<div style="display:flex;gap:10px;overflow-x:auto;padding:4px 0;min-height:400px">`;
+    html += _CP_KANBAN_COLS.map(col => _cpKanbanColumnHTML(col, buckets.get(col.key)||[], colById)).join('');
+    if (otherBucket.length) {
+      html += _cpKanbanColumnHTML({key:'Other', label:'❓ Other', tone:{bg:'#f0efe9',head:'#5a5850',border:'#d6d5cc'}}, otherBucket, colById);
+    }
+    html += `</div>`;
+    // Cancelled section rendered below as a horizontal collapsible row
+    if (cancelledBucket.length) {
+      const cards = cancelledBucket.map(r => _cpKanbanCardHTML(r, colById)).join('');
+      html += `<div style="margin-top:16px;background:${_CP_CANCELLED_TONE.bg};border:1px solid ${_CP_CANCELLED_TONE.border};border-radius:8px;overflow:hidden">
+        <div style="padding:10px 12px;border-bottom:1px solid ${_CP_CANCELLED_TONE.border};color:${_CP_CANCELLED_TONE.head};font-family:var(--mono);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;display:flex;justify-content:space-between;align-items:center">
+          <span>⊘ Cancelled</span>
+          <span style="background:white;color:${_CP_CANCELLED_TONE.head};padding:1px 8px;border-radius:99px;font-size:10px;border:1px solid ${_CP_CANCELLED_TONE.border}">${cancelledBucket.length}</span>
+        </div>
+        <div style="padding:8px;display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:6px">${cards}</div>
+      </div>`;
+    }
+    board.innerHTML = html;
   } catch(e) {
     if (board) board.innerHTML = `<div style="text-align:center;padding:32px;color:#c0392b;font-size:13px;flex:1">Gagal: ${(e.message||e).replace(/</g,'&lt;')}</div>`;
   }
@@ -21716,6 +21736,7 @@ function _cpKanbanColumnHTML(col, items, colById) {
 }
 
 function _cpKanbanCardHTML(r, colById) {
+  if (_cpEditingId === r.id) return _cpKanbanEditCardHTML(r, colById);
   const esc = s => _moEsc(s);
   const col = colById.get(r.collectionId);
   const colChip = col
@@ -21739,10 +21760,72 @@ function _cpKanbanCardHTML(r, colById) {
     ${dateRow}
     ${r.owner?`<div style="font-size:10px;color:var(--g600);margin-top:4px">👤 ${esc(r.owner)}</div>`:''}
     <div style="display:flex;gap:4px;margin-top:6px;align-items:center">
-      <select onchange="updateCPStatus('${r.id}',this.value)" style="font-size:10px;padding:2px 6px;border:1px solid var(--g200);border-radius:4px;flex:1;background:var(--white)">${['Planning','Draft','Drafting','In Progress','Review','For Review','Approved','Scheduled','Published','Cancelled'].map(s=>`<option${r.status===s?' selected':''}>${s}</option>`).join('')}</select>
+      <select onchange="updateCPStatus('${r.id}',this.value)" style="font-size:10px;padding:2px 6px;border:1px solid var(--g200);border-radius:4px;flex:1;background:var(--white)">${_CP_STATUS_OPTS.map(s=>`<option${r.status===s?' selected':''}>${s}</option>`).join('')}</select>
+      <button onclick="editCPCard('${r.id}')" title="Edit" style="background:none;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-size:11px;padding:2px 6px">✎</button>
       <button onclick="deleteCP('${r.id}')" title="Hapus" style="background:none;border:1px solid var(--g200);border-radius:4px;color:#c0392b;cursor:pointer;font-size:11px;padding:2px 6px">🗑</button>
     </div>
   </div>`;
+}
+
+// Inline edit form — replaces the card in place. All fields editable, save
+// writes back to content_planning then re-loads the board.
+function _cpKanbanEditCardHTML(r, colById) {
+  const esc = s => (s==null?'':String(s)).replace(/"/g,'&quot;');
+  const colOpts = [...colById.values()].sort((a,b)=>(a.collection_name||'').localeCompare(b.collection_name||''));
+  return `<div style="background:white;border:2px solid #3C3489;border-radius:6px;padding:10px;font-size:12px;box-shadow:0 4px 12px rgba(60,52,137,0.15)">
+    <div style="font-family:var(--mono);font-size:10px;color:#3C3489;text-transform:uppercase;letter-spacing:0.3px;font-weight:600;margin-bottom:8px">✎ Edit content</div>
+    <input type="text" id="cpe-title-${r.id}" value="${esc(r.title)}" placeholder="Title *" style="width:100%;font-size:12px;padding:5px 8px;margin-bottom:6px;box-sizing:border-box;font-weight:600">
+    <select id="cpe-collection-${r.id}" style="width:100%;font-size:11px;padding:5px 8px;margin-bottom:6px;box-sizing:border-box;background:var(--white)">
+      <option value="">— Tanpa collection —</option>
+      ${colOpts.map(c => `<option value="${esc(c.id)}"${c.id===r.collectionId?' selected':''}>${esc(c.collection_name)}</option>`).join('')}
+    </select>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:6px">
+      <input type="text" id="cpe-type-${r.id}" value="${esc(r.contentType)}" placeholder="Type (Image/Video/...)" style="font-size:11px;padding:5px 8px">
+      <input type="text" id="cpe-channel-${r.id}" value="${esc(r.channel)}" placeholder="Channel" style="font-size:11px;padding:5px 8px">
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:6px">
+      <input type="date" id="cpe-publish-${r.id}" value="${r.publishDate||''}" title="Publish date" style="font-size:11px;padding:5px 8px">
+      <input type="date" id="cpe-deadline-${r.id}" value="${r.deadline||''}" title="Deadline" style="font-size:11px;padding:5px 8px">
+    </div>
+    <input type="text" id="cpe-owner-${r.id}" value="${esc(r.owner)}" placeholder="Owner" style="width:100%;font-size:11px;padding:5px 8px;margin-bottom:6px;box-sizing:border-box">
+    <input type="url" id="cpe-asseturl-${r.id}" value="${esc(r.assetUrl)}" placeholder="Asset URL (drive link...)" style="width:100%;font-size:11px;padding:5px 8px;margin-bottom:6px;box-sizing:border-box;font-family:var(--mono)">
+    <textarea id="cpe-caption-${r.id}" rows="2" placeholder="Caption..." style="width:100%;font-size:11px;padding:5px 8px;margin-bottom:6px;box-sizing:border-box;resize:vertical">${esc(r.caption)}</textarea>
+    <select id="cpe-status-${r.id}" style="width:100%;font-size:11px;padding:5px 8px;margin-bottom:8px;box-sizing:border-box;background:var(--white)">${_CP_STATUS_OPTS.map(s=>`<option${r.status===s?' selected':''}>${s}</option>`).join('')}</select>
+    <div style="display:flex;gap:4px">
+      <button onclick="saveCPCardEdit('${r.id}')" style="flex:1;padding:6px 12px;background:#3C3489;color:white;border:none;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600">💾 Simpan</button>
+      <button onclick="cancelCPCardEdit()" style="padding:6px 12px;background:none;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-size:11px">Batal</button>
+    </div>
+  </div>`;
+}
+
+let _cpEditingId = '';
+
+function editCPCard(id) { _cpEditingId = id; loadContentPlan(); }
+function cancelCPCardEdit() { _cpEditingId = ''; loadContentPlan(); }
+
+async function saveCPCardEdit(id) {
+  const get = k => document.getElementById(`cpe-${k}-${id}`)?.value;
+  const title = get('title')?.trim();
+  if (!title) { alert('Title wajib'); return; }
+  try {
+    const {error} = await sb.from('content_planning').update({
+      title,
+      collection_id: get('collection') || null,
+      content_type: get('type')?.trim() || null,
+      channel: get('channel')?.trim() || null,
+      publish_date: get('publish') || null,
+      deadline: get('deadline') || null,
+      owner: get('owner')?.trim() || null,
+      asset_url: get('asseturl')?.trim() || null,
+      caption: get('caption')?.trim() || null,
+      status: get('status') || 'Planning',
+      last_updated: new Date().toISOString(), last_updated_by: currentUser,
+    }).eq('id', id);
+    if (error) throw error;
+    logActivity('ContentPlanning','edit',id,`Content: ${title}`);
+    _cpEditingId = '';
+    loadContentPlan();
+  } catch (e) { alert('Gagal: ' + (e.message||e)); }
 }
 function clearCPFilters() {
   ['cp-fil-status','cp-fil-type','cp-fil-collection','cp-search'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
