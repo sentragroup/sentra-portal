@@ -27935,17 +27935,28 @@ function _renderKolDbRows(rows) {
   if (!rows.length) { tbody.innerHTML = '<tr><td class="empty-td" colspan="9">Tidak ada KOL.</td></tr>'; return; }
   const esc = s => (s==null?'':String(s)).replace(/</g,'&lt;').replace(/"/g,'&quot;');
   tbody.innerHTML = rows.map(r => {
+    // Build chips + collect followers for Primary/Total summary line
+    let primaryCount = 0, primaryPlatform = '', totalReach = 0, anyCount = false;
     const chips = (r.platforms||[]).map(p => {
       if (!p || !p.platform) return '';
       const url = p.url || '';
       const key = (p.platform||'').toLowerCase();
       const fol = r.followersByPlatform?.[key];
       const folTxt = (typeof fol === 'number' && fol > 0) ? ` · ${_kolDbFmtFollowers(fol)}` : '';
+      if (typeof fol === 'number' && fol > 0) {
+        anyCount = true;
+        totalReach += fol;
+        if (fol > primaryCount) { primaryCount = fol; primaryPlatform = p.platform; }
+      }
       const label = `${esc(p.platform)}${folTxt}`;
       return url
         ? `<a href="${esc(url)}" target="_blank" style="display:inline-block;padding:2px 8px;background:#eef0f8;border:1px solid #c9bdf0;color:#3C3489;border-radius:99px;font-size:10px;text-decoration:none;margin:1px 2px" title="${esc(url)}">${label} ↗</a>`
         : `<span style="display:inline-block;padding:2px 8px;background:var(--g100);color:var(--g600);border-radius:99px;font-size:10px;margin:1px 2px">${label}</span>`;
     }).join('');
+    const reachLine = anyCount
+      ? `<div style="font-size:10px;font-family:var(--mono);color:var(--g600);margin-top:3px;letter-spacing:0.2px">🎯 Primary ${_kolDbFmtFollowers(primaryCount)} (${esc(primaryPlatform)}) · Total reach ${_kolDbFmtFollowers(totalReach)}</div>`
+      : '';
+    const platformsCell = (chips || '<span style="color:var(--g400);font-size:11px">—</span>') + reachLine;
     const rate = r.rateEstimate ? `Rp ${Number(r.rateEstimate).toLocaleString('id-ID')}` : '—';
     const statusPill = r.isBlacklisted
       ? `<span class="pill p-expired">🚫 Blacklist</span>`
@@ -27955,7 +27966,7 @@ function _renderKolDbRows(rows) {
       <td><div style="font-weight:600">${esc(r.name)}</div></td>
       <td style="font-size:11px;color:var(--g600)">${esc(r.categories)||'—'}</td>
       <td title="${esc(refreshedTitle)}">${_kolDbTierBadge(r.tier)}</td>
-      <td>${chips||'<span style="color:var(--g400);font-size:11px">—</span>'}</td>
+      <td>${platformsCell}</td>
       <td>${esc(r.contactPerson)||'—'}</td>
       <td style="font-family:var(--mono);font-size:11px">${esc(r.contactPhone)||'—'}</td>
       <td style="font-family:var(--mono);font-size:11px;white-space:nowrap">${rate}</td>
