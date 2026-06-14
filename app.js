@@ -16955,7 +16955,16 @@ async function loadMarteReport() {
   _mrAllRows = allMarteBrands.map(b => {
     const s   = salesMap[b.id] || { brand_id:b.id, brand_name:b.name, total_sales:0, total_fee:0, net_payout:0, others_sales:0 };
     const inv = invMap[b.id] || {};
+    // PPh 23 (2%) withholding — PT brand potong dari consignment fee yang kita
+    // charge ke mereka. Net payout ke brand jadi (gross − fee) + pph karena
+    // 2% itu tetap di brand untuk disetor ke pajak atas nama kita.
+    const fee    = parseFloat(s.total_fee)   || 0;
+    const rawNet = parseFloat(s.net_payout)  || 0;
+    const isPT   = b.brand_type === 'PT';
+    const pph23  = isPT ? Math.round(fee * 0.02) : 0;
     return { ...s, _bm_brand_type:b.brand_type||null, _bm_vat_status:b.vat_status||null,
+      _pph23:           pph23,
+      _net_payout_adj:  rawNet + pph23,
       // Net stock now reflects 'available' (on_hand minus reserved) — matches
       // what user expected (e.g. Atsiri 121, not 123 on_hand).
       _stock_qty:       parseFloat(inv.net_stock)||0,
@@ -16972,9 +16981,15 @@ async function loadMarteReport() {
       _adj_out_total:   parseFloat(inv.adjustment_out_total)||0 };
   });
 
-  // Stats (based on brands WITH sales only)
+  // Stats — totals reflect PPh adjustment for PT brands so Net Payout matches
+  // what we actually transfer (raw + pph kept by brand).
   let totS=0, totF=0, totN=0;
-  _mrSummary.forEach(r=>{ totS+=parseFloat(r.total_sales)||0; totF+=parseFloat(r.total_fee)||0; totN+=parseFloat(r.net_payout)||0; });
+  _mrAllRows.forEach(r => {
+    if ((parseFloat(r.total_sales)||0) <= 0) return;
+    totS += parseFloat(r.total_sales)||0;
+    totF += parseFloat(r.total_fee)||0;
+    totN += parseFloat(r._net_payout_adj)||0;
+  });
   document.getElementById('mr-s-brands').textContent = _mrSummary.length;
   document.getElementById('mr-s-sales').textContent  = _mrRpFull(totS);
   document.getElementById('mr-s-fee').textContent    = _mrRpFull(totF);
@@ -17031,8 +17046,8 @@ function _mrRenderTable() {
       <td style="text-align:right">${fmtQty(r._outbound_period)}</td>
       <td style="text-align:right" title="Adjustment OUT (freebies / defect / opname loss)">${r._adj_out_period>0 ? `<span style="font-family:var(--mono);font-size:12px;color:#a66800">${Math.round(r._adj_out_period).toLocaleString('id-ID')}</span>` : zeroCell}</td>
       <td style="text-align:right">${hasSales ? `<span style="font-family:var(--mono);font-size:12px">${_mrRpFull(r.total_sales)}</span>` : zeroCell}</td>
-      <td style="text-align:right">${hasSales ? `<span style="font-family:var(--mono);font-size:12px;color:#c05">${_mrRpFull(r.total_fee)}</span>` : zeroCell}</td>
-      <td style="text-align:right">${hasSales ? `<span style="font-family:var(--mono);font-size:12px;font-weight:600">${_mrRpFull(r.net_payout)}</span>` : zeroCell}</td>
+      <td style="text-align:right">${hasSales ? `<span style="font-family:var(--mono);font-size:12px;color:#c05" title="${(r._pph23||0)>0?'Setelah PPh 23 (2%) brand tertahan '+_mrRpFull(r._pph23)+', net fee kita terima '+_mrRpFull((parseFloat(r.total_fee)||0)-(r._pph23||0)):''}">${_mrRpFull(r.total_fee)}${(r._pph23||0)>0?'<sup style="color:#3C3489;font-size:9px;margin-left:2px">PPh</sup>':''}</span>` : zeroCell}</td>
+      <td style="text-align:right">${hasSales ? `<span style="font-family:var(--mono);font-size:12px;font-weight:600" title="${(r._pph23||0)>0?'Termasuk PPh 23 2% ('+_mrRpFull(r._pph23)+') yang ditahan brand':''}">${_mrRpFull(r._net_payout_adj)}</span>` : zeroCell}</td>
       <td style="text-align:center">${cells[0]}</td>
       <td style="text-align:center">${cells[1]}</td>
       <td style="text-align:center">${cells[2]}</td>
@@ -17055,7 +17070,9 @@ async function openMRDetail(brandId, brandName) {
   document.getElementById('mr-modal-period').textContent = _mrPeriod;
   document.getElementById('mr-modal-sales').textContent  = salesRow ? _mrRpFull(salesRow.total_sales) : '—';
   document.getElementById('mr-modal-fee').textContent    = salesRow ? _mrRpFull(salesRow.total_fee)   : '—';
-  document.getElementById('mr-modal-net').textContent    = salesRow ? _mrRpFull(salesRow.net_payout)  : '—';
+  // Net Payout uses adjusted value (includes PPh 23 kept by brand for PT).
+  const _adjRow = _mrAllRows.find(x => x.brand_id === brandId);
+  document.getElementById('mr-modal-net').textContent    = salesRow ? _mrRpFull(_adjRow?._net_payout_adj ?? salesRow.net_payout) : '—';
   // Inventory from _mrAllRows
   const invRow = _mrAllRows.find(r=>r.brand_id===brandId);
   const fmtQ = n => n>0 ? Math.round(n).toLocaleString('id-ID')+' pcs' : '—';
@@ -17302,16 +17319,32 @@ function _mrSummaryText(brandId, brandName) {
     const mIdx = parseInt(m[2],10) - 1;
     if (mIdx >= 0 && mIdx < 12) periodLabel = `${monthNames[mIdx]} ${m[1]}`;
   }
+  // PPh 23 2% withholding for PT brands. Brand keeps the 2% portion (to remit
+  // to gov't on our behalf), so net payout grows by the pph amount. Non-PT:
+  // no withholding, net payout = total_sales − total_fee.
+  const brandType = r._bm_brand_type || trk.brand_type || '';
+  const isPT      = brandType === 'PT';
+  const grossNum  = parseFloat(r.total_sales) || 0;
+  const feeNum    = parseFloat(r.total_fee)   || 0;
+  const rawNet    = parseFloat(r.net_payout)  || 0;
+  const pphNum    = isPT ? Math.round(feeNum * 0.02) : 0;
+  const netNum    = rawNet + pphNum;
   return {
     brandName,
+    brandType,
+    isPT,
     period:     _mrPeriod,
     periodLabel,
-    grossNum:   parseFloat(r.total_sales) || 0,
-    feeNum:     parseFloat(r.total_fee)   || 0,
-    netNum:     parseFloat(r.net_payout)  || 0,
-    gross:      fmt(r.total_sales),
-    fee:        fmt(r.total_fee),
-    net:        fmt(r.net_payout),
+    grossNum,
+    feeNum,
+    pphNum,
+    netNum,
+    rawNet,
+    gross:      fmt(grossNum),
+    fee:        fmt(feeNum),
+    pph:        fmt(pphNum),
+    net:        fmt(netNum),
+    netRaw:     fmt(rawNet),
     inboundPer: pcs(r._inbound_period),
     soldPer:    pcs(r._outbound_period),
     soldAll:    pcs(r._outbound_total),
@@ -17493,9 +17526,27 @@ async function mrDownloadPDF(brandId, brandName) {
         <div class="doc-title">Consignment Report</div>
       </div>
 
-      <div class="kicker">For Brand</div>
+      <div class="kicker">For Brand${s.brandType?` · ${_escRmd(s.brandType)}`:''}</div>
       <h1>${_escRmd(s.brandName)}</h1>
       <div class="h-sub">${_escRmd(s.periodLabel)} · Marté General Store</div>
+
+      <h2 class="section-title">Financial</h2>
+      <div class="panel">
+        <div class="panel-header">Period ${_escRmd(s.period)}</div>
+        <div class="panel-body">
+          <div class="row"><span class="k">Gross Sales</span><span class="v">${s.gross}</span></div>
+          <div class="row"><span class="k">Konsinyasi Fee</span><span class="v">−${s.fee}</span></div>
+          ${s.isPT ? `<div class="row"><span class="k">PPh 23 (2%) <span style="color:var(--green-deep);font-size:11px">· ditahan brand</span></span><span class="v">+${s.pph}</span></div>` : ''}
+          <div class="row big"><span class="k">Net Payout</span><span class="v">${s.net}</span></div>
+        </div>
+      </div>
+
+      ${s.isPT
+        ? `<div class="action">
+             <div class="action-eyebrow">★ Action Required</div>
+             <div class="action-body">Mohon dari ${_escRmd(s.brandName)} untuk mengirimkan <strong>bukti potong PPh 23</strong> sebesar <span class="amount">${s.pph}</span> atas jasa consignment fee (${s.fee}).</div>
+           </div>`
+        : ''}
 
       <h2 class="section-title">Inventory</h2>
       <div class="stat-row">
@@ -17504,21 +17555,6 @@ async function mrDownloadPDF(brandId, brandName) {
         <div class="stat"><div class="stat-num">${soldPer}</div><div class="stat-lbl">Terjual (Periode)</div></div>
         <div class="stat"><div class="stat-num">${totalSold}</div><div class="stat-lbl">Total Terjual</div></div>
         <div class="stat"><div class="stat-num">${currentStock}</div><div class="stat-lbl">Current Stock</div></div>
-      </div>
-
-      <h2 class="section-title">Financial</h2>
-      <div class="panel">
-        <div class="panel-header">Period ${_escRmd(s.period)}</div>
-        <div class="panel-body">
-          <div class="row"><span class="k">Gross Sales</span><span class="v">${s.gross}</span></div>
-          <div class="row"><span class="k">Konsinyasi Fee</span><span class="v">−${s.fee}</span></div>
-          <div class="row big"><span class="k">Net Payout</span><span class="v">${s.net}</span></div>
-        </div>
-      </div>
-
-      <div class="action">
-        <div class="action-eyebrow">★ Action Required</div>
-        <div class="action-body">Silahkan dari ${_escRmd(s.brandName)} untuk mengirimkan invoice penagihan sesuai dengan nilai net payout <span class="amount">${s.net}</span>.</div>
       </div>
 
       <h2 class="section-title page-break">Product Sold During Period</h2>
@@ -17685,7 +17721,7 @@ async function mrDownloadInvoice(brandId, brandName) {
         <div class="issuer">
           <img src="${LOGO_URL}" alt="Marté">
           <h2>PT Sandang Dunia Yuwana</h2>
-          <p>M Bloc, Jl. Panglima Polim No.37<br>Jakarta Selatan 12160<br>finance@martegeneralstore.com</p>
+          <p>M Bloc, Jl. Panglima Polim No.37<br>Jakarta Selatan 12160<br>NPWP: 63.875.986.0-021.000<br>finance@martegeneralstore.com</p>
         </div>
         <div class="doc-meta">
           <h1>INVOICE</h1>
@@ -17740,12 +17776,8 @@ async function mrDownloadInvoice(brandId, brandName) {
         </table>
       </div>
 
-      <div class="sign-row">
-        <div class="sign">
-          <div class="role">Penerima</div>
-          <div class="line">${_escRmd(s.brandName)}</div>
-        </div>
-        <div class="sign">
+      <div class="sign-row" style="grid-template-columns:1fr;justify-items:end">
+        <div class="sign" style="max-width:320px;width:100%">
           <div class="role">Hormat Kami</div>
           <div class="stamp">PAID<span class="meta">${dd}/${mm}/${yyyy}</span></div>
           <div class="line">PT Sandang Dunia Yuwana</div>
@@ -17778,21 +17810,31 @@ function mrSendEmail(brandId, brandName) {
     ``,
     `Berikut summary konsinyasi periode ${s.periodLabel}:`,
     ``,
+    `Financial`,
+    `  Gross Sales          : ${s.gross}`,
+    `  Konsinyasi Fee       : -${s.fee}`,
+  ];
+  if (s.isPT) lines.push(`  PPh 23 (2%)          : +${s.pph}   (ditahan brand)`);
+  lines.push(
+    `  Net Payout           : ${s.net}`,
+    ``,
+  );
+  if (s.isPT) {
+    lines.push(
+      `Action Required`,
+      `  Mohon kirim bukti potong PPh 23 sebesar ${s.pph} atas jasa consignment fee.`,
+      ``,
+    );
+  }
+  lines.push(
     `Movement`,
     `  Inbound (periode)    : ${s.inboundPer}`,
     `  Terjual (periode)    : ${s.soldPer}`,
-  ];
+  );
   if ((parseFloat(s.adjOutPer)||0) > 0) lines.push(`  Adjustment OUT       : ${s.adjOutPer}`);
   lines.push(
     `  Terjual (all time)   : ${s.soldAll}`,
     `  Stock now            : ${s.stockNow}`,
-    ``,
-    `Financial`,
-    `  Gross Sales          : ${s.gross}`,
-    `  Konsinyasi Fee       : -${s.fee}`,
-    `  Net Payout           : ${s.net}`,
-    ``,
-    `Silahkan dari ${s.brandName} untuk mengirimkan invoice penagihan sesuai dengan nilai net payout ${s.net}.`,
     ``,
   );
   if (s.invUrl) lines.push(`Invoice (referensi): ${s.invUrl}`, ``);
