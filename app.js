@@ -21668,6 +21668,8 @@ async function loadContentPlan() {
     ]);
     if (error) throw error;
     _cpRows = (data||[]).map(mapCP);
+    // Build autocomplete vocab from existing DB values + hardcoded defaults
+    _cpRebuildVocab(_cpRows);
     const colById = new Map((colData||[]).map(c => [c.id, c]));
     const typeSet = [...new Set(_cpRows.map(r=>r.contentType).filter(Boolean))].sort();
     const tSel = document.getElementById('cp-fil-type');
@@ -21821,6 +21823,7 @@ async function openCPDrawerAdd(statusKey) {
   document.getElementById('cpDrawerTitle').textContent = `+ Tambah Content${statusKey?` · ${statusKey}`:''}`;
   document.getElementById('cpDrawerBody').innerHTML = _cpDrawerFormHTML({status: statusKey||'Planning'}, colOpts);
   document.getElementById('cpDrawerSaveBtn').textContent = '💾 Simpan';
+  _cpAttachDrawerAC();
   openCPDrawer();
   setTimeout(() => document.getElementById('cpd-title')?.focus(), 50);
 }
@@ -21837,14 +21840,34 @@ async function openCPDrawerEdit(id) {
   document.getElementById('cpDrawerTitle').textContent = `✎ Edit Content`;
   document.getElementById('cpDrawerBody').innerHTML = _cpDrawerFormHTML(r, colOpts) + `<div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--g100)"><button onclick="if(confirm('Hapus content ini?')){deleteCP('${id}');closeCPDrawer();}" style="width:100%;padding:8px 16px;background:none;border:1px solid #e0a8a8;color:#c0392b;border-radius:6px;cursor:pointer;font-size:12px">🗑 Hapus Content</button></div>`;
   document.getElementById('cpDrawerSaveBtn').textContent = '💾 Simpan Perubahan';
+  _cpAttachDrawerAC();
   openCPDrawer();
+}
+
+// Vocab caches — populated from distinct DB values + merged with defaults.
+// setupAC uses these as the suggestion source so new values typed in
+// become visible next time (organic growth, same UX as +Tambah SKU di CD).
+const _CP_DEFAULTS = {
+  channelCat: ['Instagram','TikTok','Youtube'],
+  channel: ['SD&Y Instagram','Lagaa Instagram','Marte Instagram','People of Marte Instagram'],
+  contentCat: ['Promotional','Snackable'],
+  contentFormat: ['Reels','Stories','Post','Video'],
+};
+let _cpChannelCats = [], _cpChannels = [], _cpContentCats = [], _cpContentFormats = [], _cpPics = [];
+
+function _cpRebuildVocab(rows) {
+  const uniq = (arr) => [...new Set(arr.map(v=>(v||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  _cpChannelCats   = uniq([..._CP_DEFAULTS.channelCat,   ...rows.map(r=>r.channelCategory)]);
+  _cpChannels      = uniq([..._CP_DEFAULTS.channel,      ...rows.map(r=>r.channel)]);
+  _cpContentCats   = uniq([..._CP_DEFAULTS.contentCat,   ...rows.map(r=>r.contentCategory)]);
+  _cpContentFormats= uniq([..._CP_DEFAULTS.contentFormat,...rows.map(r=>r.contentFormat)]);
+  _cpPics          = uniq(rows.map(r=>r.owner));
 }
 
 function _cpDrawerFormHTML(r, colOpts) {
   const esc = s => (s==null?'':String(s)).replace(/"/g,'&quot;');
-  // Datalist options — match MP Content Production so the two surfaces
-  // share the same suggestion vocabulary.
-  const dl = (id, options) => `<datalist id="${id}">${options.map(o => `<option value="${o}">`).join('')}</datalist>`;
+  // Custom autocomplete: each field has its own .ac-list div for suggestions.
+  // setupAC wired up in openCPDrawerAdd / openCPDrawerEdit after innerHTML set.
   return `<div style="display:flex;flex-direction:column;gap:10px">
     <div class="fg" style="margin:0"><label style="font-size:11px"><strong>Title <span class="req">*</span></strong></label>
       <input type="text" id="cpd-title" value="${esc(r.title)}" placeholder="cth: Lookbook IG carousel" style="font-size:13px;padding:7px 10px">
@@ -21856,26 +21879,26 @@ function _cpDrawerFormHTML(r, colOpts) {
       </select>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-      <div class="fg" style="margin:0"><label style="font-size:11px">Channel Kategori</label>
-        <input type="text" id="cpd-channel-cat" list="cpd-channel-cat-dl" value="${esc(r.channelCategory)}" placeholder="Instagram / TikTok / Youtube" style="font-size:12px;padding:7px 10px">
-        ${dl('cpd-channel-cat-dl', ['Instagram','TikTok','Youtube'])}
+      <div class="fg" style="margin:0;position:relative"><label style="font-size:11px">Channel Kategori</label>
+        <input type="text" id="cpd-channel-cat" autocomplete="off" value="${esc(r.channelCategory)}" placeholder="Pilih atau ketik baru..." style="font-size:12px;padding:7px 10px">
+        <div class="ac-list" id="ac-cpd-channel-cat"></div>
       </div>
-      <div class="fg" style="margin:0"><label style="font-size:11px">Channel</label>
-        <input type="text" id="cpd-channel" list="cpd-channel-dl" value="${esc(r.channel)}" placeholder="SD&Y Instagram / Marte Instagram / ..." style="font-size:12px;padding:7px 10px">
-        ${dl('cpd-channel-dl', ['SD&Y Instagram','Lagaa Instagram','Marte Instagram','People of Marte Instagram'])}
+      <div class="fg" style="margin:0;position:relative"><label style="font-size:11px">Channel</label>
+        <input type="text" id="cpd-channel" autocomplete="off" value="${esc(r.channel)}" placeholder="Pilih atau ketik baru..." style="font-size:12px;padding:7px 10px">
+        <div class="ac-list" id="ac-cpd-channel"></div>
       </div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-      <div class="fg" style="margin:0"><label style="font-size:11px">Kategori Konten</label>
-        <input type="text" id="cpd-content-cat" list="cpd-content-cat-dl" value="${esc(r.contentCategory)}" placeholder="Promotional / Snackable" style="font-size:12px;padding:7px 10px">
-        ${dl('cpd-content-cat-dl', ['Promotional','Snackable'])}
+      <div class="fg" style="margin:0;position:relative"><label style="font-size:11px">Kategori Konten</label>
+        <input type="text" id="cpd-content-cat" autocomplete="off" value="${esc(r.contentCategory)}" placeholder="Pilih atau ketik baru..." style="font-size:12px;padding:7px 10px">
+        <div class="ac-list" id="ac-cpd-content-cat"></div>
       </div>
-      <div class="fg" style="margin:0"><label style="font-size:11px">Format</label>
-        <input type="text" id="cpd-content-format" list="cpd-format-dl" value="${esc(r.contentFormat)}" placeholder="Reels / Stories / Post / Video" style="font-size:12px;padding:7px 10px">
-        ${dl('cpd-format-dl', ['Reels','Stories','Post','Video'])}
+      <div class="fg" style="margin:0;position:relative"><label style="font-size:11px">Format</label>
+        <input type="text" id="cpd-content-format" autocomplete="off" value="${esc(r.contentFormat)}" placeholder="Pilih atau ketik baru..." style="font-size:12px;padding:7px 10px">
+        <div class="ac-list" id="ac-cpd-content-format"></div>
       </div>
     </div>
-    <div class="fg" style="margin:0"><label style="font-size:11px">Type <span style="color:var(--g400);font-weight:400">(Video / Image — pisahin Content vs Video di MP)</span></label>
+    <div class="fg" style="margin:0"><label style="font-size:11px">Type <span style="color:var(--g400);font-weight:400">(Video / Image — split Content vs Video di MP)</span></label>
       <select id="cpd-type" style="font-size:12px;padding:7px 10px;background:var(--white)">
         <option value=""${!r.contentType?' selected':''}>—</option>
         <option value="Image"${r.contentType==='Image'?' selected':''}>Image</option>
@@ -21890,8 +21913,9 @@ function _cpDrawerFormHTML(r, colOpts) {
         <input type="date" id="cpd-deadline" value="${r.deadline||''}" style="font-size:12px;padding:7px 10px">
       </div>
     </div>
-    <div class="fg" style="margin:0"><label style="font-size:11px">Owner / Creator</label>
-      <input type="text" id="cpd-owner" value="${esc(r.owner)}" placeholder="Nama PIC" style="font-size:12px;padding:7px 10px">
+    <div class="fg" style="margin:0;position:relative"><label style="font-size:11px">PIC</label>
+      <input type="text" id="cpd-owner" autocomplete="off" value="${esc(r.owner)}" placeholder="Pilih atau ketik baru..." style="font-size:12px;padding:7px 10px">
+      <div class="ac-list" id="ac-cpd-owner"></div>
     </div>
     <div class="fg" style="margin:0"><label style="font-size:11px">Asset URL (Drive / link)</label>
       <input type="url" id="cpd-asseturl" value="${esc(r.assetUrl)}" placeholder="https://drive.google.com/..." style="font-size:11px;padding:7px 10px;font-family:var(--mono)">
@@ -21903,6 +21927,16 @@ function _cpDrawerFormHTML(r, colOpts) {
       <select id="cpd-status" style="font-size:12px;padding:7px 10px;background:var(--white)">${_CP_STATUS_OPTS.map(s=>`<option${r.status===s?' selected':''}>${s}</option>`).join('')}</select>
     </div>
   </div>`;
+}
+
+// Wire setupAC on all 5 autocomplete inputs in the drawer. Call after the
+// drawer body innerHTML has been set so the elements exist.
+function _cpAttachDrawerAC() {
+  setupAC('cpd-channel-cat',    'ac-cpd-channel-cat',    () => _cpChannelCats);
+  setupAC('cpd-channel',        'ac-cpd-channel',        () => _cpChannels);
+  setupAC('cpd-content-cat',    'ac-cpd-content-cat',    () => _cpContentCats);
+  setupAC('cpd-content-format', 'ac-cpd-content-format', () => _cpContentFormats);
+  setupAC('cpd-owner',          'ac-cpd-owner',          () => _cpPics);
 }
 
 async function submitCPDrawer() {
