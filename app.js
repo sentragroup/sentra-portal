@@ -23031,6 +23031,11 @@ function _maWireSampleRowsAC(id) {
     document.addEventListener('click', e => {
       if (!display.contains(e.target) && !ac.contains(e.target)) ac.style.display = 'none';
     });
+    // Sample qty edits → refresh budget total + MER
+    row.querySelector(`.mae-sam-${id}-qty`)?.addEventListener('input', () => {
+      _maBudgetSumUpdate(id);
+      _maRefreshSales(id);
+    });
   });
 }
 
@@ -23183,12 +23188,14 @@ async function _maRefreshSales(id) {
   const ed = document.getElementById(`mae-end-date-${id}`)?.value || '';
   const popupInp = document.getElementById(`mae-popup-${id}`);
   const popupId = (popupInp?.dataset?.id || '').trim();
-  // Live budget = current breakdown sum (fall back to stored r.budget if breakdown empty)
+  // Live budget = current breakdown sum + sample COGS (HPP × qty)
   let budget = 0;
   document.querySelectorAll(`#mae-bb-${id} .mab-amt-${id}`).forEach(inp => {
     const v = parseFloat(inp.value);
     if (!isNaN(v)) budget += v;
   });
+  const sampleItems = _kolReadFreebieFrom(`mae-sample-${id}`, `mae-sam-${id}`);
+  budget += _kolItemsCOGS(sampleItems);
   if (budget === 0) {
     const r = _maRows.find(x => x.id === id);
     if (r && typeof r.budget === 'number') budget = r.budget;
@@ -23286,13 +23293,24 @@ function addMaActionRow(id) {
 function _maBudgetSumUpdate(id) {
   const host = document.getElementById(`mae-bb-${id}`);
   if (!host) return;
-  let sum = 0;
+  let breakdownSum = 0;
   host.querySelectorAll(`.mab-amt-${id}`).forEach(inp => {
     const v = parseFloat(inp.value);
-    if (!isNaN(v)) sum += v;
+    if (!isNaN(v)) breakdownSum += v;
   });
+  // Include sample COGS (sum of HPP × qty across sample_items) so budget total
+  // reflects true spend across event activations + freebies.
+  const sampleItems = _kolReadFreebieFrom(`mae-sample-${id}`, `mae-sam-${id}`);
+  const sampleCogs = _kolItemsCOGS(sampleItems);
+  const total = breakdownSum + sampleCogs;
   const el = document.getElementById(`mab-sum-${id}`);
-  if (el) el.textContent = _moRp(sum);
+  if (el) {
+    if (sampleCogs > 0) {
+      el.innerHTML = `${_moRp(total)} <span style="font-size:9px;color:var(--g400);font-weight:400">(${_moRp(breakdownSum)} budget + ${_moRp(sampleCogs)} sample)</span>`;
+    } else {
+      el.textContent = _moRp(total);
+    }
+  }
 }
 
 function _maReadBudget(id) {
@@ -23333,8 +23351,11 @@ async function saveMaEdit(id) {
   const popupInp = document.getElementById(`mae-popup-${id}`);
   const popupId = (popupInp?.dataset?.id || '').trim() || null;
   const breakdown = _maReadBudget(id);
-  const budgetTotal = breakdown.reduce((s, b) => s + Number(b.amount||0), 0);
+  const breakdownSum = breakdown.reduce((s, b) => s + Number(b.amount||0), 0);
   const sampleItems = _kolReadFreebieFrom(`mae-sample-${id}`, `mae-sam-${id}`);
+  // Budget = manual breakdown sum + sample COGS (HPP × qty). Bakes both into the
+  // budget column so the main table, MER calc, and stats stay aligned.
+  const budgetTotal = breakdownSum + _kolItemsCOGS(sampleItems);
   const payload = {
     event_name: name,
     event_type: (document.getElementById(`mae-type-${id}`).value || '').trim() || null,
@@ -24793,20 +24814,27 @@ async function _kolMgmtEnsureRefData() {
             from += CHUNK;
             if (from > 50000) break;  // safety net
           }
-          // Resolve thumbnails via jubelio_items.item_id — chunk to dodge .in() URL cap
+          // Resolve thumbnails + average_cost (HPP) via jubelio_items.item_id —
+          // chunk to dodge .in() URL cap. HPP feeds freebie/sample COGS so it
+          // gets counted as budget in Marketing Activation MER calcs.
           const itemIds = [...new Set(rows.map(r => r.jubelio_item_id).filter(Boolean))];
           const thumbMap = new Map();
+          const costMap = new Map();
           const THUMB_CHUNK = 500;
           for (let i = 0; i < itemIds.length; i += THUMB_CHUNK) {
             const chunk = itemIds.slice(i, i + THUMB_CHUNK);
-            const {data: items} = await sb.from('jubelio_items').select('item_id,thumbnail').in('item_id', chunk);
-            (items || []).forEach(it => { if (it.thumbnail) thumbMap.set(String(it.item_id), it.thumbnail); });
+            const {data: items} = await sb.from('jubelio_items').select('item_id,thumbnail,average_cost').in('item_id', chunk);
+            (items || []).forEach(it => {
+              if (it.thumbnail) thumbMap.set(String(it.item_id), it.thumbnail);
+              if (it.average_cost != null) costMap.set(String(it.item_id), Number(it.average_cost));
+            });
           }
           _kolProdMapCache = rows.map(x => ({
             id: x.id,
             item_name: x.item_name || x.id,
             brand: x.brand || '',
             thumbnail: x.jubelio_item_id ? (thumbMap.get(String(x.jubelio_item_id)) || '') : '',
+            hpp: x.jubelio_item_id ? (costMap.get(String(x.jubelio_item_id)) || 0) : 0,
           }));
         } catch (e) { console.warn('product_mappings cache failed:', e); }
       })();
@@ -24906,10 +24934,12 @@ function _kolFreebieRowHTML(item, prefix) {
   const thumb = item?.thumbnail || '';
   const size = item?.size || '';
   const qty = item?.qty || 1;
+  const hpp = Number(item?.hpp || 0);
   const display = sku ? `${sku} — ${itemName}` : '';
   const previewInner = thumb
     ? `<img src="${esc(thumb)}" alt="" style="width:32px;height:32px;border-radius:4px;object-fit:cover">`
     : `<div style="width:32px;height:32px;border-radius:4px;background:var(--g100);display:flex;align-items:center;justify-content:center;color:var(--g400);font-size:14px">📦</div>`;
+  const subVal = hpp > 0 ? _moRp(hpp * qty) : '—';
   return `<div class="kol-frb-row" style="display:flex;gap:6px;align-items:center">
     <div class="kol-frb-preview" style="flex-shrink:0">${previewInner}</div>
     <div style="flex:1;position:relative">
@@ -24918,11 +24948,23 @@ function _kolFreebieRowHTML(item, prefix) {
       <input type="hidden" class="${prefix}-sku" value="${esc(sku)}">
       <input type="hidden" class="${prefix}-name" value="${esc(itemName)}">
       <input type="hidden" class="${prefix}-thumb" value="${esc(thumb)}">
+      <input type="hidden" class="${prefix}-hpp" value="${hpp}">
     </div>
     <input type="text" class="${prefix}-size" value="${esc(size)}" placeholder="Size" style="font-size:12px;padding:5px 8px;width:60px;text-align:center" title="Size">
-    <input type="number" min="1" class="${prefix}-qty" value="${qty}" style="font-size:12px;padding:5px 8px;width:60px;text-align:right" title="Qty">
+    <input type="number" min="1" class="${prefix}-qty" value="${qty}" onchange="_kolFrbRecalcSub(this)" oninput="_kolFrbRecalcSub(this)" style="font-size:12px;padding:5px 8px;width:60px;text-align:right" title="Qty">
+    <span class="kol-frb-sub" style="font-size:10px;font-family:var(--mono);color:var(--g600);min-width:90px;text-align:right" title="HPP × qty">${subVal}</span>
     <button type="button" onclick="this.parentElement.remove()" style="background:none;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-size:13px;padding:3px 8px;color:#c0392b;line-height:1">🗑</button>
   </div>`;
+}
+
+// Live-update the HPP×qty subtotal label when qty changes
+function _kolFrbRecalcSub(qtyInp) {
+  const row = qtyInp.closest('.kol-frb-row');
+  if (!row) return;
+  const hpp = parseFloat(row.querySelector('[class$="-hpp"]')?.value) || 0;
+  const qty = parseInt(qtyInp.value, 10) || 1;
+  const sub = row.querySelector('.kol-frb-sub');
+  if (sub) sub.textContent = hpp > 0 ? _moRp(hpp * qty) : '—';
 }
 
 function addKolFreebieRow(item) {
@@ -24957,11 +24999,13 @@ function _kolFrbRenderAC(display, ac) {
     const thumb = m.thumbnail
       ? `<img src="${esc(m.thumbnail)}" alt="" loading="lazy" style="width:36px;height:36px;border-radius:4px;object-fit:cover;background:var(--g100);flex-shrink:0">`
       : `<div style="width:36px;height:36px;border-radius:4px;background:var(--g100);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:14px;color:var(--g400)">📦</div>`;
-    return `<div class="ac-item" data-sku="${esc(m.id)}" data-name="${esc(m.item_name)}" data-thumb="${esc(m.thumbnail)}" style="display:flex;align-items:center;gap:8px;padding:6px 10px">
+    const hppLine = m.hpp > 0 ? `<div style="font-size:9px;color:var(--g600);font-family:var(--mono);margin-top:1px">HPP ${_moRp(m.hpp)}</div>` : '';
+    return `<div class="ac-item" data-sku="${esc(m.id)}" data-name="${esc(m.item_name)}" data-thumb="${esc(m.thumbnail)}" data-hpp="${m.hpp||0}" style="display:flex;align-items:center;gap:8px;padding:6px 10px">
       ${thumb}
       <div style="min-width:0;flex:1">
         <div style="font-family:var(--mono);font-size:10px;color:var(--g600)">${esc(m.id)}</div>
         <div style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(m.item_name)}</div>
+        ${hppLine}
       </div>
     </div>`;
   }).join('');
@@ -24969,12 +25013,21 @@ function _kolFrbRenderAC(display, ac) {
   ac.querySelectorAll('.ac-item').forEach(it => {
     it.addEventListener('click', () => {
       const sku = it.dataset.sku, name = it.dataset.name, thumb = it.dataset.thumb;
+      const hpp = parseFloat(it.dataset.hpp) || 0;
       display.value = `${sku} — ${name}`;
       const row = display.closest('.kol-frb-row');
       row.querySelector('[class$="-sku"]').value = sku;
       row.querySelector('[class$="-name"]').value = name;
       const thumbInp = row.querySelector('[class$="-thumb"]');
       if (thumbInp) thumbInp.value = thumb || '';
+      const hppInp = row.querySelector('[class$="-hpp"]');
+      if (hppInp) hppInp.value = hpp;
+      // Update per-row HPP × qty subtotal display
+      const subEl = row.querySelector('.kol-frb-sub');
+      if (subEl) {
+        const qty = parseInt(row.querySelector('[class$="-qty"]')?.value,10) || 1;
+        subEl.textContent = hpp > 0 ? _moRp(hpp * qty) : '—';
+      }
       // update thumb preview in the row
       const preview = row.querySelector('.kol-frb-preview');
       if (preview) {
@@ -24996,9 +25049,22 @@ function _kolReadFreebieFrom(containerId, prefix) {
     const thumbnail = r.querySelector(`.${prefix}-thumb`)?.value || '';
     const size = (r.querySelector(`.${prefix}-size`)?.value || '').trim();
     const qty = parseInt(r.querySelector(`.${prefix}-qty`)?.value, 10) || 1;
-    if (sku) out.push({sku, item_name, thumbnail, size, qty});
+    const hpp = parseFloat(r.querySelector(`.${prefix}-hpp`)?.value) || 0;
+    if (sku) out.push({sku, item_name, thumbnail, size, qty, hpp});
   });
   return out;
+}
+
+// Sum HPP × qty across a saved items array
+function _kolItemsCOGS(items) {
+  return (items||[]).reduce((s, it) => s + (Number(it.hpp||0) * Number(it.qty||1)), 0);
+}
+
+// Recalc the KOL drawer's freebie-section Total HPP label on qty/item changes.
+function _kolEditRecalcCOGS(id) {
+  const items = _kolReadFreebieFrom(`kole-frb-${id}`, `kole-frb-${id}`);
+  const el = document.getElementById(`kole-cogs-${id}`);
+  if (el) el.textContent = _moRp(_kolItemsCOGS(items));
 }
 function _kolReadFreebieItems() { return _kolReadFreebieFrom('kol-freebie-rows', 'kol-frb'); }
 
@@ -25350,8 +25416,11 @@ function _kolEditFormHTML(r) {
         })()}</div>
       </div>
       <div class="fg" style="margin:0 0 8px"><label style="font-size:11px">Alamat lengkap</label><textarea id="kole-rec-address-${id}" rows="2" style="font-size:12px;padding:5px 8px;resize:vertical">${esc(r.recipientAddress)}</textarea></div>
-      <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.3px;color:var(--g600);margin-bottom:4px">Items</div>
-      <div id="kole-frb-${id}" style="display:flex;flex-direction:column;gap:6px;margin-bottom:6px">${freebieRowsHTML}</div>
+      <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.3px;color:var(--g600);margin-bottom:4px;display:flex;align-items:center;gap:8px">
+        Items
+        <span style="margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--g600);font-weight:400">💰 Total HPP <span id="kole-cogs-${id}">${_moRp(_kolItemsCOGS(r.freebieItems))}</span></span>
+      </div>
+      <div id="kole-frb-${id}" style="display:flex;flex-direction:column;gap:6px;margin-bottom:6px" oninput="_kolEditRecalcCOGS('${id}')">${freebieRowsHTML}</div>
       <button class="btn-ghost" type="button" onclick="_kolEditAddFreebieRow('${id}')" style="padding:4px 10px;font-size:11px">+ Tambah Item</button>
     </div>
 
