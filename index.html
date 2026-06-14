@@ -2390,10 +2390,9 @@
           <button class="btn-refresh" onclick="loadContentPlan()">↻ Refresh</button>
           <div class="tcount" id="cp-tcount" style="margin-left:auto">— entri</div>
         </div>
-        <div class="table-wrap"><table>
-          <thead><tr><th>Title</th><th>Type</th><th>Owner</th><th>Collection</th><th>Deadline</th><th>Publish</th><th>Channel</th><th>Status</th><th>Asset</th><th>Aksi</th></tr></thead>
-          <tbody id="cpTableBody"><tr><td class="empty-td" colspan="10">Klik Refresh.</td></tr></tbody>
-        </table></div>
+        <div id="cpKanban" style="display:flex;gap:10px;overflow-x:auto;padding:4px 0 16px;min-height:400px">
+          <div style="text-align:center;padding:32px;color:var(--g400);font-size:13px;flex:1">Klik Refresh.</div>
+        </div>
       </div>
     </div>
 

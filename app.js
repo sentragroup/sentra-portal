@@ -21629,24 +21629,42 @@ function mapCP(r) {
     owner:r.owner||'', deadline:r.deadline||'', assetUrl:r.asset_url||'', caption:r.caption||'',
     publishDate:r.publish_date||'', channel:r.channel||'', status:r.status||'Planning'};
 }
+// Kanban columns — covers BOTH the legacy status enum (Planning/Drafting/
+// Scheduled) and the MP-created enum (Draft/In Progress/For Review).
+// Anything not matching falls into "Other".
+const _CP_KANBAN_COLS = [
+  { key:'Planning',    label:'📋 Planning',   match:['Planning','Draft'],                     tone:{bg:'#f0efe9',head:'#5a5850',border:'#d6d5cc'} },
+  { key:'Drafting',    label:'✍️ Drafting',   match:['Drafting','In Progress'],               tone:{bg:'#eef0f8',head:'#3C3489',border:'#c9bdf0'} },
+  { key:'Review',      label:'👀 Review',     match:['Review','For Review'],                  tone:{bg:'#fef5e0',head:'#a66800',border:'#f3cf7a'} },
+  { key:'Approved',    label:'✅ Approved',   match:['Approved'],                             tone:{bg:'#daf3e0',head:'#0a7d3a',border:'#a7dab4'} },
+  { key:'Scheduled',   label:'📅 Scheduled',  match:['Scheduled'],                            tone:{bg:'#e0eef8',head:'#1a4a8a',border:'#a7c4dc'} },
+  { key:'Published',   label:'🚀 Published',  match:['Published'],                            tone:{bg:'#e6f3e6',head:'#1c7a3b',border:'#9bcfa1'} },
+  { key:'Cancelled',   label:'⊘ Cancelled',   match:['Cancelled'],                            tone:{bg:'#fbe6e6',head:'#b81d1d',border:'#e0a8a8'} },
+];
+
 async function loadContentPlan() {
   await _moLoadColOptions('cp-collection');
   await _moLoadColOptions('cp-fil-collection');
-  const tbody = document.getElementById('cpTableBody');
-  if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="10">Memuat...</td></tr>`;
+  const board = document.getElementById('cpKanban');
+  if (board) board.innerHTML = `<div style="text-align:center;padding:32px;color:var(--g400);font-size:13px;flex:1">Memuat...</div>`;
   try {
     const fStat = document.getElementById('cp-fil-status')?.value || '';
     const fType = document.getElementById('cp-fil-type')?.value || '';
     const fCol  = document.getElementById('cp-fil-collection')?.value || '';
     const search = (document.getElementById('cp-search')?.value || '').trim().toLowerCase();
-    let q = sb.from('content_planning').select('*').order('deadline',{ascending:true,nullsFirst:false}).limit(5000);
+    // Fetch content + collections in parallel — fixes the "—" bug where
+    // collection name didn't resolve because allColRows wasn't loaded.
+    let q = sb.from('content_planning').select('*').order('publish_date',{ascending:true,nullsFirst:false}).limit(5000);
     if (fStat) q = q.eq('status', fStat);
     if (fType) q = q.eq('content_type', fType);
     if (fCol)  q = q.eq('collection_id', fCol);
-    const {data, error} = await q;
+    const [{data, error}, {data: colData}] = await Promise.all([
+      q,
+      sb.from('collections').select('id,collection_name,ip_related,revenue_stream'),
+    ]);
     if (error) throw error;
     _cpRows = (data||[]).map(mapCP);
-    // Populate Type filter
+    const colById = new Map((colData||[]).map(c => [c.id, c]));
     const typeSet = [...new Set(_cpRows.map(r=>r.contentType).filter(Boolean))].sort();
     const tSel = document.getElementById('cp-fil-type');
     if (tSel && tSel.options.length <= 1+typeSet.length) {
@@ -21654,29 +21672,77 @@ async function loadContentPlan() {
       tSel.innerHTML = `<option value="">Semua Type</option>` + typeSet.map(t=>`<option value="${t}"${t===cur?' selected':''}>${t}</option>`).join('');
     }
     let rows = _cpRows;
-    if (search) rows = rows.filter(r => `${r.title} ${r.owner} ${r.channel}`.toLowerCase().includes(search));
-    // Stats from unfiltered set
+    if (search) rows = rows.filter(r => `${r.title} ${r.owner||''} ${r.channel||''}`.toLowerCase().includes(search));
     document.getElementById('cp-s-total').textContent     = _cpRows.length;
-    document.getElementById('cp-s-planning').textContent  = _cpRows.filter(r=>r.status==='Planning').length;
-    document.getElementById('cp-s-drafting').textContent  = _cpRows.filter(r=>r.status==='Drafting').length;
+    document.getElementById('cp-s-planning').textContent  = _cpRows.filter(r=>['Planning','Draft'].includes(r.status)).length;
+    document.getElementById('cp-s-drafting').textContent  = _cpRows.filter(r=>['Drafting','In Progress'].includes(r.status)).length;
     document.getElementById('cp-s-scheduled').textContent = _cpRows.filter(r=>r.status==='Scheduled').length;
     document.getElementById('cp-s-published').textContent = _cpRows.filter(r=>r.status==='Published').length;
     document.getElementById('cp-tcount').textContent = `${rows.length} entri`;
-    const colName = id => allColRows.find(c=>c.id===id)?.collectionName || '—';
-    if (!rows.length) { tbody.innerHTML = `<tr><td class="empty-td" colspan="10">Tidak ada data.</td></tr>`; return; }
-    tbody.innerHTML = rows.map(r => `<tr>
-      <td><strong>${_moEsc(r.title)}</strong>${r.caption?`<div style="font-size:11px;color:var(--g600);margin-top:2px">${_moEsc(r.caption).slice(0,80)}${r.caption.length>80?'…':''}</div>`:''}</td>
-      <td>${r.contentType?`<span class="pill p-signings" style="font-size:10px">${_moEsc(r.contentType)}</span>`:'—'}</td>
-      <td>${_moEsc(r.owner)||'—'}</td>
-      <td style="font-size:11px;color:var(--g600)">${_moEsc(colName(r.collectionId))}</td>
-      <td style="white-space:nowrap;font-size:11px">${_moDate(r.deadline)}</td>
-      <td style="white-space:nowrap;font-size:11px">${_moDate(r.publishDate)}</td>
-      <td style="font-size:11px">${_moEsc(r.channel)||'—'}</td>
-      <td><select onchange="updateCPStatus('${r.id}',this.value)" class="pill ${_moStatusClass(r.status)}" style="font-size:10px;padding:2px 6px;border:1px solid">${['Planning','Drafting','Review','Approved','Scheduled','Published','Cancelled'].map(s=>`<option${r.status===s?' selected':''}>${s}</option>`).join('')}</select></td>
-      <td>${r.assetUrl?`<a href="${r.assetUrl}" target="_blank" style="color:#3C3489;text-decoration:none;font-size:11px">↗ Drive</a>`:'—'}</td>
-      <td style="white-space:nowrap"><button class="btn-icon" style="font-size:10px;color:#c33" onclick="deleteCP('${r.id}')">Del</button></td>
-    </tr>`).join('');
-  } catch(e) { if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="10">Gagal: ${e.message||e}</td></tr>`; }
+    if (!rows.length) {
+      board.innerHTML = `<div style="text-align:center;padding:32px;color:var(--g400);font-size:13px;flex:1">Tidak ada data.</div>`;
+      return;
+    }
+    // Bucket rows by kanban column
+    const buckets = new Map(_CP_KANBAN_COLS.map(c => [c.key, []]));
+    const otherBucket = [];
+    for (const r of rows) {
+      const col = _CP_KANBAN_COLS.find(c => c.match.includes(r.status));
+      if (col) buckets.get(col.key).push(r);
+      else otherBucket.push(r);
+    }
+    if (otherBucket.length) buckets.set('Other', otherBucket);
+    // Render kanban
+    board.innerHTML = _CP_KANBAN_COLS.map(col => {
+      const items = buckets.get(col.key) || [];
+      return _cpKanbanColumnHTML(col, items, colById);
+    }).join('') + (otherBucket.length ? _cpKanbanColumnHTML({key:'Other', label:'❓ Other', tone:{bg:'#f0efe9',head:'#5a5850',border:'#d6d5cc'}}, otherBucket, colById) : '');
+  } catch(e) {
+    if (board) board.innerHTML = `<div style="text-align:center;padding:32px;color:#c0392b;font-size:13px;flex:1">Gagal: ${(e.message||e).replace(/</g,'&lt;')}</div>`;
+  }
+}
+
+function _cpKanbanColumnHTML(col, items, colById) {
+  const cards = items.length
+    ? items.map(r => _cpKanbanCardHTML(r, colById)).join('')
+    : `<div style="text-align:center;padding:14px 8px;color:var(--g400);font-size:11px;font-style:italic">Kosong</div>`;
+  return `<div style="flex:0 0 280px;display:flex;flex-direction:column;background:${col.tone.bg};border:1px solid ${col.tone.border};border-radius:8px;overflow:hidden;max-height:80vh">
+    <div style="padding:10px 12px;background:${col.tone.bg};border-bottom:1px solid ${col.tone.border};color:${col.tone.head};font-family:var(--mono);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;display:flex;justify-content:space-between;align-items:center">
+      <span>${col.label}</span>
+      <span style="background:white;color:${col.tone.head};padding:1px 8px;border-radius:99px;font-size:10px;border:1px solid ${col.tone.border}">${items.length}</span>
+    </div>
+    <div style="flex:1;overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:6px">${cards}</div>
+  </div>`;
+}
+
+function _cpKanbanCardHTML(r, colById) {
+  const esc = s => _moEsc(s);
+  const col = colById.get(r.collectionId);
+  const colChip = col
+    ? `<span style="display:inline-flex;align-items:center;gap:3px;background:#eef0f8;color:#3C3489;border:1px solid #c9bdf0;border-radius:3px;padding:1px 6px;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:0.3px" title="${esc(col.ip_related||'')}">📁 ${esc(col.collection_name||'—')}</span>`
+    : `<span style="font-size:9px;color:var(--g400);font-style:italic">tanpa collection</span>`;
+  const typeChip = r.contentType
+    ? `<span style="display:inline-flex;align-items:center;background:white;color:var(--g600);border:1px solid var(--g200);border-radius:3px;padding:1px 6px;font-size:9px;font-weight:600">${esc(r.contentType)}</span>`
+    : '';
+  const channelChip = r.channel
+    ? `<span style="display:inline-flex;align-items:center;background:white;color:var(--g600);border:1px solid var(--g200);border-radius:3px;padding:1px 6px;font-size:9px">${esc(r.channel)}</span>`
+    : '';
+  const dateRow = r.publishDate || r.deadline
+    ? `<div style="font-size:10px;color:var(--g600);margin-top:4px;font-family:var(--mono)">${r.publishDate?`📅 ${_moDate(r.publishDate)}`:''}${r.publishDate&&r.deadline?' · ':''}${r.deadline?`⏰ ${_moDate(r.deadline)}`:''}</div>`
+    : '';
+  return `<div style="background:white;border:1px solid var(--g100);border-radius:6px;padding:8px 10px;font-size:12px;box-shadow:0 1px 2px rgba(0,0,0,0.03)">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px;margin-bottom:5px">
+      <strong style="font-size:12px;line-height:1.3;flex:1">${esc(r.title)}</strong>
+      ${r.assetUrl?`<a href="${esc(r.assetUrl)}" target="_blank" title="Buka asset" style="font-size:12px;color:#3C3489;text-decoration:none;flex-shrink:0">↗</a>`:''}
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center">${colChip} ${typeChip} ${channelChip}</div>
+    ${dateRow}
+    ${r.owner?`<div style="font-size:10px;color:var(--g600);margin-top:4px">👤 ${esc(r.owner)}</div>`:''}
+    <div style="display:flex;gap:4px;margin-top:6px;align-items:center">
+      <select onchange="updateCPStatus('${r.id}',this.value)" style="font-size:10px;padding:2px 6px;border:1px solid var(--g200);border-radius:4px;flex:1;background:var(--white)">${['Planning','Draft','Drafting','In Progress','Review','For Review','Approved','Scheduled','Published','Cancelled'].map(s=>`<option${r.status===s?' selected':''}>${s}</option>`).join('')}</select>
+      <button onclick="deleteCP('${r.id}')" title="Hapus" style="background:none;border:1px solid var(--g200);border-radius:4px;color:#c0392b;cursor:pointer;font-size:11px;padding:2px 6px">🗑</button>
+    </div>
+  </div>`;
 }
 function clearCPFilters() {
   ['cp-fil-status','cp-fil-type','cp-fil-collection','cp-search'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
