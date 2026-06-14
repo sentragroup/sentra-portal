@@ -22487,6 +22487,7 @@ function mapMa(r) {
     budget: r.budget, pic: r.pic || '',
     status: r.status || 'Planning', notes: r.notes || '',
     popupBoothId: r.popup_booth_id || '',
+    targetReach: r.target_reach, actualReach: r.actual_reach,
     budgetBreakdown: Array.isArray(r.budget_breakdown) ? r.budget_breakdown : [],
     actionItems: Array.isArray(r.action_items) ? r.action_items : [],
     sampleItems: Array.isArray(r.sample_items) ? r.sample_items : [],
@@ -22538,8 +22539,9 @@ async function _maSeedForm() {
 
 async function loadMktActivation() {
   if (!allColRows.length) await loadCollections().catch(()=>{});
+  await _maLoadPopupCache();
   const tbody = document.getElementById('maTableBody');
-  if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="10">Memuat...</td></tr>`;
+  if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="15">Memuat...</td></tr>`;
   try {
     const fStat = document.getElementById('ma-fil-status')?.value || '';
     const fType = document.getElementById('ma-fil-type')?.value || '';
@@ -22575,18 +22577,39 @@ async function loadMktActivation() {
     document.getElementById('ma-s-actions').textContent  = openActions;
     document.getElementById('ma-tcount').textContent = `${rows.length} entri`;
     const colName = id => allColRows.find(c=>c.id===id)?.collectionName || '—';
-    if (!rows.length) { tbody.innerHTML = `<tr><td class="empty-td" colspan="10">Tidak ada data.</td></tr>`; return; }
+    if (!rows.length) { tbody.innerHTML = `<tr><td class="empty-td" colspan="15">Tidak ada data.</td></tr>`; return; }
+    const popupById = id => _maPopupCache.find(p => p.id === id);
     tbody.innerHTML = rows.map(r => {
       const ai = r.actionItems||[];
       const aiTotal = ai.length, aiDone = ai.filter(a=>a.done).length, aiOpen = aiTotal - aiDone;
       const aiCell = aiTotal
         ? `<span style="font-size:10px;font-family:var(--mono);color:${aiOpen?'#9d4d04':'#0a7d3a'}">${aiDone}/${aiTotal}</span>`
         : '<span style="color:var(--g400);font-size:10px">—</span>';
-      // budget breakdown sum vs declared
       const bb = r.budgetBreakdown||[];
       const bbSum = bb.reduce((s,b)=>s+Number(b.amount||0),0);
       const bbLine = bb.length
-        ? `<div style="font-size:9px;color:var(--g400);font-family:var(--mono);margin-top:1px">${bb.length} item · ${_moRp(bbSum)}</div>` : '';
+        ? `<div style="font-size:9px;color:var(--g400);font-family:var(--mono);margin-top:1px">${bb.length} item</div>` : '';
+      const budget = Number(r.budget||0);
+      // Revenue from popup cache (Marte requires async — drawer-only)
+      const popup = r.popupBoothId ? popupById(r.popupBoothId) : null;
+      const revenue = (popup && typeof popup.actualSales === 'number') ? popup.actualSales : null;
+      const revCell = revenue!=null ? `${_moRp(revenue)}` : '<span style="color:var(--g400);font-size:10px">—</span>';
+      let roiCell = '<span style="color:var(--g400);font-size:10px">—</span>';
+      if (revenue!=null && budget>0) {
+        const roi = (revenue - budget) / budget * 100;
+        const color = roi >= 0 ? '#0a7d3a' : '#c0392b';
+        roiCell = `<span style="color:${color};font-weight:600">${roi>=0?'+':''}${roi.toFixed(1)}%</span>`;
+      }
+      const tr = typeof r.targetReach === 'number' ? r.targetReach : null;
+      const ar = typeof r.actualReach === 'number' ? r.actualReach : null;
+      const trCell = tr!=null ? tr.toLocaleString('id-ID') : '<span style="color:var(--g400);font-size:10px">—</span>';
+      const arCell = ar!=null ? ar.toLocaleString('id-ID') : '<span style="color:var(--g400);font-size:10px">—</span>';
+      let pctCell = '<span style="color:var(--g400);font-size:10px">—</span>';
+      if (ar!=null && tr && tr>0) {
+        const pct = ar / tr * 100;
+        const color = pct >= 100 ? '#0a7d3a' : (pct >= 80 ? '#854d0e' : '#c0392b');
+        pctCell = `<span style="color:${color};font-weight:600">${pct.toFixed(0)}%</span>`;
+      }
       return `<tr>
         <td style="font-size:11px;color:var(--g600)">${_moEsc(colName(r.collectionId))}</td>
         <td>
@@ -22596,13 +22619,18 @@ async function loadMktActivation() {
         <td style="white-space:nowrap;font-size:11px">${_maFmtDateRange(r.startDate, r.endDate)}</td>
         <td style="font-size:11px">${_moEsc(r.venue)||'—'}</td>
         <td class="mono" style="text-align:right;white-space:nowrap">${_moRp(r.budget)}${bbLine}</td>
+        <td class="mono" style="text-align:right;white-space:nowrap;font-size:11px">${revCell}</td>
+        <td class="mono" style="text-align:right;white-space:nowrap;font-size:11px">${roiCell}</td>
+        <td class="mono" style="text-align:right;white-space:nowrap;font-size:11px">${trCell}</td>
+        <td class="mono" style="text-align:right;white-space:nowrap;font-size:11px">${arCell}</td>
+        <td class="mono" style="text-align:right;white-space:nowrap;font-size:11px">${pctCell}</td>
         <td style="font-size:11px">${_moEsc(r.pic)||'—'}</td>
         <td>${aiCell}</td>
         <td><select onchange="updateMaStatus('${r.id}',this.value)" class="pill ${_MA_STATUS_TONE[r.status]||'p-draft'}" style="font-size:10px;padding:2px 6px;border:1px solid;border-radius:99px">${_MA_STATUS_OPTS.map(s=>`<option${r.status===s?' selected':''}>${s}</option>`).join('')}</select></td>
         <td style="white-space:nowrap"><button class="btn-icon" style="font-size:13px;color:#c0392b" onclick="deleteMa('${r.id}')" title="Hapus">🗑</button></td>
       </tr>`;
     }).join('');
-  } catch(e) { if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="10">Gagal: ${e.message||e}</td></tr>`; }
+  } catch(e) { if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="15">Gagal: ${e.message||e}</td></tr>`; }
 }
 
 function clearMaFilters() {
@@ -22733,75 +22761,120 @@ function _maDrawerFormHTML(r) {
   const id = r.id;
   const budgetRows = (r.budgetBreakdown||[]).map((b,i) => _maBudgetRowHTML(b, i, id)).join('');
   const actionRows = (r.actionItems||[]).map((a,i) => _maActionRowHTML(a, i, id)).join('');
+  const sampleRows = (r.sampleItems||[]).map(it => _kolFreebieRowHTML(it, `mae-sam-${id}`)).join('');
+  const tabBtn = (key, label, badge) => `<button type="button" class="tab-btn ${key==='general'?'active':''}" data-tab="${key}" onclick="switchMaDrawerTab('${id}','${key}',this)" style="padding:6px 12px;font-size:11px;border:1px solid var(--g100);background:var(--white);border-radius:99px;cursor:pointer;font-family:var(--mono);font-weight:600;text-transform:uppercase;letter-spacing:0.3px;color:var(--g600)">${label}${badge?` <span style="background:var(--g100);padding:1px 6px;border-radius:99px;font-size:9px;margin-left:3px">${badge}</span>`:''}</button>`;
+  const bbCount = (r.budgetBreakdown||[]).length;
+  const actCount = (r.actionItems||[]).length;
+  const samCount = (r.sampleItems||[]).length;
   return `<div>
-    <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.3px;color:var(--g600);margin-bottom:4px">Detail Event</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
-      <div class="fg" style="margin:0"><label style="font-size:11px">Event Name *</label><input type="text" id="mae-name-${id}" value="${esc(r.name)}" style="font-size:12px;padding:5px 8px"></div>
-      <div class="fg" style="margin:0;position:relative"><label style="font-size:11px">Type</label>
-        <input type="text" id="mae-type-${id}" value="${esc(r.type)}" autocomplete="off" style="font-size:12px;padding:5px 8px">
-        <div class="ac-list" id="ac-mae-type-${id}"></div>
+    <div id="mae-tabs-${id}" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--g100)">
+      ${tabBtn('general','General')}
+      ${tabBtn('budget','💰 Budget', bbCount)}
+      ${tabBtn('action','✓ Actions', actCount)}
+      ${tabBtn('sample','🎁 Sample', samCount)}
+    </div>
+
+    <!-- General tab -->
+    <div id="madtab-general-${id}" class="madtab-${id}">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+        <div class="fg" style="margin:0"><label style="font-size:11px">Event Name *</label><input type="text" id="mae-name-${id}" value="${esc(r.name)}" style="font-size:12px;padding:5px 8px"></div>
+        <div class="fg" style="margin:0;position:relative"><label style="font-size:11px">Type</label>
+          <input type="text" id="mae-type-${id}" value="${esc(r.type)}" autocomplete="off" style="font-size:12px;padding:5px 8px">
+          <div class="ac-list" id="ac-mae-type-${id}"></div>
+        </div>
+        <div class="fg" style="margin:0;position:relative"><label style="font-size:11px">Collection</label>
+          <input type="text" id="mae-collection-${id}" value="${esc(colName)}" autocomplete="off" placeholder="—" style="font-size:12px;padding:5px 8px">
+          <div class="ac-list" id="ac-mae-collection-${id}"></div>
+        </div>
+        <div class="fg" style="margin:0"><label style="font-size:11px">Status</label>
+          <select id="mae-status-${id}" style="font-size:12px;padding:5px 8px">${_MA_STATUS_OPTS.map(s=>`<option${r.status===s?' selected':''}>${s}</option>`).join('')}</select>
+        </div>
+        <div class="fg" style="margin:0"><label style="font-size:11px">Start Date</label><input type="date" id="mae-start-date-${id}" value="${r.startDate||''}" onchange="_maRefreshSales('${id}')" style="font-size:12px;padding:5px 8px"></div>
+        <div class="fg" style="margin:0"><label style="font-size:11px">End Date</label><input type="date" id="mae-end-date-${id}" value="${r.endDate||''}" onchange="_maRefreshSales('${id}')" style="font-size:12px;padding:5px 8px"></div>
+        <div class="fg" style="margin:0;position:relative"><label style="font-size:11px">Venue</label>
+          <input type="text" id="mae-venue-${id}" value="${esc(r.venue)}" autocomplete="off" oninput="_maRefreshSales('${id}')" style="font-size:12px;padding:5px 8px">
+          <div class="ac-list" id="ac-mae-venue-${id}"></div>
+        </div>
+        <div class="fg" style="margin:0;position:relative"><label style="font-size:11px">PIC</label>
+          <input type="text" id="mae-pic-${id}" value="${esc(r.pic)}" autocomplete="off" style="font-size:12px;padding:5px 8px">
+          <div class="ac-list" id="ac-mae-pic-${id}"></div>
+        </div>
       </div>
-      <div class="fg" style="margin:0;position:relative"><label style="font-size:11px">Collection</label>
-        <input type="text" id="mae-collection-${id}" value="${esc(colName)}" autocomplete="off" placeholder="—" style="font-size:12px;padding:5px 8px">
-        <div class="ac-list" id="ac-mae-collection-${id}"></div>
+
+      <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.3px;color:var(--g600);margin-bottom:4px">🎯 Reach</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+        <div class="fg" style="margin:0"><label style="font-size:11px">Target Reach</label><input type="number" min="0" id="mae-target-reach-${id}" value="${r.targetReach==null?'':r.targetReach}" placeholder="Estimasi audience yang mau di-reach" style="font-size:12px;padding:5px 8px"></div>
+        <div class="fg" style="margin:0"><label style="font-size:11px">Actual Reach</label><input type="number" min="0" id="mae-actual-reach-${id}" value="${r.actualReach==null?'':r.actualReach}" placeholder="Diisi pas event selesai" style="font-size:12px;padding:5px 8px"></div>
       </div>
-      <div class="fg" style="margin:0"><label style="font-size:11px">Start Date</label><input type="date" id="mae-start-date-${id}" value="${r.startDate||''}" onchange="_maRefreshSales('${id}')" style="font-size:12px;padding:5px 8px"></div>
-      <div class="fg" style="margin:0"><label style="font-size:11px">End Date</label><input type="date" id="mae-end-date-${id}" value="${r.endDate||''}" onchange="_maRefreshSales('${id}')" style="font-size:12px;padding:5px 8px"></div>
-      <div class="fg" style="margin:0;position:relative"><label style="font-size:11px">Venue</label>
-        <input type="text" id="mae-venue-${id}" value="${esc(r.venue)}" autocomplete="off" oninput="_maRefreshSales('${id}')" style="font-size:12px;padding:5px 8px">
-        <div class="ac-list" id="ac-mae-venue-${id}"></div>
+
+      <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.3px;color:var(--g600);margin-bottom:4px">🛍 Pop Up Booth Link <span style="text-transform:none;letter-spacing:0;font-weight:400;color:var(--g400)">— optional</span></div>
+      <div class="fg" style="margin:0 0 12px;position:relative">
+        <input type="text" id="mae-popup-${id}" value="${esc(r.popupBoothId)}" placeholder="Pilih atau ketik nama pop up event" autocomplete="off" oninput="_maRefreshSales('${id}')" style="font-size:12px;padding:5px 8px;width:100%;box-sizing:border-box">
+        <div class="ac-list" id="ac-mae-popup-${id}"></div>
       </div>
-      <div class="fg" style="margin:0;position:relative"><label style="font-size:11px">PIC</label>
-        <input type="text" id="mae-pic-${id}" value="${esc(r.pic)}" autocomplete="off" style="font-size:12px;padding:5px 8px">
-        <div class="ac-list" id="ac-mae-pic-${id}"></div>
+
+      <div id="mae-sales-${id}" style="background:var(--off);border:1px dashed var(--g200);border-radius:6px;padding:10px 12px;margin-bottom:12px;font-size:12px;color:var(--g600);display:none"></div>
+
+      <div class="fg" style="margin:0 0 12px"><label style="font-size:11px">Notes</label><textarea id="mae-notes-${id}" rows="3" style="font-size:12px;padding:5px 8px;resize:vertical">${esc(r.notes)}</textarea></div>
+    </div>
+
+    <!-- Budget tab -->
+    <div id="madtab-budget-${id}" class="madtab-${id}" style="display:none">
+      <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.3px;color:var(--g600);margin-bottom:4px;display:flex;align-items:center;gap:8px">
+        💰 Budget Breakdown
+        <span style="text-transform:none;letter-spacing:0;font-weight:400;color:var(--g400)">— budget total = Σ kategori</span>
+        <span style="margin-left:auto;font-family:var(--mono);font-size:12px;color:#0a7d3a;font-weight:600">Total <span id="mab-sum-${id}">${_moRp(0)}</span></span>
       </div>
-      <div class="fg" style="margin:0"><label style="font-size:11px">Status</label>
-        <select id="mae-status-${id}" style="font-size:12px;padding:5px 8px">${_MA_STATUS_OPTS.map(s=>`<option${r.status===s?' selected':''}>${s}</option>`).join('')}</select>
+      <div id="mae-bb-${id}">${budgetRows}</div>
+      <button class="btn-ghost" type="button" onclick="addMaBudgetRow('${id}')" style="padding:4px 10px;font-size:11px;margin-top:4px">+ Tambah Budget Item</button>
+    </div>
+
+    <!-- Action Items tab -->
+    <div id="madtab-action-${id}" class="madtab-${id}" style="display:none">
+      <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.3px;color:var(--g600);margin-bottom:4px;display:flex;align-items:center;gap:8px">
+        ✓ Action Items
+        <span style="text-transform:none;letter-spacing:0;font-weight:400;color:var(--g400)">— task list, assign PIC + deadline</span>
+      </div>
+      <div id="mae-act-${id}">${actionRows}</div>
+      <button class="btn-ghost" type="button" onclick="addMaActionRow('${id}')" style="padding:4px 10px;font-size:11px;margin-top:4px">+ Tambah Action</button>
+    </div>
+
+    <!-- Sample tab -->
+    <div id="madtab-sample-${id}" class="madtab-${id}" style="display:none">
+      <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.3px;color:var(--g600);margin-bottom:4px;display:flex;align-items:center;gap:8px">
+        🎁 Sample / Freebie Request
+        <span style="text-transform:none;letter-spacing:0;font-weight:400;color:var(--g400)">— items yang perlu dikirim ke venue</span>
+      </div>
+      <div id="mae-sample-${id}" style="display:flex;flex-direction:column;gap:6px;margin-bottom:6px">${sampleRows}</div>
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:12px">
+        <button class="btn-ghost" type="button" onclick="addMaSampleRow('${id}')" style="padding:4px 10px;font-size:11px">+ Tambah Item</button>
+        <div id="mae-sample-ship-${id}" style="font-size:11px;color:var(--g600);margin-left:auto"></div>
+        <button class="btn-icon" type="button" onclick="requestMaSampleShipment('${id}')" id="mae-sample-btn-${id}" style="padding:4px 12px;font-size:11px;background:white;border:1px solid #c9bdf0;color:#3C3489;border-radius:4px">📦 Request Pengiriman</button>
       </div>
     </div>
 
-    <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.3px;color:var(--g600);margin-bottom:4px">🛍 Pop Up Booth Link <span style="text-transform:none;letter-spacing:0;font-weight:400;color:var(--g400)">— optional, narik aktual sales dari Pop Up Booth module</span></div>
-    <div class="fg" style="margin:0 0 12px;position:relative">
-      <input type="text" id="mae-popup-${id}" value="${esc(r.popupBoothId)}" placeholder="Pilih atau ketik nama pop up event" autocomplete="off" oninput="_maRefreshSales('${id}')" style="font-size:12px;padding:5px 8px;width:100%;box-sizing:border-box">
-      <div class="ac-list" id="ac-mae-popup-${id}"></div>
-    </div>
-
-    <div id="mae-sales-${id}" style="background:var(--off);border:1px dashed var(--g200);border-radius:6px;padding:10px 12px;margin-bottom:12px;font-size:12px;color:var(--g600);display:none"></div>
-
-    <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.3px;color:var(--g600);margin-bottom:4px;display:flex;align-items:center;gap:8px">
-      💰 Budget Breakdown
-      <span style="text-transform:none;letter-spacing:0;font-weight:400;color:var(--g400)">— budget total = Σ kategori</span>
-      <span style="margin-left:auto;font-family:var(--mono);font-size:12px;color:#0a7d3a;font-weight:600">Total <span id="mab-sum-${id}">${_moRp(0)}</span></span>
-    </div>
-    <div id="mae-bb-${id}">${budgetRows}</div>
-    <button class="btn-ghost" type="button" onclick="addMaBudgetRow('${id}')" style="padding:4px 10px;font-size:11px;margin-top:4px;margin-bottom:12px">+ Tambah Budget Item</button>
-
-    <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.3px;color:var(--g600);margin-bottom:4px;display:flex;align-items:center;gap:8px">
-      ✓ Action Items
-      <span style="text-transform:none;letter-spacing:0;font-weight:400;color:var(--g400)">— task list, assign PIC + deadline</span>
-    </div>
-    <div id="mae-act-${id}">${actionRows}</div>
-    <button class="btn-ghost" type="button" onclick="addMaActionRow('${id}')" style="padding:4px 10px;font-size:11px;margin-top:4px;margin-bottom:12px">+ Tambah Action</button>
-
-    <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.3px;color:var(--g600);margin-bottom:4px;display:flex;align-items:center;gap:8px">
-      🎁 Sample / Freebie Request
-      <span style="text-transform:none;letter-spacing:0;font-weight:400;color:var(--g400)">— items yang perlu dikirim ke venue</span>
-    </div>
-    <div id="mae-sample-${id}" style="display:flex;flex-direction:column;gap:6px;margin-bottom:6px">${(r.sampleItems||[]).map(it => _kolFreebieRowHTML(it, `mae-sam-${id}`)).join('')}</div>
-    <div style="display:flex;gap:6px;align-items:center;margin-bottom:12px">
-      <button class="btn-ghost" type="button" onclick="addMaSampleRow('${id}')" style="padding:4px 10px;font-size:11px">+ Tambah Item</button>
-      <div id="mae-sample-ship-${id}" style="font-size:11px;color:var(--g600);margin-left:auto"></div>
-      <button class="btn-icon" type="button" onclick="requestMaSampleShipment('${id}')" id="mae-sample-btn-${id}" style="padding:4px 12px;font-size:11px;background:white;border:1px solid #c9bdf0;color:#3C3489;border-radius:4px">📦 Request Pengiriman</button>
-    </div>
-
-    <div class="fg" style="margin:0 0 12px"><label style="font-size:11px">Notes</label><textarea id="mae-notes-${id}" rows="3" style="font-size:12px;padding:5px 8px;resize:vertical">${esc(r.notes)}</textarea></div>
-
-    <div style="display:flex;gap:6px;padding-top:8px;border-top:1px solid var(--g100)">
+    <div style="display:flex;gap:6px;padding-top:8px;margin-top:8px;border-top:1px solid var(--g100)">
       <button class="btn-primary" onclick="saveMaEdit('${id}')" style="padding:7px 16px;font-size:13px">💾 Simpan</button>
       <button class="btn-ghost" onclick="closeMaDrawer()" style="padding:7px 16px;font-size:13px">Batal</button>
       <div id="mae-fb-${id}" style="margin-left:auto;font-size:11px;align-self:center"></div>
     </div>
   </div>`;
+}
+
+function switchMaDrawerTab(id, key, btn) {
+  document.querySelectorAll(`#mae-tabs-${id} .tab-btn`).forEach(b => {
+    b.classList.remove('active');
+    b.style.background = 'var(--white)';
+    b.style.color = 'var(--g600)';
+  });
+  if (btn) {
+    btn.classList.add('active');
+    btn.style.background = '#3C3489';
+    btn.style.color = 'var(--white)';
+  }
+  document.querySelectorAll(`.madtab-${id}`).forEach(el => el.style.display = 'none');
+  const target = document.getElementById(`madtab-${key}-${id}`);
+  if (target) target.style.display = '';
 }
 
 function _maAttachDrawerAC(id) {
@@ -22816,6 +22889,9 @@ function _maAttachDrawerAC(id) {
   _maRenderSampleShipBadge(id);
   _maBudgetSumUpdate(id);
   _maRefreshSales(id);
+  // Style General tab button as active on initial load
+  const generalBtn = document.querySelector(`#mae-tabs-${id} [data-tab="general"]`);
+  if (generalBtn) { generalBtn.style.background = '#3C3489'; generalBtn.style.color = 'var(--white)'; }
 }
 
 function _maWireSampleRowsAC(id) {
@@ -23145,6 +23221,8 @@ async function saveMaEdit(id) {
     budget: budgetTotal > 0 ? budgetTotal : null,
     status: document.getElementById(`mae-status-${id}`).value || 'Planning',
     notes: (document.getElementById(`mae-notes-${id}`).value || '').trim() || null,
+    target_reach: (() => { const v = document.getElementById(`mae-target-reach-${id}`)?.value; return v===''||v==null ? null : parseInt(v,10); })(),
+    actual_reach: (() => { const v = document.getElementById(`mae-actual-reach-${id}`)?.value; return v===''||v==null ? null : parseInt(v,10); })(),
     budget_breakdown: breakdown,
     action_items: _maReadActions(id),
     sample_items: sampleItems,
@@ -24571,14 +24649,30 @@ async function _kolMgmtEnsureRefData() {
     if (!_kolProdMapCachePromise) {
       _kolProdMapCachePromise = (async () => {
         try {
-          const {data: pm} = await sb.from('product_mappings').select('id,item_name,brand,jubelio_item_id').order('item_name').limit(20000);
-          const rows = pm || [];
+          // Supabase server caps responses at 1000 rows regardless of .limit().
+          // Paginate via .range() so all 3000+ rows make it into the cache,
+          // otherwise items past the alphabetical 1000 mark disappear from the
+          // freebie picker (was hiding "Marbles ..." items, etc).
+          const rows = [];
+          const CHUNK = 1000;
+          let from = 0;
+          while (true) {
+            const {data: page} = await sb.from('product_mappings')
+              .select('id,item_name,brand,jubelio_item_id')
+              .order('item_name')
+              .range(from, from + CHUNK - 1);
+            if (!page || !page.length) break;
+            rows.push(...page);
+            if (page.length < CHUNK) break;
+            from += CHUNK;
+            if (from > 50000) break;  // safety net
+          }
           // Resolve thumbnails via jubelio_items.item_id — chunk to dodge .in() URL cap
           const itemIds = [...new Set(rows.map(r => r.jubelio_item_id).filter(Boolean))];
           const thumbMap = new Map();
-          const CHUNK = 500;
-          for (let i = 0; i < itemIds.length; i += CHUNK) {
-            const chunk = itemIds.slice(i, i + CHUNK);
+          const THUMB_CHUNK = 500;
+          for (let i = 0; i < itemIds.length; i += THUMB_CHUNK) {
+            const chunk = itemIds.slice(i, i + THUMB_CHUNK);
             const {data: items} = await sb.from('jubelio_items').select('item_id,thumbnail').in('item_id', chunk);
             (items || []).forEach(it => { if (it.thumbnail) thumbMap.set(String(it.item_id), it.thumbnail); });
           }
