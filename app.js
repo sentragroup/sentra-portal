@@ -21648,20 +21648,32 @@ const _CP_CANCELLED_TONE = {bg:'#fbe6e6',head:'#b81d1d',border:'#e0a8a8'};
 // Status options shown in card status select (Scheduled removed)
 const _CP_STATUS_OPTS = ['Planning','Draft','Drafting','In Progress','Review','For Review','Approved','Published','Cancelled'];
 
+let _cpView = 'kanban';
+let _cpColById = new Map();
+
+function switchCPView(view) {
+  _cpView = view;
+  document.getElementById('cp-view-kanban-btn').style.background = view==='kanban' ? 'var(--black)' : 'var(--white)';
+  document.getElementById('cp-view-kanban-btn').style.color      = view==='kanban' ? 'white' : 'var(--g600)';
+  document.getElementById('cp-view-calendar-btn').style.background= view==='calendar' ? 'var(--black)' : 'var(--white)';
+  document.getElementById('cp-view-calendar-btn').style.color     = view==='calendar' ? 'white' : 'var(--g600)';
+  document.getElementById('cpKanban').style.display    = view==='kanban' ? 'block' : 'none';
+  document.getElementById('cpCancelled').style.display = view==='kanban' ? 'block' : 'none';
+  document.getElementById('cpCalendar').style.display  = view==='calendar' ? 'block' : 'none';
+  if (view === 'calendar') renderCPCalendar();
+}
+
 async function loadContentPlan() {
   await _moLoadColOptions('cp-collection');
-  await _moLoadColOptions('cp-fil-collection');
   const board = document.getElementById('cpKanban');
   if (board) board.innerHTML = `<div style="text-align:center;padding:32px;color:var(--g400);font-size:13px;flex:1">Memuat...</div>`;
   try {
-    const fStat = document.getElementById('cp-fil-status')?.value || '';
     const fType = document.getElementById('cp-fil-type')?.value || '';
     const fCol  = document.getElementById('cp-fil-collection')?.value || '';
     const search = (document.getElementById('cp-search')?.value || '').trim().toLowerCase();
-    // Fetch content + collections in parallel — fixes the "—" bug where
-    // collection name didn't resolve because allColRows wasn't loaded.
+    // Status filter dropped — kanban already groups by status, calendar
+    // shows everything by publish date. Filter UI removed accordingly.
     let q = sb.from('content_planning').select('*').order('publish_date',{ascending:true,nullsFirst:false}).limit(5000);
-    if (fStat) q = q.eq('status', fStat);
     if (fType) q = q.eq('content_type', fType);
     if (fCol)  q = q.eq('collection_id', fCol);
     const [{data, error}, {data: colData}] = await Promise.all([
@@ -21670,9 +21682,17 @@ async function loadContentPlan() {
     ]);
     if (error) throw error;
     _cpRows = (data||[]).map(mapCP);
-    // Build autocomplete vocab from existing DB values + hardcoded defaults
     _cpRebuildVocab(_cpRows);
     const colById = new Map((colData||[]).map(c => [c.id, c]));
+    _cpColById = colById;
+    // Collection filter dropdown: only show collections that have CP entries
+    const usedColIds = new Set(_cpRows.map(r => r.collectionId).filter(Boolean));
+    const usedCols = [...colById.values()].filter(c => usedColIds.has(c.id)).sort((a,b)=>(a.collection_name||'').localeCompare(b.collection_name||''));
+    const colSel = document.getElementById('cp-fil-collection');
+    if (colSel) {
+      const cur = colSel.value;
+      colSel.innerHTML = `<option value="">Semua Collection</option>` + usedCols.map(c => `<option value="${(c.id||'').replace(/"/g,'&quot;')}"${c.id===cur?' selected':''}>${(c.collection_name||'').replace(/</g,'&lt;')}</option>`).join('');
+    }
     const typeSet = [...new Set(_cpRows.map(r=>r.contentType).filter(Boolean))].sort();
     const tSel = document.getElementById('cp-fil-type');
     if (tSel && tSel.options.length <= 1+typeSet.length) {
@@ -21681,12 +21701,13 @@ async function loadContentPlan() {
     }
     let rows = _cpRows;
     if (search) rows = rows.filter(r => `${r.title} ${r.owner||''} ${r.channel||''}`.toLowerCase().includes(search));
-    document.getElementById('cp-s-total').textContent     = _cpRows.length;
-    document.getElementById('cp-s-planning').textContent  = _cpRows.filter(r=>['Planning','Draft'].includes(r.status)).length;
-    document.getElementById('cp-s-drafting').textContent  = _cpRows.filter(r=>['Drafting','In Progress'].includes(r.status)).length;
-    document.getElementById('cp-s-scheduled').textContent = _cpRows.filter(r=>r.status==='Scheduled').length;
-    document.getElementById('cp-s-published').textContent = _cpRows.filter(r=>r.status==='Published').length;
-    document.getElementById('cp-tcount').textContent = `${rows.length} entri`;
+    const setText = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    setText('cp-s-total',     _cpRows.length);
+    setText('cp-s-planning',  _cpRows.filter(r=>['Planning','Draft'].includes(r.status)).length);
+    setText('cp-s-drafting',  _cpRows.filter(r=>['Drafting','In Progress'].includes(r.status)).length);
+    setText('cp-s-scheduled', _cpRows.filter(r=>r.status==='Scheduled').length);
+    setText('cp-s-published', _cpRows.filter(r=>r.status==='Published').length);
+    setText('cp-tcount',      `${rows.length} entri`);
     if (!rows.length) {
       board.innerHTML = `<div style="text-align:center;padding:32px;color:var(--g400);font-size:13px;flex:1">Tidak ada data.</div>`;
       return;
@@ -21719,6 +21740,8 @@ async function loadContentPlan() {
         cancelHost.innerHTML = '';
       }
     }
+    // Calendar view — re-render if currently active
+    if (_cpView === 'calendar') renderCPCalendar();
   } catch(e) {
     if (board) board.innerHTML = `<div style="text-align:center;padding:32px;color:#c0392b;font-size:13px;flex:1">Gagal: ${(e.message||e).replace(/</g,'&lt;')}</div>`;
   }
@@ -22007,8 +22030,85 @@ async function submitCPDrawer() {
   } catch (e) { alert('Gagal: ' + (e.message||e)); }
 }
 function clearCPFilters() {
-  ['cp-fil-status','cp-fil-type','cp-fil-collection','cp-search'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  ['cp-fil-type','cp-fil-collection','cp-search'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
   loadContentPlan();
+}
+
+// ── Content Planning Calendar View ──
+// Mini month-grid by publish_date. Each chip is clickable → opens drawer.
+// Reuses .cal-grid / .cal-day / .cal-event styles from the main Calendar.
+let _cpCalYear = (new Date()).getFullYear();
+let _cpCalMonth = (new Date()).getMonth();
+const _CP_CAL_MONTH_NAMES = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+const _CP_CAL_DAY_NAMES = ['Min','Sen','Sel','Rab','Kam','Jum','Sab'];
+
+function cpCalPrev() { _cpCalMonth--; if (_cpCalMonth < 0) { _cpCalMonth = 11; _cpCalYear--; } renderCPCalendar(); }
+function cpCalNext() { _cpCalMonth++; if (_cpCalMonth > 11) { _cpCalMonth = 0; _cpCalYear++; } renderCPCalendar(); }
+function cpCalToday() { const now = new Date(); _cpCalYear = now.getFullYear(); _cpCalMonth = now.getMonth(); renderCPCalendar(); }
+
+function renderCPCalendar() {
+  const titleEl = document.getElementById('cp-cal-title');
+  const gridEl = document.getElementById('cp-cal-grid');
+  if (!titleEl || !gridEl) return;
+  titleEl.textContent = `${_CP_CAL_MONTH_NAMES[_cpCalMonth]} ${_cpCalYear}`;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const firstDow = new Date(_cpCalYear, _cpCalMonth, 1).getDay();
+  const daysInMonth = new Date(_cpCalYear, _cpCalMonth+1, 0).getDate();
+  const daysInPrev = new Date(_cpCalYear, _cpCalMonth, 0).getDate();
+  // Group filtered rows (apply current type/collection/search filters) by publish_date
+  const fType = document.getElementById('cp-fil-type')?.value || '';
+  const fCol  = document.getElementById('cp-fil-collection')?.value || '';
+  const search = (document.getElementById('cp-search')?.value || '').trim().toLowerCase();
+  const filteredRows = _cpRows.filter(r => {
+    if (!r.publishDate) return false;
+    if (fType && r.contentType !== fType) return false;
+    if (fCol && r.collectionId !== fCol) return false;
+    if (search && !`${r.title} ${r.owner||''} ${r.channel||''}`.toLowerCase().includes(search)) return false;
+    return true;
+  });
+  const byDate = {};
+  for (const r of filteredRows) {
+    const key = r.publishDate.slice(0,10);
+    (byDate[key] = byDate[key] || []).push(r);
+  }
+  let html = _CP_CAL_DAY_NAMES.map(d => `<div class="cal-dow">${d}</div>`).join('');
+  // prev month fillers
+  for (let i = 0; i < firstDow; i++) {
+    const d = daysInPrev - firstDow + 1 + i;
+    html += `<div class="cal-day other-month"><div class="cal-day-num">${d}</div></div>`;
+  }
+  // current month
+  const statusClass = s => {
+    if (s==='Published') return 'src-popup';
+    if (s==='Approved')  return 'src-collection';
+    if (['Review','For Review'].includes(s)) return 'src-leads';
+    if (['Drafting','In Progress'].includes(s)) return 'src-project';
+    if (s==='Cancelled') return '';
+    return 'src-colitem';
+  };
+  for (let d = 1; d <= daysInMonth; d++) {
+    const mm = String(_cpCalMonth+1).padStart(2,'0');
+    const dd = String(d).padStart(2,'0');
+    const dateStr = `${_cpCalYear}-${mm}-${dd}`;
+    const dayDate = new Date(_cpCalYear, _cpCalMonth, d);
+    const isToday = dayDate.getTime() === today.getTime();
+    const evts = byDate[dateStr] || [];
+    const evHtml = evts.slice(0,3).map(r => {
+      const cls = statusClass(r.status);
+      const cancelStyle = r.status==='Cancelled' ? 'background:#fbe6e6;color:#c0392b;text-decoration:line-through;' : '';
+      const titleAttr = `${r.title}${r.channel?' · '+r.channel:''}${r.status?' · '+r.status:''}`;
+      return `<div class="cal-event ${cls}" style="${cancelStyle}" onclick="event.stopPropagation();openCPDrawerEdit('${r.id}')" title="${titleAttr.replace(/"/g,'&quot;')}">${(r.title||'—').replace(/</g,'&lt;')}</div>`;
+    }).join('');
+    const overflow = evts.length > 3 ? `<div class="cal-overflow" style="font-size:9px;color:var(--g400);font-family:var(--mono);padding:2px 6px">+${evts.length-3} lagi</div>` : '';
+    html += `<div class="cal-day${isToday?' today':''}"><div class="cal-day-num">${d}</div>${evHtml}${overflow}</div>`;
+  }
+  // next month fillers
+  const total = firstDow + daysInMonth;
+  const rem = total % 7 === 0 ? 0 : 7 - (total % 7);
+  for (let i = 1; i <= rem; i++) {
+    html += `<div class="cal-day other-month"><div class="cal-day-num">${i}</div></div>`;
+  }
+  gridEl.innerHTML = html;
 }
 function clearCPForm() {
   ['cp-title','cp-owner','cp-deadline','cp-asset-url','cp-caption','cp-publish-date','cp-channel'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
