@@ -2423,6 +2423,16 @@
     <!-- Shared right-sidebar drawer (used by both Content Planning + Video
          Production). Moved outside the .page wrappers so it stays mounted
          regardless of which page is active. -->
+    <!-- Photoshoot Planning edit drawer — opens when clicking the shoot name in the list -->
+    <div id="psDrawerBackdrop" onclick="closePsDrawer()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.35);z-index:8900"></div>
+    <aside id="psDrawer" style="display:none;position:fixed;top:0;right:0;bottom:0;width:560px;background:var(--white);box-shadow:-12px 0 40px rgba(0,0,0,0.15);z-index:9000;flex-direction:column;overflow:hidden">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--g100);display:flex;justify-content:space-between;align-items:center">
+        <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:15px" id="psDrawerTitle">Edit Photoshoot</div>
+        <button onclick="closePsDrawer()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--g600);line-height:1">×</button>
+      </div>
+      <div id="psDrawerBody" style="flex:1;overflow-y:auto;padding:16px 20px"></div>
+    </aside>
+
     <!-- Marketing Activation edit drawer — opens when clicking the event name in the list / calendar -->
     <div id="maDrawerBackdrop" onclick="closeMaDrawer()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.35);z-index:8900"></div>
     <aside id="maDrawer" style="display:none;position:fixed;top:0;right:0;bottom:0;width:560px;background:var(--white);box-shadow:-12px 0 40px rgba(0,0,0,0.15);z-index:9000;flex-direction:column;overflow:hidden">
@@ -3077,16 +3087,14 @@
           <div class="form-sec">Tambah Photoshoot</div>
           <div class="form-grid">
             <div class="fg"><label>Shoot Name <span class="req">*</span></label><input type="text" id="ps-name" placeholder="cth: Album Drop Lookbook"></div>
-            <div class="fg"><label>Collection</label><select id="ps-collection"><option value="">— Tidak terkait collection —</option></select></div>
+            <div class="fg" style="position:relative"><label>Collection</label><input type="text" id="ps-collection" placeholder="Pilih collection (opsional)" autocomplete="off"><div class="ac-list" id="ac-ps-collection"></div></div>
             <div class="fg"><label>Shoot Date</label><input type="date" id="ps-shoot-date"></div>
             <div class="fg"><label>Delivery Due</label><input type="date" id="ps-delivery"></div>
             <div class="fg"><label>Location</label><input type="text" id="ps-location" placeholder="Studio / lokasi"></div>
-            <div class="fg"><label>PIC</label><input type="text" id="ps-pic" placeholder="Nama PIC"></div>
-            <div class="fg"><label>Budget (Rp)</label><input type="number" id="ps-budget" min="0"></div>
+            <div class="fg" style="position:relative"><label>PIC</label><input type="text" id="ps-pic" placeholder="Nama PIC" autocomplete="off"><div class="ac-list" id="ac-ps-pic"></div></div>
             <div class="fg"><label>Status</label>
               <select id="ps-status"><option>Planning</option><option>Booked</option><option>Shot</option><option>Editing</option><option>Delivered</option><option>Cancelled</option></select>
             </div>
-            <div class="fg full"><label>Deliverables URL (Drive)</label><input type="url" id="ps-deliverables-url" placeholder="https://drive.google.com/..."></div>
             <div class="fg full"><label>Notes</label><textarea id="ps-notes" rows="3" style="resize:vertical"></textarea></div>
           </div>
           <div class="btn-row" style="margin-top:1.25rem">
@@ -3108,7 +3116,7 @@
           <div class="tcount" id="ps-tcount" style="margin-left:auto">— entri</div>
         </div>
         <div class="table-wrap"><table>
-          <thead><tr><th>Shoot</th><th>Collection</th><th>Shoot Date</th><th>Delivery Due</th><th>Location</th><th>PIC</th><th style="text-align:right">Budget</th><th>Status</th><th>Drive</th><th>Aksi</th></tr></thead>
+          <thead><tr><th>Shoot</th><th>Collection</th><th>Shoot Date</th><th>Delivery Due</th><th>Location</th><th>PIC</th><th style="text-align:right">Budget</th><th>Status</th><th>Links</th><th>Aksi</th></tr></thead>
           <tbody id="psTableBody"><tr><td class="empty-td" colspan="10">Klik Refresh.</td></tr></tbody>
         </table></div>
       </div>
@@ -4881,6 +4889,8 @@
             <div class="fg"><label>Source</label><select id="ob-fil-source" onchange="applyOutboundFilters()">
               <option value="">Semua</option>
               <option value="KolManagement">KOL Management</option>
+              <option value="MarketingActivation">Marketing Activation</option>
+              <option value="PhotoshootPlanning">Photoshoot Planning</option>
               <option value="Manual">Manual</option>
             </select></div>
             <div class="fg"><label>Urutkan</label><select id="ob-fil-sort" onchange="applyOutboundFilters()">

@@ -23628,19 +23628,52 @@ async function deletePub(id) {
   catch(e) { alert('Gagal: '+(e.message||e)); }
 }
 
-// ── 5. PHOTOSHOOT PLANNING ──
+// ── 5. PHOTOSHOOT PLANNING (revamped) ──
 let _psRows = [];
+let _psLocations = [];
+let _psFormWired = false;
+const _PS_STATUS_OPTS = ['Planning','Booked','Shot','Editing','Delivered','Cancelled'];
+const _PS_STATUS_TONE = { Planning:'p-draft', Booked:'p-signings', Shot:'p-review', Editing:'p-review', Delivered:'p-active', Cancelled:'p-expired' };
+
 function switchPsTab(tab, el) {
   document.querySelectorAll('#page-photoshoot .tab-btn').forEach(b=>b.classList.remove('active'));
   if (el) el.classList.add('active');
   document.getElementById('pstab-new').style.display  = tab==='new'  ? '' : 'none';
   document.getElementById('pstab-list').style.display = tab==='list' ? '' : 'none';
+  if (tab==='new')  _psSeedForm();
   if (tab==='list') loadPhotoshoot();
 }
+
+async function _psSeedForm() {
+  if (!allColRows.length) await loadCollections().catch(()=>{});
+  if (!_psFormWired) {
+    setupAC('ps-collection', 'ac-ps-collection', () => allColRows.map(c => c.collectionName).filter(Boolean));
+    setupAC('ps-pic', 'ac-ps-pic', () => acPics);
+    _psFormWired = true;
+  }
+}
+
+function _psPickedCollectionId() {
+  const name = (document.getElementById('ps-collection')?.value || '').trim().toLowerCase();
+  if (!name) return null;
+  const c = allColRows.find(x => (x.collectionName||'').toLowerCase() === name);
+  return c ? c.id : null;
+}
+
 function mapPs(r) {
-  return {id:r.id, collectionId:r.collection_id, name:r.shoot_name||'', shootDate:r.shoot_date||'',
-    location:r.location||'', deliveryDue:r.delivery_due||'', deliverablesUrl:r.deliverables_url||'',
-    budget:r.budget, pic:r.pic||'', status:r.status||'Planning'};
+  return {
+    id: r.id, collectionId: r.collection_id || '',
+    name: r.shoot_name || '', shootDate: r.shoot_date || '',
+    location: r.location || '', deliveryDue: r.delivery_due || '',
+    deliverablesUrl: r.deliverables_url || '',
+    budget: r.budget, pic: r.pic || '',
+    status: r.status || 'Planning', notes: r.notes || '',
+    recipientAddress: r.recipient_address || '',
+    budgetBreakdown: Array.isArray(r.budget_breakdown) ? r.budget_breakdown : [],
+    links: Array.isArray(r.links) ? r.links : [],
+    sampleItems: Array.isArray(r.sample_items) ? r.sample_items : [],
+    sampleOutboundId: r.sample_outbound_id || '',
+  };
 }
 // ── MARKETING PLANNING ──
 // Umbrella module per collection: brief + KPI + budget + activity-mix flags.
@@ -24628,8 +24661,16 @@ async function saveMPField(field, value) {
 }
 
 async function loadPhotoshoot() {
-  await _moLoadColOptions('ps-collection');
-  await _moLoadColOptions('ps-fil-collection');
+  if (!allColRows.length) await loadCollections().catch(()=>{});
+  // Outbound cache (for sample shipment badge) + product_mappings (for sample picker)
+  if (!allOutboundRows.length) {
+    try {
+      const {data} = await sb.from('outbound_requests').select('*');
+      allOutboundRows = (data||[]).map(mapOutbound);
+    } catch(e) { /* non-fatal */ }
+  }
+  // Lazy-load product_mappings via the KOL ref-data loader (idempotent)
+  _kolMgmtEnsureRefData().catch(()=>{});
   const tbody = document.getElementById('psTableBody');
   if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="10">Memuat...</td></tr>`;
   try {
@@ -24642,6 +24683,14 @@ async function loadPhotoshoot() {
     const {data, error} = await q;
     if (error) throw error;
     _psRows = (data||[]).map(mapPs);
+    _psLocations = [...new Set(_psRows.map(r => r.location).filter(Boolean))].sort();
+    // Populate collection filter dropdown from allColRows once
+    const colSel = document.getElementById('ps-fil-collection');
+    if (colSel && allColRows.length && colSel.options.length <= 1) {
+      const cur = colSel.value;
+      colSel.innerHTML = `<option value="">Semua Collection</option>` +
+        allColRows.map(c => `<option value="${(c.id||'').replace(/"/g,'&quot;')}"${c.id===cur?' selected':''}>${(c.collectionName||'').replace(/</g,'&lt;')}</option>`).join('');
+    }
     let rows = _psRows;
     if (search) rows = rows.filter(r => `${r.name} ${r.location} ${r.pic}`.toLowerCase().includes(search));
     const today = new Date().toISOString().slice(0,10);
@@ -24654,64 +24703,435 @@ async function loadPhotoshoot() {
     if (!rows.length) { tbody.innerHTML = `<tr><td class="empty-td" colspan="10">Tidak ada data.</td></tr>`; return; }
     tbody.innerHTML = rows.map(r => {
       const dueOver = r.deliveryDue && r.deliveryDue < today && r.status !== 'Delivered' && r.status !== 'Cancelled';
+      const bb = r.budgetBreakdown||[];
+      const sampleCogs = _kolItemsCOGS(r.sampleItems);
+      const linkCount = (r.links||[]).length + (r.deliverablesUrl?1:0);
+      const linkCell = linkCount
+        ? `<span style="font-size:11px;color:#3C3489" title="${linkCount} link">↗ ${linkCount}</span>`
+        : '<span style="color:var(--g400);font-size:10px">—</span>';
       return `<tr>
-      <td><strong>${_moEsc(r.name)}</strong></td>
+      <td><a href="#" onclick="event.preventDefault();openPsDrawerEdit('${r.id}')" style="font-weight:600;color:#3C3489;text-decoration:none" title="Klik buat buka detail">${_moEsc(r.name)}</a></td>
       <td style="font-size:11px;color:var(--g600)">${_moEsc(colName(r.collectionId))}</td>
       <td style="white-space:nowrap;font-size:11px">${_moDate(r.shootDate)}</td>
       <td style="white-space:nowrap;font-size:11px${dueOver?';color:#c33;font-weight:600':''}">${dueOver?'⚠ ':''}${_moDate(r.deliveryDue)}</td>
       <td style="font-size:11px">${_moEsc(r.location)||'—'}</td>
       <td style="font-size:11px">${_moEsc(r.pic)||'—'}</td>
-      <td class="mono" style="text-align:right;white-space:nowrap">${_moRp(r.budget)}</td>
-      <td><select onchange="updatePsStatus('${r.id}',this.value)" class="pill ${_moStatusClass(r.status)}" style="font-size:10px;padding:2px 6px;border:1px solid">${['Planning','Booked','Shot','Editing','Delivered','Cancelled'].map(s=>`<option${r.status===s?' selected':''}>${s}</option>`).join('')}</select></td>
-      <td>${r.deliverablesUrl?`<a href="${r.deliverablesUrl}" target="_blank" style="color:#3C3489;text-decoration:none;font-size:11px">↗ Drive</a>`:'—'}</td>
-      <td style="white-space:nowrap"><button class="btn-icon" style="font-size:10px;color:#c33" onclick="deletePs('${r.id}')">Del</button></td>
+      <td class="mono" style="text-align:right;white-space:nowrap">${_moRp(r.budget)}${sampleCogs>0?`<div style="font-size:9px;color:var(--g400);font-family:var(--mono);margin-top:1px">incl. sample ${_moRp(sampleCogs)}</div>`:bb.length?`<div style="font-size:9px;color:var(--g400);font-family:var(--mono);margin-top:1px">${bb.length} item</div>`:''}</td>
+      <td><select onchange="updatePsStatus('${r.id}',this.value)" class="pill ${_PS_STATUS_TONE[r.status]||'p-draft'}" style="font-size:10px;padding:2px 6px;border:1px solid;border-radius:99px">${_PS_STATUS_OPTS.map(s=>`<option${r.status===s?' selected':''}>${s}</option>`).join('')}</select></td>
+      <td>${linkCell}</td>
+      <td style="white-space:nowrap"><button class="btn-icon" style="font-size:13px;color:#c0392b" onclick="deletePs('${r.id}')" title="Hapus">🗑</button></td>
     </tr>`;}).join('');
   } catch(e) { if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="10">Gagal: ${e.message||e}</td></tr>`; }
 }
+
 function clearPsFilters() {
   ['ps-fil-status','ps-fil-collection','ps-search'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
   loadPhotoshoot();
 }
 function clearPsForm() {
-  ['ps-name','ps-shoot-date','ps-delivery','ps-location','ps-pic','ps-budget','ps-deliverables-url','ps-notes'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
-  ['ps-collection','ps-status'].forEach(id => { const el=document.getElementById(id); if(el) el.selectedIndex=0; });
+  ['ps-name','ps-collection','ps-shoot-date','ps-delivery','ps-location','ps-pic','ps-notes'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  const stat = document.getElementById('ps-status'); if (stat) stat.value = 'Planning';
   const fb=document.getElementById('ps-feedback'); if(fb) fb.textContent='';
 }
 async function submitPs() {
   const fb = document.getElementById('ps-feedback');
+  const setFB = (msg, ok) => { fb.style.color = ok?'#0a7d3a':'#c0392b'; fb.textContent = msg; };
   const name = document.getElementById('ps-name').value.trim();
-  if (!name) { fb.textContent='⚠️ Shoot name wajib.'; return; }
+  if (!name) { setFB('⚠️ Shoot name wajib.', false); return; }
   try {
     const id = genId('PS');
     const {error} = await sb.from('photoshoots').insert({
-      id, shoot_name:name,
-      collection_id: document.getElementById('ps-collection').value || null,
+      id, shoot_name: name,
+      collection_id: _psPickedCollectionId(),
       shoot_date: document.getElementById('ps-shoot-date').value || null,
       delivery_due: document.getElementById('ps-delivery').value || null,
       location: document.getElementById('ps-location').value.trim() || null,
       pic: document.getElementById('ps-pic').value.trim() || null,
-      budget: parseFloat(document.getElementById('ps-budget').value)||null,
-      deliverables_url: document.getElementById('ps-deliverables-url').value.trim() || null,
       notes: document.getElementById('ps-notes').value.trim() || null,
       status: document.getElementById('ps-status').value || 'Planning',
       added_by: currentUser, date_added: new Date().toISOString().slice(0,10),
-      last_updated: new Date().toISOString(), last_updated_by: currentUser
+      last_updated: new Date().toISOString(), last_updated_by: currentUser,
     });
     if (error) throw error;
     logActivity('Photoshoot','create',id,`Shoot: ${name}`);
-    fb.textContent = '✅ Shoot tersimpan.';
+    setFB('✅ Tersimpan. Klik nama shoot di tab Semua buat tambah budget, links, sample request.', true);
     clearPsForm();
-    setTimeout(()=>{fb.textContent='';},2500);
-  } catch(e) { fb.textContent='❌ Gagal: '+(e.message||e); }
+    setTimeout(()=>{fb.textContent='';}, 3500);
+  } catch(e) { setFB('❌ Gagal: '+(e.message||e), false); }
 }
 async function updatePsStatus(id, status) {
-  try { await sb.from('photoshoots').update({status, last_updated:new Date().toISOString(), last_updated_by:currentUser}).eq('id',id); loadPhotoshoot(); }
-  catch(e) { alert('Gagal: '+(e.message||e)); }
+  try {
+    await sb.from('photoshoots').update({status, last_updated:new Date().toISOString(), last_updated_by:currentUser}).eq('id',id);
+    const r = _psRows.find(x => x.id === id); if (r) r.status = status;
+  } catch(e) { alert('Gagal: '+(e.message||e)); loadPhotoshoot(); }
 }
 async function deletePs(id) {
-  if (!confirm('Hapus shoot ini?')) return;
-  try { await sb.from('photoshoots').delete().eq('id',id); loadPhotoshoot(); }
-  catch(e) { alert('Gagal: '+(e.message||e)); }
+  const r = _psRows.find(x => x.id === id);
+  if (!confirm(`Hapus shoot ${r?.name||id}?`)) return;
+  try {
+    if (r?.sampleOutboundId) await sb.from('outbound_requests').delete().eq('id', r.sampleOutboundId);
+    await sb.from('photoshoots').delete().eq('id', id);
+    logActivity('Photoshoot','delete',id,`Hapus: ${r?.name||id}`);
+    loadPhotoshoot();
+  } catch(e) { alert('Gagal: '+(e.message||e)); }
+}
+
+// ── PS drawer ─────────────────────────────────────────────────────────
+async function openPsDrawerEdit(id) {
+  const r = _psRows.find(x => x.id === id);
+  if (!r) return;
+  if (!allColRows.length) await loadCollections().catch(()=>{});
+  await _kolMgmtEnsureRefData().catch(()=>{});
+  document.getElementById('psDrawerTitle').textContent = `✎ ${r.name || id}`;
+  document.getElementById('psDrawerBody').innerHTML = _psDrawerFormHTML(r);
+  openPsDrawer();
+  _psAttachDrawerAC(id);
+}
+function openPsDrawer() {
+  document.getElementById('psDrawerBackdrop').style.display = 'block';
+  document.getElementById('psDrawer').style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+function closePsDrawer() {
+  document.getElementById('psDrawerBackdrop').style.display = 'none';
+  document.getElementById('psDrawer').style.display = 'none';
+  document.body.style.overflow = '';
+}
+
+function _psBudgetRowHTML(b, idx, id) {
+  const esc = s => (s==null?'':String(s)).replace(/"/g,'&quot;');
+  const category = b?.category || '';
+  const amount = b?.amount==null?'':b.amount;
+  const note = b?.note || '';
+  return `<div class="ps-bb-row" data-idx="${idx}" style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
+    <input type="text" class="psb-cat-${id}" value="${esc(category)}" placeholder="Kategori (Studio, Talent, Wardrobe, ...)" style="font-size:12px;padding:5px 8px;flex:1.2">
+    <input type="number" min="0" class="psb-amt-${id}" value="${amount}" placeholder="Rp" style="font-size:12px;padding:5px 8px;width:110px;text-align:right">
+    <input type="text" class="psb-note-${id}" value="${esc(note)}" placeholder="Note" style="font-size:12px;padding:5px 8px;flex:1">
+    <button type="button" onclick="this.parentElement.remove();_psBudgetSumUpdate('${id}')" style="background:none;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-size:13px;padding:3px 8px;color:#c0392b;line-height:1">🗑</button>
+  </div>`;
+}
+
+function _psLinkRowHTML(l, idx, id) {
+  const esc = s => (s==null?'':String(s)).replace(/"/g,'&quot;');
+  const label = l?.label || '';
+  const url = l?.url || '';
+  return `<div class="ps-lnk-row" data-idx="${idx}" style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
+    <input type="text" class="psl-label-${id}" value="${esc(label)}" placeholder="Label (Moodboard, Brief, Drive, dll.)" style="font-size:12px;padding:5px 8px;flex:1">
+    <input type="url" class="psl-url-${id}" value="${esc(url)}" placeholder="https://..." style="font-size:12px;padding:5px 8px;flex:1.5;font-family:var(--mono)">
+    <button type="button" onclick="this.parentElement.remove()" style="background:none;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-size:13px;padding:3px 8px;color:#c0392b;line-height:1">🗑</button>
+  </div>`;
+}
+
+function _psDrawerFormHTML(r) {
+  const esc = s => (s==null?'':String(s)).replace(/"/g,'&quot;');
+  const colName = allColRows.find(c => c.id === r.collectionId)?.collectionName || '';
+  const id = r.id;
+  const budgetRows = (r.budgetBreakdown||[]).map((b,i) => _psBudgetRowHTML(b, i, id)).join('');
+  const linkRows = (r.links||[]).map((l,i) => _psLinkRowHTML(l, i, id)).join('');
+  // Legacy deliverables_url surfaces as a pre-filled link row if links is empty
+  const legacyLinkRow = (!r.links?.length && r.deliverablesUrl) ? _psLinkRowHTML({label:'Drive', url:r.deliverablesUrl}, 0, id) : '';
+  const sampleRows = (r.sampleItems||[]).map(it => _kolFreebieRowHTML(it, `ps-sam-${id}`)).join('');
+  const tabBtn = (key, label, badge) => `<button type="button" class="tab-btn ${key==='general'?'active':''}" data-tab="${key}" onclick="switchPsDrawerTab('${id}','${key}',this)" style="padding:6px 12px;font-size:11px;border:1px solid var(--g100);background:var(--white);border-radius:99px;cursor:pointer;font-family:var(--mono);font-weight:600;text-transform:uppercase;letter-spacing:0.3px;color:var(--g600)">${label}${badge?` <span style="background:var(--g100);padding:1px 6px;border-radius:99px;font-size:9px;margin-left:3px">${badge}</span>`:''}</button>`;
+  return `<div>
+    <div id="psd-tabs-${id}" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--g100)">
+      ${tabBtn('general','General')}
+      ${tabBtn('budget','💰 Budget', (r.budgetBreakdown||[]).length)}
+      ${tabBtn('links','🔗 Links', (r.links||[]).length + (r.deliverablesUrl?1:0))}
+      ${tabBtn('sample','🎁 Sample', (r.sampleItems||[]).length)}
+    </div>
+
+    <!-- General tab -->
+    <div id="psdtab-general-${id}" class="psdtab-${id}">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+        <div class="fg" style="margin:0"><label style="font-size:11px">Shoot Name *</label><input type="text" id="psed-name-${id}" value="${esc(r.name)}" style="font-size:12px;padding:5px 8px"></div>
+        <div class="fg" style="margin:0;position:relative"><label style="font-size:11px">Collection</label>
+          <input type="text" id="psed-collection-${id}" value="${esc(colName)}" autocomplete="off" placeholder="—" style="font-size:12px;padding:5px 8px">
+          <div class="ac-list" id="ac-psed-collection-${id}"></div>
+        </div>
+        <div class="fg" style="margin:0"><label style="font-size:11px">Shoot Date</label><input type="date" id="psed-shoot-date-${id}" value="${r.shootDate||''}" style="font-size:12px;padding:5px 8px"></div>
+        <div class="fg" style="margin:0"><label style="font-size:11px">Delivery Due</label><input type="date" id="psed-delivery-${id}" value="${r.deliveryDue||''}" style="font-size:12px;padding:5px 8px"></div>
+        <div class="fg" style="margin:0;position:relative"><label style="font-size:11px">Location</label>
+          <input type="text" id="psed-location-${id}" value="${esc(r.location)}" autocomplete="off" style="font-size:12px;padding:5px 8px">
+          <div class="ac-list" id="ac-psed-location-${id}"></div>
+        </div>
+        <div class="fg" style="margin:0;position:relative"><label style="font-size:11px">PIC</label>
+          <input type="text" id="psed-pic-${id}" value="${esc(r.pic)}" autocomplete="off" style="font-size:12px;padding:5px 8px">
+          <div class="ac-list" id="ac-psed-pic-${id}"></div>
+        </div>
+        <div class="fg" style="margin:0"><label style="font-size:11px">Status</label>
+          <select id="psed-status-${id}" style="font-size:12px;padding:5px 8px">${_PS_STATUS_OPTS.map(s=>`<option${r.status===s?' selected':''}>${s}</option>`).join('')}</select>
+        </div>
+      </div>
+      <div class="fg" style="margin:0 0 12px"><label style="font-size:11px">Notes</label><textarea id="psed-notes-${id}" rows="3" style="font-size:12px;padding:5px 8px;resize:vertical">${esc(r.notes)}</textarea></div>
+    </div>
+
+    <!-- Budget tab -->
+    <div id="psdtab-budget-${id}" class="psdtab-${id}" style="display:none">
+      <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.3px;color:var(--g600);margin-bottom:4px;display:flex;align-items:center;gap:8px">
+        💰 Budget Breakdown
+        <span style="text-transform:none;letter-spacing:0;font-weight:400;color:var(--g400)">— budget total = Σ kategori + sample COGS</span>
+        <span style="margin-left:auto;font-family:var(--mono);font-size:12px;color:#0a7d3a;font-weight:600">Total <span id="psb-sum-${id}">${_moRp(0)}</span></span>
+      </div>
+      <div id="psed-bb-${id}">${budgetRows}</div>
+      <button class="btn-ghost" type="button" onclick="addPsBudgetRow('${id}')" style="padding:4px 10px;font-size:11px;margin-top:4px">+ Tambah Budget Item</button>
+    </div>
+
+    <!-- Links tab -->
+    <div id="psdtab-links-${id}" class="psdtab-${id}" style="display:none">
+      <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.3px;color:var(--g600);margin-bottom:4px">🔗 Links <span style="text-transform:none;letter-spacing:0;font-weight:400;color:var(--g400)">— moodboard, brief, drive deliverables, references</span></div>
+      <div id="psed-links-${id}">${linkRows || legacyLinkRow}</div>
+      <button class="btn-ghost" type="button" onclick="addPsLinkRow('${id}')" style="padding:4px 10px;font-size:11px;margin-top:4px">+ Tambah Link</button>
+    </div>
+
+    <!-- Sample tab -->
+    <div id="psdtab-sample-${id}" class="psdtab-${id}" style="display:none">
+      <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.3px;color:var(--g600);margin-bottom:4px">🎁 Sample Request</div>
+      <div class="fg" style="margin:0 0 8px"><label style="font-size:11px">Alamat pengiriman</label><textarea id="psed-address-${id}" rows="2" style="font-size:12px;padding:5px 8px;resize:vertical" placeholder="Jl, kota, kode pos...">${esc(r.recipientAddress)}</textarea></div>
+      <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.3px;color:var(--g600);margin-bottom:4px">Items</div>
+      <div id="psed-sample-${id}" style="display:flex;flex-direction:column;gap:6px;margin-bottom:6px">${sampleRows}</div>
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:12px">
+        <button class="btn-ghost" type="button" onclick="addPsSampleRow('${id}')" style="padding:4px 10px;font-size:11px">+ Tambah Item</button>
+        <div id="psed-sample-ship-${id}" style="font-size:11px;color:var(--g600);margin-left:auto"></div>
+        <button class="btn-icon" type="button" onclick="requestPsSampleShipment('${id}')" id="psed-sample-btn-${id}" style="padding:4px 12px;font-size:11px;background:white;border:1px solid #c9bdf0;color:#3C3489;border-radius:4px">📦 Request Pengiriman</button>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:6px;padding-top:8px;margin-top:8px;border-top:1px solid var(--g100)">
+      <button class="btn-primary" onclick="savePsEdit('${id}')" style="padding:7px 16px;font-size:13px">💾 Simpan</button>
+      <button class="btn-ghost" onclick="closePsDrawer()" style="padding:7px 16px;font-size:13px">Batal</button>
+      <div id="psed-fb-${id}" style="margin-left:auto;font-size:11px;align-self:center"></div>
+    </div>
+  </div>`;
+}
+
+function switchPsDrawerTab(id, key, btn) {
+  document.querySelectorAll(`#psd-tabs-${id} .tab-btn`).forEach(b => {
+    b.classList.remove('active');
+    b.style.background = 'var(--white)';
+    b.style.color = 'var(--g600)';
+  });
+  if (btn) {
+    btn.classList.add('active');
+    btn.style.background = '#3C3489';
+    btn.style.color = 'var(--white)';
+  }
+  document.querySelectorAll(`.psdtab-${id}`).forEach(el => el.style.display = 'none');
+  const target = document.getElementById(`psdtab-${key}-${id}`);
+  if (target) target.style.display = '';
+}
+
+function _psAttachDrawerAC(id) {
+  setupAC(`psed-collection-${id}`, `ac-psed-collection-${id}`, () => allColRows.map(c => c.collectionName).filter(Boolean));
+  setupAC(`psed-location-${id}`, `ac-psed-location-${id}`, () => _psLocations);
+  setupAC(`psed-pic-${id}`, `ac-psed-pic-${id}`, () => acPics);
+  _psWireBudgetRowsAC(id);
+  _psWireSampleRowsAC(id);
+  _psRenderSampleShipBadge(id);
+  _psBudgetSumUpdate(id);
+  // Style General tab button as active
+  const generalBtn = document.querySelector(`#psd-tabs-${id} [data-tab="general"]`);
+  if (generalBtn) { generalBtn.style.background = '#3C3489'; generalBtn.style.color = 'var(--white)'; }
+}
+
+function _psWireBudgetRowsAC(id) {
+  const host = document.getElementById(`psed-bb-${id}`);
+  if (!host) return;
+  host.querySelectorAll('.ps-bb-row').forEach(row => {
+    row.querySelector(`.psb-amt-${id}`)?.addEventListener('input', () => _psBudgetSumUpdate(id));
+  });
+}
+
+function _psWireSampleRowsAC(id) {
+  const host = document.getElementById(`psed-sample-${id}`);
+  if (!host) return;
+  host.querySelectorAll('.kol-frb-row').forEach(row => {
+    const display = row.querySelector(`.ps-sam-${id}-display`);
+    const ac = row.querySelector(`.ps-sam-${id}-ac`);
+    if (!display || !ac) return;
+    display.addEventListener('input', () => _kolFrbRenderAC(display, ac));
+    display.addEventListener('focus', () => _kolFrbRenderAC(display, ac));
+    document.addEventListener('click', e => {
+      if (!display.contains(e.target) && !ac.contains(e.target)) ac.style.display = 'none';
+    });
+    const refresh = () => _psBudgetSumUpdate(id);
+    row.querySelector(`.ps-sam-${id}-qty`)?.addEventListener('input', refresh);
+  });
+}
+
+function addPsBudgetRow(id) {
+  const host = document.getElementById(`psed-bb-${id}`);
+  const idx = host.children.length;
+  host.insertAdjacentHTML('beforeend', _psBudgetRowHTML(null, idx, id));
+  _psWireBudgetRowsAC(id);
+}
+
+function addPsLinkRow(id) {
+  const host = document.getElementById(`psed-links-${id}`);
+  const idx = host.children.length;
+  host.insertAdjacentHTML('beforeend', _psLinkRowHTML(null, idx, id));
+}
+
+function addPsSampleRow(id) {
+  const host = document.getElementById(`psed-sample-${id}`);
+  host.insertAdjacentHTML('beforeend', _kolFreebieRowHTML(null, `ps-sam-${id}`));
+  const row = host.lastElementChild;
+  const display = row.querySelector(`.ps-sam-${id}-display`);
+  const ac = row.querySelector(`.ps-sam-${id}-ac`);
+  if (display && ac) {
+    display.addEventListener('input', () => _kolFrbRenderAC(display, ac));
+    display.addEventListener('focus', () => _kolFrbRenderAC(display, ac));
+    document.addEventListener('click', e => {
+      if (!display.contains(e.target) && !ac.contains(e.target)) ac.style.display = 'none';
+    });
+  }
+  _psBudgetSumUpdate(id);
+}
+
+function _psBudgetSumUpdate(id) {
+  const host = document.getElementById(`psed-bb-${id}`);
+  if (!host) return;
+  let breakdownSum = 0;
+  host.querySelectorAll(`.psb-amt-${id}`).forEach(inp => {
+    const v = parseFloat(inp.value); if (!isNaN(v)) breakdownSum += v;
+  });
+  const sampleItems = _kolReadFreebieFrom(`psed-sample-${id}`, `ps-sam-${id}`);
+  const sampleCogs = _kolItemsCOGS(sampleItems);
+  const total = breakdownSum + sampleCogs;
+  const el = document.getElementById(`psb-sum-${id}`);
+  if (el) {
+    if (sampleCogs > 0) {
+      el.innerHTML = `${_moRp(total)} <span style="font-size:9px;color:var(--g400);font-weight:400">(${_moRp(breakdownSum)} budget + ${_moRp(sampleCogs)} sample)</span>`;
+    } else {
+      el.textContent = _moRp(total);
+    }
+  }
+}
+
+function _psReadBudget(id) {
+  const host = document.getElementById(`psed-bb-${id}`);
+  if (!host) return [];
+  const out = [];
+  host.querySelectorAll('.ps-bb-row').forEach(row => {
+    const category = (row.querySelector(`.psb-cat-${id}`)?.value || '').trim();
+    const amountRaw = row.querySelector(`.psb-amt-${id}`)?.value;
+    const note = (row.querySelector(`.psb-note-${id}`)?.value || '').trim();
+    const amount = amountRaw === '' ? null : Number(amountRaw);
+    if (category || amount || note) out.push({category, amount, note});
+  });
+  return out;
+}
+
+function _psReadLinks(id) {
+  const host = document.getElementById(`psed-links-${id}`);
+  if (!host) return [];
+  const out = [];
+  host.querySelectorAll('.ps-lnk-row').forEach(row => {
+    const label = (row.querySelector(`.psl-label-${id}`)?.value || '').trim();
+    const url = (row.querySelector(`.psl-url-${id}`)?.value || '').trim();
+    if (url) out.push({label, url});
+  });
+  return out;
+}
+
+function _psRenderSampleShipBadge(id) {
+  const r = _psRows.find(x => x.id === id);
+  if (!r) return;
+  const badge = document.getElementById(`psed-sample-ship-${id}`);
+  const btn = document.getElementById(`psed-sample-btn-${id}`);
+  if (!badge || !btn) return;
+  if (r.sampleOutboundId) {
+    const ob = allOutboundRows.find(x => x.id === r.sampleOutboundId);
+    const status = ob?.status ? ` · ${ob.status}` : '';
+    const ship = (typeof ob?.shippingCost === 'number') ? ` · 🚚 ${_moRp(ob.shippingCost)}` : '';
+    badge.innerHTML = `<a href="#" onclick="event.preventDefault();showPage('outbound',null)" style="color:#3C3489;text-decoration:underline">✓ ${(r.sampleOutboundId||'').replace(/</g,'&lt;')}</a><span style="color:var(--g600)">${status}${ship}</span>`;
+    btn.style.display = 'none';
+  } else {
+    badge.textContent = '';
+    btn.style.display = '';
+  }
+}
+
+async function savePsEdit(id) {
+  const fb = document.getElementById(`psed-fb-${id}`);
+  const setFB = (msg, ok) => { if (fb) { fb.style.color = ok?'#0a7d3a':'#c0392b'; fb.textContent = msg; } };
+  const name = (document.getElementById(`psed-name-${id}`).value || '').trim();
+  if (!name) { setFB('Shoot name wajib', false); return; }
+  const colName = (document.getElementById(`psed-collection-${id}`).value || '').trim().toLowerCase();
+  const colMatch = allColRows.find(c => (c.collectionName||'').toLowerCase() === colName);
+  const breakdown = _psReadBudget(id);
+  const breakdownSum = breakdown.reduce((s, b) => s + Number(b.amount||0), 0);
+  const sampleItems = _kolReadFreebieFrom(`psed-sample-${id}`, `ps-sam-${id}`);
+  const budgetTotal = breakdownSum + _kolItemsCOGS(sampleItems);
+  const links = _psReadLinks(id);
+  const payload = {
+    shoot_name: name,
+    collection_id: colMatch ? colMatch.id : null,
+    shoot_date: document.getElementById(`psed-shoot-date-${id}`).value || null,
+    delivery_due: document.getElementById(`psed-delivery-${id}`).value || null,
+    location: (document.getElementById(`psed-location-${id}`).value || '').trim() || null,
+    pic: (document.getElementById(`psed-pic-${id}`).value || '').trim() || null,
+    notes: (document.getElementById(`psed-notes-${id}`).value || '').trim() || null,
+    status: document.getElementById(`psed-status-${id}`).value || 'Planning',
+    recipient_address: (document.getElementById(`psed-address-${id}`).value || '').trim() || null,
+    budget: budgetTotal > 0 ? budgetTotal : null,
+    budget_breakdown: breakdown,
+    sample_items: sampleItems,
+    links,
+    last_updated: new Date().toISOString(), last_updated_by: currentUser || '',
+  };
+  try {
+    const {error} = await sb.from('photoshoots').update(payload).eq('id', id);
+    if (error) throw error;
+    logActivity('Photoshoot','edit',id,`Edit: ${name}`);
+    setFB('✓ Tersimpan', true);
+    setTimeout(() => closePsDrawer(), 600);
+    loadPhotoshoot();
+  } catch(e) { setFB('Gagal: ' + (e.message||e), false); }
+}
+
+async function requestPsSampleShipment(id) {
+  const r = _psRows.find(x => x.id === id);
+  if (!r) return;
+  if (r.sampleOutboundId) { alert('Sudah ada outbound request: ' + r.sampleOutboundId); return; }
+  const items = _kolReadFreebieFrom(`psed-sample-${id}`, `ps-sam-${id}`);
+  if (!items.length) { alert('Belum ada item sample. Tambahkan dulu trus klik lagi.'); return; }
+  const address = (document.getElementById(`psed-address-${id}`)?.value || '').trim();
+  const pic = (document.getElementById(`psed-pic-${id}`)?.value || '').trim();
+  const sd = document.getElementById(`psed-shoot-date-${id}`)?.value || '';
+  if (!confirm(`Buat outbound ticket buat ${items.length} sample item ke "${address || r.location || '(no address)'}"?`)) return;
+  try {
+    await sb.from('photoshoots').update({
+      sample_items: items, recipient_address: address || null,
+      last_updated: new Date().toISOString(), last_updated_by: currentUser||'',
+    }).eq('id', id);
+    const obId = genId('OB');
+    const payload = {
+      id: obId,
+      source_module: 'PhotoshootPlanning',
+      source_id: id,
+      recipient_name: pic || r.name,
+      recipient_address: address || r.location || null,
+      recipient_phone: null,
+      requested_ship_date: sd || null,
+      items, status: 'Pending',
+      notes: `Auto-created from photoshoot ${id} (${r.name})`,
+      added_by: currentUser, date_added: new Date().toISOString().slice(0,10),
+      last_updated: new Date().toISOString(), last_updated_by: currentUser,
+    };
+    const {error: e1} = await sb.from('outbound_requests').insert(payload);
+    if (e1) throw e1;
+    const {error: e2} = await sb.from('photoshoots').update({
+      sample_outbound_id: obId, last_updated: new Date().toISOString(), last_updated_by: currentUser||'',
+    }).eq('id', id);
+    if (e2) throw e2;
+    r.sampleItems = items;
+    r.sampleOutboundId = obId;
+    r.recipientAddress = address;
+    if (allOutboundRows.length) allOutboundRows.push(mapOutbound({...payload}));
+    _psRenderSampleShipBadge(id);
+    logActivity('Photoshoot','request_sample',id,`→ ${obId}`);
+    alert(`✓ Ticket ${obId} dibuat. Buka modul Outbond Request buat track delivery.`);
+  } catch(e) { alert('Gagal: '+(e.message||e)); }
 }
 
 // ── 6. KOL MANAGEMENT ──
@@ -29601,8 +30021,16 @@ function _renderOutboundRows(rows) {
     const tracking = r.trackingNumber
       ? `<span style="font-family:var(--mono);font-size:11px">${esc(r.trackingNumber)}</span>`
       : `<button class="btn-icon" onclick="promptObTracking('${r.rowIndex}')" title="Set resi" style="font-size:11px;color:var(--g600)">+ Resi</button>`;
-    const sourceLabel = r.sourceModule === 'KolManagement' && r.sourceId
-      ? `<a href="#" onclick="event.preventDefault();showPage('kolmgmt',null)" style="font-size:10px;color:#3C3489;text-decoration:underline" title="${esc(r.sourceId)}">KOL · ${esc(r.sourceId)}</a>`
+    const sourceShortName = r.sourceModule === 'KolManagement' ? 'KOL'
+      : r.sourceModule === 'MarketingActivation' ? 'MA'
+      : r.sourceModule === 'PhotoshootPlanning' ? 'PS'
+      : r.sourceModule;
+    const sourcePage = r.sourceModule === 'KolManagement' ? 'kolmgmt'
+      : r.sourceModule === 'MarketingActivation' ? 'mktactivation'
+      : r.sourceModule === 'PhotoshootPlanning' ? 'photoshoot'
+      : '';
+    const sourceLabel = (sourcePage && r.sourceId)
+      ? `<a href="#" onclick="event.preventDefault();showPage('${sourcePage}',null)" style="font-size:10px;color:#3C3489;text-decoration:underline" title="${esc(r.sourceId)}">${esc(sourceShortName)} · ${esc(r.sourceId)}</a>`
       : `<span style="font-size:10px;color:var(--g600)">${esc(r.sourceModule)}</span>`;
     // Total COGS preview from current items (HPP × qty)
     const cogsTotal = _kolItemsCOGS(r.items);
@@ -29756,6 +30184,15 @@ async function saveObItems(id) {
       const breakdownSum = (me?.budget_breakdown||[]).reduce((s, b) => s + Number(b.amount||0), 0);
       const sampleCogs = _kolItemsCOGS(items);
       await sb.from('marketing_events').update({
+        sample_items: items,
+        budget: (breakdownSum + sampleCogs) > 0 ? (breakdownSum + sampleCogs) : null,
+        last_updated: new Date().toISOString(), last_updated_by: currentUser||'',
+      }).eq('id', r.sourceId);
+    } else if (r.sourceModule === 'PhotoshootPlanning' && r.sourceId) {
+      const {data: ps} = await sb.from('photoshoots').select('budget_breakdown').eq('id', r.sourceId).single();
+      const breakdownSum = (ps?.budget_breakdown||[]).reduce((s, b) => s + Number(b.amount||0), 0);
+      const sampleCogs = _kolItemsCOGS(items);
+      await sb.from('photoshoots').update({
         sample_items: items,
         budget: (breakdownSum + sampleCogs) > 0 ? (breakdownSum + sampleCogs) : null,
         last_updated: new Date().toISOString(), last_updated_by: currentUser||'',
