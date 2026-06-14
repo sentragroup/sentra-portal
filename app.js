@@ -17003,31 +17003,36 @@ async function loadMarteReport() {
   _mrRenderTable();
 }
 
-// Render the 3 inline action cells: Sales Report toggle pill, Invoice file
-// upload/link, Pembayaran toggle pill. Buatkan brandId so the click handlers
-// can find their settlement row.
-function _mrStatusCells(brandId, trk) {
-  // Sales Report — Not Started / Sent toggle
+// Render inline action cells. Flow: download sales report + invoice → kirim
+// → brand bayar → brand kirim bukti potong (PT only). Bukti Potong upload
+// dipindah ke ujung kanan karena posisinya kronologis terakhir.
+//   [0] reportPill   — Sales Report Sent toggle
+//   [1] payPill      — Pembayaran toggle
+//   [2] bpCell       — Bukti Potong file upload (PT only); '—' kalau non-PT
+function _mrStatusCells(brandId, trk, isPT) {
   const reportSent = !!trk?.report_sent_at;
   const reportPill = `<span onclick="event.stopPropagation();mrToggleReport('${_escRmd(brandId)}')" style="display:inline-block;cursor:pointer;font-size:10px;padding:3px 9px;border-radius:99px;font-family:var(--mono);font-weight:500;background:${reportSent?'#dcfce7':'var(--off)'};color:${reportSent?'#15803d':'var(--g600)'};border:1px solid ${reportSent?'#86efac':'var(--g200)'}" title="${reportSent?'Klik untuk Not Started':'Klik untuk Sent'}">${reportSent?`✓ Sent · ${_mrShort(trk.report_sent_at)}`:'Not Started'}</span>`;
-  // Invoice file — upload picker or link
-  const hasInv = !!trk?.invoice_file_url;
-  const invCell = hasInv
-    ? `<div style="display:flex;align-items:center;gap:4px;justify-content:center"><a href="${_escRmd(trk.invoice_file_url)}" target="_blank" onclick="event.stopPropagation()" style="font-size:10px;color:#3C3489;text-decoration:none;font-family:var(--mono)">📎 lihat</a><button onclick="event.stopPropagation();mrRemoveInvoice('${_escRmd(brandId)}')" style="font-size:10px;padding:1px 5px;background:none;border:1px solid var(--g200);border-radius:3px;cursor:pointer;color:var(--g600)" title="Hapus">×</button></div>`
-    : `<label onclick="event.stopPropagation()" style="display:inline-block;cursor:pointer;font-size:10px;padding:3px 9px;border-radius:4px;background:#3C3489;color:white;font-family:var(--mono);font-weight:500" title="Upload PDF/JPG/PNG">📤 Upload<input type="file" accept="application/pdf,image/*" style="display:none" onchange="mrUploadInvoice('${_escRmd(brandId)}',this)"></label>`;
-  // Pembayaran — Not Paid / Paid toggle
   const paid = !!trk?.payment_received_at;
   const payPill = `<span onclick="event.stopPropagation();mrTogglePayment('${_escRmd(brandId)}')" style="display:inline-block;cursor:pointer;font-size:10px;padding:3px 9px;border-radius:99px;font-family:var(--mono);font-weight:500;background:${paid?'#dcfce7':'var(--off)'};color:${paid?'#15803d':'var(--g600)'};border:1px solid ${paid?'#86efac':'var(--g200)'}" title="${paid?'Klik untuk Not Paid':'Klik untuk Paid'}">${paid?`✓ Paid · ${_mrShort(trk.payment_received_at)}`:'Not Paid'}</span>`;
-  return [reportPill, invCell, payPill];
+  let bpCell;
+  if (!isPT) {
+    bpCell = `<span style="font-size:10px;color:var(--g300);font-family:var(--mono)">—</span>`;
+  } else {
+    const hasBP = !!trk?.bukti_potong_file_url;
+    bpCell = hasBP
+      ? `<div style="display:flex;align-items:center;gap:4px;justify-content:center"><a href="${_escRmd(trk.bukti_potong_file_url)}" target="_blank" onclick="event.stopPropagation()" style="font-size:10px;color:#3C3489;text-decoration:none;font-family:var(--mono)">📎 lihat</a><button onclick="event.stopPropagation();mrRemoveBP('${_escRmd(brandId)}')" style="font-size:10px;padding:1px 5px;background:none;border:1px solid var(--g200);border-radius:3px;cursor:pointer;color:var(--g600)" title="Hapus">×</button></div>`
+      : `<label onclick="event.stopPropagation()" style="display:inline-block;cursor:pointer;font-size:10px;padding:3px 9px;border-radius:4px;background:#3C3489;color:white;font-family:var(--mono);font-weight:500" title="Upload bukti potong PPh 23 (PDF/JPG/PNG)">📤 Upload<input type="file" accept="application/pdf,image/*" style="display:none" onchange="mrUploadBP('${_escRmd(brandId)}',this)"></label>`;
+  }
+  return [reportPill, payPill, bpCell];
 }
 
 function _mrRenderTable() {
   const tb = document.getElementById('mr-tbody');
   tb.innerHTML = _mrAllRows.map(r => {
     const trk     = _mrTracking[r.brand_id] || null;
-    const cells   = _mrStatusCells(r.brand_id, trk);
     // brand_type: from Brand Master first, fallback to tracking row
     const tipe    = r._bm_brand_type || trk?.brand_type || '—';
+    const cells   = _mrStatusCells(r.brand_id, trk, tipe === 'PT');
     const vatSt   = r._bm_vat_status || '—';
     const tipeClass = tipe==='PT'?'p-signings':tipe==='Individu'?'p-draft':'p-inactive';
     const vatClass  = vatSt==='VAT Included'?'p-active':vatSt==='VAT Excluded'?'p-near':'p-inactive';
@@ -17053,10 +17058,10 @@ function _mrRenderTable() {
       <td style="text-align:right">${hasSales ? `<span style="font-family:var(--mono);font-size:12px;font-weight:600" title="${(r._pph23||0)>0?'Termasuk PPh 23 2% ('+_mrRpFull(r._pph23)+')':''}">${_mrRpFull(r._net_payout_adj)}</span>` : zeroCell}</td>
       <td style="text-align:center">${cells[0]}</td>
       <td style="text-align:center">${cells[1]}</td>
-      <td style="text-align:center">${cells[2]}</td>
       <td style="text-align:center"><button onclick="event.stopPropagation();mrDownloadPDF('${bid}','${bname}')" style="font-size:11px;padding:3px 10px;background:none;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-family:var(--mono);color:var(--black)" title="Download Marté Sales Report PDF">📄 Sales Report</button></td>
       <td style="text-align:center"><button onclick="event.stopPropagation();mrDownloadInvoice('${bid}','${bname}')" style="font-size:11px;padding:3px 10px;background:none;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-family:var(--mono);color:var(--black)" title="Download Invoice + PAID stamp">📋 Invoice</button></td>
       <td style="text-align:center"><button onclick="event.stopPropagation();mrSendEmail('${bid}','${bname}')" style="font-size:11px;padding:3px 10px;background:none;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-family:var(--mono);color:var(--black)" title="Send summary email ke brand">✉ Send</button></td>
+      <td style="text-align:center">${cells[2]}</td>
       <td><button class="btn-edit" onclick="event.stopPropagation();openMRDetail('${bid}','${bname}')">Detail</button></td>
     </tr>`;
   }).join('');
@@ -17126,15 +17131,15 @@ async function openMRDetail(brandId, brandName) {
 function _mrStatusPill(trk) {
   const mk = (ok, label, neutral) => `<span style="display:inline-block;font-size:11px;padding:3px 9px;border-radius:99px;font-family:var(--mono);font-weight:500;background:${neutral?'var(--off)':(ok?'#dcfce7':'var(--off)')};color:${neutral?'var(--g400)':(ok?'#15803d':'var(--g600)')};border:1px solid ${neutral?'var(--g200)':(ok?'#86efac':'var(--g200)')}">${label}</span>`;
   const reportOK = !!trk?.report_sent_at;
-  const invOK    = !!trk?.invoice_file_url;
+  const invOK    = trk?.invoice_status === 'Sent' || trk?.invoice_status === 'Paid';
   const payOK    = !!trk?.payment_received_at;
-  const bpOK     = !!trk?.bukti_potong_received_at;
+  const bpOK     = !!(trk?.bukti_potong_received_at || trk?.bukti_potong_file_url);
   const isPT     = (trk?.brand_type || '') === 'PT';
   return [
     mk(reportOK, reportOK ? `✓ Sent · ${_mrShort(trk.report_sent_at)}` : 'Not Started'),
-    mk(invOK,    invOK    ? `✓ Uploaded` : 'Not Uploaded'),
+    mk(invOK,    invOK    ? `✓ ${trk.invoice_status}` : 'Not Sent'),
     mk(payOK,    payOK    ? `✓ Paid · ${_mrShort(trk.payment_received_at)}` : 'Not Paid'),
-    isPT ? mk(bpOK, bpOK ? `✓ Received · ${_mrShort(trk.bukti_potong_received_at)}` : 'Pending') : mk(false, 'N/A · Non-PT', true),
+    isPT ? mk(bpOK, bpOK ? `✓ Received${trk.bukti_potong_received_at?` · ${_mrShort(trk.bukti_potong_received_at)}`:''}` : 'Pending') : mk(false, 'N/A · Non-PT', true),
   ];
 }
 
@@ -17302,25 +17307,29 @@ async function mrTogglePayment(brandId) {
   await _mrUpsertSettlement(brandId, { payment_received_at: newVal });
 }
 
-async function mrUploadInvoice(brandId, inputEl) {
+async function mrUploadBP(brandId, inputEl) {
   const f = inputEl?.files?.[0];
   if (!f) return;
   inputEl.disabled = true;
   try {
-    const ext = (f.name.split('.').pop() || 'pdf').toLowerCase();
     const safeName = f.name.replace(/[^a-zA-Z0-9._-]+/g,'_');
-    const path = `${_mrPeriod}/${brandId}_${Date.now()}_${safeName}`.replace(/[^a-zA-Z0-9./_-]+/g, '_');
+    const path = `bp/${_mrPeriod}/${brandId}_${Date.now()}_${safeName}`.replace(/[^a-zA-Z0-9./_-]+/g, '_');
     const { error: upErr } = await sb.storage.from('marte-invoices').upload(path, f, { contentType: f.type, upsert: false });
     if (upErr) throw upErr;
     const { data: pub } = sb.storage.from('marte-invoices').getPublicUrl(path);
-    await _mrUpsertSettlement(brandId, { invoice_file_url: pub.publicUrl });
+    await _mrUpsertSettlement(brandId, {
+      bukti_potong_file_url: pub.publicUrl,
+      // Auto-fill received timestamp when first uploaded so the date field +
+      // bukti_potong pill flip green tanpa harus buka modal manually.
+      bukti_potong_received_at: _mrTracking[brandId]?.bukti_potong_received_at || new Date().toISOString(),
+    });
   } catch (e) { alert('Upload gagal: '+(e.message||e)); }
   finally { inputEl.disabled = false; inputEl.value = ''; }
 }
 
-async function mrRemoveInvoice(brandId) {
-  if (!confirm('Hapus file invoice yang sudah diupload?')) return;
-  await _mrUpsertSettlement(brandId, { invoice_file_url: null });
+async function mrRemoveBP(brandId) {
+  if (!confirm('Hapus file bukti potong yang sudah diupload?')) return;
+  await _mrUpsertSettlement(brandId, { bukti_potong_file_url: null });
 }
 
 // PDF + Email actions — summary buat finance + brand. Includes both period
