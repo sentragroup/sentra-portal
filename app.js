@@ -21751,15 +21751,15 @@ async function loadContentPlan() {
 // classes so look matches exactly. dotColor = the 8px round indicator
 // next to the column name (mirrors STAGE_COLORS dots in Project Board).
 function _cpKanbanColumnHTML(col, items, colById, wide) {
-  // Dot colors mirror calendar chip palette (see statusClass in renderCPCalendar)
-  // so each status has the same visual identity across both views.
+  // Dot colors mirror calendar chip's PERCEIVED color (the saturated background
+  // tone, not the dark text color) so visual identity is identical across views.
   const dotMap = {
-    Planning:  '#9d174d', // pink — matches src-colitem chip
-    Drafting:  '#1d4ed8', // blue — matches src-project chip
-    Review:    '#92400e', // amber — matches src-leads chip
-    Approved:  '#6d28d9', // purple — matches src-collection chip
-    Published: '#065f46', // green — matches src-popup chip
-    Cancelled: '#c0392b', // red — matches calendar cancelled style
+    Planning:  '#ec4899', // pink chip
+    Drafting:  '#3b82f6', // blue chip
+    Review:    '#eab308', // yellow chip
+    Approved:  '#8b5cf6', // purple chip
+    Published: '#10b981', // green chip
+    Cancelled: '#ef4444', // red chip
   };
   const dot = col.dotColor || dotMap[col.key] || '#888';
   const label = (col.label||col.key).replace(/^[^\w]+\s*/, '');
@@ -21767,8 +21767,12 @@ function _cpKanbanColumnHTML(col, items, colById, wide) {
     ? items.map(r => _cpKanbanCardHTML(r, colById)).join('')
     : `<div class="kanban-empty"><span style="font-size:11px;color:var(--g200);font-family:var(--mono)">kosong</span></div>`;
   const styleAttr = wide ? ' style="flex:0 0 100%;min-width:100%"' : '';
-  // Add button per column — opens drawer with status pre-set (Project Board pattern)
-  return `<div class="kanban-col"${styleAttr}>
+  // Drag-target: ondragover preventDefault + ondrop dispatches status change.
+  // data-cp-col stores the canonical status for this column.
+  return `<div class="kanban-col"${styleAttr} data-cp-col="${col.key}"
+       ondragover="event.preventDefault();this.classList.add('drag-over')"
+       ondragleave="this.classList.remove('drag-over')"
+       ondrop="_cpKbDrop(event,'${col.key}')">
     <div class="kanban-col-header">
       <div style="display:flex;align-items:center;gap:7px">
         <span style="width:8px;height:8px;border-radius:50%;background:${dot};display:inline-block;flex-shrink:0"></span>
@@ -21813,7 +21817,10 @@ function _cpKanbanCardHTML(r, colById) {
   const dateLine = r.publishDate
     ? `<span style="font-size:10px;font-family:var(--mono);color:var(--g400)">📅 ${_moDate(r.publishDate)}</span>`
     : '';
-  return `<div class="kanban-card" onclick="openCPDrawerEdit('${r.id}')">
+  return `<div class="kanban-card" draggable="true"
+       ondragstart="_cpKbDragStart(event,'${r.id}')"
+       ondragend="this.classList.remove('dragging')"
+       onclick="openCPDrawerEdit('${r.id}')">
     <div class="kcard-title">${esc(r.title)||'—'}</div>
     ${tags.length?`<div class="kcard-meta">${tags.join('')}</div>`:''}
     <div class="kcard-footer">
@@ -21821,6 +21828,43 @@ function _cpKanbanCardHTML(r, colById) {
       ${dateLine}
     </div>
   </div>`;
+}
+
+// ── Drag & drop pattern (mirrors Project Board's _ld* handlers) ──
+let _cpDragId = null;
+function _cpKbDragStart(e, id) {
+  _cpDragId = id;
+  e.dataTransfer.setData('text/plain', id);
+  setTimeout(() => {
+    const el = document.querySelector(`.kanban-card[onclick*="${id}"]`);
+    if (el) el.classList.add('dragging');
+  }, 0);
+}
+async function _cpKbDrop(e, colKey) {
+  e.preventDefault();
+  document.querySelectorAll('.kanban-col.drag-over').forEach(c => c.classList.remove('drag-over'));
+  const id = e.dataTransfer.getData('text/plain') || _cpDragId;
+  if (!id) return;
+  const row = _cpRows.find(r => r.id === id);
+  if (!row) return;
+  // Map column key → canonical status. Approved column accepts Scheduled-era
+  // rows too — we normalize to Approved on drop.
+  const target = colKey;
+  if (row.status === target) return; // no-op if same column
+  // Optimistic local update + re-render
+  row.status = target;
+  try {
+    const {error} = await sb.from('content_planning').update({
+      status: target, last_updated: new Date().toISOString(), last_updated_by: currentUser,
+    }).eq('id', id);
+    if (error) throw error;
+    logActivity('ContentPlanning','stage_change',id,`Status → ${target}`);
+    // Re-render kanban without full reload (faster + keeps scroll position)
+    loadContentPlan();
+  } catch (err) {
+    alert('Gagal pindah status: ' + (err.message||err));
+    loadContentPlan(); // revert via reload
+  }
 }
 
 // ── Right-sidebar drawer for add / edit ──
@@ -22079,14 +22123,16 @@ function renderCPCalendar() {
     const d = daysInPrev - firstDow + 1 + i;
     html += `<div class="cal-day other-month"><div class="cal-day-num">${d}</div></div>`;
   }
-  // current month
-  const statusClass = s => {
-    if (s==='Published') return 'src-popup';
-    if (s==='Approved')  return 'src-collection';
-    if (['Review','For Review'].includes(s)) return 'src-leads';
-    if (['Drafting','In Progress'].includes(s)) return 'src-project';
-    if (s==='Cancelled') return '';
-    return 'src-colitem';
+  // Chip style mirrors kanban dot palette exactly — same hex used so visual
+  // identity is byte-for-byte the same. Per-status pale background + bold
+  // text color for legibility.
+  const statusStyle = s => {
+    if (s==='Published')                           return 'background:#d1fae5;color:#065f46;border-left:3px solid #10b981;';
+    if (s==='Approved' || s==='Scheduled')         return 'background:#ede9fe;color:#6d28d9;border-left:3px solid #8b5cf6;';
+    if (['Review','For Review'].includes(s))       return 'background:#fef3c7;color:#92400e;border-left:3px solid #eab308;';
+    if (['Drafting','In Progress'].includes(s))    return 'background:#dbeafe;color:#1d4ed8;border-left:3px solid #3b82f6;';
+    if (s==='Cancelled')                           return 'background:#fbe6e6;color:#c0392b;border-left:3px solid #ef4444;text-decoration:line-through;';
+    return 'background:#fce7f3;color:#9d174d;border-left:3px solid #ec4899;'; // Planning/Draft default
   };
   for (let d = 1; d <= daysInMonth; d++) {
     const mm = String(_cpCalMonth+1).padStart(2,'0');
@@ -22096,10 +22142,8 @@ function renderCPCalendar() {
     const isToday = dayDate.getTime() === today.getTime();
     const evts = byDate[dateStr] || [];
     const evHtml = evts.slice(0,3).map(r => {
-      const cls = statusClass(r.status);
-      const cancelStyle = r.status==='Cancelled' ? 'background:#fbe6e6;color:#c0392b;text-decoration:line-through;' : '';
       const titleAttr = `${r.title}${r.channel?' · '+r.channel:''}${r.status?' · '+r.status:''}`;
-      return `<div class="cal-event ${cls}" style="${cancelStyle}" onclick="event.stopPropagation();openCPDrawerEdit('${r.id}')" title="${titleAttr.replace(/"/g,'&quot;')}">${(r.title||'—').replace(/</g,'&lt;')}</div>`;
+      return `<div class="cal-event" style="${statusStyle(r.status)}" onclick="event.stopPropagation();openCPDrawerEdit('${r.id}')" title="${titleAttr.replace(/"/g,'&quot;')}">${(r.title||'—').replace(/</g,'&lt;')}</div>`;
     }).join('');
     const overflow = evts.length > 3 ? `<div class="cal-overflow" style="font-size:9px;color:var(--g400);font-family:var(--mono);padding:2px 6px">+${evts.length-3} lagi</div>` : '';
     html += `<div class="cal-day${isToday?' today':''}"><div class="cal-day-num">${d}</div>${evHtml}${overflow}</div>`;
