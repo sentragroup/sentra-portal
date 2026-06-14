@@ -22697,9 +22697,9 @@ async function loadMktActivation() {
       }
       let roiCell = '<span style="color:var(--g400);font-size:10px">—</span>';
       if (hasRev && budget>0) {
-        const roi = (revenue - budget) / budget * 100;
-        const color = roi >= 0 ? '#0a7d3a' : '#c0392b';
-        roiCell = `<span style="color:${color};font-weight:600">${roi>=0?'+':''}${roi.toFixed(1)}%</span>`;
+        const mer = revenue / budget;
+        const color = mer >= 1 ? '#0a7d3a' : '#c0392b';
+        roiCell = `<span style="color:${color};font-weight:600">${mer.toFixed(2)}×</span>`;
       }
       const tr = typeof r.targetReach === 'number' ? r.targetReach : null;
       const ar = typeof r.actualReach === 'number' ? r.actualReach : null;
@@ -23160,16 +23160,17 @@ function _maWirePopupAC(id) {
   });
 }
 
-// Render ROI line given revenue + budget. Returns HTML string or ''.
+// Render MER line given revenue + budget. Returns HTML string or ''.
+// Marketing Efficiency Ratio = Total Revenue / Total Marketing Spend, displayed
+// as a multiplier (1× = break-even). Holistic — sums revenue across all
+// channels touching this event (popup + Marte store sales).
 function _maRoiLine(revenue, budget) {
   if (!(revenue > 0) || !(budget > 0)) return '';
-  const profit = revenue - budget;
-  const roi = (profit / budget) * 100;
-  const color = roi >= 0 ? '#0a7d3a' : '#c0392b';
-  const sign = profit >= 0 ? '+' : '−';
+  const mer = revenue / budget;
+  const color = mer >= 1 ? '#0a7d3a' : '#c0392b';
   return `<div style="margin-top:6px;font-family:var(--mono);font-size:12px">
-    <span style="color:var(--g600)">Profit ${sign}${_moRp(Math.abs(profit))}</span>
-    <span style="margin-left:10px;color:${color};font-weight:600">ROI ${roi>=0?'+':''}${roi.toFixed(1)}%</span>
+    <span style="color:var(--g600)">Revenue / Budget</span>
+    <span style="margin-left:10px;color:${color};font-weight:600">MER ${mer.toFixed(2)}×</span>
   </div>`;
 }
 
