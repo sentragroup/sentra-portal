@@ -239,6 +239,7 @@
 
         <div class="sb-label" style="margin-bottom:0.6rem">Warehouse</div>
         <div class="home-grid">
+          <div class="tool-card" onclick="showPage('outbound',null)"><span class="tc-icon">📤</span><div class="tc-name">Outbond Request</div><div class="tc-desc">Ticket pengiriman freebie / kiriman ke KOL — recipient, items, alamat, biaya kirim, status delivery.</div></div>
           <div class="tool-card" onclick="showPage('invtransfer',null)"><span class="tc-icon">🔁</span><div class="tc-name">Inventory Transfer</div><div class="tc-desc">List transfer antar gudang dari Jubelio — tab Transfer Out (TRFO) &amp; Transfer In (TRFI), status delivery + putaway, mapping ke Wholesale / Consignment / Event / Partner. Bulk-edit.</div></div>
           <div class="tool-card" onclick="showPage('invcheck',null)"><span class="tc-icon">📦</span><div class="tc-name">Inventory Check</div><div class="tc-desc">Cek stok per parent item di setiap kategori gudang — Inbound, Online, Offline, Event, Consignment.</div></div>
           <div class="tool-card" onclick="showPage('warehousekpi',null)"><span class="tc-icon">🏭</span><div class="tc-name">Warehouse KPI</div><div class="tc-desc">Monitor putaway performance, receiving accuracy, dan stock adjustment per gudang.</div></div>
@@ -2566,47 +2567,70 @@
       </div>
       <div class="stats-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:1.25rem">
         <div class="stat-card"><div class="stat-num" id="kol-s-total">—</div><div class="stat-lbl">Total</div></div>
-        <div class="stat-card"><div class="stat-num" id="kol-s-confirmed">—</div><div class="stat-lbl">Confirmed</div></div>
-        <div class="stat-card"><div class="stat-num" id="kol-s-posted">—</div><div class="stat-lbl">Posted</div></div>
+        <div class="stat-card"><div class="stat-num" id="kol-s-confirmed">—</div><div class="stat-lbl">Outreach</div></div>
+        <div class="stat-card"><div class="stat-num" id="kol-s-posted">—</div><div class="stat-lbl">Publish</div></div>
         <div class="stat-card"><div class="stat-num" id="kol-s-fee">—</div><div class="stat-lbl">Total Fee</div></div>
-        <div class="stat-card"><div class="stat-num" id="kol-s-paid">—</div><div class="stat-lbl">Paid</div></div>
+        <div class="stat-card"><div class="stat-num" id="kol-s-paid">—</div><div class="stat-lbl">Shipped</div></div>
       </div>
       <div id="koltab-new" style="display:none">
         <div class="form-card">
-          <div class="form-sec">Tambah KOL Placement</div>
+          <div class="form-sec">Identitas</div>
           <div class="form-grid">
-            <div class="fg"><label>KOL Name <span class="req">*</span></label><input type="text" id="kol-name" placeholder="cth: Hindia"></div>
-            <div class="fg"><label>Handle</label><input type="text" id="kol-handle" placeholder="@username"></div>
-            <div class="fg"><label>Platform</label>
-              <select id="kol-platform">
-                <option value="">—</option><option>Instagram</option><option>TikTok</option><option>YouTube</option><option>X / Twitter</option><option>Spotify</option><option>Twitch</option><option>Multi</option><option>Other</option>
+            <div class="fg" style="position:relative"><label>Collection <span style="color:var(--g400);font-weight:400">(auto-fill kalau dari Marketing Planning)</span></label>
+              <input type="text" id="kol-collection" placeholder="Pilih atau ketik nama collection" autocomplete="off">
+              <div class="ac-list" id="ac-kol-collection"></div>
+            </div>
+            <div class="fg" style="position:relative"><label>Nama KOL <span class="req">*</span></label>
+              <input type="text" id="kol-name" placeholder="Pilih dari KOL Database atau ketik baru" autocomplete="off">
+              <div class="ac-list" id="ac-kol-name"></div>
+            </div>
+            <div class="fg full"><label style="font-size:11px;color:var(--g600);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px">Insights</label>
+              <div id="kol-insights-display" style="padding:8px 12px;background:var(--off);border-radius:6px;font-size:12px;color:var(--g600)">Pilih KOL untuk lihat tier & follower count dari KOL Database.</div>
+            </div>
+          </div>
+
+          <div class="form-sec" style="margin-top:1rem">Deliverables <span style="color:var(--g400);font-weight:400;font-size:11px">(pilih platform + link konten / brief)</span></div>
+          <div id="kol-deliverables-rows" style="display:flex;flex-direction:column;gap:6px"></div>
+          <button class="btn-ghost" type="button" onclick="addKolDeliverableRow()" style="margin-top:6px;padding:5px 12px;font-size:12px">+ Tambah Deliverable</button>
+
+          <div class="form-sec" style="margin-top:1rem">Payment</div>
+          <div class="form-grid">
+            <div class="fg"><label>Kategori <span class="req">*</span></label>
+              <select id="kol-payment-category" onchange="toggleKolPaymentSections()">
+                <option value="Barter">Barter</option>
+                <option value="Pay">Pay</option>
+                <option value="Pay+Barter">Pay + Barter</option>
               </select>
             </div>
-            <div class="fg"><label>Tier</label>
-              <select id="kol-tier">
-                <option value="">—</option><option>Nano (&lt;10k)</option><option>Micro (10k-100k)</option><option>Mid (100k-500k)</option><option>Macro (500k-1M)</option><option>Mega (1M+)</option>
-              </select>
+            <div class="fg" id="kol-fee-fg" style="display:none"><label>Fee KOL (Rp)</label><input type="number" id="kol-fee" min="0" placeholder="cth: 5000000"></div>
+          </div>
+
+          <div id="kol-barter-section" style="display:none;margin-top:1rem">
+            <div class="form-sec">Pengiriman Freebie</div>
+            <div class="form-grid">
+              <div class="fg"><label>Recipient name <span style="color:var(--g400);font-weight:400">(opsional, default = nama KOL)</span></label><input type="text" id="kol-rec-name" placeholder="Nama penerima"></div>
+              <div class="fg"><label>Phone</label><input type="text" id="kol-rec-phone" placeholder="+62..."></div>
+              <div class="fg full"><label>Alamat lengkap</label><textarea id="kol-rec-address" rows="2" style="resize:vertical" placeholder="Jl, kota, kode pos..."></textarea></div>
+              <div class="fg"><label>Tanggal pengiriman</label><input type="date" id="kol-ship-date"></div>
             </div>
-            <div class="fg"><label>Followers</label><input type="number" id="kol-followers" min="0" placeholder="Snapshot di waktu placement"></div>
-            <div class="fg"><label>Collection</label><select id="kol-collection"><option value="">— Tidak terkait collection —</option></select></div>
-            <div class="fg"><label>Fee (Rp)</label><input type="number" id="kol-fee" min="0" placeholder="cth: 5000000"></div>
-            <div class="fg"><label>Payment Status</label>
-              <select id="kol-payment-status">
-                <option>Not Yet Paid</option><option>Pending Invoice</option><option>Paid</option><option>No Fee (Barter)</option>
+
+            <div style="font-family:var(--mono);font-size:11px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;margin-top:10px;margin-bottom:6px">Items <span style="font-weight:400;text-transform:none;letter-spacing:0">(pilih dari product master)</span></div>
+            <div id="kol-freebie-rows" style="display:flex;flex-direction:column;gap:6px"></div>
+            <button class="btn-ghost" type="button" onclick="addKolFreebieRow()" style="margin-top:6px;padding:5px 12px;font-size:12px">+ Tambah Item</button>
+          </div>
+
+          <div class="form-sec" style="margin-top:1rem">Status &amp; Notes</div>
+          <div class="form-grid">
+            <div class="fg"><label>Status</label>
+              <select id="kol-status">
+                <option>Planning</option><option>Outreach</option><option>Publish</option>
               </select>
             </div>
             <div class="fg"><label>Post Date</label><input type="date" id="kol-post-date"></div>
             <div class="fg"><label>PIC</label><input type="text" id="kol-pic" placeholder="Nama PIC"></div>
-            <div class="fg"><label>Status</label>
-              <select id="kol-status">
-                <option>Outreach</option><option>Negotiating</option><option>Confirmed</option><option>Briefed</option><option>Posted</option><option>Completed</option><option>Cancelled</option>
-              </select>
-            </div>
-            <div class="fg full"><label>Deliverables</label><input type="text" id="kol-deliverables" placeholder="cth: 1× IG Post + 3× IG Story + 1× Reel"></div>
-            <div class="fg full"><label>Brief URL</label><input type="url" id="kol-brief" placeholder="https://drive.google.com/..."></div>
-            <div class="fg full"><label>Post URL <span style="color:var(--g400);font-weight:400">(setelah posted)</span></label><input type="url" id="kol-post-url" placeholder="https://instagram.com/p/..."></div>
             <div class="fg full"><label>Notes</label><textarea id="kol-notes" rows="2" style="resize:vertical"></textarea></div>
           </div>
+
           <div class="btn-row" style="margin-top:1.25rem">
             <button class="btn-primary" id="kolSubmitBtn" onclick="submitKol()">Simpan Placement</button>
             <button class="btn-ghost" onclick="clearKolForm()">Bersihkan</button>
@@ -2616,12 +2640,10 @@
       </div>
       <div id="koltab-list">
         <div class="filter-panel">
-          <select id="kol-fil-status" onchange="loadKolMgmt()"><option value="">Semua Status</option><option>Outreach</option><option>Negotiating</option><option>Confirmed</option><option>Briefed</option><option>Posted</option><option>Completed</option><option>Cancelled</option></select>
-          <select id="kol-fil-platform" onchange="loadKolMgmt()"><option value="">Semua Platform</option></select>
-          <select id="kol-fil-tier" onchange="loadKolMgmt()"><option value="">Semua Tier</option></select>
+          <select id="kol-fil-status" onchange="loadKolMgmt()"><option value="">Semua Status</option><option>Planning</option><option>Outreach</option><option>Publish</option></select>
+          <select id="kol-fil-payment" onchange="loadKolMgmt()"><option value="">Semua Payment</option><option>Barter</option><option>Pay</option><option>Pay+Barter</option></select>
           <select id="kol-fil-collection" onchange="loadKolMgmt()"><option value="">Semua Collection</option></select>
-          <select id="kol-fil-payment" onchange="loadKolMgmt()"><option value="">Semua Payment</option><option>Not Yet Paid</option><option>Pending Invoice</option><option>Paid</option><option>No Fee (Barter)</option></select>
-          <input type="text" id="kol-search" placeholder="Cari KOL, handle..." style="padding:5px 10px;font-size:12px;border:1px solid var(--g100);border-radius:6px;width:220px;outline:none" oninput="loadKolMgmt()">
+          <input type="text" id="kol-search" placeholder="Cari KOL, PIC, notes..." style="padding:5px 10px;font-size:12px;border:1px solid var(--g100);border-radius:6px;width:220px;outline:none" oninput="loadKolMgmt()">
           <button class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="clearKolFilters()">✕ Reset</button>
         </div>
         <div class="table-toolbar">
@@ -2629,8 +2651,8 @@
           <div class="tcount" id="kol-tcount" style="margin-left:auto">— entri</div>
         </div>
         <div class="table-wrap"><table>
-          <thead><tr><th>KOL</th><th>Platform</th><th>Tier</th><th style="text-align:right">Followers</th><th>Collection</th><th>Deliverables</th><th style="text-align:right">Fee</th><th>Payment</th><th>Post Date</th><th>Status</th><th>Links</th><th>Aksi</th></tr></thead>
-          <tbody id="kolTableBody"><tr><td class="empty-td" colspan="12">Klik Refresh.</td></tr></tbody>
+          <thead><tr><th>KOL</th><th>Collection</th><th>Deliverables</th><th>Payment</th><th>Freebie / Shipment</th><th>Post Date</th><th>PIC</th><th>Status</th><th>Aksi</th></tr></thead>
+          <tbody id="kolTableBody"><tr><td class="empty-td" colspan="9">Klik Refresh.</td></tr></tbody>
         </table></div>
       </div>
     </div>
@@ -4770,6 +4792,52 @@
           </table></div>
         </div>
       </div><!-- /.page#page-koldb -->
+
+      <!-- OUTBOND REQUEST -->
+      <div class="page" id="page-outbound">
+        <div class="page-header">
+          <div><div class="page-title">Outbond Request</div><div class="page-sub">Ticket pengiriman barang ke pihak eksternal — KOL freebie, sample, gift. Source biasanya dari KOL Management.</div></div>
+        </div>
+
+        <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem;">
+          <div class="stat-card"><div class="stat-num" id="ob-s-total">—</div><div class="stat-lbl">Total Ticket</div></div>
+          <div class="stat-card warn"><div class="stat-num" id="ob-s-pending">—</div><div class="stat-lbl">Pending</div></div>
+          <div class="stat-card info"><div class="stat-num" id="ob-s-sent">—</div><div class="stat-lbl">Sent</div></div>
+          <div class="stat-card"><div class="stat-num" id="ob-s-delivered">—</div><div class="stat-lbl">Delivered</div></div>
+        </div>
+
+        <div class="filter-panel">
+          <div class="filter-grid" style="grid-template-columns:repeat(4,1fr)">
+            <div class="fg"><label>Cari</label><input type="text" id="ob-fil-search" placeholder="Recipient, tracking, source ID..." oninput="applyOutboundFilters()"></div>
+            <div class="fg"><label>Status</label><select id="ob-fil-status" onchange="applyOutboundFilters()">
+              <option value="">Semua</option>
+              <option value="Pending">Pending</option>
+              <option value="Sent">Sent</option>
+              <option value="Delivered">Delivered</option>
+              <option value="Cancelled">Cancelled</option>
+            </select></div>
+            <div class="fg"><label>Source</label><select id="ob-fil-source" onchange="applyOutboundFilters()">
+              <option value="">Semua</option>
+              <option value="KolManagement">KOL Management</option>
+              <option value="Manual">Manual</option>
+            </select></div>
+            <div class="fg"><label>Urutkan</label><select id="ob-fil-sort" onchange="applyOutboundFilters()">
+              <option value="newest">Terbaru</option>
+              <option value="oldest">Terlama</option>
+              <option value="ship-soonest">Tanggal kirim terdekat</option>
+            </select></div>
+          </div>
+        </div>
+
+        <div class="table-toolbar">
+          <button class="btn-refresh" onclick="loadOutbound()">↻ Refresh</button>
+          <div class="tcount" id="ob-tcount">— ticket</div>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>ID</th><th>Recipient</th><th>Items</th><th>Tgl Kirim</th><th>Shipping Cost</th><th>Tracking</th><th>Source</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody id="obTableBody"><tr><td class="empty-td" colspan="9">Klik Refresh.</td></tr></tbody>
+        </table></div>
+      </div><!-- /.page#page-outbound -->
 
   </div><!-- /.content -->
   </div><!-- /.shell -->
