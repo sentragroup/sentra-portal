@@ -21751,13 +21751,15 @@ async function loadContentPlan() {
 // classes so look matches exactly. dotColor = the 8px round indicator
 // next to the column name (mirrors STAGE_COLORS dots in Project Board).
 function _cpKanbanColumnHTML(col, items, colById, wide) {
+  // Dot colors mirror calendar chip palette (see statusClass in renderCPCalendar)
+  // so each status has the same visual identity across both views.
   const dotMap = {
-    Planning:  '#5a5850',
-    Drafting:  '#3C3489',
-    Review:    '#a66800',
-    Approved:  '#0a7d3a',
-    Published: '#1c7a3b',
-    Cancelled: '#c0392b',
+    Planning:  '#9d174d', // pink — matches src-colitem chip
+    Drafting:  '#1d4ed8', // blue — matches src-project chip
+    Review:    '#92400e', // amber — matches src-leads chip
+    Approved:  '#6d28d9', // purple — matches src-collection chip
+    Published: '#065f46', // green — matches src-popup chip
+    Cancelled: '#c0392b', // red — matches calendar cancelled style
   };
   const dot = col.dotColor || dotMap[col.key] || '#888';
   const label = (col.label||col.key).replace(/^[^\w]+\s*/, '');
