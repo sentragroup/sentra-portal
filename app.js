@@ -27914,7 +27914,6 @@ async function submitKolDb() {
   const name = document.getElementById('koldb-name').value.trim();
   const contactPerson = document.getElementById('koldb-contact-person').value.trim();
   if (!name) { setFB('Nama wajib', false); return; }
-  if (!contactPerson) { setFB('Contact person wajib', false); return; }
   const platforms = _kolDbReadPlatforms('koldb-new', document.getElementById('koldb-platforms-rows'));
   const rateRaw = document.getElementById('koldb-rate-estimate').value;
   const payload = {
@@ -27923,7 +27922,7 @@ async function submitKolDb() {
     categories: document.getElementById('koldb-categories').value.trim() || null,
     platforms,
     rate_estimate: rateRaw==='' ? null : Number(rateRaw),
-    contact_person: contactPerson,
+    contact_person: contactPerson || null,
     contact_phone: document.getElementById('koldb-contact-phone').value.trim() || null,
     is_blacklisted: document.getElementById('koldb-blacklist').checked,
     notes: document.getElementById('koldb-notes').value.trim() || null,
@@ -27969,7 +27968,7 @@ function openKolDbEdit(id) {
         <div class="fg"><label>Nama *</label><input id="koldb-e-name-${id}" value="${esc(r.name)}" style="font-size:12px"></div>
         <div class="fg"><label>Categories</label><input id="koldb-e-categories-${id}" value="${esc(r.categories)}" style="font-size:12px"></div>
         <div class="fg"><label>Rate Estimate (Rp)</label><input type="number" id="koldb-e-rate-${id}" value="${r.rateEstimate==null?'':r.rateEstimate}" style="font-size:12px"></div>
-        <div class="fg"><label>Contact Person *</label><input id="koldb-e-contact-person-${id}" value="${esc(r.contactPerson)}" style="font-size:12px"></div>
+        <div class="fg"><label>Contact Person</label><input id="koldb-e-contact-person-${id}" value="${esc(r.contactPerson)}" style="font-size:12px"></div>
         <div class="fg"><label>Phone</label><input id="koldb-e-contact-phone-${id}" value="${esc(r.contactPhone)}" style="font-size:12px"></div>
         <div class="fg"><label style="display:flex;align-items:center;gap:6px;margin-top:18px;cursor:pointer;font-weight:400">
           <input type="checkbox" id="koldb-e-blacklist-${id}" ${r.isBlacklisted?'checked':''} style="width:14px;height:14px"> 🚫 Blacklist
@@ -28007,7 +28006,6 @@ async function saveKolDbEdit(id) {
   const name = (get('name')||'').trim();
   const contactPerson = (get('contact-person')||'').trim();
   if (!name) { alert('Nama wajib'); return; }
-  if (!contactPerson) { alert('Contact person wajib'); return; }
   const platforms = _kolDbReadPlatforms('koldb-e', document.getElementById(`koldb-e-platforms-${id}`));
   const rateRaw = get('rate');
   try {
@@ -28015,7 +28013,7 @@ async function saveKolDbEdit(id) {
       name, categories: (get('categories')||'').trim() || null,
       platforms,
       rate_estimate: rateRaw==='' ? null : Number(rateRaw),
-      contact_person: contactPerson,
+      contact_person: contactPerson || null,
       contact_phone: (get('contact-phone')||'').trim() || null,
       is_blacklisted: document.getElementById(`koldb-e-blacklist-${id}`).checked,
       notes: (get('notes')||'').trim() || null,
