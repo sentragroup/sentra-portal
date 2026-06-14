@@ -2346,18 +2346,30 @@
       </div>
       <div id="cptab-list">
         <div class="filter-panel">
-          <select id="cp-fil-status" onchange="loadContentPlan()"><option value="">Semua Status</option><option>Planning</option><option>Drafting</option><option>Review</option><option>Approved</option><option>Scheduled</option><option>Published</option><option>Cancelled</option></select>
           <select id="cp-fil-type" onchange="loadContentPlan()"><option value="">Semua Type</option></select>
           <select id="cp-fil-collection" onchange="loadContentPlan()"><option value="">Semua Collection</option></select>
           <input type="text" id="cp-search" placeholder="Cari title, owner..." style="padding:5px 10px;font-size:12px;border:1px solid var(--g100);border-radius:6px;width:220px;outline:none" oninput="loadContentPlan()">
           <button class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="clearCPFilters()">✕ Reset</button>
         </div>
-        <div class="table-toolbar">
+        <div class="table-toolbar" style="gap:8px">
           <button class="btn-refresh" onclick="loadContentPlan()">↻ Refresh</button>
+          <div style="display:inline-flex;border:1px solid var(--g100);border-radius:6px;overflow:hidden">
+            <button id="cp-view-kanban-btn" onclick="switchCPView('kanban')" style="padding:5px 14px;background:var(--black);color:white;border:none;cursor:pointer;font-size:12px;font-family:var(--mono)">📋 Kanban</button>
+            <button id="cp-view-calendar-btn" onclick="switchCPView('calendar')" style="padding:5px 14px;background:var(--white);color:var(--g600);border:none;cursor:pointer;font-size:12px;font-family:var(--mono);border-left:1px solid var(--g100)">📅 Calendar</button>
+          </div>
           <div class="tcount" id="cp-tcount" style="margin-left:auto">— entri</div>
         </div>
         <div id="cpKanban" style="padding:4px 0 16px;min-height:400px"></div>
         <div id="cpCancelled" style="margin-top:14px"></div>
+        <div id="cpCalendar" style="display:none;padding:4px 0 16px">
+          <div style="display:flex;align-items:center;justify-content:center;gap:14px;padding:12px 0">
+            <button onclick="cpCalPrev()" style="padding:4px 10px;background:var(--white);border:1px solid var(--g100);border-radius:4px;cursor:pointer;font-size:13px">←</button>
+            <div id="cp-cal-title" style="font-family:'Syne',sans-serif;font-weight:700;font-size:15px;min-width:180px;text-align:center">—</div>
+            <button onclick="cpCalNext()" style="padding:4px 10px;background:var(--white);border:1px solid var(--g100);border-radius:4px;cursor:pointer;font-size:13px">→</button>
+            <button onclick="cpCalToday()" style="padding:4px 12px;background:var(--white);border:1px solid var(--g100);border-radius:4px;cursor:pointer;font-size:12px;margin-left:6px">Hari ini</button>
+          </div>
+          <div id="cp-cal-grid" class="cal-grid"></div>
+        </div>
       </div>
       <!-- Right-sidebar drawer for add / edit content card -->
       <div id="cpDrawerBackdrop" onclick="closeCPDrawer()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.35);z-index:8900"></div>
