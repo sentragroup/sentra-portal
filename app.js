@@ -5250,6 +5250,13 @@ async function loadCollections() {
     // Auto-create DW projects + stage placeholders for any collection missing them (background)
     ensureDWProjects(allColRows, dwCheck||[]);
     ensureColStages(allColRows, csData||[]);
+    // Pending detail (deep-link by raw id from another module, e.g. CP/VP drawer)
+    if (_pendingColDetailId) {
+      const pending = _pendingColDetailId;
+      _pendingColDetailId = null;
+      const col = allColRows.find(r => r.id === pending);
+      if (col) { openCollectionDetail(col.id); return; }
+    }
     // Restore collection detail from URL slug
     const hashParts=location.hash.slice(1).split("/");
     if(hashParts[0]==="collections"&&hashParts[1]){
@@ -21893,6 +21900,10 @@ async function _cpKbDrop(e, colKey) {
 // the status preset; openCPDrawerEdit(id) loads the row and fills inputs.
 // submitCPDrawer inserts (when no _cpDrawerEditId) or updates.
 let _cpDrawerEditId = '';
+// Set by CP/VP drawer "↗ Collection Development" jump button so loadCollections
+// can open the right detail after data finishes loading (allColRows is empty
+// before showPage('collections') triggers its async fetch).
+let _pendingColDetailId = null;
 
 function openCPDrawer() {
   document.getElementById('cpDrawer').style.display = 'flex';
@@ -21936,8 +21947,8 @@ async function openCPDrawerEdit(id) {
   const jumpLinks = r.collectionId ? `<div style="background:#eef0f8;border:1px solid #c9bdf0;border-radius:6px;padding:10px 12px;margin-bottom:12px">
     <div style="font-family:var(--mono);font-size:10px;color:#3C3489;text-transform:uppercase;letter-spacing:0.3px;font-weight:600;margin-bottom:6px">🔗 Buka di modul lain</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap">
-      <a href="#mktplan/${r.collectionId}" onclick="closeCPDrawer();openMPDetail('${r.collectionId}');return false" style="display:inline-flex;align-items:center;gap:4px;padding:5px 10px;background:white;border:1px solid #3C3489;color:#3C3489;border-radius:4px;text-decoration:none;font-size:11px;font-weight:600">↗ Marketing Planning</a>
-      <a href="#collections/${r.collectionId}" onclick="closeCPDrawer();showPage('collections',null);location.hash='collections/${r.collectionId}';return false" style="display:inline-flex;align-items:center;gap:4px;padding:5px 10px;background:white;border:1px solid #3C3489;color:#3C3489;border-radius:4px;text-decoration:none;font-size:11px;font-weight:600">↗ Collection Development</a>
+      <a href="#mktplan/${r.collectionId}" onclick="closeCPDrawer();location.hash='mktplan/${r.collectionId}';showPage('mktplan',null);return false" style="display:inline-flex;align-items:center;gap:4px;padding:5px 10px;background:white;border:1px solid #3C3489;color:#3C3489;border-radius:4px;text-decoration:none;font-size:11px;font-weight:600">↗ Marketing Planning</a>
+      <a href="#" onclick="closeCPDrawer();_pendingColDetailId='${r.collectionId}';showPage('collections',null);return false" style="display:inline-flex;align-items:center;gap:4px;padding:5px 10px;background:white;border:1px solid #3C3489;color:#3C3489;border-radius:4px;text-decoration:none;font-size:11px;font-weight:600">↗ Collection Development</a>
     </div>
     <div id="cpd-ref-links" style="margin-top:8px"></div>
   </div>` : '';
