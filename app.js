@@ -25248,13 +25248,29 @@ async function _kolMgmtEnsureRefData() {
               if (it.average_cost != null) costMap.set(String(it.item_id), Number(it.average_cost));
             });
           }
-          _kolProdMapCache = rows.map(x => ({
-            id: x.id,
-            item_name: x.item_name || x.id,
-            brand: x.brand || '',
-            thumbnail: x.jubelio_item_id ? (thumbMap.get(String(x.jubelio_item_id)) || '') : '',
-            hpp: x.jubelio_item_id ? (costMap.get(String(x.jubelio_item_id)) || 0) : 0,
-          }));
+          // Dedupe by item_name (parent-level), same treatment as the Product
+          // Mapping module — show one row per product instead of per size variant.
+          // Size is entered manually in the freebie/sample row's Size field.
+          // Representative row = first variant; thumbnail + HPP inherit from it
+          // (HPP can be overridden per ticket in Outbond Request anyway).
+          const byName = new Map();
+          for (const x of rows) {
+            const name = (x.item_name || x.id || '').trim();
+            if (!name) continue;
+            if (byName.has(name)) {
+              byName.get(name).variantCount += 1;
+              continue;
+            }
+            byName.set(name, {
+              id: x.id,
+              item_name: name,
+              brand: x.brand || '',
+              thumbnail: x.jubelio_item_id ? (thumbMap.get(String(x.jubelio_item_id)) || '') : '',
+              hpp: x.jubelio_item_id ? (costMap.get(String(x.jubelio_item_id)) || 0) : 0,
+              variantCount: 1,
+            });
+          }
+          _kolProdMapCache = [...byName.values()];
         } catch (e) { console.warn('product_mappings cache failed:', e); }
       })();
     }
@@ -25418,13 +25434,16 @@ function _kolFrbRenderAC(display, ac) {
     const thumb = m.thumbnail
       ? `<img src="${esc(m.thumbnail)}" alt="" loading="lazy" style="width:36px;height:36px;border-radius:4px;object-fit:cover;background:var(--g100);flex-shrink:0">`
       : `<div style="width:36px;height:36px;border-radius:4px;background:var(--g100);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:14px;color:var(--g400)">📦</div>`;
-    const hppLine = m.hpp > 0 ? `<div style="font-size:9px;color:var(--g600);font-family:var(--mono);margin-top:1px">HPP ${_moRp(m.hpp)}</div>` : '';
+    const meta = [];
+    if (m.brand) meta.push(esc(m.brand));
+    if (m.variantCount > 1) meta.push(`${m.variantCount} sizes`);
+    if (m.hpp > 0) meta.push(`HPP ${_moRp(m.hpp)}`);
+    const metaLine = meta.length ? `<div style="font-size:10px;color:var(--g600);font-family:var(--mono);margin-top:1px">${meta.join(' · ')}</div>` : '';
     return `<div class="ac-item" data-sku="${esc(m.id)}" data-name="${esc(m.item_name)}" data-thumb="${esc(m.thumbnail)}" data-hpp="${m.hpp||0}" style="display:flex;align-items:center;gap:8px;padding:6px 10px">
       ${thumb}
       <div style="min-width:0;flex:1">
-        <div style="font-family:var(--mono);font-size:10px;color:var(--g600)">${esc(m.id)}</div>
-        <div style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(m.item_name)}</div>
-        ${hppLine}
+        <div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(m.item_name)}</div>
+        ${metaLine}
       </div>
     </div>`;
   }).join('');
