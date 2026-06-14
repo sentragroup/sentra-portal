@@ -21684,10 +21684,7 @@ async function loadContentPlan() {
       board.innerHTML = `<div style="text-align:center;padding:32px;color:var(--g400);font-size:13px;flex:1">Tidak ada data.</div>`;
       return;
     }
-    // Bucket rows by kanban column. Scheduled rolls into Approved (per user
-    // — flow goes approved → published directly). Cancelled goes to its own
-    // bucket rendered separately below the board so the active columns
-    // don't get squeezed.
+    // Bucket rows by kanban column.
     const buckets = new Map(_CP_KANBAN_COLS.map(c => [c.key, []]));
     const cancelledBucket = [];
     const otherBucket = [];
@@ -21698,40 +21695,59 @@ async function loadContentPlan() {
       if (col) buckets.get(col.key).push(r);
       else otherBucket.push(r);
     }
-    // Main board (active flow)
-    let html = `<div style="display:flex;gap:10px;overflow-x:auto;padding:4px 0;min-height:400px">`;
+    // Main board — use Project Board kanban classes for identical look.
+    let html = `<div class="kanban-board">`;
     html += _CP_KANBAN_COLS.map(col => _cpKanbanColumnHTML(col, buckets.get(col.key)||[], colById)).join('');
     if (otherBucket.length) {
-      html += _cpKanbanColumnHTML({key:'Other', label:'❓ Other', tone:{bg:'#f0efe9',head:'#5a5850',border:'#d6d5cc'}}, otherBucket, colById);
+      html += _cpKanbanColumnHTML({key:'Other', label:'Other', dotColor:'#999'}, otherBucket, colById);
     }
     html += `</div>`;
-    // Cancelled section rendered below as a horizontal collapsible row
-    if (cancelledBucket.length) {
-      const cards = cancelledBucket.map(r => _cpKanbanCardHTML(r, colById)).join('');
-      html += `<div style="margin-top:16px;background:${_CP_CANCELLED_TONE.bg};border:1px solid ${_CP_CANCELLED_TONE.border};border-radius:8px;overflow:hidden">
-        <div style="padding:10px 12px;border-bottom:1px solid ${_CP_CANCELLED_TONE.border};color:${_CP_CANCELLED_TONE.head};font-family:var(--mono);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;display:flex;justify-content:space-between;align-items:center">
-          <span>⊘ Cancelled</span>
-          <span style="background:white;color:${_CP_CANCELLED_TONE.head};padding:1px 8px;border-radius:99px;font-size:10px;border:1px solid ${_CP_CANCELLED_TONE.border}">${cancelledBucket.length}</span>
-        </div>
-        <div style="padding:8px;display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:6px">${cards}</div>
-      </div>`;
-    }
     board.innerHTML = html;
+    // Cancelled section rendered separately below in cpCancelled host
+    const cancelHost = document.getElementById('cpCancelled');
+    if (cancelHost) {
+      if (cancelledBucket.length) {
+        cancelHost.innerHTML = `<div class="kanban-board">${_cpKanbanColumnHTML({key:'Cancelled', label:'Cancelled', dotColor:'#c0392b'}, cancelledBucket, colById, true)}</div>`;
+      } else {
+        cancelHost.innerHTML = '';
+      }
+    }
   } catch(e) {
     if (board) board.innerHTML = `<div style="text-align:center;padding:32px;color:#c0392b;font-size:13px;flex:1">Gagal: ${(e.message||e).replace(/</g,'&lt;')}</div>`;
   }
 }
 
-function _cpKanbanColumnHTML(col, items, colById) {
+// Render a kanban column using Project Board's .kanban-col + .kcard-*
+// classes so look matches exactly. dotColor = the 8px round indicator
+// next to the column name (mirrors STAGE_COLORS dots in Project Board).
+function _cpKanbanColumnHTML(col, items, colById, wide) {
+  // Map our column key → a dot color. Falls back to col.dotColor if provided.
+  const dotMap = {
+    Planning:  '#5a5850',
+    Drafting:  '#3C3489',
+    Review:    '#a66800',
+    Approved:  '#0a7d3a',
+    Published: '#1c7a3b',
+    Cancelled: '#c0392b',
+  };
+  const dot = col.dotColor || dotMap[col.key] || '#888';
+  const label = (col.label||col.key).replace(/^[^\w]+\s*/, ''); // strip emoji prefix if any
   const cards = items.length
     ? items.map(r => _cpKanbanCardHTML(r, colById)).join('')
-    : `<div style="text-align:center;padding:14px 8px;color:var(--g400);font-size:11px;font-style:italic">Kosong</div>`;
-  return `<div style="flex:0 0 280px;display:flex;flex-direction:column;background:${col.tone.bg};border:1px solid ${col.tone.border};border-radius:8px;overflow:hidden;max-height:80vh">
-    <div style="padding:10px 12px;background:${col.tone.bg};border-bottom:1px solid ${col.tone.border};color:${col.tone.head};font-family:var(--mono);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;display:flex;justify-content:space-between;align-items:center">
-      <span>${col.label}</span>
-      <span style="background:white;color:${col.tone.head};padding:1px 8px;border-radius:99px;font-size:10px;border:1px solid ${col.tone.border}">${items.length}</span>
+    : `<div class="kanban-empty"><span style="font-size:11px;color:var(--g200);font-family:var(--mono)">kosong</span></div>`;
+  // Cancelled gets wider column when on its own — easier to scan.
+  const styleAttr = wide ? ' style="flex:0 0 100%;min-width:100%"' : '';
+  return `<div class="kanban-col"${styleAttr}>
+    <div class="kanban-col-header">
+      <div style="display:flex;align-items:center;gap:7px">
+        <span style="width:8px;height:8px;border-radius:50%;background:${dot};display:inline-block;flex-shrink:0"></span>
+        <span style="font-family:var(--mono);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--black)">${label}</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px">
+        <span style="font-family:var(--mono);font-size:10px;color:var(--g400)">${items.length}</span>
+      </div>
     </div>
-    <div style="flex:1;overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:6px">${cards}</div>
+    <div class="kanban-cards">${cards}</div>
   </div>`;
 }
 
@@ -21739,29 +21755,31 @@ function _cpKanbanCardHTML(r, colById) {
   if (_cpEditingId === r.id) return _cpKanbanEditCardHTML(r, colById);
   const esc = s => _moEsc(s);
   const col = colById.get(r.collectionId);
-  const colChip = col
-    ? `<span style="display:inline-flex;align-items:center;gap:3px;background:#eef0f8;color:#3C3489;border:1px solid #c9bdf0;border-radius:3px;padding:1px 6px;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:0.3px" title="${esc(col.ip_related||'')}">📁 ${esc(col.collection_name||'—')}</span>`
-    : `<span style="font-size:9px;color:var(--g400);font-style:italic">tanpa collection</span>`;
-  const typeChip = r.contentType
-    ? `<span style="display:inline-flex;align-items:center;background:white;color:var(--g600);border:1px solid var(--g200);border-radius:3px;padding:1px 6px;font-size:9px;font-weight:600">${esc(r.contentType)}</span>`
+  // Color-coded tags mirror Project Board's kcard-tag style.
+  const tags = [];
+  if (col) {
+    tags.push(`<span class="kcard-tag" style="color:#3C3489;border-color:#AFA9EC;background:#EEEDFE" title="${esc(col.ip_related||'')}">📁 ${esc(col.collection_name||'—')}</span>`);
+  }
+  if (r.contentType) {
+    tags.push(`<span class="kcard-tag" style="color:var(--g600);border-color:var(--g200);background:var(--off)">${esc(r.contentType)}</span>`);
+  }
+  if (r.channel) {
+    tags.push(`<span class="kcard-tag" style="color:var(--g600);border-color:var(--g200);background:var(--off)">${esc(r.channel)}</span>`);
+  }
+  // Date footer info — publish (primary) + deadline secondary
+  const dateLine = (r.publishDate || r.deadline)
+    ? `<span style="font-size:10px;font-family:var(--mono);color:var(--g400)">${r.publishDate?`📅 ${_moDate(r.publishDate)}`:''}${r.publishDate&&r.deadline?' · ':''}${r.deadline?`⏰ ${_moDate(r.deadline)}`:''}</span>`
     : '';
-  const channelChip = r.channel
-    ? `<span style="display:inline-flex;align-items:center;background:white;color:var(--g600);border:1px solid var(--g200);border-radius:3px;padding:1px 6px;font-size:9px">${esc(r.channel)}</span>`
-    : '';
-  const dateRow = r.publishDate || r.deadline
-    ? `<div style="font-size:10px;color:var(--g600);margin-top:4px;font-family:var(--mono)">${r.publishDate?`📅 ${_moDate(r.publishDate)}`:''}${r.publishDate&&r.deadline?' · ':''}${r.deadline?`⏰ ${_moDate(r.deadline)}`:''}</div>`
-    : '';
-  return `<div style="background:white;border:1px solid var(--g100);border-radius:6px;padding:8px 10px;font-size:12px;box-shadow:0 1px 2px rgba(0,0,0,0.03)">
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px;margin-bottom:5px">
-      <strong style="font-size:12px;line-height:1.3;flex:1">${esc(r.title)}</strong>
-      ${r.assetUrl?`<a href="${esc(r.assetUrl)}" target="_blank" title="Buka asset" style="font-size:12px;color:#3C3489;text-decoration:none;flex-shrink:0">↗</a>`:''}
+  return `<div class="kanban-card" onclick="editCPCard('${r.id}')">
+    <div class="kcard-title">${esc(r.title)||'—'}</div>
+    ${tags.length?`<div class="kcard-meta">${tags.join('')}</div>`:''}
+    <div class="kcard-footer">
+      <span style="font-size:11px;color:var(--g400)">${esc(r.owner)||''}</span>
+      ${dateLine}
     </div>
-    <div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center">${colChip} ${typeChip} ${channelChip}</div>
-    ${dateRow}
-    ${r.owner?`<div style="font-size:10px;color:var(--g600);margin-top:4px">👤 ${esc(r.owner)}</div>`:''}
-    <div style="display:flex;gap:4px;margin-top:6px;align-items:center">
+    <div onclick="event.stopPropagation()" style="display:flex;gap:4px;margin-top:8px;align-items:center">
       <select onchange="updateCPStatus('${r.id}',this.value)" style="font-size:10px;padding:2px 6px;border:1px solid var(--g200);border-radius:4px;flex:1;background:var(--white)">${_CP_STATUS_OPTS.map(s=>`<option${r.status===s?' selected':''}>${s}</option>`).join('')}</select>
-      <button onclick="editCPCard('${r.id}')" title="Edit" style="background:none;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-size:11px;padding:2px 6px">✎</button>
+      ${r.assetUrl?`<a href="${esc(r.assetUrl)}" target="_blank" title="Buka asset" style="font-size:13px;color:#3C3489;text-decoration:none;padding:2px 6px;border:1px solid var(--g200);border-radius:4px">↗</a>`:''}
       <button onclick="deleteCP('${r.id}')" title="Hapus" style="background:none;border:1px solid var(--g200);border-radius:4px;color:#c0392b;cursor:pointer;font-size:11px;padding:2px 6px">🗑</button>
     </div>
   </div>`;
