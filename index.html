@@ -2336,10 +2336,6 @@
     <div class="page" id="page-contentplan">
       <div class="page-header">
         <div><div class="page-title">Content Planning</div><div class="page-sub">Plan content per piece — social media, blog, video. Owner, deadline, channel, status.</div></div>
-        <div class="tab-bar">
-          <button class="tab-btn" onclick="switchCPTab('new',this)">Tambah</button>
-          <button class="tab-btn active" onclick="switchCPTab('list',this)">Semua</button>
-        </div>
       </div>
       <div class="stats-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:1.25rem">
         <div class="stat-card"><div class="stat-num" id="cp-s-total">—</div><div class="stat-lbl">Total</div></div>
@@ -2347,36 +2343,6 @@
         <div class="stat-card"><div class="stat-num" id="cp-s-drafting">—</div><div class="stat-lbl">Drafting</div></div>
         <div class="stat-card"><div class="stat-num" id="cp-s-scheduled">—</div><div class="stat-lbl">Scheduled</div></div>
         <div class="stat-card"><div class="stat-num" id="cp-s-published">—</div><div class="stat-lbl">Published</div></div>
-      </div>
-      <div id="cptab-new" style="display:none">
-        <div class="form-card">
-          <div class="form-sec">Tambah Content</div>
-          <div class="form-grid">
-            <div class="fg"><label>Title <span class="req">*</span></label><input type="text" id="cp-title" placeholder="cth: Lookbook IG carousel"></div>
-            <div class="fg"><label>Type</label>
-              <select id="cp-type">
-                <option value="">—</option><option>IG Post</option><option>IG Reel</option><option>IG Carousel</option><option>IG Story</option><option>TikTok</option><option>YT Short</option><option>YT Long</option><option>X / Twitter</option><option>Blog Post</option><option>Spotify Asset</option><option>Other</option>
-              </select>
-            </div>
-            <div class="fg"><label>Collection</label><select id="cp-collection"><option value="">— Tidak terkait collection —</option></select></div>
-            <div class="fg"><label>Owner / Creator</label><input type="text" id="cp-owner" placeholder="Nama PIC"></div>
-            <div class="fg"><label>Deadline</label><input type="date" id="cp-deadline"></div>
-            <div class="fg"><label>Publish Date</label><input type="date" id="cp-publish-date"></div>
-            <div class="fg"><label>Channel</label><input type="text" id="cp-channel" placeholder="cth: IG, TikTok"></div>
-            <div class="fg"><label>Status</label>
-              <select id="cp-status">
-                <option>Planning</option><option>Drafting</option><option>Review</option><option>Approved</option><option>Scheduled</option><option>Published</option><option>Cancelled</option>
-              </select>
-            </div>
-            <div class="fg full"><label>Asset URL (Drive)</label><input type="url" id="cp-asset-url" placeholder="https://drive.google.com/..."></div>
-            <div class="fg full"><label>Caption / Notes</label><textarea id="cp-caption" rows="3" style="resize:vertical" placeholder="Draft caption atau catatan"></textarea></div>
-          </div>
-          <div class="btn-row" style="margin-top:1.25rem">
-            <button class="btn-primary" id="cpSubmitBtn" onclick="submitCP()">Simpan Content</button>
-            <button class="btn-ghost" onclick="clearCPForm()">Bersihkan</button>
-          </div>
-          <div class="feedback" id="cp-feedback"></div>
-        </div>
       </div>
       <div id="cptab-list">
         <div class="filter-panel">
@@ -2393,6 +2359,19 @@
         <div id="cpKanban" style="padding:4px 0 16px;min-height:400px"></div>
         <div id="cpCancelled" style="margin-top:14px"></div>
       </div>
+      <!-- Right-sidebar drawer for add / edit content card -->
+      <div id="cpDrawerBackdrop" onclick="closeCPDrawer()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.35);z-index:8900"></div>
+      <aside id="cpDrawer" style="display:none;position:fixed;top:0;right:0;bottom:0;width:420px;background:var(--white);box-shadow:-12px 0 40px rgba(0,0,0,0.15);z-index:9000;flex-direction:column;overflow:hidden">
+        <div style="padding:16px 20px;border-bottom:1px solid var(--g100);display:flex;justify-content:space-between;align-items:center">
+          <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:15px" id="cpDrawerTitle">Tambah Content</div>
+          <button onclick="closeCPDrawer()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--g600);line-height:1">×</button>
+        </div>
+        <div id="cpDrawerBody" style="flex:1;overflow-y:auto;padding:16px 20px"></div>
+        <div style="padding:14px 20px;border-top:1px solid var(--g100);display:flex;gap:8px;align-items:center">
+          <button class="btn-primary" id="cpDrawerSaveBtn" onclick="submitCPDrawer()" style="flex:1;padding:8px 16px;font-size:13px">💾 Simpan</button>
+          <button class="btn-ghost" onclick="closeCPDrawer()" style="padding:8px 16px;font-size:13px">Batal</button>
+        </div>
+      </aside>
     </div>
 
     <!-- ADS MANAGEMENT -->
