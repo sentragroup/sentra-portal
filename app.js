@@ -23733,7 +23733,6 @@ let _kolRows = [];
 const _KOL_STATUS_OPTS = ['Planning','Outreach','Publish'];
 const _KOL_STATUS_TONE = { Planning:'p-draft', Outreach:'p-review', Publish:'p-active' };
 const _KOL_PAY_CATS = ['Barter','Pay','Pay+Barter'];
-let _kolRows = [];
 let _kolDbCachePromise = null;
 let _kolProdMapCache = []; // [{id, item_name, brand}] for freebie picker
 let _kolProdMapCachePromise = null;
