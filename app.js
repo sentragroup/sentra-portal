@@ -280,8 +280,8 @@ function showPage(name, el) {
   if (name==="productmap") loadProductMap(0,'');
   if (name==="productdev") loadProductDev();
   if (name==="sampling") loadSampling();
-  if (name==="contentplan") { _cpVideoMode = false; loadContentPlan(); _cpUpdateModeTitle(); }
-  if (name==="videoprod")  { _cpVideoMode = true;  _cpShowContentPlanPage(); loadContentPlan(); _cpUpdateModeTitle(); return; }
+  if (name==="contentplan") loadContentPlan();
+  if (name==="videoprod")   loadContentPlan();
   if (name==="adsmgmt") loadAdsManagement();
   if (name==="mktactivation") loadMktActivation();
   if (name==="publication") loadPublication();
@@ -21653,64 +21653,38 @@ const _CP_STATUS_OPTS = ['Planning','Draft','Drafting','In Progress','Review','F
 
 let _cpView = 'kanban';
 let _cpColById = new Map();
-// _cpVideoMode = true when user navigated via showPage('videoprod'). The CP
-// module reuses page-contentplan but auto-locks Type filter to 'Video' and
-// retitles the header so users see "Video Production" instead of "Content
-// Planning". Saves having to duplicate the entire kanban/calendar/drawer.
+// Video Production reuses CP rendering by detecting which page is active.
+// page-videoprod has parallel DOM with vp- prefixed IDs; _cpEl() maps the
+// cp* lookup string to vp* when page-videoprod is the active page.
 let _cpVideoMode = false;
-
-function _cpShowContentPlanPage() {
-  // Mirror showPage's page-activation without re-triggering its router.
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  const el = document.getElementById('page-contentplan');
-  if (el) el.classList.add('active');
-  // Update sidebar nav highlight if there's a videoprod nav item; fallback
-  // is the contentplan nav highlight (which is a non-issue if neither exist).
-  document.querySelectorAll('.sb-item').forEach(it => it.classList.remove('active'));
-  // Scroll reset like showPage does
-  const c = document.querySelector('.content'); if (c) c.scrollTop = 0;
-}
-
-function _cpUpdateModeTitle() {
-  const titleEl = document.querySelector('#page-contentplan .page-title');
-  const subEl   = document.querySelector('#page-contentplan .page-sub');
-  if (titleEl) titleEl.textContent = _cpVideoMode ? 'Video Production' : 'Content Planning';
-  if (subEl) subEl.textContent = _cpVideoMode
-    ? 'Khusus video — di-filter dari Content Planning by content_type=Video. Bisa di-add baru dari kanban (auto-set Video).'
-    : 'Plan content per piece — social media, blog, video. Owner, deadline, channel, status.';
-  // Lock or unlock Type filter
-  const typeFil = document.getElementById('cp-fil-type');
-  if (typeFil) {
-    if (_cpVideoMode) {
-      typeFil.value = 'Video';
-      typeFil.disabled = true;
-    } else {
-      typeFil.disabled = false;
-    }
-  }
+function _cpEl(cpId) {
+  if (!_cpVideoMode) return document.getElementById(cpId);
+  return document.getElementById(cpId.replace(/^cp/, 'vp'));
 }
 
 function switchCPView(view) {
   _cpView = view;
-  document.getElementById('cp-view-kanban-btn').style.background = view==='kanban' ? 'var(--black)' : 'var(--white)';
-  document.getElementById('cp-view-kanban-btn').style.color      = view==='kanban' ? 'white' : 'var(--g600)';
-  document.getElementById('cp-view-calendar-btn').style.background= view==='calendar' ? 'var(--black)' : 'var(--white)';
-  document.getElementById('cp-view-calendar-btn').style.color     = view==='calendar' ? 'white' : 'var(--g600)';
-  document.getElementById('cpKanban').style.display    = view==='kanban' ? 'block' : 'none';
-  document.getElementById('cpCancelled').style.display = view==='kanban' ? 'block' : 'none';
-  document.getElementById('cpCalendar').style.display  = view==='calendar' ? 'block' : 'none';
+  _cpEl('cp-view-kanban-btn').style.background = view==='kanban' ? 'var(--black)' : 'var(--white)';
+  _cpEl('cp-view-kanban-btn').style.color      = view==='kanban' ? 'white' : 'var(--g600)';
+  _cpEl('cp-view-calendar-btn').style.background= view==='calendar' ? 'var(--black)' : 'var(--white)';
+  _cpEl('cp-view-calendar-btn').style.color     = view==='calendar' ? 'white' : 'var(--g600)';
+  _cpEl('cpKanban').style.display    = view==='kanban' ? 'block' : 'none';
+  _cpEl('cpCancelled').style.display = view==='kanban' ? 'block' : 'none';
+  _cpEl('cpCalendar').style.display  = view==='calendar' ? 'block' : 'none';
   if (view === 'calendar') renderCPCalendar();
 }
 
 async function loadContentPlan() {
+  // Detect which page is active so _cpEl maps correctly
+  _cpVideoMode = !!document.getElementById('page-videoprod')?.classList.contains('active');
   await _moLoadColOptions('cp-collection');
-  const board = document.getElementById('cpKanban');
+  const board = _cpEl('cpKanban');
   if (board) board.innerHTML = `<div style="text-align:center;padding:32px;color:var(--g400);font-size:13px;flex:1">Memuat...</div>`;
   try {
     // Video Production page = same data, locked to Video.
-    const fType  = _cpVideoMode ? 'Video' : (document.getElementById('cp-fil-type')?.value || '');
-    const fCol   = document.getElementById('cp-fil-collection')?.value || '';
-    const search = (document.getElementById('cp-search')?.value || '').trim().toLowerCase();
+    const fType  = _cpVideoMode ? 'Video' : (_cpEl('cp-fil-type')?.value || '');
+    const fCol   = _cpEl('cp-fil-collection')?.value || '';
+    const search = (_cpEl('cp-search')?.value || '').trim().toLowerCase();
     let q = sb.from('content_planning').select('*').order('publish_date',{ascending:true,nullsFirst:false}).limit(5000);
     if (fType) q = q.eq('content_type', fType);
     if (fCol)  q = q.eq('collection_id', fCol);
@@ -21726,20 +21700,20 @@ async function loadContentPlan() {
     // Collection filter dropdown: only show collections that have CP entries
     const usedColIds = new Set(_cpRows.map(r => r.collectionId).filter(Boolean));
     const usedCols = [...colById.values()].filter(c => usedColIds.has(c.id)).sort((a,b)=>(a.collection_name||'').localeCompare(b.collection_name||''));
-    const colSel = document.getElementById('cp-fil-collection');
+    const colSel = _cpEl('cp-fil-collection');
     if (colSel) {
       const cur = colSel.value;
       colSel.innerHTML = `<option value="">Semua Collection</option>` + usedCols.map(c => `<option value="${(c.id||'').replace(/"/g,'&quot;')}"${c.id===cur?' selected':''}>${(c.collection_name||'').replace(/</g,'&lt;')}</option>`).join('');
     }
     const typeSet = [...new Set(_cpRows.map(r=>r.contentType).filter(Boolean))].sort();
-    const tSel = document.getElementById('cp-fil-type');
+    const tSel = _cpEl('cp-fil-type');
     if (tSel && tSel.options.length <= 1+typeSet.length) {
       const cur = tSel.value;
       tSel.innerHTML = `<option value="">Semua Type</option>` + typeSet.map(t=>`<option value="${t}"${t===cur?' selected':''}>${t}</option>`).join('');
     }
     let rows = _cpRows;
     if (search) rows = rows.filter(r => `${r.title} ${r.owner||''} ${r.channel||''}`.toLowerCase().includes(search));
-    const setText = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    const setText = (id, v) => { const el = _cpEl(id); if (el) el.textContent = v; };
     setText('cp-s-total',     _cpRows.length);
     setText('cp-s-planning',  _cpRows.filter(r=>['Planning','Draft'].includes(r.status)).length);
     setText('cp-s-drafting',  _cpRows.filter(r=>['Drafting','In Progress'].includes(r.status)).length);
@@ -21770,7 +21744,7 @@ async function loadContentPlan() {
     html += `</div>`;
     board.innerHTML = html;
     // Cancelled section rendered separately below in cpCancelled host
-    const cancelHost = document.getElementById('cpCancelled');
+    const cancelHost = _cpEl('cpCancelled');
     if (cancelHost) {
       if (cancelledBucket.length) {
         cancelHost.innerHTML = `<div class="kanban-board">${_cpKanbanColumnHTML({key:'Cancelled', label:'Cancelled', dotColor:'#c0392b'}, cancelledBucket, colById, true)}</div>`;
@@ -22118,7 +22092,7 @@ async function submitCPDrawer() {
   } catch (e) { alert('Gagal: ' + (e.message||e)); }
 }
 function clearCPFilters() {
-  ['cp-fil-type','cp-fil-collection','cp-search'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  ['cp-fil-type','cp-fil-collection','cp-search'].forEach(id => { const el = _cpEl(id); if(el) el.value=''; });
   loadContentPlan();
 }
 
@@ -22135,8 +22109,8 @@ function cpCalNext() { _cpCalMonth++; if (_cpCalMonth > 11) { _cpCalMonth = 0; _
 function cpCalToday() { const now = new Date(); _cpCalYear = now.getFullYear(); _cpCalMonth = now.getMonth(); renderCPCalendar(); }
 
 function renderCPCalendar() {
-  const titleEl = document.getElementById('cp-cal-title');
-  const gridEl = document.getElementById('cp-cal-grid');
+  const titleEl = _cpEl('cp-cal-title');
+  const gridEl = _cpEl('cp-cal-grid');
   if (!titleEl || !gridEl) return;
   titleEl.textContent = `${_CP_CAL_MONTH_NAMES[_cpCalMonth]} ${_cpCalYear}`;
   const today = new Date(); today.setHours(0,0,0,0);
@@ -22144,9 +22118,9 @@ function renderCPCalendar() {
   const daysInMonth = new Date(_cpCalYear, _cpCalMonth+1, 0).getDate();
   const daysInPrev = new Date(_cpCalYear, _cpCalMonth, 0).getDate();
   // Group filtered rows (apply current type/collection/search filters) by publish_date
-  const fType = document.getElementById('cp-fil-type')?.value || '';
-  const fCol  = document.getElementById('cp-fil-collection')?.value || '';
-  const search = (document.getElementById('cp-search')?.value || '').trim().toLowerCase();
+  const fType = _cpVideoMode ? 'Video' : (_cpEl('cp-fil-type')?.value || '');
+  const fCol  = _cpEl('cp-fil-collection')?.value || '';
+  const search = (_cpEl('cp-search')?.value || '').trim().toLowerCase();
   const filteredRows = _cpRows.filter(r => {
     if (!r.publishDate) return false;
     if (fType && r.contentType !== fType) return false;
