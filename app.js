@@ -26089,7 +26089,7 @@ function _txDate(d) {
 
 async function loadTxMap() {
   const tbody = document.getElementById('txTableBody');
-  if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="12">Memuat...</td></tr>`;
+  if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="14">Memuat...</td></tr>`;
   // Lookups must be ready before render (category-dependent ref dropdown).
   await _txLoadLookups();
   // Reset selection on reload
@@ -26122,7 +26122,7 @@ async function loadTxMap() {
     };
 
     // Total count + dropdown filter population happen in parallel
-    const orderCols = 'salesorder_id,salesorder_no,transaction_date,location_name,channel_name,store_name,customer_name,shipping_full_name,wms_status,sub_total,is_canceled,note';
+    const orderCols = 'salesorder_id,salesorder_no,transaction_date,location_name,channel_name,store_name,customer_name,shipping_full_name,wms_status,sub_total,total_disc,grand_total,is_canceled,note';
     const from_n = _txPage * pageSize;
     const to_n   = from_n + pageSize - 1;
 
@@ -26190,7 +26190,7 @@ async function loadTxMap() {
     _renderTxPagination(pageSize);
   } catch (e) {
     console.error('loadTxMap:', e);
-    if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="12">Gagal: ${e.message||e}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="14">Gagal: ${e.message||e}</td></tr>`;
   }
 }
 
@@ -26210,7 +26210,7 @@ function _renderTxTable() {
   const tbody = document.getElementById('txTableBody');
   if (!tbody) return;
   if (!_txRows.length) {
-    tbody.innerHTML = `<tr><td class="empty-td" colspan="12">Tidak ada data sesuai filter.</td></tr>`;
+    tbody.innerHTML = `<tr><td class="empty-td" colspan="14">Tidak ada data sesuai filter.</td></tr>`;
     document.getElementById('tx-tcount').textContent = '0 entri';
     return;
   }
@@ -26237,6 +26237,8 @@ function _renderTxTable() {
       <td style="font-size:11px">${_txEsc([r.channel_name, r.store_name].filter(Boolean).join(' / ')) || '—'}</td>
       <td style="font-size:11px">${_txEsc(r.customer_name || r.shipping_full_name || '—')}</td>
       <td class="mono" style="text-align:right;font-size:11px;white-space:nowrap">${_txRp(r.sub_total)}</td>
+      <td class="mono" style="text-align:right;font-size:11px;white-space:nowrap;color:${Number(r.total_disc||0)>0?'#c0392b':'var(--g400)'}">${Number(r.total_disc||0)>0?'-'+_txRp(r.total_disc):'—'}</td>
+      <td class="mono" style="text-align:right;font-size:11px;white-space:nowrap;font-weight:600">${_txRp(r.grand_total)}</td>
       <td><span class="pill ${isCanceled ? 'p-expired' : 'p-info'}" style="font-size:10px">${_txEsc(r.wms_status || '—')}</span></td>
       <td><select onchange="updateTxField(${r.salesorder_id},'category',this.value)" class="pill ${isMapped ? 'p-active' : 'p-draft'}" style="font-size:10px;padding:2px 6px;border:1px solid;width:100%">${catOpts.map(o => `<option value="${o}"${o===cat?' selected':''}>${o || '— Unmapped —'}</option>`).join('')}</select></td>
       <td>${_txRefSelectHTML(r.salesorder_id, cat, proj)}</td>
