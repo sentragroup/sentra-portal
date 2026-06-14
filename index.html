@@ -2423,6 +2423,16 @@
     <!-- Shared right-sidebar drawer (used by both Content Planning + Video
          Production). Moved outside the .page wrappers so it stays mounted
          regardless of which page is active. -->
+    <!-- Marketing Activation edit drawer — opens when clicking the event name in the list / calendar -->
+    <div id="maDrawerBackdrop" onclick="closeMaDrawer()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.35);z-index:8900"></div>
+    <aside id="maDrawer" style="display:none;position:fixed;top:0;right:0;bottom:0;width:560px;background:var(--white);box-shadow:-12px 0 40px rgba(0,0,0,0.15);z-index:9000;flex-direction:column;overflow:hidden">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--g100);display:flex;justify-content:space-between;align-items:center">
+        <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:15px" id="maDrawerTitle">Edit Event</div>
+        <button onclick="closeMaDrawer()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--g600);line-height:1">×</button>
+      </div>
+      <div id="maDrawerBody" style="flex:1;overflow-y:auto;padding:16px 20px"></div>
+    </aside>
+
     <!-- KOL Management edit drawer — opens when clicking the KOL name in the list -->
     <div id="kolDrawerBackdrop" onclick="closeKolDrawer()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.35);z-index:8900"></div>
     <aside id="kolDrawer" style="display:none;position:fixed;top:0;right:0;bottom:0;width:520px;background:var(--white);box-shadow:-12px 0 40px rgba(0,0,0,0.15);z-index:9000;flex-direction:column;overflow:hidden">
@@ -2510,31 +2520,45 @@
     <!-- MARKETING ACTIVATION -->
     <div class="page" id="page-mktactivation">
       <div class="page-header">
-        <div><div class="page-title">Marketing Activation</div><div class="page-sub">Manage events &amp; activations — pop-up, fan meet, launch party. Venue, budget, PIC.</div></div>
+        <div><div class="page-title">Marketing Activation</div><div class="page-sub">Manage events &amp; activations — pop-up, fan meet, launch party. Klik event buka detail + budget + action items.</div></div>
         <div class="tab-bar">
           <button class="tab-btn" onclick="switchMaTab('new',this)">Tambah</button>
           <button class="tab-btn active" onclick="switchMaTab('list',this)">Semua</button>
+          <button class="tab-btn" onclick="switchMaTab('calendar',this)">📅 Kalender</button>
+          <button class="tab-btn" onclick="switchMaTab('actions',this)">✓ Action Items</button>
         </div>
       </div>
-      <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
+      <div class="stats-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:1.25rem">
         <div class="stat-card"><div class="stat-num" id="ma-s-total">—</div><div class="stat-lbl">Total Event</div></div>
         <div class="stat-card"><div class="stat-num" id="ma-s-upcoming">—</div><div class="stat-lbl">Upcoming</div></div>
         <div class="stat-card"><div class="stat-num" id="ma-s-done">—</div><div class="stat-lbl">Done</div></div>
         <div class="stat-card"><div class="stat-num" id="ma-s-budget">—</div><div class="stat-lbl">Total Budget</div></div>
+        <div class="stat-card warn"><div class="stat-num" id="ma-s-actions">—</div><div class="stat-lbl">Open Actions</div></div>
       </div>
+
       <div id="matab-new" style="display:none">
         <div class="form-card">
           <div class="form-sec">Tambah Event</div>
           <div class="form-grid">
             <div class="fg"><label>Event Name <span class="req">*</span></label><input type="text" id="ma-name" placeholder="cth: Album Launch Pop-up Senayan"></div>
-            <div class="fg"><label>Type</label>
-              <select id="ma-type"><option value="">—</option><option>Pop-up</option><option>Fan Meet</option><option>Launch Party</option><option>Concert</option><option>Listening Session</option><option>Workshop</option><option>Booth</option><option>Other</option></select>
+            <div class="fg" style="position:relative"><label>Type</label>
+              <input type="text" id="ma-type" placeholder="Pop-up / Fan Meet / Launch Party / ..." autocomplete="off">
+              <div class="ac-list" id="ac-ma-type"></div>
             </div>
-            <div class="fg"><label>Collection</label><select id="ma-collection"><option value="">— Tidak terkait collection —</option></select></div>
+            <div class="fg" style="position:relative"><label>Collection</label>
+              <input type="text" id="ma-collection" placeholder="Pilih collection (opsional)" autocomplete="off">
+              <div class="ac-list" id="ac-ma-collection"></div>
+            </div>
             <div class="fg"><label>Event Date</label><input type="date" id="ma-date"></div>
-            <div class="fg"><label>Venue</label><input type="text" id="ma-venue" placeholder="Lokasi event"></div>
-            <div class="fg"><label>Budget (Rp)</label><input type="number" id="ma-budget" min="0"></div>
-            <div class="fg"><label>PIC</label><input type="text" id="ma-pic" placeholder="Nama PIC"></div>
+            <div class="fg" style="position:relative"><label>Venue</label>
+              <input type="text" id="ma-venue" placeholder="Lokasi event" autocomplete="off">
+              <div class="ac-list" id="ac-ma-venue"></div>
+            </div>
+            <div class="fg"><label>Budget Total (Rp)</label><input type="number" id="ma-budget" min="0" placeholder="Estimasi total; breakdown bisa di-set lewat drawer"></div>
+            <div class="fg" style="position:relative"><label>PIC</label>
+              <input type="text" id="ma-pic" placeholder="Nama PIC" autocomplete="off">
+              <div class="ac-list" id="ac-ma-pic"></div>
+            </div>
             <div class="fg"><label>Status</label>
               <select id="ma-status"><option>Planning</option><option>Booked</option><option>In Progress</option><option>Done</option><option>Cancelled</option></select>
             </div>
@@ -2545,8 +2569,10 @@
             <button class="btn-ghost" onclick="clearMaForm()">Bersihkan</button>
           </div>
           <div class="feedback" id="ma-feedback"></div>
+          <div style="margin-top:10px;font-size:11px;color:var(--g400)">Setelah simpan, klik nama event di tab Semua buat set budget breakdown + action items.</div>
         </div>
       </div>
+
       <div id="matab-list">
         <div class="filter-panel">
           <select id="ma-fil-status" onchange="loadMktActivation()"><option value="">Semua Status</option><option>Planning</option><option>Booked</option><option>In Progress</option><option>Done</option><option>Cancelled</option></select>
@@ -2560,8 +2586,34 @@
           <div class="tcount" id="ma-tcount" style="margin-left:auto">— entri</div>
         </div>
         <div class="table-wrap"><table>
-          <thead><tr><th>Event</th><th>Type</th><th>Collection</th><th>Date</th><th>Venue</th><th style="text-align:right">Budget</th><th>PIC</th><th>Status</th><th>Aksi</th></tr></thead>
-          <tbody id="maTableBody"><tr><td class="empty-td" colspan="9">Klik Refresh.</td></tr></tbody>
+          <thead><tr><th>Event</th><th>Type</th><th>Collection</th><th>Date</th><th>Venue</th><th style="text-align:right">Budget</th><th>PIC</th><th>Actions</th><th>Status</th><th>Aksi</th></tr></thead>
+          <tbody id="maTableBody"><tr><td class="empty-td" colspan="10">Klik Refresh.</td></tr></tbody>
+        </table></div>
+      </div>
+
+      <div id="matab-calendar" style="display:none">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+          <button class="btn-ghost" onclick="maCalendarShift(-1)" style="padding:4px 10px">‹</button>
+          <div id="ma-cal-title" style="font-family:var(--syne);font-weight:600;font-size:15px;min-width:180px;text-align:center">—</div>
+          <button class="btn-ghost" onclick="maCalendarShift(1)" style="padding:4px 10px">›</button>
+          <button class="btn-ghost" onclick="maCalendarShift(0)" style="padding:4px 10px;font-size:11px">Hari Ini</button>
+        </div>
+        <div id="ma-cal-grid" style="border:1px solid var(--g100);border-radius:6px;overflow:hidden"></div>
+      </div>
+
+      <div id="matab-actions" style="display:none">
+        <div class="filter-panel">
+          <select id="ma-act-fil-status" onchange="renderMaActionsView()">
+            <option value="open">Hanya yang Belum Selesai</option>
+            <option value="">Semua</option>
+            <option value="done">Hanya Selesai</option>
+          </select>
+          <input type="text" id="ma-act-search" placeholder="Cari title, event, PIC..." oninput="renderMaActionsView()" style="padding:5px 10px;font-size:12px;border:1px solid var(--g100);border-radius:6px;width:260px;outline:none">
+          <div class="tcount" id="ma-act-tcount" style="margin-left:auto">— action</div>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th style="width:30px"></th><th>Title</th><th>Event</th><th>PIC</th><th>Deadline</th><th style="width:60px"></th></tr></thead>
+          <tbody id="maActionsBody"><tr><td class="empty-td" colspan="6">Buka tab dulu buat liat action items.</td></tr></tbody>
         </table></div>
       </div>
     </div>
