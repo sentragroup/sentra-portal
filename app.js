@@ -22441,6 +22441,43 @@ const _MA_STATUS_TONE = { Planning:'p-draft', Booked:'p-signings', 'In Progress'
 let _maRows = [];
 let _maTypes = [..._MA_TYPE_DEFAULTS], _maVenues = [], _maBudgetCats = [..._MA_BUDGET_CAT_DEFAULTS];
 let _maPopupCache = [], _maPopupCachePromise = null;
+// Per-event Marte Store revenue, computed in one batched query per load.
+let _maMarteRevenue = new Map();
+
+// Batch Marte revenue for any row whose venue matches /marte\s*store/i. Single
+// query over the combined date span, then bucket per-event client-side. Avoids
+// firing one query per row at render time.
+async function _maComputeMarteRevenue(rows) {
+  _maMarteRevenue = new Map();
+  const marteRows = (rows||[]).filter(r => /marte\s*store/i.test(r.venue||'') && r.startDate);
+  if (!marteRows.length) return;
+  let minStart = '9999-12-31', maxEnd = '0000-01-01';
+  for (const r of marteRows) {
+    const s = String(r.startDate).slice(0,10);
+    const e = r.endDate ? String(r.endDate).slice(0,10) : s;
+    if (s < minStart) minStart = s;
+    if (e > maxEnd) maxEnd = e;
+  }
+  try {
+    const {data} = await sb.from('jubelio_sales_orders')
+      .select('grand_total,transaction_date')
+      .eq('location_name', 'Gudang Marte')
+      .eq('internal_status', 'COMPLETED')
+      .gte('transaction_date', `${minStart}T00:00:00`)
+      .lte('transaction_date', `${maxEnd}T23:59:59`);
+    const orders = data || [];
+    for (const r of marteRows) {
+      const s = String(r.startDate).slice(0,10);
+      const e = r.endDate ? String(r.endDate).slice(0,10) : s;
+      let total = 0;
+      for (const o of orders) {
+        const d = String(o.transaction_date).slice(0,10);
+        if (d >= s && d <= e) total += Number(o.grand_total||0);
+      }
+      _maMarteRevenue.set(r.id, total);
+    }
+  } catch (e) { console.warn('Marte revenue batch failed:', e); }
+}
 async function _maLoadPopupCache() {
   if (_maPopupCache.length) return;
   if (!_maPopupCachePromise) {
@@ -22583,8 +22620,15 @@ async function _maSeedForm() {
 async function loadMktActivation() {
   if (!allColRows.length) await loadCollections().catch(()=>{});
   await _maLoadPopupCache();
+  // Load outbound_requests so the Shipment cell can render OB status + cost
+  if (!allOutboundRows.length) {
+    try {
+      const {data} = await sb.from('outbound_requests').select('*');
+      allOutboundRows = (data||[]).map(mapOutbound);
+    } catch(e) { console.warn('outbound cache (MA) failed:', e); }
+  }
   const tbody = document.getElementById('maTableBody');
-  if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="15">Memuat...</td></tr>`;
+  if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="16">Memuat...</td></tr>`;
   try {
     const fStat = document.getElementById('ma-fil-status')?.value || '';
     const fType = document.getElementById('ma-fil-type')?.value || '';
@@ -22598,6 +22642,7 @@ async function loadMktActivation() {
     if (error) throw error;
     _maRows = (data||[]).map(mapMa);
     _maRebuildVocab();
+    await _maComputeMarteRevenue(_maRows);
     // populate filter dropdowns
     const tSel = document.getElementById('ma-fil-type');
     if (tSel) { const cur = tSel.value; tSel.innerHTML = `<option value="">Semua Type</option>` + _maTypes.map(t=>`<option value="${t}"${t===cur?' selected':''}>${t}</option>`).join(''); }
@@ -22620,8 +22665,9 @@ async function loadMktActivation() {
     document.getElementById('ma-s-actions').textContent  = openActions;
     document.getElementById('ma-tcount').textContent = `${rows.length} entri`;
     const colName = id => allColRows.find(c=>c.id===id)?.collectionName || '—';
-    if (!rows.length) { tbody.innerHTML = `<tr><td class="empty-td" colspan="15">Tidak ada data.</td></tr>`; return; }
+    if (!rows.length) { tbody.innerHTML = `<tr><td class="empty-td" colspan="16">Tidak ada data.</td></tr>`; return; }
     const popupById = id => _maPopupCache.find(p => p.id === id);
+    const esc = s => (s==null?'':String(s)).replace(/</g,'&lt;').replace(/"/g,'&quot;');
     tbody.innerHTML = rows.map(r => {
       const ai = r.actionItems||[];
       const aiTotal = ai.length, aiDone = ai.filter(a=>a.done).length, aiOpen = aiTotal - aiDone;
@@ -22633,12 +22679,24 @@ async function loadMktActivation() {
       const bbLine = bb.length
         ? `<div style="font-size:9px;color:var(--g400);font-family:var(--mono);margin-top:1px">${bb.length} item</div>` : '';
       const budget = Number(r.budget||0);
-      // Revenue from popup cache (Marte requires async — drawer-only)
+      // Revenue = popup actualSales + Marte Store sales (batched at load)
       const popup = r.popupBoothId ? popupById(r.popupBoothId) : null;
-      const revenue = (popup && typeof popup.actualSales === 'number') ? popup.actualSales : null;
-      const revCell = revenue!=null ? `${_moRp(revenue)}` : '<span style="color:var(--g400);font-size:10px">—</span>';
+      const popupRev = (popup && typeof popup.actualSales === 'number') ? popup.actualSales : 0;
+      const marteRev = _maMarteRevenue.get(r.id) || 0;
+      const revenue = popupRev + marteRev;
+      const hasRev = popupRev > 0 || marteRev > 0;
+      let revCell;
+      if (!hasRev) {
+        revCell = '<span style="color:var(--g400);font-size:10px">—</span>';
+      } else {
+        const parts = [];
+        if (popupRev > 0) parts.push(`<span title="Pop Up Booth">🛍 ${_moRp(popupRev)}</span>`);
+        if (marteRev > 0) parts.push(`<span title="Marte Store">🏪 ${_moRp(marteRev)}</span>`);
+        const breakdownLine = parts.length > 1 ? `<div style="font-size:9px;color:var(--g400);font-family:var(--mono);margin-top:1px">${parts.join(' · ')}</div>` : '';
+        revCell = `${_moRp(revenue)}${breakdownLine}`;
+      }
       let roiCell = '<span style="color:var(--g400);font-size:10px">—</span>';
-      if (revenue!=null && budget>0) {
+      if (hasRev && budget>0) {
         const roi = (revenue - budget) / budget * 100;
         const color = roi >= 0 ? '#0a7d3a' : '#c0392b';
         roiCell = `<span style="color:${color};font-weight:600">${roi>=0?'+':''}${roi.toFixed(1)}%</span>`;
@@ -22652,6 +22710,29 @@ async function loadMktActivation() {
         const pct = ar / tr * 100;
         const color = pct >= 100 ? '#0a7d3a' : (pct >= 80 ? '#854d0e' : '#c0392b');
         pctCell = `<span style="color:${color};font-weight:600">${pct.toFixed(0)}%</span>`;
+      }
+      // Shipment cell — thumbs + OB badge
+      const samples = r.sampleItems || [];
+      let shipCell;
+      if (!samples.length) {
+        shipCell = '<span style="color:var(--g400);font-size:10px">—</span>';
+      } else {
+        const thumbs = samples.slice(0,3).map(it => it.thumbnail
+          ? `<img src="${esc(it.thumbnail)}" alt="" loading="lazy" style="width:22px;height:22px;border-radius:3px;object-fit:cover;border:1px solid var(--g100)" title="${esc((it.item_name||it.sku)+(it.size?' ('+it.size+')':'')+(it.qty?' ×'+it.qty:''))}">`
+          : `<div style="width:22px;height:22px;border-radius:3px;background:var(--g100);display:inline-flex;align-items:center;justify-content:center;color:var(--g400);font-size:10px;border:1px solid var(--g100)" title="${esc(it.item_name||it.sku||'?')}">📦</div>`
+        ).join('');
+        const moreCount = samples.length - 3;
+        const moreChip = moreCount > 0 ? `<span style="font-size:9px;color:var(--g600);margin-left:2px">+${moreCount}</span>` : '';
+        let badge = '';
+        if (r.sampleOutboundId) {
+          const ob = allOutboundRows.find(x => x.id === r.sampleOutboundId);
+          const statusTxt = ob?.status || '?';
+          const ship = (typeof ob?.shippingCost === 'number') ? ` · 🚚 ${_moRp(ob.shippingCost)}` : '';
+          badge = `<a href="#" onclick="event.preventDefault();showPage('outbound',null)" style="font-size:9px;color:#3C3489;text-decoration:underline;display:block;margin-top:2px" title="${esc(r.sampleOutboundId)}">✓ ${esc(statusTxt)}${ship}</a>`;
+        } else {
+          badge = `<div style="font-size:9px;color:var(--g600);margin-top:2px">${samples.length} item · belum di-request</div>`;
+        }
+        shipCell = `<div style="display:flex;gap:3px;align-items:center;flex-wrap:wrap">${thumbs}${moreChip}</div>${badge}`;
       }
       return `<tr>
         <td style="font-size:11px;color:var(--g600)">${_moEsc(colName(r.collectionId))}</td>
@@ -22669,11 +22750,12 @@ async function loadMktActivation() {
         <td class="mono" style="text-align:right;white-space:nowrap;font-size:11px">${pctCell}</td>
         <td style="font-size:11px">${_moEsc(r.pic)||'—'}</td>
         <td>${aiCell}</td>
+        <td style="max-width:200px">${shipCell}</td>
         <td><select onchange="updateMaStatus('${r.id}',this.value)" class="pill ${_MA_STATUS_TONE[r.status]||'p-draft'}" style="font-size:10px;padding:2px 6px;border:1px solid;border-radius:99px">${_MA_STATUS_OPTS.map(s=>`<option${r.status===s?' selected':''}>${s}</option>`).join('')}</select></td>
         <td style="white-space:nowrap"><button class="btn-icon" style="font-size:13px;color:#c0392b" onclick="deleteMa('${r.id}')" title="Hapus">🗑</button></td>
       </tr>`;
     }).join('');
-  } catch(e) { if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="15">Gagal: ${e.message||e}</td></tr>`; }
+  } catch(e) { if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="16">Gagal: ${e.message||e}</td></tr>`; }
 }
 
 function clearMaFilters() {
