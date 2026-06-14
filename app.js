@@ -16926,7 +16926,10 @@ async function loadMarteReport() {
     sb.rpc('get_marte_sales_report', { p_start_date: startISO, p_end_date: endISO }),
     sb.from('marte_settlements').select('*').eq('period', period),
     sb.from('brand_master').select('id,name,brand_type,vat_status').eq('live_status','Active').ilike('revenue_stream','%Marte%').order('name'),
-    sb.rpc('get_marte_inventory_report', { p_start_date: startISO, p_end_date: endISO })
+    // p_as_of_date = endISO → stock + all-time totals di-cutoff per akhir
+    // periode (mis. report Mei dijalanin di Juni → stock per 31 Mei 23:59).
+    // Buat current period, endISO masih di masa depan jadi efeknya = sekarang.
+    sb.rpc('get_marte_inventory_report', { p_start_date: startISO, p_end_date: endISO, p_as_of_date: endISO })
   ]);
 
   btn.textContent='Load Data'; btn.disabled=false;
@@ -17160,7 +17163,7 @@ async function _mrLoadSKUDetail(brandId) {
 
   const [salesRes, invRes] = await Promise.all([
     sb.rpc('get_marte_brand_detail', { p_brand_id: brandId, p_start_date: startISO, p_end_date: endISO }),
-    sb.rpc('get_marte_brand_inventory_sku', { p_brand_id: brandId, p_start_date: startISO, p_end_date: endISO })
+    sb.rpc('get_marte_brand_inventory_sku', { p_brand_id: brandId, p_start_date: startISO, p_end_date: endISO, p_as_of_date: endISO })
   ]);
 
   if (_mrModal?.brandId !== brandId) return;
@@ -17400,7 +17403,7 @@ async function mrDownloadPDF(brandId, brandName) {
     const endISO   = new Date(year, month, 1).toISOString().slice(0,10) + 'T00:00:00+07:00';
     const [salesRes, invRes] = await Promise.all([
       sb.rpc('get_marte_brand_detail',         { p_brand_id: brandId, p_start_date: startISO, p_end_date: endISO }),
-      sb.rpc('get_marte_brand_inventory_sku',  { p_brand_id: brandId, p_start_date: startISO, p_end_date: endISO }),
+      sb.rpc('get_marte_brand_inventory_sku',  { p_brand_id: brandId, p_start_date: startISO, p_end_date: endISO, p_as_of_date: endISO }),
     ]);
     const sales = (salesRes.data || []).filter(x => (parseInt(x.total_qty)||0) > 0);
     const inv   = invRes.data   || [];
