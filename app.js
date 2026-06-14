@@ -27912,19 +27912,46 @@ function _rebuildKolDbFilters() {
   platSel.value = prevPlat;
 }
 
+// Max follower count across platforms — same metric tier is computed from
+function _kolDbPrimary(r) {
+  const fbp = r.followersByPlatform || {};
+  let m = 0;
+  for (const v of Object.values(fbp)) {
+    if (typeof v === 'number' && v > m) m = v;
+  }
+  return m;
+}
+
 function applyKolDbFilters() {
   const q = document.getElementById('koldb-fil-search').value.toLowerCase().trim();
   const cat = document.getElementById('koldb-fil-category').value;
   const plat = document.getElementById('koldb-fil-platform').value;
+  const tier = document.getElementById('koldb-fil-tier')?.value || '';
   const stat = document.getElementById('koldb-fil-status').value;
+  const sort = document.getElementById('koldb-fil-sort')?.value || 'name';
   const filt = allKolDbRows.filter(r => {
     if (stat === 'blacklist' && !r.isBlacklisted) return false;
     if (stat === 'active' && r.isBlacklisted) return false;
+    if (tier === '__untiered' && r.tier) return false;
+    if (tier && tier !== '__untiered' && r.tier !== tier) return false;
     if (cat && !(r.categories||'').split(',').map(s=>s.trim()).includes(cat)) return false;
     if (plat && !(r.platforms||[]).some(p => p.platform === plat)) return false;
     if (q && !(`${r.name} ${r.categories} ${r.contactPerson}`.toLowerCase().includes(q))) return false;
     return true;
   });
+  if (sort === 'reach-desc') {
+    filt.sort((a,b) => _kolDbPrimary(b) - _kolDbPrimary(a) || a.name.localeCompare(b.name));
+  } else if (sort === 'reach-asc') {
+    filt.sort((a,b) => _kolDbPrimary(a) - _kolDbPrimary(b) || a.name.localeCompare(b.name));
+  } else if (sort === 'refreshed-desc') {
+    filt.sort((a,b) => {
+      const ta = a.lastRefreshedAt ? new Date(a.lastRefreshedAt).getTime() : 0;
+      const tb = b.lastRefreshedAt ? new Date(b.lastRefreshedAt).getTime() : 0;
+      return tb - ta || a.name.localeCompare(b.name);
+    });
+  } else {
+    filt.sort((a,b) => (a.name||'').localeCompare(b.name||''));
+  }
   _renderKolDbRows(filt);
 }
 
