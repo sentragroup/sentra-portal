@@ -23769,9 +23769,24 @@ function mapKol(r) {
   };
 }
 
-// Lazy-load reference caches (collections, kol_database, product_mappings) once per session
+// Lazy-load reference caches (collections, kol_database, product_mappings,
+// outbound_requests) once per session
 let _kolColCachePromise = null;
+let _kolOutboundCachePromise = null;
 async function _kolMgmtEnsureRefData() {
+  // outbound_requests — for shipping_cost / status callback on linked placements.
+  // Use a data-only fetch (loadOutbound paints DOM that only exists on page-outbound).
+  if (!allOutboundRows.length) {
+    if (!_kolOutboundCachePromise) {
+      _kolOutboundCachePromise = (async () => {
+        try {
+          const {data} = await sb.from('outbound_requests').select('*');
+          allOutboundRows = (data||[]).map(mapOutbound);
+        } catch (e) { console.warn('outbound_requests cache failed:', e); }
+      })();
+    }
+    await _kolOutboundCachePromise;
+  }
   // collections — for AC + filter + colName lookup in table
   if (!allColRows.length) {
     if (!_kolColCachePromise) _kolColCachePromise = loadCollections().catch(() => {});
@@ -23819,6 +23834,7 @@ async function _kolMgmtSeedForm() {
   if (!_kolFormWired) {
     setupAC('kol-collection', 'ac-kol-collection', () => allColRows.map(c => c.collectionName).filter(Boolean));
     setupAC('kol-name', 'ac-kol-name', () => allKolDbRows.map(k => k.name).filter(Boolean));
+    setupAC('kol-pic', 'ac-kol-pic', () => acPics);
     // Track KOL name picks → update insights display
     const nameInp = document.getElementById('kol-name');
     if (nameInp) nameInp.addEventListener('change', _kolRefreshInsights);
@@ -24138,13 +24154,20 @@ async function loadKolMgmt() {
       const feeRow = (payCat === 'Pay' || payCat === 'Pay+Barter') ? `<div style="font-size:10px;font-family:var(--mono);color:var(--g600);margin-top:2px">${_kolFmtRp(r.fee)}</div>` : '';
       const isBarter = (payCat === 'Barter' || payCat === 'Pay+Barter');
       const itemCount = (r.freebieItems||[]).length;
-      const shipCell = !isBarter
-        ? '<span style="color:var(--g400);font-size:10px">—</span>'
-        : r.outboundRequestId
-          ? `<a href="#" onclick="event.preventDefault();showPage('outbound',null)" style="font-size:10px;color:#3C3489;text-decoration:underline" title="Sudah di-request: ${esc(r.outboundRequestId)}">✓ ${esc(r.outboundRequestId)}</a>`
-          : itemCount
-            ? `<button class="btn-icon" style="font-size:10px;color:#3C3489;border:1px solid #c9bdf0;border-radius:4px;padding:3px 8px;background:white" onclick="requestKolShipment('${r.id}')" title="Create outbound ticket">📦 Request Pengiriman</button>`
-            : '<span style="font-size:10px;color:var(--g400)">Items kosong</span>';
+      let shipCell;
+      if (!isBarter) {
+        shipCell = '<span style="color:var(--g400);font-size:10px">—</span>';
+      } else if (r.outboundRequestId) {
+        const ob = allOutboundRows.find(x => x.id === r.outboundRequestId);
+        const shipLine = (ob && typeof ob.shippingCost === 'number')
+          ? `<div style="font-size:10px;font-family:var(--mono);color:var(--g600);margin-top:1px">🚚 ${_kolFmtRp(ob.shippingCost)}${ob.status?` · ${esc(ob.status)}`:''}</div>`
+          : (ob && ob.status ? `<div style="font-size:10px;color:var(--g600);margin-top:1px">${esc(ob.status)}</div>` : '');
+        shipCell = `<a href="#" onclick="event.preventDefault();showPage('outbound',null)" style="font-size:10px;color:#3C3489;text-decoration:underline" title="Outbound ticket: ${esc(r.outboundRequestId)}">✓ ${esc(r.outboundRequestId)}</a>${shipLine}`;
+      } else if (itemCount) {
+        shipCell = `<button class="btn-icon" style="font-size:10px;color:#3C3489;border:1px solid #c9bdf0;border-radius:4px;padding:3px 8px;background:white" onclick="requestKolShipment('${r.id}')" title="Create outbound ticket">📦 Request Pengiriman</button>`;
+      } else {
+        shipCell = '<span style="font-size:10px;color:var(--g400)">Items kosong</span>';
+      }
       const itemsBrief = (r.freebieItems||[]).map(it => {
         const name = esc(it.item_name||it.sku);
         const sz = it.size?` (${esc(it.size)})`:'';
@@ -24327,7 +24350,16 @@ function _kolEditFormHTML(r) {
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">
         <div class="fg" style="margin:0"><label style="font-size:11px">Phone</label><input type="text" id="kole-rec-phone-${id}" value="${esc(r.recipientPhone)}" style="font-size:12px;padding:5px 8px"></div>
         <div class="fg" style="margin:0"><label style="font-size:11px">Tgl Kirim</label><input type="date" id="kole-ship-date-${id}" value="${r.requestedShipDate||''}" style="font-size:12px;padding:5px 8px"></div>
-        <div class="fg" style="margin:0"><label style="font-size:11px">Outbound</label><div style="font-size:11px;padding:5px 0;color:var(--g600)">${r.outboundRequestId?`<a href="#" onclick="event.preventDefault();showPage('outbound',null)" style="color:#3C3489;text-decoration:underline">✓ ${esc(r.outboundRequestId)}</a>`:'<span style="color:var(--g400)">Belum di-request</span>'}</div></div>
+        <div class="fg" style="margin:0"><label style="font-size:11px">Outbound</label>${(() => {
+          if (!r.outboundRequestId) return `<div style="font-size:11px;padding:5px 0;color:var(--g400)">Belum di-request</div>`;
+          const ob = allOutboundRows.find(x => x.id === r.outboundRequestId);
+          const link = `<a href="#" onclick="event.preventDefault();showPage('outbound',null)" style="color:#3C3489;text-decoration:underline;font-size:11px">✓ ${esc(r.outboundRequestId)}</a>`;
+          const status = ob?.status ? `<div style="font-size:10px;color:var(--g600);margin-top:2px">${esc(ob.status)}${ob.trackingNumber?` · <span style="font-family:var(--mono)">${esc(ob.trackingNumber)}</span>`:''}</div>` : '';
+          const ship = (typeof ob?.shippingCost === 'number')
+            ? `<div style="font-size:10px;font-family:var(--mono);color:var(--g600);margin-top:1px">🚚 ${_kolFmtRp(ob.shippingCost)}</div>`
+            : (ob ? `<div style="font-size:10px;color:var(--g400);margin-top:1px">Biaya kirim belum di-set</div>` : '');
+          return `<div style="padding:5px 0">${link}${status}${ship}</div>`;
+        })()}</div>
       </div>
       <div class="fg" style="margin:0 0 8px"><label style="font-size:11px">Alamat lengkap</label><textarea id="kole-rec-address-${id}" rows="2" style="font-size:12px;padding:5px 8px;resize:vertical">${esc(r.recipientAddress)}</textarea></div>
       <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.3px;color:var(--g600);margin-bottom:4px">Items</div>
@@ -24344,7 +24376,10 @@ function _kolEditFormHTML(r) {
         </select>
       </div>
       <div class="fg" style="margin:0"><label style="font-size:11px">Post Date</label><input type="date" id="kole-post-date-${id}" value="${r.postDate||''}" style="font-size:12px;padding:5px 8px"></div>
-      <div class="fg" style="margin:0"><label style="font-size:11px">PIC</label><input type="text" id="kole-pic-${id}" value="${esc(r.pic)}" style="font-size:12px;padding:5px 8px"></div>
+      <div class="fg" style="margin:0;position:relative"><label style="font-size:11px">PIC</label>
+        <input type="text" id="kole-pic-${id}" value="${esc(r.pic)}" autocomplete="off" style="font-size:12px;padding:5px 8px">
+        <div class="ac-list" id="ac-kole-pic-${id}"></div>
+      </div>
     </div>
     <div class="fg" style="margin:0 0 10px"><label style="font-size:11px">Notes</label><textarea id="kole-notes-${id}" rows="2" style="font-size:12px;padding:5px 8px;resize:vertical">${esc(r.notes)}</textarea></div>
 
@@ -24360,6 +24395,7 @@ function _kolEditFormHTML(r) {
 function _kolEditAttachAC(id) {
   setupAC(`kole-collection-${id}`, `ac-kole-collection-${id}`, () => allColRows.map(c => c.collectionName).filter(Boolean));
   setupAC(`kole-name-${id}`, `ac-kole-name-${id}`, () => allKolDbRows.map(k => k.name).filter(Boolean));
+  setupAC(`kole-pic-${id}`, `ac-kole-pic-${id}`, () => acPics);
   // Wire AC for existing freebie rows (when reopening with prefilled items)
   const host = document.getElementById(`kole-frb-${id}`);
   if (host) {
