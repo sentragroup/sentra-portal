@@ -128,6 +128,9 @@
       </div>
       <div class="sb-sec">
         <div class="sb-label">Database</div>
+        <div class="sb-item" onclick="showPage('koldb',this)" id="nav-koldb">
+          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="5" r="2.5"/><path d="M2 14c0-3 2.7-5 6-5s6 2 6 5"/><circle cx="12.5" cy="3.5" r="1.5" fill="currentColor" stroke="none"/></svg>KOL Database
+        </div>
         <div class="sb-item" onclick="showPage('ipmaster',this)" id="nav-ipmaster">
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><ellipse cx="8" cy="5" rx="6" ry="2.5"/><path d="M2 5v3c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5V5"/><path d="M2 8v3c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5V8"/></svg>IP Master
         </div>
@@ -4675,6 +4678,83 @@
           <div id="msc-brand-groups"></div>
         </div>
       </div><!-- /.page#page-marteskucat -->
+
+      <!-- KOL DATABASE -->
+      <div class="page" id="page-koldb">
+        <div class="page-header">
+          <div><div class="page-title">KOL Database</div><div class="page-sub">Master roster KOL — categories, link per platform, contact person. Insights public auto-pulled nanti via API.</div></div>
+          <div class="tab-bar">
+            <button class="tab-btn" onclick="switchKolDbTab('new',this)">Tambah</button>
+            <button class="tab-btn active" onclick="switchKolDbTab('list',this)">Semua</button>
+          </div>
+        </div>
+
+        <div class="stats-row" style="grid-template-columns:repeat(3,1fr);margin-bottom:1.25rem;">
+          <div class="stat-card"><div class="stat-num" id="koldb-s-total">—</div><div class="stat-lbl">Total KOL</div></div>
+          <div class="stat-card"><div class="stat-num" id="koldb-s-active">—</div><div class="stat-lbl">Aktif</div></div>
+          <div class="stat-card"><div class="stat-num" id="koldb-s-blacklist">—</div><div class="stat-lbl">Blacklist</div></div>
+        </div>
+
+        <div id="koldbtab-new" style="display:none;">
+          <div class="form-card">
+            <div class="form-sec">Identitas</div>
+            <div class="form-grid">
+              <div class="fg"><label>Nama <span class="req">*</span></label><input type="text" id="koldb-name" placeholder="cth: Najwa Shihab"></div>
+              <div class="fg" style="position:relative"><label>Categories <span style="color:var(--g400);font-weight:400">(comma-separated, autocomplete)</span></label>
+                <input type="text" id="koldb-categories" placeholder="cth: Beauty, Lifestyle" autocomplete="off">
+                <div class="ac-list" id="ac-koldb-categories"></div>
+              </div>
+            </div>
+
+            <div class="form-sec" style="margin-top:14px">Platforms <span style="color:var(--g400);font-weight:400;font-size:11px">(pilih platform + tempel link profile)</span></div>
+            <div id="koldb-platforms-rows" style="display:flex;flex-direction:column;gap:6px"></div>
+            <button class="btn-ghost" type="button" onclick="addKolDbPlatformRow()" style="margin-top:6px;padding:5px 12px;font-size:12px">+ Tambah Platform</button>
+
+            <div class="form-sec" style="margin-top:14px">Kontak</div>
+            <div class="form-grid">
+              <div class="fg"><label>Contact Person <span class="req">*</span></label><input type="text" id="koldb-contact-person" placeholder="cth: Manager / Self / Agency name"></div>
+              <div class="fg"><label>Phone <span style="color:var(--g400);font-weight:400">(opsional)</span></label><input type="text" id="koldb-contact-phone" placeholder="cth: +628…"></div>
+            </div>
+
+            <div class="form-sec" style="margin-top:14px">Komersial &amp; Lain-lain</div>
+            <div class="form-grid">
+              <div class="fg"><label>Rate Estimate <span style="color:var(--g400);font-weight:400">(opsional, Rp)</span></label><input type="number" id="koldb-rate-estimate" placeholder="cth: 5000000"></div>
+              <div class="fg"><label>Status</label>
+                <label style="display:flex;align-items:center;gap:8px;margin-top:8px;cursor:pointer;font-weight:400;font-size:12px">
+                  <input type="checkbox" id="koldb-blacklist" style="width:14px;height:14px;cursor:pointer">
+                  <span>🚫 Blacklist</span>
+                </label>
+              </div>
+              <div class="fg full"><label>Notes</label><textarea id="koldb-notes" rows="2" placeholder="Catatan internal — preferensi, pengalaman kerja, dll."></textarea></div>
+            </div>
+
+            <div class="btn-row">
+              <button class="btn-primary" id="koldbSubmitBtn" onclick="submitKolDb()">Simpan</button>
+              <button class="btn-ghost" onclick="clearKolDbForm()">Bersihkan</button>
+            </div>
+            <div class="feedback" id="koldb-feedback"></div>
+          </div>
+        </div>
+
+        <div id="koldbtab-list">
+          <div class="filter-panel">
+            <div class="filter-grid">
+              <div class="fg"><label>Cari</label><input type="text" id="koldb-fil-search" placeholder="Nama / contact / category..." oninput="applyKolDbFilters()"></div>
+              <div class="fg"><label>Category</label><select id="koldb-fil-category" onchange="applyKolDbFilters()"><option value="">Semua</option></select></div>
+              <div class="fg"><label>Platform</label><select id="koldb-fil-platform" onchange="applyKolDbFilters()"><option value="">Semua</option></select></div>
+              <div class="fg"><label>Status</label><select id="koldb-fil-status" onchange="applyKolDbFilters()"><option value="">Semua</option><option value="active">Aktif</option><option value="blacklist">Blacklist</option></select></div>
+            </div>
+          </div>
+          <div class="table-toolbar">
+            <button class="btn-refresh" onclick="loadKolDb()">↻ Refresh</button>
+            <div class="tcount" id="koldb-tcount">— entri</div>
+          </div>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Nama</th><th>Categories</th><th>Platforms</th><th>Contact Person</th><th>Phone</th><th>Rate</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody id="koldbTableBody"></tbody>
+          </table></div>
+        </div>
+      </div><!-- /.page#page-koldb -->
 
   </div><!-- /.content -->
   </div><!-- /.shell -->

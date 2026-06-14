@@ -277,7 +277,7 @@ function showPage(name, el) {
   document.getElementById("page-"+_pageId).classList.add("active");
   if (el) el.classList.add("active");
   const _c = document.querySelector('.content'); if (_c) _c.scrollTop = 0;
-  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",sampling:"Sampling",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",mktplan:"Marketing Planning",videoprod:"Video Production",txmap:"Transaction Mapping",intpurchase:"Internal Purchase",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)",vendormaster:"Vendor Master",rnd:"R&D Product"};
+  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",sampling:"Sampling",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",mktplan:"Marketing Planning",videoprod:"Video Production",txmap:"Transaction Mapping",intpurchase:"Internal Purchase",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)",vendormaster:"Vendor Master",rnd:"R&D Product",koldb:"KOL Database"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -316,6 +316,7 @@ function showPage(name, el) {
   if (name==="photoshoot") loadPhotoshoot();
   if (name==="kolmgmt") loadKolMgmt();
   if (name==="mktplan") loadMarketingPlan();
+  if (name==="koldb") loadKolDb();
   if (name==="txmap") {
     // Default date range: last 30 days
     const _now=new Date(), _to=_now.toISOString().slice(0,10);
@@ -27746,6 +27747,299 @@ async function smpDownloadPDF(scope, itemId) {
     </body></html>`);
   w.document.close();
 }
+
+// ── KOL DATABASE ──
+const _KOLDB_PLATFORMS = ['Instagram','TikTok','YouTube','X','Threads','Facebook','Other'];
+let allKolDbRows = [], acKolDbCategories = [];
+
+function mapKolDb(r) {
+  return {
+    rowIndex: r.id, id: r.id, name: r.name||'',
+    categories: r.categories||'',
+    platforms: Array.isArray(r.platforms) ? r.platforms : [],
+    rateEstimate: r.rate_estimate,
+    contactPerson: r.contact_person||'',
+    contactPhone: r.contact_phone||'',
+    isBlacklisted: !!r.is_blacklisted,
+    notes: r.notes||'',
+    dateAdded: r.date_added, addedBy: r.added_by||'',
+    lastUpdated: r.last_updated, lastUpdatedBy: r.last_updated_by||'',
+  };
+}
+
+async function loadKolDb() {
+  const tbody = document.getElementById('koldbTableBody');
+  if (tbody) tbody.innerHTML = '<tr><td class="empty-td" colspan="8">Memuat...</td></tr>';
+  try {
+    const {data, error} = await sb.from('kol_database').select('*').order('name');
+    if (error) throw error;
+    allKolDbRows = (data||[]).map(mapKolDb);
+    const catSet = new Set();
+    allKolDbRows.forEach(r => (r.categories||'').split(',').forEach(c => { const t=c.trim(); if(t) catSet.add(t); }));
+    acKolDbCategories = [...catSet].sort();
+    _renderKolDbStats();
+    _rebuildKolDbFilters();
+    applyKolDbFilters();
+  } catch(e) {
+    if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="8">Gagal: ${e.message||e}</td></tr>`;
+  }
+}
+
+function _renderKolDbStats() {
+  const total = allKolDbRows.length;
+  const blacklist = allKolDbRows.filter(r => r.isBlacklisted).length;
+  document.getElementById('koldb-s-total').textContent = total;
+  document.getElementById('koldb-s-active').textContent = total - blacklist;
+  document.getElementById('koldb-s-blacklist').textContent = blacklist;
+}
+
+function _rebuildKolDbFilters() {
+  const catSel = document.getElementById('koldb-fil-category');
+  const prevCat = catSel.value;
+  catSel.innerHTML = '<option value="">Semua</option>' + acKolDbCategories.map(c => `<option value="${c}">${c}</option>`).join('');
+  catSel.value = prevCat;
+  const platSet = new Set();
+  allKolDbRows.forEach(r => (r.platforms||[]).forEach(p => { if (p && p.platform) platSet.add(p.platform); }));
+  const plats = [..._KOLDB_PLATFORMS, ...platSet].filter((v,i,a)=>a.indexOf(v)===i);
+  const platSel = document.getElementById('koldb-fil-platform');
+  const prevPlat = platSel.value;
+  platSel.innerHTML = '<option value="">Semua</option>' + plats.map(p => `<option value="${p}">${p}</option>`).join('');
+  platSel.value = prevPlat;
+}
+
+function applyKolDbFilters() {
+  const q = document.getElementById('koldb-fil-search').value.toLowerCase().trim();
+  const cat = document.getElementById('koldb-fil-category').value;
+  const plat = document.getElementById('koldb-fil-platform').value;
+  const stat = document.getElementById('koldb-fil-status').value;
+  const filt = allKolDbRows.filter(r => {
+    if (stat === 'blacklist' && !r.isBlacklisted) return false;
+    if (stat === 'active' && r.isBlacklisted) return false;
+    if (cat && !(r.categories||'').split(',').map(s=>s.trim()).includes(cat)) return false;
+    if (plat && !(r.platforms||[]).some(p => p.platform === plat)) return false;
+    if (q && !(`${r.name} ${r.categories} ${r.contactPerson}`.toLowerCase().includes(q))) return false;
+    return true;
+  });
+  _renderKolDbRows(filt);
+}
+
+function _renderKolDbRows(rows) {
+  const tbody = document.getElementById('koldbTableBody');
+  const cnt = document.getElementById('koldb-tcount');
+  cnt.textContent = `${rows.length} entri`;
+  if (!rows.length) { tbody.innerHTML = '<tr><td class="empty-td" colspan="8">Tidak ada KOL.</td></tr>'; return; }
+  const esc = s => (s==null?'':String(s)).replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  tbody.innerHTML = rows.map(r => {
+    const chips = (r.platforms||[]).map(p => {
+      if (!p || !p.platform) return '';
+      const url = p.url || '';
+      return url
+        ? `<a href="${esc(url)}" target="_blank" style="display:inline-block;padding:2px 8px;background:#eef0f8;border:1px solid #c9bdf0;color:#3C3489;border-radius:99px;font-size:10px;text-decoration:none;margin:1px 2px">${esc(p.platform)} ↗</a>`
+        : `<span style="display:inline-block;padding:2px 8px;background:var(--g100);color:var(--g600);border-radius:99px;font-size:10px;margin:1px 2px">${esc(p.platform)}</span>`;
+    }).join('');
+    const rate = r.rateEstimate ? `Rp ${Number(r.rateEstimate).toLocaleString('id-ID')}` : '—';
+    const statusPill = r.isBlacklisted
+      ? `<span class="pill p-expired">🚫 Blacklist</span>`
+      : `<span class="pill p-active">Aktif</span>`;
+    return `<tr id="koldb-row-${r.rowIndex}">
+      <td><div style="font-weight:600">${esc(r.name)}</div></td>
+      <td style="font-size:11px;color:var(--g600)">${esc(r.categories)||'—'}</td>
+      <td>${chips||'<span style="color:var(--g400);font-size:11px">—</span>'}</td>
+      <td>${esc(r.contactPerson)||'—'}</td>
+      <td style="font-family:var(--mono);font-size:11px">${esc(r.contactPhone)||'—'}</td>
+      <td style="font-family:var(--mono);font-size:11px;white-space:nowrap">${rate}</td>
+      <td>${statusPill}</td>
+      <td style="white-space:nowrap">
+        <button class="btn-icon" onclick="toggleKolDbBlacklist('${r.rowIndex}')" title="${r.isBlacklisted?'Aktifkan kembali':'Tandai blacklist'}">${r.isBlacklisted?'↺':'🚫'}</button>
+        <button class="btn-icon" onclick="openKolDbEdit('${r.rowIndex}')" title="Edit">✎</button>
+        <button class="btn-icon" onclick="deleteKolDb('${r.rowIndex}')" title="Hapus" style="color:#c0392b">🗑</button>
+      </td>
+    </tr>
+    <tr id="koldb-edit-row-${r.rowIndex}" style="display:none">
+      <td colspan="8" style="padding:0 12px 12px;background:var(--off)">
+        <div class="edit-row-form" id="koldb-edit-body-${r.rowIndex}"></div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+// Platform multi-row picker — reused by both quick-add form and inline edit
+function _kolDbPlatformRowHTML(platform, url, idx, prefix) {
+  const esc = s => (s==null?'':String(s)).replace(/"/g,'&quot;');
+  const opts = _KOLDB_PLATFORMS.map(p => `<option value="${p}"${p===platform?' selected':''}>${p}</option>`).join('');
+  return `<div class="koldb-plat-row" data-idx="${idx}" style="display:flex;gap:6px;align-items:center">
+    <select class="${prefix}-platform" style="font-size:12px;padding:5px 8px;width:130px;flex-shrink:0">${opts}</select>
+    <input type="url" class="${prefix}-url" value="${esc(url)}" placeholder="https://..." style="font-size:12px;padding:5px 8px;flex:1;font-family:var(--mono)">
+    <button type="button" onclick="this.parentElement.remove()" style="background:none;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-size:13px;padding:3px 8px;color:#c0392b;line-height:1">🗑</button>
+  </div>`;
+}
+
+function addKolDbPlatformRow(platform, url) {
+  const host = document.getElementById('koldb-platforms-rows');
+  const idx = host.children.length;
+  host.insertAdjacentHTML('beforeend', _kolDbPlatformRowHTML(platform||'Instagram', url||'', idx, 'koldb-new'));
+}
+
+function _kolDbReadPlatforms(prefix, host) {
+  const rows = host.querySelectorAll('.koldb-plat-row');
+  const out = [];
+  rows.forEach(r => {
+    const platform = r.querySelector(`.${prefix}-platform`)?.value || '';
+    const url = (r.querySelector(`.${prefix}-url`)?.value || '').trim();
+    if (platform && url) out.push({platform, url});
+  });
+  return out;
+}
+
+function switchKolDbTab(tab, btn) {
+  document.querySelectorAll('#page-koldb .tab-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  document.getElementById('koldbtab-new').style.display = tab === 'new' ? '' : 'none';
+  document.getElementById('koldbtab-list').style.display = tab === 'list' ? '' : 'none';
+}
+
+function clearKolDbForm() {
+  ['name','categories','contact-person','contact-phone','rate-estimate','notes'].forEach(k => {
+    const el = document.getElementById(`koldb-${k}`);
+    if (el) el.value = '';
+  });
+  document.getElementById('koldb-blacklist').checked = false;
+  document.getElementById('koldb-platforms-rows').innerHTML = '';
+  document.getElementById('koldb-feedback').textContent = '';
+}
+
+async function submitKolDb() {
+  const fb = document.getElementById('koldb-feedback');
+  const setFB = (msg, ok) => { fb.style.color = ok?'#0a7d3a':'#c0392b'; fb.textContent = msg; };
+  const name = document.getElementById('koldb-name').value.trim();
+  const contactPerson = document.getElementById('koldb-contact-person').value.trim();
+  if (!name) { setFB('Nama wajib', false); return; }
+  if (!contactPerson) { setFB('Contact person wajib', false); return; }
+  const platforms = _kolDbReadPlatforms('koldb-new', document.getElementById('koldb-platforms-rows'));
+  const rateRaw = document.getElementById('koldb-rate-estimate').value;
+  const payload = {
+    id: genId('KD'),
+    name,
+    categories: document.getElementById('koldb-categories').value.trim() || null,
+    platforms,
+    rate_estimate: rateRaw==='' ? null : Number(rateRaw),
+    contact_person: contactPerson,
+    contact_phone: document.getElementById('koldb-contact-phone').value.trim() || null,
+    is_blacklisted: document.getElementById('koldb-blacklist').checked,
+    notes: document.getElementById('koldb-notes').value.trim() || null,
+    added_by: currentUser, date_added: new Date().toISOString().slice(0,10),
+    last_updated: new Date().toISOString(), last_updated_by: currentUser,
+  };
+  try {
+    const {error} = await sb.from('kol_database').insert(payload);
+    if (error) throw error;
+    setFB('✓ Tersimpan', true);
+    logActivity('KolDatabase','create',payload.id,`KOL: ${name}`);
+    clearKolDbForm();
+    await loadKolDb();
+    setTimeout(() => { fb.textContent=''; }, 1500);
+  } catch(e) { setFB('Gagal: ' + (e.message||e), false); }
+}
+
+async function toggleKolDbBlacklist(id) {
+  const r = allKolDbRows.find(x => x.rowIndex === id);
+  if (!r) return;
+  const next = !r.isBlacklisted;
+  try {
+    const {error} = await sb.from('kol_database').update({
+      is_blacklisted: next,
+      last_updated: new Date().toISOString(), last_updated_by: currentUser||'',
+    }).eq('id', id);
+    if (error) throw error;
+    logActivity('KolDatabase','blacklist',id,`${next?'🚫 Blacklist':'Aktifkan'}: ${r.name}`);
+    await loadKolDb();
+  } catch(e) { alert('Gagal: '+(e.message||e)); }
+}
+
+function openKolDbEdit(id) {
+  const r = allKolDbRows.find(x => x.rowIndex === id);
+  if (!r) return;
+  const editTr = document.getElementById(`koldb-edit-row-${id}`);
+  if (editTr.style.display === 'none') {
+    const body = document.getElementById(`koldb-edit-body-${id}`);
+    const esc = s => (s==null?'':String(s)).replace(/"/g,'&quot;');
+    const platRows = (r.platforms||[]).map((p,i) => _kolDbPlatformRowHTML(p.platform||'Instagram', p.url||'', i, 'koldb-e')).join('');
+    body.innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+        <div class="fg"><label>Nama *</label><input id="koldb-e-name-${id}" value="${esc(r.name)}" style="font-size:12px"></div>
+        <div class="fg"><label>Categories</label><input id="koldb-e-categories-${id}" value="${esc(r.categories)}" style="font-size:12px"></div>
+        <div class="fg"><label>Rate Estimate (Rp)</label><input type="number" id="koldb-e-rate-${id}" value="${r.rateEstimate==null?'':r.rateEstimate}" style="font-size:12px"></div>
+        <div class="fg"><label>Contact Person *</label><input id="koldb-e-contact-person-${id}" value="${esc(r.contactPerson)}" style="font-size:12px"></div>
+        <div class="fg"><label>Phone</label><input id="koldb-e-contact-phone-${id}" value="${esc(r.contactPhone)}" style="font-size:12px"></div>
+        <div class="fg"><label style="display:flex;align-items:center;gap:6px;margin-top:18px;cursor:pointer;font-weight:400">
+          <input type="checkbox" id="koldb-e-blacklist-${id}" ${r.isBlacklisted?'checked':''} style="width:14px;height:14px"> 🚫 Blacklist
+        </label></div>
+      </div>
+      <div style="font-size:11px;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px;color:var(--g600);margin-top:10px;margin-bottom:4px">Platforms</div>
+      <div id="koldb-e-platforms-${id}" style="display:flex;flex-direction:column;gap:6px">${platRows}</div>
+      <button type="button" onclick="_kolDbAddEditRow('${id}')" class="btn-ghost" style="margin-top:6px;padding:4px 12px;font-size:11px">+ Tambah Platform</button>
+      <div class="fg" style="margin-top:10px"><label>Notes</label><textarea id="koldb-e-notes-${id}" rows="2" style="font-size:12px;width:100%;box-sizing:border-box">${esc(r.notes)}</textarea></div>
+      <div class="edit-row-btns" style="display:flex;gap:6px;margin-top:8px">
+        <button class="btn-save" onclick="saveKolDbEdit('${id}')">Simpan</button>
+        <button class="btn-cancel" onclick="closeKolDbEdit('${id}')">Batal</button>
+      </div>`;
+    editTr.style.display = '';
+  } else {
+    editTr.style.display = 'none';
+  }
+}
+
+function _kolDbAddEditRow(id) {
+  const host = document.getElementById(`koldb-e-platforms-${id}`);
+  const idx = host.children.length;
+  host.insertAdjacentHTML('beforeend', _kolDbPlatformRowHTML('Instagram', '', idx, 'koldb-e'));
+}
+
+function closeKolDbEdit(id) {
+  const editTr = document.getElementById(`koldb-edit-row-${id}`);
+  if (editTr) editTr.style.display = 'none';
+}
+
+async function saveKolDbEdit(id) {
+  const r = allKolDbRows.find(x => x.rowIndex === id);
+  if (!r) return;
+  const get = k => document.getElementById(`koldb-e-${k}-${id}`)?.value;
+  const name = (get('name')||'').trim();
+  const contactPerson = (get('contact-person')||'').trim();
+  if (!name) { alert('Nama wajib'); return; }
+  if (!contactPerson) { alert('Contact person wajib'); return; }
+  const platforms = _kolDbReadPlatforms('koldb-e', document.getElementById(`koldb-e-platforms-${id}`));
+  const rateRaw = get('rate');
+  try {
+    const {error} = await sb.from('kol_database').update({
+      name, categories: (get('categories')||'').trim() || null,
+      platforms,
+      rate_estimate: rateRaw==='' ? null : Number(rateRaw),
+      contact_person: contactPerson,
+      contact_phone: (get('contact-phone')||'').trim() || null,
+      is_blacklisted: document.getElementById(`koldb-e-blacklist-${id}`).checked,
+      notes: (get('notes')||'').trim() || null,
+      last_updated: new Date().toISOString(), last_updated_by: currentUser||'',
+    }).eq('id', id);
+    if (error) throw error;
+    logActivity('KolDatabase','edit',id,`KOL: ${name}`);
+    await loadKolDb();
+  } catch(e) { alert('Gagal: '+(e.message||e)); }
+}
+
+async function deleteKolDb(id) {
+  const r = allKolDbRows.find(x => x.rowIndex === id);
+  if (!r) return;
+  if (!confirm(`Hapus "${r.name}"?`)) return;
+  try {
+    const {error} = await sb.from('kol_database').delete().eq('id', id);
+    if (error) throw error;
+    logActivity('KolDatabase','delete',id,`KOL: ${r.name}`);
+    await loadKolDb();
+  } catch(e) { alert('Gagal: '+(e.message||e)); }
+}
+
+setupAC('koldb-categories', 'ac-koldb-categories', () => acKolDbCategories);
 
 // ── DUPLICATE CHECK ──
 async function checkDuplicate(name, excludeSheet) {
