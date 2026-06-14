@@ -23900,6 +23900,7 @@ function _kolFreebieRowHTML(item, prefix) {
   const sku = item?.sku || '';
   const itemName = item?.item_name || '';
   const thumb = item?.thumbnail || '';
+  const size = item?.size || '';
   const qty = item?.qty || 1;
   const display = sku ? `${sku} — ${itemName}` : '';
   const previewInner = thumb
@@ -23914,7 +23915,8 @@ function _kolFreebieRowHTML(item, prefix) {
       <input type="hidden" class="${prefix}-name" value="${esc(itemName)}">
       <input type="hidden" class="${prefix}-thumb" value="${esc(thumb)}">
     </div>
-    <input type="number" min="1" class="${prefix}-qty" value="${qty}" style="font-size:12px;padding:5px 8px;width:70px;text-align:right">
+    <input type="text" class="${prefix}-size" value="${esc(size)}" placeholder="Size" style="font-size:12px;padding:5px 8px;width:60px;text-align:center" title="Size">
+    <input type="number" min="1" class="${prefix}-qty" value="${qty}" style="font-size:12px;padding:5px 8px;width:60px;text-align:right" title="Qty">
     <button type="button" onclick="this.parentElement.remove()" style="background:none;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-size:13px;padding:3px 8px;color:#c0392b;line-height:1">🗑</button>
   </div>`;
 }
@@ -23988,8 +23990,9 @@ function _kolReadFreebieFrom(containerId, prefix) {
     const sku = r.querySelector(`.${prefix}-sku`)?.value || '';
     const item_name = r.querySelector(`.${prefix}-name`)?.value || '';
     const thumbnail = r.querySelector(`.${prefix}-thumb`)?.value || '';
+    const size = (r.querySelector(`.${prefix}-size`)?.value || '').trim();
     const qty = parseInt(r.querySelector(`.${prefix}-qty`)?.value, 10) || 1;
-    if (sku) out.push({sku, item_name, thumbnail, qty});
+    if (sku) out.push({sku, item_name, thumbnail, size, qty});
   });
   return out;
 }
@@ -24142,7 +24145,12 @@ async function loadKolMgmt() {
           : itemCount
             ? `<button class="btn-icon" style="font-size:10px;color:#3C3489;border:1px solid #c9bdf0;border-radius:4px;padding:3px 8px;background:white" onclick="requestKolShipment('${r.id}')" title="Create outbound ticket">📦 Request Pengiriman</button>`
             : '<span style="font-size:10px;color:var(--g400)">Items kosong</span>';
-      const itemsBrief = (r.freebieItems||[]).map(it => `${esc(it.item_name||it.sku)}${it.qty?`×${it.qty}`:''}`).join(', ');
+      const itemsBrief = (r.freebieItems||[]).map(it => {
+        const name = esc(it.item_name||it.sku);
+        const sz = it.size?` (${esc(it.size)})`:'';
+        const q = it.qty?`×${it.qty}`:'';
+        return `${name}${sz}${q}`;
+      }).join(', ');
       const itemThumbs = (r.freebieItems||[]).slice(0,4).map(it => it.thumbnail
         ? `<img src="${esc(it.thumbnail)}" alt="" loading="lazy" style="width:24px;height:24px;border-radius:3px;object-fit:cover;border:1px solid var(--g100)" title="${esc(it.item_name||it.sku)}">`
         : `<div style="width:24px;height:24px;border-radius:3px;background:var(--g100);display:inline-flex;align-items:center;justify-content:center;color:var(--g400);font-size:11px;border:1px solid var(--g100)" title="${esc(it.item_name||it.sku)}">📦</div>`
@@ -24150,7 +24158,10 @@ async function loadKolMgmt() {
       const itemMoreCount = (r.freebieItems||[]).length - 4;
       return `<tr>
         <td>
-          <div style="display:flex;align-items:center;gap:6px"><strong>${esc(r.name)}</strong>${tierBadge}</div>
+          <div style="display:flex;align-items:center;gap:6px">
+            <a href="#" onclick="event.preventDefault();openKolDrawerEdit('${r.id}')" style="font-weight:600;color:#3C3489;text-decoration:none;cursor:pointer" title="Klik buat edit">${esc(r.name)}</a>
+            ${tierBadge}
+          </div>
           ${followerTxt}
         </td>
         <td style="font-size:11px;color:var(--g600)">${esc(colName(r.collectionId))}</td>
@@ -24169,13 +24180,7 @@ async function loadKolMgmt() {
           </select>
         </td>
         <td style="white-space:nowrap">
-          <button class="btn-icon" onclick="openKolEdit('${r.id}')" title="Edit">✎</button>
           <button class="btn-icon" onclick="deleteKol('${r.id}')" title="Hapus" style="color:#c0392b">🗑</button>
-        </td>
-      </tr>
-      <tr id="kol-edit-row-${r.id}" style="display:none">
-        <td colspan="9" style="padding:0 8px 8px;background:var(--off)">
-          <div id="kol-edit-body-${r.id}"></div>
         </td>
       </tr>`;
     }).join('');
@@ -24244,25 +24249,32 @@ async function requestKolShipment(placementId) {
   } catch(e) { alert('Gagal: '+(e.message||e)); }
 }
 
-// Inline edit — expands row, builds full form scoped to this row's id
-function openKolEdit(id) {
+// Right-side drawer for editing — click KOL name in list to open
+async function openKolDrawerEdit(id) {
   const r = _kolRows.find(x => x.id === id);
   if (!r) return;
-  const tr = document.getElementById(`kol-edit-row-${id}`);
-  if (!tr) return;
-  if (tr.style.display !== 'none') { closeKolEdit(id); return; }
-  const body = document.getElementById(`kol-edit-body-${id}`);
-  body.innerHTML = _kolEditFormHTML(r);
-  tr.style.display = '';
-  // Wire AC + freebie picker after DOM is set
+  await _kolMgmtEnsureRefData();
+  document.getElementById('kolDrawerTitle').textContent = `✎ Edit · ${r.name || id}`;
+  document.getElementById('kolDrawerBody').innerHTML = _kolEditFormHTML(r);
+  openKolDrawer();
   _kolEditAttachAC(id);
   _kolEditToggleSections(id);
 }
 
-function closeKolEdit(id) {
-  const tr = document.getElementById(`kol-edit-row-${id}`);
-  if (tr) tr.style.display = 'none';
+function openKolDrawer() {
+  document.getElementById('kolDrawerBackdrop').style.display = 'block';
+  document.getElementById('kolDrawer').style.display = 'flex';
+  document.body.style.overflow = 'hidden';
 }
+
+function closeKolDrawer() {
+  document.getElementById('kolDrawerBackdrop').style.display = 'none';
+  document.getElementById('kolDrawer').style.display = 'none';
+  document.body.style.overflow = '';
+}
+
+// closeKolEdit kept as alias so the form's Batal button still works
+function closeKolEdit(id) { closeKolDrawer(); }
 
 function _kolEditFormHTML(r) {
   const esc = s => (s==null?'':String(s)).replace(/"/g,'&quot;');
@@ -24442,7 +24454,7 @@ async function saveKolEdit(id) {
     }
     logActivity('KolManagement','edit',id,`Edit: ${name} · ${cat}`);
     setFB('✓ Tersimpan', true);
-    closeKolEdit(id);
+    setTimeout(() => closeKolDrawer(), 600);
     loadKolMgmt();
   } catch(e) { setFB('Gagal: ' + (e.message||e), false); }
 }
@@ -28480,7 +28492,12 @@ function _renderOutboundRows(rows) {
   if (!rows.length) { tbody.innerHTML = '<tr><td class="empty-td" colspan="9">Tidak ada ticket.</td></tr>'; return; }
   const esc = s => (s==null?'':String(s)).replace(/</g,'&lt;').replace(/"/g,'&quot;');
   tbody.innerHTML = rows.map(r => {
-    const itemsBrief = (r.items||[]).map(it => `${esc(it.item_name||it.sku||'?')}${it.qty?` ×${it.qty}`:''}`).join(', ');
+    const itemsBrief = (r.items||[]).map(it => {
+      const name = esc(it.item_name||it.sku||'?');
+      const sz = it.size?` (${esc(it.size)})`:'';
+      const q = it.qty?` ×${it.qty}`:'';
+      return `${name}${sz}${q}`;
+    }).join(', ');
     const itemThumbs = (r.items||[]).slice(0,5).map(it => it.thumbnail
       ? `<img src="${esc(it.thumbnail)}" alt="" loading="lazy" style="width:24px;height:24px;border-radius:3px;object-fit:cover;border:1px solid var(--g100)" title="${esc(it.item_name||it.sku)}">`
       : `<div style="width:24px;height:24px;border-radius:3px;background:var(--g100);display:inline-flex;align-items:center;justify-content:center;color:var(--g400);font-size:11px;border:1px solid var(--g100)" title="${esc(it.item_name||it.sku||'?')}">📦</div>`

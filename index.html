@@ -2423,6 +2423,16 @@
     <!-- Shared right-sidebar drawer (used by both Content Planning + Video
          Production). Moved outside the .page wrappers so it stays mounted
          regardless of which page is active. -->
+    <!-- KOL Management edit drawer — opens when clicking the KOL name in the list -->
+    <div id="kolDrawerBackdrop" onclick="closeKolDrawer()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.35);z-index:8900"></div>
+    <aside id="kolDrawer" style="display:none;position:fixed;top:0;right:0;bottom:0;width:520px;background:var(--white);box-shadow:-12px 0 40px rgba(0,0,0,0.15);z-index:9000;flex-direction:column;overflow:hidden">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--g100);display:flex;justify-content:space-between;align-items:center">
+        <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:15px" id="kolDrawerTitle">Edit KOL Placement</div>
+        <button onclick="closeKolDrawer()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--g600);line-height:1">×</button>
+      </div>
+      <div id="kolDrawerBody" style="flex:1;overflow-y:auto;padding:16px 20px"></div>
+    </aside>
+
     <div id="cpDrawerBackdrop" onclick="closeCPDrawer()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.35);z-index:8900"></div>
     <aside id="cpDrawer" style="display:none;position:fixed;top:0;right:0;bottom:0;width:420px;background:var(--white);box-shadow:-12px 0 40px rgba(0,0,0,0.15);z-index:9000;flex-direction:column;overflow:hidden">
       <div style="padding:16px 20px;border-bottom:1px solid var(--g100);display:flex;justify-content:space-between;align-items:center">
