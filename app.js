@@ -253,7 +253,7 @@ function showPage(name, el) {
   document.getElementById("page-"+_pageId).classList.add("active");
   if (el) el.classList.add("active");
   const _c = document.querySelector('.content'); if (_c) _c.scrollTop = 0;
-  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",sampling:"Sampling",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",mktplan:"Marketing Planning",txmap:"Transaction Mapping",intpurchase:"Internal Purchase",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)",vendormaster:"Vendor Master",rnd:"R&D Product"};
+  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",sampling:"Sampling",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",mktplan:"Marketing Planning",videoprod:"Video Production",txmap:"Transaction Mapping",intpurchase:"Internal Purchase",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)",vendormaster:"Vendor Master",rnd:"R&D Product"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -280,7 +280,8 @@ function showPage(name, el) {
   if (name==="productmap") loadProductMap(0,'');
   if (name==="productdev") loadProductDev();
   if (name==="sampling") loadSampling();
-  if (name==="contentplan") loadContentPlan();
+  if (name==="contentplan") { _cpVideoMode = false; loadContentPlan(); _cpUpdateModeTitle(); }
+  if (name==="videoprod")  { _cpVideoMode = true;  _cpShowContentPlanPage(); loadContentPlan(); _cpUpdateModeTitle(); return; }
   if (name==="adsmgmt") loadAdsManagement();
   if (name==="mktactivation") loadMktActivation();
   if (name==="publication") loadPublication();
@@ -5982,12 +5983,13 @@ async function loadColMPMirror(cid) {
   const host = document.getElementById(`col-mp-mirror-${cid}`);
   if (!host) return;
   try {
-    const [planRes, psRes, cpRes, meRes, kolRes] = await Promise.all([
+    const [planRes, psRes, cpRes, meRes, kolRes, adsRes] = await Promise.all([
       sb.from('marketing_plans').select('*').eq('collection_id', cid).maybeSingle(),
       sb.from('photoshoots').select('id,status').eq('collection_id', cid),
       sb.from('content_planning').select('id,content_type,status').eq('collection_id', cid),
       sb.from('marketing_events').select('id,status').eq('collection_id', cid),
       sb.from('kol_placements').select('id,status,fee').eq('collection_id', cid),
+      sb.from('ads_campaigns').select('id,status,budget,spend').eq('collection_id', cid),
     ]);
     const plan = planRes.data ? mapMP(planRes.data) : null;
     if (!plan) {
@@ -6001,15 +6003,16 @@ async function loadColMPMirror(cid) {
     const cpItems  = cpRes.data || [];
     const meItems  = meRes.data || [];
     const kolItems = kolRes.data || [];
-    const videoItems   = cpItems.filter(c => (c.content_type||'').toLowerCase().includes('video'));
-    const contentItems = cpItems.filter(c => !(c.content_type||'').toLowerCase().includes('video'));
+    const adsItems = adsRes.data || [];
+    const videoItems = cpItems.filter(c => (c.content_type||'').toLowerCase().includes('video'));
     const kolSpend = kolItems.reduce((s,k) => s + (Number(k.fee)||0), 0);
     const cards = [
-      { on: plan.actPhotoshoot,  icon:'📸', label:'Photoshoot',          count: psItems.length,      module:'photoshoot' },
-      { on: plan.actVideo,       icon:'🎬', label:'Video Production',    count: videoItems.length,   module:'contentplan' },
-      { on: plan.actContent,     icon:'📱', label:'Content Production',  count: contentItems.length, module:'contentplan' },
-      { on: plan.actActivation,  icon:'🎪', label:'Marketing Activation', count: meItems.length,     module:'mktactivation' },
-      { on: plan.actKol,         icon:'⭐', label:'KOL Placement',       count: kolItems.length,     module:'kolmgmt' },
+      { on: plan.actPhotoshoot,  icon:'📸', label:'Photoshoot',           count: psItems.length,    module:'photoshoot' },
+      { on: plan.actVideo,       icon:'🎬', label:'Video Production',     count: videoItems.length, module:'videoprod' },
+      { on: plan.actContent,     icon:'📱', label:'Content Planning',     count: cpItems.length,    module:'contentplan' },
+      { on: plan.actActivation,  icon:'🎪', label:'Marketing Activation', count: meItems.length,    module:'mktactivation' },
+      { on: plan.actAds,         icon:'🎯', label:'Ads',                  count: adsItems.length,   module:'adsmgmt' },
+      { on: plan.actKol,         icon:'⭐', label:'KOL Placement',        count: kolItems.length,   module:'kolmgmt' },
     ];
     const activeCount = cards.filter(c => c.on).length;
     const statusPill = {Planning:'p-draft','Approved':'p-signings','In Progress':'p-review','Done':'p-active'}[plan.status||'Planning']||'p-draft';
@@ -21650,6 +21653,42 @@ const _CP_STATUS_OPTS = ['Planning','Draft','Drafting','In Progress','Review','F
 
 let _cpView = 'kanban';
 let _cpColById = new Map();
+// _cpVideoMode = true when user navigated via showPage('videoprod'). The CP
+// module reuses page-contentplan but auto-locks Type filter to 'Video' and
+// retitles the header so users see "Video Production" instead of "Content
+// Planning". Saves having to duplicate the entire kanban/calendar/drawer.
+let _cpVideoMode = false;
+
+function _cpShowContentPlanPage() {
+  // Mirror showPage's page-activation without re-triggering its router.
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  const el = document.getElementById('page-contentplan');
+  if (el) el.classList.add('active');
+  // Update sidebar nav highlight if there's a videoprod nav item; fallback
+  // is the contentplan nav highlight (which is a non-issue if neither exist).
+  document.querySelectorAll('.sb-item').forEach(it => it.classList.remove('active'));
+  // Scroll reset like showPage does
+  const c = document.querySelector('.content'); if (c) c.scrollTop = 0;
+}
+
+function _cpUpdateModeTitle() {
+  const titleEl = document.querySelector('#page-contentplan .page-title');
+  const subEl   = document.querySelector('#page-contentplan .page-sub');
+  if (titleEl) titleEl.textContent = _cpVideoMode ? 'Video Production' : 'Content Planning';
+  if (subEl) subEl.textContent = _cpVideoMode
+    ? 'Khusus video — di-filter dari Content Planning by content_type=Video. Bisa di-add baru dari kanban (auto-set Video).'
+    : 'Plan content per piece — social media, blog, video. Owner, deadline, channel, status.';
+  // Lock or unlock Type filter
+  const typeFil = document.getElementById('cp-fil-type');
+  if (typeFil) {
+    if (_cpVideoMode) {
+      typeFil.value = 'Video';
+      typeFil.disabled = true;
+    } else {
+      typeFil.disabled = false;
+    }
+  }
+}
 
 function switchCPView(view) {
   _cpView = view;
@@ -21668,11 +21707,10 @@ async function loadContentPlan() {
   const board = document.getElementById('cpKanban');
   if (board) board.innerHTML = `<div style="text-align:center;padding:32px;color:var(--g400);font-size:13px;flex:1">Memuat...</div>`;
   try {
-    const fType = document.getElementById('cp-fil-type')?.value || '';
-    const fCol  = document.getElementById('cp-fil-collection')?.value || '';
+    // Video Production page = same data, locked to Video.
+    const fType  = _cpVideoMode ? 'Video' : (document.getElementById('cp-fil-type')?.value || '');
+    const fCol   = document.getElementById('cp-fil-collection')?.value || '';
     const search = (document.getElementById('cp-search')?.value || '').trim().toLowerCase();
-    // Status filter dropped — kanban already groups by status, calendar
-    // shows everything by publish date. Filter UI removed accordingly.
     let q = sb.from('content_planning').select('*').order('publish_date',{ascending:true,nullsFirst:false}).limit(5000);
     if (fType) q = q.eq('content_type', fType);
     if (fCol)  q = q.eq('collection_id', fCol);
@@ -21891,8 +21929,12 @@ async function openCPDrawerAdd(statusKey) {
   // Collection dropdown options
   const {data: cols} = await sb.from('collections').select('id,collection_name').order('collection_name');
   const colOpts = (cols||[]).map(c => `<option value="${(c.id||'').replace(/"/g,'&quot;')}">${(c.collection_name||'').replace(/</g,'&lt;')}</option>`).join('');
-  document.getElementById('cpDrawerTitle').textContent = `+ Tambah Content${statusKey?` · ${statusKey}`:''}`;
-  document.getElementById('cpDrawerBody').innerHTML = _cpDrawerFormHTML({status: statusKey||'Planning'}, colOpts);
+  document.getElementById('cpDrawerTitle').textContent = `+ Tambah ${_cpVideoMode?'Video':'Content'}${statusKey?` · ${statusKey}`:''}`;
+  // Pre-set content_type to Video when in Video Production mode so user
+  // doesn't have to remember to flip the Type field.
+  const seed = { status: statusKey || 'Planning' };
+  if (_cpVideoMode) seed.contentType = 'Video';
+  document.getElementById('cpDrawerBody').innerHTML = _cpDrawerFormHTML(seed, colOpts);
   document.getElementById('cpDrawerSaveBtn').textContent = '💾 Simpan';
   _cpAttachDrawerAC();
   openCPDrawer();
@@ -22555,6 +22597,7 @@ function mapMP(r) {
     actContent:     !!r.activity_content,
     actActivation:  !!r.activity_activation,
     actKol:         !!r.activity_kol,
+    actAds:         !!r.activity_ads,
     status: r.status||'Planning', pic: r.pic||'', notes: r.notes||'',
     dateAdded: r.date_added||'', addedBy: r.added_by||'',
     lastUpdated: r.last_updated||'', lastUpdatedBy: r.last_updated_by||'',
@@ -22578,27 +22621,30 @@ async function loadMarketingPlan() {
 
 async function _mpFetchAll() {
   try {
-    const [colsRes, mpRes, psRes, cpRes, meRes, kolRes] = await Promise.all([
+    const [colsRes, mpRes, psRes, cpRes, meRes, kolRes, adsRes] = await Promise.all([
       sb.from('collections').select('id,collection_name,ip_related,revenue_stream,status,release_date,priority,pic,mp_active').order('release_date',{ascending:false}),
       sb.from('marketing_plans').select('*'),
       sb.from('photoshoots').select('collection_id'),
       sb.from('content_planning').select('collection_id,content_type'),
       sb.from('marketing_events').select('collection_id'),
       sb.from('kol_placements').select('collection_id'),
+      sb.from('ads_campaigns').select('collection_id'),
     ]);
     _mpCols = colsRes.data || [];
     _mpRows = (mpRes.data||[]).map(mapMP);
-    // Aggregate execution counts per collection so grid can show progress
     _mpExecCounts = {};
-    for (const c of _mpCols) _mpExecCounts[c.id] = {ps:0,video:0,content:0,me:0,kol:0};
+    for (const c of _mpCols) _mpExecCounts[c.id] = {ps:0,video:0,content:0,me:0,kol:0,ads:0};
     (psRes.data||[]).forEach(r => { const o = _mpExecCounts[r.collection_id]; if (o) o.ps++; });
     (cpRes.data||[]).forEach(r => {
       const o = _mpExecCounts[r.collection_id]; if (!o) return;
+      // Content Planning now counts ALL content_planning rows (no Video split).
+      // Video activity has its own count from rows where content_type=Video.
+      o.content++;
       if ((r.content_type||'').toLowerCase().includes('video')) o.video++;
-      else o.content++;
     });
     (meRes.data||[]).forEach(r => { const o = _mpExecCounts[r.collection_id]; if (o) o.me++; });
     (kolRes.data||[]).forEach(r => { const o = _mpExecCounts[r.collection_id]; if (o) o.kol++; });
+    (adsRes.data||[]).forEach(r => { const o = _mpExecCounts[r.collection_id]; if (o) o.ads++; });
   } catch (e) { console.error('MP fetch failed:', e); _mpCols=[]; _mpRows=[]; _mpExecCounts={}; }
 }
 let _mpExecCounts = {};
@@ -22659,11 +22705,10 @@ function renderMPGrid() {
   list.innerHTML = rows.map(c => {
     const p = planByCol.get(c.id);
     // Enabled activities (the 5 toggles) — only count when plan exists
-    const enabled = p ? [p.actPhotoshoot,p.actVideo,p.actContent,p.actActivation,p.actKol].filter(Boolean).length : 0;
-    // Executed = how many of the ENABLED activities have ≥1 entry in their source module
-    const xc = _mpExecCounts[c.id] || {ps:0,video:0,content:0,me:0,kol:0};
+    const enabled = p ? [p.actPhotoshoot,p.actVideo,p.actContent,p.actActivation,p.actAds,p.actKol].filter(Boolean).length : 0;
+    const xc = _mpExecCounts[c.id] || {ps:0,video:0,content:0,me:0,kol:0,ads:0};
     const executed = p
-      ? (p.actPhotoshoot&&xc.ps?1:0)+(p.actVideo&&xc.video?1:0)+(p.actContent&&xc.content?1:0)+(p.actActivation&&xc.me?1:0)+(p.actKol&&xc.kol?1:0)
+      ? (p.actPhotoshoot&&xc.ps?1:0)+(p.actVideo&&xc.video?1:0)+(p.actContent&&xc.content?1:0)+(p.actActivation&&xc.me?1:0)+(p.actAds&&xc.ads?1:0)+(p.actKol&&xc.kol?1:0)
       : 0;
     const tone = urgencyTone(executed, enabled);
     const pct = enabled ? Math.round((executed/enabled)*100) : 0;
@@ -22846,11 +22891,12 @@ function renderMPDetailBody(col, plan) {
   </div>`;
   // Activity mix toggles + expandable cards
   const activities = [
-    { key:'photoshoot',  flag:'actPhotoshoot',  dbFlag:'activity_photoshoot',  icon:'📸', label:'Photoshoot',          source:'Photoshoot Planning module', moduleHref:'photoshoot' },
-    { key:'video',       flag:'actVideo',       dbFlag:'activity_video',       icon:'🎬', label:'Video Production',    source:'Content Planning module (filter type=Video)', moduleHref:'contentplan' },
-    { key:'content',     flag:'actContent',     dbFlag:'activity_content',     icon:'📱', label:'Content Production',  source:'Content Planning module (non-video)', moduleHref:'contentplan' },
+    { key:'photoshoot',  flag:'actPhotoshoot',  dbFlag:'activity_photoshoot',  icon:'📸', label:'Photoshoot',           source:'Photoshoot Planning module', moduleHref:'photoshoot' },
+    { key:'video',       flag:'actVideo',       dbFlag:'activity_video',       icon:'🎬', label:'Video Production',     source:'Video Production module',     moduleHref:'videoprod' },
+    { key:'content',     flag:'actContent',     dbFlag:'activity_content',     icon:'📱', label:'Content Planning',     source:'Content Planning module',     moduleHref:'contentplan' },
     { key:'activation',  flag:'actActivation',  dbFlag:'activity_activation',  icon:'🎪', label:'Marketing Activation', source:'Marketing Activation module', moduleHref:'mktactivation' },
-    { key:'kol',         flag:'actKol',         dbFlag:'activity_kol',         icon:'⭐', label:'KOL Placement',       source:'KOL Management module', moduleHref:'kolmgmt' },
+    { key:'ads',         flag:'actAds',         dbFlag:'activity_ads',         icon:'🎯', label:'Ads',                  source:'Ads Management module',       moduleHref:'adsmgmt' },
+    { key:'kol',         flag:'actKol',         dbFlag:'activity_kol',         icon:'⭐', label:'KOL Placement',        source:'KOL Management module',       moduleHref:'kolmgmt' },
   ];
   const activityCards = activities.map(a => {
     const on = !!plan[a.flag];
@@ -22911,7 +22957,7 @@ const _MP_ACTIVITY_DEFS = {
     linkField: 'deliverables_url',
   },
   video: {
-    table: 'content_planning', idPrefix: 'CP', moduleHref: 'contentplan',
+    table: 'content_planning', idPrefix: 'CP', moduleHref: 'videoprod',
     nameField: 'title', nameLabel: 'Judul video',
     dateField: 'publish_date', dateLabel: 'Publish date',
     extras: [
@@ -22936,16 +22982,34 @@ const _MP_ACTIVITY_DEFS = {
       {f:'channel', placeholder:'Channel spesifik', type:'datalist', options:['SD&Y Instagram','Lagaa Instagram','Marte Instagram','People of Marte Instagram']},
       {f:'content_category', placeholder:'Kategori Konten', type:'datalist', options:['Promotional','Snackable']},
       {f:'content_format', placeholder:'Format', type:'datalist', options:['Reels','Stories','Post','Video']},
-      {f:'owner', placeholder:'Owner', type:'text'},
+      {f:'owner', placeholder:'PIC', type:'text'},
     ],
     statusField: 'status', statusOpts: ['Draft','In Progress','For Review','Approved','Published','Cancelled'],
     statusToneFor: s => s==='Published'?'p-active' : s==='Approved'?'p-signings' : s==='Cancelled'?'p-expired' : s==='Draft'?'p-draft' : 'p-review',
     defaultStatus: 'Draft',
-    fixed: {content_type: 'Image'},
+    // Content activity now shows ALL content_planning rows (no Video filter).
+    // Loops to the Content Planning module — Video Production has its own
+    // activity card / route below.
     selectCols: 'id,title,content_type,publish_date,channel,channel_category,content_category,content_format,owner,status,asset_url',
     orderBy: 'publish_date',
     linkField: 'asset_url',
-    extraFilterClient: r => !(r.content_type||'').toLowerCase().includes('video'),
+  },
+  ads: {
+    table: 'ads_campaigns', idPrefix: 'ADS', moduleHref: 'adsmgmt',
+    nameField: 'campaign_name', nameLabel: 'Nama kampanye',
+    dateField: 'start_date', dateLabel: 'Start date',
+    extras: [
+      {f:'channel', placeholder:'Meta/Google/TikTok...', type:'datalist', options:['Meta','Google Ads','TikTok Ads','YouTube Ads','Twitter Ads']},
+      {f:'budget', placeholder:'Budget (Rp)', type:'number'},
+      {f:'end_date', placeholder:'End date', type:'date'},
+      {f:'pic', placeholder:'PIC', type:'text'},
+    ],
+    statusField: 'status', statusOpts: ['Planning','Live','Paused','Done','Cancelled'],
+    statusToneFor: s => s==='Done'?'p-active' : s==='Live'?'p-signings' : s==='Paused'?'p-near' : s==='Cancelled'?'p-expired' : 'p-draft',
+    defaultStatus: 'Planning',
+    selectCols: 'id,campaign_name,channel,budget,spend,start_date,end_date,pic,status,brief_url',
+    orderBy: 'start_date',
+    linkField: 'brief_url',
   },
   activation: {
     table: 'marketing_events', idPrefix: 'ME', moduleHref: 'mktactivation',
@@ -23141,11 +23205,12 @@ async function _mpSaveRowEdit(key, id) {
     // Refresh the activity card so the edited row re-renders correctly
     const cid = _mpCurrentColId;
     const activities = [
-      { key:'photoshoot',  source:'Photoshoot Planning', moduleHref:'photoshoot', label:'Photoshoot' },
-      { key:'video',       source:'Content Planning', moduleHref:'contentplan', label:'Video Production' },
-      { key:'content',     source:'Content Planning', moduleHref:'contentplan', label:'Content Production' },
-      { key:'activation',  source:'Marketing Activation', moduleHref:'mktactivation', label:'Marketing Activation' },
-      { key:'kol',         source:'KOL Management', moduleHref:'kolmgmt', label:'KOL Placement' },
+      { key:'photoshoot',  source:'Photoshoot Planning', moduleHref:'photoshoot',    label:'Photoshoot' },
+      { key:'video',       source:'Video Production',    moduleHref:'videoprod',     label:'Video Production' },
+      { key:'content',     source:'Content Planning',    moduleHref:'contentplan',   label:'Content Planning' },
+      { key:'activation',  source:'Marketing Activation',moduleHref:'mktactivation', label:'Marketing Activation' },
+      { key:'ads',         source:'Ads Management',      moduleHref:'adsmgmt',       label:'Ads' },
+      { key:'kol',         source:'KOL Management',      moduleHref:'kolmgmt',       label:'KOL Placement' },
     ];
     const act = activities.find(a => a.key === key);
     if (act) setTimeout(() => _mpLoadActivitySummary(act, cid, true), 300);
@@ -23154,11 +23219,12 @@ async function _mpSaveRowEdit(key, id) {
 
 async function _mpCancelRowEdit(key, id) {
   const activities = [
-    { key:'photoshoot',  source:'Photoshoot Planning', moduleHref:'photoshoot', label:'Photoshoot' },
-    { key:'video',       source:'Content Planning', moduleHref:'contentplan', label:'Video Production' },
-    { key:'content',     source:'Content Planning', moduleHref:'contentplan', label:'Content Production' },
-    { key:'activation',  source:'Marketing Activation', moduleHref:'mktactivation', label:'Marketing Activation' },
-    { key:'kol',         source:'KOL Management', moduleHref:'kolmgmt', label:'KOL Placement' },
+    { key:'photoshoot',  source:'Photoshoot Planning', moduleHref:'photoshoot',    label:'Photoshoot' },
+    { key:'video',       source:'Video Production',    moduleHref:'videoprod',     label:'Video Production' },
+    { key:'content',     source:'Content Planning',    moduleHref:'contentplan',   label:'Content Planning' },
+    { key:'activation',  source:'Marketing Activation',moduleHref:'mktactivation', label:'Marketing Activation' },
+    { key:'ads',         source:'Ads Management',      moduleHref:'adsmgmt',       label:'Ads' },
+    { key:'kol',         source:'KOL Management',      moduleHref:'kolmgmt',       label:'KOL Placement' },
   ];
   const act = activities.find(a => a.key === key);
   if (act) await _mpLoadActivitySummary(act, _mpCurrentColId, true);
@@ -23178,13 +23244,15 @@ async function _mpDeleteRow(key, id, cid) {
       else if (key === 'content') _mpExecCounts[cid].content = Math.max(0, _mpExecCounts[cid].content - 1);
       else if (key === 'activation') _mpExecCounts[cid].me = Math.max(0, _mpExecCounts[cid].me - 1);
       else if (key === 'kol') _mpExecCounts[cid].kol = Math.max(0, _mpExecCounts[cid].kol - 1);
+      else if (key === 'ads') _mpExecCounts[cid].ads = Math.max(0, _mpExecCounts[cid].ads - 1);
     }
     const activities = [
-      { key:'photoshoot',  source:'Photoshoot Planning', moduleHref:'photoshoot', label:'Photoshoot' },
-      { key:'video',       source:'Content Planning', moduleHref:'contentplan', label:'Video Production' },
-      { key:'content',     source:'Content Planning', moduleHref:'contentplan', label:'Content Production' },
-      { key:'activation',  source:'Marketing Activation', moduleHref:'mktactivation', label:'Marketing Activation' },
-      { key:'kol',         source:'KOL Management', moduleHref:'kolmgmt', label:'KOL Placement' },
+      { key:'photoshoot',  source:'Photoshoot Planning', moduleHref:'photoshoot',    label:'Photoshoot' },
+      { key:'video',       source:'Video Production',    moduleHref:'videoprod',     label:'Video Production' },
+      { key:'content',     source:'Content Planning',    moduleHref:'contentplan',   label:'Content Planning' },
+      { key:'activation',  source:'Marketing Activation',moduleHref:'mktactivation', label:'Marketing Activation' },
+      { key:'ads',         source:'Ads Management',      moduleHref:'adsmgmt',       label:'Ads' },
+      { key:'kol',         source:'KOL Management',      moduleHref:'kolmgmt',       label:'KOL Placement' },
     ];
     const act = activities.find(a => a.key === key);
     if (act) await _mpLoadActivitySummary(act, cid, true);
@@ -23247,11 +23315,12 @@ async function _mpQuickAddSubmit(key, cid) {
     if (error) throw error;
     setFB('✓ Tersimpan', true);
     const activities = [
-      { key:'photoshoot',  source:'Photoshoot Planning', moduleHref:'photoshoot', label:'Photoshoot' },
-      { key:'video',       source:'Content Planning', moduleHref:'contentplan', label:'Video Production' },
-      { key:'content',     source:'Content Planning', moduleHref:'contentplan', label:'Content Production' },
-      { key:'activation',  source:'Marketing Activation', moduleHref:'mktactivation', label:'Marketing Activation' },
-      { key:'kol',         source:'KOL Management', moduleHref:'kolmgmt', label:'KOL Placement' },
+      { key:'photoshoot',  source:'Photoshoot Planning', moduleHref:'photoshoot',    label:'Photoshoot' },
+      { key:'video',       source:'Video Production',    moduleHref:'videoprod',     label:'Video Production' },
+      { key:'content',     source:'Content Planning',    moduleHref:'contentplan',   label:'Content Planning' },
+      { key:'activation',  source:'Marketing Activation',moduleHref:'mktactivation', label:'Marketing Activation' },
+      { key:'ads',         source:'Ads Management',      moduleHref:'adsmgmt',       label:'Ads' },
+      { key:'kol',         source:'KOL Management',      moduleHref:'kolmgmt',       label:'KOL Placement' },
     ];
     const act = activities.find(a => a.key === key);
     if (act) await _mpLoadActivitySummary(act, cid, true);
@@ -23263,6 +23332,7 @@ async function _mpQuickAddSubmit(key, cid) {
       else if (key === 'content') _mpExecCounts[cid].content++;
       else if (key === 'activation') _mpExecCounts[cid].me++;
       else if (key === 'kol') _mpExecCounts[cid].kol++;
+      else if (key === 'ads') _mpExecCounts[cid].ads++;
     }
   } catch (e) { setFB('Gagal: ' + (e.message||e), false); }
 }
@@ -23282,7 +23352,7 @@ async function toggleMPActivity(key, dbFlag, on) {
       last_updated: new Date().toISOString(), last_updated_by: currentUser||'',
     }).eq('id', _mpCurrentPlan.id);
     if (error) throw error;
-    const flagKey = {activity_photoshoot:'actPhotoshoot',activity_video:'actVideo',activity_content:'actContent',activity_activation:'actActivation',activity_kol:'actKol'}[dbFlag];
+    const flagKey = {activity_photoshoot:'actPhotoshoot',activity_video:'actVideo',activity_content:'actContent',activity_activation:'actActivation',activity_kol:'actKol',activity_ads:'actAds'}[dbFlag];
     if (flagKey) _mpCurrentPlan[flagKey] = on;
     if (on) _mpExpanded.add(key); else _mpExpanded.delete(key);
     const col = _mpCols.find(c => c.id === _mpCurrentColId);
