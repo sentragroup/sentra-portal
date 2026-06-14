@@ -22433,23 +22433,65 @@ async function deleteAds(id) {
 }
 
 // ── 3. MARKETING ACTIVATION ──
+// ── MARKETING ACTIVATION (revamped) ──
+const _MA_TYPE_DEFAULTS = ['Pop-up','Fan Meet','Launch Party','Concert','Listening Session','Workshop','Booth','Other'];
+const _MA_BUDGET_CAT_DEFAULTS = ['Venue Rental','F&B','Production','Talent','Logistics','Marketing','Permits','Decor','Equipment','Other'];
+const _MA_STATUS_OPTS = ['Planning','Booked','In Progress','Done','Cancelled'];
+const _MA_STATUS_TONE = { Planning:'p-draft', Booked:'p-signings', 'In Progress':'p-review', Done:'p-active', Cancelled:'p-expired' };
 let _maRows = [];
+let _maTypes = [..._MA_TYPE_DEFAULTS], _maVenues = [], _maBudgetCats = [..._MA_BUDGET_CAT_DEFAULTS];
+let _maCalCursor = null;        // first-of-month Date for calendar view
+let _maFormWired = false;
+
+function mapMa(r) {
+  return {
+    id: r.id, collectionId: r.collection_id || '',
+    name: r.event_name || '', type: r.event_type || '',
+    date: r.event_date || '', venue: r.venue || '',
+    budget: r.budget, pic: r.pic || '',
+    status: r.status || 'Planning', notes: r.notes || '',
+    budgetBreakdown: Array.isArray(r.budget_breakdown) ? r.budget_breakdown : [],
+    actionItems: Array.isArray(r.action_items) ? r.action_items : [],
+  };
+}
+
+function _maRebuildVocab() {
+  const uniq = (arr) => [...new Set(arr.map(v => (v||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  _maTypes = uniq([..._MA_TYPE_DEFAULTS, ..._maRows.map(r => r.type)]);
+  _maVenues = uniq(_maRows.map(r => r.venue));
+  const fromBreakdown = [];
+  for (const r of _maRows) for (const b of (r.budgetBreakdown||[])) if (b?.category) fromBreakdown.push(b.category);
+  _maBudgetCats = uniq([..._MA_BUDGET_CAT_DEFAULTS, ...fromBreakdown]);
+}
+
 function switchMaTab(tab, el) {
   document.querySelectorAll('#page-mktactivation .tab-btn').forEach(b=>b.classList.remove('active'));
   if (el) el.classList.add('active');
-  document.getElementById('matab-new').style.display  = tab==='new'  ? '' : 'none';
-  document.getElementById('matab-list').style.display = tab==='list' ? '' : 'none';
-  if (tab==='list') loadMktActivation();
+  document.getElementById('matab-new').style.display      = tab==='new'      ? '' : 'none';
+  document.getElementById('matab-list').style.display     = tab==='list'     ? '' : 'none';
+  document.getElementById('matab-calendar').style.display = tab==='calendar' ? '' : 'none';
+  document.getElementById('matab-actions').style.display  = tab==='actions'  ? '' : 'none';
+  if (tab==='new')      _maSeedForm();
+  if (tab==='list')     loadMktActivation();
+  if (tab==='calendar') { if (!_maRows.length) loadMktActivation(); renderMaCalendar(); }
+  if (tab==='actions')  { if (!_maRows.length) loadMktActivation(); renderMaActionsView(); }
 }
-function mapMa(r) {
-  return {id:r.id, collectionId:r.collection_id, name:r.event_name||'', type:r.event_type||'',
-    date:r.event_date||'', venue:r.venue||'', budget:r.budget, pic:r.pic||'', status:r.status||'Planning'};
+
+async function _maSeedForm() {
+  if (!allColRows.length) await loadCollections().catch(()=>{});
+  if (!_maFormWired) {
+    setupAC('ma-collection', 'ac-ma-collection', () => allColRows.map(c => c.collectionName).filter(Boolean));
+    setupAC('ma-type', 'ac-ma-type', () => _maTypes);
+    setupAC('ma-venue', 'ac-ma-venue', () => _maVenues);
+    setupAC('ma-pic', 'ac-ma-pic', () => acPics);
+    _maFormWired = true;
+  }
 }
+
 async function loadMktActivation() {
-  await _moLoadColOptions('ma-collection');
-  await _moLoadColOptions('ma-fil-collection');
+  if (!allColRows.length) await loadCollections().catch(()=>{});
   const tbody = document.getElementById('maTableBody');
-  if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="9">Memuat...</td></tr>`;
+  if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="10">Memuat...</td></tr>`;
   try {
     const fStat = document.getElementById('ma-fil-status')?.value || '';
     const fType = document.getElementById('ma-fil-type')?.value || '';
@@ -22462,75 +22504,472 @@ async function loadMktActivation() {
     const {data, error} = await q;
     if (error) throw error;
     _maRows = (data||[]).map(mapMa);
-    const tSet = [...new Set(_maRows.map(r=>r.type).filter(Boolean))].sort();
+    _maRebuildVocab();
+    // populate filter dropdowns
     const tSel = document.getElementById('ma-fil-type');
-    if (tSel) { const cur = tSel.value; tSel.innerHTML = `<option value="">Semua Type</option>` + tSet.map(t=>`<option value="${t}"${t===cur?' selected':''}>${t}</option>`).join(''); }
+    if (tSel) { const cur = tSel.value; tSel.innerHTML = `<option value="">Semua Type</option>` + _maTypes.map(t=>`<option value="${t}"${t===cur?' selected':''}>${t}</option>`).join(''); }
+    const colSel = document.getElementById('ma-fil-collection');
+    if (colSel && allColRows.length && colSel.options.length <= 1) {
+      const cur = colSel.value;
+      colSel.innerHTML = `<option value="">Semua Collection</option>` + allColRows.map(c=>`<option value="${(c.id||'').replace(/"/g,'&quot;')}"${c.id===cur?' selected':''}>${(c.collectionName||'').replace(/</g,'&lt;')}</option>`).join('');
+    }
     let rows = _maRows;
     if (search) rows = rows.filter(r => `${r.name} ${r.venue} ${r.pic}`.toLowerCase().includes(search));
     const today = new Date().toISOString().slice(0,10);
+    const openActions = _maRows.reduce((sum, r) => sum + (r.actionItems||[]).filter(a => !a.done).length, 0);
     document.getElementById('ma-s-total').textContent    = _maRows.length;
     document.getElementById('ma-s-upcoming').textContent = _maRows.filter(r=>r.date && r.date >= today && r.status !== 'Cancelled' && r.status !== 'Done').length;
     document.getElementById('ma-s-done').textContent     = _maRows.filter(r=>r.status==='Done').length;
     document.getElementById('ma-s-budget').textContent   = _moRp(_maRows.reduce((s,r)=>s+Number(r.budget||0),0));
+    document.getElementById('ma-s-actions').textContent  = openActions;
     document.getElementById('ma-tcount').textContent = `${rows.length} entri`;
     const colName = id => allColRows.find(c=>c.id===id)?.collectionName || '—';
-    if (!rows.length) { tbody.innerHTML = `<tr><td class="empty-td" colspan="9">Tidak ada data.</td></tr>`; return; }
-    tbody.innerHTML = rows.map(r => `<tr>
-      <td><strong>${_moEsc(r.name)}</strong></td>
-      <td>${r.type?`<span class="pill p-signings" style="font-size:10px">${_moEsc(r.type)}</span>`:'—'}</td>
-      <td style="font-size:11px;color:var(--g600)">${_moEsc(colName(r.collectionId))}</td>
-      <td style="white-space:nowrap;font-size:11px">${_moDate(r.date)}</td>
-      <td style="font-size:11px">${_moEsc(r.venue)||'—'}</td>
-      <td class="mono" style="text-align:right;white-space:nowrap">${_moRp(r.budget)}</td>
-      <td style="font-size:11px">${_moEsc(r.pic)||'—'}</td>
-      <td><select onchange="updateMaStatus('${r.id}',this.value)" class="pill ${_moStatusClass(r.status)}" style="font-size:10px;padding:2px 6px;border:1px solid">${['Planning','Booked','In Progress','Done','Cancelled'].map(s=>`<option${r.status===s?' selected':''}>${s}</option>`).join('')}</select></td>
-      <td style="white-space:nowrap"><button class="btn-icon" style="font-size:10px;color:#c33" onclick="deleteMa('${r.id}')">Del</button></td>
-    </tr>`).join('');
-  } catch(e) { if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="9">Gagal: ${e.message||e}</td></tr>`; }
+    if (!rows.length) { tbody.innerHTML = `<tr><td class="empty-td" colspan="10">Tidak ada data.</td></tr>`; return; }
+    tbody.innerHTML = rows.map(r => {
+      const ai = r.actionItems||[];
+      const aiTotal = ai.length, aiDone = ai.filter(a=>a.done).length, aiOpen = aiTotal - aiDone;
+      const aiCell = aiTotal
+        ? `<span style="font-size:10px;font-family:var(--mono);color:${aiOpen?'#9d4d04':'#0a7d3a'}">${aiDone}/${aiTotal}</span>`
+        : '<span style="color:var(--g400);font-size:10px">—</span>';
+      // budget breakdown sum vs declared
+      const bb = r.budgetBreakdown||[];
+      const bbSum = bb.reduce((s,b)=>s+Number(b.amount||0),0);
+      const bbLine = bb.length
+        ? `<div style="font-size:9px;color:var(--g400);font-family:var(--mono);margin-top:1px">${bb.length} item · ${_moRp(bbSum)}</div>` : '';
+      return `<tr>
+        <td>
+          <a href="#" onclick="event.preventDefault();openMaDrawerEdit('${r.id}')" style="font-weight:600;color:#3C3489;text-decoration:none" title="Klik buat buka detail">${_moEsc(r.name)}</a>
+        </td>
+        <td>${r.type?`<span class="pill p-signings" style="font-size:10px">${_moEsc(r.type)}</span>`:'—'}</td>
+        <td style="font-size:11px;color:var(--g600)">${_moEsc(colName(r.collectionId))}</td>
+        <td style="white-space:nowrap;font-size:11px">${_moDate(r.date)}</td>
+        <td style="font-size:11px">${_moEsc(r.venue)||'—'}</td>
+        <td class="mono" style="text-align:right;white-space:nowrap">${_moRp(r.budget)}${bbLine}</td>
+        <td style="font-size:11px">${_moEsc(r.pic)||'—'}</td>
+        <td>${aiCell}</td>
+        <td><select onchange="updateMaStatus('${r.id}',this.value)" class="pill ${_MA_STATUS_TONE[r.status]||'p-draft'}" style="font-size:10px;padding:2px 6px;border:1px solid;border-radius:99px">${_MA_STATUS_OPTS.map(s=>`<option${r.status===s?' selected':''}>${s}</option>`).join('')}</select></td>
+        <td style="white-space:nowrap"><button class="btn-icon" style="font-size:13px;color:#c0392b" onclick="deleteMa('${r.id}')" title="Hapus">🗑</button></td>
+      </tr>`;
+    }).join('');
+  } catch(e) { if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="10">Gagal: ${e.message||e}</td></tr>`; }
 }
+
 function clearMaFilters() {
   ['ma-fil-status','ma-fil-type','ma-fil-collection','ma-search'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
   loadMktActivation();
 }
 function clearMaForm() {
-  ['ma-name','ma-date','ma-venue','ma-budget','ma-pic','ma-notes'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
-  ['ma-type','ma-collection','ma-status'].forEach(id => { const el=document.getElementById(id); if(el) el.selectedIndex=0; });
+  ['ma-name','ma-type','ma-collection','ma-date','ma-venue','ma-budget','ma-pic','ma-notes'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  const stat = document.getElementById('ma-status'); if (stat) stat.value = 'Planning';
   const fb=document.getElementById('ma-feedback'); if(fb) fb.textContent='';
 }
+
+function _maPickedCollectionId(idPrefix) {
+  const name = (document.getElementById(`${idPrefix}-collection`)?.value || '').trim().toLowerCase();
+  if (!name) return null;
+  const c = allColRows.find(x => (x.collectionName||'').toLowerCase() === name);
+  return c ? c.id : null;
+}
+
 async function submitMa() {
   const fb = document.getElementById('ma-feedback');
+  const setFB = (msg, ok) => { fb.style.color = ok?'#0a7d3a':'#c0392b'; fb.textContent = msg; };
   const name = document.getElementById('ma-name').value.trim();
-  if (!name) { fb.textContent='⚠️ Event name wajib.'; return; }
+  if (!name) { setFB('⚠️ Event name wajib.', false); return; }
   try {
-    const id = genId('MA');
+    const id = genId('ME');
     const {error} = await sb.from('marketing_events').insert({
-      id, event_name:name,
-      event_type: document.getElementById('ma-type').value || null,
-      collection_id: document.getElementById('ma-collection').value || null,
+      id, event_name: name,
+      event_type: document.getElementById('ma-type').value.trim() || null,
+      collection_id: _maPickedCollectionId('ma'),
       event_date: document.getElementById('ma-date').value || null,
       venue: document.getElementById('ma-venue').value.trim() || null,
-      budget: parseFloat(document.getElementById('ma-budget').value)||null,
+      budget: parseFloat(document.getElementById('ma-budget').value) || null,
       pic: document.getElementById('ma-pic').value.trim() || null,
       notes: document.getElementById('ma-notes').value.trim() || null,
       status: document.getElementById('ma-status').value || 'Planning',
       added_by: currentUser, date_added: new Date().toISOString().slice(0,10),
-      last_updated: new Date().toISOString(), last_updated_by: currentUser
+      last_updated: new Date().toISOString(), last_updated_by: currentUser,
     });
     if (error) throw error;
     logActivity('MarketingActivation','create',id,`Event: ${name}`);
-    fb.textContent = '✅ Event tersimpan.';
+    setFB('✅ Tersimpan. Klik nama event di tab Semua buat tambah budget breakdown + action items.', true);
     clearMaForm();
-    setTimeout(()=>{fb.textContent='';},2500);
-  } catch(e) { fb.textContent='❌ Gagal: '+(e.message||e); }
+    setTimeout(() => { fb.textContent=''; }, 3500);
+  } catch(e) { setFB('❌ Gagal: ' + (e.message||e), false); }
 }
+
 async function updateMaStatus(id, status) {
-  try { await sb.from('marketing_events').update({status, last_updated:new Date().toISOString(), last_updated_by:currentUser}).eq('id',id); loadMktActivation(); }
-  catch(e) { alert('Gagal: '+(e.message||e)); }
+  try {
+    await sb.from('marketing_events').update({status, last_updated:new Date().toISOString(), last_updated_by:currentUser}).eq('id',id);
+    const r = _maRows.find(x => x.id === id); if (r) r.status = status;
+  } catch(e) { alert('Gagal: '+(e.message||e)); loadMktActivation(); }
 }
+
 async function deleteMa(id) {
-  if (!confirm('Hapus event ini?')) return;
-  try { await sb.from('marketing_events').delete().eq('id',id); loadMktActivation(); }
-  catch(e) { alert('Gagal: '+(e.message||e)); }
+  const r = _maRows.find(x => x.id === id);
+  if (!confirm(`Hapus event ${r?.name||id}?`)) return;
+  try {
+    await sb.from('marketing_events').delete().eq('id', id);
+    logActivity('MarketingActivation','delete',id,`Hapus: ${r?.name||id}`);
+    loadMktActivation();
+  } catch(e) { alert('Gagal: '+(e.message||e)); }
+}
+
+// ── MA edit drawer ─────────────────────────────────────────────────────
+async function openMaDrawerEdit(id) {
+  const r = _maRows.find(x => x.id === id);
+  if (!r) return;
+  if (!allColRows.length) await loadCollections().catch(()=>{});
+  document.getElementById('maDrawerTitle').textContent = `✎ ${r.name || id}`;
+  document.getElementById('maDrawerBody').innerHTML = _maDrawerFormHTML(r);
+  openMaDrawer();
+  _maAttachDrawerAC(id);
+}
+
+function openMaDrawer() {
+  document.getElementById('maDrawerBackdrop').style.display = 'block';
+  document.getElementById('maDrawer').style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+function closeMaDrawer() {
+  document.getElementById('maDrawerBackdrop').style.display = 'none';
+  document.getElementById('maDrawer').style.display = 'none';
+  document.body.style.overflow = '';
+}
+
+function _maBudgetRowHTML(b, idx, id) {
+  const esc = s => (s==null?'':String(s)).replace(/"/g,'&quot;');
+  const category = b?.category || '';
+  const amount = b?.amount==null?'':b.amount;
+  const note = b?.note || '';
+  return `<div class="ma-bb-row" data-idx="${idx}" style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
+    <div style="flex:1.2;position:relative">
+      <input type="text" class="mab-cat-${id}" value="${esc(category)}" placeholder="Kategori (Venue, F&B, ...)" autocomplete="off" style="font-size:12px;padding:5px 8px;width:100%;box-sizing:border-box">
+      <div class="ac-list mab-cat-ac-${id}-${idx}"></div>
+    </div>
+    <input type="number" min="0" class="mab-amt-${id}" value="${amount}" placeholder="Rp" style="font-size:12px;padding:5px 8px;width:110px;text-align:right">
+    <input type="text" class="mab-note-${id}" value="${esc(note)}" placeholder="Note (opsional)" style="font-size:12px;padding:5px 8px;flex:1">
+    <button type="button" onclick="this.parentElement.remove();_maBudgetSumUpdate('${id}')" style="background:none;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-size:13px;padding:3px 8px;color:#c0392b;line-height:1">🗑</button>
+  </div>`;
+}
+
+function _maActionRowHTML(a, idx, id) {
+  const esc = s => (s==null?'':String(s)).replace(/"/g,'&quot;');
+  const title = a?.title || '';
+  const pic = a?.pic || '';
+  const deadline = a?.deadline || '';
+  const done = !!a?.done;
+  return `<div class="ma-act-row" data-idx="${idx}" style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
+    <input type="checkbox" class="maa-done-${id}" ${done?'checked':''} style="width:16px;height:16px;cursor:pointer;flex-shrink:0">
+    <input type="text" class="maa-title-${id}" value="${esc(title)}" placeholder="Action title" style="font-size:12px;padding:5px 8px;flex:1.5">
+    <div style="flex:1;position:relative">
+      <input type="text" class="maa-pic-${id}" value="${esc(pic)}" placeholder="PIC" autocomplete="off" style="font-size:12px;padding:5px 8px;width:100%;box-sizing:border-box">
+      <div class="ac-list maa-pic-ac-${id}-${idx}"></div>
+    </div>
+    <input type="date" class="maa-deadline-${id}" value="${esc(deadline)}" style="font-size:12px;padding:5px 8px;width:140px">
+    <button type="button" onclick="this.parentElement.remove()" style="background:none;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-size:13px;padding:3px 8px;color:#c0392b;line-height:1">🗑</button>
+  </div>`;
+}
+
+function _maDrawerFormHTML(r) {
+  const esc = s => (s==null?'':String(s)).replace(/"/g,'&quot;');
+  const colName = allColRows.find(c => c.id === r.collectionId)?.collectionName || '';
+  const id = r.id;
+  const budgetRows = (r.budgetBreakdown||[]).map((b,i) => _maBudgetRowHTML(b, i, id)).join('');
+  const actionRows = (r.actionItems||[]).map((a,i) => _maActionRowHTML(a, i, id)).join('');
+  return `<div>
+    <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.3px;color:var(--g600);margin-bottom:4px">Detail Event</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+      <div class="fg" style="margin:0"><label style="font-size:11px">Event Name *</label><input type="text" id="mae-name-${id}" value="${esc(r.name)}" style="font-size:12px;padding:5px 8px"></div>
+      <div class="fg" style="margin:0;position:relative"><label style="font-size:11px">Type</label>
+        <input type="text" id="mae-type-${id}" value="${esc(r.type)}" autocomplete="off" style="font-size:12px;padding:5px 8px">
+        <div class="ac-list" id="ac-mae-type-${id}"></div>
+      </div>
+      <div class="fg" style="margin:0;position:relative"><label style="font-size:11px">Collection</label>
+        <input type="text" id="mae-collection-${id}" value="${esc(colName)}" autocomplete="off" placeholder="—" style="font-size:12px;padding:5px 8px">
+        <div class="ac-list" id="ac-mae-collection-${id}"></div>
+      </div>
+      <div class="fg" style="margin:0"><label style="font-size:11px">Event Date</label><input type="date" id="mae-date-${id}" value="${r.date||''}" style="font-size:12px;padding:5px 8px"></div>
+      <div class="fg" style="margin:0;position:relative"><label style="font-size:11px">Venue</label>
+        <input type="text" id="mae-venue-${id}" value="${esc(r.venue)}" autocomplete="off" style="font-size:12px;padding:5px 8px">
+        <div class="ac-list" id="ac-mae-venue-${id}"></div>
+      </div>
+      <div class="fg" style="margin:0;position:relative"><label style="font-size:11px">PIC</label>
+        <input type="text" id="mae-pic-${id}" value="${esc(r.pic)}" autocomplete="off" style="font-size:12px;padding:5px 8px">
+        <div class="ac-list" id="ac-mae-pic-${id}"></div>
+      </div>
+      <div class="fg" style="margin:0"><label style="font-size:11px">Budget Total (Rp)</label><input type="number" id="mae-budget-${id}" min="0" value="${r.budget==null?'':r.budget}" style="font-size:12px;padding:5px 8px"></div>
+      <div class="fg" style="margin:0"><label style="font-size:11px">Status</label>
+        <select id="mae-status-${id}" style="font-size:12px;padding:5px 8px">${_MA_STATUS_OPTS.map(s=>`<option${r.status===s?' selected':''}>${s}</option>`).join('')}</select>
+      </div>
+    </div>
+
+    <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.3px;color:var(--g600);margin-bottom:4px;display:flex;align-items:center;gap:8px">
+      💰 Budget Breakdown
+      <span style="text-transform:none;letter-spacing:0;font-weight:400;color:var(--g400)">— map alokasi budget per kategori</span>
+      <span style="margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--g600)">Σ <span id="mab-sum-${id}">${_moRp(0)}</span></span>
+    </div>
+    <div id="mae-bb-${id}">${budgetRows}</div>
+    <button class="btn-ghost" type="button" onclick="addMaBudgetRow('${id}')" style="padding:4px 10px;font-size:11px;margin-top:4px;margin-bottom:12px">+ Tambah Budget Item</button>
+
+    <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.3px;color:var(--g600);margin-bottom:4px;display:flex;align-items:center;gap:8px">
+      ✓ Action Items
+      <span style="text-transform:none;letter-spacing:0;font-weight:400;color:var(--g400)">— task list, assign PIC + deadline</span>
+    </div>
+    <div id="mae-act-${id}">${actionRows}</div>
+    <button class="btn-ghost" type="button" onclick="addMaActionRow('${id}')" style="padding:4px 10px;font-size:11px;margin-top:4px;margin-bottom:12px">+ Tambah Action</button>
+
+    <div class="fg" style="margin:0 0 12px"><label style="font-size:11px">Notes</label><textarea id="mae-notes-${id}" rows="3" style="font-size:12px;padding:5px 8px;resize:vertical">${esc(r.notes)}</textarea></div>
+
+    <div style="display:flex;gap:6px;padding-top:8px;border-top:1px solid var(--g100)">
+      <button class="btn-primary" onclick="saveMaEdit('${id}')" style="padding:7px 16px;font-size:13px">💾 Simpan</button>
+      <button class="btn-ghost" onclick="closeMaDrawer()" style="padding:7px 16px;font-size:13px">Batal</button>
+      <div id="mae-fb-${id}" style="margin-left:auto;font-size:11px;align-self:center"></div>
+    </div>
+  </div>`;
+}
+
+function _maAttachDrawerAC(id) {
+  setupAC(`mae-type-${id}`, `ac-mae-type-${id}`, () => _maTypes);
+  setupAC(`mae-collection-${id}`, `ac-mae-collection-${id}`, () => allColRows.map(c => c.collectionName).filter(Boolean));
+  setupAC(`mae-venue-${id}`, `ac-mae-venue-${id}`, () => _maVenues);
+  setupAC(`mae-pic-${id}`, `ac-mae-pic-${id}`, () => acPics);
+  // wire AC for existing budget + action rows
+  _maWireBudgetRowsAC(id);
+  _maWireActionRowsAC(id);
+  _maBudgetSumUpdate(id);
+}
+
+function _maWireBudgetRowsAC(id) {
+  const host = document.getElementById(`mae-bb-${id}`);
+  if (!host) return;
+  host.querySelectorAll('.ma-bb-row').forEach(row => {
+    const idx = row.dataset.idx;
+    const inp = row.querySelector(`.mab-cat-${id}`);
+    const ac = row.querySelector(`.mab-cat-ac-${id}-${idx}`);
+    if (!inp || !ac) return;
+    inp.id = `mab-cat-inp-${id}-${idx}`;
+    ac.id = `mab-cat-ac-${id}-${idx}`;
+    setupAC(inp.id, ac.id, () => _maBudgetCats);
+    // Live sum update
+    row.querySelector(`.mab-amt-${id}`)?.addEventListener('input', () => _maBudgetSumUpdate(id));
+  });
+}
+
+function _maWireActionRowsAC(id) {
+  const host = document.getElementById(`mae-act-${id}`);
+  if (!host) return;
+  host.querySelectorAll('.ma-act-row').forEach(row => {
+    const idx = row.dataset.idx;
+    const inp = row.querySelector(`.maa-pic-${id}`);
+    const ac = row.querySelector(`.maa-pic-ac-${id}-${idx}`);
+    if (!inp || !ac) return;
+    inp.id = `maa-pic-inp-${id}-${idx}`;
+    ac.id = `maa-pic-ac-${id}-${idx}`;
+    setupAC(inp.id, ac.id, () => acPics);
+  });
+}
+
+function addMaBudgetRow(id) {
+  const host = document.getElementById(`mae-bb-${id}`);
+  const idx = host.children.length;
+  host.insertAdjacentHTML('beforeend', _maBudgetRowHTML(null, idx, id));
+  _maWireBudgetRowsAC(id);
+}
+
+function addMaActionRow(id) {
+  const host = document.getElementById(`mae-act-${id}`);
+  const idx = host.children.length;
+  host.insertAdjacentHTML('beforeend', _maActionRowHTML(null, idx, id));
+  _maWireActionRowsAC(id);
+}
+
+function _maBudgetSumUpdate(id) {
+  const host = document.getElementById(`mae-bb-${id}`);
+  if (!host) return;
+  let sum = 0;
+  host.querySelectorAll(`.mab-amt-${id}`).forEach(inp => {
+    const v = parseFloat(inp.value);
+    if (!isNaN(v)) sum += v;
+  });
+  const el = document.getElementById(`mab-sum-${id}`);
+  if (el) el.textContent = _moRp(sum);
+}
+
+function _maReadBudget(id) {
+  const host = document.getElementById(`mae-bb-${id}`);
+  if (!host) return [];
+  const out = [];
+  host.querySelectorAll('.ma-bb-row').forEach(row => {
+    const category = (row.querySelector(`.mab-cat-${id}`)?.value || '').trim();
+    const amountRaw = row.querySelector(`.mab-amt-${id}`)?.value;
+    const note = (row.querySelector(`.mab-note-${id}`)?.value || '').trim();
+    const amount = amountRaw === '' ? null : Number(amountRaw);
+    if (category || amount || note) out.push({category, amount, note});
+  });
+  return out;
+}
+
+function _maReadActions(id) {
+  const host = document.getElementById(`mae-act-${id}`);
+  if (!host) return [];
+  const out = [];
+  host.querySelectorAll('.ma-act-row').forEach(row => {
+    const title = (row.querySelector(`.maa-title-${id}`)?.value || '').trim();
+    const pic = (row.querySelector(`.maa-pic-${id}`)?.value || '').trim();
+    const deadline = row.querySelector(`.maa-deadline-${id}`)?.value || '';
+    const done = !!row.querySelector(`.maa-done-${id}`)?.checked;
+    if (title || pic || deadline) out.push({title, pic, deadline, done});
+  });
+  return out;
+}
+
+async function saveMaEdit(id) {
+  const fb = document.getElementById(`mae-fb-${id}`);
+  const setFB = (msg, ok) => { if (fb) { fb.style.color = ok?'#0a7d3a':'#c0392b'; fb.textContent = msg; } };
+  const name = (document.getElementById(`mae-name-${id}`).value || '').trim();
+  if (!name) { setFB('Event name wajib', false); return; }
+  const colName = (document.getElementById(`mae-collection-${id}`).value || '').trim().toLowerCase();
+  const colMatch = allColRows.find(c => (c.collectionName||'').toLowerCase() === colName);
+  const payload = {
+    event_name: name,
+    event_type: (document.getElementById(`mae-type-${id}`).value || '').trim() || null,
+    collection_id: colMatch ? colMatch.id : null,
+    event_date: document.getElementById(`mae-date-${id}`).value || null,
+    venue: (document.getElementById(`mae-venue-${id}`).value || '').trim() || null,
+    pic: (document.getElementById(`mae-pic-${id}`).value || '').trim() || null,
+    budget: parseFloat(document.getElementById(`mae-budget-${id}`).value) || null,
+    status: document.getElementById(`mae-status-${id}`).value || 'Planning',
+    notes: (document.getElementById(`mae-notes-${id}`).value || '').trim() || null,
+    budget_breakdown: _maReadBudget(id),
+    action_items: _maReadActions(id),
+    last_updated: new Date().toISOString(), last_updated_by: currentUser || '',
+  };
+  try {
+    const {error} = await sb.from('marketing_events').update(payload).eq('id', id);
+    if (error) throw error;
+    logActivity('MarketingActivation','edit',id,`Edit: ${name}`);
+    setFB('✓ Tersimpan', true);
+    setTimeout(() => closeMaDrawer(), 600);
+    loadMktActivation();
+  } catch(e) { setFB('Gagal: ' + (e.message||e), false); }
+}
+
+// ── Calendar view ──────────────────────────────────────────────────────
+function maCalendarShift(delta) {
+  const now = new Date();
+  if (!_maCalCursor || delta === 0) {
+    _maCalCursor = new Date(now.getFullYear(), now.getMonth(), 1);
+  } else {
+    _maCalCursor.setMonth(_maCalCursor.getMonth() + delta);
+  }
+  renderMaCalendar();
+}
+
+function renderMaCalendar() {
+  if (!_maCalCursor) _maCalCursor = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+  const grid = document.getElementById('ma-cal-grid');
+  const titleEl = document.getElementById('ma-cal-title');
+  const monthNames = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+  const y = _maCalCursor.getFullYear(), m = _maCalCursor.getMonth();
+  titleEl.textContent = `${monthNames[m]} ${y}`;
+  const firstDow = new Date(y, m, 1).getDay(); // 0=Sun
+  const daysInMonth = new Date(y, m+1, 0).getDate();
+  const today = new Date().toISOString().slice(0,10);
+  // bucket events by date
+  const byDate = new Map();
+  for (const r of _maRows) {
+    if (!r.date) continue;
+    const d = r.date.slice(0,10);
+    if (!byDate.has(d)) byDate.set(d, []);
+    byDate.get(d).push(r);
+  }
+  const esc = s => (s==null?'':String(s)).replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  let html = `<div style="display:grid;grid-template-columns:repeat(7,1fr);background:var(--g100)">`;
+  ['Min','Sen','Sel','Rab','Kam','Jum','Sab'].forEach(d => {
+    html += `<div style="padding:6px 8px;text-align:center;font-size:10px;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px;background:var(--white);color:var(--g600)">${d}</div>`;
+  });
+  html += `</div>`;
+  html += `<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:1px;background:var(--g100)">`;
+  for (let i = 0; i < firstDow; i++) html += `<div style="background:var(--off);min-height:90px"></div>`;
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const isToday = dateStr === today;
+    const events = byDate.get(dateStr) || [];
+    const eventChips = events.slice(0,3).map(e => {
+      const tone = _MA_STATUS_TONE[e.status] || 'p-draft';
+      return `<div onclick="event.stopPropagation();openMaDrawerEdit('${e.id}')" style="cursor:pointer;padding:2px 5px;border-radius:3px;font-size:10px;background:#eef0f8;color:#3C3489;margin-bottom:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(e.name)} · ${esc(e.status)}">${esc(e.name)}</div>`;
+    }).join('');
+    const more = events.length > 3 ? `<div style="font-size:9px;color:var(--g600)">+${events.length-3} more</div>` : '';
+    html += `<div style="background:var(--white);min-height:90px;padding:4px 5px;${isToday?'background:#fef9c3':''}">
+      <div style="font-family:var(--mono);font-size:11px;color:${isToday?'#854d0e':'var(--g600)'};font-weight:${isToday?'600':'400'};margin-bottom:3px">${d}</div>
+      ${eventChips}
+      ${more}
+    </div>`;
+  }
+  html += `</div>`;
+  grid.innerHTML = html;
+}
+
+// ── Action Items aggregate view ────────────────────────────────────────
+function renderMaActionsView() {
+  const tbody = document.getElementById('maActionsBody');
+  if (!tbody) return;
+  const fStat = document.getElementById('ma-act-fil-status')?.value || 'open';
+  const search = (document.getElementById('ma-act-search')?.value || '').toLowerCase().trim();
+  // Flatten action items across events
+  const flat = [];
+  for (const r of _maRows) {
+    (r.actionItems||[]).forEach((a, idx) => {
+      flat.push({
+        ...a, eventId: r.id, eventName: r.name, eventDate: r.date, idx,
+      });
+    });
+  }
+  let rows = flat;
+  if (fStat === 'open') rows = rows.filter(a => !a.done);
+  else if (fStat === 'done') rows = rows.filter(a => a.done);
+  if (search) rows = rows.filter(a => `${a.title} ${a.eventName} ${a.pic}`.toLowerCase().includes(search));
+  // sort: undone first by deadline asc, done last
+  rows.sort((a, b) => {
+    if (!!a.done !== !!b.done) return a.done ? 1 : -1;
+    return (a.deadline||'9999').localeCompare(b.deadline||'9999');
+  });
+  document.getElementById('ma-act-tcount').textContent = `${rows.length} action`;
+  if (!rows.length) { tbody.innerHTML = '<tr><td class="empty-td" colspan="6">Belum ada action item.</td></tr>'; return; }
+  const today = new Date().toISOString().slice(0,10);
+  const esc = s => (s==null?'':String(s)).replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  tbody.innerHTML = rows.map(a => {
+    const overdue = !a.done && a.deadline && a.deadline < today;
+    const dlColor = overdue ? '#c0392b' : (a.done ? 'var(--g400)' : 'var(--g600)');
+    return `<tr style="${a.done?'opacity:0.55':''}">
+      <td><input type="checkbox" ${a.done?'checked':''} onchange="toggleMaAction('${a.eventId}',${a.idx},this.checked)" style="width:16px;height:16px;cursor:pointer"></td>
+      <td style="${a.done?'text-decoration:line-through':''};font-size:12px">${esc(a.title)||'<span style="color:var(--g400)">(no title)</span>'}</td>
+      <td><a href="#" onclick="event.preventDefault();openMaDrawerEdit('${a.eventId}')" style="font-size:11px;color:#3C3489;text-decoration:underline">${esc(a.eventName)}</a></td>
+      <td style="font-size:11px">${esc(a.pic)||'—'}</td>
+      <td style="font-family:var(--mono);font-size:11px;color:${dlColor};white-space:nowrap">${a.deadline?_moDate(a.deadline):'—'}${overdue?' ⚠':''}</td>
+      <td style="white-space:nowrap"><button class="btn-icon" onclick="openMaDrawerEdit('${a.eventId}')" title="Buka event" style="font-size:11px;color:var(--g600)">↗</button></td>
+    </tr>`;
+  }).join('');
+}
+
+async function toggleMaAction(eventId, idx, checked) {
+  const r = _maRows.find(x => x.id === eventId);
+  if (!r) return;
+  const items = [...(r.actionItems||[])];
+  if (!items[idx]) return;
+  items[idx] = {...items[idx], done: checked};
+  try {
+    await sb.from('marketing_events').update({
+      action_items: items, last_updated: new Date().toISOString(), last_updated_by: currentUser||'',
+    }).eq('id', eventId);
+    r.actionItems = items;
+    renderMaActionsView();
+    // refresh open-actions stat
+    const openActions = _maRows.reduce((sum, x) => sum + (x.actionItems||[]).filter(y => !y.done).length, 0);
+    document.getElementById('ma-s-actions').textContent = openActions;
+  } catch(e) { alert('Gagal: '+(e.message||e)); }
 }
 
 // ── 4. PUBLICATION ──
