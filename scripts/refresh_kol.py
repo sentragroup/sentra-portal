@@ -153,6 +153,82 @@ async def fetch_instagram(page, url):
         return {"error": f"{type(e).__name__}: {e}"}
 
 
+# ---- Threads (Playwright) ---------------------------------------------
+# Meta-owned, similar restrictions to IG. Best-effort scrape — meta tag first,
+# then embedded JSON. Preserves previous value on failure (main loop handles).
+async def fetch_threads(page, url):
+    m = re.search(r"threads\.(?:net|com)/@?([^/?#]+)", url)
+    if not m:
+        return {"error": "could not parse Threads URL"}
+    handle = m.group(1).lstrip("@")
+    target = f"https://www.threads.net/@{handle}"
+    try:
+        await page.goto(target, wait_until="domcontentloaded", timeout=25000)
+        await page.wait_for_timeout(3000)
+        # og:description tipically reads: "X Followers, Y Threads"
+        try:
+            content = await page.locator('meta[property="og:description"]').first.get_attribute(
+                "content", timeout=4000
+            )
+        except Exception:
+            content = None
+        if content:
+            m2 = re.search(r"([\d.,KMB]+)\s+Followers?", content, re.IGNORECASE)
+            if m2:
+                n = parse_short(m2.group(1))
+                if n:
+                    return {"followers": n}
+        # Fallback — embedded JSON
+        html = await page.content()
+        m2 = re.search(r'"follower_count"\s*:\s*(\d+)', html)
+        if m2:
+            return {"followers": int(m2.group(1))}
+        if "loginForm" in html or "accounts/login" in html:
+            return {"error": "login wall"}
+        return {"error": "follower count not found"}
+    except Exception as e:
+        return {"error": f"{type(e).__name__}: {e}"}
+
+
+# ---- X / Twitter (Playwright, best-effort) ----------------------------
+# X is heavily anti-scraping — anonymous fetches usually redirect to login
+# after a few hits. Included for completeness; expect frequent failures.
+async def fetch_twitter(page, url):
+    m = re.search(r"(?:twitter|x)\.com/([^/?#]+)", url)
+    if not m:
+        return {"error": "could not parse X URL"}
+    handle = m.group(1).strip("/")
+    target = f"https://x.com/{handle}"
+    try:
+        await page.goto(target, wait_until="domcontentloaded", timeout=25000)
+        await page.wait_for_timeout(4000)
+        html = await page.content()
+        # Look for "X Followers" in profile area (rendered by JS)
+        m2 = re.search(r'href="/[^"]+/followers"[^>]*>[^<]*<[^>]*>([\d.,KMB]+)\s*</span>', html)
+        if m2:
+            n = parse_short(m2.group(1))
+            if n:
+                return {"followers": n}
+        # Fallback: scan og:description
+        try:
+            content = await page.locator('meta[property="og:description"]').first.get_attribute(
+                "content", timeout=4000
+            )
+            if content:
+                m2 = re.search(r"([\d.,KMB]+)\s+Followers?", content, re.IGNORECASE)
+                if m2:
+                    n = parse_short(m2.group(1))
+                    if n:
+                        return {"followers": n}
+        except Exception:
+            pass
+        if "login" in html.lower() and "signup" in html.lower():
+            return {"error": "X redirected to login wall (anonymous blocked)"}
+        return {"error": "follower count not found in DOM"}
+    except Exception as e:
+        return {"error": f"{type(e).__name__}: {e}"}
+
+
 # ---- TikTok (Playwright) ----------------------------------------------
 async def fetch_tiktok(page, url):
     m = re.search(r"tiktok\.com/@?([^/?#]+)", url)
@@ -264,6 +340,10 @@ async def main():
                         res = await fetch_instagram(page, purl)
                     elif plat == "tiktok":
                         res = await fetch_tiktok(page, purl)
+                    elif plat == "threads":
+                        res = await fetch_threads(page, purl)
+                    elif plat == "x" or plat == "twitter":
+                        res = await fetch_twitter(page, purl)
                     else:
                         continue
                     if "followers" in res:

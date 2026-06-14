@@ -4738,11 +4738,26 @@
 
         <div id="koldbtab-list">
           <div class="filter-panel">
-            <div class="filter-grid">
+            <div class="filter-grid" style="grid-template-columns:repeat(6,1fr)">
               <div class="fg"><label>Cari</label><input type="text" id="koldb-fil-search" placeholder="Nama / contact / category..." oninput="applyKolDbFilters()"></div>
               <div class="fg"><label>Category</label><select id="koldb-fil-category" onchange="applyKolDbFilters()"><option value="">Semua</option></select></div>
               <div class="fg"><label>Platform</label><select id="koldb-fil-platform" onchange="applyKolDbFilters()"><option value="">Semua</option></select></div>
+              <div class="fg"><label>Tier</label><select id="koldb-fil-tier" onchange="applyKolDbFilters()">
+                <option value="">Semua</option>
+                <option value="Mega">🌸 Mega (1M+)</option>
+                <option value="Macro">🟣 Macro (500K-1M)</option>
+                <option value="Mid">🔵 Mid (100-500K)</option>
+                <option value="Micro">🟢 Micro (10-100K)</option>
+                <option value="Nano">🟡 Nano (&lt;10K)</option>
+                <option value="__untiered">— Belum di-refresh</option>
+              </select></div>
               <div class="fg"><label>Status</label><select id="koldb-fil-status" onchange="applyKolDbFilters()"><option value="">Semua</option><option value="active">Aktif</option><option value="blacklist">Blacklist</option></select></div>
+              <div class="fg"><label>Urutkan</label><select id="koldb-fil-sort" onchange="applyKolDbFilters()">
+                <option value="name">Nama (A→Z)</option>
+                <option value="reach-desc">Primary reach (tinggi→rendah)</option>
+                <option value="reach-asc">Primary reach (rendah→tinggi)</option>
+                <option value="refreshed-desc">Last refresh (terbaru)</option>
+              </select></div>
             </div>
           </div>
           <div class="table-toolbar">
