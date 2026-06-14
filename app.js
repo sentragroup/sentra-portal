@@ -22440,6 +22440,41 @@ const _MA_STATUS_OPTS = ['Planning','Booked','In Progress','Done','Cancelled'];
 const _MA_STATUS_TONE = { Planning:'p-draft', Booked:'p-signings', 'In Progress':'p-review', Done:'p-active', Cancelled:'p-expired' };
 let _maRows = [];
 let _maTypes = [..._MA_TYPE_DEFAULTS], _maVenues = [], _maBudgetCats = [..._MA_BUDGET_CAT_DEFAULTS];
+let _maPopupCache = [], _maPopupCachePromise = null;
+async function _maLoadPopupCache() {
+  if (_maPopupCache.length) return;
+  if (!_maPopupCachePromise) {
+    _maPopupCachePromise = (async () => {
+      try {
+        const {data} = await sb.from('popup_booths').select('id,event_name,event_date,location,actual_sales').order('event_date',{ascending:false,nullsFirst:false}).limit(2000);
+        _maPopupCache = (data||[]).map(p => ({
+          id: p.id, name: p.event_name||'(no name)', date: p.event_date||'',
+          location: p.location||'', actualSales: p.actual_sales,
+        }));
+      } catch(e) { console.warn('popup_booths cache failed:', e); }
+    })();
+  }
+  await _maPopupCachePromise;
+}
+
+// Sum jubelio_sales_orders grand_total at Gudang Marte (COMPLETED only) for date window
+async function _maFetchMarteSales(start, end) {
+  if (!start) return null;
+  const e = end || start;
+  try {
+    const {data, error} = await sb.from('jubelio_sales_orders')
+      .select('grand_total,transaction_date,location_name,internal_status')
+      .eq('location_name', 'Gudang Marte')
+      .eq('internal_status', 'COMPLETED')
+      .gte('transaction_date', `${start}T00:00:00`)
+      .lte('transaction_date', `${e}T23:59:59`);
+    if (error) throw error;
+    return (data||[]).reduce((s, r) => s + Number(r.grand_total||0), 0);
+  } catch(err) {
+    console.warn('Marte sales fetch failed:', err);
+    return null;
+  }
+}
 let _maCalCursor = null;        // first-of-month Date for calendar view
 let _maFormWired = false;
 
@@ -22447,12 +22482,23 @@ function mapMa(r) {
   return {
     id: r.id, collectionId: r.collection_id || '',
     name: r.event_name || '', type: r.event_type || '',
-    date: r.event_date || '', venue: r.venue || '',
+    startDate: r.event_date || '', endDate: r.end_date || '',
+    venue: r.venue || '',
     budget: r.budget, pic: r.pic || '',
     status: r.status || 'Planning', notes: r.notes || '',
+    popupBoothId: r.popup_booth_id || '',
     budgetBreakdown: Array.isArray(r.budget_breakdown) ? r.budget_breakdown : [],
     actionItems: Array.isArray(r.action_items) ? r.action_items : [],
   };
+}
+
+// Format a date window: "12 Jun" / "12-15 Jun" / "29 Jun – 2 Jul"
+function _maFmtDateRange(start, end) {
+  if (!start) return '—';
+  const s = String(start).slice(0,10);
+  const e = end ? String(end).slice(0,10) : '';
+  if (!e || e === s) return _moDate(s);
+  return `${_moDate(s)} – ${_moDate(e)}`;
 }
 
 function _maRebuildVocab() {
@@ -22518,7 +22564,10 @@ async function loadMktActivation() {
     const today = new Date().toISOString().slice(0,10);
     const openActions = _maRows.reduce((sum, r) => sum + (r.actionItems||[]).filter(a => !a.done).length, 0);
     document.getElementById('ma-s-total').textContent    = _maRows.length;
-    document.getElementById('ma-s-upcoming').textContent = _maRows.filter(r=>r.date && r.date >= today && r.status !== 'Cancelled' && r.status !== 'Done').length;
+    document.getElementById('ma-s-upcoming').textContent = _maRows.filter(r => {
+      const s = r.startDate, e = r.endDate || r.startDate;
+      return e && e >= today && r.status !== 'Cancelled' && r.status !== 'Done';
+    }).length;
     document.getElementById('ma-s-done').textContent     = _maRows.filter(r=>r.status==='Done').length;
     document.getElementById('ma-s-budget').textContent   = _moRp(_maRows.reduce((s,r)=>s+Number(r.budget||0),0));
     document.getElementById('ma-s-actions').textContent  = openActions;
@@ -22537,12 +22586,12 @@ async function loadMktActivation() {
       const bbLine = bb.length
         ? `<div style="font-size:9px;color:var(--g400);font-family:var(--mono);margin-top:1px">${bb.length} item · ${_moRp(bbSum)}</div>` : '';
       return `<tr>
+        <td style="font-size:11px;color:var(--g600)">${_moEsc(colName(r.collectionId))}</td>
         <td>
           <a href="#" onclick="event.preventDefault();openMaDrawerEdit('${r.id}')" style="font-weight:600;color:#3C3489;text-decoration:none" title="Klik buat buka detail">${_moEsc(r.name)}</a>
         </td>
         <td>${r.type?`<span class="pill p-signings" style="font-size:10px">${_moEsc(r.type)}</span>`:'—'}</td>
-        <td style="font-size:11px;color:var(--g600)">${_moEsc(colName(r.collectionId))}</td>
-        <td style="white-space:nowrap;font-size:11px">${_moDate(r.date)}</td>
+        <td style="white-space:nowrap;font-size:11px">${_maFmtDateRange(r.startDate, r.endDate)}</td>
         <td style="font-size:11px">${_moEsc(r.venue)||'—'}</td>
         <td class="mono" style="text-align:right;white-space:nowrap">${_moRp(r.budget)}${bbLine}</td>
         <td style="font-size:11px">${_moEsc(r.pic)||'—'}</td>
@@ -22559,7 +22608,7 @@ function clearMaFilters() {
   loadMktActivation();
 }
 function clearMaForm() {
-  ['ma-name','ma-type','ma-collection','ma-date','ma-venue','ma-budget','ma-pic','ma-notes'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  ['ma-name','ma-type','ma-collection','ma-start-date','ma-end-date','ma-venue','ma-budget','ma-pic','ma-notes'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
   const stat = document.getElementById('ma-status'); if (stat) stat.value = 'Planning';
   const fb=document.getElementById('ma-feedback'); if(fb) fb.textContent='';
 }
@@ -22582,7 +22631,8 @@ async function submitMa() {
       id, event_name: name,
       event_type: document.getElementById('ma-type').value.trim() || null,
       collection_id: _maPickedCollectionId('ma'),
-      event_date: document.getElementById('ma-date').value || null,
+      event_date: document.getElementById('ma-start-date').value || null,
+      end_date: document.getElementById('ma-end-date').value || null,
       venue: document.getElementById('ma-venue').value.trim() || null,
       budget: parseFloat(document.getElementById('ma-budget').value) || null,
       pic: document.getElementById('ma-pic').value.trim() || null,
@@ -22621,6 +22671,7 @@ async function openMaDrawerEdit(id) {
   const r = _maRows.find(x => x.id === id);
   if (!r) return;
   if (!allColRows.length) await loadCollections().catch(()=>{});
+  await _maLoadPopupCache();
   document.getElementById('maDrawerTitle').textContent = `✎ ${r.name || id}`;
   document.getElementById('maDrawerBody').innerHTML = _maDrawerFormHTML(r);
   openMaDrawer();
@@ -22690,9 +22741,10 @@ function _maDrawerFormHTML(r) {
         <input type="text" id="mae-collection-${id}" value="${esc(colName)}" autocomplete="off" placeholder="—" style="font-size:12px;padding:5px 8px">
         <div class="ac-list" id="ac-mae-collection-${id}"></div>
       </div>
-      <div class="fg" style="margin:0"><label style="font-size:11px">Event Date</label><input type="date" id="mae-date-${id}" value="${r.date||''}" style="font-size:12px;padding:5px 8px"></div>
+      <div class="fg" style="margin:0"><label style="font-size:11px">Start Date</label><input type="date" id="mae-start-date-${id}" value="${r.startDate||''}" onchange="_maRefreshSales('${id}')" style="font-size:12px;padding:5px 8px"></div>
+      <div class="fg" style="margin:0"><label style="font-size:11px">End Date</label><input type="date" id="mae-end-date-${id}" value="${r.endDate||''}" onchange="_maRefreshSales('${id}')" style="font-size:12px;padding:5px 8px"></div>
       <div class="fg" style="margin:0;position:relative"><label style="font-size:11px">Venue</label>
-        <input type="text" id="mae-venue-${id}" value="${esc(r.venue)}" autocomplete="off" style="font-size:12px;padding:5px 8px">
+        <input type="text" id="mae-venue-${id}" value="${esc(r.venue)}" autocomplete="off" oninput="_maRefreshSales('${id}')" style="font-size:12px;padding:5px 8px">
         <div class="ac-list" id="ac-mae-venue-${id}"></div>
       </div>
       <div class="fg" style="margin:0;position:relative"><label style="font-size:11px">PIC</label>
@@ -22704,6 +22756,14 @@ function _maDrawerFormHTML(r) {
         <select id="mae-status-${id}" style="font-size:12px;padding:5px 8px">${_MA_STATUS_OPTS.map(s=>`<option${r.status===s?' selected':''}>${s}</option>`).join('')}</select>
       </div>
     </div>
+
+    <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.3px;color:var(--g600);margin-bottom:4px">🛍 Pop Up Booth Link <span style="text-transform:none;letter-spacing:0;font-weight:400;color:var(--g400)">— optional, narik aktual sales dari Pop Up Booth module</span></div>
+    <div class="fg" style="margin:0 0 12px;position:relative">
+      <input type="text" id="mae-popup-${id}" value="${esc(r.popupBoothId)}" placeholder="Pilih atau ketik nama pop up event" autocomplete="off" oninput="_maRefreshSales('${id}')" style="font-size:12px;padding:5px 8px;width:100%;box-sizing:border-box">
+      <div class="ac-list" id="ac-mae-popup-${id}"></div>
+    </div>
+
+    <div id="mae-sales-${id}" style="background:var(--off);border:1px dashed var(--g200);border-radius:6px;padding:10px 12px;margin-bottom:12px;font-size:12px;color:var(--g600);display:none"></div>
 
     <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.3px;color:var(--g600);margin-bottom:4px;display:flex;align-items:center;gap:8px">
       💰 Budget Breakdown
@@ -22735,10 +22795,92 @@ function _maAttachDrawerAC(id) {
   setupAC(`mae-collection-${id}`, `ac-mae-collection-${id}`, () => allColRows.map(c => c.collectionName).filter(Boolean));
   setupAC(`mae-venue-${id}`, `ac-mae-venue-${id}`, () => _maVenues);
   setupAC(`mae-pic-${id}`, `ac-mae-pic-${id}`, () => acPics);
-  // wire AC for existing budget + action rows
+  _maWirePopupAC(id);
   _maWireBudgetRowsAC(id);
   _maWireActionRowsAC(id);
   _maBudgetSumUpdate(id);
+  _maRefreshSales(id);
+}
+
+// Custom AC for Pop Up Booth picker — shows event name (date · location); on
+// pick, stores the popup_booth_id on the input's data-id attribute
+function _maWirePopupAC(id) {
+  const inp = document.getElementById(`mae-popup-${id}`);
+  const ac = document.getElementById(`ac-mae-popup-${id}`);
+  if (!inp || !ac) return;
+  // If existing value looks like a popup id, resolve back to display name
+  const curId = (inp.value || '').trim();
+  const matched = _maPopupCache.find(p => p.id === curId);
+  if (matched) {
+    inp.value = matched.name;
+    inp.dataset.id = matched.id;
+  }
+  const render = () => {
+    const q = inp.value.toLowerCase().trim();
+    const matches = _maPopupCache.filter(p =>
+      !q || p.name.toLowerCase().includes(q) || (p.location||'').toLowerCase().includes(q) || (p.date||'').includes(q)
+    ).slice(0, 15);
+    if (!matches.length) { ac.style.display='none'; return; }
+    const r = inp.getBoundingClientRect();
+    ac.style.position='fixed'; ac.style.top=(r.bottom+4)+'px'; ac.style.left=r.left+'px';
+    ac.style.width=Math.max(r.width,360)+'px'; ac.style.right='auto';
+    const esc = s => (s==null?'':String(s)).replace(/"/g,'&quot;').replace(/</g,'&lt;');
+    ac.innerHTML = matches.map(p => `<div class="ac-item" data-id="${esc(p.id)}" data-name="${esc(p.name)}" style="padding:6px 10px">
+      <div style="font-weight:600;font-size:12px">${esc(p.name)}</div>
+      <div style="font-size:10px;color:var(--g600);font-family:var(--mono)">${esc(p.date)||'—'} · ${esc(p.location)||'—'}${p.actualSales?` · ${_moRp(p.actualSales)}`:''}</div>
+    </div>`).join('');
+    ac.style.display='block';
+    ac.querySelectorAll('.ac-item').forEach(it => {
+      it.addEventListener('click', () => {
+        inp.value = it.dataset.name;
+        inp.dataset.id = it.dataset.id;
+        ac.style.display='none';
+        _maRefreshSales(id);
+      });
+    });
+  };
+  inp.addEventListener('input', () => { inp.dataset.id = ''; render(); });
+  inp.addEventListener('focus', render);
+  document.addEventListener('click', e => {
+    if (!inp.contains(e.target) && !ac.contains(e.target)) ac.style.display='none';
+  });
+}
+
+// Refresh the sales callout based on popup link OR Marte Store venue
+async function _maRefreshSales(id) {
+  const host = document.getElementById(`mae-sales-${id}`);
+  if (!host) return;
+  const venue = (document.getElementById(`mae-venue-${id}`)?.value || '').trim();
+  const sd = document.getElementById(`mae-start-date-${id}`)?.value || '';
+  const ed = document.getElementById(`mae-end-date-${id}`)?.value || '';
+  const popupInp = document.getElementById(`mae-popup-${id}`);
+  const popupId = (popupInp?.dataset?.id || '').trim();
+  const lines = [];
+  // Pop Up Booth callback
+  if (popupId) {
+    const p = _maPopupCache.find(x => x.id === popupId);
+    if (p) {
+      const sales = (typeof p.actualSales === 'number') ? _moRp(p.actualSales) : '—';
+      lines.push(`🛍 <strong>${(p.name||'').replace(/</g,'&lt;')}</strong> · ${(p.location||'—').replace(/</g,'&lt;')} · ${(p.date||'—').replace(/</g,'&lt;')}<br><span style="font-family:var(--mono);font-size:13px;color:#0a7d3a">Actual Sales: ${sales}</span>`);
+    }
+  }
+  // Marte Store callback — auto-pull jubelio sales at Gudang Marte
+  if (/marte\s*store/i.test(venue)) {
+    if (sd) {
+      lines.push(`🏪 <strong>Marte Store sales</strong> (${sd}${ed&&ed!==sd?` – ${ed}`:''})<br><span style="font-family:var(--mono);font-size:13px;color:var(--g400)" id="mae-marte-sum-${id}">Loading…</span>`);
+      host.style.display = '';
+      host.innerHTML = lines.join('<hr style="border:none;border-top:1px solid var(--g100);margin:8px 0">');
+      const total = await _maFetchMarteSales(sd, ed || sd);
+      const sumEl = document.getElementById(`mae-marte-sum-${id}`);
+      if (sumEl) sumEl.outerHTML = `<span style="font-family:var(--mono);font-size:13px;color:#0a7d3a">${total!=null?`Total: ${_moRp(total)}`:'(query failed)'}</span>`;
+      return;
+    } else {
+      lines.push(`🏪 <strong>Marte Store</strong> · <span style="color:var(--g400)">Set start date dulu buat narik aktual sales</span>`);
+    }
+  }
+  if (!lines.length) { host.style.display = 'none'; host.innerHTML = ''; return; }
+  host.style.display = '';
+  host.innerHTML = lines.join('<hr style="border:none;border-top:1px solid var(--g100);margin:8px 0">');
 }
 
 function _maWireBudgetRowsAC(id) {
@@ -22832,11 +22974,15 @@ async function saveMaEdit(id) {
   if (!name) { setFB('Event name wajib', false); return; }
   const colName = (document.getElementById(`mae-collection-${id}`).value || '').trim().toLowerCase();
   const colMatch = allColRows.find(c => (c.collectionName||'').toLowerCase() === colName);
+  const popupInp = document.getElementById(`mae-popup-${id}`);
+  const popupId = (popupInp?.dataset?.id || '').trim() || null;
   const payload = {
     event_name: name,
     event_type: (document.getElementById(`mae-type-${id}`).value || '').trim() || null,
     collection_id: colMatch ? colMatch.id : null,
-    event_date: document.getElementById(`mae-date-${id}`).value || null,
+    event_date: document.getElementById(`mae-start-date-${id}`).value || null,
+    end_date: document.getElementById(`mae-end-date-${id}`).value || null,
+    popup_booth_id: popupId,
     venue: (document.getElementById(`mae-venue-${id}`).value || '').trim() || null,
     pic: (document.getElementById(`mae-pic-${id}`).value || '').trim() || null,
     budget: parseFloat(document.getElementById(`mae-budget-${id}`).value) || null,
@@ -22874,16 +23020,34 @@ function renderMaCalendar() {
   const monthNames = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
   const y = _maCalCursor.getFullYear(), m = _maCalCursor.getMonth();
   titleEl.textContent = `${monthNames[m]} ${y}`;
-  const firstDow = new Date(y, m, 1).getDay(); // 0=Sun
+  const firstDow = new Date(y, m, 1).getDay();
   const daysInMonth = new Date(y, m+1, 0).getDate();
   const today = new Date().toISOString().slice(0,10);
-  // bucket events by date
+  // Bucket per ISO date: events span their full window; actions sit on deadline
   const byDate = new Map();
+  const ensure = (d) => { if (!byDate.has(d)) byDate.set(d, {events:[], actions:[]}); return byDate.get(d); };
+  const monthMin = `${y}-${String(m+1).padStart(2,'0')}-01`;
+  const monthMax = `${y}-${String(m+1).padStart(2,'0')}-${String(daysInMonth).padStart(2,'0')}`;
   for (const r of _maRows) {
-    if (!r.date) continue;
-    const d = r.date.slice(0,10);
-    if (!byDate.has(d)) byDate.set(d, []);
-    byDate.get(d).push(r);
+    if (!r.startDate) continue;
+    const s = String(r.startDate).slice(0,10);
+    const e = r.endDate ? String(r.endDate).slice(0,10) : s;
+    // Iterate days in window, clipped to current month
+    let cur = new Date(Math.max(new Date(s).getTime(), new Date(monthMin).getTime()));
+    const stop = new Date(Math.min(new Date(e).getTime(), new Date(monthMax).getTime()));
+    if (isNaN(cur) || isNaN(stop)) continue;
+    while (cur <= stop) {
+      const k = cur.toISOString().slice(0,10);
+      ensure(k).events.push(r);
+      cur.setDate(cur.getDate() + 1);
+    }
+    // Action items per event — chip on the deadline date if in window
+    for (const a of (r.actionItems||[])) {
+      if (!a?.deadline) continue;
+      const dl = String(a.deadline).slice(0,10);
+      if (dl < monthMin || dl > monthMax) continue;
+      ensure(dl).actions.push({...a, eventId: r.id, eventName: r.name});
+    }
   }
   const esc = s => (s==null?'':String(s)).replace(/</g,'&lt;').replace(/"/g,'&quot;');
   let html = `<div style="display:grid;grid-template-columns:repeat(7,1fr);background:var(--g100)">`;
@@ -22892,20 +23056,25 @@ function renderMaCalendar() {
   });
   html += `</div>`;
   html += `<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:1px;background:var(--g100)">`;
-  for (let i = 0; i < firstDow; i++) html += `<div style="background:var(--off);min-height:90px"></div>`;
+  for (let i = 0; i < firstDow; i++) html += `<div style="background:var(--off);min-height:100px"></div>`;
   for (let d = 1; d <= daysInMonth; d++) {
     const dateStr = `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     const isToday = dateStr === today;
-    const events = byDate.get(dateStr) || [];
-    const eventChips = events.slice(0,3).map(e => {
-      const tone = _MA_STATUS_TONE[e.status] || 'p-draft';
-      return `<div onclick="event.stopPropagation();openMaDrawerEdit('${e.id}')" style="cursor:pointer;padding:2px 5px;border-radius:3px;font-size:10px;background:#eef0f8;color:#3C3489;margin-bottom:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(e.name)} · ${esc(e.status)}">${esc(e.name)}</div>`;
+    const bucket = byDate.get(dateStr) || {events:[], actions:[]};
+    const events = bucket.events, actions = bucket.actions;
+    const evChips = events.slice(0,2).map(e => `<div onclick="event.stopPropagation();openMaDrawerEdit('${e.id}')" style="cursor:pointer;padding:2px 5px;border-radius:3px;font-size:10px;background:#eef0f8;color:#3C3489;margin-bottom:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(e.name)} · ${esc(e.status)}">${esc(e.name)}</div>`).join('');
+    const evMore = events.length > 2 ? `<div style="font-size:9px;color:var(--g600)">+${events.length-2} event</div>` : '';
+    const actChips = actions.slice(0,2).map(a => {
+      const overdue = !a.done && dateStr < today;
+      const bg = a.done ? '#dcfce7' : (overdue ? '#fee2e2' : '#fef3c7');
+      const fg = a.done ? '#166534' : (overdue ? '#9d1f1f' : '#854d0e');
+      const titleTxt = `${a.title||'(no title)'} → ${a.eventName}`;
+      return `<div onclick="event.stopPropagation();openMaDrawerEdit('${a.eventId}')" style="cursor:pointer;padding:2px 5px;border-radius:3px;font-size:10px;background:${bg};color:${fg};margin-bottom:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;${a.done?'text-decoration:line-through':''}" title="${esc(titleTxt)}">✓ ${esc(a.title||'?')}</div>`;
     }).join('');
-    const more = events.length > 3 ? `<div style="font-size:9px;color:var(--g600)">+${events.length-3} more</div>` : '';
-    html += `<div style="background:var(--white);min-height:90px;padding:4px 5px;${isToday?'background:#fef9c3':''}">
+    const actMore = actions.length > 2 ? `<div style="font-size:9px;color:var(--g600)">+${actions.length-2} action</div>` : '';
+    html += `<div style="background:${isToday?'#fef9c3':'var(--white)'};min-height:100px;padding:4px 5px">
       <div style="font-family:var(--mono);font-size:11px;color:${isToday?'#854d0e':'var(--g600)'};font-weight:${isToday?'600':'400'};margin-bottom:3px">${d}</div>
-      ${eventChips}
-      ${more}
+      ${evChips}${evMore}${actChips}${actMore}
     </div>`;
   }
   html += `</div>`;
@@ -22923,27 +23092,29 @@ function renderMaActionsView() {
   for (const r of _maRows) {
     (r.actionItems||[]).forEach((a, idx) => {
       flat.push({
-        ...a, eventId: r.id, eventName: r.name, eventDate: r.date, idx,
+        ...a, eventId: r.id, eventName: r.name, collectionId: r.collectionId, idx,
       });
     });
   }
+  const colName = id => allColRows.find(c => c.id === id)?.collectionName || '—';
   let rows = flat;
   if (fStat === 'open') rows = rows.filter(a => !a.done);
   else if (fStat === 'done') rows = rows.filter(a => a.done);
-  if (search) rows = rows.filter(a => `${a.title} ${a.eventName} ${a.pic}`.toLowerCase().includes(search));
+  if (search) rows = rows.filter(a => `${a.title} ${a.eventName} ${a.pic} ${colName(a.collectionId)}`.toLowerCase().includes(search));
   // sort: undone first by deadline asc, done last
   rows.sort((a, b) => {
     if (!!a.done !== !!b.done) return a.done ? 1 : -1;
     return (a.deadline||'9999').localeCompare(b.deadline||'9999');
   });
   document.getElementById('ma-act-tcount').textContent = `${rows.length} action`;
-  if (!rows.length) { tbody.innerHTML = '<tr><td class="empty-td" colspan="6">Belum ada action item.</td></tr>'; return; }
+  if (!rows.length) { tbody.innerHTML = '<tr><td class="empty-td" colspan="7">Belum ada action item.</td></tr>'; return; }
   const today = new Date().toISOString().slice(0,10);
   const esc = s => (s==null?'':String(s)).replace(/</g,'&lt;').replace(/"/g,'&quot;');
   tbody.innerHTML = rows.map(a => {
     const overdue = !a.done && a.deadline && a.deadline < today;
     const dlColor = overdue ? '#c0392b' : (a.done ? 'var(--g400)' : 'var(--g600)');
     return `<tr style="${a.done?'opacity:0.55':''}">
+      <td style="font-size:11px;color:var(--g600)">${esc(colName(a.collectionId))}</td>
       <td><input type="checkbox" ${a.done?'checked':''} onchange="toggleMaAction('${a.eventId}',${a.idx},this.checked)" style="width:16px;height:16px;cursor:pointer"></td>
       <td style="${a.done?'text-decoration:line-through':''};font-size:12px">${esc(a.title)||'<span style="color:var(--g400)">(no title)</span>'}</td>
       <td><a href="#" onclick="event.preventDefault();openMaDrawerEdit('${a.eventId}')" style="font-size:11px;color:#3C3489;text-decoration:underline">${esc(a.eventName)}</a></td>
