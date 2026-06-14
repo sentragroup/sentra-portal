@@ -22072,6 +22072,9 @@ function mapMP(r) {
     targetReach: r.target_reach != null ? Number(r.target_reach) : null,
     targetEngagementRate: r.target_engagement_rate != null ? Number(r.target_engagement_rate) : null,
     targetRoi: r.target_roi != null ? Number(r.target_roi) : null,
+    // Reference links — array of {label, url}. Editable list, "+ Tambah link"
+    // button so list grows. Stored as JSONB on marketing_plans.
+    links: Array.isArray(r.links) ? r.links : [],
     campaignStart: r.campaign_start||'', campaignEnd: r.campaign_end||'',
     actPhotoshoot:  !!r.activity_photoshoot,
     actVideo:       !!r.activity_video,
@@ -22397,12 +22400,21 @@ function renderMPDetailBody(col, plan) {
     <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:var(--g400);font-weight:600;margin-bottom:8px">✅ ACTIVITY MIX — pilih yang dipakai untuk collection ini</div>
     <div style="display:flex;flex-direction:column;gap:8px">${activityCards}</div>
   </div>`;
-  // Notes
-  const notesCard = `<div class="form-card" style="padding:14px">
-    <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;margin-bottom:8px">📝 Catatan Marketing</div>
-    <textarea id="mp-notes" rows="3" placeholder="Catatan internal tim marketing — risk, dependensi, notes random." style="resize:vertical;font-size:12px;width:100%" onblur="saveMPField('notes',this.value)">${esc(plan.notes)}</textarea>
+  // Reference Links — multi-link repeater (label + url). Saves whole array
+  // on any blur via saveMPLinks. Sits below the brief & strategy card.
+  const linksList = (plan.links||[]).map((l,i) => `<div style="display:grid;grid-template-columns:1fr 2fr auto;gap:6px;margin-bottom:6px;align-items:center">
+    <input type="text" value="${esc(l.label||'')}" placeholder="Label (e.g. Moodboard)" oninput="updateMPLink(${i},'label',this.value)" onblur="saveMPLinks()" style="font-size:12px;padding:5px 8px">
+    <input type="url" value="${esc(l.url||'')}" placeholder="https://..." oninput="updateMPLink(${i},'url',this.value)" onblur="saveMPLinks()" style="font-size:12px;padding:5px 8px;font-family:var(--mono)">
+    <button onclick="removeMPLink(${i})" title="Hapus link" style="background:none;border:1px solid var(--g200);border-radius:4px;color:#c0392b;cursor:pointer;font-size:11px;padding:4px 10px">✕</button>
+  </div>`).join('');
+  const linksCard = `<div class="form-card" style="padding:14px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px">🔗 Reference Links</div>
+      <button onclick="addMPLink()" style="padding:5px 12px;background:var(--white);border:1px solid #3C3489;color:#3C3489;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600">+ Tambah Link</button>
+    </div>
+    <div id="mp-links-list">${linksList || '<div style="text-align:center;padding:14px;color:var(--g400);font-size:12px">Belum ada link. Klik <strong>+ Tambah Link</strong> untuk simpan moodboard, brief, drive, deck, dll.</div>'}</div>
   </div>`;
-  host.innerHTML = refCard + briefCard + activitySection + notesCard;
+  host.innerHTML = refCard + briefCard + linksCard + activitySection;
   // Load per-activity summaries (single pass — no re-render trigger)
   for (const a of activities) {
     if (plan[a.flag]) _mpLoadActivitySummary(a, _mpCurrentColId, _mpExpanded.has(a.key));
@@ -22802,6 +22814,55 @@ async function toggleMPActivity(key, dbFlag, on) {
     const col = _mpCols.find(c => c.id === _mpCurrentColId);
     if (col) renderMPDetailBody(col, _mpCurrentPlan);
   } catch (e) { alert('Gagal: ' + (e.message||e)); }
+}
+
+// Reference links — in-memory edits to plan.links, persisted whole-array
+// on blur. Pattern mirrors sampling_links on collections.
+function addMPLink() {
+  if (!_mpCurrentPlan) return;
+  _mpCurrentPlan.links = (_mpCurrentPlan.links||[]).concat([{label:'',url:''}]);
+  _mpRerenderLinks();
+  saveMPLinks();
+}
+
+function removeMPLink(idx) {
+  if (!_mpCurrentPlan) return;
+  const list = _mpCurrentPlan.links||[];
+  list.splice(idx, 1);
+  _mpCurrentPlan.links = list;
+  _mpRerenderLinks();
+  saveMPLinks();
+}
+
+function updateMPLink(idx, field, value) {
+  if (!_mpCurrentPlan) return;
+  const list = _mpCurrentPlan.links||[];
+  if (!list[idx]) return;
+  list[idx][field] = value;
+}
+
+async function saveMPLinks() {
+  if (!_mpCurrentPlan) return;
+  try {
+    const {error} = await sb.from('marketing_plans').update({
+      links: _mpCurrentPlan.links||[],
+      last_updated: new Date().toISOString(), last_updated_by: currentUser||'',
+    }).eq('id', _mpCurrentPlan.id);
+    if (error) throw error;
+  } catch (e) { console.warn('Save MP links failed:', e); }
+}
+
+// Re-render only the links list (not the whole detail body) on add/remove.
+function _mpRerenderLinks() {
+  const host = document.getElementById('mp-links-list');
+  if (!host || !_mpCurrentPlan) return;
+  const esc = s => (s||'').replace(/"/g,'&quot;');
+  const list = _mpCurrentPlan.links||[];
+  host.innerHTML = list.length ? list.map((l,i) => `<div style="display:grid;grid-template-columns:1fr 2fr auto;gap:6px;margin-bottom:6px;align-items:center">
+    <input type="text" value="${esc(l.label||'')}" placeholder="Label (e.g. Moodboard)" oninput="updateMPLink(${i},'label',this.value)" onblur="saveMPLinks()" style="font-size:12px;padding:5px 8px">
+    <input type="url" value="${esc(l.url||'')}" placeholder="https://..." oninput="updateMPLink(${i},'url',this.value)" onblur="saveMPLinks()" style="font-size:12px;padding:5px 8px;font-family:var(--mono)">
+    <button onclick="removeMPLink(${i})" title="Hapus link" style="background:none;border:1px solid var(--g200);border-radius:4px;color:#c0392b;cursor:pointer;font-size:11px;padding:4px 10px">✕</button>
+  </div>`).join('') : `<div style="text-align:center;padding:14px;color:var(--g400);font-size:12px">Belum ada link. Klik <strong>+ Tambah Link</strong> untuk simpan moodboard, brief, drive, deck, dll.</div>`;
 }
 
 async function saveMPField(field, value) {
