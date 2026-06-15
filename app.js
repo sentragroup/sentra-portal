@@ -5172,6 +5172,9 @@ function mapCI(r) {
     treatment:r.treatment||"", color:r.color||"",
     qty:r.qty!=null?Number(r.qty):null,
     srp:r.srp!=null?Number(r.srp):null,
+    // Estimated COGS — planning-stage HPP estimate, sebelum vendor PD lock-in.
+    // Margin panel pakai ini sebagai fallback kalau PD HPP belum ada.
+    estimatedCogs:r.estimated_cogs!=null?Number(r.estimated_cogs):null,
     // Freebie: qty masuk production planning, SRP biasa NULL, dan
     // sales target compute (trigger-side) skip baris freebie.
     isFreebie: !!r.is_freebie,
@@ -5683,17 +5686,24 @@ async function loadColMarginPanel(col, items) {
   // Sellable items only (skip freebies — they have qty but no SRP)
   const sellable = items.filter(i => !i.isFreebie);
   const revenue = sellable.reduce((s,i) => s + (Number(i.qty)||0)*(Number(i.srp)||0), 0);
-  // Fetch product_dev variants linked to this collection → sum HPP × qty
-  let hpp = 0;
+  // PD HPP (real cost once vendor locked-in) — primary source
+  let hppPD = 0;
   try {
     const {data} = await sb.from('product_dev')
       .select('collection_id,sku_type,hpp,qty')
       .eq('collection_id', cid)
       .eq('sku_type','variant');
     for (const v of (data||[])) {
-      hpp += (Number(v.hpp)||0) * (Number(v.qty)||0);
+      hppPD += (Number(v.hpp)||0) * (Number(v.qty)||0);
     }
   } catch (e) { console.warn('Margin HPP fetch failed:', e); }
+  // CD estimated COGS (planning-stage estimate) — fallback ketika PD belum
+  // ada. Hitung dari semua SKU (termasuk freebie — freebie ada cost meskipun
+  // gak ada SRP).
+  const cogsEst = items.reduce((s,i) => s + (Number(i.qty)||0)*(Number(i.estimatedCogs)||0), 0);
+  const usingEst = hppPD === 0 && cogsEst > 0;
+  const hpp = hppPD > 0 ? hppPD : cogsEst;
+  const sourceLabel = hppPD > 0 ? 'PD (actual)' : usingEst ? 'CD est.' : '—';
   const margin = revenue - hpp;
   const marginPct = revenue > 0 ? (margin / revenue * 100) : null;
   const tone = marginPct == null ? {clr:'#999', bg:'#f5f5f5', lbl:'—'}
@@ -5709,7 +5719,7 @@ async function loadColMarginPanel(col, items) {
         <div style="font-family:var(--mono);font-size:18px;font-weight:700">${revenue?fmt(revenue):'—'}</div>
       </div>
       <div style="background:var(--off);border:1px solid var(--g100);border-radius:6px;padding:10px 14px">
-        <div style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:4px">Total HPP (dari PD)</div>
+        <div style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:4px">Total COGS <span style="text-transform:none;letter-spacing:0;color:${usingEst?'#a66800':'var(--g400)'}">· ${sourceLabel}</span></div>
         <div style="font-family:var(--mono);font-size:18px;font-weight:700">${hpp?fmt(hpp):'—'}</div>
       </div>
       <div style="background:var(--off);border:1px solid var(--g100);border-radius:6px;padding:10px 14px">
@@ -5721,7 +5731,7 @@ async function loadColMarginPanel(col, items) {
         <div style="font-family:var(--mono);font-size:18px;font-weight:700;color:${tone.clr}">${marginPct!=null?marginPct.toFixed(1)+'%':'—'} <span style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.3px">${tone.lbl}</span></div>
       </div>
     </div>
-    ${hpp===0 ? `<div style="margin-top:10px;font-size:11px;color:var(--g600);background:#fef5e0;border:1px dashed #f3cf7a;padding:8px 12px;border-radius:4px">⚠️ HPP belum di-isi di Product Development. Margin tidak bisa dihitung — set vendor + HPP per variant SKU di PD untuk activate.</div>`:''}`;
+    ${usingEst ? `<div style="margin-top:10px;font-size:11px;color:var(--g600);background:#fef5e0;border:1px dashed #f3cf7a;padding:8px 12px;border-radius:4px">ℹ️ Pakai estimasi COGS dari Collection Dev. Akan otomatis swap ke PD HPP (real) setelah vendor + HPP per variant di-isi di Product Development.</div>` : (hpp===0 ? `<div style="margin-top:10px;font-size:11px;color:var(--g600);background:#fef5e0;border:1px dashed #f3cf7a;padding:8px 12px;border-radius:4px">⚠️ COGS belum di-isi. Isi <strong>Est. COGS</strong> di tiap SKU (atau set vendor + HPP di Product Development) untuk activate margin.</div>` : '')}`;
 }
 
 // ── Business tab: Linked Agreement ──
@@ -6367,9 +6377,10 @@ function renderColTargetSection(col, items) {
       <div class="fg" style="margin:0;position:relative"><label style="font-size:11px">Sub-Kategori</label><input type="text" id="ci-dp-subcat-${cid}" placeholder="Sleeveless, Regular..." autocomplete="off" oninput="updateCIDpPreview('${cid}')"><div class="ac-list" id="ac-ci-dp-subcat-${cid}"></div></div>
       <div class="fg" style="margin:0"><label style="font-size:11px">Treatment</label><input type="text" id="ci-dp-treat-${cid}" placeholder="DTG, Sablon, Embroidery..." oninput="updateCIDpPreview('${cid}')"></div>
       <div class="fg" style="margin:0"><label style="font-size:11px">Color</label><input type="text" id="ci-dp-color-${cid}" placeholder="Black, White, Navy..." oninput="updateCIDpPreview('${cid}')"></div>
-      <div style="display:grid;grid-template-columns:1fr 1.4fr;gap:8px">
+      <div style="display:grid;grid-template-columns:1fr 1.4fr 1.4fr;gap:8px">
         <div class="fg" style="margin:0"><label style="font-size:11px">Qty</label><input type="number" id="ci-dp-qty-${cid}" min="0" step="1" placeholder="200" oninput="updateCIDpPreview('${cid}')"></div>
         <div class="fg ci-nonfreebie-${cid}" style="margin:0"><label style="font-size:11px">SRP (Rp)</label><input type="number" id="ci-dp-srp-${cid}" min="0" step="1000" placeholder="120000" oninput="updateCIDpPreview('${cid}')"></div>
+        <div class="fg" style="margin:0"><label style="font-size:11px">Est. COGS (Rp) <span style="font-size:10px;color:var(--g400)">(opsional)</span></label><input type="number" id="ci-dp-cogs-${cid}" min="0" step="500" placeholder="45000"></div>
       </div>
     </div>
     <div style="background:var(--white);border:1px dashed var(--g200);border-radius:6px;padding:10px 12px;margin-bottom:10px">
@@ -6499,6 +6510,7 @@ function renderColTargetSection(col, items) {
                   <div class="fg"><label style="font-size:11px">Color</label><input type="text" id="cieb-color-${i.id}" value="${(i.color||'').replace(/"/g,'&quot;')}"></div>
                   <div class="fg"><label style="font-size:11px">Qty</label><input type="number" id="cieb-qty-${i.id}" min="0" step="1" value="${i.qty!=null?i.qty:''}"></div>
                   <div class="fg cieb-nonfreebie-${i.id}" style="${i.isFreebie?'display:none':''}"><label style="font-size:11px">SRP (Rp)</label><input type="number" id="cieb-srp-${i.id}" min="0" step="1000" value="${i.srp!=null?i.srp:''}"></div>
+                  <div class="fg"><label style="font-size:11px">Est. COGS (Rp)</label><input type="number" id="cieb-cogs-${i.id}" min="0" step="500" value="${i.estimatedCogs!=null?i.estimatedCogs:''}"></div>
                 </div>
                 <div style="margin-top:10px;background:var(--white);border:1px dashed var(--g200);border-radius:6px;padding:10px 12px">
                   <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
@@ -8354,6 +8366,7 @@ async function addCollectionItem(colId) {
   const qty  = parseInt(document.getElementById(`ci-dp-qty-${colId}`)?.value, 10);
   // Freebie always has srp = NULL (trigger excludes is_freebie rows from target compute anyway)
   const srp  = isFreebie ? NaN : parseFloat(document.getElementById(`ci-dp-srp-${colId}`)?.value);
+  const cogs = parseFloat(document.getElementById(`ci-dp-cogs-${colId}`)?.value);
   const col  = allColRows.find(r => r.id === colId);
   const ip   = col?.ipRelated || '';
   const baseName = composeSkuName(ip, prop, cat, sub, treat, clr);
@@ -8372,6 +8385,7 @@ async function addCollectionItem(colId) {
       color: clr || null,
       qty: isNaN(qty) ? null : qty,
       srp: isNaN(srp) ? null : srp,
+      estimated_cogs: isNaN(cogs) ? null : cogs,
       is_freebie: isFreebie,
       approval_status:"Pending",
       date_added:new Date().toISOString().slice(0,10), added_by:currentUser,
@@ -8390,7 +8404,7 @@ async function addCollectionItem(colId) {
       );
       if (ce) console.warn('Failed to insert components:', ce);
     }
-    [`ci-dp-name-${colId}`,`ci-dp-cat-${colId}`,`ci-dp-subcat-${colId}`,`ci-dp-treat-${colId}`,`ci-dp-color-${colId}`,`ci-dp-qty-${colId}`,`ci-dp-srp-${colId}`].forEach(eid=>{const el=document.getElementById(eid);if(el)el.value="";});
+    [`ci-dp-name-${colId}`,`ci-dp-cat-${colId}`,`ci-dp-subcat-${colId}`,`ci-dp-treat-${colId}`,`ci-dp-color-${colId}`,`ci-dp-qty-${colId}`,`ci-dp-srp-${colId}`,`ci-dp-cogs-${colId}`].forEach(eid=>{const el=document.getElementById(eid);if(el)el.value="";});
     _ciPendingComps[colId] = [];
     renderCIPendingComponents(colId);
     const isFreebieCb = document.getElementById(`ci-dp-isfreebie-${colId}`);
@@ -8783,6 +8797,7 @@ async function saveSKUEditBiz(itemId, colId) {
     const clr   = document.getElementById(`cieb-color-${itemId}`)?.value.trim() || '';
     const qty   = parseInt(document.getElementById(`cieb-qty-${itemId}`)?.value, 10);
     const srp   = isFreebie ? NaN : parseFloat(document.getElementById(`cieb-srp-${itemId}`)?.value);
+    const cogs  = parseFloat(document.getElementById(`cieb-cogs-${itemId}`)?.value);
     const col   = allColRows.find(r => r.id === colId);
     const ip    = col?.ipRelated || '';
     const baseName = composeSkuName(ip, prop, cat, sub, treat, clr);
@@ -8796,6 +8811,7 @@ async function saveSKUEditBiz(itemId, colId) {
       color: clr || null,
       qty: isNaN(qty) ? null : qty,
       srp: isNaN(srp) ? null : srp,
+      estimated_cogs: isNaN(cogs) ? null : cogs,
       is_freebie: isFreebie,
       last_updated: new Date().toISOString(), last_updated_by: currentUser
     }).eq("id",itemId);
