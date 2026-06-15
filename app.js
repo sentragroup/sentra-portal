@@ -17904,8 +17904,11 @@ function mrSendEmail(brandId, brandName) {
   );
 
   const body = lines.join('\n');
-  const mailto = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-  window.location.href = mailto;
+  // Buka Gmail web compose di tab baru — bypass default mail app handler
+  // (Outlook/Apple Mail). Pakai `window.open` supaya gak nge-replace tab
+  // portal yang lagi dipake.
+  const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(email)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  window.open(gmailUrl, '_blank');
 }
 
 async function saveMRTracking() {
