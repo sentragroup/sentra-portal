@@ -17851,45 +17851,58 @@ function mrSendEmail(brandId, brandName) {
   if (!email) {
     if (!confirm(`Email brand belum di-set di Brand Master.\nLanjut buka draft email (tanpa to)?`)) return;
   }
-  const subject = `Consignment Summary ${s.brandName} · ${s.periodLabel}`;
-  // Column-aligned plain text — looks decent in Gmail / Outlook draft.
-  const lines = [
-    `Halo ${s.brandName} team,`,
-    ``,
-    `Berikut summary konsinyasi periode ${s.periodLabel}:`,
-    ``,
-    `Financial`,
-    `  Gross Sales          : ${s.gross}`,
-    `  Konsinyasi Fee       : -${s.fee}`,
-  ];
-  if (s.isPT) lines.push(`  PPh 23 (2%)          : +${s.pph}`);
-  lines.push(
-    `  Net Payout           : ${s.net}`,
-    ``,
-  );
+  // periodLabel = "Mei 2026" → ambil nama bulan aja buat subject.
+  const monthOnly = (s.periodLabel || '').split(' ')[0] || s.periodLabel;
+  const subject = s.isPT
+    ? `Laporan Penjualan ${monthOnly} & Invoice Consignment Fee — ${s.brandName} × Marté`
+    : `Laporan Penjualan ${monthOnly} & Consignment Fee — ${s.brandName} × Marté`;
+
+  const lines = [];
+  lines.push(`Halo Tim ${s.brandName},`, ``);
+  lines.push(`Semoga selalu dalam keadaan baik.`, ``);
+
   if (s.isPT) {
     lines.push(
-      `Action Required`,
-      `  Mohon kirim bukti potong PPh 23 sebesar ${s.pph} atas jasa consignment fee.`,
+      `Bersama email ini kami lampirkan laporan penjualan produk ${s.brandName} yang dititipkan secara konsinyasi di Marté untuk periode ${s.periodLabel}, beserta invoice consignment fee dari Marté.`,
+      ``,
+      `Invoice consignment fee terlampir tidak memerlukan pembayaran — nilainya sudah kami potong langsung dari hasil penjualan, sehingga telah tercermin pada nominal "Total Net Receive" di laporan. Invoice tersebut hanya menjadi dasar bagi ${s.brandName} untuk menerbitkan bukti potong PPh 2% atas jasa konsinyasi.`,
+      ``,
+      `Mohon bantuannya untuk menerbitkan bukti potong atas invoice tersebut. Dana sebesar "Total Net Receive" akan kami transfer ke rekening ${s.brandName} pada jadwal pembayaran kami, yaitu Kamis terdekat dari tanggal 15.`,
+      ``,
+    );
+  } else {
+    lines.push(
+      `Bersama email ini kami lampirkan laporan penjualan produk ${s.brandName} yang dititipkan secara konsinyasi di Marté untuk periode ${s.periodLabel}, beserta invoice consignment fee dari Marté sebagai rincian.`,
+      ``,
+      `Invoice consignment fee terlampir tidak memerlukan pembayaran maupun penerbitan bukti potong — nilainya sudah kami potong langsung dari hasil penjualan, sehingga telah tercermin pada nominal "Total Net Receive" di laporan.`,
+      ``,
+      `Dana sebesar "Total Net Receive" akan kami transfer ke rekening ${s.brandName} pada jadwal pembayaran kami, yaitu Kamis terdekat dari tanggal 15. Untuk kewajiban perpajakan, masing-masing pihak menanggung kewajibannya sendiri.`,
       ``,
     );
   }
+
+  // Ringkasan finansial — column-aligned plain text, readable di Gmail draft.
   lines.push(
-    `Movement`,
-    `  Inbound (periode)    : ${s.inboundPer}`,
-    `  Terjual (periode)    : ${s.soldPer}`,
+    `Ringkasan ${s.periodLabel}:`,
+    `  Gross Sales          : ${s.gross}`,
+    `  Consignment Fee      : -${s.fee}`,
   );
-  if ((parseFloat(s.adjOutPer)||0) > 0) lines.push(`  Adjustment OUT       : ${s.adjOutPer}`);
+  if (s.isPT) lines.push(`  PPh 23 (2%)          : +${s.pph}`);
   lines.push(
-    `  Terjual (all time)   : ${s.soldAll}`,
-    `  Stock now            : ${s.stockNow}`,
+    `  Total Net Receive    : ${s.net}`,
     ``,
   );
-  if (s.invUrl) lines.push(`Invoice (referensi): ${s.invUrl}`, ``);
+
   lines.push(
-    `Terima kasih,`,
-    `Sentra`,
+    `Apabila ada pertanyaan atau memerlukan informasi tambahan, jangan ragu menghubungi kami — dengan senang hati kami bantu.`,
+    ``,
+    `Terima kasih atas kerja samanya.`,
+    ``,
+    `Salam hangat,`,
+    `Tim Marté`,
+    `Marté General Store · Aulia@suneatercoven.com · +62 857-7519-1850`,
   );
+
   const body = lines.join('\n');
   const mailto = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   window.location.href = mailto;
