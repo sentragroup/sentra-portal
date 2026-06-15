@@ -16920,7 +16920,13 @@ async function loadMarteReport() {
 
   const [year, month] = period.split('-').map(Number);
   const startISO = `${period}-01T00:00:00+07:00`;
-  const endISO   = new Date(year, month, 1).toISOString().slice(0,10) + 'T00:00:00+07:00';
+  // endISO = first day of NEXT month at 00:00 WIB. Old impl used `new Date(year,
+  // month, 1).toISOString()` which converted to UTC and crossed the date line
+  // backwards (May 31 17:00 UTC), making endISO land on May 31 instead of Jun 1
+  // → all May 31 transactions silently dropped.
+  const _endY = month === 12 ? year + 1 : year;
+  const _endM = month === 12 ? 1 : month + 1;
+  const endISO   = `${_endY}-${String(_endM).padStart(2,'0')}-01T00:00:00+07:00`;
 
   const [salesRes, trkRes, bmRes, invRes] = await Promise.all([
     sb.rpc('get_marte_sales_report', { p_start_date: startISO, p_end_date: endISO }),
@@ -17163,7 +17169,13 @@ async function _mrLoadSKUDetail(brandId) {
   if (!_mrPeriod || !brandId) return;
   const [year, month] = _mrPeriod.split('-').map(Number);
   const startISO = `${_mrPeriod}-01T00:00:00+07:00`;
-  const endISO   = new Date(year, month, 1).toISOString().slice(0,10) + 'T00:00:00+07:00';
+  // endISO = first day of NEXT month at 00:00 WIB. Old impl used `new Date(year,
+  // month, 1).toISOString()` which converted to UTC and crossed the date line
+  // backwards (May 31 17:00 UTC), making endISO land on May 31 instead of Jun 1
+  // → all May 31 transactions silently dropped.
+  const _endY = month === 12 ? year + 1 : year;
+  const _endM = month === 12 ? 1 : month + 1;
+  const endISO   = `${_endY}-${String(_endM).padStart(2,'0')}-01T00:00:00+07:00`;
   const brandName = _mrAllRows.find(r=>r.brand_id===brandId)?.brand_name || brandId;
 
   const [salesRes, invRes] = await Promise.all([
@@ -17409,7 +17421,13 @@ async function mrDownloadPDF(brandId, brandName) {
   try {
     const [year, month] = _mrPeriod.split('-').map(Number);
     const startISO = `${_mrPeriod}-01T00:00:00+07:00`;
-    const endISO   = new Date(year, month, 1).toISOString().slice(0,10) + 'T00:00:00+07:00';
+    // endISO = first day of NEXT month at 00:00 WIB. Old impl used `new Date(year,
+  // month, 1).toISOString()` which converted to UTC and crossed the date line
+  // backwards (May 31 17:00 UTC), making endISO land on May 31 instead of Jun 1
+  // → all May 31 transactions silently dropped.
+  const _endY = month === 12 ? year + 1 : year;
+  const _endM = month === 12 ? 1 : month + 1;
+  const endISO   = `${_endY}-${String(_endM).padStart(2,'0')}-01T00:00:00+07:00`;
     const [salesRes, invRes] = await Promise.all([
       sb.rpc('get_marte_brand_detail',         { p_brand_id: brandId, p_start_date: startISO, p_end_date: endISO }),
       sb.rpc('get_marte_brand_inventory_sku',  { p_brand_id: brandId, p_start_date: startISO, p_end_date: endISO, p_as_of_date: endISO }),
