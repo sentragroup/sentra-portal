@@ -6380,7 +6380,7 @@ function renderColTargetSection(col, items) {
       <div style="display:grid;grid-template-columns:1fr 1.4fr 1.4fr;gap:8px">
         <div class="fg" style="margin:0"><label style="font-size:11px">Qty</label><input type="number" id="ci-dp-qty-${cid}" min="0" step="1" placeholder="200" oninput="updateCIDpPreview('${cid}')"></div>
         <div class="fg ci-nonfreebie-${cid}" style="margin:0"><label style="font-size:11px">SRP (Rp)</label><input type="number" id="ci-dp-srp-${cid}" min="0" step="1000" placeholder="120000" oninput="updateCIDpPreview('${cid}')"></div>
-        <div class="fg" style="margin:0"><label style="font-size:11px">Est. COGS (Rp) <span style="font-size:10px;color:var(--g400)">(opsional)</span></label><input type="number" id="ci-dp-cogs-${cid}" min="0" step="500" placeholder="45000"></div>
+        <div class="fg" style="margin:0"><label style="font-size:11px">Est. COGS (Rp) <span class="req">*</span></label><input type="number" id="ci-dp-cogs-${cid}" min="0" step="500" placeholder="45000"></div>
       </div>
     </div>
     <div style="background:var(--white);border:1px dashed var(--g200);border-radius:6px;padding:10px 12px;margin-bottom:10px">
@@ -6401,15 +6401,29 @@ function renderColTargetSection(col, items) {
   const fmtRp = v => 'Rp ' + Math.round(v||0).toLocaleString('id-ID');
   const ciCount = items.length;
   const itemsWithPrice = items.filter(i => (i.qty||0) > 0 && (i.srp||0) > 0).length;
+  // Target Gross Profit + Margin% — derived from Σ(qty × estimatedCogs).
+  // Freebie included in COGS sum (mereka punya cost meskipun gak punya SRP)
+  // tapi gak punya revenue → ngurangi margin di akhir, yang correct.
+  const targetCogs = items.reduce((s,i) => s + (Number(i.qty)||0)*(Number(i.estimatedCogs)||0), 0);
+  const itemsWithCogs = items.filter(i => (i.qty||0) > 0 && (i.estimatedCogs||0) > 0).length;
+  const itemsWithQty  = items.filter(i => (i.qty||0) > 0).length;
+  const cogsComplete  = itemsWithQty > 0 && itemsWithCogs === itemsWithQty;
+  const targetProfit  = targetRev - targetCogs;
+  const targetMargin  = targetRev > 0 ? (targetProfit / targetRev * 100) : null;
+  const mgTone = targetMargin == null ? {clr:'#999', bg:'var(--white)', lbl:''}
+    : targetMargin >= 50 ? {clr:'#0a7d3a', bg:'#daf3e0', lbl:'Excellent'}
+    : targetMargin >= 30 ? {clr:'#3C3489', bg:'#eef0f8', lbl:'Healthy'}
+    : targetMargin >= 15 ? {clr:'#a66800', bg:'#fef5e0', lbl:'Tight'}
+    : {clr:'#c0392b', bg:'#fde0e0', lbl:'Low'};
   const formHTML = `<div style="background:linear-gradient(135deg,#fffef0 0%,#fefad0 100%);border:1px solid #f1cf7a;border-radius:8px;padding:16px;margin-bottom:14px">
     <div style="display:flex;justify-content:space-between;align-items:start;gap:12px;flex-wrap:wrap">
       <div>
         <div style="font-family:var(--syne);font-size:15px;font-weight:700;margin-bottom:4px">Sales Target ${hasTarget?'':'(belum ada SKU)'}</div>
-        <div style="font-size:11px;color:var(--g600)">Auto-compute dari Σ(qty × SRP) di setiap SKU di Business tab. ${ciCount?`${itemsWithPrice}/${ciCount} SKU sudah lengkap qty+SRP.`:'Tambah SKU dulu untuk set target.'}</div>
+        <div style="font-size:11px;color:var(--g600)">Auto-compute dari Σ(qty × SRP) dan Σ(qty × Est. COGS). ${ciCount?`${itemsWithPrice}/${ciCount} SKU punya SRP · ${itemsWithCogs}/${ciCount} punya COGS.`:'Tambah SKU dulu untuk set target.'}</div>
       </div>
       <span style="font-size:10px;color:var(--g400);font-family:var(--mono);align-self:center">${days!=null?(days>0?`T-${days}d to launch`:days===0?'Launches today':`${-days}d ago`):'No release date'}</span>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:12px">
       <div style="background:var(--white);border:1px solid var(--g100);border-radius:6px;padding:10px 14px">
         <div style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:4px">Target Units</div>
         <div style="font-family:var(--mono);font-size:18px;font-weight:700">${targetUn?targetUn.toLocaleString('id-ID')+' pcs':'—'}</div>
@@ -6418,7 +6432,16 @@ function renderColTargetSection(col, items) {
         <div style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:4px">Target Revenue</div>
         <div style="font-family:var(--mono);font-size:18px;font-weight:700">${targetRev?fmtRp(targetRev):'—'}</div>
       </div>
+      <div style="background:var(--white);border:1px solid var(--g100);border-radius:6px;padding:10px 14px">
+        <div style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:4px">Target Gross Profit</div>
+        <div style="font-family:var(--mono);font-size:18px;font-weight:700;color:${targetProfit>=0?'#0a7d3a':'#c0392b'}">${targetCogs>0?fmtRp(targetProfit):'—'}</div>
+      </div>
+      <div style="background:${mgTone.bg};border:1px solid ${targetMargin!=null?mgTone.clr:'var(--g100)'};border-radius:6px;padding:10px 14px">
+        <div style="font-size:10px;color:${targetMargin!=null?mgTone.clr:'var(--g400)'};text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:4px">Target Gross Margin</div>
+        <div style="font-family:var(--mono);font-size:18px;font-weight:700;color:${mgTone.clr}">${targetMargin!=null?targetMargin.toFixed(1)+'%':'—'} ${mgTone.lbl?`<span style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.3px">${mgTone.lbl}</span>`:''}</div>
+      </div>
     </div>
+    ${!cogsComplete && itemsWithQty > 0 ? `<div style="margin-top:10px;font-size:11px;color:var(--g600);background:#fef5e0;border:1px dashed #f3cf7a;padding:8px 12px;border-radius:4px">⚠️ ${itemsWithQty - itemsWithCogs} dari ${itemsWithQty} SKU belum punya Est. COGS — margin di atas masih partial. Lengkapi via inline edit di tabel SKU bawah.</div>` : ''}
   </div>`;
 
   // Monitor panel moved to Performance tab — leave empty here so callers can
@@ -6510,7 +6533,7 @@ function renderColTargetSection(col, items) {
                   <div class="fg"><label style="font-size:11px">Color</label><input type="text" id="cieb-color-${i.id}" value="${(i.color||'').replace(/"/g,'&quot;')}"></div>
                   <div class="fg"><label style="font-size:11px">Qty</label><input type="number" id="cieb-qty-${i.id}" min="0" step="1" value="${i.qty!=null?i.qty:''}"></div>
                   <div class="fg cieb-nonfreebie-${i.id}" style="${i.isFreebie?'display:none':''}"><label style="font-size:11px">SRP (Rp)</label><input type="number" id="cieb-srp-${i.id}" min="0" step="1000" value="${i.srp!=null?i.srp:''}"></div>
-                  <div class="fg"><label style="font-size:11px">Est. COGS (Rp)</label><input type="number" id="cieb-cogs-${i.id}" min="0" step="500" value="${i.estimatedCogs!=null?i.estimatedCogs:''}"></div>
+                  <div class="fg"><label style="font-size:11px">Est. COGS (Rp) <span class="req">*</span></label><input type="number" id="cieb-cogs-${i.id}" min="0" step="500" value="${i.estimatedCogs!=null?i.estimatedCogs:''}"></div>
                 </div>
                 <div style="margin-top:10px;background:var(--white);border:1px dashed var(--g200);border-radius:6px;padding:10px 12px">
                   <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
@@ -8367,6 +8390,7 @@ async function addCollectionItem(colId) {
   // Freebie always has srp = NULL (trigger excludes is_freebie rows from target compute anyway)
   const srp  = isFreebie ? NaN : parseFloat(document.getElementById(`ci-dp-srp-${colId}`)?.value);
   const cogs = parseFloat(document.getElementById(`ci-dp-cogs-${colId}`)?.value);
+  if (isNaN(cogs) || cogs <= 0) { alert('Est. COGS wajib diisi untuk hitung target gross margin.'); return; }
   const col  = allColRows.find(r => r.id === colId);
   const ip   = col?.ipRelated || '';
   const baseName = composeSkuName(ip, prop, cat, sub, treat, clr);
@@ -8798,6 +8822,11 @@ async function saveSKUEditBiz(itemId, colId) {
     const qty   = parseInt(document.getElementById(`cieb-qty-${itemId}`)?.value, 10);
     const srp   = isFreebie ? NaN : parseFloat(document.getElementById(`cieb-srp-${itemId}`)?.value);
     const cogs  = parseFloat(document.getElementById(`cieb-cogs-${itemId}`)?.value);
+    if (isNaN(cogs) || cogs <= 0) {
+      if(btn){btn.disabled=false;btn.textContent="Simpan";}
+      alert('Est. COGS wajib diisi untuk hitung target gross margin.');
+      return;
+    }
     const col   = allColRows.find(r => r.id === colId);
     const ip    = col?.ipRelated || '';
     const baseName = composeSkuName(ip, prop, cat, sub, treat, clr);
