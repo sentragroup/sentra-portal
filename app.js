@@ -5194,21 +5194,8 @@ function composeSkuName(ipRelated, skuProper, category, subCategory, treatment, 
     .join(' - ');
 }
 
-let allColStages = [];
 let allColNotes = [];
-const COL_STAGE_NAMES = ["inbound","photoshoot","content","ads","kol","offline_activation","marketing_config"];
-const COL_STAGE_LABELS = {inbound:"Inbound",photoshoot:"Photoshoot",content:"Content",ads:"Ads",kol:"KOL",offline_activation:"Offline Activation",marketing_config:"Config"};
-const MKT_ACTIVITIES = [
-  {key:"photoshoot",    label:"Photoshoot", icon:"📸"},
-  {key:"content",       label:"Content",    icon:"📱"},
-  {key:"ads",           label:"Ads",        icon:"📢"},
-  {key:"kol",           label:"KOL",        icon:"🌟"},
-  {key:"offline_activation", label:"Offline", icon:"🛍️"},
-];
 
-function mapCS(r) {
-  return {rowIndex:r.id,id:r.id,collectionId:r.collection_id,stage:r.stage,status:r.status||"Not Started",notes:r.notes||""};
-}
 function mapCN(r) {
   return {id:r.id,collectionId:r.collection_id,content:r.content||"",author:r.author||"",mentions:r.mentions||"",createdAt:r.created_at||""};
 }
@@ -5238,12 +5225,11 @@ async function loadCollections() {
       sb.from("collections").select("*").order("release_date",{ascending:false}),
       sb.from("collection_items").select("*").order("date_added",{ascending:true}),
       sb.from("designer_workflow").select("*").not("collection_id","is",null),
-      sb.from("collection_stages").select("*"),
       sb.from("collection_item_components").select("*").order("id",{ascending:true})
     ];
     if(!allDsgRows.length) fetches.push(sb.from("designer_master").select("*").order("name"));
     const results=await Promise.all(fetches);
-    const [{data,error},{data:ciData},{data:dwData},{data:csData},{data:cicData}]=results;
+    const [{data,error},{data:ciData},{data:dwData},{data:cicData}]=results;
     if(error)throw error;
     allColRows=(data||[]).map(mapCol);
     allColItems=(ciData||[]).map(mapCI);
@@ -5252,8 +5238,7 @@ async function loadCollections() {
       name: r.name||'', qtyPerUnit: Number(r.qty_per_unit)||1,
       notes: r.notes||'', createdAt: r.created_at, createdBy: r.created_by||''
     }));
-    allColStages=(csData||[]).map(mapCS);
-    if(results[5]?.data) allDsgRows=results[5].data.map(mapDsg);
+    if(results[4]?.data) allDsgRows=results[4].data.map(mapDsg);
     // Populate allDwRows with full data (payment, URL, agreement, etc.)
     allDwRows=(dwData||[]).filter(r=>r.locked).map(r=>{
       const row=mapDw(r);
@@ -5281,9 +5266,8 @@ async function loadCollections() {
     }
     setupAC("col-ip","ac-col-ip",()=>allIPRows.map(r=>r.name).filter(Boolean));
     setupAC("col-pic","ac-col-pic",()=>acPics);
-    // Auto-create DW projects + stage placeholders for any collection missing them (background)
+    // Auto-create DW projects for any collection missing them (background)
     ensureDWProjects(allColRows, dwCheck||[]);
-    ensureColStages(allColRows, csData||[]);
     // Pending detail (deep-link by raw id from another module, e.g. CP/VP drawer)
     if (_pendingColDetailId) {
       const pending = _pendingColDetailId;
@@ -5401,31 +5385,8 @@ function computeColDeadline(colId, designer) {
   return skus.map(i=>i.deadline).sort().pop(); // latest deadline
 }
 
-async function ensureColStages(cols, existingStages) {
-  const existingKeys=new Set(existingStages.map(s=>`${s.collection_id}|${s.stage}`));
-  for(const col of cols){
-    if(!col.id) continue;
-    for(const stage of COL_STAGE_NAMES){
-      const key=`${col.id}|${stage}`;
-      if(existingKeys.has(key)) continue;
-      try{
-        const id=genId("CS");
-        const {error}=await sb.from("collection_stages").insert({
-          id,collection_id:col.id,stage,status:"Not Started",
-          last_updated:new Date().toISOString(),last_updated_by:currentUser
-        });
-        if(!error){
-          existingKeys.add(key);
-          allColStages.push({rowIndex:id,id,collectionId:col.id,stage,status:"Not Started",notes:""});
-        }
-      }catch(e){/* silent */}
-    }
-  }
-}
-
 function getPipelineStatuses(colId) {
   const items=allColItems.filter(i=>i.collectionId===colId);
-  const stages=allColStages.filter(s=>s.collectionId===colId);
   // Design: SKU approval_status is primary source; DW deliverables as fallback
   const dwRows=allDwRows.filter(r=>r.collectionId===colId&&r.locked);
   let design="not-started";
@@ -5459,35 +5420,7 @@ function getPipelineStatuses(colId) {
     });
     production=allPutaway?"done":"in-progress";
   }
-  const getStage=s=>stages.find(r=>r.stage===s)?.status||"Not Started";
-  const stageToKey=s=>s==="Done"?"done":s==="In Progress"?"in-progress":"not-started";
-  const inbound=stageToKey(getStage("inbound"));
-  const mktEnabled=getMktEnabled(colId);
-  const mktActKeys=MKT_ACTIVITIES.filter(a=>mktEnabled.includes(a.key)).map(a=>a.key);
-  let marketing="not-started";
-  if(!mktActKeys.length){
-    marketing="done";
-  } else {
-    const mkt=mktActKeys.map(s=>getStage(s));
-    if(mkt.every(s=>s==="Done")) marketing="done";
-    else if(mkt.some(s=>s==="In Progress"||s==="Done")) marketing="in-progress";
-  }
-  return {design,sampling,production,inbound,marketing};
-}
-
-function renderPipelineBarHTML(colId) {
-  const ps=getPipelineStatuses(colId);
-  const stages=[["design","Design"],["sampling","Sampling"],["production","Production"],["inbound","Inbound"],["marketing","Marketing"]];
-  const dot=s=>s==="done"?"●":s==="in-progress"?"◐":"○";
-  const clr=s=>s==="done"?"#1a5c25":s==="in-progress"?"#1a4a8a":"#aaa";
-  const lbl=s=>s==="done"?"Done":s==="in-progress"?"In Progress":"Not Started";
-  return stages.map((([k,l],i)=>`
-    ${i>0?`<div style="flex:1;height:1px;background:var(--g200);min-width:12px;max-width:32px;margin-top:-10px"></div>`:""}
-    <div style="display:flex;flex-direction:column;align-items:center;gap:3px">
-      <span style="font-size:20px;line-height:1;color:${clr(ps[k])}">${dot(ps[k])}</span>
-      <span style="font-size:9px;font-family:var(--mono);text-transform:uppercase;color:${clr(ps[k])};white-space:nowrap">${l}</span>
-    </div>`
-  )).join("")
+  return {design,sampling,production};
 }
 
 function renderColStats(rows,items) {
@@ -6226,8 +6159,14 @@ function renderColTabBar(col, items) {
   // status surface is the section header inside each tab). Compute pipeline
   // status locally; renderColDetail computes it again but we can't reach its
   // scope from here.
-  const _ps = (typeof getPipelineStatuses === 'function') ? getPipelineStatuses(cid) : {};
-  const mktStatus  = _ps.marketing === 'done' ? 'Done' : _ps.marketing === 'in-progress' ? 'In Progress' : 'Not Started';
+  // Marketing tab sub-status: pakai release_date sebagai proxy ringan (no
+  // legacy collection_stages lagi). Detail status real ada di Marketing Plan
+  // mirror dalam tab.
+  let mktStatus = '—';
+  if (col.releaseDate) {
+    const days = Math.round((new Date(col.releaseDate+'T00:00:00') - Date.now())/86400000);
+    mktStatus = days < 0 ? 'Post-launch' : days <= 30 ? 'Active' : 'Upcoming';
+  }
   const perfStatus = (col.releaseDate && new Date(col.releaseDate) <= new Date()) ? 'Live' : 'Pre-launch';
   const pmStatus   = col.pmStatus || 'Pending';
   return `<div class="cd-tab-bar" id="cd-tab-bar-${cid}" style="display:flex;gap:0;margin:0 0 16px;border-bottom:1px solid var(--g100);background:var(--off);border-radius:8px 8px 0 0;overflow:hidden;flex-wrap:wrap">
@@ -6914,12 +6853,10 @@ function refreshStageHeaderBadge(colId, stage) {
   const el=document.getElementById(`col-${stage}-badge-${colId}`);
   if(!el) return;
   const items=allColItems.filter(i=>i.collectionId===colId);
-  const ps=getPipelineStatuses(colId);
   let s;
   if(stage==="sampling") s=items.length?(items.every(i=>i.samplingStatus==="Done")?"Done":items.some(i=>i.samplingStatus!=="Not Started")?"In Progress":"Not Started"):"Not Started";
   else if(stage==="production"){const pl=colToPos[colId]||[];s=pl.length?(pl.every(({poId})=>{const bs=allPOBills.filter(b=>b.purchaseorder_id===poId);return bs.length>0&&bs.every(b=>b.is_putaway===true);})?"Done":"In Progress"):"Not Started";}
-  else if(stage==="inbound"){const st=allColStages.find(r=>r.collectionId===colId&&r.stage==="inbound");s=st?.status||"Not Started";}
-  else if(stage==="marketing") s=ps.marketing==="done"?"Done":ps.marketing==="in-progress"?"In Progress":"Not Started";
+  if(!s) return;
   const c=s==="Done"?"p-active":s==="In Progress"?"p-signings":"p-draft";
   el.className=`pill ${c}`;
   el.style.cssText="font-size:9px;margin-left:auto";
@@ -7015,7 +6952,7 @@ function renderColDetail(col, items) {
 
   // ── Pipeline bar ──
   const ps=getPipelineStatuses(col.id);
-  const pipeStages=[["design","Design"],["sampling","Sampling"],["production","Purchasing"],["marketing","Marketing"]];
+  const pipeStages=[["design","Design"],["sampling","Sampling"],["production","Purchasing"]];
   const pdot=s=>s==="done"?"●":s==="in-progress"?"◐":"○";
   const pclr=s=>s==="done"?"#1a5c25":s==="in-progress"?"#1a4a8a":"#aaa";
 
@@ -7159,8 +7096,6 @@ function renderColDetail(col, items) {
         ${cdStageBox("📣","Marketing Plan",
           `<a href="#mktplan/${col.id}" onclick="openMPDetail('${col.id}');return false" style="font-family:var(--mono);font-size:11px;color:#3C3489;text-decoration:none;margin-left:auto">↗ Open in Marketing Planning</a>`,
           `<div id="col-mp-mirror-${col.id}"><div style="padding:14px;color:var(--g400);font-size:12px;text-align:center">Memuat marketing plan...</div></div>`)}
-        ${cdStageBox("⚙️","Marketing Config (legacy)",cdStageBadge(ps.marketing==="done"?"Done":ps.marketing==="in-progress"?"In Progress":"Not Started",`col-marketing-badge-${col.id}`),`
-          <div id="col-mkt-body-${col.id}">${renderMktBodyHTML(col.id)}</div>`)}
         </div><!-- /Marketing tab -->
 
         <!-- ─────────── 📈 PERFORMANCE TAB ─────────── -->
@@ -8524,7 +8459,7 @@ async function updateSKUStageStatus(itemId, colId, stage, status) {
 }
 function renderPipelineBarHTML(colId) {
   const ps=getPipelineStatuses(colId);
-  const pipeStages=[["design","Design"],["sampling","Sampling"],["production","Purchasing"],["marketing","Marketing"]];
+  const pipeStages=[["design","Design"],["sampling","Sampling"],["production","Purchasing"]];
   const pdot=s=>s==="done"?"●":s==="in-progress"?"◐":"○";
   const pclr=s=>s==="done"?"#1a5c25":s==="in-progress"?"#1a4a8a":"#aaa";
   return pipeStages.map(([k,l],i)=>`${i>0?`<div style="width:32px;flex-shrink:0;height:1px;background:var(--g200)"></div>`:""}
@@ -8676,121 +8611,6 @@ function insertMention(colId, name) {
   ta.setSelectionRange(newCur,newCur);
   ta.focus();
   if(drop) drop.style.display="none";
-}
-
-// Collection-level stage status update
-async function updateColStageStatus(colId, stage, status) {
-  const s=allColStages.find(r=>r.collectionId===colId&&r.stage===stage);
-  if(!s) return;
-  try {
-    await sb.from("collection_stages").update({status,last_updated:new Date().toISOString(),last_updated_by:currentUser}).eq("id",s.id);
-    s.status=status;
-    const pipeEl=document.getElementById(`col-pipeline-${colId}`);
-    if(pipeEl) pipeEl.innerHTML=renderPipelineBarHTML(colId);
-    refreshStageHeaderBadge(colId, stage);
-    if(stage!=="inbound"&&stage!=="marketing_config") refreshStageHeaderBadge(colId,"marketing");
-  } catch(e){/* silent */}
-}
-
-// Collection-level stage notes save on blur
-async function saveColStageNote(colId, stage, notes) {
-  const s=allColStages.find(r=>r.collectionId===colId&&r.stage===stage);
-  if(!s) return;
-  try {
-    await sb.from("collection_stages").update({notes,last_updated:new Date().toISOString(),last_updated_by:currentUser}).eq("id",s.id);
-    s.notes=notes;
-  } catch(e){/* silent */}
-}
-
-// ── Marketing section helpers ──
-
-// Linkify URLs in plain text (for notes display)
-function linkifyNotes(text) {
-  if (!text) return '<em style="color:var(--g400);font-size:10px">Klik untuk tambah notes...</em>';
-  const esc = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  return esc.replace(/(https?:\/\/[^\s<]+)/g,
-    '<a href="$1" target="_blank" rel="noopener" style="color:#1a4a8a;word-break:break-all;text-decoration:underline" onclick="event.stopPropagation()">$1</a>');
-}
-
-// Get enabled marketing activities for a collection (default = all)
-function getMktEnabled(colId) {
-  const cfg=allColStages.find(r=>r.collectionId===colId&&r.stage==='marketing_config');
-  if(!cfg||!cfg.notes) return MKT_ACTIVITIES.map(a=>a.key);
-  try {
-    const p=JSON.parse(cfg.notes);
-    return Array.isArray(p.enabled)?p.enabled:MKT_ACTIVITIES.map(a=>a.key);
-  } catch(e){ return MKT_ACTIVITIES.map(a=>a.key); }
-}
-
-// Render a single marketing activity sub-box
-function mktSubBoxHTML(colId, stage) {
-  const s=allColStages.find(r=>r.collectionId===colId&&r.stage===stage)||{stage,status:"Not Started",notes:""};
-  const act=MKT_ACTIVITIES.find(a=>a.key===stage);
-  const selClr=s.status==="Done"?"#edf8ee;color:#1a5c25;border-color:#90d4a0":
-               s.status==="In Progress"?"#e8f0fc;color:#1a4a8a;border-color:#a8c4f0":
-               "#f0efe9;color:#5a5850;border-color:#d4d3cb";
-  return `<div style="border:1px solid var(--g100);border-radius:6px;padding:12px">
-    <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:10px">${act?act.icon+' ':''}${COL_STAGE_LABELS[stage]||stage}</div>
-    <select onchange="updateColStageStatus('${colId}','${stage}',this.value)" style="font-size:11px;padding:3px 8px;border:1px solid;border-radius:4px;width:100%;margin-bottom:8px;background:${selClr}">
-      <option${s.status==="Not Started"?" selected":""}>Not Started</option>
-      <option${s.status==="In Progress"?" selected":""}>In Progress</option>
-      <option${s.status==="Done"?" selected":""}>Done</option>
-    </select>
-    <div id="col-notes-disp-${colId}-${stage}" style="font-size:11px;line-height:1.5;padding:6px 8px;border:1px solid var(--g100);border-radius:4px;min-height:38px;cursor:text;white-space:pre-wrap;word-break:break-word" onclick="colNotesToggleEdit('${colId}','${stage}')">${linkifyNotes(s.notes)}</div>
-    <textarea id="col-notes-ta-${colId}-${stage}" placeholder="Notes..." rows="2" style="display:none;font-size:11px;padding:6px 8px;border:1px solid var(--g100);border-radius:4px;width:100%;resize:vertical;box-sizing:border-box" onblur="colNotesSave('${colId}','${stage}',this)">${(s.notes||"").replace(/</g,"&lt;")}</textarea>
-  </div>`;
-}
-
-// Render full marketing section body (pills + activity boxes)
-function renderMktBodyHTML(colId) {
-  const enabled=getMktEnabled(colId);
-  const pills=MKT_ACTIVITIES.map(a=>{
-    const on=enabled.includes(a.key);
-    return `<span onclick="toggleMktActivity('${colId}','${a.key}')" style="cursor:pointer;display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:20px;font-size:11px;font-weight:600;border:1.5px solid ${on?'#1a4a8a':'var(--g200)'};background:${on?'#e8f0fc':'var(--off)'};color:${on?'#1a4a8a':'var(--g400)'};user-select:none">${a.icon} ${a.label}</span>`;
-  }).join('');
-  const acts=MKT_ACTIVITIES.filter(a=>enabled.includes(a.key));
-  return `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:${acts.length?'14px':'10px'}">${pills}</div>`+
-    (acts.length
-      ?`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">${acts.map(a=>mktSubBoxHTML(colId,a.key)).join('')}</div>`
-      :`<div style="display:flex;align-items:center;gap:8px;font-size:12px;color:#1a5c25;background:#edf8ee;border:1px solid #90d4a0;border-radius:6px;padding:8px 12px"><strong>✓</strong>Tidak ada aktivitas marketing yang dijalankan.</div>`);
-}
-
-// Toggle marketing activity on/off
-async function toggleMktActivity(colId, key) {
-  const enabled=getMktEnabled(colId);
-  const newEnabled=enabled.includes(key)?enabled.filter(k=>k!==key):[...enabled,key];
-  const notes=JSON.stringify({enabled:newEnabled});
-  const cfg=allColStages.find(r=>r.collectionId===colId&&r.stage==='marketing_config');
-  if(cfg){
-    try {
-      await sb.from('collection_stages').update({notes,last_updated:new Date().toISOString(),last_updated_by:currentUser}).eq('id',cfg.id);
-      cfg.notes=notes;
-    } catch(e){/* silent */}
-  }
-  const el=document.getElementById(`col-mkt-body-${colId}`);
-  if(el) el.innerHTML=renderMktBodyHTML(colId);
-  refreshStageHeaderBadge(colId,'marketing');
-  const pipeEl=document.getElementById(`col-pipeline-${colId}`);
-  if(pipeEl) pipeEl.innerHTML=renderPipelineBarHTML(colId);
-}
-
-// Switch notes display div → textarea
-function colNotesToggleEdit(colId, stage) {
-  const disp=document.getElementById(`col-notes-disp-${colId}-${stage}`);
-  const ta=document.getElementById(`col-notes-ta-${colId}-${stage}`);
-  if(!disp||!ta) return;
-  disp.style.display='none';
-  ta.style.display='';
-  ta.focus();
-}
-
-// Save notes, switch back to display div
-async function colNotesSave(colId, stage, el) {
-  const notes=el.value;
-  await saveColStageNote(colId,stage,notes);
-  const disp=document.getElementById(`col-notes-disp-${colId}-${stage}`);
-  if(disp){ disp.innerHTML=linkifyNotes(notes); disp.style.display=''; }
-  el.style.display='none';
 }
 
 // Save: Business inline edit (naming + commercial). Recomputes sku_name.
@@ -9091,7 +8911,6 @@ async function submitCollection() {
     const newCol={rowIndex:id,id,collectionName:nm,ipRelated:"",releaseDate:"",priority:"",moodboardUrl:"",status:document.getElementById("col-status")?.value||"Draft",pic:"",notes:"",dateAdded:new Date().toISOString().slice(0,10),addedBy:currentUser};
     allColRows.push(newCol);
     ensureDWProjects([newCol],[]);
-    ensureColStages([newCol],[]);
     document.getElementById("col-feedback").innerHTML=`<span class="fb-ok">✓ Collection tersimpan — ID: ${id}. Buka tab Semua untuk menambah SKU.</span>`;
     clearColForm();
   } catch(e){
