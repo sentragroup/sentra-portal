@@ -5954,20 +5954,23 @@ async function loadColTimelinePanel(col, items) {
 }
 
 // ── Mirror Marketing Plan into CD Marketing tab ──
-// Pull marketing_plans + execution counts (photoshoots, content_planning,
-// marketing_events, kol_placements) for this collection. Render summary
-// strip + per-activity count chips. Edit lives in Marketing Planning module.
+// Pull marketing_plans + per-aktivitas entries (photoshoots, content_planning,
+// marketing_events, kol_placements, ads_campaigns, publications) for this
+// collection. Render plan header strip + per-activity card dengan list entries
+// (title + meta + status + budget/fee). Brand managers liat eksekusi di
+// 1 tempat tanpa loncat 5+ modul.
 async function loadColMPMirror(cid) {
   const host = document.getElementById(`col-mp-mirror-${cid}`);
   if (!host) return;
   try {
-    const [planRes, psRes, cpRes, meRes, kolRes, adsRes] = await Promise.all([
+    const [planRes, psRes, cpRes, meRes, kolRes, adsRes, pubRes] = await Promise.all([
       sb.from('marketing_plans').select('*').eq('collection_id', cid).maybeSingle(),
-      sb.from('photoshoots').select('id,status').eq('collection_id', cid),
-      sb.from('content_planning').select('id,content_type,status').eq('collection_id', cid),
-      sb.from('marketing_events').select('id,status').eq('collection_id', cid),
-      sb.from('kol_placements').select('id,status,fee').eq('collection_id', cid),
-      sb.from('ads_campaigns').select('id,status,budget,spend').eq('collection_id', cid),
+      sb.from('photoshoots').select('id,shoot_name,shoot_date,location,status,pic,deliverables_url,budget').eq('collection_id', cid).order('shoot_date',{ascending:true}),
+      sb.from('content_planning').select('id,title,content_type,channel,publish_date,deadline,status,pic,content_url,asset_url').eq('collection_id', cid).order('publish_date',{ascending:true,nullsFirst:false}),
+      sb.from('marketing_events').select('id,event_name,event_type,event_date,end_date,venue,status,pic,budget').eq('collection_id', cid).order('event_date',{ascending:true}),
+      sb.from('kol_placements').select('id,kol_name,handle,platform,post_date,status,fee,payment_status,post_url').eq('collection_id', cid).order('post_date',{ascending:true,nullsFirst:false}),
+      sb.from('ads_campaigns').select('id,campaign_name,channel,start_date,end_date,status,budget,spend,pic').eq('collection_id', cid).order('start_date',{ascending:true}),
+      sb.from('publications').select('id,title,publication_type,media_outlet,publish_date,status,link').eq('collection_id', cid).order('publish_date',{ascending:true,nullsFirst:false}),
     ]);
     const plan = planRes.data ? mapMP(planRes.data) : null;
     if (!plan) {
@@ -5977,45 +5980,147 @@ async function loadColMPMirror(cid) {
       </div>`;
       return;
     }
-    const psItems  = psRes.data || [];
-    const cpItems  = cpRes.data || [];
-    const meItems  = meRes.data || [];
-    const kolItems = kolRes.data || [];
-    const adsItems = adsRes.data || [];
+    const fmtRp = v => v!=null && v!==''&&Number(v)>0 ? 'Rp'+Math.round(v).toLocaleString('id-ID') : '—';
+    const fmtD  = d => {
+      if (!d) return '';
+      const dt = new Date(d+(d.length===10?'T00:00:00':''));
+      return dt.toLocaleDateString('id-ID',{day:'numeric',month:'short'});
+    };
+    const esc = s => (s||'').toString().replace(/</g,'&lt;');
+    const pillFor = s => {
+      const k = (s||'').toString();
+      if (/done|posted|live-finished|completed|published/i.test(k)) return 'p-active';
+      if (/progress|live|active|running|scheduled/i.test(k))         return 'p-review';
+      if (/approved/i.test(k))                                       return 'p-signings';
+      return 'p-draft';
+    };
+
+    // Build cards array from each activity's items
+    const cpItems = cpRes.data || [];
     const videoItems = cpItems.filter(c => (c.content_type||'').toLowerCase().includes('video'));
-    const kolSpend = kolItems.reduce((s,k) => s + (Number(k.fee)||0), 0);
+    const nonVideoContent = cpItems.filter(c => !(c.content_type||'').toLowerCase().includes('video'));
     const cards = [
-      { on: plan.actPhotoshoot,  icon:'📸', label:'Photoshoot',           count: psItems.length,    module:'photoshoot' },
-      { on: plan.actVideo,       icon:'🎬', label:'Video Production',     count: videoItems.length, module:'videoprod' },
-      { on: plan.actContent,     icon:'📱', label:'Content Planning',     count: cpItems.length,    module:'contentplan' },
-      { on: plan.actActivation,  icon:'🎪', label:'Marketing Activation', count: meItems.length,    module:'mktactivation' },
-      { on: plan.actAds,         icon:'🎯', label:'Ads',                  count: adsItems.length,   module:'adsmgmt' },
-      { on: plan.actKol,         icon:'⭐', label:'KOL Placement',        count: kolItems.length,   module:'kolmgmt' },
+      { on: plan.actPhotoshoot, icon:'📸', label:'Photoshoot', module:'photoshoot',
+        items: psRes.data || [],
+        renderEntry: r => ({
+          title: r.shoot_name, link: r.deliverables_url,
+          meta: [fmtD(r.shoot_date), r.location, r.pic].filter(Boolean).join(' · '),
+          money: r.budget ? `Budget ${fmtRp(r.budget)}` : '',
+          status: r.status,
+        }) },
+      { on: plan.actVideo, icon:'🎬', label:'Video Production', module:'videoprod',
+        items: videoItems,
+        renderEntry: r => ({
+          title: r.title, link: r.content_url||r.asset_url,
+          meta: [fmtD(r.publish_date||r.deadline), r.channel, r.pic].filter(Boolean).join(' · '),
+          money: '',
+          status: r.status,
+        }) },
+      { on: plan.actContent, icon:'📱', label:'Content Planning', module:'contentplan',
+        items: nonVideoContent,
+        renderEntry: r => ({
+          title: r.title, link: r.content_url||r.asset_url,
+          meta: [r.content_type, r.channel, fmtD(r.publish_date||r.deadline)].filter(Boolean).join(' · '),
+          money: '',
+          status: r.status,
+        }) },
+      { on: plan.actActivation, icon:'🎪', label:'Marketing Activation', module:'mktactivation',
+        items: meRes.data || [],
+        renderEntry: r => {
+          const dateRange = r.end_date && r.end_date !== r.event_date
+            ? `${fmtD(r.event_date)} → ${fmtD(r.end_date)}`
+            : fmtD(r.event_date);
+          return {
+            title: r.event_name,
+            meta: [dateRange, r.venue, r.pic].filter(Boolean).join(' · '),
+            money: r.budget ? `Budget ${fmtRp(r.budget)}` : '',
+            status: r.status,
+          };
+        } },
+      { on: plan.actAds, icon:'🎯', label:'Ads', module:'adsmgmt',
+        items: adsRes.data || [],
+        renderEntry: r => {
+          const dateRange = r.end_date ? `${fmtD(r.start_date)} → ${fmtD(r.end_date)}` : fmtD(r.start_date);
+          const budgetVsSpend = r.budget
+            ? `Budget ${fmtRp(r.budget)}${r.spend?` · Spent ${fmtRp(r.spend)}`:''}`
+            : (r.spend?`Spent ${fmtRp(r.spend)}`:'');
+          return {
+            title: r.campaign_name,
+            meta: [r.channel, dateRange, r.pic].filter(Boolean).join(' · '),
+            money: budgetVsSpend,
+            status: r.status,
+          };
+        } },
+      { on: plan.actKol, icon:'⭐', label:'KOL Placement', module:'kolmgmt',
+        items: kolRes.data || [],
+        renderEntry: r => ({
+          title: [r.kol_name, r.handle?'@'+r.handle:''].filter(Boolean).join(' · '),
+          link: r.post_url,
+          meta: [r.platform, fmtD(r.post_date), r.payment_status].filter(Boolean).join(' · '),
+          money: r.fee ? `Fee ${fmtRp(r.fee)}` : '',
+          status: r.status,
+        }) },
     ];
+    // Publications gak ada di marketing_plans toggle — selalu show kalau ada
+    if ((pubRes.data||[]).length) cards.push({
+      on: true, icon:'📰', label:'Publication', module:'publication',
+      items: pubRes.data || [],
+      renderEntry: r => ({
+        title: r.title, link: r.link,
+        meta: [r.publication_type, r.media_outlet, fmtD(r.publish_date)].filter(Boolean).join(' · '),
+        money: '',
+        status: r.status,
+      }),
+    });
+
     const activeCount = cards.filter(c => c.on).length;
     const statusPill = {Planning:'p-draft','Approved':'p-signings','In Progress':'p-review','Done':'p-active'}[plan.status||'Planning']||'p-draft';
-    const fmtRp = v => 'Rp ' + Math.round(v||0).toLocaleString('id-ID');
+
+    const ENTRY_LIMIT = 5;
+    const renderCard = c => {
+      const items = c.items || [];
+      const visible = items.slice(0, ENTRY_LIMIT);
+      const moreCount = Math.max(0, items.length - ENTRY_LIMIT);
+      const headerBg = c.on ? 'var(--white)' : 'var(--off)';
+      const opacityCss = c.on ? '' : 'opacity:.55;';
+      return `<div style="background:${headerBg};border:1px solid var(--g100);border-radius:8px;padding:10px 12px;${opacityCss}">
+        <div onclick="showPage('${c.module}',null)" style="display:flex;align-items:center;gap:6px;margin-bottom:8px;cursor:pointer">
+          <span style="font-size:14px">${c.icon}</span>
+          <strong style="font-size:12px;flex:1">${c.label}</strong>
+          <span style="font-family:var(--mono);font-size:10px;color:var(--g400)">${c.on?`${items.length} entri`:'⊘ off'}</span>
+          <span style="font-size:10px;color:#3C3489">→</span>
+        </div>
+        ${!c.on ? '' : (visible.length
+          ? visible.map(r => {
+              const e = c.renderEntry(r);
+              return `<div style="display:flex;align-items:flex-start;gap:6px;font-size:11px;padding:5px 0;border-top:1px dashed var(--g100)">
+                <span class="pill ${pillFor(e.status)}" style="font-size:9px;flex-shrink:0;margin-top:1px;padding:1px 6px">${esc(e.status)||'—'}</span>
+                <div style="flex:1;min-width:0">
+                  <div style="font-weight:600;color:var(--black);line-height:1.3">${esc(e.title)||'(tanpa judul)'}${e.link?` <a href="${esc(e.link)}" target="_blank" onclick="event.stopPropagation()" style="font-size:10px;color:#3C3489;text-decoration:none">↗</a>`:''}</div>
+                  ${e.meta?`<div style="font-size:10px;color:var(--g400);font-family:var(--mono);line-height:1.3;margin-top:1px">${esc(e.meta)}</div>`:''}
+                  ${e.money?`<div style="font-size:10px;color:var(--g600);font-family:var(--mono);line-height:1.3;margin-top:1px">${esc(e.money)}</div>`:''}
+                </div>
+              </div>`;
+            }).join('')
+          : '<div style="font-size:11px;color:var(--g400);font-style:italic;padding:8px 0;text-align:center;border-top:1px dashed var(--g100)">Belum ada entri</div>')}
+        ${moreCount>0 ? `<div onclick="showPage('${c.module}',null)" style="font-size:10px;color:#3C3489;text-align:center;padding:5px 0 0;border-top:1px dashed var(--g100);margin-top:4px;cursor:pointer">+${moreCount} entri lainnya →</div>` : ''}
+      </div>`;
+    };
+
     host.innerHTML = `
       <div style="background:var(--off);border:1px solid var(--g100);border-radius:8px;padding:14px;margin-bottom:12px">
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
           <span class="pill ${statusPill}" style="font-size:11px">${plan.status||'Planning'}</span>
-          ${plan.pic?`<span style="font-size:11px;color:var(--g600)">PIC: <strong>${plan.pic.replace(/</g,'&lt;')}</strong></span>`:''}
+          ${plan.pic?`<span style="font-size:11px;color:var(--g600)">PIC: <strong>${esc(plan.pic)}</strong></span>`:''}
           ${plan.budget?`<span style="font-size:11px;color:var(--g600)">Budget: <strong style="font-family:var(--mono)">${fmtRp(plan.budget)}</strong></span>`:''}
-          <span style="font-size:11px;color:var(--g400);margin-left:auto">${activeCount}/5 aktivitas aktif</span>
+          <span style="font-size:11px;color:var(--g400);margin-left:auto">${activeCount} aktivitas aktif</span>
         </div>
-        ${plan.concept?`<div style="font-size:12px;color:var(--g600);font-style:italic;line-height:1.4;border-left:3px solid #3C3489;padding-left:10px;margin-bottom:6px">"${plan.concept.replace(/</g,'&lt;')}"</div>`:''}
-        ${plan.objective?`<div style="font-size:11px;color:var(--g600);line-height:1.4"><strong>Objective:</strong> ${plan.objective.replace(/</g,'&lt;')}</div>`:''}
+        ${plan.concept?`<div style="font-size:12px;color:var(--g600);font-style:italic;line-height:1.4;border-left:3px solid #3C3489;padding-left:10px;margin-bottom:6px">"${esc(plan.concept)}"</div>`:''}
+        ${plan.objective?`<div style="font-size:11px;color:var(--g600);line-height:1.4"><strong>Objective:</strong> ${esc(plan.objective)}</div>`:''}
       </div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px">
-        ${cards.map(c => `<div style="background:${c.on?'var(--white)':'var(--off)'};border:1px solid ${c.on?'var(--g100)':'var(--g100)'};border-radius:6px;padding:10px 12px;${c.on?'cursor:pointer':''}" ${c.on?`onclick="showPage('${c.module}',null)"`:''}>
-          <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
-            <span style="font-size:14px">${c.icon}</span>
-            <strong style="font-size:11px;color:${c.on?'var(--black)':'var(--g400)'}">${c.label}</strong>
-          </div>
-          <div style="font-family:var(--mono);font-size:13px;font-weight:700;color:${c.on?'#3C3489':'var(--g400)'}">${c.on?`${c.count} entri`:'⊘ off'}</div>
-        </div>`).join('')}
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:10px">
+        ${cards.map(renderCard).join('')}
       </div>
-      ${kolSpend?`<div style="margin-top:8px;font-size:11px;color:var(--g600);text-align:right">KOL spend so far: <strong style="font-family:var(--mono)">${fmtRp(kolSpend)}</strong></div>`:''}
       <div style="margin-top:10px;font-size:10px;color:var(--g400);text-align:right;padding-top:6px;border-top:1px solid var(--g100)">Edit di <a href="#mktplan/${cid}" onclick="openMPDetail('${cid}');return false" style="color:var(--g600);text-decoration:underline">Marketing Planning module</a></div>`;
   } catch (e) {
     host.innerHTML = `<div style="padding:14px;color:#c0392b;font-size:12px">Gagal load: ${(e.message||e).replace(/</g,'&lt;')}</div>`;
