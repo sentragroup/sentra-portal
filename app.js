@@ -5975,36 +5975,40 @@ async function loadColTimelinePanel(col, items) {
   events.forEach(e => { const arr = byDate.get(e.date)||[]; arr.push(e); byDate.set(e.date, arr); });
   if (cnt) cnt.textContent = `${events.length} events · ${byDate.size} hari`;
   const today = new Date().toISOString().slice(0,10);
-  const todayInserted = byDate.has(today);
-  if (!todayInserted) { byDate.set(today, []); /* phantom marker */ }
+  if (!byDate.has(today)) byDate.set(today, []);
   const sortedDates = [...byDate.keys()].sort();
-  // Filter chips (optional, simple toggle by type for now via inline data attr; can add UI later)
   const fmtDate = d => {
     const dt = new Date(d+'T00:00:00');
-    return dt.toLocaleDateString('id-ID',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
+    return { day: dt.toLocaleDateString('id-ID',{day:'numeric'}),
+             mon: dt.toLocaleDateString('id-ID',{month:'short'}).toUpperCase(),
+             dow: dt.toLocaleDateString('id-ID',{weekday:'short'}).toUpperCase() };
   };
   const dayDiff = (a,b) => Math.round((new Date(a) - new Date(b)) / 86400000);
-  host.innerHTML = `<div style="display:flex;flex-direction:column;gap:0;position:relative">
+  // Horizontal scrollable timeline — tiap tanggal jadi column kecil. TODAY
+  // column dikasih border + tinted background biar gampang dilokasi pas scroll.
+  host.innerHTML = `<div style="display:flex;gap:8px;overflow-x:auto;padding:4px 2px 10px;align-items:stretch">
     ${sortedDates.map(d => {
       const arr = byDate.get(d) || [];
       const isToday = d === today;
       const diff = dayDiff(d, today);
       const dayLabel = isToday ? 'HARI INI' : diff > 0 ? `+${diff}d` : `${diff}d`;
       const dayClr  = isToday ? '#c0392b' : diff < 0 ? 'var(--g400)' : 'var(--g600)';
-      return `<div style="display:flex;gap:14px;align-items:flex-start;padding:10px 0;border-bottom:1px dashed var(--g100);${isToday?'background:linear-gradient(to right, #fff5f0, transparent);':''}">
-        <div style="flex:0 0 130px;text-align:right;padding-top:4px">
-          <div style="font-family:var(--mono);font-size:11px;font-weight:600;color:${dayClr}">${fmtDate(d)}</div>
-          <div style="font-family:var(--mono);font-size:10px;color:${dayClr};text-transform:uppercase;letter-spacing:0.5px;margin-top:2px">${dayLabel}</div>
+      const dt = fmtDate(d);
+      return `<div style="flex:0 0 auto;min-width:130px;max-width:170px;display:flex;flex-direction:column;border:${isToday?'2px solid #c0392b':'1px solid var(--g100)'};border-radius:8px;background:${isToday?'#fff5f0':'var(--white)'};overflow:hidden">
+        <div style="padding:8px 10px;border-bottom:1px dashed ${isToday?'#f3c4b8':'var(--g100)'};text-align:center;background:${isToday?'#fde8df':'var(--off)'}">
+          <div style="font-family:var(--mono);font-size:9px;color:${dayClr};letter-spacing:0.5px">${dt.dow}</div>
+          <div style="font-family:var(--syne);font-size:18px;font-weight:700;line-height:1.1;color:${dayClr};margin-top:2px">${dt.day}</div>
+          <div style="font-family:var(--mono);font-size:9px;color:${dayClr};letter-spacing:0.5px">${dt.mon}</div>
+          <div style="font-family:var(--mono);font-size:9px;color:${dayClr};margin-top:3px;font-weight:600">${dayLabel}</div>
         </div>
-        <div style="flex:0 0 16px;position:relative">
-          <div style="width:10px;height:10px;border-radius:50%;background:${isToday?'#c0392b':'#3C3489'};margin-top:7px;box-shadow:0 0 0 3px ${isToday?'#fff5f0':'var(--off)'}"></div>
-        </div>
-        <div style="flex:1;min-width:0">
-          ${arr.length ? arr.map(e => `<div style="display:inline-flex;align-items:center;gap:6px;background:${e.tone}15;border:1px solid ${e.tone}40;color:${e.tone};border-radius:4px;padding:4px 10px;margin:2px 6px 2px 0;font-size:11px">
-            <span>${e.icon}</span>
-            <strong>${e.label}</strong>
-            <span style="color:var(--g600)">· ${(e.detail||'').replace(/</g,'&lt;')}</span>
-          </div>`).join('') : `<div style="font-size:10px;color:var(--g400);font-style:italic;padding:5px 0">(belum ada event hari ini)</div>`}
+        <div style="padding:6px 8px;display:flex;flex-direction:column;gap:4px;flex:1">
+          ${arr.length ? arr.map(e => `<div title="${(e.detail||'').replace(/"/g,'&quot;')}" style="display:flex;align-items:flex-start;gap:5px;background:${e.tone}15;border:1px solid ${e.tone}40;color:${e.tone};border-radius:4px;padding:4px 6px;font-size:10px;line-height:1.3">
+            <span style="flex-shrink:0">${e.icon}</span>
+            <div style="min-width:0;flex:1">
+              <div style="font-weight:600">${e.label}</div>
+              <div style="color:var(--g600);font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${(e.detail||'').replace(/</g,'&lt;')}</div>
+            </div>
+          </div>`).join('') : `<div style="font-size:9px;color:var(--g400);font-style:italic;text-align:center;padding:8px 0">—</div>`}
         </div>
       </div>`;
     }).join('')}
@@ -7069,6 +7073,7 @@ function renderColDetail(col, items) {
             <span style="font-size:9px;font-family:var(--mono);text-transform:uppercase;color:${pclr(ps[k])};white-space:nowrap">${l}</span>
           </div>`).join("")}
         </div>
+        ${renderColTimelineSection(col, items)}
         ${renderColTabBar(col, items)}
 
         <!-- ─────────── 🎨 CREATIVE TAB ─────────── -->
@@ -7147,7 +7152,6 @@ function renderColDetail(col, items) {
         ${renderColMarginSection(col, items)}
         ${renderColAgreementSection(col)}
         ${renderColTargetSection(col, items)}
-        ${renderColTimelineSection(col, items)}
         </div><!-- /Business tab -->
 
         <!-- ─────────── 📣 MARKETING TAB ─────────── -->
