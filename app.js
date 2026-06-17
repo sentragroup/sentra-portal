@@ -5131,6 +5131,25 @@ const SKU_CATEGORIES_DEFAULT = ["T-Shirt","Shirt","Hoodie","Jacket","Dress","Pan
 function sortColBy(c){colSort.dir=colSort.col===c?(colSort.dir==='asc'?'desc':'asc'):'asc';colSort.col=c;applyColFilters();}
 function slugifyCol(name){return(name||"").toLowerCase().replace(/[^a-z0-9\s-]/g,"").trim().replace(/\s+/g,"-").replace(/-+/g,"-");}
 
+// "IP - Name" composite label — banyak collection bernama generic ("General
+// Collection") jadi cuma nama doang ambigu. Helper ini dipakai di SEMUA
+// picker/dropdown/display di modul luar (MA/PS/KOL/dll) supaya brand manager
+// tau persisnya collection mana yang dipilih.
+function _colDisplayLabel(c) {
+  if (!c) return '';
+  const ip = (c.ipRelated || '').trim();
+  const nm = (c.collectionName || '').trim();
+  return ip ? `${ip} - ${nm}` : nm;
+}
+// Reverse lookup — input bisa "IP - Name" (label baru) atau "Name" doang
+// (legacy data / manual typing). Return matched row.
+function _colFindByLabel(label) {
+  const v = (label||'').toString().toLowerCase().trim();
+  if (!v) return null;
+  return allColRows.find(c => _colDisplayLabel(c).toLowerCase() === v)
+      || allColRows.find(c => (c.collectionName||'').toLowerCase() === v);
+}
+
 function mapCol(r) {
   return {
     rowIndex:r.id, id:r.id,
@@ -19256,7 +19275,7 @@ function renderPDDetail() {
     document.getElementById('pdTableBody').innerHTML = `<tr><td class="empty-td" colspan="10">Collection ID tidak valid. <a href="#productdev" onclick="openPDGrid();return false">Kembali</a></td></tr>`;
     return;
   }
-  document.getElementById('pd-d-title').textContent = coll.collection_name || cid;
+  document.getElementById('pd-d-title').textContent = (coll.ip_related?coll.ip_related+' - ':'') + (coll.collection_name||cid);
   const ip3 = pdShort3(coll.ip_related);
   const col3 = pdShort3(coll.collection_name);
   document.getElementById('pd-d-sub').textContent = `Product Development · code prefix: ${ip3}-${col3}-{VARIANT}-NN${coll.ip_related?'':' (IP belum di-set di Collection)'}`;
@@ -21839,7 +21858,7 @@ async function loadContentPlan() {
     const colSel = _cpEl('cp-fil-collection');
     if (colSel) {
       const cur = colSel.value;
-      colSel.innerHTML = `<option value="">Semua Collection</option>` + usedCols.map(c => `<option value="${(c.id||'').replace(/"/g,'&quot;')}"${c.id===cur?' selected':''}>${(c.collection_name||'').replace(/</g,'&lt;')}</option>`).join('');
+      colSel.innerHTML = `<option value="">Semua Collection</option>` + usedCols.map(c => `<option value="${(c.id||'').replace(/"/g,'&quot;')}"${c.id===cur?' selected':''}>${((c.ip_related?c.ip_related+' - ':'')+(c.collection_name||'')).replace(/</g,'&lt;')}</option>`).join('');
     }
     const typeSet = [...new Set(_cpRows.map(r=>r.contentType).filter(Boolean))].sort();
     const tSel = _cpEl('cp-fil-type');
@@ -22058,11 +22077,11 @@ async function openCPDrawerEdit(id) {
   _cpDrawerEditId = id;
   const [{data: row, error}, {data: cols}] = await Promise.all([
     sb.from('content_planning').select('*').eq('id', id).single(),
-    sb.from('collections').select('id,collection_name').order('collection_name'),
+    sb.from('collections').select('id,collection_name,ip_related').order('collection_name'),
   ]);
   if (error || !row) { alert('Gagal load: ' + (error?.message||'tidak ditemukan')); return; }
   const r = mapCP(row);
-  const colOpts = (cols||[]).map(c => `<option value="${(c.id||'').replace(/"/g,'&quot;')}"${c.id===r.collectionId?' selected':''}>${(c.collection_name||'').replace(/</g,'&lt;')}</option>`).join('');
+  const colOpts = (cols||[]).map(c => `<option value="${(c.id||'').replace(/"/g,'&quot;')}"${c.id===r.collectionId?' selected':''}>${((c.ip_related?c.ip_related+' - ':'')+(c.collection_name||'')).replace(/</g,'&lt;')}</option>`).join('');
   // Jump-links section — only when content has a collection_id. Plus a host
   // for reference links from marketing_plans.links, loaded async after.
   const jumpLinks = r.collectionId ? `<div style="background:#eef0f8;border:1px solid #c9bdf0;border-radius:6px;padding:10px 12px;margin-bottom:12px">
@@ -22696,7 +22715,7 @@ function switchMaTab(tab, el) {
 async function _maSeedForm() {
   if (!allColRows.length) await loadCollections().catch(()=>{});
   if (!_maFormWired) {
-    setupAC('ma-collection', 'ac-ma-collection', () => allColRows.map(c => c.collectionName).filter(Boolean));
+    setupAC('ma-collection', 'ac-ma-collection', () => allColRows.map(c => _colDisplayLabel(c)).filter(Boolean));
     setupAC('ma-type', 'ac-ma-type', () => _maTypes);
     setupAC('ma-venue', 'ac-ma-venue', () => _maVenues);
     setupAC('ma-pic', 'ac-ma-pic', () => acPics);
@@ -22736,7 +22755,7 @@ async function loadMktActivation() {
     const colSel = document.getElementById('ma-fil-collection');
     if (colSel && allColRows.length && colSel.options.length <= 1) {
       const cur = colSel.value;
-      colSel.innerHTML = `<option value="">Semua Collection</option>` + allColRows.map(c=>`<option value="${(c.id||'').replace(/"/g,'&quot;')}"${c.id===cur?' selected':''}>${(c.collectionName||'').replace(/</g,'&lt;')}</option>`).join('');
+      colSel.innerHTML = `<option value="">Semua Collection</option>` + allColRows.map(c=>`<option value="${(c.id||'').replace(/"/g,'&quot;')}"${c.id===cur?' selected':''}>${(_colDisplayLabel(c)||'').replace(/</g,'&lt;')}</option>`).join('');
     }
     let rows = _maRows;
     if (search) rows = rows.filter(r => `${r.name} ${r.venue} ${r.pic}`.toLowerCase().includes(search));
@@ -22969,7 +22988,7 @@ function _maActionRowHTML(a, idx, id) {
 
 function _maDrawerFormHTML(r) {
   const esc = s => (s==null?'':String(s)).replace(/"/g,'&quot;');
-  const colName = allColRows.find(c => c.id === r.collectionId)?.collectionName || '';
+  const colName = _colDisplayLabel(allColRows.find(c => c.id === r.collectionId)) || '';
   const id = r.id;
   const budgetRows = (r.budgetBreakdown||[]).map((b,i) => _maBudgetRowHTML(b, i, id)).join('');
   const actionRows = (r.actionItems||[]).map((a,i) => _maActionRowHTML(a, i, id)).join('');
@@ -23091,7 +23110,7 @@ function switchMaDrawerTab(id, key, btn) {
 
 function _maAttachDrawerAC(id) {
   setupAC(`mae-type-${id}`, `ac-mae-type-${id}`, () => _maTypes);
-  setupAC(`mae-collection-${id}`, `ac-mae-collection-${id}`, () => allColRows.map(c => c.collectionName).filter(Boolean));
+  setupAC(`mae-collection-${id}`, `ac-mae-collection-${id}`, () => allColRows.map(c => _colDisplayLabel(c)).filter(Boolean));
   setupAC(`mae-venue-${id}`, `ac-mae-venue-${id}`, () => _maVenues);
   setupAC(`mae-pic-${id}`, `ac-mae-pic-${id}`, () => acPics);
   _maWirePopupAC(id);
@@ -23433,7 +23452,7 @@ async function saveMaEdit(id) {
   const name = (document.getElementById(`mae-name-${id}`).value || '').trim();
   if (!name) { setFB('Event name wajib', false); return; }
   const colName = (document.getElementById(`mae-collection-${id}`).value || '').trim().toLowerCase();
-  const colMatch = allColRows.find(c => (c.collectionName||'').toLowerCase() === colName);
+  const colMatch = _colFindByLabel(colName);
   const popupInp = document.getElementById(`mae-popup-${id}`);
   const popupId = (popupInp?.dataset?.id || '').trim() || null;
   const breakdown = _maReadBudget(id);
@@ -23565,7 +23584,7 @@ function renderMaActionsView() {
       });
     });
   }
-  const colName = id => allColRows.find(c => c.id === id)?.collectionName || '—';
+  const colName = id => _colDisplayLabel(allColRows.find(c => c.id === id)) || '—';
   let rows = flat;
   if (fStat === 'open') rows = rows.filter(a => !a.done);
   else if (fStat === 'done') rows = rows.filter(a => a.done);
@@ -23734,7 +23753,7 @@ function switchPsTab(tab, el) {
 async function _psSeedForm() {
   if (!allColRows.length) await loadCollections().catch(()=>{});
   if (!_psFormWired) {
-    setupAC('ps-collection', 'ac-ps-collection', () => allColRows.map(c => c.collectionName).filter(Boolean));
+    setupAC('ps-collection', 'ac-ps-collection', () => allColRows.map(c => _colDisplayLabel(c)).filter(Boolean));
     setupAC('ps-pic', 'ac-ps-pic', () => acPics);
     _psFormWired = true;
   }
@@ -24017,7 +24036,7 @@ async function showMPDetail() {
   document.getElementById('mp-view-grid').style.display = 'none';
   document.getElementById('mp-view-detail').style.display = '';
   // Title is just the collection name now (not "X · Marketing Plan")
-  document.getElementById('mp-detail-title').textContent = col.collection_name || '—';
+  document.getElementById('mp-detail-title').textContent = (col.ip_related?col.ip_related+' - ':'') + (col.collection_name||'—');
   document.getElementById('mp-detail-sub').textContent = `${col.ip_related||'—'} · Release ${col.release_date||'—'}${plan.lastUpdated?` · Diupdate ${new Date(plan.lastUpdated).toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'})}`:''}`;
   document.getElementById('mp-detail-status').value = plan.status||'Planning';
   renderMPDetailBody(col, plan);
@@ -24776,7 +24795,7 @@ async function loadPhotoshoot() {
     if (colSel && allColRows.length && colSel.options.length <= 1) {
       const cur = colSel.value;
       colSel.innerHTML = `<option value="">Semua Collection</option>` +
-        allColRows.map(c => `<option value="${(c.id||'').replace(/"/g,'&quot;')}"${c.id===cur?' selected':''}>${(c.collectionName||'').replace(/</g,'&lt;')}</option>`).join('');
+        allColRows.map(c => `<option value="${(c.id||'').replace(/"/g,'&quot;')}"${c.id===cur?' selected':''}>${(_colDisplayLabel(c)||'').replace(/</g,'&lt;')}</option>`).join('');
     }
     let rows = _psRows;
     if (search) rows = rows.filter(r => `${r.name} ${r.location} ${r.pic}`.toLowerCase().includes(search));
@@ -24911,7 +24930,7 @@ function _psLinkRowHTML(l, idx, id) {
 
 function _psDrawerFormHTML(r) {
   const esc = s => (s==null?'':String(s)).replace(/"/g,'&quot;');
-  const colName = allColRows.find(c => c.id === r.collectionId)?.collectionName || '';
+  const colName = _colDisplayLabel(allColRows.find(c => c.id === r.collectionId)) || '';
   const id = r.id;
   const budgetRows = (r.budgetBreakdown||[]).map((b,i) => _psBudgetRowHTML(b, i, id)).join('');
   const linkRows = (r.links||[]).map((l,i) => _psLinkRowHTML(l, i, id)).join('');
@@ -25008,7 +25027,7 @@ function switchPsDrawerTab(id, key, btn) {
 }
 
 function _psAttachDrawerAC(id) {
-  setupAC(`psed-collection-${id}`, `ac-psed-collection-${id}`, () => allColRows.map(c => c.collectionName).filter(Boolean));
+  setupAC(`psed-collection-${id}`, `ac-psed-collection-${id}`, () => allColRows.map(c => _colDisplayLabel(c)).filter(Boolean));
   setupAC(`psed-location-${id}`, `ac-psed-location-${id}`, () => _psLocations);
   setupAC(`psed-pic-${id}`, `ac-psed-pic-${id}`, () => acPics);
   _psWireBudgetRowsAC(id);
@@ -25144,7 +25163,7 @@ async function savePsEdit(id) {
   const name = (document.getElementById(`psed-name-${id}`).value || '').trim();
   if (!name) { setFB('Shoot name wajib', false); return; }
   const colName = (document.getElementById(`psed-collection-${id}`).value || '').trim().toLowerCase();
-  const colMatch = allColRows.find(c => (c.collectionName||'').toLowerCase() === colName);
+  const colMatch = _colFindByLabel(colName);
   const breakdown = _psReadBudget(id);
   const breakdownSum = breakdown.reduce((s, b) => s + Number(b.amount||0), 0);
   const sampleItems = _kolReadFreebieFrom(`psed-sample-${id}`, `ps-sam-${id}`);
@@ -25370,7 +25389,7 @@ let _kolFormWired = false;
 async function _kolMgmtSeedForm() {
   await _kolMgmtEnsureRefData();
   if (!_kolFormWired) {
-    setupAC('kol-collection', 'ac-kol-collection', () => allColRows.map(c => c.collectionName).filter(Boolean));
+    setupAC('kol-collection', 'ac-kol-collection', () => allColRows.map(c => _colDisplayLabel(c)).filter(Boolean));
     setupAC('kol-name', 'ac-kol-name', () => allKolDbRows.map(k => k.name).filter(Boolean));
     setupAC('kol-pic', 'ac-kol-pic', () => acPics);
     // Track KOL name picks → update insights display
@@ -25683,7 +25702,7 @@ async function loadKolMgmt() {
   if (colFil && allColRows.length && colFil.options.length <= 1) {
     const cur = colFil.value;
     colFil.innerHTML = `<option value="">Semua Collection</option>` +
-      allColRows.map(c => `<option value="${(c.id||'').replace(/"/g,'&quot;')}"${c.id===cur?' selected':''}>${(c.collectionName||'').replace(/</g,'&lt;')}</option>`).join('');
+      allColRows.map(c => `<option value="${(c.id||'').replace(/"/g,'&quot;')}"${c.id===cur?' selected':''}>${(_colDisplayLabel(c)||'').replace(/</g,'&lt;')}</option>`).join('');
   }
   const tbody = document.getElementById('kolTableBody');
   if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="9">Memuat...</td></tr>`;
@@ -25880,7 +25899,7 @@ function closeKolEdit(id) { closeKolDrawer(); }
 
 function _kolEditFormHTML(r) {
   const esc = s => (s==null?'':String(s)).replace(/"/g,'&quot;');
-  const colName = allColRows.find(c => c.id === r.collectionId)?.collectionName || '';
+  const colName = _colDisplayLabel(allColRows.find(c => c.id === r.collectionId)) || '';
   const cat = r.paymentCategory || 'Barter';
   const id = r.id;
   const delivRowsHTML = (r.deliverablesList && r.deliverablesList.length)
@@ -25975,7 +25994,7 @@ function _kolEditFormHTML(r) {
 
 // Wire setupAC for the per-row collection + KOL name inputs
 function _kolEditAttachAC(id) {
-  setupAC(`kole-collection-${id}`, `ac-kole-collection-${id}`, () => allColRows.map(c => c.collectionName).filter(Boolean));
+  setupAC(`kole-collection-${id}`, `ac-kole-collection-${id}`, () => allColRows.map(c => _colDisplayLabel(c)).filter(Boolean));
   setupAC(`kole-name-${id}`, `ac-kole-name-${id}`, () => allKolDbRows.map(k => k.name).filter(Boolean));
   setupAC(`kole-pic-${id}`, `ac-kole-pic-${id}`, () => acPics);
   // Wire AC for existing freebie rows (when reopening with prefilled items)
@@ -26032,7 +26051,7 @@ async function saveKolEdit(id) {
     ? (parseFloat(document.getElementById(`kole-fee-${id}`).value) || null) : null;
   // Resolve collection name → id
   const colName = (document.getElementById(`kole-collection-${id}`).value || '').trim().toLowerCase();
-  const colMatch = allColRows.find(c => (c.collectionName||'').toLowerCase() === colName);
+  const colMatch = _colFindByLabel(colName);
   const collection_id = colMatch ? colMatch.id : null;
   // Resolve KOL name → kol_db_id
   const kolMatch = allKolDbRows.find(k => (k.name||'').toLowerCase() === name.toLowerCase());
@@ -29104,7 +29123,7 @@ async function openSmpDetail(colId) {
   _smpCurrentCol = col;
   document.getElementById('smp-view-grid').style.display = 'none';
   document.getElementById('smp-view-detail').style.display = 'block';
-  document.getElementById('smp-detail-title').textContent = col.collection_name || '(Tanpa nama)';
+  document.getElementById('smp-detail-title').textContent = (col.ip_related?col.ip_related+' - ':'') + (col.collection_name||'(Tanpa nama)');
   document.getElementById('smp-detail-sub').textContent = [col.ip_related, col.revenue_stream, col.release_date ? `Release: ${col.release_date}` : null].filter(Boolean).join(' · ');
   // Collection-level sampling links (multi-link, JSONB array)
   smpRenderLinks();
