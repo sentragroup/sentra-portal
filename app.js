@@ -22877,7 +22877,7 @@ function clearMaForm() {
 function _maPickedCollectionId(idPrefix) {
   const name = (document.getElementById(`${idPrefix}-collection`)?.value || '').trim().toLowerCase();
   if (!name) return null;
-  const c = allColRows.find(x => (x.collectionName||'').toLowerCase() === name);
+  const c = _colFindByLabel(name);
   return c ? c.id : null;
 }
 
@@ -23762,7 +23762,7 @@ async function _psSeedForm() {
 function _psPickedCollectionId() {
   const name = (document.getElementById('ps-collection')?.value || '').trim().toLowerCase();
   if (!name) return null;
-  const c = allColRows.find(x => (x.collectionName||'').toLowerCase() === name);
+  const c = _colFindByLabel(name);
   return c ? c.id : null;
 }
 
@@ -25435,7 +25435,7 @@ function _kolPickedDbId() {
 function _kolPickedCollectionId() {
   const name = (document.getElementById('kol-collection')?.value || '').trim().toLowerCase();
   if (!name) return null;
-  const c = allColRows.find(x => (x.collectionName||'').toLowerCase() === name);
+  const c = _colFindByLabel(name);
   return c ? c.id : null;
 }
 
