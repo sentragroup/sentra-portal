@@ -5465,10 +5465,12 @@ function applyColFilters() {
   const priority=document.getElementById("col-fil-priority")?.value||"";
   const month=document.getElementById("col-fil-month")?.value||"";
   const year=document.getElementById("col-fil-year")?.value||"";
+  const revstream=document.getElementById("col-fil-revstream")?.value||"";
   const q=(document.getElementById("colSearch")?.value||"").toLowerCase();
   let rows=allColRows;
   if(status) rows=rows.filter(r=>r.status===status);
   if(priority) rows=rows.filter(r=>r.priority===priority);
+  if(revstream) rows=rows.filter(r=>(r.revenueStream||"")===revstream);
   if(month||year) {
     rows = rows.filter(r => {
       const d = r.releaseDate || r.dateAdded;
@@ -5568,7 +5570,7 @@ function renderColCalendar(rows) {
 }
 
 function clearColFilters() {
-  ["col-fil-status","col-fil-priority","col-fil-month","col-fil-year"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
+  ["col-fil-status","col-fil-priority","col-fil-month","col-fil-year","col-fil-revstream"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
   const s=document.getElementById("colSearch");if(s)s.value="";
   applyColFilters();
 }
@@ -5579,8 +5581,9 @@ function renderColTable(rows) {
   const tbody=document.getElementById("colTableBody");
   if(!tbody) return;
   document.getElementById("col-tcount").textContent=rows.length+" entri";
-  if(!rows.length){tbody.innerHTML=`<tr><td class="empty-td" colspan="8">Tidak ada data.</td></tr>`;return;}
+  if(!rows.length){tbody.innerHTML=`<tr><td class="empty-td" colspan="9">Tidak ada data.</td></tr>`;return;}
   const prioColor={High:"p-expired",Medium:"p-near",Low:"p-draft"};
+  const revColors={'SD&Y':{bg:'#fff3e0',brd:'#ffcc80',clr:'#8a4000'},'Lagaa':{bg:'#e8f0fc',brd:'#a8c4f0',clr:'#1a4a8a'},'marté':{bg:'#edf8ee',brd:'#90d4a0',clr:'#1a5c25'},'Marte':{bg:'#edf8ee',brd:'#90d4a0',clr:'#1a5c25'}};
   tbody.innerHTML=rows.map(r=>{
     const items=allColItems.filter(i=>i.collectionId===r.id);
     const approved=items.filter(i=>i.approvalStatus==="Approved").length;
@@ -5590,9 +5593,14 @@ function renderColTable(rows) {
       ? `<span style="font-size:11px">${items.length} SKU</span>${approved?` <span class="pill p-active" style="font-size:10px">${approved}✓</span>`:""}${revision?` <span class="pill p-near" style="font-size:10px">${revision} rev</span>`:""}${pending?` <span class="pill p-draft" style="font-size:10px">${pending} pend</span>`:""}`
       : `<span style="color:var(--g400);font-size:11px">—</span>`;
     const mbCell=r.moodboardUrl?`<a href="${r.moodboardUrl}" target="_blank" onclick="event.stopPropagation()" style="color:#3C3489;font-size:12px;text-decoration:none">↗ Lihat</a>`:"—";
+    const rev=r.revenueStream||"";
+    const revCell=rev
+      ? (()=>{const c=revColors[rev]||{bg:'var(--off)',brd:'var(--g200)',clr:'var(--g600)'};return `<span style="display:inline-block;padding:1px 8px;background:${c.bg};border:1px solid ${c.brd};color:${c.clr};border-radius:99px;font-size:10px;font-weight:600">${rev.replace(/</g,'&lt;')}</span>`;})()
+      : '<span style="color:var(--g400);font-size:11px">—</span>';
     return `<tr style="cursor:pointer" onclick="openCollectionDetail('${r.id}')">
       <td style="font-size:12px;font-weight:600;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.ipRelated||"—"}</td>
       <td>${r.collectionName||"—"}</td>
+      <td>${revCell}</td>
       <td style="white-space:nowrap;font-size:12px">${fmtDate(r.releaseDate)}</td>
       <td>${r.priority?`<span class="pill ${prioColor[r.priority]||"p-draft"}" style="font-size:11px">${r.priority}</span>`:"—"}</td>
       <td style="white-space:nowrap">${skuBadge}</td>
