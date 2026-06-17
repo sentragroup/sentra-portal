@@ -4798,6 +4798,13 @@
                 <input type="text" id="koldb-categories" placeholder="cth: Beauty, Lifestyle" autocomplete="off">
                 <div class="ac-list" id="ac-koldb-categories"></div>
               </div>
+              <div class="fg full"><label>Revenue Stream <span style="color:var(--g400);font-weight:400">(KOL bisa diserve untuk satu atau lebih)</span></label>
+                <div id="koldb-revstream-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px">
+                  <label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;font-weight:400;background:var(--white);border:1px solid var(--g200);border-radius:99px;padding:3px 10px"><input type="checkbox" id="koldb-new-rev-SDY" style="margin:0">SD&amp;Y</label>
+                  <label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;font-weight:400;background:var(--white);border:1px solid var(--g200);border-radius:99px;padding:3px 10px"><input type="checkbox" id="koldb-new-rev-Lagaa" style="margin:0">Lagaa</label>
+                  <label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;font-weight:400;background:var(--white);border:1px solid var(--g200);border-radius:99px;padding:3px 10px"><input type="checkbox" id="koldb-new-rev-Marte" style="margin:0">Marte</label>
+                </div>
+              </div>
             </div>
 
             <div class="form-sec" style="margin-top:14px">Platforms <span style="color:var(--g400);font-weight:400;font-size:11px">(pilih platform + tempel link profile)</span></div>
@@ -4832,9 +4839,15 @@
 
         <div id="koldbtab-list">
           <div class="filter-panel">
-            <div class="filter-grid" style="grid-template-columns:repeat(6,1fr)">
+            <div class="filter-grid" style="grid-template-columns:repeat(7,1fr)">
               <div class="fg"><label>Cari</label><input type="text" id="koldb-fil-search" placeholder="Nama / contact / category..." oninput="applyKolDbFilters()"></div>
               <div class="fg"><label>Category</label><select id="koldb-fil-category" onchange="applyKolDbFilters()"><option value="">Semua</option></select></div>
+              <div class="fg"><label>Revenue</label><select id="koldb-fil-revstream" onchange="applyKolDbFilters()">
+                <option value="">Semua</option>
+                <option value="SD&amp;Y">SD&amp;Y</option>
+                <option value="Lagaa">Lagaa</option>
+                <option value="Marte">Marte</option>
+              </select></div>
               <div class="fg"><label>Platform</label><select id="koldb-fil-platform" onchange="applyKolDbFilters()"><option value="">Semua</option></select></div>
               <div class="fg"><label>Tier</label><select id="koldb-fil-tier" onchange="applyKolDbFilters()">
                 <option value="">Semua</option>
@@ -4859,7 +4872,7 @@
             <div class="tcount" id="koldb-tcount">— entri</div>
           </div>
           <div class="table-wrap"><table>
-            <thead><tr><th>Nama</th><th>Categories</th><th>Tier</th><th>Platforms · Followers</th><th>Contact Person</th><th>Phone</th><th>Rate</th><th>Status</th><th>Actions</th></tr></thead>
+            <thead><tr><th>Nama</th><th>Categories</th><th>Revenue</th><th>Tier</th><th>Platforms · Followers</th><th>Contact Person</th><th>Phone</th><th>Rate</th><th>Status</th><th>Actions</th></tr></thead>
             <tbody id="koldbTableBody"></tbody>
           </table></div>
         </div>
@@ -5050,6 +5063,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260615i"></script>
+<script src="app.js?v=20260615j"></script>
 </body>
 </html>
