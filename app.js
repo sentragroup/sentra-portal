@@ -30058,7 +30058,7 @@ const _OB_STATUS_OPTS = ['Pending','Sent','Delivered','Cancelled'];
 
 async function loadOutbound() {
   const tbody = document.getElementById('obTableBody');
-  if (tbody) tbody.innerHTML = '<tr><td class="empty-td" colspan="9">Memuat...</td></tr>';
+  if (tbody) tbody.innerHTML = '<tr><td class="empty-td" colspan="10">Memuat...</td></tr>';
   try {
     const {data, error} = await sb.from('outbound_requests').select('*').order('date_added', {ascending:false}).order('id', {ascending:false});
     if (error) throw error;
@@ -30371,10 +30371,13 @@ async function deleteOutbound(id) {
 const _KOLDB_PLATFORMS = ['Instagram','TikTok','YouTube','X','Threads','Facebook','Other'];
 let allKolDbRows = [], acKolDbCategories = [];
 
+const _KOLDB_REVSTREAMS = ['SD&Y','Lagaa','Marte'];
+
 function mapKolDb(r) {
   return {
     rowIndex: r.id, id: r.id, name: r.name||'',
     categories: r.categories||'',
+    revenueStream: r.revenue_stream||'',
     platforms: Array.isArray(r.platforms) ? r.platforms : [],
     rateEstimate: r.rate_estimate,
     contactPerson: r.contact_person||'',
@@ -30387,6 +30390,23 @@ function mapKolDb(r) {
     dateAdded: r.date_added, addedBy: r.added_by||'',
     lastUpdated: r.last_updated, lastUpdatedBy: r.last_updated_by||'',
   };
+}
+
+// Read checked revenue stream values from a checkbox group → comma-separated.
+function _kolDbReadRevStream(prefix) {
+  return _KOLDB_REVSTREAMS
+    .filter(s => document.getElementById(`${prefix}-rev-${s.replace(/[^a-zA-Z]/g,'')}`)?.checked)
+    .join(', ') || null;
+}
+
+// Render checkbox group HTML for revenue stream selection.
+function _kolDbRenderRevStreamCheckboxes(prefix, selected) {
+  const sel = (selected||'').split(',').map(s => s.trim()).filter(Boolean);
+  return _KOLDB_REVSTREAMS.map(s => {
+    const id = `${prefix}-rev-${s.replace(/[^a-zA-Z]/g,'')}`;
+    const checked = sel.includes(s) ? 'checked' : '';
+    return `<label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;font-weight:400;background:var(--white);border:1px solid var(--g200);border-radius:99px;padding:3px 10px"><input type="checkbox" id="${id}" ${checked} style="margin:0">${s}</label>`;
+  }).join(' ');
 }
 
 // Compact follower count: 12_300 → "12.3K", 4_200_000 → "4.2M"
@@ -30426,7 +30446,7 @@ function _kolDbTierBadge(tier) {
 
 async function loadKolDb() {
   const tbody = document.getElementById('koldbTableBody');
-  if (tbody) tbody.innerHTML = '<tr><td class="empty-td" colspan="9">Memuat...</td></tr>';
+  if (tbody) tbody.innerHTML = '<tr><td class="empty-td" colspan="10">Memuat...</td></tr>';
   try {
     const {data, error} = await sb.from('kol_database').select('*').order('name');
     if (error) throw error;
@@ -30438,7 +30458,7 @@ async function loadKolDb() {
     _rebuildKolDbFilters();
     applyKolDbFilters();
   } catch(e) {
-    if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="9">Gagal: ${e.message||e}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="10">Gagal: ${e.message||e}</td></tr>`;
   }
 }
 
@@ -30481,6 +30501,7 @@ function applyKolDbFilters() {
   const tier = document.getElementById('koldb-fil-tier')?.value || '';
   const stat = document.getElementById('koldb-fil-status').value;
   const sort = document.getElementById('koldb-fil-sort')?.value || 'name';
+  const rev = document.getElementById('koldb-fil-revstream')?.value || '';
   const filt = allKolDbRows.filter(r => {
     if (stat === 'blacklist' && !r.isBlacklisted) return false;
     if (stat === 'active' && r.isBlacklisted) return false;
@@ -30488,6 +30509,7 @@ function applyKolDbFilters() {
     if (tier && tier !== '__untiered' && r.tier !== tier) return false;
     if (cat && !(r.categories||'').split(',').map(s=>s.trim()).includes(cat)) return false;
     if (plat && !(r.platforms||[]).some(p => p.platform === plat)) return false;
+    if (rev && !(r.revenueStream||'').split(',').map(s=>s.trim()).includes(rev)) return false;
     if (q && !(`${r.name} ${r.categories} ${r.contactPerson}`.toLowerCase().includes(q))) return false;
     return true;
   });
@@ -30511,7 +30533,7 @@ function _renderKolDbRows(rows) {
   const tbody = document.getElementById('koldbTableBody');
   const cnt = document.getElementById('koldb-tcount');
   cnt.textContent = `${rows.length} entri`;
-  if (!rows.length) { tbody.innerHTML = '<tr><td class="empty-td" colspan="9">Tidak ada KOL.</td></tr>'; return; }
+  if (!rows.length) { tbody.innerHTML = '<tr><td class="empty-td" colspan="10">Tidak ada KOL.</td></tr>'; return; }
   const esc = s => (s==null?'':String(s)).replace(/</g,'&lt;').replace(/"/g,'&quot;');
   tbody.innerHTML = rows.map(r => {
     // Build chips + collect followers for Primary/Total summary line
@@ -30541,9 +30563,16 @@ function _renderKolDbRows(rows) {
       ? `<span class="pill p-expired">🚫 Blacklist</span>`
       : `<span class="pill p-active">Aktif</span>`;
     const refreshedTitle = r.lastRefreshedAt ? `Insights di-refresh ${_kolDbAgo(r.lastRefreshedAt)} (${new Date(r.lastRefreshedAt).toLocaleString('id-ID')})` : 'Insights belum pernah di-refresh';
+    // Revenue stream chips — color-coded per brand bucket
+    const revColors = {'SD&Y':{bg:'#fff3e0',brd:'#ffcc80',clr:'#8a4000'},'Lagaa':{bg:'#e8f0fc',brd:'#a8c4f0',clr:'#1a4a8a'},'Marte':{bg:'#edf8ee',brd:'#90d4a0',clr:'#1a5c25'}};
+    const revChips = (r.revenueStream||'').split(',').map(s=>s.trim()).filter(Boolean).map(s => {
+      const c = revColors[s] || {bg:'var(--off)',brd:'var(--g200)',clr:'var(--g600)'};
+      return `<span style="display:inline-block;padding:1px 7px;background:${c.bg};border:1px solid ${c.brd};color:${c.clr};border-radius:99px;font-size:10px;font-weight:600;margin:1px 2px 1px 0">${esc(s)}</span>`;
+    }).join('') || '<span style="color:var(--g400);font-size:11px">—</span>';
     return `<tr id="koldb-row-${r.rowIndex}">
       <td><div style="font-weight:600">${esc(r.name)}</div></td>
       <td style="font-size:11px;color:var(--g600)">${esc(r.categories)||'—'}</td>
+      <td>${revChips}</td>
       <td title="${esc(refreshedTitle)}">${_kolDbTierBadge(r.tier)}</td>
       <td>${platformsCell}</td>
       <td>${esc(r.contactPerson)||'—'}</td>
@@ -30605,6 +30634,10 @@ function clearKolDbForm() {
     if (el) el.value = '';
   });
   document.getElementById('koldb-blacklist').checked = false;
+  _KOLDB_REVSTREAMS.forEach(s => {
+    const cb = document.getElementById(`koldb-new-rev-${s.replace(/[^a-zA-Z]/g,'')}`);
+    if (cb) cb.checked = false;
+  });
   document.getElementById('koldb-platforms-rows').innerHTML = '';
   document.getElementById('koldb-feedback').textContent = '';
 }
@@ -30621,6 +30654,7 @@ async function submitKolDb() {
     id: genId('KD'),
     name,
     categories: document.getElementById('koldb-categories').value.trim() || null,
+    revenue_stream: _kolDbReadRevStream('koldb-new'),
     platforms,
     rate_estimate: rateRaw==='' ? null : Number(rateRaw),
     contact_person: contactPerson || null,
@@ -30675,6 +30709,10 @@ function openKolDbEdit(id) {
           <input type="checkbox" id="koldb-e-blacklist-${id}" ${r.isBlacklisted?'checked':''} style="width:14px;height:14px"> 🚫 Blacklist
         </label></div>
       </div>
+      <div style="margin-top:8px">
+        <label style="display:block;font-size:11px;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px;color:var(--g600);margin-bottom:4px">Revenue Stream</label>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">${_kolDbRenderRevStreamCheckboxes(`koldb-e-${id}`, r.revenueStream)}</div>
+      </div>
       <div style="font-size:11px;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px;color:var(--g600);margin-top:10px;margin-bottom:4px">Platforms</div>
       <div id="koldb-e-platforms-${id}" style="display:flex;flex-direction:column;gap:6px">${platRows}</div>
       <button type="button" onclick="_kolDbAddEditRow('${id}')" class="btn-ghost" style="margin-top:6px;padding:4px 12px;font-size:11px">+ Tambah Platform</button>
@@ -30712,6 +30750,7 @@ async function saveKolDbEdit(id) {
   try {
     const {error} = await sb.from('kol_database').update({
       name, categories: (get('categories')||'').trim() || null,
+      revenue_stream: _kolDbReadRevStream(`koldb-e-${id}`),
       platforms,
       rate_estimate: rateRaw==='' ? null : Number(rateRaw),
       contact_person: contactPerson || null,
