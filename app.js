@@ -13482,7 +13482,7 @@ async function loadCalendar() {
     (colItemRes.data||[]).forEach(r=>calEvents.push({src:'colitem',date:r.deadline,label:r.sku_name,id:r.collection_id}));
     (leadsRes.data||[]).forEach(r=>calEvents.push({src:'leads',date:r.follow_up_date,label:r.lead_name,id:r.id}));
     (popupRes.data||[]).forEach(r=>calEvents.push({src:'popup',date:r.event_date,label:r.event_name+(r.location?` · ${r.location}`:''),id:r.id}));
-    (momRes.data||[]).forEach(r=>calEvents.push({src:'momentum',date:r.date,end:r.end_date||null,mmdd:r.date.slice(5),recurs:r.recurs_yearly,label:(r.category==='Birthday'?'🎂 ':r.category==='Anniversary'?'🎊 ':r.category==='Launch'?'🚀 ':r.category==='Event'?'📅 ':'🎉 ')+r.title+(r.related_to?' · '+r.related_to:''),id:r.id}));
+    (momRes.data||[]).forEach(r=>calEvents.push({src:'momentum',date:r.date,end:r.end_date||null,mmdd:r.date.slice(5),recurs:r.recurs_yearly,label:(r.category==='Birthday'?'🎂 ':r.category==='Anniversary'?'🎊 ':r.category==='Launch'?'🚀 ':r.category==='Event'?'📅 ':'🎉 ')+(r.source_meeting_id?'🗒️ ':'')+r.title+(r.related_to?' · '+r.related_to:''),id:r.id,meetingId:r.source_meeting_id||null}));
     renderCalendar();
   } catch(e){ console.error('Calendar load error:',e); }
 }
@@ -13559,13 +13559,14 @@ function renderCalendar() {
     const isToday = dayDate.getTime() === today.getTime();
     const dayEvts = byDate[dateStr] || [];
     const evHtml = dayEvts.slice(0,3).map(e=>{
+      const mtgArg = e.meetingId ? `'${e.meetingId}'` : 'null';
       if (e._spanPos && e._spanPos !== 'single') {
         // connected multi-day bar: rounded only on the outer ends, label only on start
         const radius = e._spanPos==='start' ? '4px 0 0 4px' : e._spanPos==='end' ? '0 4px 4px 0' : '0';
         const txt = e._spanPos==='start' ? e.label : '&nbsp;';
-        return `<div class="cal-event src-${e.src}" onclick="event.stopPropagation();calEventClick('${e.src}','${e.id}')" title="${e.label}" style="border-radius:${radius};${e._spanPos!=='start'?'margin-left:-4px;margin-right:-4px;padding-left:8px;':''}${e._spanPos==='start'?'margin-right:-4px;':''}">${txt}</div>`;
+        return `<div class="cal-event src-${e.src}" onclick="event.stopPropagation();calEventClick('${e.src}','${e.id}',${mtgArg})" title="${e.label}" style="border-radius:${radius};${e._spanPos!=='start'?'margin-left:-4px;margin-right:-4px;padding-left:8px;':''}${e._spanPos==='start'?'margin-right:-4px;':''}">${txt}</div>`;
       }
-      return `<div class="cal-event src-${e.src}" onclick="event.stopPropagation();calEventClick('${e.src}','${e.id}')" title="${e.label}">${srcLabel[e.src]} ${e.label}</div>`;
+      return `<div class="cal-event src-${e.src}" onclick="event.stopPropagation();calEventClick('${e.src}','${e.id}',${mtgArg})" title="${e.label}">${srcLabel[e.src]} ${e.label}</div>`;
     }).join('');
     const overflow = dayEvts.length > 3 ? `<div class="cal-overflow">+${dayEvts.length-3} lagi</div>` : '';
     html += `<div class="cal-day${isToday?' today':''}"><div class="cal-day-num">${d}</div>${evHtml}${overflow}</div>`;
@@ -13579,9 +13580,18 @@ function renderCalendar() {
   gridEl.innerHTML = html;
 }
 
-function calEventClick(src, id) {
+function calEventClick(src, id, meetingId) {
   const pageMap = {project:'project',collection:'collections',colitem:'collections',leads:'leads',popup:'popup-booth'};
-  if (src === 'momentum') { switchCalTab('momentum', document.querySelector('#cal-main-tabs .tab-btn:nth-child(2)')); return; }
+  if (src === 'momentum') {
+    // Kalau moment dari meeting note, langsung loncat ke meeting detail.
+    if (meetingId) {
+      showPage('meetingnotes', null);
+      setTimeout(() => openMeetingDetail(meetingId), 0);
+      return;
+    }
+    switchCalTab('momentum', document.querySelector('#cal-main-tabs .tab-btn:nth-child(2)'));
+    return;
+  }
   if (pageMap[src]) showPage(pageMap[src], null);
 }
 
@@ -31264,6 +31274,34 @@ function _renderMeetingDetail(m) {
           <div style="font-size:12px;color:var(--g600);text-align:center;padding:8px">💾 Simpan meeting dulu untuk bisa tambah link & action items.</div>
         </div>`}
 
+        <!-- Key Moments — push ke Calendar module via calendar_moments -->
+        ${!isNew ? `<div class="form-card" style="margin-bottom:14px">
+          <div class="form-sec" style="display:flex;justify-content:space-between;align-items:center">
+            <span>🔑 Key Moments</span>
+            <span style="font-size:10px;color:var(--g400);font-family:var(--mono);font-weight:400" id="mn-km-count">—</span>
+          </div>
+          <div style="font-size:11px;color:var(--g600);margin-bottom:8px">Milestone/event date yang muncul dari meeting ini. Auto-surface di <b>Calendar</b> module.</div>
+          <div style="display:grid;grid-template-columns:1fr 120px 120px 110px auto;gap:8px;align-items:end;background:var(--off);padding:10px;border-radius:6px;margin-bottom:10px">
+            <div class="fg" style="margin:0"><label style="font-size:11px">Judul</label><input type="text" id="mn-km-title" placeholder="cth: SDY x Marbles launch"></div>
+            <div class="fg" style="margin:0"><label style="font-size:11px">Tanggal</label><input type="date" id="mn-km-date"></div>
+            <div class="fg" style="margin:0"><label style="font-size:11px">Sampai (opsional)</label><input type="date" id="mn-km-end" title="Untuk event multi-hari"></div>
+            <div class="fg" style="margin:0"><label style="font-size:11px">Kategori</label><select id="mn-km-cat" style="font-size:12px">
+              <option value="Event">📅 Event</option>
+              <option value="Launch">🚀 Launch</option>
+              <option value="Anniversary">🎊 Anniversary</option>
+              <option value="Birthday">🎂 Birthday</option>
+              <option value="Special Day">⭐ Special Day</option>
+              <option value="Other">🎉 Other</option>
+            </select></div>
+            <button class="btn-primary" style="padding:7px 14px;font-size:12px" onclick="addMeetingKeyMoment('${m.id}')">+ Tambah</button>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;font-size:11px;color:var(--g600)">
+            <input type="checkbox" id="mn-km-recurs" style="margin:0;cursor:pointer">
+            <label for="mn-km-recurs" style="cursor:pointer;margin:0">Recurs yearly (e.g. anniversary, recurring event)</label>
+          </div>
+          <div id="mn-km-list"><div style="color:var(--g400);font-size:12px;padding:8px">Memuat...</div></div>
+        </div>` : ''}
+
         <!-- Action Items -->
         ${!isNew ? `<div class="form-card">
           <div class="form-sec" style="display:flex;justify-content:space-between;align-items:center">
@@ -31302,6 +31340,7 @@ function _renderMeetingDetail(m) {
     _mnWireLinkPicker(m.id);
     loadMeetingLinks(m.id);
     loadMeetingActionItems(m.id);
+    loadMeetingKeyMoments(m.id);
   }
   // Auto-update body preview on blur
   const bodyEl = document.getElementById('mn-body');
@@ -31531,6 +31570,81 @@ async function deleteMeetingActionItem(id, meetingId) {
   const { error } = await sb.from('collection_action_items').delete().eq('id', id);
   if (error) { alert('Gagal: '+error.message); return; }
   loadMeetingActionItems(meetingId);
+}
+
+// ── Meeting key moments → calendar_moments ──
+const _MN_KM_ICON = {Event:'📅', Launch:'🚀', Anniversary:'🎊', Birthday:'🎂', 'Special Day':'⭐', Other:'🎉'};
+
+async function addMeetingKeyMoment(meetingId) {
+  const tEl = document.getElementById('mn-km-title');
+  const dEl = document.getElementById('mn-km-date');
+  const eEl = document.getElementById('mn-km-end');
+  const cEl = document.getElementById('mn-km-cat');
+  const rEl = document.getElementById('mn-km-recurs');
+  const title = tEl?.value.trim();
+  const date  = dEl?.value;
+  const endD  = eEl?.value || null;
+  if (!title) { tEl?.focus(); return; }
+  if (!date)  { dEl?.focus(); return; }
+  if (endD && endD < date) { alert('Tanggal selesai gak boleh sebelum tanggal mulai.'); return; }
+  // Resolve meeting title for related_to (so Calendar tooltip readable)
+  const m = allMeetings.find(x => x.id === meetingId);
+  const relatedTo = m?.title ? `Meeting: ${m.title}` : `Meeting ${meetingId}`;
+  const { error } = await sb.from('calendar_moments').insert({
+    id: genId('MOM'),
+    title,
+    date,
+    end_date: endD,
+    recurs_yearly: rEl?.checked || false,
+    category: cEl?.value || 'Event',
+    related_to: relatedTo,
+    source_meeting_id: meetingId,
+    added_by: currentUser,
+  });
+  if (error) { alert('Gagal: '+error.message); return; }
+  tEl.value=''; dEl.value=''; eEl.value=''; if (rEl) rEl.checked = false;
+  if (cEl) cEl.value = 'Event';
+  loadMeetingKeyMoments(meetingId);
+}
+
+async function loadMeetingKeyMoments(meetingId) {
+  const el = document.getElementById('mn-km-list');
+  const cnt = document.getElementById('mn-km-count');
+  if (!el) return;
+  const { data } = await sb.from('calendar_moments').select('*')
+    .eq('source_meeting_id', meetingId).order('date',{ascending:true});
+  const moments = data || [];
+  if (cnt) cnt.textContent = moments.length ? `${moments.length}` : 'kosong';
+  if (!moments.length) {
+    el.innerHTML = `<div style="padding:14px;text-align:center;color:var(--g400);font-size:12px">Belum ada key moment. Tambah biar muncul di Calendar.</div>`;
+    return;
+  }
+  const today = new Date().toISOString().slice(0,10);
+  const fmt = d => new Date(d+'T00:00:00').toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'});
+  el.innerHTML = moments.map(km => {
+    const icon = _MN_KM_ICON[km.category] || '🎉';
+    const dateStr = km.end_date && km.end_date !== km.date ? `${fmt(km.date)} → ${fmt(km.end_date)}` : fmt(km.date);
+    const tone = km.date < today ? {clr:'var(--g400)', bg:'var(--off)'} : {clr:'#3C3489', bg:'#eef0f8'};
+    return `<div style="padding:9px 12px;border-bottom:1px solid var(--g100);display:flex;gap:10px;align-items:flex-start">
+      <span style="font-size:16px;flex-shrink:0">${icon}</span>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;line-height:1.4;color:var(--black);font-weight:600">${(km.title||'').replace(/</g,'&lt;')}</div>
+        <div style="margin-top:3px;display:flex;gap:5px;flex-wrap:wrap;font-size:10px">
+          <span style="padding:1px 6px;background:${tone.bg};border:1px solid ${tone.clr}40;color:${tone.clr};border-radius:3px;font-weight:600">📅 ${dateStr}</span>
+          <span style="padding:1px 6px;background:var(--off);border:1px solid var(--g100);color:var(--g600);border-radius:3px">${km.category}</span>
+          ${km.recurs_yearly ? `<span style="padding:1px 6px;background:#fef5e0;border:1px solid #f3cf7a;color:#a66800;border-radius:3px">🔁 yearly</span>` : ''}
+        </div>
+      </div>
+      <button class="btn-icon" style="font-size:11px;color:#c0392b" onclick="deleteMeetingKeyMoment('${km.id}','${meetingId}')" title="Hapus">✕</button>
+    </div>`;
+  }).join('');
+}
+
+async function deleteMeetingKeyMoment(id, meetingId) {
+  if (!confirm('Hapus key moment ini? Akan hilang juga dari Calendar.')) return;
+  const { error } = await sb.from('calendar_moments').delete().eq('id', id);
+  if (error) { alert('Gagal: '+error.message); return; }
+  loadMeetingKeyMoments(meetingId);
 }
 
 // ── DUPLICATE CHECK ──
