@@ -6037,9 +6037,13 @@ async function loadColMPMirror(cid) {
     };
 
     // Build cards array from each activity's items
+    // Content Planning = master list (semua entries di content_planning).
+    // Video Production = subset filter (content_type ~ video). Brand manager
+    // input 1 entry → muncul di kedua card jika type-nya video. Sebelumnya
+    // split exclusive → kalau semua entries Video, Content Planning kosong
+    // walau user expect liat semua content disitu.
     const cpItems = cpRes.data || [];
     const videoItems = cpItems.filter(c => (c.content_type||'').toLowerCase().includes('video'));
-    const nonVideoContent = cpItems.filter(c => !(c.content_type||'').toLowerCase().includes('video'));
     const cards = [
       { on: plan.actPhotoshoot, icon:'📸', label:'Photoshoot', module:'photoshoot',
         items: psRes.data || [],
@@ -6058,7 +6062,7 @@ async function loadColMPMirror(cid) {
           status: r.status,
         }) },
       { on: plan.actContent, icon:'📱', label:'Content Planning', module:'contentplan',
-        items: nonVideoContent,
+        items: cpItems,
         renderEntry: r => ({
           title: r.title, link: r.content_url||r.asset_url,
           meta: [r.content_type, r.channel, fmtD(r.publish_date||r.deadline), r.owner].filter(Boolean).join(' · '),
