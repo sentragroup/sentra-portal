@@ -5236,7 +5236,13 @@ function relTime(ts) {
 }
 
 function highlightMentions(text) {
-  return (text||"").replace(/</g,"&lt;").replace(/@([\w.]+)/g,'<span style="color:#3C3489;font-weight:600">@$1</span>');
+  // 1. escape HTML, 2. URLs → clickable <a>, 3. @mentions → colored chip.
+  // URL regex matches http(s)://… up to whitespace; trailing punctuation
+  // (.,;:!?) yang umum di prose dipotong biar gak masuk ke href.
+  const escaped = (text||"").replace(/</g,"&lt;");
+  const linked  = escaped.replace(/(https?:\/\/[^\s<]+[^\s<.,;:!?)\]])/g,
+    '<a href="$1" target="_blank" rel="noopener noreferrer" style="color:#3C3489;text-decoration:underline;word-break:break-all">$1</a>');
+  return linked.replace(/@([\w.]+)/g,'<span style="color:#3C3489;font-weight:600">@$1</span>');
 }
 
 async function loadCollections() {
@@ -5935,6 +5941,14 @@ async function loadColTimelinePanel(col, items) {
     (ad||[]).forEach(a => {
       if (a.start_date) events.push({ date: a.start_date, type: 'ads', icon: '📢', label: `Ads start${a.channel?` (${a.channel})`:''}`, detail: a.campaign_name||'—', tone: '#c0392b' });
       if (a.end_date)   events.push({ date: a.end_date,   type: 'ads', icon: '🏁', label: `Ads end${a.channel?` (${a.channel})`:''}`,   detail: a.campaign_name||'—', tone: '#c0392b' });
+    });
+  } catch(_) {}
+  // 10. Action items (open only — done items udah selesai jadi gak relevant di timeline)
+  try {
+    const {data: ai} = await sb.from('collection_action_items')
+      .select('title,pic,deadline').eq('collection_id', cid).eq('status','open').not('deadline','is',null);
+    (ai||[]).forEach(a => {
+      events.push({ date: a.deadline, type: 'action', icon: '✅', label: `Action item${a.pic?` · ${a.pic}`:''}`, detail: a.title||'—', tone: '#a66800' });
     });
   } catch(_) {}
   // Render
@@ -7318,6 +7332,25 @@ function renderColDetail(col, items) {
             <div style="padding:12px;color:var(--g400);font-size:12px;text-align:center">Memuat...</div>
           </div>
         </div>
+        <!-- Action Items panel -->
+        <div style="border:1px solid var(--g100);border-radius:8px;overflow:hidden">
+          <div style="padding:10px 14px;background:var(--off);border-bottom:1px solid var(--g100);font-family:var(--mono);font-size:11px;text-transform:uppercase;font-weight:600;display:flex;align-items:center;gap:6px">
+            <span>✅ Action Items</span>
+            <span id="col-ai-count-${col.id}" style="margin-left:auto;font-size:10px;color:var(--g400);text-transform:none;font-family:var(--mono)">—</span>
+          </div>
+          <div style="padding:10px 12px;background:var(--white);border-bottom:1px solid var(--g100)">
+            <input type="text" id="col-ai-title-${col.id}" placeholder="Apa yang harus dilakukan?" style="width:100%;font-size:12px;padding:6px 8px;border:1px solid var(--g100);border-radius:5px;box-sizing:border-box;font-family:inherit;margin-bottom:6px">
+            <div style="display:flex;gap:6px;align-items:center;position:relative">
+              <input type="text" id="col-ai-pic-${col.id}" placeholder="PIC" autocomplete="off" style="flex:1;min-width:0;font-size:11px;padding:5px 7px;border:1px solid var(--g100);border-radius:5px;box-sizing:border-box;font-family:inherit">
+              <div class="ac-list" id="ac-col-ai-pic-${col.id}" style="top:32px;left:0"></div>
+              <input type="date" id="col-ai-deadline-${col.id}" style="flex:1;min-width:0;font-size:11px;padding:5px 7px;border:1px solid var(--g100);border-radius:5px;box-sizing:border-box;font-family:inherit">
+              <button id="col-ai-btn-${col.id}" class="btn-primary" style="padding:5px 10px;font-size:11px;flex-shrink:0" onclick="addColActionItem('${col.id}')">+ Tambah</button>
+            </div>
+          </div>
+          <div id="col-ai-list-${col.id}">
+            <div style="padding:12px;color:var(--g400);font-size:12px;text-align:center">Memuat...</div>
+          </div>
+        </div>
         <!-- Activity panel -->
         <div style="border:1px solid var(--g100);border-radius:8px;overflow:hidden">
           <div style="padding:10px 14px;background:var(--off);border-bottom:1px solid var(--g100);font-family:var(--mono);font-size:11px;text-transform:uppercase;font-weight:600">📋 Aktivitas</div>
@@ -7347,6 +7380,7 @@ function renderColDetail(col, items) {
   });
   loadColSidebar(col.id);
   setupNoteAC(col.id);
+  setupAC(`col-ai-pic-${col.id}`,`ac-col-ai-pic-${col.id}`,()=>acPics);
   loadColProductPerf(col.id, col.collectionName, col.revenueStream||"", col.ipRelated||"");
   loadColStockRecon(col.id, col.collectionName);
   // Business tab async loaders
@@ -8698,12 +8732,14 @@ async function saveSkuStageNote(itemId, colId, stage, notes) {
 
 async function loadColSidebar(colId) {
   const itemIds=allColItems.filter(i=>i.collectionId===colId).map(i=>i.id);
-  const [notesRes, actRes]=await Promise.all([
+  const [notesRes, actRes, aiRes]=await Promise.all([
     sb.from("collection_notes").select("*").eq("collection_id",colId).order("created_at",{ascending:false}).limit(50),
-    sb.from("activity_logs").select("*").in("record_id",[colId,...itemIds]).order("ts",{ascending:false}).limit(30)
+    sb.from("activity_logs").select("*").in("record_id",[colId,...itemIds]).order("ts",{ascending:false}).limit(30),
+    sb.from("collection_action_items").select("*").eq("collection_id",colId).order("status",{ascending:true}).order("deadline",{ascending:true,nullsFirst:false}).order("created_at",{ascending:false})
   ]);
   renderNotesList(colId, (notesRes.data||[]).map(mapCN));
   renderActivityList(colId, actRes.data||[]);
+  renderColActionItems(colId, aiRes.data||[]);
 }
 
 async function addColNote(colId) {
@@ -8741,6 +8777,111 @@ function renderNotesList(colId, notes) {
       </div>
       <div style="font-size:12px;line-height:1.5;color:var(--black);white-space:pre-wrap">${highlightMentions(n.content)}</div>
     </div>`).join("");
+}
+
+// ── COLLECTION ACTION ITEMS ────────────────────────────────────────────────
+// Per-collection todo list (PIC + deadline). Deadline diloop ke
+// Collection Timeline biar visible disitu juga.
+function renderColActionItems(colId, items) {
+  const el = document.getElementById(`col-ai-list-${colId}`);
+  const cnt = document.getElementById(`col-ai-count-${colId}`);
+  if (!el) return;
+  const openItems = items.filter(i => i.status !== 'done');
+  const doneItems = items.filter(i => i.status === 'done');
+  if (cnt) cnt.textContent = items.length ? `${openItems.length} open · ${doneItems.length} done` : 'kosong';
+  if (!items.length) {
+    el.innerHTML = `<div style="padding:12px;color:var(--g400);font-size:12px;text-align:center">Belum ada action item</div>`;
+    return;
+  }
+  const today = new Date().toISOString().slice(0,10);
+  const dayDiff = d => Math.round((new Date(d) - new Date(today)) / 86400000);
+  const fmtDeadline = d => {
+    if (!d) return null;
+    const diff = dayDiff(d);
+    const dt = new Date(d+'T00:00:00');
+    const label = dt.toLocaleDateString('id-ID',{day:'numeric',month:'short'});
+    if (diff < 0)  return { txt:`Lewat ${-diff}h · ${label}`, clr:'#c0392b', bg:'#fde0e0' };
+    if (diff === 0) return { txt:`Hari ini · ${label}`,        clr:'#a66800', bg:'#fef5e0' };
+    if (diff <= 7) return { txt:`+${diff}h · ${label}`,         clr:'#3C3489', bg:'#eef0f8' };
+    return { txt:`${label}`, clr:'var(--g600)', bg:'var(--off)' };
+  };
+  const row = a => {
+    const isDone = a.status === 'done';
+    const dl = fmtDeadline(a.deadline);
+    const titleStr = (a.title||'').replace(/</g,'&lt;');
+    const picChip  = a.pic ? `<span style="display:inline-block;padding:1px 6px;background:var(--off);border:1px solid var(--g100);border-radius:3px;font-size:10px;color:var(--g600)">👤 ${a.pic.replace(/</g,'&lt;')}</span>` : '';
+    const dlChip   = dl && !isDone ? `<span style="display:inline-block;padding:1px 6px;background:${dl.bg};border:1px solid ${dl.clr}40;color:${dl.clr};border-radius:3px;font-size:10px;font-weight:600">📅 ${dl.txt}</span>` : (a.deadline ? `<span style="display:inline-block;padding:1px 6px;background:var(--off);border:1px solid var(--g100);border-radius:3px;font-size:10px;color:var(--g400)">📅 ${new Date(a.deadline+'T00:00:00').toLocaleDateString('id-ID',{day:'numeric',month:'short'})}</span>` : '');
+    return `<div style="padding:8px 12px;border-top:1px solid var(--g100);display:flex;gap:8px;align-items:flex-start">
+      <input type="checkbox" ${isDone?'checked':''} onchange="toggleColActionItem('${a.id}','${colId}',this.checked)" style="margin-top:2px;cursor:pointer;flex-shrink:0">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12px;line-height:1.4;color:var(--black);${isDone?'text-decoration:line-through;color:var(--g400)':''};word-break:break-word">${titleStr}</div>
+        ${(picChip||dlChip) ? `<div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap">${picChip}${dlChip}</div>` : ''}
+      </div>
+      <button class="btn-icon" style="font-size:10px;padding:2px 5px;color:#c0392b;flex-shrink:0" onclick="deleteColActionItem('${a.id}','${colId}')" title="Hapus">✕</button>
+    </div>`;
+  };
+  el.innerHTML = [...openItems, ...doneItems].map(row).join('');
+}
+
+async function addColActionItem(colId) {
+  const tEl  = document.getElementById(`col-ai-title-${colId}`);
+  const pEl  = document.getElementById(`col-ai-pic-${colId}`);
+  const dEl  = document.getElementById(`col-ai-deadline-${colId}`);
+  const btn  = document.getElementById(`col-ai-btn-${colId}`);
+  const title = tEl?.value.trim();
+  if (!title) { tEl?.focus(); return; }
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+  const { error } = await sb.from('collection_action_items').insert({
+    id: genId('CAI'),
+    collection_id: colId,
+    title,
+    pic: pEl?.value.trim() || null,
+    deadline: dEl?.value || null,
+    status: 'open',
+    created_by: currentUser
+  });
+  if (!error) {
+    tEl.value = ''; pEl.value = ''; dEl.value = '';
+    await loadColSidebar(colId);
+    // Refresh timeline biar deadline baru ikut muncul disitu juga.
+    const col = allColRows.find(r => r.id === colId);
+    if (col) {
+      const items = allColItems.filter(i => i.collectionId === colId);
+      loadColTimelinePanel(col, items);
+    }
+  } else {
+    alert('Gagal menyimpan action item: ' + (error.message||''));
+  }
+  if (btn) { btn.disabled = false; btn.textContent = '+ Tambah'; }
+}
+
+async function toggleColActionItem(id, colId, checked) {
+  const status = checked ? 'done' : 'open';
+  const { error } = await sb.from('collection_action_items').update({
+    status,
+    done_at: checked ? new Date().toISOString() : null,
+    updated_at: new Date().toISOString(),
+    updated_by: currentUser
+  }).eq('id', id);
+  if (error) { alert('Gagal update: ' + error.message); return; }
+  await loadColSidebar(colId);
+  const col = allColRows.find(r => r.id === colId);
+  if (col) {
+    const items = allColItems.filter(i => i.collectionId === colId);
+    loadColTimelinePanel(col, items);
+  }
+}
+
+async function deleteColActionItem(id, colId) {
+  if (!confirm('Hapus action item ini?')) return;
+  const { error } = await sb.from('collection_action_items').delete().eq('id', id);
+  if (error) { alert('Gagal hapus: ' + error.message); return; }
+  await loadColSidebar(colId);
+  const col = allColRows.find(r => r.id === colId);
+  if (col) {
+    const items = allColItems.filter(i => i.collectionId === colId);
+    loadColTimelinePanel(col, items);
+  }
 }
 
 function renderActivityList(colId, activity) {
