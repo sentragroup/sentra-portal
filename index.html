@@ -107,6 +107,9 @@
       </div>
       <div class="sb-sec">
         <div class="sb-label">General</div>
+        <div class="sb-item" onclick="showPage('meetingnotes',this)" id="nav-meetingnotes">
+          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="10" height="12" rx="1"/><path d="M4 5h6M4 8h6M4 11h4"/><path d="M12 4l3 1v8l-3 1"/></svg>Meeting Notes
+        </div>
         <div class="sb-item" onclick="showPage('announcements',this)" id="nav-announcements">
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 3c0 0-2 1-6 1S2 3 2 3v6c0 0 2 1 6 1s6-1 6-1V3z"/><path d="M2 6h12M8 10v3M6 13h4"/></svg>Announcements
         </div>
@@ -174,6 +177,7 @@
 
         <div class="sb-label" style="margin-bottom:0.6rem;margin-top:0.25rem">General</div>
         <div class="home-grid" style="margin-bottom:1.5rem">
+          <div class="tool-card" onclick="showPage('meetingnotes',null)"><span class="tc-icon">🗒️</span><div class="tc-name">Meeting Notes</div><div class="tc-desc">Catat hasil meeting & link ke IP, collection, marketing plan, agreement, atau lead. Action items langsung sinkron ke modul terkait.</div></div>
           <div class="tool-card" onclick="showPage('announcements',null)"><span class="tc-icon">📣</span><div class="tc-name">Announcements</div><div class="tc-desc">Broadcast info penting ke seluruh tim — update, reminder, atau selebrasi bareng.</div></div>
           <div class="tool-card" onclick="showPage('reminders',null)"><span class="tc-icon">📝</span><div class="tc-name">Reminders</div><div class="tc-desc">Sticky notes tim dengan @mention — buat pengingat dan tag rekan kerja langsung.</div></div>
           <div class="tool-card" onclick="showPage('project',null)"><span class="tc-icon">📌</span><div class="tc-name">Project Board</div><div class="tc-desc">Kanban tracker untuk semua project tim — dari backlog hingga selesai.</div></div>
@@ -4116,6 +4120,51 @@
 
   </div><!-- /.page#page-insights -->
 
+      <!-- MEETING NOTES -->
+      <div class="page" id="page-meetingnotes">
+        <!-- LIST VIEW -->
+        <div id="mn-list-view">
+          <div class="page-header">
+            <div>
+              <div class="page-title">Meeting Notes</div>
+              <div class="page-sub">Catat hasil meeting & link ke IP, collection, marketing plan, agreement, atau lead</div>
+            </div>
+            <button class="btn-primary" onclick="openMeetingDetail('new')">+ Meeting Baru</button>
+          </div>
+          <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
+            <div class="stat-card"><div class="stat-num" id="mn-s-total">—</div><div class="stat-lbl">Total Meeting</div></div>
+            <div class="stat-card info"><div class="stat-num" id="mn-s-week">—</div><div class="stat-lbl">Minggu ini</div></div>
+            <div class="stat-card warn"><div class="stat-num" id="mn-s-actions">—</div><div class="stat-lbl">Open Actions</div></div>
+            <div class="stat-card danger"><div class="stat-num" id="mn-s-overdue">—</div><div class="stat-lbl">Overdue Actions</div></div>
+          </div>
+          <div class="filter-panel" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:1rem">
+            <div class="fg"><label>Cari</label><input type="text" id="mn-f-search" placeholder="Judul / agenda..." oninput="applyMeetingFilters()"></div>
+            <div class="fg"><label>Link Type</label><select id="mn-f-linktype" onchange="applyMeetingFilters()">
+              <option value="">Semua</option>
+              <option value="ip">IP</option>
+              <option value="collection">Collection</option>
+              <option value="marketing_plan">Marketing Plan</option>
+              <option value="agreement">Agreement</option>
+              <option value="lead">Lead</option>
+            </select></div>
+            <div class="fg"><label>Dari</label><input type="date" id="mn-f-from" onchange="applyMeetingFilters()"></div>
+            <div class="fg"><label>Sampai</label><input type="date" id="mn-f-to" onchange="applyMeetingFilters()"></div>
+          </div>
+          <div class="table-toolbar">
+            <button class="btn-refresh" onclick="loadMeetings()">↻ Refresh</button>
+            <div class="tcount" id="mn-tcount">— entri</div>
+          </div>
+          <div class="table-wrap"><table>
+            <thead><tr>
+              <th>Tanggal</th><th>Judul</th><th>Attendees</th><th>Linked</th><th>Actions</th><th>Recorded by</th><th></th>
+            </tr></thead>
+            <tbody id="mn-tbody"><tr><td class="empty-td" colspan="7">Memuat...</td></tr></tbody>
+          </table></div>
+        </div>
+        <!-- DETAIL VIEW -->
+        <div id="mn-detail-view" style="display:none"></div>
+      </div><!-- /.page#page-meetingnotes -->
+
       <!-- ANNOUNCEMENTS -->
       <div class="page" id="page-announcements">
         <div class="page-header">
@@ -5070,6 +5119,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260615s"></script>
+<script src="app.js?v=20260615t"></script>
 </body>
 </html>

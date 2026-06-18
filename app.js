@@ -277,7 +277,7 @@ function showPage(name, el) {
   document.getElementById("page-"+_pageId).classList.add("active");
   if (el) el.classList.add("active");
   const _c = document.querySelector('.content'); if (_c) _c.scrollTop = 0;
-  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",sampling:"Sampling",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",mktplan:"Marketing Planning",videoprod:"Video Production",txmap:"Transaction Mapping",intpurchase:"Internal Purchase",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)",vendormaster:"Vendor Master",rnd:"R&D Product",koldb:"KOL Database",outbound:"Outbond Request"};
+  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",sampling:"Sampling",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",mktplan:"Marketing Planning",videoprod:"Video Production",txmap:"Transaction Mapping",intpurchase:"Internal Purchase",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)",vendormaster:"Vendor Master",rnd:"R&D Product",koldb:"KOL Database",outbound:"Outbond Request",meetingnotes:"Meeting Notes"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -399,6 +399,7 @@ function showPage(name, el) {
   }
   if (name==="reminders") loadReminders();
   if (name==="announcements") loadAnnouncements();
+  if (name==="meetingnotes") loadMeetings();
   if (name==="marte") loadMarteSettlements();
   if (name==="martereport") { const inp=document.getElementById('mr-period'); if(!inp.value) inp.value=new Date().toISOString().slice(0,7); }
   if (name==="royalty") { const inp=document.getElementById('ry-period'); if(inp && !inp.value) inp.value=new Date().toISOString().slice(0,7); }
@@ -7353,6 +7354,17 @@ function renderColDetail(col, items) {
             <div style="padding:12px;color:var(--g400);font-size:12px;text-align:center">Memuat...</div>
           </div>
         </div>
+        <!-- Meetings panel -->
+        <div style="border:1px solid var(--g100);border-radius:8px;overflow:hidden">
+          <div style="padding:10px 14px;background:var(--off);border-bottom:1px solid var(--g100);font-family:var(--mono);font-size:11px;text-transform:uppercase;font-weight:600;display:flex;align-items:center;gap:6px">
+            <span>🗒️ Meetings</span>
+            <span id="col-mtg-count-${col.id}" style="margin-left:auto;font-size:10px;color:var(--g400);text-transform:none;font-family:var(--mono)">—</span>
+            <button onclick="addColMeetingShortcut('${col.id}','${(col.collectionName||'').replace(/'/g,"\\'")}','${(col.ipRelated||'').replace(/'/g,"\\'")}')" title="Buat meeting baru pre-linked ke collection ini" style="background:none;border:none;color:#3C3489;cursor:pointer;font-size:14px;padding:0 2px">+</button>
+          </div>
+          <div id="col-mtg-list-${col.id}">
+            <div style="padding:12px;color:var(--g400);font-size:12px;text-align:center">Memuat...</div>
+          </div>
+        </div>
         <!-- Activity panel -->
         <div style="border:1px solid var(--g100);border-radius:8px;overflow:hidden">
           <div style="padding:10px 14px;background:var(--off);border-bottom:1px solid var(--g100);font-family:var(--mono);font-size:11px;text-transform:uppercase;font-weight:600">📋 Aktivitas</div>
@@ -8734,14 +8746,49 @@ async function saveSkuStageNote(itemId, colId, stage, notes) {
 
 async function loadColSidebar(colId) {
   const itemIds=allColItems.filter(i=>i.collectionId===colId).map(i=>i.id);
-  const [notesRes, actRes, aiRes]=await Promise.all([
+  const [notesRes, actRes, aiRes, mlinkRes]=await Promise.all([
     sb.from("collection_notes").select("*").eq("collection_id",colId).order("created_at",{ascending:false}).limit(50),
     sb.from("activity_logs").select("*").in("record_id",[colId,...itemIds]).order("ts",{ascending:false}).limit(30),
-    sb.from("collection_action_items").select("*").eq("collection_id",colId).order("status",{ascending:true}).order("deadline",{ascending:true,nullsFirst:false}).order("created_at",{ascending:false})
+    sb.from("collection_action_items").select("*").eq("collection_id",colId).order("status",{ascending:true}).order("deadline",{ascending:true,nullsFirst:false}).order("created_at",{ascending:false}),
+    sb.from("meeting_links").select("meeting_id").eq("link_type","collection").eq("ref_id",colId)
   ]);
   renderNotesList(colId, (notesRes.data||[]).map(mapCN));
   renderActivityList(colId, actRes.data||[]);
   renderColActionItems(colId, aiRes.data||[]);
+  // Meetings linked to this collection
+  const mIds = [...new Set((mlinkRes.data||[]).map(r => r.meeting_id))];
+  if (mIds.length) {
+    const { data: mtgs } = await sb.from("meetings").select("id,title,meeting_date,recorded_by").in("id", mIds).order("meeting_date",{ascending:false}).limit(8);
+    renderColMeetingsList(colId, mtgs||[]);
+  } else {
+    renderColMeetingsList(colId, []);
+  }
+}
+
+function renderColMeetingsList(colId, mtgs) {
+  const el = document.getElementById(`col-mtg-list-${colId}`);
+  const cnt = document.getElementById(`col-mtg-count-${colId}`);
+  if (!el) return;
+  if (cnt) cnt.textContent = mtgs.length ? `${mtgs.length}` : 'kosong';
+  if (!mtgs.length) {
+    el.innerHTML = `<div style="padding:12px;color:var(--g400);font-size:12px;text-align:center">Belum ada meeting. Klik + untuk buat.</div>`;
+    return;
+  }
+  el.innerHTML = mtgs.map(m => {
+    const d = m.meeting_date ? new Date(m.meeting_date+'T00:00:00').toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'2-digit'}) : '—';
+    return `<div onclick="showPage('meetingnotes',null);setTimeout(()=>openMeetingDetail('${m.id}'),0)" style="padding:9px 12px;border-top:1px solid var(--g100);cursor:pointer" onmouseenter="this.style.background='var(--off)'" onmouseleave="this.style.background=''">
+      <div style="font-size:12px;font-weight:600;color:var(--black);line-height:1.3;margin-bottom:2px">${(m.title||'(Tanpa judul)').replace(/</g,'&lt;')}</div>
+      <div style="font-size:10px;color:var(--g400);font-family:var(--mono)">${d}${m.recorded_by?` · ${m.recorded_by.replace(/</g,'&lt;')}`:''}</div>
+    </div>`;
+  }).join('');
+}
+
+async function addColMeetingShortcut(colId, colName, ipRel) {
+  // Buat meeting baru pre-linked ke collection ini — open detail dengan id 'new'
+  // dan setelah save, langsung link otomatis.
+  sessionStorage.setItem('_mn_prelink', JSON.stringify({type:'collection', refId:colId, refLabel: ipRel?`${ipRel} - ${colName}`:colName}));
+  showPage('meetingnotes', null);
+  setTimeout(() => openMeetingDetail('new'), 0);
 }
 
 async function addColNote(colId) {
@@ -8813,11 +8860,14 @@ function renderColActionItems(colId, items) {
     const titleStr = (a.title||'').replace(/</g,'&lt;');
     const picChip  = a.pic ? `<span style="display:inline-block;padding:1px 6px;background:var(--off);border:1px solid var(--g100);border-radius:3px;font-size:10px;color:var(--g600)">👤 ${a.pic.replace(/</g,'&lt;')}</span>` : '';
     const dlChip   = dl && !isDone ? `<span style="display:inline-block;padding:1px 6px;background:${dl.bg};border:1px solid ${dl.clr}40;color:${dl.clr};border-radius:3px;font-size:10px;font-weight:600">📅 ${dl.txt}</span>` : (a.deadline ? `<span style="display:inline-block;padding:1px 6px;background:var(--off);border:1px solid var(--g100);border-radius:3px;font-size:10px;color:var(--g400)">📅 ${new Date(a.deadline+'T00:00:00').toLocaleDateString('id-ID',{day:'numeric',month:'short'})}</span>` : '');
+    const meetingChip = a.meeting_id
+      ? `<a href="#meetingnotes" onclick="showPage('meetingnotes',null);setTimeout(()=>openMeetingDetail('${a.meeting_id}'),0);return false" title="Dari meeting ${a.meeting_id}" style="display:inline-block;padding:1px 6px;background:#fef5e0;border:1px solid #f3cf7a;color:#a66800;border-radius:3px;font-size:10px;text-decoration:none">🗒️ from meeting</a>`
+      : '';
     return `<div style="padding:8px 12px;border-top:1px solid var(--g100);display:flex;gap:8px;align-items:flex-start">
       <input type="checkbox" ${isDone?'checked':''} onchange="toggleColActionItem('${a.id}','${colId}',this.checked)" style="margin-top:2px;cursor:pointer;flex-shrink:0">
       <div style="flex:1;min-width:0">
         <div style="font-size:12px;line-height:1.4;color:var(--black);${isDone?'text-decoration:line-through;color:var(--g400)':''};word-break:break-word">${titleStr}</div>
-        ${(picChip||dlChip) ? `<div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap">${picChip}${dlChip}</div>` : ''}
+        ${(picChip||dlChip||meetingChip) ? `<div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap">${picChip}${dlChip}${meetingChip}</div>` : ''}
       </div>
       <button class="btn-icon" style="font-size:10px;padding:2px 5px;color:#c0392b;flex-shrink:0" onclick="deleteColActionItem('${a.id}','${colId}')" title="Hapus">✕</button>
     </div>`;
@@ -30966,6 +31016,522 @@ async function deleteKolDb(id) {
 }
 
 setupAC('koldb-categories', 'ac-koldb-categories', () => acKolDbCategories);
+
+// ── MEETING NOTES ─────────────────────────────────────────────────────────
+// Per-meeting notes + polymorphic links ke IP/Collection/MktPlan/Agreement/Lead.
+// Action items pakai ulang tabel collection_action_items dengan meeting_id set.
+let allMeetings = [];
+let _mnLinkSearch = '';      // current text in detail-page link picker
+let _mnLinkCache  = null;    // {ip:[{id,label}], collection:[...], ...}
+let _mnDetailId   = null;    // currently open meeting id (or 'new')
+
+function mapMeeting(r) {
+  return {
+    rowIndex: r.id, id: r.id,
+    title: r.title || '',
+    meetingDate: r.meeting_date || '',
+    meetingTime: r.meeting_time || '',
+    durationMin: r.duration_min || null,
+    location: r.location || '',
+    attendees: Array.isArray(r.attendees) ? r.attendees : [],
+    agenda: r.agenda || '',
+    notesBody: r.notes_body || '',
+    recordedBy: r.recorded_by || '',
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+}
+
+const _MN_LINK_TYPES = [
+  {key:'ip',              label:'IP',              icon:'🎭'},
+  {key:'collection',      label:'Collection',      icon:'🎨'},
+  {key:'marketing_plan',  label:'Mkt Plan',        icon:'🗺️'},
+  {key:'agreement',       label:'Agreement',       icon:'📄'},
+  {key:'lead',            label:'Lead',            icon:'🎯'},
+];
+
+async function _mnEnsureLinkCache() {
+  if (_mnLinkCache) return _mnLinkCache;
+  const [ipRes, colRes, mpRes, agrRes, ldRes] = await Promise.all([
+    sb.from('ip_master').select('id,name').order('name'),
+    sb.from('collections').select('id,collection_name,ip_related').order('collection_name'),
+    sb.from('marketing_plans').select('collection_id').limit(2000),
+    sb.from('agreements').select('id,title,partner').order('id',{ascending:false}),
+    sb.from('leads').select('id,lead_name,category').order('lead_name'),
+  ]);
+  const cols = (colRes.data||[]).map(c => ({
+    id: c.id,
+    label: (c.ip_related ? `${c.ip_related} - ${c.collection_name||''}` : (c.collection_name||c.id)),
+  }));
+  const colMap = new Map(cols.map(c => [c.id, c]));
+  const mpItems = [];
+  (mpRes.data||[]).forEach(m => {
+    const c = colMap.get(m.collection_id);
+    if (c) mpItems.push({ id: c.id, label: c.label }); // MP keyed by collection_id (1:1)
+  });
+  _mnLinkCache = {
+    ip:             (ipRes.data ||[]).map(r => ({ id: r.id, label: r.name||r.id })),
+    collection:     cols,
+    marketing_plan: mpItems,
+    agreement:      (agrRes.data||[]).map(r => ({ id: r.id, label: `${r.partner||'—'} · ${r.title||r.id}` })),
+    lead:           (ldRes.data ||[]).map(r => ({ id: r.id, label: `${r.lead_name||'—'}${r.category?` · ${r.category}`:''}` })),
+  };
+  return _mnLinkCache;
+}
+
+async function loadMeetings() {
+  const tbody = document.getElementById('mn-tbody');
+  if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="7">Memuat...</td></tr>`;
+  const { data, error } = await sb.from('meetings').select('*').order('meeting_date',{ascending:false}).order('created_at',{ascending:false}).limit(500);
+  if (error) { if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="7">Error: ${error.message}</td></tr>`; return; }
+  allMeetings = (data||[]).map(mapMeeting);
+  // Fetch per-meeting link counts + open action counts in batch
+  const ids = allMeetings.map(m => m.id);
+  let linkCounts = new Map(), openActions = new Map(), overdueActions = new Map();
+  if (ids.length) {
+    const [linksRes, actRes] = await Promise.all([
+      sb.from('meeting_links').select('meeting_id,link_type,ref_label,ref_id').in('meeting_id', ids),
+      sb.from('collection_action_items').select('meeting_id,status,deadline').in('meeting_id', ids),
+    ]);
+    const today = new Date().toISOString().slice(0,10);
+    (linksRes.data||[]).forEach(l => {
+      const arr = linkCounts.get(l.meeting_id) || [];
+      arr.push(l); linkCounts.set(l.meeting_id, arr);
+    });
+    (actRes.data||[]).forEach(a => {
+      if (a.status === 'open') openActions.set(a.meeting_id, (openActions.get(a.meeting_id)||0) + 1);
+      if (a.status === 'open' && a.deadline && a.deadline < today) overdueActions.set(a.meeting_id, (overdueActions.get(a.meeting_id)||0) + 1);
+    });
+  }
+  // Stash on rows for renderer/filter
+  allMeetings.forEach(m => {
+    m._links     = linkCounts.get(m.id) || [];
+    m._openActs  = openActions.get(m.id) || 0;
+    m._overdueActs = overdueActions.get(m.id) || 0;
+  });
+  _mnRefreshStats();
+  applyMeetingFilters();
+}
+
+function _mnRefreshStats() {
+  const total = allMeetings.length;
+  const now = new Date();
+  const weekAgo = new Date(now); weekAgo.setDate(now.getDate() - 7);
+  const wk = allMeetings.filter(m => m.meetingDate && new Date(m.meetingDate+'T00:00:00') >= weekAgo).length;
+  const totalOpen = allMeetings.reduce((s,m) => s + m._openActs, 0);
+  const totalOverdue = allMeetings.reduce((s,m) => s + m._overdueActs, 0);
+  const setN = (id,v) => { const e=document.getElementById(id); if(e) e.textContent = v; };
+  setN('mn-s-total', total);
+  setN('mn-s-week', wk);
+  setN('mn-s-actions', totalOpen);
+  setN('mn-s-overdue', totalOverdue);
+}
+
+function applyMeetingFilters() {
+  const q   = (document.getElementById('mn-f-search')?.value||'').toLowerCase().trim();
+  const lt  = document.getElementById('mn-f-linktype')?.value||'';
+  const dF  = document.getElementById('mn-f-from')?.value||'';
+  const dT  = document.getElementById('mn-f-to')?.value||'';
+  const rows = allMeetings.filter(m => {
+    if (q) {
+      const hay = `${m.title} ${m.agenda} ${m.attendees.join(' ')}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    if (lt && !m._links.some(l => l.link_type === lt)) return false;
+    if (dF && m.meetingDate < dF) return false;
+    if (dT && m.meetingDate > dT) return false;
+    return true;
+  });
+  const tbody = document.getElementById('mn-tbody');
+  const cnt   = document.getElementById('mn-tcount');
+  if (cnt) cnt.textContent = `${rows.length} entri`;
+  if (!tbody) return;
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td class="empty-td" colspan="7">Tidak ada meeting yang cocok.</td></tr>`;
+    return;
+  }
+  const fmtD = d => d ? new Date(d+'T00:00:00').toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'}) : '—';
+  tbody.innerHTML = rows.map(m => {
+    const linkChips = (m._links||[]).slice(0,4).map(l => {
+      const t = _MN_LINK_TYPES.find(x => x.key === l.link_type);
+      return `<span style="display:inline-block;padding:1px 6px;background:var(--off);border:1px solid var(--g100);border-radius:3px;font-size:10px;color:var(--g600);margin-right:3px">${t?.icon||''} ${(l.ref_label||l.ref_id).replace(/</g,'&lt;')}</span>`;
+    }).join('') + ((m._links||[]).length>4 ? `<span style="font-size:10px;color:var(--g400)"> +${m._links.length-4}</span>` : '');
+    const actBadge = m._openActs ? `<span class="pill ${m._overdueActs?'p-expired':'p-near'}" style="font-size:10px">${m._openActs} open${m._overdueActs?` · ${m._overdueActs} overdue`:''}</span>` : '<span style="color:var(--g400);font-size:11px">—</span>';
+    const atts = m.attendees.length ? m.attendees.slice(0,3).join(', ') + (m.attendees.length>3?` +${m.attendees.length-3}`:'') : '<span style="color:var(--g400)">—</span>';
+    return `<tr style="cursor:pointer" onclick="openMeetingDetail('${m.id}')">
+      <td style="white-space:nowrap;font-family:var(--mono);font-size:11px">${fmtD(m.meetingDate)}</td>
+      <td><strong>${(m.title||'(Tanpa judul)').replace(/</g,'&lt;')}</strong></td>
+      <td style="font-size:12px;color:var(--g600)">${atts}</td>
+      <td>${linkChips||'<span style="color:var(--g400);font-size:11px">—</span>'}</td>
+      <td>${actBadge}</td>
+      <td style="font-size:12px;color:var(--g600)">${(m.recordedBy||'—').replace(/</g,'&lt;')}</td>
+      <td style="text-align:right;white-space:nowrap">
+        <button class="btn-icon" style="color:#c0392b;font-size:11px" onclick="event.stopPropagation();deleteMeeting('${m.id}')">Del</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function openMeetingDetail(id) {
+  _mnDetailId = id;
+  const listView   = document.getElementById('mn-list-view');
+  const detailView = document.getElementById('mn-detail-view');
+  if (!listView || !detailView) return;
+  listView.style.display = 'none';
+  detailView.style.display = '';
+  detailView.innerHTML = `<div style="padding:30px;text-align:center;color:var(--g400)">Memuat detail...</div>`;
+  let meeting = null;
+  if (id !== 'new') {
+    const { data } = await sb.from('meetings').select('*').eq('id', id).maybeSingle();
+    if (data) meeting = mapMeeting(data);
+    if (!meeting) { detailView.innerHTML = `<div style="padding:30px;text-align:center;color:var(--g400)">Meeting gak ketemu. <button class="btn-icon" onclick="closeMeetingDetail()">← Kembali</button></div>`; return; }
+  } else {
+    meeting = { id:'new', title:'', meetingDate: new Date().toISOString().slice(0,10), meetingTime:'', durationMin:null, location:'', attendees:[], agenda:'', notesBody:'', recordedBy: currentUser };
+  }
+  await _mnEnsureLinkCache();
+  _renderMeetingDetail(meeting);
+}
+
+function closeMeetingDetail() {
+  _mnDetailId = null;
+  const listView = document.getElementById('mn-list-view');
+  const detailView = document.getElementById('mn-detail-view');
+  if (listView) listView.style.display = '';
+  if (detailView) { detailView.style.display = 'none'; detailView.innerHTML = ''; }
+  loadMeetings();
+}
+
+function _renderMeetingDetail(m) {
+  const detailView = document.getElementById('mn-detail-view');
+  if (!detailView) return;
+  const isNew = m.id === 'new';
+  const fmtTitle = (m.title||'').replace(/"/g,'&quot;');
+  const fmtAgenda = (m.agenda||'').replace(/</g,'&lt;');
+  const fmtBody   = (m.notesBody||'').replace(/</g,'&lt;');
+  detailView.innerHTML = `
+    <div style="margin-bottom:18px">
+      <button class="btn-icon" onclick="closeMeetingDetail()" style="font-size:12px">← Kembali ke list</button>
+    </div>
+    <div style="display:flex;gap:18px;align-items:flex-start">
+      <div style="flex:1;min-width:0">
+        <!-- Header card -->
+        <div class="form-card" style="margin-bottom:14px">
+          <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr 1fr">
+            <div class="fg full"><label>Judul Meeting <span class="req">*</span></label><input type="text" id="mn-title" value="${fmtTitle}" placeholder="Weekly sync, Quarterly review, Brand kickoff..."></div>
+            <div class="fg"><label>Tanggal <span class="req">*</span></label><input type="date" id="mn-date" value="${m.meetingDate||''}"></div>
+            <div class="fg"><label>Jam</label><input type="time" id="mn-time" value="${m.meetingTime||''}"></div>
+            <div class="fg"><label>Durasi (menit)</label><input type="number" id="mn-duration" min="0" step="5" value="${m.durationMin!=null?m.durationMin:''}"></div>
+            <div class="fg"><label>Lokasi / Link</label><input type="text" id="mn-location" value="${(m.location||'').replace(/"/g,'&quot;')}" placeholder="Office, Zoom, Meet..."></div>
+            <div class="fg full" style="position:relative"><label>Attendees (pisah koma)</label><input type="text" id="mn-attendees" value="${m.attendees.join(', ').replace(/"/g,'&quot;')}" placeholder="Naufal, Luthfi, Adib..." autocomplete="off"><div class="ac-list" id="ac-mn-attendees"></div></div>
+          </div>
+          <div class="btn-row">
+            <button class="btn-primary" onclick="submitMeeting('${m.id}')">${isNew?'Simpan Meeting':'Update'}</button>
+            ${isNew?'':`<button class="btn-ghost" onclick="closeMeetingDetail()">Tutup</button>`}
+          </div>
+          <div class="feedback" id="mn-feedback"></div>
+        </div>
+
+        <!-- Agenda -->
+        <div class="form-card" style="margin-bottom:14px">
+          <div class="form-sec">Agenda</div>
+          <textarea id="mn-agenda" rows="3" placeholder="Topik yang dibahas, urutan, dll..." style="width:100%;font-size:13px;padding:10px;border:1px solid var(--g100);border-radius:6px;resize:vertical;font-family:inherit;box-sizing:border-box">${fmtAgenda}</textarea>
+        </div>
+
+        <!-- Notes Body -->
+        <div class="form-card" style="margin-bottom:14px">
+          <div class="form-sec">Catatan Meeting</div>
+          <textarea id="mn-body" rows="8" placeholder="Hasil diskusi, keputusan, link dokumen, dll. URL otomatis jadi clickable, @nama untuk tag." style="width:100%;font-size:13px;padding:10px;border:1px solid var(--g100);border-radius:6px;resize:vertical;font-family:inherit;box-sizing:border-box">${fmtBody}</textarea>
+          ${!isNew ? `<div style="margin-top:10px;padding:12px;background:var(--off);border-radius:6px;font-size:13px;line-height:1.6;color:var(--black);white-space:pre-wrap" id="mn-body-preview">${highlightMentions(m.notesBody||'')}</div>` : ''}
+        </div>
+
+        <!-- Linked entities -->
+        ${!isNew ? `<div class="form-card" style="margin-bottom:14px">
+          <div class="form-sec" style="display:flex;justify-content:space-between;align-items:center">
+            <span>🔗 Linked Entities</span>
+            <span style="font-size:10px;color:var(--g400);font-family:var(--mono);font-weight:400" id="mn-link-count">—</span>
+          </div>
+          <div id="mn-links-list" style="margin-bottom:10px"><div style="color:var(--g400);font-size:12px">Memuat...</div></div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:10px;background:var(--off);border-radius:6px">
+            <select id="mn-link-type" style="font-size:12px;padding:5px 8px;border:1px solid var(--g100);border-radius:5px">
+              ${_MN_LINK_TYPES.map(t => `<option value="${t.key}">${t.icon} ${t.label}</option>`).join('')}
+            </select>
+            <div style="flex:1;min-width:180px;position:relative">
+              <input type="text" id="mn-link-search" placeholder="Cari & pilih..." autocomplete="off" style="width:100%;font-size:12px;padding:5px 8px;border:1px solid var(--g100);border-radius:5px;box-sizing:border-box">
+              <div id="mn-link-drop" style="display:none;position:absolute;top:100%;left:0;right:0;max-height:240px;overflow-y:auto;background:var(--white);border:1px solid var(--g200);border-radius:6px;box-shadow:0 6px 18px rgba(0,0,0,.1);z-index:300;margin-top:2px"></div>
+            </div>
+          </div>
+        </div>` : `<div class="form-card" style="margin-bottom:14px;background:var(--off);border:1px dashed var(--g200)">
+          <div style="font-size:12px;color:var(--g600);text-align:center;padding:8px">💾 Simpan meeting dulu untuk bisa tambah link & action items.</div>
+        </div>`}
+
+        <!-- Action Items -->
+        ${!isNew ? `<div class="form-card">
+          <div class="form-sec" style="display:flex;justify-content:space-between;align-items:center">
+            <span>✅ Action Items</span>
+            <span style="font-size:10px;color:var(--g400);font-family:var(--mono);font-weight:400" id="mn-ai-count">—</span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 140px 140px 140px auto;gap:8px;align-items:end;background:var(--off);padding:10px;border-radius:6px;margin-bottom:10px">
+            <div class="fg" style="margin:0"><label style="font-size:11px">Action</label><input type="text" id="mn-ai-title" placeholder="Apa yang harus dilakukan?"></div>
+            <div class="fg" style="margin:0;position:relative"><label style="font-size:11px">PIC</label><input type="text" id="mn-ai-pic" autocomplete="off"><div class="ac-list" id="ac-mn-ai-pic"></div></div>
+            <div class="fg" style="margin:0"><label style="font-size:11px">Deadline</label><input type="date" id="mn-ai-deadline"></div>
+            <div class="fg" style="margin:0;position:relative"><label style="font-size:11px">Link Collection</label><input type="text" id="mn-ai-collection" placeholder="Opsional" autocomplete="off"><div class="ac-list" id="ac-mn-ai-col"></div></div>
+            <button class="btn-primary" style="padding:7px 14px;font-size:12px" onclick="addMeetingActionItem('${m.id}')">+ Tambah</button>
+          </div>
+          <div id="mn-ai-list"><div style="color:var(--g400);font-size:12px;padding:8px">Memuat...</div></div>
+        </div>` : ''}
+      </div>
+
+      <!-- Right rail: summary -->
+      <div style="width:240px;flex-shrink:0;position:sticky;top:20px">
+        <div style="border:1px solid var(--g100);border-radius:8px;padding:14px;background:var(--off)">
+          <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:8px">Info</div>
+          <div style="font-size:11px;color:var(--g600);line-height:1.6">
+            <div><span style="color:var(--g400)">ID:</span> <span style="font-family:var(--mono)">${m.id}</span></div>
+            <div><span style="color:var(--g400)">Recorded by:</span> ${(m.recordedBy||'—').replace(/</g,'&lt;')}</div>
+            ${m.createdAt?`<div><span style="color:var(--g400)">Created:</span> ${relTime(m.createdAt)}</div>`:''}
+            ${m.updatedAt && m.updatedAt!==m.createdAt?`<div><span style="color:var(--g400)">Updated:</span> ${relTime(m.updatedAt)}</div>`:''}
+          </div>
+        </div>
+      </div>
+    </div>`;
+  // Wire autocompletes
+  setupAC('mn-attendees','ac-mn-attendees',()=>acPics); // single-pick OK (comma-typed)
+  if (!isNew) {
+    setupAC('mn-ai-pic','ac-mn-ai-pic',()=>acPics);
+    setupAC('mn-ai-collection','ac-mn-ai-col',()=>(_mnLinkCache?.collection||[]).map(c=>c.label));
+    _mnWireLinkPicker(m.id);
+    loadMeetingLinks(m.id);
+    loadMeetingActionItems(m.id);
+  }
+  // Auto-update body preview on blur
+  const bodyEl = document.getElementById('mn-body');
+  if (bodyEl) {
+    bodyEl.addEventListener('blur', () => {
+      const prev = document.getElementById('mn-body-preview');
+      if (prev) prev.innerHTML = highlightMentions(bodyEl.value);
+    });
+  }
+}
+
+async function submitMeeting(id) {
+  const fb = document.getElementById('mn-feedback');
+  if (fb) fb.textContent = '';
+  const title = document.getElementById('mn-title')?.value.trim();
+  const date  = document.getElementById('mn-date')?.value;
+  if (!title) { if (fb){fb.textContent='Judul wajib diisi.';fb.style.color='#c0392b';} return; }
+  if (!date)  { if (fb){fb.textContent='Tanggal wajib diisi.';fb.style.color='#c0392b';} return; }
+  const attendeesRaw = document.getElementById('mn-attendees')?.value || '';
+  const attendees = attendeesRaw.split(',').map(s => s.trim()).filter(Boolean);
+  const payload = {
+    title,
+    meeting_date: date,
+    meeting_time: document.getElementById('mn-time')?.value || null,
+    duration_min: parseInt(document.getElementById('mn-duration')?.value)||null,
+    location: document.getElementById('mn-location')?.value.trim() || null,
+    attendees,
+    agenda: document.getElementById('mn-agenda')?.value.trim() || null,
+    notes_body: document.getElementById('mn-body')?.value || null,
+    updated_at: new Date().toISOString(),
+    updated_by: currentUser,
+  };
+  if (id === 'new') {
+    payload.id = genId('MTG');
+    payload.recorded_by = currentUser;
+    const { error } = await sb.from('meetings').insert(payload);
+    if (error) { if (fb){fb.textContent='Gagal simpan: '+error.message;fb.style.color='#c0392b';} return; }
+    // Consume prelink if any — auto-link to the entity that opened this shortcut.
+    try {
+      const raw = sessionStorage.getItem('_mn_prelink');
+      if (raw) {
+        const pl = JSON.parse(raw);
+        if (pl?.type && pl?.refId) {
+          await sb.from('meeting_links').insert({
+            meeting_id: payload.id, link_type: pl.type, ref_id: pl.refId, ref_label: pl.refLabel || null
+          });
+        }
+        sessionStorage.removeItem('_mn_prelink');
+      }
+    } catch(_) { sessionStorage.removeItem('_mn_prelink'); }
+    if (fb){fb.textContent='Tersimpan. Sekarang bisa tambah link & action items.';fb.style.color='#0a7d3a';}
+    // Reopen as edit
+    setTimeout(() => openMeetingDetail(payload.id), 400);
+  } else {
+    const { error } = await sb.from('meetings').update(payload).eq('id', id);
+    if (error) { if (fb){fb.textContent='Gagal update: '+error.message;fb.style.color='#c0392b';} return; }
+    if (fb){fb.textContent='Tersimpan.';fb.style.color='#0a7d3a';}
+    const prev = document.getElementById('mn-body-preview');
+    if (prev) prev.innerHTML = highlightMentions(payload.notes_body||'');
+  }
+}
+
+async function deleteMeeting(id) {
+  if (!confirm('Hapus meeting ini? Action items yang link ke meeting akan kehilangan meeting reference (collection-scoped action items tetap aman).')) return;
+  const { error } = await sb.from('meetings').delete().eq('id', id);
+  if (error) { alert('Gagal hapus: '+error.message); return; }
+  if (_mnDetailId === id) closeMeetingDetail();
+  else loadMeetings();
+}
+
+// ── Meeting links picker ──
+function _mnWireLinkPicker(meetingId) {
+  const inp = document.getElementById('mn-link-search');
+  const drop = document.getElementById('mn-link-drop');
+  if (!inp || !drop) return;
+  const render = () => {
+    const type = document.getElementById('mn-link-type')?.value || 'ip';
+    const q = (inp.value||'').toLowerCase().trim();
+    const all = (_mnLinkCache?.[type] || []).filter(o => !q || o.label.toLowerCase().includes(q) || o.id.toLowerCase().includes(q));
+    const hits = all.slice(0,30);
+    if (!hits.length) { drop.style.display='none'; return; }
+    drop.style.display = 'block';
+    drop.innerHTML = hits.map(o => `<div onmousedown="event.preventDefault();_mnAddLink('${meetingId}','${type}','${o.id.replace(/'/g,"\\'")}','${o.label.replace(/'/g,"\\'").replace(/"/g,'&quot;')}')" style="padding:7px 10px;cursor:pointer;font-size:12px;border-bottom:1px solid var(--g100)" onmouseenter="this.style.background='var(--off)'" onmouseleave="this.style.background=''"><span style="font-family:var(--mono);font-size:10px;color:var(--g400);margin-right:6px">${o.id}</span>${o.label.replace(/</g,'&lt;')}</div>`).join('');
+  };
+  inp.addEventListener('focus', render);
+  inp.addEventListener('input', render);
+  inp.addEventListener('blur', () => setTimeout(()=>{ drop.style.display='none'; }, 150));
+  document.getElementById('mn-link-type')?.addEventListener('change', render);
+}
+
+async function _mnAddLink(meetingId, type, refId, label) {
+  const { error } = await sb.from('meeting_links').upsert({
+    meeting_id: meetingId, link_type: type, ref_id: refId, ref_label: label
+  }, { onConflict: 'meeting_id,link_type,ref_id' });
+  if (error) { alert('Gagal link: '+error.message); return; }
+  const inp = document.getElementById('mn-link-search'); if (inp) inp.value = '';
+  const drop = document.getElementById('mn-link-drop'); if (drop) drop.style.display='none';
+  loadMeetingLinks(meetingId);
+}
+
+async function loadMeetingLinks(meetingId) {
+  const el = document.getElementById('mn-links-list');
+  const cnt = document.getElementById('mn-link-count');
+  if (!el) return;
+  const { data } = await sb.from('meeting_links').select('*').eq('meeting_id', meetingId).order('link_type').order('id');
+  const rows = data || [];
+  if (cnt) cnt.textContent = rows.length ? `${rows.length} linked` : 'belum ada';
+  if (!rows.length) {
+    el.innerHTML = `<div style="color:var(--g400);font-size:12px;padding:8px">Belum ada link. Pakai picker di bawah.</div>`;
+    return;
+  }
+  el.innerHTML = `<div style="display:flex;gap:6px;flex-wrap:wrap">${rows.map(l => {
+    const t = _MN_LINK_TYPES.find(x => x.key === l.link_type);
+    const goLink = _mnLinkClickHref(l);
+    return `<span style="display:inline-flex;align-items:center;gap:6px;padding:4px 8px;background:var(--white);border:1px solid var(--g200);border-radius:14px;font-size:12px">
+      <span title="${t?.label||l.link_type}">${t?.icon||'🔗'}</span>
+      ${goLink ? `<a href="${goLink}" onclick="${_mnLinkClickJs(l)};return false" style="color:#3C3489;text-decoration:none">${(l.ref_label||l.ref_id).replace(/</g,'&lt;')}</a>` : `<span>${(l.ref_label||l.ref_id).replace(/</g,'&lt;')}</span>`}
+      <button onclick="_mnRemoveLink(${l.id},'${l.meeting_id}')" title="Hapus" style="background:none;border:none;color:#c0392b;cursor:pointer;padding:0;font-size:13px;line-height:1">×</button>
+    </span>`;
+  }).join('')}</div>`;
+}
+
+function _mnLinkClickHref(l) {
+  if (l.link_type === 'collection') return `#collections/${l.ref_id}`;
+  if (l.link_type === 'marketing_plan') return `#mktplan/${l.ref_id}`;
+  return '#';
+}
+function _mnLinkClickJs(l) {
+  if (l.link_type === 'ip')             return `showPage('ipmaster',null)`;
+  if (l.link_type === 'collection')     return `showPage('collections',null);setTimeout(()=>openCollectionDetail('${l.ref_id}'),0)`;
+  if (l.link_type === 'marketing_plan') return `showPage('mktplan',null);setTimeout(()=>openMPDetail('${l.ref_id}'),0)`;
+  if (l.link_type === 'agreement')      return `showPage('agreement',null)`;
+  if (l.link_type === 'lead')           return `showPage('leads',null)`;
+  return '';
+}
+
+async function _mnRemoveLink(id, meetingId) {
+  const { error } = await sb.from('meeting_links').delete().eq('id', id);
+  if (error) { alert('Gagal: '+error.message); return; }
+  loadMeetingLinks(meetingId);
+}
+
+// ── Meeting action items (writes to collection_action_items) ──
+async function addMeetingActionItem(meetingId) {
+  const tEl = document.getElementById('mn-ai-title');
+  const pEl = document.getElementById('mn-ai-pic');
+  const dEl = document.getElementById('mn-ai-deadline');
+  const cEl = document.getElementById('mn-ai-collection');
+  const title = tEl?.value.trim();
+  if (!title) { tEl?.focus(); return; }
+  // Resolve collection label → id (optional)
+  let collectionId = null;
+  const cVal = (cEl?.value||'').trim();
+  if (cVal) {
+    const hit = (_mnLinkCache?.collection||[]).find(c => c.label.toLowerCase() === cVal.toLowerCase());
+    collectionId = hit ? hit.id : null;
+  }
+  const { error } = await sb.from('collection_action_items').insert({
+    id: genId('CAI'),
+    collection_id: collectionId,
+    meeting_id: meetingId,
+    title,
+    pic: pEl?.value.trim() || null,
+    deadline: dEl?.value || null,
+    status: 'open',
+    created_by: currentUser
+  });
+  if (error) { alert('Gagal: '+error.message); return; }
+  tEl.value=''; pEl.value=''; dEl.value=''; cEl.value='';
+  loadMeetingActionItems(meetingId);
+}
+
+async function loadMeetingActionItems(meetingId) {
+  const el = document.getElementById('mn-ai-list');
+  const cnt = document.getElementById('mn-ai-count');
+  if (!el) return;
+  const { data } = await sb.from('collection_action_items').select('*').eq('meeting_id', meetingId)
+    .order('status',{ascending:true}).order('deadline',{ascending:true,nullsFirst:false}).order('created_at',{ascending:false});
+  const items = data || [];
+  const openCnt = items.filter(i => i.status !== 'done').length;
+  const doneCnt = items.length - openCnt;
+  if (cnt) cnt.textContent = items.length ? `${openCnt} open · ${doneCnt} done` : 'kosong';
+  if (!items.length) {
+    el.innerHTML = `<div style="padding:14px;text-align:center;color:var(--g400);font-size:12px">Belum ada action item.</div>`;
+    return;
+  }
+  const today = new Date().toISOString().slice(0,10);
+  const dDiff = d => Math.round((new Date(d) - new Date(today)) / 86400000);
+  const fmtDeadline = d => {
+    if (!d) return null;
+    const diff = dDiff(d);
+    const lbl = new Date(d+'T00:00:00').toLocaleDateString('id-ID',{day:'numeric',month:'short'});
+    if (diff < 0)  return { txt:`Lewat ${-diff}h · ${lbl}`, clr:'#c0392b', bg:'#fde0e0' };
+    if (diff === 0) return { txt:`Hari ini · ${lbl}`, clr:'#a66800', bg:'#fef5e0' };
+    if (diff <= 7) return { txt:`+${diff}h · ${lbl}`, clr:'#3C3489', bg:'#eef0f8' };
+    return { txt: lbl, clr:'var(--g600)', bg:'var(--off)' };
+  };
+  el.innerHTML = items.map(a => {
+    const isDone = a.status === 'done';
+    const dl = fmtDeadline(a.deadline);
+    const colChip = a.collection_id ? `<a href="#collections/${a.collection_id}" onclick="showPage('collections',null);setTimeout(()=>openCollectionDetail('${a.collection_id}'),0);return false" style="display:inline-block;padding:1px 6px;background:#eef0f8;border:1px solid #c9bdf0;color:#3C3489;border-radius:3px;font-size:10px;text-decoration:none">🎨 ${a.collection_id}</a>` : '';
+    const picChip = a.pic ? `<span style="display:inline-block;padding:1px 6px;background:var(--off);border:1px solid var(--g100);border-radius:3px;font-size:10px;color:var(--g600)">👤 ${a.pic.replace(/</g,'&lt;')}</span>` : '';
+    const dlChip  = dl && !isDone ? `<span style="display:inline-block;padding:1px 6px;background:${dl.bg};border:1px solid ${dl.clr}40;color:${dl.clr};border-radius:3px;font-size:10px;font-weight:600">📅 ${dl.txt}</span>` : (a.deadline ? `<span style="display:inline-block;padding:1px 6px;background:var(--off);border:1px solid var(--g100);border-radius:3px;font-size:10px;color:var(--g400)">📅 ${new Date(a.deadline+'T00:00:00').toLocaleDateString('id-ID',{day:'numeric',month:'short'})}</span>` : '');
+    return `<div style="padding:10px 12px;border-bottom:1px solid var(--g100);display:flex;gap:10px;align-items:flex-start">
+      <input type="checkbox" ${isDone?'checked':''} onchange="toggleMeetingActionItem('${a.id}','${meetingId}',this.checked)" style="margin-top:3px;cursor:pointer;flex-shrink:0">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;line-height:1.4;color:var(--black);${isDone?'text-decoration:line-through;color:var(--g400)':''}">${(a.title||'').replace(/</g,'&lt;')}</div>
+        ${(picChip||dlChip||colChip) ? `<div style="margin-top:5px;display:flex;gap:5px;flex-wrap:wrap">${picChip}${dlChip}${colChip}</div>` : ''}
+      </div>
+      <button class="btn-icon" style="font-size:11px;color:#c0392b" onclick="deleteMeetingActionItem('${a.id}','${meetingId}')">✕</button>
+    </div>`;
+  }).join('');
+}
+
+async function toggleMeetingActionItem(id, meetingId, checked) {
+  const status = checked ? 'done' : 'open';
+  const { error } = await sb.from('collection_action_items').update({
+    status, done_at: checked ? new Date().toISOString() : null,
+    updated_at: new Date().toISOString(), updated_by: currentUser
+  }).eq('id', id);
+  if (error) { alert('Gagal: '+error.message); return; }
+  loadMeetingActionItems(meetingId);
+}
+
+async function deleteMeetingActionItem(id, meetingId) {
+  if (!confirm('Hapus action item ini?')) return;
+  const { error } = await sb.from('collection_action_items').delete().eq('id', id);
+  if (error) { alert('Gagal: '+error.message); return; }
+  loadMeetingActionItems(meetingId);
+}
 
 // ── DUPLICATE CHECK ──
 async function checkDuplicate(name, excludeSheet) {
