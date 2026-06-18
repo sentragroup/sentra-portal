@@ -7340,11 +7340,13 @@ function renderColDetail(col, items) {
           </div>
           <div style="padding:10px 12px;background:var(--white);border-bottom:1px solid var(--g100)">
             <input type="text" id="col-ai-title-${col.id}" placeholder="Apa yang harus dilakukan?" style="width:100%;font-size:12px;padding:6px 8px;border:1px solid var(--g100);border-radius:5px;box-sizing:border-box;font-family:inherit;margin-bottom:6px">
-            <div style="display:flex;gap:6px;align-items:center;position:relative">
-              <input type="text" id="col-ai-pic-${col.id}" placeholder="PIC" autocomplete="off" style="flex:1;min-width:0;font-size:11px;padding:5px 7px;border:1px solid var(--g100);border-radius:5px;box-sizing:border-box;font-family:inherit">
-              <div class="ac-list" id="ac-col-ai-pic-${col.id}" style="top:32px;left:0"></div>
-              <input type="date" id="col-ai-deadline-${col.id}" style="flex:1;min-width:0;font-size:11px;padding:5px 7px;border:1px solid var(--g100);border-radius:5px;box-sizing:border-box;font-family:inherit">
-              <button id="col-ai-btn-${col.id}" class="btn-primary" style="padding:5px 10px;font-size:11px;flex-shrink:0" onclick="addColActionItem('${col.id}')">+ Tambah</button>
+            <div style="position:relative;margin-bottom:6px">
+              <input type="text" id="col-ai-pic-${col.id}" placeholder="PIC (opsional)" autocomplete="off" style="width:100%;font-size:11px;padding:5px 7px;border:1px solid var(--g100);border-radius:5px;box-sizing:border-box;font-family:inherit">
+              <div class="ac-list" id="ac-col-ai-pic-${col.id}" style="top:30px;left:0;right:0"></div>
+            </div>
+            <div style="display:flex;gap:6px;align-items:center">
+              <input type="date" id="col-ai-deadline-${col.id}" title="Deadline (opsional)" style="flex:1;min-width:0;font-size:11px;padding:5px 7px;border:1px solid var(--g100);border-radius:5px;box-sizing:border-box;font-family:inherit">
+              <button id="col-ai-btn-${col.id}" class="btn-primary" style="padding:5px 12px;font-size:11px;flex-shrink:0;white-space:nowrap" onclick="addColActionItem('${col.id}')">+ Tambah</button>
             </div>
           </div>
           <div id="col-ai-list-${col.id}">
