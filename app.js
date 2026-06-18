@@ -5908,33 +5908,33 @@ async function loadColTimelinePanel(col, items) {
   } catch(_) {}
   // 5. Marketing events
   try {
-    const {data: me} = await sb.from('marketing_events').select('name,event_date,location').eq('collection_id', cid);
-    (me||[]).forEach(m => { if (m.event_date) events.push({ date: m.event_date, type: 'mkt', icon: '🎪', label: 'Marketing event', detail: `${m.name||'—'}${m.location?` · ${m.location}`:''}`, tone: '#c0392b' }); });
+    const {data: me} = await sb.from('marketing_events').select('event_name,event_date,venue').eq('collection_id', cid);
+    (me||[]).forEach(m => { if (m.event_date) events.push({ date: m.event_date, type: 'mkt', icon: '🎪', label: 'Marketing event', detail: `${m.event_name||'—'}${m.venue?` · ${m.venue}`:''}`, tone: '#c0392b' }); });
   } catch(_) {}
   // 6. Content planning
   try {
-    const {data: cp} = await sb.from('content_planning').select('title,publish_date,platform,deadline').eq('collection_id', cid);
+    const {data: cp} = await sb.from('content_planning').select('title,publish_date,channel,deadline').eq('collection_id', cid);
     (cp||[]).forEach(c => {
-      if (c.publish_date) events.push({ date: c.publish_date, type: 'content', icon: '📱', label: `Content publish${c.platform?` (${c.platform})`:''}`, detail: c.title||'—', tone: '#a66800' });
+      if (c.publish_date) events.push({ date: c.publish_date, type: 'content', icon: '📱', label: `Content publish${c.channel?` (${c.channel})`:''}`, detail: c.title||'—', tone: '#a66800' });
       if (c.deadline)     events.push({ date: c.deadline,     type: 'content', icon: '✍️', label: 'Content deadline', detail: c.title||'—', tone: '#a66800' });
     });
   } catch(_) {}
   // 7. Photoshoots
   try {
-    const {data: ph} = await sb.from('photoshoots').select('title,shoot_date,location').eq('collection_id', cid);
-    (ph||[]).forEach(p => { if (p.shoot_date) events.push({ date: p.shoot_date, type: 'shoot', icon: '📸', label: 'Photoshoot', detail: `${p.title||'—'}${p.location?` · ${p.location}`:''}`, tone: '#3C3489' }); });
+    const {data: ph} = await sb.from('photoshoots').select('shoot_name,shoot_date,location').eq('collection_id', cid);
+    (ph||[]).forEach(p => { if (p.shoot_date) events.push({ date: p.shoot_date, type: 'shoot', icon: '📸', label: 'Photoshoot', detail: `${p.shoot_name||'—'}${p.location?` · ${p.location}`:''}`, tone: '#3C3489' }); });
   } catch(_) {}
   // 8. Publications
   try {
-    const {data: pb} = await sb.from('publications').select('title,publish_date,outlet').eq('collection_id', cid);
-    (pb||[]).forEach(p => { if (p.publish_date) events.push({ date: p.publish_date, type: 'pub', icon: '📰', label: `Publication${p.outlet?` (${p.outlet})`:''}`, detail: p.title||'—', tone: '#c0392b' }); });
+    const {data: pb} = await sb.from('publications').select('title,publish_date,media_outlet').eq('collection_id', cid);
+    (pb||[]).forEach(p => { if (p.publish_date) events.push({ date: p.publish_date, type: 'pub', icon: '📰', label: `Publication${p.media_outlet?` (${p.media_outlet})`:''}`, detail: p.title||'—', tone: '#c0392b' }); });
   } catch(_) {}
   // 9. Ads campaigns
   try {
-    const {data: ad} = await sb.from('ads_campaigns').select('name,start_date,end_date,platform').eq('collection_id', cid);
+    const {data: ad} = await sb.from('ads_campaigns').select('campaign_name,start_date,end_date,channel').eq('collection_id', cid);
     (ad||[]).forEach(a => {
-      if (a.start_date) events.push({ date: a.start_date, type: 'ads', icon: '📢', label: `Ads start${a.platform?` (${a.platform})`:''}`, detail: a.name||'—', tone: '#c0392b' });
-      if (a.end_date)   events.push({ date: a.end_date,   type: 'ads', icon: '🏁', label: `Ads end${a.platform?` (${a.platform})`:''}`,   detail: a.name||'—', tone: '#c0392b' });
+      if (a.start_date) events.push({ date: a.start_date, type: 'ads', icon: '📢', label: `Ads start${a.channel?` (${a.channel})`:''}`, detail: a.campaign_name||'—', tone: '#c0392b' });
+      if (a.end_date)   events.push({ date: a.end_date,   type: 'ads', icon: '🏁', label: `Ads end${a.channel?` (${a.channel})`:''}`,   detail: a.campaign_name||'—', tone: '#c0392b' });
     });
   } catch(_) {}
   // Render
@@ -6007,7 +6007,7 @@ async function loadColMPMirror(cid) {
     const [planRes, psRes, cpRes, meRes, kolRes, adsRes, pubRes] = await Promise.all([
       sb.from('marketing_plans').select('*').eq('collection_id', cid).maybeSingle(),
       sb.from('photoshoots').select('id,shoot_name,shoot_date,location,status,pic,deliverables_url,budget').eq('collection_id', cid).order('shoot_date',{ascending:true}),
-      sb.from('content_planning').select('id,title,content_type,channel,publish_date,deadline,status,pic,content_url,asset_url').eq('collection_id', cid).order('publish_date',{ascending:true,nullsFirst:false}),
+      sb.from('content_planning').select('id,title,content_type,channel,publish_date,deadline,status,owner,content_url,asset_url').eq('collection_id', cid).order('publish_date',{ascending:true,nullsFirst:false}),
       sb.from('marketing_events').select('id,event_name,event_type,event_date,end_date,venue,status,pic,budget').eq('collection_id', cid).order('event_date',{ascending:true}),
       sb.from('kol_placements').select('id,kol_name,handle,platform,post_date,status,fee,payment_status,post_url').eq('collection_id', cid).order('post_date',{ascending:true,nullsFirst:false}),
       sb.from('ads_campaigns').select('id,campaign_name,channel,start_date,end_date,status,budget,spend,pic').eq('collection_id', cid).order('start_date',{ascending:true}),
@@ -6017,7 +6017,7 @@ async function loadColMPMirror(cid) {
     if (!plan) {
       host.innerHTML = `<div style="padding:16px;text-align:center;background:var(--off);border:1px dashed var(--g200);border-radius:6px;font-size:13px;color:var(--g600)">
         Belum ada marketing plan untuk collection ini.
-        <br><a href="#mktplan/${cid}" onclick="openMPDetail('${cid}');return false" style="display:inline-block;margin-top:8px;padding:6px 14px;background:#3C3489;color:white;border-radius:4px;text-decoration:none;font-size:12px">+ Buat Marketing Plan</a>
+        <br><a href="#mktplan/${cid}" onclick="showPage('mktplan',null);setTimeout(()=>openMPDetail('${cid}'),0);return false" style="display:inline-block;margin-top:8px;padding:6px 14px;background:#3C3489;color:white;border-radius:4px;text-decoration:none;font-size:12px">+ Buat Marketing Plan</a>
       </div>`;
       return;
     }
@@ -6053,7 +6053,7 @@ async function loadColMPMirror(cid) {
         items: videoItems,
         renderEntry: r => ({
           title: r.title, link: r.content_url||r.asset_url,
-          meta: [fmtD(r.publish_date||r.deadline), r.channel, r.pic].filter(Boolean).join(' · '),
+          meta: [fmtD(r.publish_date||r.deadline), r.channel, r.owner].filter(Boolean).join(' · '),
           money: '',
           status: r.status,
         }) },
@@ -6061,7 +6061,7 @@ async function loadColMPMirror(cid) {
         items: nonVideoContent,
         renderEntry: r => ({
           title: r.title, link: r.content_url||r.asset_url,
-          meta: [r.content_type, r.channel, fmtD(r.publish_date||r.deadline)].filter(Boolean).join(' · '),
+          meta: [r.content_type, r.channel, fmtD(r.publish_date||r.deadline), r.owner].filter(Boolean).join(' · '),
           money: '',
           status: r.status,
         }) },
@@ -6162,7 +6162,7 @@ async function loadColMPMirror(cid) {
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:10px">
         ${cards.map(renderCard).join('')}
       </div>
-      <div style="margin-top:10px;font-size:10px;color:var(--g400);text-align:right;padding-top:6px;border-top:1px solid var(--g100)">Edit di <a href="#mktplan/${cid}" onclick="openMPDetail('${cid}');return false" style="color:var(--g600);text-decoration:underline">Marketing Planning module</a></div>`;
+      <div style="margin-top:10px;font-size:10px;color:var(--g400);text-align:right;padding-top:6px;border-top:1px solid var(--g100)">Edit di <a href="#mktplan/${cid}" onclick="showPage('mktplan',null);setTimeout(()=>openMPDetail('${cid}'),0);return false" style="color:var(--g600);text-decoration:underline">Marketing Planning module</a></div>`;
   } catch (e) {
     host.innerHTML = `<div style="padding:14px;color:#c0392b;font-size:12px">Gagal load: ${(e.message||e).replace(/</g,'&lt;')}</div>`;
   }
@@ -7265,7 +7265,7 @@ function renderColDetail(col, items) {
         <!-- ─────────── 📣 MARKETING TAB ─────────── -->
         <div id="cd-tab-marketing-${col.id}" class="cd-tab-content" style="display:none">
         ${cdStageBox("📣","Marketing Plan",
-          `<a href="#mktplan/${col.id}" onclick="openMPDetail('${col.id}');return false" style="font-family:var(--mono);font-size:11px;color:#3C3489;text-decoration:none;margin-left:auto">↗ Open in Marketing Planning</a>`,
+          `<a href="#mktplan/${col.id}" onclick="showPage('mktplan',null);setTimeout(()=>openMPDetail('${col.id}'),0);return false" style="font-family:var(--mono);font-size:11px;color:#3C3489;text-decoration:none;margin-left:auto">↗ Open in Marketing Planning</a>`,
           `<div id="col-mp-mirror-${col.id}"><div style="padding:14px;color:var(--g400);font-size:12px;text-align:center">Memuat marketing plan...</div></div>`)}
         </div><!-- /Marketing tab -->
 
@@ -21749,10 +21749,10 @@ async function _moLoadColOptions(selectId) {
   const sel = document.getElementById(selectId);
   if (!sel || sel.dataset.populated === '1') return;
   try {
-    const {data} = await sb.from('collections').select('id,collection_name').order('collection_name');
+    const {data} = await sb.from('collections').select('id,collection_name,ip_related').order('collection_name');
     const placeholder = sel.querySelector('option')?.outerHTML || '<option value="">— Pilih —</option>';
     sel.innerHTML = placeholder + (data||[]).map(c =>
-      `<option value="${c.id}">${(c.collection_name||c.id).replace(/</g,'&lt;')}</option>`).join('');
+      `<option value="${c.id}">${((c.ip_related?c.ip_related+' - ':'')+(c.collection_name||c.id)).replace(/</g,'&lt;')}</option>`).join('');
     sel.dataset.populated = '1';
   } catch(e) { console.error('_moLoadColOptions:', e); }
 }
