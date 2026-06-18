@@ -5297,10 +5297,14 @@ async function loadCollections() {
       const col = allColRows.find(r => r.id === pending);
       if (col) { openCollectionDetail(col.id); return; }
     }
-    // Restore collection detail from URL slug
+    // Restore collection detail from URL. Prefer ID (unique) — fallback ke
+    // slug demi backward-compat dengan bookmark/shared URL lama. Slug ambigu
+    // kalau >1 collection punya nama sama (mis. 2 "General Collection") →
+    // refresh pasti mendarat ke yang pertama match, sering bukan yg dimaksud.
     const hashParts=location.hash.slice(1).split("/");
     if(hashParts[0]==="collections"&&hashParts[1]){
-      const col=allColRows.find(r=>slugifyCol(r.collectionName)===hashParts[1]);
+      const key=decodeURIComponent(hashParts[1]);
+      const col=allColRows.find(r=>r.id===key) || allColRows.find(r=>slugifyCol(r.collectionName)===key);
       if(col){openCollectionDetail(col.id);return;}
     }
     await refreshCPLinks();
@@ -5635,8 +5639,8 @@ function openCollectionDetail(colId) {
   if(!col) return;
   document.getElementById("col-list-view").style.display="none";
   document.getElementById("col-detail-view").style.display="block";
-  const _slug=slugifyCol(col.collectionName);
-  _routeHash(`#collections/${_slug}`, true);
+  // Pakai ID — unique. Slug duplicate-prone (banyak "general collection").
+  _routeHash(`#collections/${col.id}`, true);
   sessionStorage.setItem('snt_page','collections');
   renderColDetail(col, allColItems.filter(i=>i.collectionId===colId));
 }
@@ -9028,7 +9032,7 @@ async function saveColDetailEdit(colId) {
       const updated=mapCol(data[0]);
       const idx=allColRows.findIndex(r=>r.id===colId);
       if(idx>-1) allColRows[idx]=updated;
-      history.replaceState(null,"",`#collections/${slugifyCol(updated.collectionName)}`);
+      history.replaceState(null,"",`#collections/${updated.id}`);
       renderColDetail(updated, allColItems.filter(i=>i.collectionId===colId));
       // Re-ensure DW projects (in case they were deleted or new designers added)
       ensureDWForCollection(colId);
