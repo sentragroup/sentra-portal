@@ -6524,6 +6524,8 @@ function renderColTargetSection(col, items) {
           <th style="padding:6px 10px;text-align:left">Color</th>
           <th style="padding:6px 10px;text-align:right">Qty</th>
           <th style="padding:6px 10px;text-align:right">SRP</th>
+          <th style="padding:6px 10px;text-align:right">COGS</th>
+          <th style="padding:6px 10px;text-align:right">Margin %</th>
           <th style="padding:6px 10px;text-align:right">Subtotal</th>
           <th style="padding:6px 10px;text-align:left">Aksi</th>
         </tr></thead>
@@ -6545,6 +6547,14 @@ function renderColTargetSection(col, items) {
             <td style="padding:7px 10px;font-size:11px;color:var(--g600)">${i.color||'—'}</td>
             <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px">${i.qty||'—'}</td>
             <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px">${i.isFreebie?'<span style="color:var(--g400);font-style:italic">freebie</span>':fmtRp2(i.srp)}</td>
+            <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px">${fmtRp2(i.estimatedCogs)}</td>
+            ${(() => {
+              if (i.isFreebie) return `<td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px;color:var(--g400)">—</td>`;
+              if (!i.srp || !i.estimatedCogs) return `<td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px;color:var(--g400)">—</td>`;
+              const m = (i.srp - i.estimatedCogs) / i.srp * 100;
+              const tc = m >= 50 ? '#0a7d3a' : m >= 30 ? '#3C3489' : m >= 15 ? '#a66800' : '#c0392b';
+              return `<td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px;font-weight:600;color:${tc}">${m.toFixed(1)}%</td>`;
+            })()}
             <td style="padding:7px 10px;text-align:right;font-family:var(--mono);font-size:12px;font-weight:600">${i.isFreebie?'—':((i.qty&&i.srp)?fmtRp2(i.qty*i.srp):'—')}</td>
             <td style="padding:7px 10px;white-space:nowrap">
               <button class="btn-icon" style="font-size:11px" onclick="openSKUEditBiz('${i.id}')">Edit</button>
@@ -6552,7 +6562,7 @@ function renderColTargetSection(col, items) {
             </td>
           </tr>
           <tr id="ci-edit-biz-${i.id}" style="display:none;border-top:1px solid var(--g100)">
-            <td colspan="8" style="padding:8px 10px 12px">
+            <td colspan="10" style="padding:8px 10px 12px">
               <div class="edit-row-form" style="background:var(--off)">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px;flex-wrap:wrap">
                   <div style="font-size:10px;color:var(--g400);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.5px">Naming &amp; Commercial</div>
