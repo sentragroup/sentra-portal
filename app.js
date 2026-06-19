@@ -32444,6 +32444,91 @@ function _iprBuildNarrative(s) {
 
 // ── SVG combo chart: revenue bars (left axis) + units line (right axis) ──
 // opts.dual=true → combo. opts.metric='revenue'|'units' → single. Default dual.
+// Build monthly royalty breakdown — per-month revenue, gross royalty, pph, net,
+// dengan running cumulative balance kolom paling kanan. Pakai sama royaltyPct
+// + pphRate yang udah di-snapshot.
+function _iprRenderRoyaltyTable(s, opts={}) {
+  const dark = opts.dark || false;
+  const trend = s.trend || [];
+  if (!trend.length) return '';
+  const fmtRp = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
+  const isAdvance = s.royaltyType === 'Advance';
+  const pct  = s.royaltyPct  || 0;
+  const pphR = s.pphRate     || 0;
+  // Compute rows + cumulative balance
+  let balance = 0;
+  const rows = trend.map(m => {
+    const rev = m.revenue || 0;
+    const gross = isAdvance ? 0 : Math.round(rev * pct / 100);
+    const pph   = Math.round(gross * pphR / 100);
+    const net   = gross - pph;
+    balance    += net;
+    return { label: m.label, ym: m.ym, revenue: rev, gross, pph, net, balance };
+  });
+  const totalRev   = rows.reduce((t,r) => t+r.revenue, 0);
+  const totalGross = rows.reduce((t,r) => t+r.gross, 0);
+  const totalPph   = rows.reduce((t,r) => t+r.pph, 0);
+  const totalNet   = rows.reduce((t,r) => t+r.net, 0);
+  if (dark) {
+    // PDF style (light variant — Obsidian text on Paper)
+    return `<table style="width:100%;border-collapse:collapse;font-size:11px;line-height:1.3">
+      <thead><tr style="border-bottom:1px solid #000">
+        <th style="text-align:left;padding:6px 6px 4px;font-family:'IBM Plex Mono',monospace;font-size:9px;text-transform:uppercase;font-weight:400;letter-spacing:0.5px;opacity:0.6">Bulan</th>
+        <th style="text-align:right;padding:6px 6px 4px;font-family:'IBM Plex Mono',monospace;font-size:9px;text-transform:uppercase;font-weight:400;letter-spacing:0.5px;opacity:0.6">Revenue</th>
+        <th style="text-align:right;padding:6px 6px 4px;font-family:'IBM Plex Mono',monospace;font-size:9px;text-transform:uppercase;font-weight:400;letter-spacing:0.5px;opacity:0.6">Royalty Gross${isAdvance?'':` (${pct}%)`}</th>
+        <th style="text-align:right;padding:6px 6px 4px;font-family:'IBM Plex Mono',monospace;font-size:9px;text-transform:uppercase;font-weight:400;letter-spacing:0.5px;opacity:0.6">PPh ${pphR}%</th>
+        <th style="text-align:right;padding:6px 6px 4px;font-family:'IBM Plex Mono',monospace;font-size:9px;text-transform:uppercase;font-weight:400;letter-spacing:0.5px;opacity:0.6">Net Royalty</th>
+        <th style="text-align:right;padding:6px 6px 4px;font-family:'IBM Plex Mono',monospace;font-size:9px;text-transform:uppercase;font-weight:400;letter-spacing:0.5px;opacity:0.6">Balance</th>
+      </tr></thead>
+      <tbody>${rows.map(r => `<tr style="border-bottom:1px solid #d0d0d0">
+        <td style="padding:6px;font-family:'IBM Plex Mono',monospace">${r.label}</td>
+        <td style="padding:6px;text-align:right;font-family:'IBM Plex Mono',monospace">${r.revenue?fmtRp(r.revenue):'—'}</td>
+        <td style="padding:6px;text-align:right;font-family:'IBM Plex Mono',monospace">${r.gross?fmtRp(r.gross):'—'}</td>
+        <td style="padding:6px;text-align:right;font-family:'IBM Plex Mono',monospace;color:#c0392b">${r.pph?'− '+fmtRp(r.pph):'—'}</td>
+        <td style="padding:6px;text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:500">${r.net?fmtRp(r.net):'—'}</td>
+        <td style="padding:6px;text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:500">${fmtRp(r.balance)}</td>
+      </tr>`).join('')}
+      <tr style="border-top:2px solid #000;font-weight:500;background:#fafafa">
+        <td style="padding:8px 6px;font-family:'IBM Plex Mono',monospace">TOTAL 12 BULAN</td>
+        <td style="padding:8px 6px;text-align:right;font-family:'IBM Plex Mono',monospace">${fmtRp(totalRev)}</td>
+        <td style="padding:8px 6px;text-align:right;font-family:'IBM Plex Mono',monospace">${fmtRp(totalGross)}</td>
+        <td style="padding:8px 6px;text-align:right;font-family:'IBM Plex Mono',monospace;color:#c0392b">${totalPph?'− '+fmtRp(totalPph):'—'}</td>
+        <td style="padding:8px 6px;text-align:right;font-family:'IBM Plex Mono',monospace">${fmtRp(totalNet)}</td>
+        <td style="padding:8px 6px;text-align:right;font-family:'IBM Plex Mono',monospace">${fmtRp(balance)}</td>
+      </tr>
+      </tbody>
+    </table>`;
+  }
+  // Preview style (portal palette)
+  return `<table style="width:100%;border-collapse:collapse;font-size:13px">
+    <thead><tr style="border-bottom:1px solid var(--g100);font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">
+      <th style="padding:6px;text-align:left">Bulan</th>
+      <th style="padding:6px;text-align:right">Revenue</th>
+      <th style="padding:6px;text-align:right">Royalty Gross${isAdvance?'':` (${pct}%)`}</th>
+      <th style="padding:6px;text-align:right">PPh ${pphR}%</th>
+      <th style="padding:6px;text-align:right">Net Royalty</th>
+      <th style="padding:6px;text-align:right">Balance</th>
+    </tr></thead>
+    <tbody>${rows.map(r => `<tr style="border-top:1px solid var(--g100)">
+      <td style="padding:8px 6px;font-family:var(--mono);font-size:12px">${r.label}</td>
+      <td style="padding:8px 6px;text-align:right;font-family:var(--mono)">${r.revenue?fmtRp(r.revenue):'—'}</td>
+      <td style="padding:8px 6px;text-align:right;font-family:var(--mono)">${r.gross?fmtRp(r.gross):'—'}</td>
+      <td style="padding:8px 6px;text-align:right;font-family:var(--mono);color:#c0392b">${r.pph?'− '+fmtRp(r.pph):'—'}</td>
+      <td style="padding:8px 6px;text-align:right;font-family:var(--mono);font-weight:600">${r.net?fmtRp(r.net):'—'}</td>
+      <td style="padding:8px 6px;text-align:right;font-family:var(--mono);font-weight:600">${fmtRp(r.balance)}</td>
+    </tr>`).join('')}
+    <tr style="border-top:2px solid var(--black);background:var(--off);font-weight:700">
+      <td style="padding:8px 6px">TOTAL 12 BULAN</td>
+      <td style="padding:8px 6px;text-align:right;font-family:var(--mono)">${fmtRp(totalRev)}</td>
+      <td style="padding:8px 6px;text-align:right;font-family:var(--mono)">${fmtRp(totalGross)}</td>
+      <td style="padding:8px 6px;text-align:right;font-family:var(--mono);color:#c0392b">${totalPph?'− '+fmtRp(totalPph):'—'}</td>
+      <td style="padding:8px 6px;text-align:right;font-family:var(--mono)">${fmtRp(totalNet)}</td>
+      <td style="padding:8px 6px;text-align:right;font-family:var(--mono)">${fmtRp(balance)}</td>
+    </tr>
+    </tbody>
+  </table>`;
+}
+
 function _iprRenderTrendSVG(trend, opts={}) {
   if (!trend || !trend.length) return '<div style="color:#888;font-style:italic;padding:12px">Tidak ada data trend.</div>';
   const W = opts.width  || 900;
@@ -32665,7 +32750,8 @@ function _iprRenderPreviewHTML(b) {
     </div>` : ''}
     <div style="margin-bottom:18px">
       <div style="font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--g400);margin-bottom:10px">12-Month Trend</div>
-      <div style="border:1px solid var(--g100);padding:12px;border-radius:6px">${_iprRenderTrendSVG(s.trend, {dual:true})}</div>
+      <div style="border:1px solid var(--g100);padding:12px;border-radius:6px;margin-bottom:12px">${_iprRenderTrendSVG(s.trend, {dual:true})}</div>
+      ${_iprRenderRoyaltyTable(s)}
     </div>
     <div style="margin-bottom:18px">
       <div style="font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--g400);margin-bottom:10px">All Products Sold (${allProducts.length})</div>
@@ -32836,7 +32922,8 @@ function iprGeneratePDF() {
 
   <div class="section">
     <h2>12-Month Trend</h2>
-    <div class="trend-box">${_iprRenderTrendSVG(s.trend, {width:900, height:260, dual:true})}</div>
+    <div class="trend-box" style="margin-bottom:16px">${_iprRenderTrendSVG(s.trend, {width:900, height:260, dual:true})}</div>
+    ${_iprRenderRoyaltyTable(s, {dark:true})}
   </div>
 
   <div class="section">
