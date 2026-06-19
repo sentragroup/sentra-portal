@@ -32469,14 +32469,14 @@ function _iprRenderRoyaltyTable(s, opts={}) {
   const isAdvance = s.royaltyType === 'Advance';
   const pct  = s.royaltyPct  || 0;
   const pphR = s.pphRate     || 0;
-  // Compute rows + cumulative balance
+  // Compute rows + cumulative balance (gross royalty, BEFORE pph deduction)
   let balance = 0;
   const rows = trend.map(m => {
     const rev = m.revenue || 0;
     const gross = isAdvance ? 0 : Math.round(rev * pct / 100);
     const pph   = Math.round(gross * pphR / 100);
     const net   = gross - pph;
-    balance    += net;
+    balance    += gross;
     return { label: m.label, ym: m.ym, revenue: rev, gross, pph, net, balance };
   });
   const totalRev   = rows.reduce((t,r) => t+r.revenue, 0);
