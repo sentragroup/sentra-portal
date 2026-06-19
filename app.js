@@ -32089,6 +32089,7 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
 
   // Aggregation buckets
   let revenue = 0, units = 0;
+  let firstSaleInPeriod = null; // earliest date sale terjadi DALAM period
   const orderSet = new Set();
   const parentMap = new Map();
   const channelMap = new Map();
@@ -32115,6 +32116,7 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
     // Period subset
     if (!inPeriod(o.transaction_date)) continue;
     revenue += gross; units += qty;
+    if (!firstSaleInPeriod || o.transaction_date < firstSaleInPeriod) firstSaleInPeriod = o.transaction_date;
     orderSet.add(it.salesorder_id);
     // Critical fix: 842 sales rows have NULL item_group_id. Fallback ke
     // itemToGrp lookup (pre-fetched dari jubelio_items) supaya variants
@@ -32144,17 +32146,22 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
     monthMap.set(ym, mm);
     if (!inPeriod(dtISO)) continue;
     revenue += gross; units += qty;
+    if (!firstSaleInPeriod || dtISO < firstSaleInPeriod) firstSaleInPeriod = dtISO;
     orderSet.add('H:'+r.salesorder_no);
-    // Merge dengan 2026+ group via name lookup. Padel Totebag historical
-    // sales sebelumnya jadi 'hist-Padel Totebag' singleton, terpisah dari
-    // group_id 708 — bikin row duplikat di report.
+    // Merge dengan 2026+ group via 2-way lookup:
+    // a) nameToGrp (parent item_name → item_group_id) — picks up CSV import
+    //    that uses parent name verbatim
+    // b) itemToGrp (item_id → item_group_id) — fallback kalau history row
+    //    pakai variant's item_id atau name slightly different
     const grpFromName = nameToGrp.get(r.item_name);
-    const grpKey = grpFromName || `hist-${r.item_name||'?'}`;
+    const grpFromId   = r.item_id ? itemToGrp.get(r.item_id) : null;
+    const grp = grpFromName || grpFromId;
+    const grpKey = grp || `hist-${r.item_name||'?'}`;
     const cur = parentMap.get(grpKey) || {
-      name: grpFromName ? (grpToName.get(grpFromName) || r.item_name) : (r.item_name||'(unnamed)'),
+      name: grp ? (grpToName.get(grp) || r.item_name) : (r.item_name||'(unnamed)'),
       units:0, revenue:0,
-      sampleItemId: grpFromName ? grpToSampleItemId.get(grpFromName) : null,
-      itemGroupId: grpFromName || null
+      sampleItemId: grp ? grpToSampleItemId.get(grp) : null,
+      itemGroupId: grp || null
     };
     cur.units += qty; cur.revenue += gross;
     parentMap.set(grpKey, cur);
@@ -32186,7 +32193,14 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
   const prdDays = Math.round((new Date(endD) - new Date(startD)) / 86400000) + 1;
   // Enrich allProducts: parent name + thumbnail + stock + STR + avg daily.
   // Pakai maps yang udah di-pre-fetch (grpToName, grpToImg, grpToStock, dll).
-  const prdDaysForAvg = Math.max(1, prdDays);
+  // Avg daily pakai first_sale_date sebagai floor — kalau period all-time
+  // (2362 hari) tapi sales baru mulai 200 hari lalu, divide by 200 lebih akurat.
+  let prdDaysForAvg = Math.max(1, prdDays);
+  if (firstSaleInPeriod) {
+    const fsDate = new Date(firstSaleInPeriod);
+    const endDt  = new Date(endD + 'T23:59:59');
+    prdDaysForAvg = Math.min(prdDays, Math.max(1, Math.ceil((endDt - fsDate) / 86400000)));
+  }
   allProducts.forEach(m => {
     // Parent name: from group, else direct item, else aggregated
     if (typeof m.id === 'number') {
@@ -32225,7 +32239,10 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
       let salesValue = parseFloat(e.actual_sales)||0;
       let soldQty = 0;
       let derivedFrom = null;
-      // 1. Try transaction_mappings (preferred source — user explicit request)
+      // 1. Try transaction_mappings (preferred source — same logic as
+      //    Pop-up Booth module yang nampilin Music Gallery PENDING dengan
+      //    sales-nya. Filter: NOT canceled. Status PENDING/PAID etc tetep
+      //    dihitung karena offline transactions yang gak ke-process WMS.
       try {
         const { data: txm } = await sb.from('transaction_mappings')
           .select('salesorder_id')
@@ -32234,18 +32251,18 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
         const soIds = (txm||[]).map(t => t.salesorder_id);
         if (soIds.length) {
           const linkedOrders = await _fetchAllPagesIn('jubelio_sales_orders',
-            'salesorder_id,sub_total,grand_total,wms_status', 'salesorder_id', soIds,
-            q => q.in('wms_status', SP_COMPLETED));
-          const orderRevenue = linkedOrders.reduce((s,o) => s + (parseFloat(o.sub_total)||parseFloat(o.grand_total)||0), 0);
+            'salesorder_id,sub_total,grand_total,wms_status,is_canceled', 'salesorder_id', soIds);
+          const validOrders = linkedOrders.filter(o => !o.is_canceled && o.wms_status !== 'CANCELED' && o.wms_status !== 'CANCEL');
+          const orderRevenue = validOrders.reduce((s,o) => s + (parseFloat(o.sub_total)||parseFloat(o.grand_total)||0), 0);
           if (orderRevenue > 0) {
             salesValue = orderRevenue;
             derivedFrom = 'transaction_mappings';
           }
-          // Also fetch items qty for Sold column
-          const completedIds = linkedOrders.map(o => o.salesorder_id);
-          if (completedIds.length) {
+          // Also fetch items qty for Sold column (same filter)
+          const validIds = validOrders.map(o => o.salesorder_id);
+          if (validIds.length) {
             const items = await _fetchAllPagesIn('jubelio_sales_order_items',
-              'salesorder_id,qty,is_canceled_item', 'salesorder_id', completedIds);
+              'salesorder_id,qty,is_canceled_item', 'salesorder_id', validIds);
             soldQty = items.filter(it => !it.is_canceled_item).reduce((s,it) => s + (parseFloat(it.qty)||0), 0);
           }
         }
@@ -32357,15 +32374,24 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
   } catch(_) {}
   const strDenom = lifetimeSold + currentStock;
   const strPct   = strDenom > 0 ? (lifetimeSold / strDenom * 100) : null;
-  const prdDaysFloor = Math.max(1, prdDays);
-  const avgDailySales = units / prdDaysFloor;
+  // Avg Daily: pakai first_sale_date sebagai floor — kalau period = All Time
+  // (2362 hari) tapi first sale baru 200 hari lalu, pembagi 200 lebih akurat
+  // dari 2362. User explicit: 'kalau periodnya all time, cek first day of sales'.
+  let velocityDays = Math.max(1, prdDays);
+  if (firstSaleInPeriod) {
+    const fsDate = new Date(firstSaleInPeriod);
+    const endDt  = new Date(endD + 'T23:59:59');
+    const daysSinceFirstSale = Math.max(1, Math.ceil((endDt - fsDate) / 86400000));
+    velocityDays = Math.min(prdDays, daysSinceFirstSale);
+  }
+  const avgDailySales = units / velocityDays;
 
   const snapshot = {
     ipName, startD, endD, empty: false,
     royaltyType, royaltyPct, pphRate, fixedAmt,
     totals: { revenue: Math.round(revenue), units, orders: orderCount, aov, royaltyGross, royaltyPph, royaltyNet },
     prior:  { revenue: Math.round(priorRevenue), units: priorUnits, growthPct },
-    velocity: { currentStock: Math.round(currentStock), lifetimeSold: Math.round(lifetimeSold), strPct, avgDailySales: Math.round(avgDailySales * 10) / 10, periodDays: prdDaysFloor },
+    velocity: { currentStock: Math.round(currentStock), lifetimeSold: Math.round(lifetimeSold), strPct, avgDailySales: Math.round(avgDailySales * 10) / 10, periodDays: prdDays, velocityDays, firstSaleInPeriod: firstSaleInPeriod ? firstSaleInPeriod.slice(0,10) : null },
     topMovers, allProducts, channelMix, trend, popupEvents,
     itemCount: itemIds.length, parentCount: parentMap.size,
     compiledAt: new Date().toISOString(),
@@ -32627,9 +32653,9 @@ function _iprRenderPreviewHTML(b) {
         <div style="font-size:10px;color:var(--g600);margin-top:2px">${s.velocity.lifetimeSold.toLocaleString('id-ID')} sold / ${(s.velocity.lifetimeSold+s.velocity.currentStock).toLocaleString('id-ID')} total</div>
       </div>
       <div style="border:1px solid var(--g100);padding:14px;border-radius:6px">
-        <div style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px;font-family:var(--mono);margin-bottom:4px">Avg Daily Sales (Period)</div>
+        <div style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px;font-family:var(--mono);margin-bottom:4px">Avg Daily Sales</div>
         <div style="font-size:18px;font-weight:700;font-family:var(--mono)">${s.velocity.avgDailySales.toFixed(1)} pcs/day</div>
-        <div style="font-size:10px;color:var(--g600);margin-top:2px">${s.velocity.periodDays} hari</div>
+        <div style="font-size:10px;color:var(--g600);margin-top:2px">${s.velocity.velocityDays} hari since first sale${s.velocity.firstSaleInPeriod?` (${fmtD(s.velocity.firstSaleInPeriod)})`:''}</div>
       </div>
     </div>` : ''}
     <div style="margin-bottom:18px">
@@ -32794,7 +32820,7 @@ function iprGeneratePDF() {
     <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)">
       <div class="kpi"><div class="kpi-label">Current Stock</div><div class="kpi-value small">${s.velocity.currentStock.toLocaleString('id-ID')} pcs</div></div>
       <div class="kpi"><div class="kpi-label">Sell-Through Rate</div><div class="kpi-value small">${s.velocity.strPct==null?'—':s.velocity.strPct.toFixed(1)+'%'}</div></div>
-      <div class="kpi"><div class="kpi-label">Avg Daily Sales (${s.velocity.periodDays}d)</div><div class="kpi-value small">${s.velocity.avgDailySales.toFixed(1)} pcs/day</div></div>
+      <div class="kpi"><div class="kpi-label">Avg Daily (${s.velocity.velocityDays}d)</div><div class="kpi-value small">${s.velocity.avgDailySales.toFixed(1)} pcs/day</div></div>
     </div>
   </div>` : ''}
 
