@@ -31807,7 +31807,7 @@ function _iprRenderBuilder() {
         <div class="page-sub">${isEdit?b.ipName:'Pilih IP + periode → klik Generate untuk compile data'}</div>
       </div>
       <div style="display:flex;gap:8px;align-items:center">
-        ${b.snapshot ? `<button class="btn-primary" onclick="iprGeneratePDF()" style="background:#000;color:#fff">📄 Download PDF</button>` : ''}
+        ${b.snapshot ? `<button class="btn-primary" onclick="iprGeneratePDF()">📄 Download PDF</button>` : ''}
         ${b.snapshot ? `<button class="btn-ghost" onclick="iprOpenSendModal()">✉ Mark Sent</button>` : ''}
       </div>
     </div>
@@ -31917,154 +31917,210 @@ async function iprGenerate() {
 }
 
 async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
-  // 1. Find all jubelio item_ids belonging to this IP via product_mappings
-  // 2. Sum sales from jubelio_sales_order_items where item_id in that set,
-  //    parent order COMPLETED, transaction_date within range.
-  // 3. Aggregate: revenue, units, AOV, channel mix, top movers, prior-period compare.
+  // Source of truth: same filter as Royalty Report — wms_status='COMPLETED'
+  // and exclude is_canceled_item. Match items to IP via product_mappings.ip.
   const startISO = `${startD}T00:00:00+07:00`;
-  // endISO = first day of next day (inclusive end)
-  const endIncl = new Date(endD+'T00:00:00');
-  endIncl.setDate(endIncl.getDate()+1);
-  const endISO = endIncl.toISOString().slice(0,10) + 'T00:00:00+07:00';
+  const endIncl = new Date(endD+'T00:00:00'); endIncl.setDate(endIncl.getDate()+1);
+  const endISO  = endIncl.toISOString().slice(0,10) + 'T00:00:00+07:00';
 
-  // Fetch item ids for IP (paginated)
-  const pmRows = [];
-  let from = 0;
-  while (true) {
-    const { data, error } = await sb.from('product_mappings')
-      .select('jubelio_item_id,item_name')
-      .eq('ip', ipName)
-      .not('jubelio_item_id','is',null)
-      .range(from, from+999);
-    if (error) throw error;
-    pmRows.push(...(data||[]));
-    if (!data || data.length < 1000) break;
-    from += 1000;
+  // Trend window: 12 months ending at periodEnd (gives context even if
+  // period itself is just 1 week/month). For all_time longer than 24 months,
+  // we'd cap; but query already returns only items belonging to this IP.
+  const trendStart = new Date(endD+'T00:00:00');
+  trendStart.setDate(1);
+  trendStart.setMonth(trendStart.getMonth() - 11);
+  const trendStartStr = trendStart.toISOString().slice(0,10);
+  const fetchStart    = (startD < trendStartStr) ? startD : trendStartStr;
+  const fetchStartISO = `${fetchStart}T00:00:00+07:00`;
+
+  // IP master config — royalty terms
+  let ipCfg = allIPRows.find(r => r.id === ipId);
+  if (!ipCfg || !ipCfg.percentage) {
+    const { data } = await sb.from('ip_master')
+      .select('id,name,percentage,fixed_amount,royalty_type,pph_tax_rate,termin')
+      .eq('id', ipId).maybeSingle();
+    ipCfg = data || ipCfg || {};
   }
+  const royaltyPct  = parseFloat(ipCfg.percentage    || 0) || 0;
+  const fixedAmt    = parseFloat(ipCfg.fixed_amount  || 0) || 0;
+  const royaltyType = (ipCfg.royalty_type || '').trim() || (royaltyPct ? 'Post-Sales' : (fixedAmt ? 'Advance' : '—'));
+  const pphRate     = parseFloat(ipCfg.pph_tax_rate  || 0) || 0;
+
+  // IP item IDs (paginated)
+  const pmRows = await _fetchAllPages('product_mappings', 'jubelio_item_id,item_name,ip',
+    q => q.eq('ip', ipName).not('jubelio_item_id','is',null));
   const itemIds = [...new Set(pmRows.map(r => r.jubelio_item_id))];
   if (!itemIds.length) {
-    return { ipName, startD, endD, empty:true, totals:{revenue:0,units:0,orders:0,aov:0}, prior:{revenue:0,units:0,growthPct:null}, topMovers:[], channelMix:[], itemCount:0, parentCount:0, narrative:'Belum ada SKU mapped ke IP ini di product_mappings — perlu setup mapping dulu.', parentCountAll:0 };
+    return {
+      ipName, startD, endD, empty:true, royaltyType, royaltyPct, pphRate, fixedAmt,
+      totals:{revenue:0,units:0,orders:0,aov:0,royaltyGross:0,royaltyPph:0,royaltyNet:0},
+      prior:{revenue:0,units:0,growthPct:null}, topMovers:[], channelMix:[], trend:[],
+      itemCount:0, parentCount:0,
+      narrative:'Belum ada SKU mapped ke IP ini di product_mappings — perlu setup mapping dulu.',
+    };
   }
 
-  // Chunk .in() queries (Supabase URL length limit)
-  const chunk = (arr, size) => { const out=[]; for (let i=0;i<arr.length;i+=size) out.push(arr.slice(i,i+size)); return out; };
-  const chunks = chunk(itemIds, 200);
-
-  // Current period sales items (COMPLETED only)
-  const periodItems = [];
-  for (const c of chunks) {
-    const { data, error } = await sb.from('jubelio_sales_order_items')
-      .select('salesorder_id,item_id,item_group_id,item_name,qty,amount,price')
-      .in('item_id', c);
-    if (error) throw error;
-    periodItems.push(...(data||[]));
-  }
-  if (!periodItems.length) {
-    return { ipName, startD, endD, empty:true, totals:{revenue:0,units:0,orders:0,aov:0}, prior:{revenue:0,units:0,growthPct:null}, topMovers:[], channelMix:[], itemCount:itemIds.length, parentCount:0, narrative:'Belum ada transaksi pada periode ini.', parentCountAll:0 };
-  }
-
-  // Fetch parent orders we need (filter by date + status). Chunk by order ids.
-  const soIds = [...new Set(periodItems.map(x => x.salesorder_id))];
-  const soChunks = chunk(soIds, 200);
-  const orders = [];
-  for (const c of soChunks) {
-    const { data, error } = await sb.from('jubelio_sales_orders')
-      .select('salesorder_id,transaction_date,internal_status,channel_name,store_name')
-      .in('salesorder_id', c)
-      .eq('internal_status','COMPLETED');
-    if (error) throw error;
-    orders.push(...(data||[]));
-  }
+  // Trend-window orders (wms_status COMPLETED, not canceled) — covers BOTH
+  // period + trend in one query, less roundtrips.
+  const orders = await _fetchAllPages('jubelio_sales_orders',
+    'salesorder_id,transaction_date,channel_name,store_name,wms_status,is_canceled',
+    q => q.eq('wms_status','COMPLETED').eq('is_canceled', false)
+          .gte('transaction_date', fetchStartISO)
+          .lt('transaction_date', endISO));
   const ordersById = new Map(orders.map(o => [o.salesorder_id, o]));
+  const orderIds = orders.map(o => o.salesorder_id);
 
-  // Filter: current period items where order date is in range + COMPLETED.
-  const inRange = (dt) => dt >= startISO && dt < endISO;
-  const currentItems = periodItems.filter(it => {
-    const o = ordersById.get(it.salesorder_id);
-    return o && inRange(o.transaction_date);
-  });
-
-  // Prior period for growth comp — same length range immediately before.
-  const prdDays = Math.round((new Date(endD) - new Date(startD)) / 86400000) + 1;
-  const prevEnd   = new Date(startD); prevEnd.setDate(prevEnd.getDate()-1);
-  const prevStart = new Date(prevEnd); prevStart.setDate(prevStart.getDate() - (prdDays-1));
-  const prevStartISO = prevStart.toISOString().slice(0,10)+'T00:00:00+07:00';
-  const prevEndExclISO = (new Date(prevEnd.getTime()+86400000)).toISOString().slice(0,10)+'T00:00:00+07:00';
-
-  // Fetch prior orders + filter items
-  const prevOrders = [];
-  for (const c of soChunks) {
-    // Reuse existing soIds map — but for prev period we need to fetch fresh too.
-    // Simpler: re-query items would be expensive. Instead query orders in prev
-    // range first, then map items. But periodItems only covers current items.
-    // For prior, fetch separately:
+  if (!orderIds.length) {
+    return {
+      ipName, startD, endD, empty:true, royaltyType, royaltyPct, pphRate, fixedAmt,
+      totals:{revenue:0,units:0,orders:0,aov:0,royaltyGross:0,royaltyPph:0,royaltyNet:0},
+      prior:{revenue:0,units:0,growthPct:null}, topMovers:[], channelMix:[], trend:[],
+      itemCount: itemIds.length, parentCount: 0,
+      narrative: 'Belum ada transaksi COMPLETED untuk periode/trend window ini.',
+    };
   }
-  // Separate query for prior period (more accurate than reusing periodItems)
-  let priorRevenue = 0, priorUnits = 0;
-  try {
-    // Get prior orders in date range first
-    const { data: priorOrders } = await sb.from('jubelio_sales_orders')
-      .select('salesorder_id')
-      .eq('internal_status','COMPLETED')
-      .gte('transaction_date', prevStartISO)
-      .lt('transaction_date', prevEndExclISO);
-    const prevOrderIds = (priorOrders||[]).map(o => o.salesorder_id);
-    if (prevOrderIds.length) {
-      // Fetch items belonging to IP + in those orders
-      const prevSoChunks = chunk(prevOrderIds, 200);
-      for (const c of prevSoChunks) {
-        for (const ic of chunks) {
-          const { data } = await sb.from('jubelio_sales_order_items')
-            .select('qty,amount').in('salesorder_id', c).in('item_id', ic);
-          (data||[]).forEach(x => { priorRevenue += Number(x.amount)||0; priorUnits += Number(x.qty)||0; });
-        }
-      }
-    }
-  } catch(_) { /* prior is non-critical, soft fail */ }
 
-  // Aggregate current
+  // Items for those orders, filtered to this IP, not canceled
+  const allItems = await _fetchAllPagesIn('jubelio_sales_order_items',
+    'salesorder_id,item_id,item_group_id,item_name,qty,price,disc_amount,amount,is_canceled_item',
+    'salesorder_id', orderIds);
+  const itemIdSet = new Set(itemIds);
+  const ipItems = allItems.filter(it => !it.is_canceled_item && itemIdSet.has(it.item_id));
+
+  // Aggregate trend (full window) + period (subset)
+  const inPeriod = dt => dt >= startISO && dt < endISO;
+  const wibYM = dt => {
+    const wib = new Date(new Date(dt).getTime() + 7*3600000);
+    return `${wib.getUTCFullYear()}-${String(wib.getUTCMonth()+1).padStart(2,'0')}`;
+  };
+
   let revenue = 0, units = 0;
   const orderSet = new Set();
-  const parentMap = new Map(); // item_group_id → {name,units,revenue}
+  const parentMap = new Map();
   const channelMap = new Map();
-  for (const it of currentItems) {
-    revenue += Number(it.amount)||0;
-    units   += Number(it.qty)||0;
+  const monthMap = new Map(); // 'YYYY-MM' → {revenue, units}
+
+  for (const it of ipItems) {
+    const o = ordersById.get(it.salesorder_id);
+    if (!o) continue;
+    const qty   = parseFloat(it.qty||0) || 0;
+    const gross = parseFloat(it.amount||0) || (qty * (parseFloat(it.price||0)||0) - (parseFloat(it.disc_amount||0)||0));
+    // Monthly bucket (trend)
+    const ym = wibYM(o.transaction_date);
+    const mm = monthMap.get(ym) || { revenue:0, units:0 };
+    mm.revenue += gross; mm.units += qty;
+    monthMap.set(ym, mm);
+    // Period subset
+    if (!inPeriod(o.transaction_date)) continue;
+    revenue += gross; units += qty;
     orderSet.add(it.salesorder_id);
     const grpKey = it.item_group_id || `single-${it.item_id}`;
-    const cur = parentMap.get(grpKey) || { name: it.item_name||'(unnamed)', units:0, revenue:0 };
-    cur.units   += Number(it.qty)||0;
-    cur.revenue += Number(it.amount)||0;
-    if (it.item_name && it.item_name.length < (cur.name||'').length) cur.name = it.item_name;
+    const cur = parentMap.get(grpKey) || { name: it.item_name||'(unnamed)', units:0, revenue:0, sampleItemId: it.item_id, itemGroupId: it.item_group_id||null };
+    cur.units += qty; cur.revenue += gross;
+    if (it.item_name && (cur.name === '(unnamed)' || it.item_name.length < cur.name.length)) cur.name = it.item_name;
     parentMap.set(grpKey, cur);
-    const o = ordersById.get(it.salesorder_id);
-    const ch = o?.channel_name || o?.store_name || 'Unknown';
+    const ch = o.channel_name || o.store_name || 'Unknown';
     const c = channelMap.get(ch) || { units:0, revenue:0 };
-    c.units += Number(it.qty)||0;
-    c.revenue += Number(it.amount)||0;
+    c.units += qty; c.revenue += gross;
     channelMap.set(ch, c);
   }
+
   const orderCount = orderSet.size;
   const aov = orderCount ? Math.round(revenue / orderCount) : 0;
-  const topMovers = [...parentMap.entries()]
-    .map(([k,v]) => ({ id:k, name:v.name, units:v.units, revenue:v.revenue }))
-    .sort((a,b) => b.revenue - a.revenue)
-    .slice(0,5);
+  const topMoversRaw = [...parentMap.entries()]
+    .map(([k,v]) => ({ id:k, name:v.name, units:v.units, revenue:Math.round(v.revenue), sampleItemId:v.sampleItemId, thumb:null }))
+    .sort((a,b) => b.revenue - a.revenue);
+  const topMovers = topMoversRaw.slice(0,5);
+
+  // Fetch thumbnails for top movers
+  if (topMovers.length) {
+    const sampleIds = topMovers.map(m => m.sampleItemId).filter(Boolean);
+    if (sampleIds.length) {
+      try {
+        const thumbRows = await _fetchAllPagesIn('jubelio_items', 'item_id,thumbnail,item_group_id', 'item_id', sampleIds,
+          q => q.not('thumbnail','is',null));
+        const thumbByItem = new Map(thumbRows.map(r => [r.item_id, r.thumbnail]));
+        topMovers.forEach(m => { m.thumb = thumbByItem.get(m.sampleItemId) || null; });
+        // Fallback: try other items in same item_group_id
+        const missing = topMovers.filter(m => !m.thumb && m.id && !m.id.startsWith('single-'));
+        if (missing.length) {
+          const grpIds = missing.map(m => Number(m.id));
+          const grpThumbs = await _fetchAllPagesIn('jubelio_items', 'item_group_id,thumbnail', 'item_group_id', grpIds,
+            q => q.not('thumbnail','is',null));
+          const byGrp = new Map();
+          grpThumbs.forEach(r => { if (!byGrp.has(r.item_group_id)) byGrp.set(r.item_group_id, r.thumbnail); });
+          missing.forEach(m => { m.thumb = byGrp.get(Number(m.id)) || null; });
+        }
+      } catch(_) { /* thumbnails non-critical */ }
+    }
+  }
+
   const channelMix = [...channelMap.entries()]
-    .map(([k,v]) => ({ name:k, units:v.units, revenue:v.revenue, pct: revenue ? (v.revenue/revenue)*100 : 0 }))
+    .map(([k,v]) => ({ name:k, units:v.units, revenue:Math.round(v.revenue), pct: revenue ? (v.revenue/revenue)*100 : 0 }))
     .sort((a,b) => b.revenue - a.revenue);
 
-  // Growth pct
+  // Build trend array: 12 months ending at periodEnd, fill 0 for missing months
+  const trend = [];
+  const endDt = new Date(endD+'T00:00:00');
+  let trY = endDt.getFullYear(), trM = endDt.getMonth()+1;
+  for (let i = 0; i < 12; i++) {
+    const ym = `${trY}-${String(trM).padStart(2,'0')}`;
+    const mm = monthMap.get(ym) || { revenue:0, units:0 };
+    trend.unshift({ ym, label: new Date(trY, trM-1, 1).toLocaleDateString('id-ID',{month:'short',year:'2-digit'}).toUpperCase(), revenue: Math.round(mm.revenue), units: mm.units });
+    trM--; if (trM < 1) { trM = 12; trY--; }
+  }
+
+  // Prior period growth — same length immediately before period.
+  const prdDays = Math.round((new Date(endD) - new Date(startD)) / 86400000) + 1;
+  const priorEndDt = new Date(startD+'T00:00:00'); priorEndDt.setDate(priorEndDt.getDate()-1);
+  const priorStartDt = new Date(priorEndDt); priorStartDt.setDate(priorStartDt.getDate() - (prdDays-1));
+  let priorRevenue = 0, priorUnits = 0;
+  const priorStartISO = priorStartDt.toISOString().slice(0,10)+'T00:00:00+07:00';
+  const priorEndExclISO = (new Date(priorEndDt.getTime()+86400000)).toISOString().slice(0,10)+'T00:00:00+07:00';
+  // Reuse fetched orders if prior period overlaps trend window
+  if (priorStartISO >= fetchStartISO) {
+    for (const it of ipItems) {
+      const o = ordersById.get(it.salesorder_id);
+      if (!o) continue;
+      if (o.transaction_date >= priorStartISO && o.transaction_date < priorEndExclISO) {
+        const qty   = parseFloat(it.qty||0) || 0;
+        const gross = parseFloat(it.amount||0) || (qty * (parseFloat(it.price||0)||0) - (parseFloat(it.disc_amount||0)||0));
+        priorRevenue += gross; priorUnits += qty;
+      }
+    }
+  } else {
+    // Separate fetch for prior period if outside trend window (long custom periods)
+    try {
+      const pOrders = await _fetchAllPages('jubelio_sales_orders', 'salesorder_id,transaction_date',
+        q => q.eq('wms_status','COMPLETED').eq('is_canceled', false)
+              .gte('transaction_date', priorStartISO).lt('transaction_date', priorEndExclISO));
+      const pIds = pOrders.map(o => o.salesorder_id);
+      if (pIds.length) {
+        const pItems = await _fetchAllPagesIn('jubelio_sales_order_items', 'qty,amount,price,disc_amount,item_id,is_canceled_item',
+          'salesorder_id', pIds, q => q.in('item_id', itemIds.slice(0, 1000))); // sample if huge
+        pItems.forEach(it => {
+          if (it.is_canceled_item || !itemIdSet.has(it.item_id)) return;
+          const qty   = parseFloat(it.qty||0) || 0;
+          const gross = parseFloat(it.amount||0) || (qty * (parseFloat(it.price||0)||0) - (parseFloat(it.disc_amount||0)||0));
+          priorRevenue += gross; priorUnits += qty;
+        });
+      }
+    } catch(_) {}
+  }
   const growthPct = priorRevenue > 0 ? ((revenue - priorRevenue)/priorRevenue)*100 : null;
 
+  // Royalty calc (matches Royalty Report)
+  const royaltyGross = (royaltyType === 'Advance') ? 0 : Math.round(revenue * royaltyPct / 100);
+  const royaltyPph   = Math.round(royaltyGross * pphRate / 100);
+  const royaltyNet   = royaltyGross - royaltyPph;
+
   const snapshot = {
-    ipName, startD, endD,
-    empty: false,
-    totals: { revenue: Math.round(revenue), units, orders: orderCount, aov },
+    ipName, startD, endD, empty: false,
+    royaltyType, royaltyPct, pphRate, fixedAmt,
+    totals: { revenue: Math.round(revenue), units, orders: orderCount, aov, royaltyGross, royaltyPph, royaltyNet },
     prior:  { revenue: Math.round(priorRevenue), units: priorUnits, growthPct },
-    topMovers, channelMix,
-    itemCount: itemIds.length,
-    parentCount: parentMap.size,
+    topMovers, channelMix, trend,
+    itemCount: itemIds.length, parentCount: parentMap.size,
     compiledAt: new Date().toISOString(),
   };
   snapshot.narrative = _iprBuildNarrative(snapshot);
@@ -32095,7 +32151,57 @@ function _iprBuildNarrative(s) {
     const c = s.channelMix[0];
     parts.push(`Channel terbesar: ${c.name} menyumbang ${c.pct.toFixed(1)}% revenue.`);
   }
+  // Royalty line
+  if (s.royaltyType === 'Advance') {
+    parts.push(`Skema royalti: Advance (fixed Rp ${Math.round(s.fixedAmt||0).toLocaleString('id-ID')}/${(allIPRows.find(r=>r.name===s.ipName)?.termin)||'periode'}). Royalty dari sales periode ini = 0 (sudah ditalangi advance).`);
+  } else if (s.royaltyPct > 0) {
+    parts.push(`Estimasi royalti: ${fmtRp(s.totals.royaltyGross)} (${s.royaltyPct}% × gross). PPh ${s.pphRate||0}% sebesar ${fmtRp(s.totals.royaltyPph)}. Net payout ${fmtRp(s.totals.royaltyNet)}.`);
+  }
   return parts.join(' ');
+}
+
+// ── SVG bar chart for monthly trend ──
+function _iprRenderTrendSVG(trend, opts={}) {
+  if (!trend || !trend.length) return '<div style="color:var(--g400);font-style:italic;padding:12px">Tidak ada data trend.</div>';
+  const W = opts.width  || 720;
+  const H = opts.height || 200;
+  const padL = 50, padR = 12, padT = 12, padB = 36;
+  const innerW = W - padL - padR;
+  const innerH = H - padT - padB;
+  const maxRev = Math.max(...trend.map(t => t.revenue||0), 1);
+  const barW = innerW / trend.length * 0.7;
+  const gap  = innerW / trend.length * 0.3;
+  const dark = opts.dark || false;
+  const lineColor = dark ? '#e2e2e2' : '#0c0c0c';
+  const barColor  = dark ? '#e2e2e2' : '#0c0c0c';
+  const labelColor= dark ? '#e2e2e2' : '#666';
+  const fmtRpAbbr = n => {
+    if (n >= 1e9) return (n/1e9).toFixed(1).replace(/\.0$/,'')+'B';
+    if (n >= 1e6) return (n/1e6).toFixed(1).replace(/\.0$/,'')+'M';
+    if (n >= 1e3) return (n/1e3).toFixed(0)+'K';
+    return String(n||0);
+  };
+  // Y-axis: 4 grid lines
+  const yTicks = [];
+  for (let i=0; i<=4; i++) {
+    const v = Math.round((maxRev * i / 4));
+    const y = padT + innerH - (innerH * i / 4);
+    yTicks.push(`<line x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}" stroke="${lineColor}" stroke-opacity="0.15" stroke-width="0.5"/>
+      <text x="${padL-6}" y="${y+3}" font-size="9" font-family="IBM Plex Mono, monospace" fill="${labelColor}" text-anchor="end">${fmtRpAbbr(v)}</text>`);
+  }
+  // Bars
+  const bars = trend.map((t,i) => {
+    const x = padL + (innerW / trend.length * i) + gap/2;
+    const h = maxRev > 0 ? (t.revenue||0) / maxRev * innerH : 0;
+    const y = padT + innerH - h;
+    return `<rect x="${x}" y="${y}" width="${barW}" height="${h}" fill="${barColor}"/>
+      <text x="${x+barW/2}" y="${H-padB+14}" font-size="9" font-family="IBM Plex Mono, monospace" fill="${labelColor}" text-anchor="middle" letter-spacing="-0.2">${t.label}</text>
+      ${t.revenue>0?`<text x="${x+barW/2}" y="${y-3}" font-size="8" font-family="IBM Plex Mono, monospace" fill="${labelColor}" text-anchor="middle">${fmtRpAbbr(t.revenue)}</text>`:''}`;
+  }).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block">
+    ${yTicks.join('')}
+    ${bars}
+  </svg>`;
 }
 
 // ── Preview HTML (in-portal, uses portal palette) ──
@@ -32112,14 +32218,15 @@ function _iprRenderPreviewHTML(b) {
   const growthStr = s.prior.growthPct == null ? '—' : `${s.prior.growthPct>=0?'+':''}${s.prior.growthPct.toFixed(1)}%`;
   const topTable = s.topMovers.length ? `<table style="width:100%;border-collapse:collapse;font-size:13px">
     <thead><tr style="border-bottom:1px solid var(--g100);font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">
-      <th style="padding:6px;text-align:left">#</th><th style="padding:6px;text-align:left">Product</th><th style="padding:6px;text-align:right">Units</th><th style="padding:6px;text-align:right">Revenue</th><th style="padding:6px;text-align:right">% Share</th>
+      <th style="padding:6px;text-align:left">#</th><th style="padding:6px;text-align:left" colspan="2">Product</th><th style="padding:6px;text-align:right">Units</th><th style="padding:6px;text-align:right">Revenue</th><th style="padding:6px;text-align:right">% Share</th>
     </tr></thead>
     <tbody>${s.topMovers.map((t,i) => `<tr style="border-top:1px solid var(--g100)">
-      <td style="padding:8px 6px;font-family:var(--mono);color:var(--g400)">${i+1}</td>
-      <td style="padding:8px 6px">${(t.name||'').replace(/</g,'&lt;')}</td>
-      <td style="padding:8px 6px;text-align:right;font-family:var(--mono)">${t.units.toLocaleString('id-ID')}</td>
-      <td style="padding:8px 6px;text-align:right;font-family:var(--mono);font-weight:600">${fmtRp(t.revenue)}</td>
-      <td style="padding:8px 6px;text-align:right;font-family:var(--mono);color:var(--g600)">${s.totals.revenue?((t.revenue/s.totals.revenue)*100).toFixed(1):'0'}%</td>
+      <td style="padding:8px 6px;font-family:var(--mono);color:var(--g400);vertical-align:middle">${i+1}</td>
+      <td style="padding:6px;width:52px;vertical-align:middle">${t.thumb?`<img src="${t.thumb}" style="width:44px;height:44px;object-fit:cover;border:1px solid var(--g100);display:block">`:`<div style="width:44px;height:44px;background:var(--off);border:1px solid var(--g100);display:flex;align-items:center;justify-content:center;color:var(--g400);font-size:10px">—</div>`}</td>
+      <td style="padding:8px 6px;vertical-align:middle">${(t.name||'').replace(/</g,'&lt;')}</td>
+      <td style="padding:8px 6px;text-align:right;font-family:var(--mono);vertical-align:middle">${t.units.toLocaleString('id-ID')}</td>
+      <td style="padding:8px 6px;text-align:right;font-family:var(--mono);font-weight:600;vertical-align:middle">${fmtRp(t.revenue)}</td>
+      <td style="padding:8px 6px;text-align:right;font-family:var(--mono);color:var(--g600);vertical-align:middle">${s.totals.revenue?((t.revenue/s.totals.revenue)*100).toFixed(1):'0'}%</td>
     </tr>`).join('')}</tbody>
   </table>` : '<div style="color:var(--g400);font-style:italic">Tidak ada data.</div>';
   const chTable = s.channelMix.length ? `<table style="width:100%;border-collapse:collapse;font-size:13px">
@@ -32161,6 +32268,24 @@ function _iprRenderPreviewHTML(b) {
       </div>
     </div>
     <div style="border-left:3px solid #000;padding:8px 14px;background:var(--off);margin-bottom:18px;font-size:13px;line-height:1.6">${s.narrative}</div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:18px">
+      <div style="border:1px solid var(--g100);padding:14px;border-radius:6px">
+        <div style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px;font-family:var(--mono);margin-bottom:4px">Royalty Gross (${s.royaltyType==='Advance'?'Advance':`${s.royaltyPct}%`})</div>
+        <div style="font-size:18px;font-weight:700;font-family:var(--mono)">${fmtRp(s.totals.royaltyGross)}</div>
+      </div>
+      <div style="border:1px solid var(--g100);padding:14px;border-radius:6px">
+        <div style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px;font-family:var(--mono);margin-bottom:4px">PPh ${s.pphRate||0}%</div>
+        <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:#c0392b">− ${fmtRp(s.totals.royaltyPph)}</div>
+      </div>
+      <div style="border:1px solid #000;padding:14px;border-radius:6px;background:#fafafa">
+        <div style="font-size:10px;color:#000;text-transform:uppercase;letter-spacing:0.5px;font-family:var(--mono);margin-bottom:4px;font-weight:700">Net Royalty Payout</div>
+        <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:#0a7d3a">${fmtRp(s.totals.royaltyNet)}</div>
+      </div>
+    </div>
+    <div style="margin-bottom:18px">
+      <div style="font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--g400);margin-bottom:10px">12-Month Revenue Trend</div>
+      <div style="border:1px solid var(--g100);padding:12px;border-radius:6px">${_iprRenderTrendSVG(s.trend)}</div>
+    </div>
     <div style="margin-bottom:18px">
       <div style="font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--g400);margin-bottom:10px">Top Movers</div>
       ${topTable}
@@ -32175,7 +32300,15 @@ function _iprRenderPreviewHTML(b) {
 // ── PDF generation (Figma Config design — modernist poster on black velvet) ──
 function iprGeneratePDF() {
   const b = _iprCurrentBuilder;
-  if (!b?.snapshot) { alert('Generate data dulu.'); return; }
+  if (!b?.snapshot) { alert('Generate Data dulu sebelum download PDF.'); return; }
+  // OPEN WINDOW FIRST — synchronous user gesture biar popup blocker gak nyangkut.
+  // Browser modern strict: window.open di luar synchronous click handler = blocked.
+  // Build HTML setelah handle dapet.
+  const w = window.open('about:blank', '_blank');
+  if (!w || w.closed || typeof w.closed === 'undefined') {
+    alert('Pop-up diblokir browser. Izinkan pop-up untuk sentragroup.github.io di address bar, lalu klik tombol lagi.');
+    return;
+  }
   const s = b.snapshot;
   const logo = _iprPickLogo(b.revStream);
   const fmtRp = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
@@ -32186,6 +32319,7 @@ function iprGeneratePDF() {
 
   const topRows = s.topMovers.map((t,i) => `<tr>
     <td class="num">${i+1}</td>
+    <td class="thumb-td">${t.thumb?`<img src="${t.thumb}" alt="" style="width:56px;height:56px;object-fit:cover;display:block;border:1px solid #3d3d3d">`:`<div style="width:56px;height:56px;background:transparent;border:1px solid #3d3d3d;display:flex;align-items:center;justify-content:center;color:#3d3d3d;font-size:10px">—</div>`}</td>
     <td>${escHtml(t.name)}</td>
     <td class="num">${t.units.toLocaleString('id-ID')}</td>
     <td class="num">${fmtRp(t.revenue)}</td>
@@ -32199,8 +32333,7 @@ function iprGeneratePDF() {
     <td class="num">${c.pct.toFixed(1)}%</td>
   </tr>`).join('');
 
-  const w = window.open('', '_blank');
-  if (!w) { alert('Pop-up diblokir browser — izinkan untuk download PDF.'); return; }
+  w.document.open();
   w.document.write(`<!doctype html><html lang="id"><head><meta charset="utf-8">
 <title>${escHtml(b.ipName)} · ${ptLbl[b.periodType]||b.periodType}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -32231,7 +32364,10 @@ function iprGeneratePDF() {
   thead th.num { text-align:right; }
   tbody td { padding:16px 0; border-bottom:1px solid #3d3d3d; color:#e2e2e2; }
   tbody td.num { text-align:right; font-family:'IBM Plex Mono',monospace; font-size:18px; }
+  tbody td.thumb-td { padding:8px 0; width:72px; }
   tbody tr:last-child td { border-bottom:none; }
+  .trend-box { padding:24px; border:1px solid #e2e2e2; }
+  .trend-box svg text { fill:#e2e2e2; }
   .footer { margin-top:160px; padding-top:24px; border-top:1px solid #e2e2e2; display:flex; justify-content:space-between; align-items:flex-end; }
   .footer .wordmark { font-size:80px; line-height:0.95; letter-spacing:-0.03em; color:#e2e2e2; font-weight:400; }
   .footer .stamp { font-family:'IBM Plex Mono',monospace; font-size:14px; color:#e2e2e2; opacity:0.6; text-align:right; }
@@ -32271,15 +32407,29 @@ function iprGeneratePDF() {
   </div>
 
   <div class="section">
+    <h2>Royalty</h2>
+    <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)">
+      <div class="kpi"><div class="kpi-label">Royalty Gross (${s.royaltyType==='Advance'?'Advance':`${s.royaltyPct}%`})</div><div class="kpi-value small">${fmtRp(s.totals.royaltyGross)}</div></div>
+      <div class="kpi"><div class="kpi-label">PPh ${s.pphRate||0}%</div><div class="kpi-value small">− ${fmtRp(s.totals.royaltyPph)}</div></div>
+      <div class="kpi"><div class="kpi-label" style="color:#fff;opacity:1">Net Payout</div><div class="kpi-value small" style="color:#fff">${fmtRp(s.totals.royaltyNet)}</div></div>
+    </div>
+  </div>
+
+  <div class="section">
     <h2>Summary</h2>
     <div class="narrative">${escHtml(s.narrative)}</div>
   </div>
 
   <div class="section">
+    <h2>12-Month Trend</h2>
+    <div class="trend-box">${_iprRenderTrendSVG(s.trend, {dark:true, width:1000, height:240})}</div>
+  </div>
+
+  <div class="section">
     <h2>Top Movers</h2>
     <table>
-      <thead><tr><th style="width:60px">#</th><th>Product</th><th class="num">Units</th><th class="num">Revenue</th><th class="num">% Share</th></tr></thead>
-      <tbody>${topRows||'<tr><td colspan="5" style="opacity:0.5;font-style:italic">Tidak ada data.</td></tr>'}</tbody>
+      <thead><tr><th style="width:40px">#</th><th style="width:72px">Image</th><th>Product</th><th class="num">Units</th><th class="num">Revenue</th><th class="num">% Share</th></tr></thead>
+      <tbody>${topRows||'<tr><td colspan="6" style="opacity:0.5;font-style:italic">Tidak ada data.</td></tr>'}</tbody>
     </table>
   </div>
 
