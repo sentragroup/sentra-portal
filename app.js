@@ -32007,6 +32007,43 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
   const nameToIp = new Map();
   pmAll.forEach(m => { if (m.item_name && m.ip) nameToIp.set(m.item_name, m.ip); });
 
+  // Pre-fetch jubelio_items untuk ALL IP items upfront — kita butuh data ini
+  // buat: (a) fill missing item_group_id di sales rows (842 rows null!),
+  // (b) parent name lookup, (c) per-item stock untuk velocity metrics,
+  // (d) thumbnails. 1 round trip lebih efisien dari multiple fetches nanti.
+  let itemsMeta = [];
+  if (itemIds.length) {
+    try {
+      itemsMeta = await _fetchAllPagesIn('jubelio_items',
+        'item_id,item_group_id,item_name,thumbnail,image_urls,total_on_hand', 'item_id', itemIds);
+    } catch(_) {}
+  }
+  const itemToGrp    = new Map();  // item_id → item_group_id
+  const itemToName   = new Map();  // item_id → parent item_name
+  const itemToStock  = new Map();  // item_id → total_on_hand
+  const grpToStock   = new Map();  // item_group_id → SUM(total_on_hand)
+  const grpToName    = new Map();  // item_group_id → parent name (any variant — they share name)
+  const grpToImg     = new Map();  // item_group_id → first non-null image
+  const itemToImg    = new Map();  // item_id → first non-null image
+  const grpToSampleItemId = new Map(); // item_group_id → representative item_id for thumb lookup
+  const pickImg = r => (r?.thumbnail && r.thumbnail.trim()) || (Array.isArray(r?.image_urls) && r.image_urls.find(u => u && u.trim())) || null;
+  for (const r of itemsMeta) {
+    if (r.item_group_id) itemToGrp.set(r.item_id, r.item_group_id);
+    if (r.item_name)     itemToName.set(r.item_id, r.item_name);
+    const stk = parseFloat(r.total_on_hand) || 0;
+    itemToStock.set(r.item_id, stk);
+    if (r.item_group_id) {
+      grpToStock.set(r.item_group_id, (grpToStock.get(r.item_group_id)||0) + stk);
+      if (r.item_name && !grpToName.has(r.item_group_id)) grpToName.set(r.item_group_id, r.item_name);
+      if (!grpToSampleItemId.has(r.item_group_id)) grpToSampleItemId.set(r.item_group_id, r.item_id);
+    }
+    const img = pickImg(r);
+    if (img) {
+      if (!itemToImg.has(r.item_id)) itemToImg.set(r.item_id, img);
+      if (r.item_group_id && !grpToImg.has(r.item_group_id)) grpToImg.set(r.item_group_id, img);
+    }
+  }
+
   // 2026+ orders for trend+period window (broader status filter)
   let orders = [], orderIds = [], ordersById = new Map();
   if (needOrders) {
@@ -32077,10 +32114,13 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
     if (!inPeriod(o.transaction_date)) continue;
     revenue += gross; units += qty;
     orderSet.add(it.salesorder_id);
-    const grpKey = it.item_group_id || `single-${it.item_id}`;
-    const cur = parentMap.get(grpKey) || { name: it.item_name||'(unnamed)', units:0, revenue:0, sampleItemId: it.item_id, itemGroupId: it.item_group_id||null };
+    // Critical fix: 842 sales rows have NULL item_group_id. Fallback ke
+    // itemToGrp lookup (pre-fetched dari jubelio_items) supaya variants
+    // tetep nge-roll up ke parent yang benar — bukan pecah jadi singleton.
+    const grp = it.item_group_id || itemToGrp.get(it.item_id);
+    const grpKey = grp || `single-${it.item_id}`;
+    const cur = parentMap.get(grpKey) || { name: grpToName.get(grp) || itemToName.get(it.item_id) || it.item_name || '(unnamed)', units:0, revenue:0, sampleItemId: grpToSampleItemId.get(grp) || it.item_id, itemGroupId: grp||null };
     cur.units += qty; cur.revenue += gross;
-    if (it.item_name && (cur.name === '(unnamed)' || it.item_name.length < cur.name.length)) cur.name = it.item_name;
     parentMap.set(grpKey, cur);
     // Channel mapping pakai semua field
     const ch = _iprNormalizeChannel(o.channel_name, o.store_name, o.note, o.customer_name, o.salesorder_no);
@@ -32131,56 +32171,38 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
     .sort((a,b) => b.revenue - a.revenue);
   const topMovers = allProducts.slice(0,5);
 
-  // Fetch parent name + thumbnails for ALL products via item_group_id.
-  // jubelio_items.item_name = parent name (e.g. "Reality Club - Quick Love - T-shirt - Black")
-  // jubelio_sales_order_items.item_name = includes size ("... - Black - S")
-  // User wants per-parent rows (no size breakdown), so override aggregated
-  // name dengan parent name dari jubelio_items.
-  if (allProducts.length) {
-    const pickImg = r => (r?.thumbnail && r.thumbnail.trim()) || (Array.isArray(r?.image_urls) && r.image_urls.find(u => u && u.trim())) || null;
-    const grpIds   = allProducts.map(m => Number(m.id)).filter(n => !isNaN(n) && n > 0);
-    const sampleIds= allProducts.map(m => m.sampleItemId).filter(Boolean);
-    try {
-      const [grpRows, itemRows] = await Promise.all([
-        grpIds.length ? _fetchAllPagesIn('jubelio_items', 'item_id,item_group_id,item_name,thumbnail,image_urls', 'item_group_id', grpIds) : Promise.resolve([]),
-        sampleIds.length ? _fetchAllPagesIn('jubelio_items', 'item_id,item_group_id,item_name,thumbnail,image_urls', 'item_id', sampleIds) : Promise.resolve([]),
-      ]);
-      const imgByItem  = new Map();
-      const imgByGrp   = new Map();
-      const nameByItem = new Map();
-      const nameByGrp  = new Map();
-      for (const r of [...grpRows, ...itemRows]) {
-        if (r.item_name) {
-          if (!nameByItem.has(r.item_id)) nameByItem.set(r.item_id, r.item_name);
-          if (r.item_group_id && !nameByGrp.has(r.item_group_id)) nameByGrp.set(r.item_group_id, r.item_name);
-        }
-        const img = pickImg(r);
-        if (img) {
-          if (!imgByItem.has(r.item_id)) imgByItem.set(r.item_id, img);
-          if (r.item_group_id && !imgByGrp.has(r.item_group_id)) imgByGrp.set(r.item_group_id, img);
-        }
-      }
-      allProducts.forEach(m => {
-        // Parent name: prefer group lookup, fallback to direct item, last resort = aggregated name
-        const parentName = (typeof m.id === 'number' ? nameByGrp.get(m.id) : null)
-                        || nameByItem.get(m.sampleItemId)
-                        || m.name;
-        m.name = parentName;
-        m.thumb = imgByItem.get(m.sampleItemId)
-              || (typeof m.id === 'number' ? imgByGrp.get(m.id) : null)
-              || null;
-      });
-    } catch(_) { /* non-critical */ }
-  }
+  // Period length in days — also used below for prior period + velocity metrics.
+  const prdDays = Math.round((new Date(endD) - new Date(startD)) / 86400000) + 1;
+  // Enrich allProducts: parent name + thumbnail + stock + STR + avg daily.
+  // Pakai maps yang udah di-pre-fetch (grpToName, grpToImg, grpToStock, dll).
+  const prdDaysForAvg = Math.max(1, prdDays);
+  allProducts.forEach(m => {
+    // Parent name: from group, else direct item, else aggregated
+    if (typeof m.id === 'number') {
+      m.name  = grpToName.get(m.id) || m.name;
+      m.thumb = grpToImg.get(m.id) || itemToImg.get(m.sampleItemId) || null;
+      m.stock = grpToStock.get(m.id) || 0;
+    } else {
+      // Singleton (no group)
+      m.name  = itemToName.get(m.sampleItemId) || m.name;
+      m.thumb = itemToImg.get(m.sampleItemId) || null;
+      m.stock = itemToStock.get(m.sampleItemId) || 0;
+    }
+    // Per-product STR (snapshot): period_units / (period_units + current_stock)
+    const denom = m.units + m.stock;
+    m.strPct = denom > 0 ? (m.units / denom * 100) : null;
+    // Avg daily for this product over period
+    m.avgDaily = m.units / prdDaysForAvg;
+  });
 
   const channelMix = [...channelMap.entries()]
     .map(([k,v]) => ({ name:k, units:v.units, revenue:Math.round(v.revenue), pct: revenue ? (v.revenue/revenue)*100 : 0 }))
     .sort((a,b) => b.revenue - a.revenue);
 
-  // Pop-up Booth events untuk IP ini selama periode (informational).
-  // Skip events yang gak punya data sales/qty (sering field-nya null karena
-  // belum diisi AE/event team) — biar gak nampilin row kosong di report.
-  // Kalau id_pesanan_jubelio ke-set, derive sales dari Jubelio orders.
+  // Pop-up Booth events untuk IP ini selama periode.
+  // Sales derived from transaction_mappings (project_ref = event_name,
+  // category = 'Pop Up Booth') → join to Jubelio orders. Source of truth
+  // sesuai modul Transaction Mapping.
   let popupEvents = [];
   try {
     const { data: events } = await sb.from('popup_booths')
@@ -32191,8 +32213,34 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
       .order('event_date', { ascending: false });
     for (const e of events||[]) {
       let salesValue = parseFloat(e.actual_sales)||0;
-      let derivedFromJubelio = false;
-      // Derive sales from Jubelio if id_pesanan_jubelio set + actual_sales null
+      let soldQty = 0;
+      let derivedFrom = null;
+      // 1. Try transaction_mappings (preferred source — user explicit request)
+      try {
+        const { data: txm } = await sb.from('transaction_mappings')
+          .select('salesorder_id')
+          .eq('category', 'Pop Up Booth')
+          .eq('project_ref', e.event_name);
+        const soIds = (txm||[]).map(t => t.salesorder_id);
+        if (soIds.length) {
+          const linkedOrders = await _fetchAllPagesIn('jubelio_sales_orders',
+            'salesorder_id,sub_total,grand_total,wms_status', 'salesorder_id', soIds,
+            q => q.in('wms_status', SP_COMPLETED));
+          const orderRevenue = linkedOrders.reduce((s,o) => s + (parseFloat(o.sub_total)||parseFloat(o.grand_total)||0), 0);
+          if (orderRevenue > 0) {
+            salesValue = orderRevenue;
+            derivedFrom = 'transaction_mappings';
+          }
+          // Also fetch items qty for Sold column
+          const completedIds = linkedOrders.map(o => o.salesorder_id);
+          if (completedIds.length) {
+            const items = await _fetchAllPagesIn('jubelio_sales_order_items',
+              'salesorder_id,qty,is_canceled_item', 'salesorder_id', completedIds);
+            soldQty = items.filter(it => !it.is_canceled_item).reduce((s,it) => s + (parseFloat(it.qty)||0), 0);
+          }
+        }
+      } catch(_) {}
+      // 2. Fallback: id_pesanan_jubelio direct link
       if (!salesValue && e.id_pesanan_jubelio) {
         const orderNos = String(e.id_pesanan_jubelio).split(/[,;\s]+/).filter(Boolean);
         if (orderNos.length) {
@@ -32200,22 +32248,22 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
             const { data: linkedOrders } = await sb.from('jubelio_sales_orders')
               .select('salesorder_id,sub_total,grand_total,wms_status')
               .in('salesorder_no', orderNos)
-              .in('wms_status', ['COMPLETED','FINISH_PACK','FINISH_PICK','CLOSED']);
+              .in('wms_status', SP_COMPLETED);
             (linkedOrders||[]).forEach(o => {
               salesValue += parseFloat(o.sub_total)||parseFloat(o.grand_total)||0;
             });
-            derivedFromJubelio = true;
+            derivedFrom = 'id_pesanan_jubelio';
           } catch(_) {}
         }
       }
       const broughtQty = parseInt(e.qty_brought)||0;
       const reinboundQty = parseInt(e.reinbound_qty)||0;
-      // Tampilkan semua events untuk IP ini di periode — kalau data null,
-      // ditampilin '—' biar AE bisa flag yang belum diisi.
+      // Sold = derived qty kalau ada, fallback ke broughtQty - reinboundQty
+      const sold = soldQty || (broughtQty - reinboundQty);
       popupEvents.push({
         id: e.id, name: e.event_name || '(Untitled)', date: e.event_date, location: e.location||'—',
-        sales: salesValue, broughtQty, reinboundQty, status: e.event_status||'—',
-        derivedFromJubelio,
+        sales: salesValue, sold, broughtQty, reinboundQty, status: e.event_status||'—',
+        derivedFrom,
       });
     }
   } catch(_) { /* popup non-critical */ }
@@ -32233,7 +32281,6 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
 
   // Prior period growth — sum qty×price for same-length range immediately before period.
   // Reuse already-fetched 2026 ipItems + histItems where possible.
-  const prdDays = Math.round((new Date(endD) - new Date(startD)) / 86400000) + 1;
   const priorEndDt = new Date(startD+'T00:00:00'); priorEndDt.setDate(priorEndDt.getDate()-1);
   const priorStartDt = new Date(priorEndDt); priorStartDt.setDate(priorStartDt.getDate() - (prdDays-1));
   const priorStartISO = priorStartDt.toISOString().slice(0,10)+'T00:00:00+07:00';
@@ -32465,9 +32512,16 @@ function _iprRenderPreviewHTML(b) {
   const growthClr = s.prior.growthPct == null ? 'var(--g400)' : s.prior.growthPct >= 0 ? '#0a7d3a' : '#c0392b';
   const growthStr = s.prior.growthPct == null ? '—' : `${s.prior.growthPct>=0?'+':''}${s.prior.growthPct.toFixed(1)}%`;
   const allProducts = s.allProducts || s.topMovers || [];
+  const strColor = pct => pct == null ? 'var(--g400)' : pct >= 70 ? '#0a7d3a' : pct >= 30 ? '#a66800' : '#c0392b';
   const allProdTable = allProducts.length ? `<table style="width:100%;border-collapse:collapse;font-size:13px">
     <thead><tr style="border-bottom:1px solid var(--g100);font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">
-      <th style="padding:6px;text-align:left">#</th><th style="padding:6px;text-align:left" colspan="2">Product</th><th style="padding:6px;text-align:right">Units</th><th style="padding:6px;text-align:right">Revenue</th><th style="padding:6px;text-align:right">% Share</th>
+      <th style="padding:6px;text-align:left">#</th><th style="padding:6px;text-align:left" colspan="2">Product</th>
+      <th style="padding:6px;text-align:right">Units</th>
+      <th style="padding:6px;text-align:right">Revenue</th>
+      <th style="padding:6px;text-align:right">% Share</th>
+      <th style="padding:6px;text-align:right">Stock</th>
+      <th style="padding:6px;text-align:right">STR</th>
+      <th style="padding:6px;text-align:right">Avg/Day</th>
     </tr></thead>
     <tbody>${allProducts.map((t,i) => `<tr style="border-top:1px solid var(--g100)">
       <td style="padding:8px 6px;font-family:var(--mono);color:var(--g400);vertical-align:middle">${i+1}</td>
@@ -32476,6 +32530,9 @@ function _iprRenderPreviewHTML(b) {
       <td style="padding:8px 6px;text-align:right;font-family:var(--mono);vertical-align:middle">${t.units.toLocaleString('id-ID')}</td>
       <td style="padding:8px 6px;text-align:right;font-family:var(--mono);font-weight:600;vertical-align:middle">${fmtRp(t.revenue)}</td>
       <td style="padding:8px 6px;text-align:right;font-family:var(--mono);color:var(--g600);vertical-align:middle">${s.totals.revenue?((t.revenue/s.totals.revenue)*100).toFixed(1):'0'}%</td>
+      <td style="padding:8px 6px;text-align:right;font-family:var(--mono);vertical-align:middle">${(t.stock||0).toLocaleString('id-ID')}</td>
+      <td style="padding:8px 6px;text-align:right;font-family:var(--mono);font-weight:600;color:${strColor(t.strPct)};vertical-align:middle">${t.strPct==null?'—':t.strPct.toFixed(1)+'%'}</td>
+      <td style="padding:8px 6px;text-align:right;font-family:var(--mono);color:var(--g600);vertical-align:middle">${(t.avgDaily||0).toFixed(1)}</td>
     </tr>`).join('')}</tbody>
   </table>` : '<div style="color:var(--g400);font-style:italic">Tidak ada data.</div>';
   const popupEvents = s.popupEvents || [];
@@ -32487,11 +32544,11 @@ function _iprRenderPreviewHTML(b) {
       <td style="padding:8px 6px;font-family:var(--mono);font-size:11px;white-space:nowrap">${fmtD(e.date)}</td>
       <td style="padding:8px 6px"><b>${(e.name||'').replace(/</g,'&lt;')}</b></td>
       <td style="padding:8px 6px;color:var(--g600);font-size:12px">${(e.location||'—').replace(/</g,'&lt;')}</td>
-      <td style="padding:8px 6px;text-align:right;font-family:var(--mono);font-weight:600">${((e.broughtQty||0) - (e.reinboundQty||0)) || '—'}</td>
+      <td style="padding:8px 6px;text-align:right;font-family:var(--mono);font-weight:600">${e.sold||'—'}</td>
       <td style="padding:8px 6px;text-align:right;font-family:var(--mono);font-weight:600">${e.sales?fmtRp(e.sales):'—'}</td>
     </tr>`).join('')}
     <tr style="border-top:2px solid var(--black);background:var(--off);font-weight:700"><td colspan="3" style="padding:8px 6px">TOTAL ${popupEvents.length} EVENTS</td>
-      <td style="padding:8px 6px;text-align:right;font-family:var(--mono)">${popupEvents.reduce((s,e)=>s+((e.broughtQty||0)-(e.reinboundQty||0)),0) || '—'}</td>
+      <td style="padding:8px 6px;text-align:right;font-family:var(--mono)">${popupEvents.reduce((s,e)=>s+(e.sold||0),0) || '—'}</td>
       <td style="padding:8px 6px;text-align:right;font-family:var(--mono)">${fmtRp(popupEvents.reduce((s,e)=>s+(e.sales||0),0))}</td>
     </tr>
     </tbody>
@@ -32607,13 +32664,17 @@ function iprGeneratePDF() {
   const escHtml = t => (t||'').toString().replace(/</g,'&lt;');
 
   const allProducts = s.allProducts || s.topMovers || [];
+  const strClrPdf = pct => pct == null ? '#666' : pct >= 70 ? '#0a7d3a' : pct >= 30 ? '#a66800' : '#c0392b';
   const allProdRows = allProducts.map((t,i) => `<tr>
-    <td class="num" style="width:32px;color:#888">${i+1}</td>
-    <td class="thumb-td">${t.thumb?`<img src="${t.thumb}" alt="" style="width:40px;height:40px;object-fit:cover;display:block;border:1px solid #d0d0d0">`:`<div style="width:40px;height:40px;background:#f5f5f5;border:1px solid #d0d0d0;display:flex;align-items:center;justify-content:center;color:#888;font-size:9px">—</div>`}</td>
+    <td class="num" style="width:28px;color:#888">${i+1}</td>
+    <td class="thumb-td">${t.thumb?`<img src="${t.thumb}" alt="" style="width:36px;height:36px;object-fit:cover;display:block;border:1px solid #d0d0d0">`:`<div style="width:36px;height:36px;background:#f5f5f5;border:1px solid #d0d0d0;display:flex;align-items:center;justify-content:center;color:#888;font-size:9px">—</div>`}</td>
     <td>${escHtml(t.name)}</td>
     <td class="num">${t.units.toLocaleString('id-ID')}</td>
     <td class="num" style="font-weight:500">${fmtRp(t.revenue)}</td>
     <td class="num" style="color:#666">${s.totals.revenue?((t.revenue/s.totals.revenue)*100).toFixed(1):'0'}%</td>
+    <td class="num">${(t.stock||0).toLocaleString('id-ID')}</td>
+    <td class="num" style="color:${strClrPdf(t.strPct)};font-weight:500">${t.strPct==null?'—':t.strPct.toFixed(1)+'%'}</td>
+    <td class="num" style="color:#666">${(t.avgDaily||0).toFixed(1)}</td>
   </tr>`).join('');
 
   const chRows = s.channelMix.map(c => `<tr>
@@ -32628,11 +32689,11 @@ function iprGeneratePDF() {
     <td style="white-space:nowrap">${fmtD(e.date)}</td>
     <td><b>${escHtml(e.name)}</b></td>
     <td>${escHtml(e.location||'—')}</td>
-    <td class="num">${((e.broughtQty||0) - (e.reinboundQty||0)) || '—'}</td>
+    <td class="num">${e.sold||'—'}</td>
     <td class="num">${e.sales?fmtRp(e.sales):'—'}</td>
   </tr>`).join('');
   const popupTotalSales = popupEvents.reduce((t,e)=>t+(e.sales||0), 0);
-  const popupTotalSold  = popupEvents.reduce((t,e)=>t+((e.broughtQty||0)-(e.reinboundQty||0)), 0);
+  const popupTotalSold  = popupEvents.reduce((t,e)=>t+(e.sold||0), 0);
 
   w.document.open();
   w.document.write(`<!doctype html><html lang="id"><head><meta charset="utf-8">
@@ -32740,8 +32801,8 @@ function iprGeneratePDF() {
   <div class="section">
     <h2>All Products Sold (${allProducts.length})</h2>
     <table>
-      <thead><tr><th style="width:40px">#</th><th style="width:72px">Image</th><th>Product</th><th class="num">Units</th><th class="num">Revenue</th><th class="num">% Share</th></tr></thead>
-      <tbody>${allProdRows||'<tr><td colspan="6" style="opacity:0.5;font-style:italic">Tidak ada data.</td></tr>'}</tbody>
+      <thead><tr><th style="width:28px">#</th><th style="width:48px">Image</th><th>Product</th><th class="num">Units</th><th class="num">Revenue</th><th class="num">% Share</th><th class="num">Stock</th><th class="num">STR</th><th class="num">Avg/Day</th></tr></thead>
+      <tbody>${allProdRows||'<tr><td colspan="9" style="opacity:0.5;font-style:italic">Tidak ada data.</td></tr>'}</tbody>
     </table>
   </div>
 
