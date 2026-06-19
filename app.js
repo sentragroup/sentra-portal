@@ -32264,11 +32264,51 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
   const royaltyPph   = Math.round(royaltyGross * pphRate / 100);
   const royaltyNet   = royaltyGross - royaltyPph;
 
+  // ── Velocity & Stock metrics (Sales Performance style) ──
+  // Current stock = SUM(total_on_hand) across all IP items.
+  // STR = lifetime_sold / (lifetime_sold + current_stock). Lifetime sold
+  // = total units kejual sepanjang waktu untuk items IP ini (independent
+  // dari period filter).
+  // Avg Daily Sales = period_units / days_in_period.
+  let currentStock = 0;
+  try {
+    const stockRows = await _fetchAllPagesIn('jubelio_items', 'item_id,total_on_hand', 'item_id', itemIds);
+    currentStock = stockRows.reduce((s, r) => s + (parseFloat(r.total_on_hand)||0), 0);
+  } catch(_) {}
+  // Lifetime sold (independent of period — all-time qty di IP)
+  let lifetimeSold = 0;
+  try {
+    // 2026+ all-time sales for IP (status Completed broad set, exclude canceled item)
+    const allOrders = await _fetchAllPages('jubelio_sales_orders', 'salesorder_id',
+      q => q.in('wms_status', SP_COMPLETED).gte('transaction_date', `${SP_CUTOFF}T00:00:00+07:00`));
+    const allOrderIds = allOrders.map(o => o.salesorder_id);
+    if (allOrderIds.length) {
+      const lifetimeItems = await _fetchAllPagesIn('jubelio_sales_order_items', 'salesorder_id,item_id,item_name,qty',
+        'salesorder_id', allOrderIds, q => q.in('item_id', itemIds.slice(0, 1500)));
+      lifetimeSold = lifetimeItems
+        .filter(it => itemIdSet.has(it.item_id) || nameToIp.get(it.item_name) === ipName)
+        .reduce((s, it) => s + (parseFloat(it.qty)||0), 0);
+    }
+    // Plus historic 2024-2025 sold
+    if (needHistory || true) {
+      const histAllRows = await _fetchAllPages('jubelio_sales_history', 'qty,status',
+        q => q.eq('ip', ipName));
+      lifetimeSold += histAllRows
+        .filter(r => SP_COMPLETED.includes((r.status||'').toUpperCase()))
+        .reduce((s, r) => s + (parseFloat(r.qty)||0), 0);
+    }
+  } catch(_) {}
+  const strDenom = lifetimeSold + currentStock;
+  const strPct   = strDenom > 0 ? (lifetimeSold / strDenom * 100) : null;
+  const prdDaysFloor = Math.max(1, prdDays);
+  const avgDailySales = units / prdDaysFloor;
+
   const snapshot = {
     ipName, startD, endD, empty: false,
     royaltyType, royaltyPct, pphRate, fixedAmt,
     totals: { revenue: Math.round(revenue), units, orders: orderCount, aov, royaltyGross, royaltyPph, royaltyNet },
     prior:  { revenue: Math.round(priorRevenue), units: priorUnits, growthPct },
+    velocity: { currentStock: Math.round(currentStock), lifetimeSold: Math.round(lifetimeSold), strPct, avgDailySales: Math.round(avgDailySales * 10) / 10, periodDays: prdDaysFloor },
     topMovers, allProducts, channelMix, trend, popupEvents,
     itemCount: itemIds.length, parentCount: parentMap.size,
     compiledAt: new Date().toISOString(),
@@ -32306,6 +32346,10 @@ function _iprBuildNarrative(s) {
     parts.push(`Skema royalti: Advance (fixed Rp ${Math.round(s.fixedAmt||0).toLocaleString('id-ID')}/${(allIPRows.find(r=>r.name===s.ipName)?.termin)||'periode'}). Royalty dari sales periode ini = 0 (sudah ditalangi advance).`);
   } else if (s.royaltyPct > 0) {
     parts.push(`Estimasi royalti: ${fmtRp(s.totals.royaltyGross)} (${s.royaltyPct}% × gross). PPh ${s.pphRate||0}% sebesar ${fmtRp(s.totals.royaltyPph)}. Net payout ${fmtRp(s.totals.royaltyNet)}.`);
+  }
+  // Velocity & stock line
+  if (s.velocity) {
+    parts.push(`Stock saat ini ${s.velocity.currentStock.toLocaleString('id-ID')} pcs, sell-through rate lifetime ${s.velocity.strPct==null?'—':s.velocity.strPct.toFixed(1)+'%'}. Velocity periode ini ${s.velocity.avgDailySales.toFixed(1)} pcs/hari.`);
   }
   return parts.join(' ');
 }
@@ -32437,21 +32481,17 @@ function _iprRenderPreviewHTML(b) {
   const popupEvents = s.popupEvents || [];
   const popupTable = popupEvents.length ? `<table style="width:100%;border-collapse:collapse;font-size:13px">
     <thead><tr style="border-bottom:1px solid var(--g100);font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">
-      <th style="padding:6px;text-align:left">Tanggal</th><th style="padding:6px;text-align:left">Event</th><th style="padding:6px;text-align:left">Lokasi</th><th style="padding:6px;text-align:right">Qty Out</th><th style="padding:6px;text-align:right">Reinbound</th><th style="padding:6px;text-align:right">Sold</th><th style="padding:6px;text-align:right">Actual Sales</th>
+      <th style="padding:6px;text-align:left">Tanggal</th><th style="padding:6px;text-align:left">Event</th><th style="padding:6px;text-align:left">Lokasi</th><th style="padding:6px;text-align:right">Sold</th><th style="padding:6px;text-align:right">Actual Sales</th>
     </tr></thead>
     <tbody>${popupEvents.map(e => `<tr style="border-top:1px solid var(--g100)">
       <td style="padding:8px 6px;font-family:var(--mono);font-size:11px;white-space:nowrap">${fmtD(e.date)}</td>
       <td style="padding:8px 6px"><b>${(e.name||'').replace(/</g,'&lt;')}</b></td>
       <td style="padding:8px 6px;color:var(--g600);font-size:12px">${(e.location||'—').replace(/</g,'&lt;')}</td>
-      <td style="padding:8px 6px;text-align:right;font-family:var(--mono)">${e.broughtQty||0}</td>
-      <td style="padding:8px 6px;text-align:right;font-family:var(--mono)">${e.reinboundQty||0}</td>
-      <td style="padding:8px 6px;text-align:right;font-family:var(--mono);font-weight:600">${(e.broughtQty||0) - (e.reinboundQty||0)}</td>
+      <td style="padding:8px 6px;text-align:right;font-family:var(--mono);font-weight:600">${((e.broughtQty||0) - (e.reinboundQty||0)) || '—'}</td>
       <td style="padding:8px 6px;text-align:right;font-family:var(--mono);font-weight:600">${e.sales?fmtRp(e.sales):'—'}</td>
     </tr>`).join('')}
     <tr style="border-top:2px solid var(--black);background:var(--off);font-weight:700"><td colspan="3" style="padding:8px 6px">TOTAL ${popupEvents.length} EVENTS</td>
-      <td style="padding:8px 6px;text-align:right;font-family:var(--mono)">${popupEvents.reduce((s,e)=>s+(e.broughtQty||0),0)}</td>
-      <td style="padding:8px 6px;text-align:right;font-family:var(--mono)">${popupEvents.reduce((s,e)=>s+(e.reinboundQty||0),0)}</td>
-      <td style="padding:8px 6px;text-align:right;font-family:var(--mono)">${popupEvents.reduce((s,e)=>s+((e.broughtQty||0)-(e.reinboundQty||0)),0)}</td>
+      <td style="padding:8px 6px;text-align:right;font-family:var(--mono)">${popupEvents.reduce((s,e)=>s+((e.broughtQty||0)-(e.reinboundQty||0)),0) || '—'}</td>
       <td style="padding:8px 6px;text-align:right;font-family:var(--mono)">${fmtRp(popupEvents.reduce((s,e)=>s+(e.sales||0),0))}</td>
     </tr>
     </tbody>
@@ -32509,6 +32549,22 @@ function _iprRenderPreviewHTML(b) {
         <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:#0a7d3a">${fmtRp(s.totals.royaltyNet)}</div>
       </div>
     </div>
+    ${s.velocity ? `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:18px">
+      <div style="border:1px solid var(--g100);padding:14px;border-radius:6px">
+        <div style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px;font-family:var(--mono);margin-bottom:4px">Current Stock</div>
+        <div style="font-size:18px;font-weight:700;font-family:var(--mono)">${s.velocity.currentStock.toLocaleString('id-ID')} pcs</div>
+      </div>
+      <div style="border:1px solid var(--g100);padding:14px;border-radius:6px">
+        <div style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px;font-family:var(--mono);margin-bottom:4px">Sell-Through Rate (STR)</div>
+        <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:${s.velocity.strPct==null?'var(--g400)':s.velocity.strPct>=70?'#0a7d3a':s.velocity.strPct>=30?'#a66800':'#c0392b'}">${s.velocity.strPct==null?'—':s.velocity.strPct.toFixed(1)+'%'}</div>
+        <div style="font-size:10px;color:var(--g600);margin-top:2px">${s.velocity.lifetimeSold.toLocaleString('id-ID')} sold / ${(s.velocity.lifetimeSold+s.velocity.currentStock).toLocaleString('id-ID')} total</div>
+      </div>
+      <div style="border:1px solid var(--g100);padding:14px;border-radius:6px">
+        <div style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px;font-family:var(--mono);margin-bottom:4px">Avg Daily Sales (Period)</div>
+        <div style="font-size:18px;font-weight:700;font-family:var(--mono)">${s.velocity.avgDailySales.toFixed(1)} pcs/day</div>
+        <div style="font-size:10px;color:var(--g600);margin-top:2px">${s.velocity.periodDays} hari</div>
+      </div>
+    </div>` : ''}
     <div style="margin-bottom:18px">
       <div style="font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--g400);margin-bottom:10px">12-Month Trend</div>
       <div style="border:1px solid var(--g100);padding:12px;border-radius:6px">${_iprRenderTrendSVG(s.trend, {dual:true})}</div>
@@ -32572,15 +32628,11 @@ function iprGeneratePDF() {
     <td style="white-space:nowrap">${fmtD(e.date)}</td>
     <td><b>${escHtml(e.name)}</b></td>
     <td>${escHtml(e.location||'—')}</td>
-    <td class="num">${e.broughtQty||0}</td>
-    <td class="num">${e.reinboundQty||0}</td>
-    <td class="num">${(e.broughtQty||0) - (e.reinboundQty||0)}</td>
+    <td class="num">${((e.broughtQty||0) - (e.reinboundQty||0)) || '—'}</td>
     <td class="num">${e.sales?fmtRp(e.sales):'—'}</td>
   </tr>`).join('');
-  const popupTotalSales   = popupEvents.reduce((t,e)=>t+(e.sales||0), 0);
-  const popupTotalBrought = popupEvents.reduce((t,e)=>t+(e.broughtQty||0), 0);
-  const popupTotalReinb   = popupEvents.reduce((t,e)=>t+(e.reinboundQty||0), 0);
-  const popupTotalSold    = popupTotalBrought - popupTotalReinb;
+  const popupTotalSales = popupEvents.reduce((t,e)=>t+(e.sales||0), 0);
+  const popupTotalSold  = popupEvents.reduce((t,e)=>t+((e.broughtQty||0)-(e.reinboundQty||0)), 0);
 
   w.document.open();
   w.document.write(`<!doctype html><html lang="id"><head><meta charset="utf-8">
@@ -32666,6 +32718,15 @@ function iprGeneratePDF() {
     </div>
   </div>
 
+  ${s.velocity ? `<div class="section">
+    <h2>Velocity & Stock</h2>
+    <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)">
+      <div class="kpi"><div class="kpi-label">Current Stock</div><div class="kpi-value small">${s.velocity.currentStock.toLocaleString('id-ID')} pcs</div></div>
+      <div class="kpi"><div class="kpi-label">Sell-Through Rate</div><div class="kpi-value small">${s.velocity.strPct==null?'—':s.velocity.strPct.toFixed(1)+'%'}</div></div>
+      <div class="kpi"><div class="kpi-label">Avg Daily Sales (${s.velocity.periodDays}d)</div><div class="kpi-value small">${s.velocity.avgDailySales.toFixed(1)} pcs/day</div></div>
+    </div>
+  </div>` : ''}
+
   <div class="section">
     <h2>Summary</h2>
     <div class="narrative">${escHtml(s.narrative)}</div>
@@ -32695,13 +32756,11 @@ function iprGeneratePDF() {
   ${popupEvents.length ? `<div class="section">
     <h2>Pop-up Events (${popupEvents.length})</h2>
     <table>
-      <thead><tr><th>Tanggal</th><th>Event</th><th>Lokasi</th><th class="num">Qty Out</th><th class="num">Reinbound</th><th class="num">Sold</th><th class="num">Actual Sales</th></tr></thead>
+      <thead><tr><th>Tanggal</th><th>Event</th><th>Lokasi</th><th class="num">Sold</th><th class="num">Actual Sales</th></tr></thead>
       <tbody>${popupRows}
-      <tr style="border-top:2px solid #e2e2e2;font-weight:600"><td colspan="3" style="padding-top:16px">TOTAL ${popupEvents.length} EVENTS</td>
-        <td class="num" style="padding-top:16px">${popupTotalBrought}</td>
-        <td class="num" style="padding-top:16px">${popupTotalReinb}</td>
-        <td class="num" style="padding-top:16px">${popupTotalSold}</td>
-        <td class="num" style="padding-top:16px">${fmtRp(popupTotalSales)}</td>
+      <tr style="border-top:2px solid #000;font-weight:500"><td colspan="3" style="padding-top:12px">TOTAL ${popupEvents.length} EVENTS</td>
+        <td class="num" style="padding-top:12px">${popupTotalSold || '—'}</td>
+        <td class="num" style="padding-top:12px">${fmtRp(popupTotalSales)}</td>
       </tr>
       </tbody>
     </table>
