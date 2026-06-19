@@ -277,7 +277,7 @@ function showPage(name, el) {
   document.getElementById("page-"+_pageId).classList.add("active");
   if (el) el.classList.add("active");
   const _c = document.querySelector('.content'); if (_c) _c.scrollTop = 0;
-  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",sampling:"Sampling",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",mktplan:"Marketing Planning",videoprod:"Video Production",txmap:"Transaction Mapping",intpurchase:"Internal Purchase",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)",vendormaster:"Vendor Master",rnd:"R&D Product",koldb:"KOL Database",outbound:"Outbond Request",meetingnotes:"Meeting Notes"};
+  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",sampling:"Sampling",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",mktplan:"Marketing Planning",videoprod:"Video Production",txmap:"Transaction Mapping",intpurchase:"Internal Purchase",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)",vendormaster:"Vendor Master",rnd:"R&D Product",koldb:"KOL Database",outbound:"Outbond Request",meetingnotes:"Meeting Notes",ipreports:"IP Reports"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -400,6 +400,7 @@ function showPage(name, el) {
   if (name==="reminders") loadReminders();
   if (name==="announcements") loadAnnouncements();
   if (name==="meetingnotes") loadMeetings();
+  if (name==="ipreports") loadIPReports();
   if (name==="marte") loadMarteSettlements();
   if (name==="martereport") { const inp=document.getElementById('mr-period'); if(!inp.value) inp.value=new Date().toISOString().slice(0,7); }
   if (name==="royalty") { const inp=document.getElementById('ry-period'); if(inp && !inp.value) inp.value=new Date().toISOString().slice(0,7); }
@@ -31645,6 +31646,720 @@ async function deleteMeetingKeyMoment(id, meetingId) {
   const { error } = await sb.from('calendar_moments').delete().eq('id', id);
   if (error) { alert('Gagal: '+error.message); return; }
   loadMeetingKeyMoments(meetingId);
+}
+
+// ── IP REPORTS ────────────────────────────────────────────────────────────
+// Generate performance report per IP — weekly / monthly / quarterly / all-time.
+// Output PDF via window.open + print. Audit trail via ip_reports table.
+// Design follows DESIGN MD (Figma Config — modernist poster on black velvet).
+let allIPReports = [];
+let _iprFiltered = [];
+let _iprCurrentBuilder = null; // {ipId, ipName, revStream, periodType, periodStart, periodEnd, snapshot}
+
+const _IPR_LOGO_BASE = 'https://sentragroup.github.io/sentra-portal/assets/';
+function _iprPickLogo(revStream) {
+  if (!revStream) return null;
+  const first = revStream.split(',')[0].trim().toLowerCase();
+  if (first.includes('marte'))  return _IPR_LOGO_BASE + 'logo-marte.png';
+  if (first.includes('lagaa'))  return _IPR_LOGO_BASE + 'logo-lagaa.png';
+  if (first.includes('sd&y') || first.includes('sdy') || first.includes('sd y')) return _IPR_LOGO_BASE + 'logo-sdy.png';
+  return null;
+}
+
+function mapIPReport(r) {
+  return {
+    id: r.id,
+    ipId: r.ip_id,
+    ipName: r.ip_name,
+    revenueStream: r.revenue_stream||'',
+    periodType: r.period_type,
+    periodStart: r.period_start,
+    periodEnd: r.period_end,
+    status: r.status,
+    snapshot: r.snapshot_json || {},
+    sentTo: Array.isArray(r.sent_to) ? r.sent_to : [],
+    sentAt: r.sent_at,
+    sentBy: r.sent_by,
+    note: r.note||'',
+    createdBy: r.created_by,
+    createdAt: r.created_at,
+  };
+}
+
+async function loadIPReports() {
+  const tbody = document.getElementById('ipr-tbody');
+  if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="9">Memuat...</td></tr>`;
+  // Populate IP filter dropdown
+  if (!allIPRows.length) await loadIPMaster();
+  const ipSel = document.getElementById('ipr-f-ip');
+  if (ipSel && ipSel.options.length <= 1) {
+    const opts = ['<option value="">Semua IP</option>']
+      .concat([...allIPRows].sort((a,b)=>(a.name||'').localeCompare(b.name||'')).map(ip => `<option value="${ip.id}">${(ip.name||ip.id).replace(/</g,'&lt;')}</option>`));
+    ipSel.innerHTML = opts.join('');
+  }
+  const { data, error } = await sb.from('ip_reports').select('*').order('created_at',{ascending:false}).limit(500);
+  if (error) { if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="9">Error: ${error.message}</td></tr>`; return; }
+  allIPReports = (data||[]).map(mapIPReport);
+  _iprRefreshStats();
+  applyIPRFilters();
+}
+
+function _iprRefreshStats() {
+  const setN = (id,v) => { const e=document.getElementById(id); if(e) e.textContent = v; };
+  const now = new Date();
+  const ym = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  setN('ipr-s-total',  allIPReports.length);
+  setN('ipr-s-month',  allIPReports.filter(r => (r.createdAt||'').startsWith(ym)).length);
+  setN('ipr-s-draft',  allIPReports.filter(r => r.status==='draft').length);
+  setN('ipr-s-sent',   allIPReports.filter(r => r.status==='sent').length);
+}
+
+function applyIPRFilters() {
+  const ipId = document.getElementById('ipr-f-ip')?.value||'';
+  const pt   = document.getElementById('ipr-f-period')?.value||'';
+  const st   = document.getElementById('ipr-f-status')?.value||'';
+  const q    = (document.getElementById('ipr-f-q')?.value||'').toLowerCase().trim();
+  _iprFiltered = allIPReports.filter(r => {
+    if (ipId && r.ipId !== ipId) return false;
+    if (pt && r.periodType !== pt) return false;
+    if (st && r.status !== st) return false;
+    if (q) {
+      const hay = `${r.ipName} ${r.sentTo.join(' ')}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+  const tbody = document.getElementById('ipr-tbody');
+  const cnt   = document.getElementById('ipr-tcount');
+  if (cnt) cnt.textContent = `${_iprFiltered.length} entri`;
+  if (!tbody) return;
+  if (!_iprFiltered.length) {
+    tbody.innerHTML = `<tr><td class="empty-td" colspan="9">Belum ada report. Klik <b>+ Buat Report</b> di atas.</td></tr>`;
+    return;
+  }
+  const fmtD = d => d ? new Date(d+'T00:00:00').toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'2-digit'}) : '—';
+  const ptLbl = {week:'Weekly', month:'Monthly', quarter:'Quarterly', all_time:'All Time', custom:'Custom'};
+  tbody.innerHTML = _iprFiltered.map(r => `<tr style="cursor:pointer" onclick="iprOpenBuilder('${r.id}')">
+    <td style="font-size:11px;font-family:var(--mono);white-space:nowrap">${fmtD(r.createdAt?.slice(0,10))}</td>
+    <td><strong>${(r.ipName||'').replace(/</g,'&lt;')}</strong></td>
+    <td style="font-size:11px;color:var(--g600)">${(r.revenueStream||'—').replace(/</g,'&lt;')}</td>
+    <td>${ptLbl[r.periodType]||r.periodType}</td>
+    <td style="font-size:11px;font-family:var(--mono);white-space:nowrap">${fmtD(r.periodStart)} → ${fmtD(r.periodEnd)}</td>
+    <td><span class="pill ${r.status==='sent'?'p-active':'p-draft'}" style="font-size:10px">${r.status}</span></td>
+    <td style="font-size:11px;color:var(--g600)">${(r.sentTo||[]).slice(0,2).join(', ')||'—'}${(r.sentTo||[]).length>2?` +${r.sentTo.length-2}`:''}</td>
+    <td style="font-size:11px;color:var(--g600);white-space:nowrap">${r.sentAt?relTime(r.sentAt):'—'}</td>
+    <td style="text-align:right;white-space:nowrap">
+      <button class="btn-icon" style="color:#c0392b;font-size:11px" onclick="event.stopPropagation();iprDelete('${r.id}')">Del</button>
+    </td>
+  </tr>`).join('');
+}
+
+// ── Builder view ──
+async function iprOpenBuilder(id) {
+  const listView = document.getElementById('ipr-list-view');
+  const bView    = document.getElementById('ipr-builder-view');
+  if (!listView || !bView) return;
+  listView.style.display = 'none';
+  bView.style.display = '';
+  if (id === 'new') {
+    _iprCurrentBuilder = { id:null, ipId:'', ipName:'', revStream:'', periodType:'month', periodStart:'', periodEnd:'', snapshot:null, status:'draft', sentTo:[], note:'' };
+    // Default to last month
+    const now = new Date(); now.setDate(1); now.setMonth(now.getMonth()-1);
+    const y = now.getFullYear(), m = now.getMonth();
+    _iprCurrentBuilder.periodStart = `${y}-${String(m+1).padStart(2,'0')}-01`;
+    const last = new Date(y, m+1, 0);
+    _iprCurrentBuilder.periodEnd = `${last.getFullYear()}-${String(last.getMonth()+1).padStart(2,'0')}-${String(last.getDate()).padStart(2,'0')}`;
+  } else {
+    const rep = allIPReports.find(r => r.id === id);
+    if (!rep) { iprCloseBuilder(); return; }
+    _iprCurrentBuilder = {
+      id: rep.id, ipId: rep.ipId, ipName: rep.ipName, revStream: rep.revenueStream,
+      periodType: rep.periodType, periodStart: rep.periodStart, periodEnd: rep.periodEnd,
+      snapshot: rep.snapshot, status: rep.status, sentTo: rep.sentTo||[], note: rep.note||''
+    };
+  }
+  _iprRenderBuilder();
+}
+
+function iprCloseBuilder() {
+  _iprCurrentBuilder = null;
+  const listView = document.getElementById('ipr-list-view');
+  const bView    = document.getElementById('ipr-builder-view');
+  if (listView) listView.style.display = '';
+  if (bView) { bView.style.display = 'none'; bView.innerHTML = ''; }
+  loadIPReports();
+}
+
+function _iprRenderBuilder() {
+  const bView = document.getElementById('ipr-builder-view');
+  const b = _iprCurrentBuilder;
+  if (!bView || !b) return;
+  const ipOpts = ['<option value="">— Pilih IP —</option>']
+    .concat([...allIPRows].sort((a,b)=>(a.name||'').localeCompare(b.name||'')).map(ip => `<option value="${ip.id}" data-name="${(ip.name||'').replace(/"/g,'&quot;')}" data-rev="${(ip.revenueStream||'').replace(/"/g,'&quot;')}" data-email="${(ip.email||'').replace(/"/g,'&quot;')}" ${ip.id===b.ipId?'selected':''}>${(ip.name||ip.id).replace(/</g,'&lt;')}${ip.revenueStream?` · ${ip.revenueStream.replace(/</g,'&lt;')}`:''}</option>`));
+  const isEdit = !!b.id;
+  bView.innerHTML = `
+    <div style="margin-bottom:16px">
+      <button class="btn-icon" onclick="iprCloseBuilder()" style="font-size:12px">← Kembali ke list</button>
+    </div>
+    <div class="page-header">
+      <div>
+        <div class="page-title">${isEdit?'Edit Report':'Buat Report Baru'}</div>
+        <div class="page-sub">${isEdit?b.ipName:'Pilih IP + periode → klik Generate untuk compile data'}</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        ${b.snapshot ? `<button class="btn-primary" onclick="iprGeneratePDF()" style="background:#000;color:#fff">📄 Download PDF</button>` : ''}
+        ${b.snapshot ? `<button class="btn-ghost" onclick="iprOpenSendModal()">✉ Mark Sent</button>` : ''}
+      </div>
+    </div>
+
+    <div class="form-card" style="margin-bottom:14px">
+      <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr 1fr">
+        <div class="fg"><label>IP <span class="req">*</span></label>
+          <select id="ipr-b-ip" onchange="_iprOnIpChange()" ${isEdit?'disabled':''}>${ipOpts.join('')}</select>
+        </div>
+        <div class="fg"><label>Period Type</label>
+          <select id="ipr-b-pt" onchange="_iprOnPeriodTypeChange()">
+            <option value="week"     ${b.periodType==='week'?'selected':''}>Weekly</option>
+            <option value="month"    ${b.periodType==='month'?'selected':''}>Monthly</option>
+            <option value="quarter"  ${b.periodType==='quarter'?'selected':''}>Quarterly</option>
+            <option value="all_time" ${b.periodType==='all_time'?'selected':''}>All Time</option>
+            <option value="custom"   ${b.periodType==='custom'?'selected':''}>Custom</option>
+          </select>
+        </div>
+        <div class="fg"><label>Dari</label><input type="date" id="ipr-b-start" value="${b.periodStart||''}" ${b.periodType==='all_time'?'disabled':''}></div>
+        <div class="fg"><label>Sampai</label><input type="date" id="ipr-b-end"   value="${b.periodEnd||''}"   ${b.periodType==='all_time'?'disabled':''}></div>
+      </div>
+      <div class="btn-row">
+        <button class="btn-primary" onclick="iprGenerate()">${b.snapshot?'↻ Regenerate Data':'⚡ Generate Data'}</button>
+        ${b.snapshot && !isEdit ? `<button class="btn-ghost" onclick="iprSaveDraft()">💾 Save Draft</button>` : ''}
+        ${b.snapshot && isEdit ? `<button class="btn-ghost" onclick="iprSaveDraft()">💾 Update</button>` : ''}
+      </div>
+      <div class="feedback" id="ipr-b-feedback"></div>
+    </div>
+
+    <div id="ipr-preview-host">${b.snapshot ? _iprRenderPreviewHTML(b) : `<div style="padding:40px;text-align:center;color:var(--g400);font-size:13px;background:var(--off);border:1px dashed var(--g200);border-radius:8px">
+      📊 Pilih IP & periode, lalu klik <b>Generate Data</b> untuk compile metrics.
+    </div>`}</div>`;
+}
+
+function _iprOnIpChange() {
+  const sel = document.getElementById('ipr-b-ip');
+  if (!sel || !_iprCurrentBuilder) return;
+  const opt = sel.options[sel.selectedIndex];
+  _iprCurrentBuilder.ipId    = sel.value;
+  _iprCurrentBuilder.ipName  = opt?.dataset.name || '';
+  _iprCurrentBuilder.revStream = opt?.dataset.rev || '';
+  _iprCurrentBuilder.snapshot = null; // force regen on IP change
+}
+
+function _iprOnPeriodTypeChange() {
+  const sel = document.getElementById('ipr-b-pt');
+  if (!sel || !_iprCurrentBuilder) return;
+  _iprCurrentBuilder.periodType = sel.value;
+  const startEl = document.getElementById('ipr-b-start');
+  const endEl   = document.getElementById('ipr-b-end');
+  const now = new Date();
+  if (sel.value === 'week') {
+    // Last 7 days
+    const end = new Date(now); end.setDate(end.getDate()-1);
+    const start = new Date(end); start.setDate(start.getDate()-6);
+    startEl.value = start.toISOString().slice(0,10);
+    endEl.value   = end.toISOString().slice(0,10);
+    startEl.disabled = false; endEl.disabled = false;
+  } else if (sel.value === 'month') {
+    const last = new Date(now.getFullYear(), now.getMonth(), 0);
+    const first = new Date(last.getFullYear(), last.getMonth(), 1);
+    startEl.value = first.toISOString().slice(0,10);
+    endEl.value = last.toISOString().slice(0,10);
+    startEl.disabled = false; endEl.disabled = false;
+  } else if (sel.value === 'quarter') {
+    const m = now.getMonth();
+    const currentQStart = Math.floor(m/3)*3;
+    const prevQStart = currentQStart === 0 ? 9 : currentQStart - 3;
+    const prevQYear  = currentQStart === 0 ? now.getFullYear()-1 : now.getFullYear();
+    const first = new Date(prevQYear, prevQStart, 1);
+    const last  = new Date(prevQYear, prevQStart+3, 0);
+    startEl.value = first.toISOString().slice(0,10);
+    endEl.value   = last.toISOString().slice(0,10);
+    startEl.disabled = false; endEl.disabled = false;
+  } else if (sel.value === 'all_time') {
+    startEl.value = '2020-01-01'; endEl.value = now.toISOString().slice(0,10);
+    startEl.disabled = true; endEl.disabled = true;
+  } else { // custom
+    startEl.disabled = false; endEl.disabled = false;
+  }
+  _iprCurrentBuilder.periodStart = startEl.value;
+  _iprCurrentBuilder.periodEnd   = endEl.value;
+  _iprCurrentBuilder.snapshot = null;
+}
+
+// ── Generate: aggregate data ──
+async function iprGenerate() {
+  const fb = document.getElementById('ipr-b-feedback');
+  const b = _iprCurrentBuilder;
+  if (!b) return;
+  const startEl = document.getElementById('ipr-b-start');
+  const endEl   = document.getElementById('ipr-b-end');
+  b.periodStart = startEl.value;
+  b.periodEnd   = endEl.value;
+  if (!b.ipId)    { if(fb){fb.textContent='Pilih IP dulu.';fb.style.color='#c0392b';} return; }
+  if (!b.periodStart || !b.periodEnd) { if(fb){fb.textContent='Tanggal periode wajib diisi.';fb.style.color='#c0392b';} return; }
+  if (b.periodEnd < b.periodStart) { if(fb){fb.textContent='Tanggal akhir gak boleh sebelum tanggal mulai.';fb.style.color='#c0392b';} return; }
+  if (fb){fb.textContent='⏳ Aggregating data...';fb.style.color='var(--g600)';}
+  try {
+    b.snapshot = await _iprAggregatePerformance(b.ipId, b.ipName, b.periodStart, b.periodEnd);
+    if (fb){fb.textContent='✓ Data compiled. Review preview di bawah → Download PDF atau Save Draft.';fb.style.color='#0a7d3a';}
+    _iprRenderBuilder();
+  } catch (e) {
+    console.error('IPR generate error', e);
+    if (fb){fb.textContent='Gagal compile: '+(e.message||e);fb.style.color='#c0392b';}
+  }
+}
+
+async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
+  // 1. Find all jubelio item_ids belonging to this IP via product_mappings
+  // 2. Sum sales from jubelio_sales_order_items where item_id in that set,
+  //    parent order COMPLETED, transaction_date within range.
+  // 3. Aggregate: revenue, units, AOV, channel mix, top movers, prior-period compare.
+  const startISO = `${startD}T00:00:00+07:00`;
+  // endISO = first day of next day (inclusive end)
+  const endIncl = new Date(endD+'T00:00:00');
+  endIncl.setDate(endIncl.getDate()+1);
+  const endISO = endIncl.toISOString().slice(0,10) + 'T00:00:00+07:00';
+
+  // Fetch item ids for IP (paginated)
+  const pmRows = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await sb.from('product_mappings')
+      .select('jubelio_item_id,item_name')
+      .eq('ip', ipName)
+      .not('jubelio_item_id','is',null)
+      .range(from, from+999);
+    if (error) throw error;
+    pmRows.push(...(data||[]));
+    if (!data || data.length < 1000) break;
+    from += 1000;
+  }
+  const itemIds = [...new Set(pmRows.map(r => r.jubelio_item_id))];
+  if (!itemIds.length) {
+    return { ipName, startD, endD, empty:true, totals:{revenue:0,units:0,orders:0,aov:0}, prior:{revenue:0,units:0,growthPct:null}, topMovers:[], channelMix:[], itemCount:0, parentCount:0, narrative:'Belum ada SKU mapped ke IP ini di product_mappings — perlu setup mapping dulu.', parentCountAll:0 };
+  }
+
+  // Chunk .in() queries (Supabase URL length limit)
+  const chunk = (arr, size) => { const out=[]; for (let i=0;i<arr.length;i+=size) out.push(arr.slice(i,i+size)); return out; };
+  const chunks = chunk(itemIds, 200);
+
+  // Current period sales items (COMPLETED only)
+  const periodItems = [];
+  for (const c of chunks) {
+    const { data, error } = await sb.from('jubelio_sales_order_items')
+      .select('salesorder_id,item_id,item_group_id,item_name,qty,amount,price')
+      .in('item_id', c);
+    if (error) throw error;
+    periodItems.push(...(data||[]));
+  }
+  if (!periodItems.length) {
+    return { ipName, startD, endD, empty:true, totals:{revenue:0,units:0,orders:0,aov:0}, prior:{revenue:0,units:0,growthPct:null}, topMovers:[], channelMix:[], itemCount:itemIds.length, parentCount:0, narrative:'Belum ada transaksi pada periode ini.', parentCountAll:0 };
+  }
+
+  // Fetch parent orders we need (filter by date + status). Chunk by order ids.
+  const soIds = [...new Set(periodItems.map(x => x.salesorder_id))];
+  const soChunks = chunk(soIds, 200);
+  const orders = [];
+  for (const c of soChunks) {
+    const { data, error } = await sb.from('jubelio_sales_orders')
+      .select('salesorder_id,transaction_date,internal_status,channel_name,store_name')
+      .in('salesorder_id', c)
+      .eq('internal_status','COMPLETED');
+    if (error) throw error;
+    orders.push(...(data||[]));
+  }
+  const ordersById = new Map(orders.map(o => [o.salesorder_id, o]));
+
+  // Filter: current period items where order date is in range + COMPLETED.
+  const inRange = (dt) => dt >= startISO && dt < endISO;
+  const currentItems = periodItems.filter(it => {
+    const o = ordersById.get(it.salesorder_id);
+    return o && inRange(o.transaction_date);
+  });
+
+  // Prior period for growth comp — same length range immediately before.
+  const prdDays = Math.round((new Date(endD) - new Date(startD)) / 86400000) + 1;
+  const prevEnd   = new Date(startD); prevEnd.setDate(prevEnd.getDate()-1);
+  const prevStart = new Date(prevEnd); prevStart.setDate(prevStart.getDate() - (prdDays-1));
+  const prevStartISO = prevStart.toISOString().slice(0,10)+'T00:00:00+07:00';
+  const prevEndExclISO = (new Date(prevEnd.getTime()+86400000)).toISOString().slice(0,10)+'T00:00:00+07:00';
+
+  // Fetch prior orders + filter items
+  const prevOrders = [];
+  for (const c of soChunks) {
+    // Reuse existing soIds map — but for prev period we need to fetch fresh too.
+    // Simpler: re-query items would be expensive. Instead query orders in prev
+    // range first, then map items. But periodItems only covers current items.
+    // For prior, fetch separately:
+  }
+  // Separate query for prior period (more accurate than reusing periodItems)
+  let priorRevenue = 0, priorUnits = 0;
+  try {
+    // Get prior orders in date range first
+    const { data: priorOrders } = await sb.from('jubelio_sales_orders')
+      .select('salesorder_id')
+      .eq('internal_status','COMPLETED')
+      .gte('transaction_date', prevStartISO)
+      .lt('transaction_date', prevEndExclISO);
+    const prevOrderIds = (priorOrders||[]).map(o => o.salesorder_id);
+    if (prevOrderIds.length) {
+      // Fetch items belonging to IP + in those orders
+      const prevSoChunks = chunk(prevOrderIds, 200);
+      for (const c of prevSoChunks) {
+        for (const ic of chunks) {
+          const { data } = await sb.from('jubelio_sales_order_items')
+            .select('qty,amount').in('salesorder_id', c).in('item_id', ic);
+          (data||[]).forEach(x => { priorRevenue += Number(x.amount)||0; priorUnits += Number(x.qty)||0; });
+        }
+      }
+    }
+  } catch(_) { /* prior is non-critical, soft fail */ }
+
+  // Aggregate current
+  let revenue = 0, units = 0;
+  const orderSet = new Set();
+  const parentMap = new Map(); // item_group_id → {name,units,revenue}
+  const channelMap = new Map();
+  for (const it of currentItems) {
+    revenue += Number(it.amount)||0;
+    units   += Number(it.qty)||0;
+    orderSet.add(it.salesorder_id);
+    const grpKey = it.item_group_id || `single-${it.item_id}`;
+    const cur = parentMap.get(grpKey) || { name: it.item_name||'(unnamed)', units:0, revenue:0 };
+    cur.units   += Number(it.qty)||0;
+    cur.revenue += Number(it.amount)||0;
+    if (it.item_name && it.item_name.length < (cur.name||'').length) cur.name = it.item_name;
+    parentMap.set(grpKey, cur);
+    const o = ordersById.get(it.salesorder_id);
+    const ch = o?.channel_name || o?.store_name || 'Unknown';
+    const c = channelMap.get(ch) || { units:0, revenue:0 };
+    c.units += Number(it.qty)||0;
+    c.revenue += Number(it.amount)||0;
+    channelMap.set(ch, c);
+  }
+  const orderCount = orderSet.size;
+  const aov = orderCount ? Math.round(revenue / orderCount) : 0;
+  const topMovers = [...parentMap.entries()]
+    .map(([k,v]) => ({ id:k, name:v.name, units:v.units, revenue:v.revenue }))
+    .sort((a,b) => b.revenue - a.revenue)
+    .slice(0,5);
+  const channelMix = [...channelMap.entries()]
+    .map(([k,v]) => ({ name:k, units:v.units, revenue:v.revenue, pct: revenue ? (v.revenue/revenue)*100 : 0 }))
+    .sort((a,b) => b.revenue - a.revenue);
+
+  // Growth pct
+  const growthPct = priorRevenue > 0 ? ((revenue - priorRevenue)/priorRevenue)*100 : null;
+
+  const snapshot = {
+    ipName, startD, endD,
+    empty: false,
+    totals: { revenue: Math.round(revenue), units, orders: orderCount, aov },
+    prior:  { revenue: Math.round(priorRevenue), units: priorUnits, growthPct },
+    topMovers, channelMix,
+    itemCount: itemIds.length,
+    parentCount: parentMap.size,
+    compiledAt: new Date().toISOString(),
+  };
+  snapshot.narrative = _iprBuildNarrative(snapshot);
+  return snapshot;
+}
+
+// ── Logic-based narrative (no Claude) ──
+function _iprBuildNarrative(s) {
+  if (s.empty) return s.narrative || 'Belum ada transaksi pada periode ini.';
+  const fmtRp = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
+  const parts = [];
+  parts.push(`Pada periode ini, ${s.ipName} mencatat penjualan ${fmtRp(s.totals.revenue)} dari ${s.totals.units.toLocaleString('id-ID')} unit terjual lewat ${s.totals.orders.toLocaleString('id-ID')} order (AOV ${fmtRp(s.totals.aov)}).`);
+  if (s.prior.growthPct !== null) {
+    const g = s.prior.growthPct;
+    let tone;
+    if (g >= 20)       tone = `naik tajam ${g.toFixed(1)}%`;
+    else if (g >= 5)   tone = `naik ${g.toFixed(1)}%`;
+    else if (g >= -5)  tone = `relatif stabil (${g>=0?'+':''}${g.toFixed(1)}%)`;
+    else if (g >= -20) tone = `turun ${Math.abs(g).toFixed(1)}%`;
+    else               tone = `turun signifikan ${Math.abs(g).toFixed(1)}%`;
+    parts.push(`Performa ${tone} dibanding periode setara sebelumnya (${fmtRp(s.prior.revenue)}).`);
+  }
+  if (s.topMovers.length) {
+    const t = s.topMovers[0];
+    parts.push(`Top mover: ${t.name} dengan ${t.units.toLocaleString('id-ID')} unit (${fmtRp(t.revenue)}, ${s.totals.revenue?((t.revenue/s.totals.revenue)*100).toFixed(1):'0'}% dari total revenue IP).`);
+  }
+  if (s.channelMix.length) {
+    const c = s.channelMix[0];
+    parts.push(`Channel terbesar: ${c.name} menyumbang ${c.pct.toFixed(1)}% revenue.`);
+  }
+  return parts.join(' ');
+}
+
+// ── Preview HTML (in-portal, uses portal palette) ──
+function _iprRenderPreviewHTML(b) {
+  const s = b.snapshot;
+  if (!s) return '';
+  const fmtRp = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
+  const fmtD = d => new Date(d+'T00:00:00').toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'});
+  const ptLbl = {week:'Weekly Report', month:'Monthly Report', quarter:'Quarterly Report', all_time:'All-Time Report', custom:'Custom Period Report'};
+  if (s.empty) {
+    return `<div style="padding:30px;background:var(--off);border:1px dashed var(--g200);border-radius:8px;text-align:center;color:var(--g600)">${s.narrative}</div>`;
+  }
+  const growthClr = s.prior.growthPct == null ? 'var(--g400)' : s.prior.growthPct >= 0 ? '#0a7d3a' : '#c0392b';
+  const growthStr = s.prior.growthPct == null ? '—' : `${s.prior.growthPct>=0?'+':''}${s.prior.growthPct.toFixed(1)}%`;
+  const topTable = s.topMovers.length ? `<table style="width:100%;border-collapse:collapse;font-size:13px">
+    <thead><tr style="border-bottom:1px solid var(--g100);font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">
+      <th style="padding:6px;text-align:left">#</th><th style="padding:6px;text-align:left">Product</th><th style="padding:6px;text-align:right">Units</th><th style="padding:6px;text-align:right">Revenue</th><th style="padding:6px;text-align:right">% Share</th>
+    </tr></thead>
+    <tbody>${s.topMovers.map((t,i) => `<tr style="border-top:1px solid var(--g100)">
+      <td style="padding:8px 6px;font-family:var(--mono);color:var(--g400)">${i+1}</td>
+      <td style="padding:8px 6px">${(t.name||'').replace(/</g,'&lt;')}</td>
+      <td style="padding:8px 6px;text-align:right;font-family:var(--mono)">${t.units.toLocaleString('id-ID')}</td>
+      <td style="padding:8px 6px;text-align:right;font-family:var(--mono);font-weight:600">${fmtRp(t.revenue)}</td>
+      <td style="padding:8px 6px;text-align:right;font-family:var(--mono);color:var(--g600)">${s.totals.revenue?((t.revenue/s.totals.revenue)*100).toFixed(1):'0'}%</td>
+    </tr>`).join('')}</tbody>
+  </table>` : '<div style="color:var(--g400);font-style:italic">Tidak ada data.</div>';
+  const chTable = s.channelMix.length ? `<table style="width:100%;border-collapse:collapse;font-size:13px">
+    <thead><tr style="border-bottom:1px solid var(--g100);font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">
+      <th style="padding:6px;text-align:left">Channel</th><th style="padding:6px;text-align:right">Units</th><th style="padding:6px;text-align:right">Revenue</th><th style="padding:6px;text-align:right">% Share</th>
+    </tr></thead>
+    <tbody>${s.channelMix.slice(0,8).map(c => `<tr style="border-top:1px solid var(--g100)">
+      <td style="padding:8px 6px">${(c.name||'').replace(/</g,'&lt;')}</td>
+      <td style="padding:8px 6px;text-align:right;font-family:var(--mono)">${c.units.toLocaleString('id-ID')}</td>
+      <td style="padding:8px 6px;text-align:right;font-family:var(--mono);font-weight:600">${fmtRp(c.revenue)}</td>
+      <td style="padding:8px 6px;text-align:right;font-family:var(--mono);color:var(--g600)">${c.pct.toFixed(1)}%</td>
+    </tr>`).join('')}</tbody>
+  </table>` : '<div style="color:var(--g400);font-style:italic">Tidak ada data.</div>';
+  return `<div style="background:var(--white);border:1px solid var(--g100);border-radius:8px;padding:24px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px;gap:12px;flex-wrap:wrap">
+      <div>
+        <div style="font-family:var(--mono);font-size:11px;color:var(--g400);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">${ptLbl[b.periodType]||b.periodType}</div>
+        <div style="font-family:var(--syne);font-size:28px;font-weight:700;line-height:1.1">${b.ipName}</div>
+        <div style="font-size:12px;color:var(--g600);margin-top:4px">${fmtD(b.periodStart)} → ${fmtD(b.periodEnd)} · ${b.revStream||'—'}</div>
+      </div>
+      <div style="font-size:11px;color:var(--g400);font-family:var(--mono)">${s.itemCount} SKUs · ${s.parentCount} parent products w/ sales</div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px">
+      <div style="border:1px solid var(--g100);padding:14px;border-radius:6px">
+        <div style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px;font-family:var(--mono);margin-bottom:4px">Revenue</div>
+        <div style="font-size:20px;font-weight:700;font-family:var(--mono)">${fmtRp(s.totals.revenue)}</div>
+      </div>
+      <div style="border:1px solid var(--g100);padding:14px;border-radius:6px">
+        <div style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px;font-family:var(--mono);margin-bottom:4px">Units</div>
+        <div style="font-size:20px;font-weight:700;font-family:var(--mono)">${s.totals.units.toLocaleString('id-ID')}</div>
+      </div>
+      <div style="border:1px solid var(--g100);padding:14px;border-radius:6px">
+        <div style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px;font-family:var(--mono);margin-bottom:4px">Orders / AOV</div>
+        <div style="font-size:20px;font-weight:700;font-family:var(--mono)">${s.totals.orders.toLocaleString('id-ID')} · ${fmtRp(s.totals.aov)}</div>
+      </div>
+      <div style="border:1px solid var(--g100);padding:14px;border-radius:6px">
+        <div style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px;font-family:var(--mono);margin-bottom:4px">vs Prior Period</div>
+        <div style="font-size:20px;font-weight:700;font-family:var(--mono);color:${growthClr}">${growthStr}</div>
+      </div>
+    </div>
+    <div style="border-left:3px solid #000;padding:8px 14px;background:var(--off);margin-bottom:18px;font-size:13px;line-height:1.6">${s.narrative}</div>
+    <div style="margin-bottom:18px">
+      <div style="font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--g400);margin-bottom:10px">Top Movers</div>
+      ${topTable}
+    </div>
+    <div>
+      <div style="font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--g400);margin-bottom:10px">Channel Mix</div>
+      ${chTable}
+    </div>
+  </div>`;
+}
+
+// ── PDF generation (Figma Config design — modernist poster on black velvet) ──
+function iprGeneratePDF() {
+  const b = _iprCurrentBuilder;
+  if (!b?.snapshot) { alert('Generate data dulu.'); return; }
+  const s = b.snapshot;
+  const logo = _iprPickLogo(b.revStream);
+  const fmtRp = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
+  const fmtD = d => new Date(d+'T00:00:00').toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'});
+  const ptLbl = {week:'WEEKLY REPORT', month:'MONTHLY REPORT', quarter:'QUARTERLY REPORT', all_time:'ALL-TIME REPORT', custom:'CUSTOM PERIOD REPORT'};
+  const growthStr = s.prior.growthPct == null ? '—' : `${s.prior.growthPct>=0?'+':''}${s.prior.growthPct.toFixed(1)}%`;
+  const escHtml = t => (t||'').toString().replace(/</g,'&lt;');
+
+  const topRows = s.topMovers.map((t,i) => `<tr>
+    <td class="num">${i+1}</td>
+    <td>${escHtml(t.name)}</td>
+    <td class="num">${t.units.toLocaleString('id-ID')}</td>
+    <td class="num">${fmtRp(t.revenue)}</td>
+    <td class="num">${s.totals.revenue?((t.revenue/s.totals.revenue)*100).toFixed(1):'0'}%</td>
+  </tr>`).join('');
+
+  const chRows = s.channelMix.slice(0,8).map(c => `<tr>
+    <td>${escHtml(c.name)}</td>
+    <td class="num">${c.units.toLocaleString('id-ID')}</td>
+    <td class="num">${fmtRp(c.revenue)}</td>
+    <td class="num">${c.pct.toFixed(1)}%</td>
+  </tr>`).join('');
+
+  const w = window.open('', '_blank');
+  if (!w) { alert('Pop-up diblokir browser — izinkan untuk download PDF.'); return; }
+  w.document.write(`<!doctype html><html lang="id"><head><meta charset="utf-8">
+<title>${escHtml(b.ipName)} · ${ptLbl[b.periodType]||b.periodType}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing:border-box; }
+  html, body { margin:0; padding:0; background:#000; color:#e2e2e2; font-family:'Inter',ui-sans-serif,system-ui,sans-serif; font-weight:400; -webkit-font-smoothing:antialiased; letter-spacing:-0.02em; }
+  .page { max-width:1100px; margin:0 auto; padding:48px 60px 80px; }
+  .topbar { display:flex; justify-content:space-between; align-items:center; padding-bottom:24px; border-bottom:1px solid #e2e2e2; margin-bottom:60px; }
+  .topbar .logo { height:32px; display:block; filter:invert(1) brightness(2); }
+  .topbar .meta { font-family:'IBM Plex Mono',monospace; font-size:14px; color:#e2e2e2; text-align:right; }
+  .eyebrow { font-family:'Inter',sans-serif; font-size:16px; line-height:1.3; text-transform:uppercase; letter-spacing:-0.02em; color:#e2e2e2; margin-bottom:24px; }
+  h1.display { font-size:80px; line-height:0.95; letter-spacing:-0.03em; margin:0 0 40px; color:#e2e2e2; font-weight:400; }
+  .period-line { font-size:18px; line-height:1.25; letter-spacing:-0.02em; color:#e2e2e2; margin-bottom:60px; }
+  .section { margin-bottom:60px; }
+  .section + .section { padding-top:60px; border-top:1px solid #3d3d3d; }
+  h2 { font-size:32px; line-height:1.1; letter-spacing:-0.03em; margin:0 0 24px; color:#e2e2e2; font-weight:400; }
+  .kpi-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:0; border:1px solid #e2e2e2; }
+  .kpi { padding:24px; border-right:1px solid #3d3d3d; }
+  .kpi:last-child { border-right:none; }
+  .kpi-label { font-family:'IBM Plex Mono',monospace; font-size:16px; line-height:1.3; color:#e2e2e2; opacity:0.6; margin-bottom:12px; text-transform:uppercase; }
+  .kpi-value { font-size:32px; line-height:1.1; letter-spacing:-0.03em; color:#e2e2e2; font-weight:400; }
+  .kpi-value.small { font-size:24px; }
+  .narrative { font-size:20px; line-height:1.25; letter-spacing:-0.02em; color:#e2e2e2; padding:24px 0; border-top:1px solid #e2e2e2; border-bottom:1px solid #e2e2e2; }
+  table { width:100%; border-collapse:collapse; font-size:18px; line-height:1.25; }
+  thead th { font-family:'IBM Plex Mono',monospace; font-size:16px; text-transform:uppercase; color:#e2e2e2; opacity:0.6; padding:12px 0; text-align:left; border-bottom:1px solid #e2e2e2; font-weight:400; letter-spacing:0; }
+  thead th.num { text-align:right; }
+  tbody td { padding:16px 0; border-bottom:1px solid #3d3d3d; color:#e2e2e2; }
+  tbody td.num { text-align:right; font-family:'IBM Plex Mono',monospace; font-size:18px; }
+  tbody tr:last-child td { border-bottom:none; }
+  .footer { margin-top:160px; padding-top:24px; border-top:1px solid #e2e2e2; display:flex; justify-content:space-between; align-items:flex-end; }
+  .footer .wordmark { font-size:80px; line-height:0.95; letter-spacing:-0.03em; color:#e2e2e2; font-weight:400; }
+  .footer .stamp { font-family:'IBM Plex Mono',monospace; font-size:14px; color:#e2e2e2; opacity:0.6; text-align:right; }
+  .print-btn { position:fixed; top:16px; right:16px; background:#fff; color:#000; border:none; padding:12px 16px; font-family:'Inter',sans-serif; font-size:16px; cursor:pointer; z-index:100; }
+  @media print {
+    @page { size:A4; margin:0; }
+    html, body { background:#000 !important; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    .page { padding:32px 40px 48px; max-width:none; }
+    h1.display { font-size:64px; }
+    .footer .wordmark { font-size:64px; }
+    .print-btn { display:none !important; }
+    .section { page-break-inside:avoid; }
+    table { page-break-inside:auto; }
+    tr { page-break-inside:avoid; page-break-after:auto; }
+  }
+</style>
+</head><body>
+<button class="print-btn" onclick="window.print()">Print / Save as PDF</button>
+<div class="page">
+  <div class="topbar">
+    ${logo ? `<img class="logo" src="${logo}" alt="${escHtml(b.revStream)}">` : `<div style="font-family:'IBM Plex Mono',monospace;font-size:14px">${escHtml(b.revStream||'sentra')}</div>`}
+    <div class="meta">REPORT ${fmtD(new Date().toISOString().slice(0,10))}<br>BY ${escHtml(currentUser||'SENTRA')}</div>
+  </div>
+  <div class="eyebrow">${ptLbl[b.periodType]||b.periodType}</div>
+  <h1 class="display">${escHtml(b.ipName)}</h1>
+  <div class="period-line">${fmtD(b.periodStart)} — ${fmtD(b.periodEnd)}</div>
+
+  ${s.empty ? `<div class="section" style="border-top:none;padding-top:0"><div class="narrative">${escHtml(s.narrative)}</div></div>` : `
+  <div class="section">
+    <h2>Headline</h2>
+    <div class="kpi-grid">
+      <div class="kpi"><div class="kpi-label">Revenue</div><div class="kpi-value">${fmtRp(s.totals.revenue)}</div></div>
+      <div class="kpi"><div class="kpi-label">Units Sold</div><div class="kpi-value">${s.totals.units.toLocaleString('id-ID')}</div></div>
+      <div class="kpi"><div class="kpi-label">Orders</div><div class="kpi-value">${s.totals.orders.toLocaleString('id-ID')}</div></div>
+      <div class="kpi"><div class="kpi-label">vs Prior Period</div><div class="kpi-value small">${growthStr}</div></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Summary</h2>
+    <div class="narrative">${escHtml(s.narrative)}</div>
+  </div>
+
+  <div class="section">
+    <h2>Top Movers</h2>
+    <table>
+      <thead><tr><th style="width:60px">#</th><th>Product</th><th class="num">Units</th><th class="num">Revenue</th><th class="num">% Share</th></tr></thead>
+      <tbody>${topRows||'<tr><td colspan="5" style="opacity:0.5;font-style:italic">Tidak ada data.</td></tr>'}</tbody>
+    </table>
+  </div>
+
+  <div class="section">
+    <h2>Channel Mix</h2>
+    <table>
+      <thead><tr><th>Channel</th><th class="num">Units</th><th class="num">Revenue</th><th class="num">% Share</th></tr></thead>
+      <tbody>${chRows||'<tr><td colspan="4" style="opacity:0.5;font-style:italic">Tidak ada data.</td></tr>'}</tbody>
+    </table>
+  </div>
+  `}
+
+  <div class="footer">
+    <div class="wordmark">sentra</div>
+    <div class="stamp">${escHtml(b.ipName)}<br>${ptLbl[b.periodType]||b.periodType}<br>${fmtD(b.periodStart)} — ${fmtD(b.periodEnd)}</div>
+  </div>
+</div>
+<script>setTimeout(()=>window.print(),800);</script>
+</body></html>`);
+  w.document.close();
+}
+
+// ── Save draft & mark sent ──
+async function iprSaveDraft() {
+  const b = _iprCurrentBuilder;
+  if (!b?.snapshot) { alert('Generate data dulu.'); return; }
+  if (!b.ipId) { alert('Pilih IP dulu.'); return; }
+  const fb = document.getElementById('ipr-b-feedback');
+  const payload = {
+    ip_id: b.ipId, ip_name: b.ipName, revenue_stream: b.revStream||null,
+    period_type: b.periodType, period_start: b.periodStart, period_end: b.periodEnd,
+    snapshot_json: b.snapshot, updated_at: new Date().toISOString(),
+  };
+  if (b.id) {
+    const { error } = await sb.from('ip_reports').update(payload).eq('id', b.id);
+    if (error) { if(fb){fb.textContent='Gagal: '+error.message;fb.style.color='#c0392b';} return; }
+    if(fb){fb.textContent='✓ Updated.';fb.style.color='#0a7d3a';}
+  } else {
+    payload.id = genId('IPR');
+    payload.status = 'draft';
+    payload.created_by = currentUser;
+    const { error } = await sb.from('ip_reports').insert(payload);
+    if (error) { if(fb){fb.textContent='Gagal: '+error.message;fb.style.color='#c0392b';} return; }
+    b.id = payload.id;
+    if(fb){fb.textContent='✓ Saved as draft.';fb.style.color='#0a7d3a';}
+    _iprRenderBuilder();
+  }
+}
+
+function iprOpenSendModal() {
+  const b = _iprCurrentBuilder;
+  if (!b?.snapshot) { alert('Generate data dulu.'); return; }
+  // Save draft first if not saved yet
+  const proceed = async () => {
+    const ip = allIPRows.find(r => r.id === b.ipId);
+    const presetEmail = ip?.email || '';
+    const presetContacts = (ip?.contacts||[]).map(c => c.email).filter(Boolean);
+    const allEmails = [...new Set([presetEmail, ...presetContacts, ...(b.sentTo||[])].filter(Boolean))];
+    const input = prompt('Recipient emails (comma-separated):', allEmails.join(', '));
+    if (input == null) return;
+    const recipients = input.split(',').map(s => s.trim()).filter(Boolean);
+    if (!recipients.length) { alert('Minimal 1 email.'); return; }
+    const note = prompt('Note (opsional, akan ke-store di audit trail):', b.note||'');
+    if (!b.id) { await iprSaveDraft(); }
+    const { error } = await sb.from('ip_reports').update({
+      status:'sent', sent_to:recipients, sent_at:new Date().toISOString(),
+      sent_by:currentUser, note: note||null, updated_at:new Date().toISOString()
+    }).eq('id', b.id);
+    if (error) { alert('Gagal: '+error.message); return; }
+    alert('✓ Marked as sent. Tip: download PDF + attach manual ke email Gmail.');
+    iprCloseBuilder();
+  };
+  proceed();
+}
+
+async function iprDelete(id) {
+  if (!confirm('Hapus report ini? Audit trail akan hilang.')) return;
+  const { error } = await sb.from('ip_reports').delete().eq('id', id);
+  if (error) { alert('Gagal: '+error.message); return; }
+  loadIPReports();
 }
 
 // ── DUPLICATE CHECK ──
