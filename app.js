@@ -31831,8 +31831,12 @@ function _iprRenderBuilder() {
   const b = _iprCurrentBuilder;
   if (!bView || !b) return;
   // Drop data-* attrs entirely — _iprOnIpChange looks up via allIPRows by id (& in revenue_stream broke HTML attr encoding before).
+  // mapIP sets revenue_stream sebagai `revenue` (bukan revenueStream).
   const ipOpts = ['<option value="">— Pilih IP —</option>']
-    .concat([...allIPRows].sort((a,b)=>(a.name||'').localeCompare(b.name||'')).map(ip => `<option value="${ip.id}" ${ip.id===b.ipId?'selected':''}>${(ip.name||ip.id).replace(/</g,'&lt;')}${ip.revenueStream?` · ${ip.revenueStream.replace(/</g,'&lt;')}`:''}</option>`));
+    .concat([...allIPRows].sort((a,b)=>(a.name||'').localeCompare(b.name||'')).map(ip => {
+      const rs = ip.revenue || ip.revenueStream || '';
+      return `<option value="${ip.id}" ${ip.id===b.ipId?'selected':''}>${(ip.name||ip.id).replace(/</g,'&lt;')}${rs?` · ${rs.replace(/</g,'&lt;')}`:''}</option>`;
+    }));
   const isEdit = !!b.id;
   bView.innerHTML = `
     <div style="margin-bottom:16px">
@@ -31883,10 +31887,11 @@ function _iprOnIpChange() {
   const sel = document.getElementById('ipr-b-ip');
   if (!sel || !_iprCurrentBuilder) return;
   // Lookup by id, NOT dataset — `data-rev="SD&Y"` corrupts via HTML attr encoding.
+  // mapIP sets revenue_stream as `revenue` property, BUKAN `revenueStream`.
   const ip = allIPRows.find(r => r.id === sel.value);
   _iprCurrentBuilder.ipId      = sel.value;
   _iprCurrentBuilder.ipName    = ip?.name || '';
-  _iprCurrentBuilder.revStream = ip?.revenueStream || '';
+  _iprCurrentBuilder.revStream = ip?.revenue || ip?.revenueStream || '';
   _iprCurrentBuilder.snapshot  = null;
 }
 
@@ -32126,34 +32131,37 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
     .sort((a,b) => b.revenue - a.revenue);
   const topMovers = allProducts.slice(0,5);
 
-  // Fetch thumbnails for ALL products. Cascading fallback:
-  // 1. jubelio_items[sampleItemId].thumbnail
-  // 2. jubelio_items[sampleItemId].image_urls[0]
-  // 3. Any sibling in same item_group_id with thumbnail or image_urls
+  // Fetch thumbnails for ALL products. Strategy: 1 sweep query yang ngambil
+  // SEMUA items dalam item_group_id yang relevan. Kalau parent group punya
+  // 4 size variants, kita pick item with image — bukan stuck di variant
+  // yang kebetulan gak ada thumb. Plus image_urls[0] fallback.
   if (allProducts.length) {
-    const pickImg = r => r?.thumbnail || (Array.isArray(r?.image_urls) && r.image_urls[0]) || null;
+    const pickImg = r => (r?.thumbnail && r.thumbnail.trim()) || (Array.isArray(r?.image_urls) && r.image_urls.find(u => u && u.trim())) || null;
+    // Collect group ids from parent map (numeric ids) + sample item ids
+    const grpIds  = allProducts.map(m => Number(m.id)).filter(n => !isNaN(n) && n > 0);
     const sampleIds = allProducts.map(m => m.sampleItemId).filter(Boolean);
-    if (sampleIds.length) {
-      try {
-        const itemRows = await _fetchAllPagesIn('jubelio_items', 'item_id,thumbnail,image_urls,item_group_id', 'item_id', sampleIds);
-        const imgByItem = new Map(itemRows.map(r => [r.item_id, pickImg(r)]));
-        allProducts.forEach(m => { m.thumb = imgByItem.get(m.sampleItemId) || null; });
-        // Fallback: any item in same group with any image
-        const missing = allProducts.filter(m => !m.thumb && m.id && (typeof m.id === 'number' || (typeof m.id === 'string' && !m.id.startsWith('single-') && !m.id.startsWith('hist-'))));
-        if (missing.length) {
-          const grpIds = missing.map(m => Number(m.id)).filter(n => !isNaN(n));
-          if (grpIds.length) {
-            const grpRows = await _fetchAllPagesIn('jubelio_items', 'item_group_id,thumbnail,image_urls', 'item_group_id', grpIds);
-            const byGrp = new Map();
-            for (const r of grpRows) {
-              const img = pickImg(r);
-              if (img && !byGrp.has(r.item_group_id)) byGrp.set(r.item_group_id, img);
-            }
-            missing.forEach(m => { m.thumb = byGrp.get(Number(m.id)) || null; });
-          }
+    try {
+      // 1 round trip — sweep all items in relevant groups + sample items
+      const [grpRows, itemRows] = await Promise.all([
+        grpIds.length ? _fetchAllPagesIn('jubelio_items', 'item_id,item_group_id,thumbnail,image_urls', 'item_group_id', grpIds) : Promise.resolve([]),
+        sampleIds.length ? _fetchAllPagesIn('jubelio_items', 'item_id,item_group_id,thumbnail,image_urls', 'item_id', sampleIds) : Promise.resolve([]),
+      ]);
+      const imgByItem = new Map();
+      const imgByGrp  = new Map();
+      for (const r of [...grpRows, ...itemRows]) {
+        const img = pickImg(r);
+        if (img) {
+          if (!imgByItem.has(r.item_id)) imgByItem.set(r.item_id, img);
+          if (r.item_group_id && !imgByGrp.has(r.item_group_id)) imgByGrp.set(r.item_group_id, img);
         }
-      } catch(_) { /* thumbnails non-critical */ }
-    }
+      }
+      allProducts.forEach(m => {
+        // Try: direct item → group → null
+        m.thumb = imgByItem.get(m.sampleItemId)
+              || (typeof m.id === 'number' ? imgByGrp.get(m.id) : null)
+              || null;
+      });
+    } catch(_) { /* thumbnails non-critical */ }
   }
 
   const channelMix = [...channelMap.entries()]
@@ -32193,8 +32201,8 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
       }
       const broughtQty = parseInt(e.qty_brought)||0;
       const reinboundQty = parseInt(e.reinbound_qty)||0;
-      // Skip benar-benar kosong: no sales, no qty, no jubelio link
-      if (!salesValue && !broughtQty && !reinboundQty && !e.id_pesanan_jubelio) continue;
+      // Tampilkan semua events untuk IP ini di periode — kalau data null,
+      // ditampilin '—' biar AE bisa flag yang belum diisi.
       popupEvents.push({
         id: e.id, name: e.event_name || '(Untitled)', date: e.event_date, location: e.location||'—',
         sales: salesValue, broughtQty, reinboundQty, status: e.event_status||'—',
@@ -32522,9 +32530,9 @@ function iprGeneratePDF() {
     return;
   }
   const s = b.snapshot;
-  // Always re-fetch revStream dari allIPRows (kalau report draft lama gak punya rev).
+  // Re-fetch revStream dari allIPRows. mapIP property name `revenue` (bukan revenueStream).
   const ip = allIPRows.find(r => r.id === b.ipId);
-  const revStreamResolved = b.revStream || ip?.revenueStream || '';
+  const revStreamResolved = b.revStream || ip?.revenue || ip?.revenueStream || '';
   const logo = _iprPickLogo(revStreamResolved);
   const brandWordmark = _iprPickBrandWordmark(revStreamResolved);
   const fmtRp = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
