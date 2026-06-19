@@ -31948,14 +31948,16 @@ async function iprGenerate() {
   if (!b.ipId)    { if(fb){fb.textContent='Pilih IP dulu.';fb.style.color='#c0392b';} return; }
   if (!b.periodStart || !b.periodEnd) { if(fb){fb.textContent='Tanggal periode wajib diisi.';fb.style.color='#c0392b';} return; }
   if (b.periodEnd < b.periodStart) { if(fb){fb.textContent='Tanggal akhir gak boleh sebelum tanggal mulai.';fb.style.color='#c0392b';} return; }
-  if (fb){fb.textContent='⏳ Aggregating data...';fb.style.color='var(--g600)';}
+  if (fb){fb.textContent='⏳ Aggregating data (bisa 30-60 detik untuk all-time)...';fb.style.color='var(--g600)';}
+  const startTime = Date.now();
   try {
     b.snapshot = await _iprAggregatePerformance(b.ipId, b.ipName, b.periodStart, b.periodEnd);
-    if (fb){fb.textContent='✓ Data compiled. Review preview di bawah → Download PDF atau Save Draft.';fb.style.color='#0a7d3a';}
+    const elapsed = ((Date.now() - startTime)/1000).toFixed(1);
+    if (fb){fb.textContent=`✓ Compiled in ${elapsed}s. Review preview di bawah → Download PDF atau Save Draft.`;fb.style.color='#0a7d3a';}
     _iprRenderBuilder();
   } catch (e) {
     console.error('IPR generate error', e);
-    if (fb){fb.textContent='Gagal compile: '+(e.message||e);fb.style.color='#c0392b';}
+    if (fb){fb.textContent='Gagal compile: '+(e.message||e)+'. Cek browser console untuk detail.';fb.style.color='#c0392b';}
   }
 }
 
@@ -32224,10 +32226,10 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
     .map(([k,v]) => ({ name:k, units:v.units, revenue:Math.round(v.revenue), pct: revenue ? (v.revenue/revenue)*100 : 0 }))
     .sort((a,b) => b.revenue - a.revenue);
 
-  // Pop-up Booth events untuk IP ini. Tampilin semua events yang udah
-  // happen (event_date <= period_end). Filter SALES per event tetep ke
-  // periode via order transaction_date. Sebelumnya filter event_date >=
-  // startD bikin Music Gallery (April) gak nongol di report May/June.
+  // Pop-up Booth events untuk IP ini. Per-event sales/qty derived dari
+  // transaction_mappings (sama spt modul Pop-up Booth) — Music Gallery
+  // PENDING tetep dihitung karena offline tx. Parallelize per-event
+  // queries supaya report dengan banyak events tetep responsif.
   let popupEvents = [];
   try {
     const { data: events } = await sb.from('popup_booths')
@@ -32235,57 +32237,60 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
       .eq('ip_related', ipName)
       .lte('event_date', endD)
       .order('event_date', { ascending: false });
+    const eventNames = (events||[]).map(e => e.event_name).filter(Boolean);
+    // Step 1: 1 query buat semua events sekaligus (vs 1-per-event)
+    let txByEvent = new Map();
+    if (eventNames.length) {
+      const { data: allTxm } = await sb.from('transaction_mappings')
+        .select('salesorder_id,project_ref')
+        .eq('category', 'Pop Up Booth')
+        .in('project_ref', eventNames);
+      (allTxm||[]).forEach(t => {
+        const arr = txByEvent.get(t.project_ref) || [];
+        arr.push(t.salesorder_id);
+        txByEvent.set(t.project_ref, arr);
+      });
+    }
+    const allSoIds = [...new Set([...txByEvent.values()].flat())];
+    // Step 2: 1 query buat semua orders + items (parallel)
+    let ordersInfo = new Map(); // salesorder_id → {sub_total, is_canceled, wms_status, qty}
+    if (allSoIds.length) {
+      const [allLinkedOrders, allLinkedItems] = await Promise.all([
+        _fetchAllPagesIn('jubelio_sales_orders', 'salesorder_id,sub_total,grand_total,wms_status,is_canceled', 'salesorder_id', allSoIds),
+        _fetchAllPagesIn('jubelio_sales_order_items', 'salesorder_id,qty,is_canceled_item', 'salesorder_id', allSoIds),
+      ]);
+      const itemsBySo = new Map();
+      (allLinkedItems||[]).forEach(it => {
+        if (it.is_canceled_item) return;
+        itemsBySo.set(it.salesorder_id, (itemsBySo.get(it.salesorder_id)||0) + (parseFloat(it.qty)||0));
+      });
+      (allLinkedOrders||[]).forEach(o => {
+        ordersInfo.set(o.salesorder_id, {
+          subTotal: parseFloat(o.sub_total)||parseFloat(o.grand_total)||0,
+          isCanceled: !!o.is_canceled || o.wms_status === 'CANCELED' || o.wms_status === 'CANCEL',
+          qty: itemsBySo.get(o.salesorder_id)||0,
+        });
+      });
+    }
+    // Step 3: Per-event aggregation dari memory maps (no async)
     for (const e of events||[]) {
       let salesValue = parseFloat(e.actual_sales)||0;
       let soldQty = 0;
       let derivedFrom = null;
-      // 1. Try transaction_mappings (preferred source — same logic as
-      //    Pop-up Booth module yang nampilin Music Gallery PENDING dengan
-      //    sales-nya. Filter: NOT canceled. Status PENDING/PAID etc tetep
-      //    dihitung karena offline transactions yang gak ke-process WMS.
-      try {
-        const { data: txm } = await sb.from('transaction_mappings')
-          .select('salesorder_id')
-          .eq('category', 'Pop Up Booth')
-          .eq('project_ref', e.event_name);
-        const soIds = (txm||[]).map(t => t.salesorder_id);
-        if (soIds.length) {
-          const linkedOrders = await _fetchAllPagesIn('jubelio_sales_orders',
-            'salesorder_id,sub_total,grand_total,wms_status,is_canceled', 'salesorder_id', soIds);
-          const validOrders = linkedOrders.filter(o => !o.is_canceled && o.wms_status !== 'CANCELED' && o.wms_status !== 'CANCEL');
-          const orderRevenue = validOrders.reduce((s,o) => s + (parseFloat(o.sub_total)||parseFloat(o.grand_total)||0), 0);
-          if (orderRevenue > 0) {
-            salesValue = orderRevenue;
-            derivedFrom = 'transaction_mappings';
-          }
-          // Also fetch items qty for Sold column (same filter)
-          const validIds = validOrders.map(o => o.salesorder_id);
-          if (validIds.length) {
-            const items = await _fetchAllPagesIn('jubelio_sales_order_items',
-              'salesorder_id,qty,is_canceled_item', 'salesorder_id', validIds);
-            soldQty = items.filter(it => !it.is_canceled_item).reduce((s,it) => s + (parseFloat(it.qty)||0), 0);
-          }
+      const soIds = txByEvent.get(e.event_name) || [];
+      if (soIds.length) {
+        let evRev = 0, evQty = 0;
+        for (const sid of soIds) {
+          const info = ordersInfo.get(sid);
+          if (!info || info.isCanceled) continue;
+          evRev += info.subTotal;
+          evQty += info.qty;
         }
-      } catch(_) {}
-      // 2. Fallback: id_pesanan_jubelio direct link
-      if (!salesValue && e.id_pesanan_jubelio) {
-        const orderNos = String(e.id_pesanan_jubelio).split(/[,;\s]+/).filter(Boolean);
-        if (orderNos.length) {
-          try {
-            const { data: linkedOrders } = await sb.from('jubelio_sales_orders')
-              .select('salesorder_id,sub_total,grand_total,wms_status')
-              .in('salesorder_no', orderNos)
-              .in('wms_status', SP_COMPLETED);
-            (linkedOrders||[]).forEach(o => {
-              salesValue += parseFloat(o.sub_total)||parseFloat(o.grand_total)||0;
-            });
-            derivedFrom = 'id_pesanan_jubelio';
-          } catch(_) {}
-        }
+        if (evRev > 0) { salesValue = evRev; derivedFrom = 'transaction_mappings'; }
+        soldQty = evQty;
       }
       const broughtQty = parseInt(e.qty_brought)||0;
       const reinboundQty = parseInt(e.reinbound_qty)||0;
-      // Sold = derived qty kalau ada, fallback ke broughtQty - reinboundQty
       const sold = soldQty || (broughtQty - reinboundQty);
       popupEvents.push({
         id: e.id, name: e.event_name || '(Untitled)', date: e.event_date, location: e.location||'—',
@@ -32293,7 +32298,7 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
         derivedFrom,
       });
     }
-  } catch(_) { /* popup non-critical */ }
+  } catch(err) { console.error('IPR popup err', err); }
 
   // Build trend array: 12 months ending at periodEnd, fill 0 for missing months
   const trend = [];
