@@ -31830,8 +31830,9 @@ function _iprRenderBuilder() {
   const bView = document.getElementById('ipr-builder-view');
   const b = _iprCurrentBuilder;
   if (!bView || !b) return;
+  // Drop data-* attrs entirely — _iprOnIpChange looks up via allIPRows by id (& in revenue_stream broke HTML attr encoding before).
   const ipOpts = ['<option value="">— Pilih IP —</option>']
-    .concat([...allIPRows].sort((a,b)=>(a.name||'').localeCompare(b.name||'')).map(ip => `<option value="${ip.id}" data-name="${(ip.name||'').replace(/"/g,'&quot;')}" data-rev="${(ip.revenueStream||'').replace(/"/g,'&quot;')}" data-email="${(ip.email||'').replace(/"/g,'&quot;')}" ${ip.id===b.ipId?'selected':''}>${(ip.name||ip.id).replace(/</g,'&lt;')}${ip.revenueStream?` · ${ip.revenueStream.replace(/</g,'&lt;')}`:''}</option>`));
+    .concat([...allIPRows].sort((a,b)=>(a.name||'').localeCompare(b.name||'')).map(ip => `<option value="${ip.id}" ${ip.id===b.ipId?'selected':''}>${(ip.name||ip.id).replace(/</g,'&lt;')}${ip.revenueStream?` · ${ip.revenueStream.replace(/</g,'&lt;')}`:''}</option>`));
   const isEdit = !!b.id;
   bView.innerHTML = `
     <div style="margin-bottom:16px">
@@ -31881,11 +31882,12 @@ function _iprRenderBuilder() {
 function _iprOnIpChange() {
   const sel = document.getElementById('ipr-b-ip');
   if (!sel || !_iprCurrentBuilder) return;
-  const opt = sel.options[sel.selectedIndex];
-  _iprCurrentBuilder.ipId    = sel.value;
-  _iprCurrentBuilder.ipName  = opt?.dataset.name || '';
-  _iprCurrentBuilder.revStream = opt?.dataset.rev || '';
-  _iprCurrentBuilder.snapshot = null; // force regen on IP change
+  // Lookup by id, NOT dataset — `data-rev="SD&Y"` corrupts via HTML attr encoding.
+  const ip = allIPRows.find(r => r.id === sel.value);
+  _iprCurrentBuilder.ipId      = sel.value;
+  _iprCurrentBuilder.ipName    = ip?.name || '';
+  _iprCurrentBuilder.revStream = ip?.revenueStream || '';
+  _iprCurrentBuilder.snapshot  = null;
 }
 
 function _iprOnPeriodTypeChange() {
@@ -32124,25 +32126,29 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
     .sort((a,b) => b.revenue - a.revenue);
   const topMovers = allProducts.slice(0,5);
 
-  // Fetch thumbnails for ALL products (not just top 5) — user wants every product
-  // dengan gambar di report. Single batched query, fallback via item_group_id.
+  // Fetch thumbnails for ALL products. Cascading fallback:
+  // 1. jubelio_items[sampleItemId].thumbnail
+  // 2. jubelio_items[sampleItemId].image_urls[0]
+  // 3. Any sibling in same item_group_id with thumbnail or image_urls
   if (allProducts.length) {
+    const pickImg = r => r?.thumbnail || (Array.isArray(r?.image_urls) && r.image_urls[0]) || null;
     const sampleIds = allProducts.map(m => m.sampleItemId).filter(Boolean);
     if (sampleIds.length) {
       try {
-        const thumbRows = await _fetchAllPagesIn('jubelio_items', 'item_id,thumbnail,item_group_id', 'item_id', sampleIds,
-          q => q.not('thumbnail','is',null));
-        const thumbByItem = new Map(thumbRows.map(r => [r.item_id, r.thumbnail]));
-        allProducts.forEach(m => { m.thumb = thumbByItem.get(m.sampleItemId) || null; });
-        // Fallback: try any item in same item_group_id
-        const missing = allProducts.filter(m => !m.thumb && m.id && typeof m.id === 'number' || (typeof m.id === 'string' && !m.id.startsWith('single-')));
+        const itemRows = await _fetchAllPagesIn('jubelio_items', 'item_id,thumbnail,image_urls,item_group_id', 'item_id', sampleIds);
+        const imgByItem = new Map(itemRows.map(r => [r.item_id, pickImg(r)]));
+        allProducts.forEach(m => { m.thumb = imgByItem.get(m.sampleItemId) || null; });
+        // Fallback: any item in same group with any image
+        const missing = allProducts.filter(m => !m.thumb && m.id && (typeof m.id === 'number' || (typeof m.id === 'string' && !m.id.startsWith('single-') && !m.id.startsWith('hist-'))));
         if (missing.length) {
           const grpIds = missing.map(m => Number(m.id)).filter(n => !isNaN(n));
           if (grpIds.length) {
-            const grpThumbs = await _fetchAllPagesIn('jubelio_items', 'item_group_id,thumbnail', 'item_group_id', grpIds,
-              q => q.not('thumbnail','is',null));
+            const grpRows = await _fetchAllPagesIn('jubelio_items', 'item_group_id,thumbnail,image_urls', 'item_group_id', grpIds);
             const byGrp = new Map();
-            grpThumbs.forEach(r => { if (!byGrp.has(r.item_group_id)) byGrp.set(r.item_group_id, r.thumbnail); });
+            for (const r of grpRows) {
+              const img = pickImg(r);
+              if (img && !byGrp.has(r.item_group_id)) byGrp.set(r.item_group_id, img);
+            }
             missing.forEach(m => { m.thumb = byGrp.get(Number(m.id)) || null; });
           }
         }
@@ -32154,21 +32160,47 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
     .map(([k,v]) => ({ name:k, units:v.units, revenue:Math.round(v.revenue), pct: revenue ? (v.revenue/revenue)*100 : 0 }))
     .sort((a,b) => b.revenue - a.revenue);
 
-  // Pop-up Booth events untuk IP ini selama periode (informational, gak additive
-  // karena popup sales udah ada di main Jubelio revenue via id_pesanan_jubelio).
+  // Pop-up Booth events untuk IP ini selama periode (informational).
+  // Skip events yang gak punya data sales/qty (sering field-nya null karena
+  // belum diisi AE/event team) — biar gak nampilin row kosong di report.
+  // Kalau id_pesanan_jubelio ke-set, derive sales dari Jubelio orders.
   let popupEvents = [];
   try {
     const { data: events } = await sb.from('popup_booths')
-      .select('id,event_name,event_date,location,actual_sales,qty_brought,reinbound_qty,event_status')
+      .select('id,event_name,event_date,location,actual_sales,qty_brought,reinbound_qty,event_status,id_pesanan_jubelio')
       .eq('ip_related', ipName)
       .gte('event_date', startD)
       .lte('event_date', endD)
       .order('event_date', { ascending: false });
-    popupEvents = (events||[]).map(e => ({
-      id: e.id, name: e.event_name || '(Untitled)', date: e.event_date, location: e.location||'—',
-      sales: parseFloat(e.actual_sales)||0, broughtQty: parseInt(e.qty_brought)||0,
-      reinboundQty: parseInt(e.reinbound_qty)||0, status: e.event_status||'—',
-    }));
+    for (const e of events||[]) {
+      let salesValue = parseFloat(e.actual_sales)||0;
+      let derivedFromJubelio = false;
+      // Derive sales from Jubelio if id_pesanan_jubelio set + actual_sales null
+      if (!salesValue && e.id_pesanan_jubelio) {
+        const orderNos = String(e.id_pesanan_jubelio).split(/[,;\s]+/).filter(Boolean);
+        if (orderNos.length) {
+          try {
+            const { data: linkedOrders } = await sb.from('jubelio_sales_orders')
+              .select('salesorder_id,sub_total,grand_total,wms_status')
+              .in('salesorder_no', orderNos)
+              .in('wms_status', ['COMPLETED','FINISH_PACK','FINISH_PICK','CLOSED']);
+            (linkedOrders||[]).forEach(o => {
+              salesValue += parseFloat(o.sub_total)||parseFloat(o.grand_total)||0;
+            });
+            derivedFromJubelio = true;
+          } catch(_) {}
+        }
+      }
+      const broughtQty = parseInt(e.qty_brought)||0;
+      const reinboundQty = parseInt(e.reinbound_qty)||0;
+      // Skip benar-benar kosong: no sales, no qty, no jubelio link
+      if (!salesValue && !broughtQty && !reinboundQty && !e.id_pesanan_jubelio) continue;
+      popupEvents.push({
+        id: e.id, name: e.event_name || '(Untitled)', date: e.event_date, location: e.location||'—',
+        sales: salesValue, broughtQty, reinboundQty, status: e.event_status||'—',
+        derivedFromJubelio,
+      });
+    }
   } catch(_) { /* popup non-critical */ }
 
   // Build trend array: 12 months ending at periodEnd, fill 0 for missing months
@@ -32261,24 +32293,15 @@ function _iprBuildNarrative(s) {
   return parts.join(' ');
 }
 
-// ── SVG bar chart for monthly trend ──
-// metric: 'revenue' (Rp) atau 'units' (pcs). User wanted both di trend section.
+// ── SVG combo chart: revenue bars (left axis) + units line (right axis) ──
+// opts.dual=true → combo. opts.metric='revenue'|'units' → single. Default dual.
 function _iprRenderTrendSVG(trend, opts={}) {
-  if (!trend || !trend.length) return '<div style="color:var(--g400);font-style:italic;padding:12px">Tidak ada data trend.</div>';
-  const W = opts.width  || 720;
-  const H = opts.height || 200;
-  const padL = 56, padR = 12, padT = 12, padB = 36;
+  if (!trend || !trend.length) return '<div style="color:#888;font-style:italic;padding:12px">Tidak ada data trend.</div>';
+  const W = opts.width  || 900;
+  const H = opts.height || 240;
+  const padL = 56, padR = (opts.dual ? 56 : 12), padT = 20, padB = 40;
   const innerW = W - padL - padR;
   const innerH = H - padT - padB;
-  const metric = opts.metric || 'revenue';
-  const valOf = t => metric === 'units' ? (t.units||0) : (t.revenue||0);
-  const maxVal = Math.max(...trend.map(valOf), 1);
-  const barW = innerW / trend.length * 0.7;
-  const gap  = innerW / trend.length * 0.3;
-  const dark = opts.dark || false;
-  const lineColor = dark ? '#e2e2e2' : '#0c0c0c';
-  const barColor  = dark ? '#e2e2e2' : '#0c0c0c';
-  const labelColor= dark ? '#e2e2e2' : '#666';
   const fmtRpAbbr = n => {
     if (n >= 1e9) return (n/1e9).toFixed(1).replace(/\.0$/,'')+'B';
     if (n >= 1e6) return (n/1e6).toFixed(1).replace(/\.0$/,'')+'M';
@@ -32289,24 +32312,78 @@ function _iprRenderTrendSVG(trend, opts={}) {
     if (n >= 1000) return (n/1000).toFixed(1).replace(/\.0$/,'')+'k';
     return String(n||0);
   };
+  const txtCol = '#000';
+  const subCol = '#888';
+  // ── DUAL MODE: bars=revenue, line=units ──
+  if (opts.dual) {
+    const maxRev = Math.max(...trend.map(t => t.revenue||0), 1);
+    const maxUn  = Math.max(...trend.map(t => t.units||0), 1);
+    const barW = innerW / trend.length * 0.6;
+    const gap  = innerW / trend.length * 0.4;
+    // Y-left grid + revenue ticks
+    const yTicks = [];
+    for (let i=0; i<=4; i++) {
+      const y = padT + innerH - (innerH * i / 4);
+      const rv = Math.round(maxRev * i / 4);
+      const un = Math.round(maxUn  * i / 4);
+      yTicks.push(`<line x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}" stroke="${txtCol}" stroke-opacity="0.1" stroke-width="0.5"/>
+        <text x="${padL-6}" y="${y+3}" font-size="9" font-family="IBM Plex Mono, monospace" fill="${subCol}" text-anchor="end">${fmtRpAbbr(rv)}</text>
+        <text x="${W-padR+6}" y="${y+3}" font-size="9" font-family="IBM Plex Mono, monospace" fill="#3C3489" text-anchor="start">${fmtUnit(un)}</text>`);
+    }
+    const bars = trend.map((t,i) => {
+      const v = t.revenue||0;
+      const x = padL + (innerW / trend.length * i) + gap/2;
+      const h = maxRev > 0 ? v / maxRev * innerH : 0;
+      const y = padT + innerH - h;
+      return `<rect x="${x}" y="${y}" width="${barW}" height="${h}" fill="${txtCol}"/>
+        <text x="${x+barW/2}" y="${H-padB+14}" font-size="9" font-family="IBM Plex Mono, monospace" fill="${subCol}" text-anchor="middle">${t.label}</text>`;
+    }).join('');
+    // Line for units
+    const linePts = trend.map((t,i) => {
+      const v = t.units||0;
+      const x = padL + (innerW / trend.length * i) + (innerW / trend.length / 2);
+      const y = padT + innerH - (maxUn > 0 ? v / maxUn * innerH : 0);
+      return { x, y, v };
+    });
+    const path = linePts.map((p,i) => (i===0?'M':'L')+`${p.x},${p.y}`).join(' ');
+    const dots = linePts.map(p => `<circle cx="${p.x}" cy="${p.y}" r="3" fill="#3C3489"/>${p.v>0?`<text x="${p.x}" y="${p.y-7}" font-size="8" font-family="IBM Plex Mono, monospace" fill="#3C3489" text-anchor="middle">${fmtUnit(p.v)}</text>`:''}`).join('');
+    return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block">
+      ${yTicks.join('')}
+      ${bars}
+      <path d="${path}" stroke="#3C3489" stroke-width="1.5" fill="none"/>
+      ${dots}
+      <!-- legend -->
+      <g transform="translate(${padL},${10})">
+        <rect x="0" y="-7" width="10" height="10" fill="${txtCol}"/>
+        <text x="14" y="2" font-size="10" font-family="IBM Plex Mono, monospace" fill="${txtCol}">REVENUE (Rp)</text>
+        <line x1="125" y1="-2" x2="145" y2="-2" stroke="#3C3489" stroke-width="1.5"/>
+        <circle cx="135" cy="-2" r="3" fill="#3C3489"/>
+        <text x="150" y="2" font-size="10" font-family="IBM Plex Mono, monospace" fill="#3C3489">UNITS SOLD</text>
+      </g>
+    </svg>`;
+  }
+  // ── SINGLE-METRIC fallback (legacy) ──
+  const metric = opts.metric || 'revenue';
+  const valOf = t => metric === 'units' ? (t.units||0) : (t.revenue||0);
+  const maxVal = Math.max(...trend.map(valOf), 1);
+  const barW = innerW / trend.length * 0.7;
+  const gap  = innerW / trend.length * 0.3;
   const fmtAbbr = metric === 'units' ? fmtUnit : fmtRpAbbr;
-  // Y-axis: 4 grid lines
   const yTicks = [];
   for (let i=0; i<=4; i++) {
     const v = Math.round((maxVal * i / 4));
     const y = padT + innerH - (innerH * i / 4);
-    yTicks.push(`<line x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}" stroke="${lineColor}" stroke-opacity="0.15" stroke-width="0.5"/>
-      <text x="${padL-6}" y="${y+3}" font-size="9" font-family="IBM Plex Mono, monospace" fill="${labelColor}" text-anchor="end">${fmtAbbr(v)}</text>`);
+    yTicks.push(`<line x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}" stroke="${txtCol}" stroke-opacity="0.1" stroke-width="0.5"/>
+      <text x="${padL-6}" y="${y+3}" font-size="9" font-family="IBM Plex Mono, monospace" fill="${subCol}" text-anchor="end">${fmtAbbr(v)}</text>`);
   }
-  // Bars
   const bars = trend.map((t,i) => {
     const v = valOf(t);
     const x = padL + (innerW / trend.length * i) + gap/2;
     const h = maxVal > 0 ? v / maxVal * innerH : 0;
     const y = padT + innerH - h;
-    return `<rect x="${x}" y="${y}" width="${barW}" height="${h}" fill="${barColor}"/>
-      <text x="${x+barW/2}" y="${H-padB+14}" font-size="9" font-family="IBM Plex Mono, monospace" fill="${labelColor}" text-anchor="middle" letter-spacing="-0.2">${t.label}</text>
-      ${v>0?`<text x="${x+barW/2}" y="${y-3}" font-size="8" font-family="IBM Plex Mono, monospace" fill="${labelColor}" text-anchor="middle">${fmtAbbr(v)}</text>`:''}`;
+    return `<rect x="${x}" y="${y}" width="${barW}" height="${h}" fill="${txtCol}"/>
+      <text x="${x+barW/2}" y="${H-padB+14}" font-size="9" font-family="IBM Plex Mono, monospace" fill="${subCol}" text-anchor="middle">${t.label}</text>
+      ${v>0?`<text x="${x+barW/2}" y="${y-3}" font-size="8" font-family="IBM Plex Mono, monospace" fill="${subCol}" text-anchor="middle">${fmtAbbr(v)}</text>`:''}`;
   }).join('');
   return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block">
     ${yTicks.join('')}
@@ -32416,12 +32493,8 @@ function _iprRenderPreviewHTML(b) {
       </div>
     </div>
     <div style="margin-bottom:18px">
-      <div style="font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--g400);margin-bottom:10px">12-Month Revenue Trend</div>
-      <div style="border:1px solid var(--g100);padding:12px;border-radius:6px">${_iprRenderTrendSVG(s.trend, {metric:'revenue'})}</div>
-    </div>
-    <div style="margin-bottom:18px">
-      <div style="font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--g400);margin-bottom:10px">12-Month Units Sold</div>
-      <div style="border:1px solid var(--g100);padding:12px;border-radius:6px">${_iprRenderTrendSVG(s.trend, {metric:'units'})}</div>
+      <div style="font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--g400);margin-bottom:10px">12-Month Trend</div>
+      <div style="border:1px solid var(--g100);padding:12px;border-radius:6px">${_iprRenderTrendSVG(s.trend, {dual:true})}</div>
     </div>
     <div style="margin-bottom:18px">
       <div style="font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--g400);margin-bottom:10px">All Products Sold (${allProducts.length})</div>
@@ -32431,27 +32504,29 @@ function _iprRenderPreviewHTML(b) {
       <div style="font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--g400);margin-bottom:10px">Channel Mix</div>
       ${chTable}
     </div>
-    <div>
+    ${popupEvents.length ? `<div>
       <div style="font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--g400);margin-bottom:10px">Pop-up Events (${popupEvents.length})</div>
       ${popupTable}
-    </div>
+    </div>` : ''}
   </div>`;
 }
 
-// ── PDF generation (Figma Config design — modernist poster on black velvet) ──
+// ── PDF generation — Figma Config design, light variant (Paper canvas, Obsidian text) ──
 function iprGeneratePDF() {
   const b = _iprCurrentBuilder;
   if (!b?.snapshot) { alert('Generate Data dulu sebelum download PDF.'); return; }
-  // OPEN WINDOW FIRST — synchronous user gesture biar popup blocker gak nyangkut.
-  // Browser modern strict: window.open di luar synchronous click handler = blocked.
-  // Build HTML setelah handle dapet.
+  // OPEN WINDOW FIRST (synchronous click gesture) supaya popup blocker gak nyangkut.
   const w = window.open('about:blank', '_blank');
   if (!w || w.closed || typeof w.closed === 'undefined') {
     alert('Pop-up diblokir browser. Izinkan pop-up untuk sentragroup.github.io di address bar, lalu klik tombol lagi.');
     return;
   }
   const s = b.snapshot;
-  const logo = _iprPickLogo(b.revStream);
+  // Always re-fetch revStream dari allIPRows (kalau report draft lama gak punya rev).
+  const ip = allIPRows.find(r => r.id === b.ipId);
+  const revStreamResolved = b.revStream || ip?.revenueStream || '';
+  const logo = _iprPickLogo(revStreamResolved);
+  const brandWordmark = _iprPickBrandWordmark(revStreamResolved);
   const fmtRp = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
   const fmtD = d => new Date(d+'T00:00:00').toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'});
   const ptLbl = {week:'WEEKLY REPORT', month:'MONTHLY REPORT', quarter:'QUARTERLY REPORT', all_time:'ALL-TIME REPORT', custom:'CUSTOM PERIOD REPORT'};
@@ -32460,12 +32535,12 @@ function iprGeneratePDF() {
 
   const allProducts = s.allProducts || s.topMovers || [];
   const allProdRows = allProducts.map((t,i) => `<tr>
-    <td class="num">${i+1}</td>
-    <td class="thumb-td">${t.thumb?`<img src="${t.thumb}" alt="" style="width:56px;height:56px;object-fit:cover;display:block;border:1px solid #3d3d3d">`:`<div style="width:56px;height:56px;background:transparent;border:1px solid #3d3d3d;display:flex;align-items:center;justify-content:center;color:#3d3d3d;font-size:10px">—</div>`}</td>
+    <td class="num" style="width:32px;color:#888">${i+1}</td>
+    <td class="thumb-td">${t.thumb?`<img src="${t.thumb}" alt="" style="width:40px;height:40px;object-fit:cover;display:block;border:1px solid #d0d0d0">`:`<div style="width:40px;height:40px;background:#f5f5f5;border:1px solid #d0d0d0;display:flex;align-items:center;justify-content:center;color:#888;font-size:9px">—</div>`}</td>
     <td>${escHtml(t.name)}</td>
     <td class="num">${t.units.toLocaleString('id-ID')}</td>
-    <td class="num">${fmtRp(t.revenue)}</td>
-    <td class="num">${s.totals.revenue?((t.revenue/s.totals.revenue)*100).toFixed(1):'0'}%</td>
+    <td class="num" style="font-weight:500">${fmtRp(t.revenue)}</td>
+    <td class="num" style="color:#666">${s.totals.revenue?((t.revenue/s.totals.revenue)*100).toFixed(1):'0'}%</td>
   </tr>`).join('');
 
   const chRows = s.channelMix.map(c => `<tr>
@@ -32497,47 +32572,49 @@ function iprGeneratePDF() {
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
+  /* Figma Config — light variant: Paper canvas + Obsidian text */
   *, *::before, *::after { box-sizing:border-box; }
-  html, body { margin:0; padding:0; background:#000; color:#e2e2e2; font-family:'Inter',ui-sans-serif,system-ui,sans-serif; font-weight:400; -webkit-font-smoothing:antialiased; letter-spacing:-0.02em; }
-  .page { max-width:1100px; margin:0 auto; padding:48px 60px 80px; }
-  .topbar { display:flex; justify-content:space-between; align-items:center; padding-bottom:24px; border-bottom:1px solid #e2e2e2; margin-bottom:60px; }
-  .topbar .logo { height:32px; display:block; filter:invert(1) brightness(2); }
-  .topbar .meta { font-family:'IBM Plex Mono',monospace; font-size:14px; color:#e2e2e2; text-align:right; }
-  .eyebrow { font-family:'Inter',sans-serif; font-size:16px; line-height:1.3; text-transform:uppercase; letter-spacing:-0.02em; color:#e2e2e2; margin-bottom:24px; }
-  h1.display { font-size:80px; line-height:0.95; letter-spacing:-0.03em; margin:0 0 40px; color:#e2e2e2; font-weight:400; }
-  .period-line { font-size:18px; line-height:1.25; letter-spacing:-0.02em; color:#e2e2e2; margin-bottom:60px; }
-  .section { margin-bottom:60px; }
-  .section + .section { padding-top:60px; border-top:1px solid #3d3d3d; }
-  h2 { font-size:32px; line-height:1.1; letter-spacing:-0.03em; margin:0 0 24px; color:#e2e2e2; font-weight:400; }
-  .kpi-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:0; border:1px solid #e2e2e2; }
-  .kpi { padding:24px; border-right:1px solid #3d3d3d; }
+  html, body { margin:0; padding:0; background:#fff; color:#000; font-family:'Inter',ui-sans-serif,system-ui,sans-serif; font-weight:400; -webkit-font-smoothing:antialiased; letter-spacing:-0.02em; }
+  .page { max-width:900px; margin:0 auto; padding:32px 40px 60px; }
+  .topbar { display:flex; justify-content:space-between; align-items:center; padding-bottom:16px; border-bottom:1px solid #000; margin-bottom:32px; }
+  .topbar .logo { height:28px; display:block; }
+  .topbar .meta { font-family:'IBM Plex Mono',monospace; font-size:11px; color:#000; text-align:right; line-height:1.4; }
+  .eyebrow { font-family:'IBM Plex Mono',monospace; font-size:11px; line-height:1.3; text-transform:uppercase; letter-spacing:0; color:#000; opacity:0.6; margin-bottom:12px; }
+  h1.display { font-size:48px; line-height:0.95; letter-spacing:-0.03em; margin:0 0 16px; color:#000; font-weight:500; }
+  .period-line { font-size:13px; line-height:1.25; letter-spacing:-0.01em; color:#000; opacity:0.7; margin-bottom:40px; }
+  .section { margin-bottom:32px; }
+  .section + .section { padding-top:32px; border-top:1px solid #000; }
+  h2 { font-size:22px; line-height:1.1; letter-spacing:-0.02em; margin:0 0 16px; color:#000; font-weight:500; }
+  .kpi-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:0; border:1px solid #000; }
+  .kpi { padding:14px 16px; border-right:1px solid #000; }
   .kpi:last-child { border-right:none; }
-  .kpi-label { font-family:'IBM Plex Mono',monospace; font-size:16px; line-height:1.3; color:#e2e2e2; opacity:0.6; margin-bottom:12px; text-transform:uppercase; }
-  .kpi-value { font-size:32px; line-height:1.1; letter-spacing:-0.03em; color:#e2e2e2; font-weight:400; }
-  .kpi-value.small { font-size:24px; }
-  .narrative { font-size:20px; line-height:1.25; letter-spacing:-0.02em; color:#e2e2e2; padding:24px 0; border-top:1px solid #e2e2e2; border-bottom:1px solid #e2e2e2; }
-  table { width:100%; border-collapse:collapse; font-size:18px; line-height:1.25; }
-  thead th { font-family:'IBM Plex Mono',monospace; font-size:16px; text-transform:uppercase; color:#e2e2e2; opacity:0.6; padding:12px 0; text-align:left; border-bottom:1px solid #e2e2e2; font-weight:400; letter-spacing:0; }
+  .kpi-label { font-family:'IBM Plex Mono',monospace; font-size:10px; line-height:1.3; color:#000; opacity:0.6; margin-bottom:6px; text-transform:uppercase; }
+  .kpi-value { font-family:'IBM Plex Mono',monospace; font-size:18px; line-height:1.1; letter-spacing:-0.02em; color:#000; font-weight:500; }
+  .kpi-value.small { font-size:14px; }
+  .narrative { font-size:13px; line-height:1.45; letter-spacing:-0.01em; color:#000; padding:14px 0; border-top:1px solid #000; border-bottom:1px solid #000; }
+  table { width:100%; border-collapse:collapse; font-size:12px; line-height:1.3; }
+  thead th { font-family:'IBM Plex Mono',monospace; font-size:9px; text-transform:uppercase; color:#000; opacity:0.6; padding:8px 6px 6px; text-align:left; border-bottom:1px solid #000; font-weight:400; letter-spacing:0.5px; }
   thead th.num { text-align:right; }
-  tbody td { padding:16px 0; border-bottom:1px solid #3d3d3d; color:#e2e2e2; }
-  tbody td.num { text-align:right; font-family:'IBM Plex Mono',monospace; font-size:18px; }
-  tbody td.thumb-td { padding:8px 0; width:72px; }
+  tbody td { padding:8px 6px; border-bottom:1px solid #d0d0d0; color:#000; vertical-align:middle; }
+  tbody td.num { text-align:right; font-family:'IBM Plex Mono',monospace; font-size:12px; }
+  tbody td.thumb-td { padding:6px; width:52px; }
   tbody tr:last-child td { border-bottom:none; }
-  .trend-box { padding:24px; border:1px solid #e2e2e2; }
-  .trend-box svg text { fill:#e2e2e2; }
-  .footer { margin-top:160px; padding-top:24px; border-top:1px solid #e2e2e2; display:flex; justify-content:space-between; align-items:flex-end; }
-  .footer .wordmark { font-size:80px; line-height:0.95; letter-spacing:-0.03em; color:#e2e2e2; font-weight:400; }
-  .footer .stamp { font-family:'IBM Plex Mono',monospace; font-size:14px; color:#e2e2e2; opacity:0.6; text-align:right; }
-  .print-btn { position:fixed; top:16px; right:16px; background:#fff; color:#000; border:none; padding:12px 16px; font-family:'Inter',sans-serif; font-size:16px; cursor:pointer; z-index:100; }
+  .trend-box { padding:12px; border:1px solid #000; }
+  .footer { margin-top:48px; padding-top:16px; border-top:1px solid #000; display:flex; justify-content:space-between; align-items:flex-end; }
+  .footer .wordmark { font-size:48px; line-height:0.95; letter-spacing:-0.03em; color:#000; font-weight:500; }
+  .footer .stamp { font-family:'IBM Plex Mono',monospace; font-size:10px; color:#000; opacity:0.6; text-align:right; line-height:1.4; }
+  .print-btn { position:fixed; top:12px; right:12px; background:#000; color:#fff; border:none; padding:10px 14px; font-family:'Inter',sans-serif; font-size:13px; cursor:pointer; z-index:100; }
   @media print {
-    @page { size:A4; margin:0; }
-    html, body { background:#000 !important; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-    .page { padding:32px 40px 48px; max-width:none; }
-    h1.display { font-size:64px; }
-    .footer .wordmark { font-size:64px; }
+    @page { size:A4; margin:14mm 12mm; }
+    html, body { background:#fff !important; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    .page { padding:0; max-width:none; }
+    h1.display { font-size:36px; }
+    .footer .wordmark { font-size:36px; }
+    .footer { margin-top:32px; }
     .print-btn { display:none !important; }
-    .section { page-break-inside:avoid; }
-    table { page-break-inside:auto; }
+    .section { page-break-inside:avoid; margin-bottom:24px; }
+    .section + .section { padding-top:24px; }
+    table { page-break-inside:auto; font-size:11px; }
     tr { page-break-inside:avoid; page-break-after:auto; }
   }
 </style>
@@ -32545,7 +32622,7 @@ function iprGeneratePDF() {
 <button class="print-btn" onclick="window.print()">Print / Save as PDF</button>
 <div class="page">
   <div class="topbar">
-    ${logo ? `<img class="logo" src="${logo}" alt="${escHtml(b.revStream)}">` : `<div style="font-family:'IBM Plex Mono',monospace;font-size:14px">${escHtml(b.revStream||'sentra')}</div>`}
+    ${logo ? `<img class="logo" src="${logo}" alt="${escHtml(revStreamResolved)}">` : `<div style="font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:500">${escHtml(brandWordmark)}</div>`}
     <div class="meta">REPORT ${fmtD(new Date().toISOString().slice(0,10))}<br>BY ${escHtml(currentUser||'SENTRA')}</div>
   </div>
   <div class="eyebrow">${ptLbl[b.periodType]||b.periodType}</div>
@@ -32568,7 +32645,7 @@ function iprGeneratePDF() {
     <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)">
       <div class="kpi"><div class="kpi-label">Royalty Gross (${s.royaltyType==='Advance'?'Advance':`${s.royaltyPct}%`})</div><div class="kpi-value small">${fmtRp(s.totals.royaltyGross)}</div></div>
       <div class="kpi"><div class="kpi-label">PPh ${s.pphRate||0}%</div><div class="kpi-value small">− ${fmtRp(s.totals.royaltyPph)}</div></div>
-      <div class="kpi"><div class="kpi-label" style="color:#fff;opacity:1">Net Payout</div><div class="kpi-value small" style="color:#fff">${fmtRp(s.totals.royaltyNet)}</div></div>
+      <div class="kpi" style="background:#000;color:#fff"><div class="kpi-label" style="color:#fff;opacity:0.7">Net Payout</div><div class="kpi-value small" style="color:#fff">${fmtRp(s.totals.royaltyNet)}</div></div>
     </div>
   </div>
 
@@ -32578,13 +32655,8 @@ function iprGeneratePDF() {
   </div>
 
   <div class="section">
-    <h2>12-Month Revenue Trend</h2>
-    <div class="trend-box">${_iprRenderTrendSVG(s.trend, {dark:true, width:1000, height:240, metric:'revenue'})}</div>
-  </div>
-
-  <div class="section">
-    <h2>12-Month Units Sold</h2>
-    <div class="trend-box">${_iprRenderTrendSVG(s.trend, {dark:true, width:1000, height:240, metric:'units'})}</div>
+    <h2>12-Month Trend</h2>
+    <div class="trend-box">${_iprRenderTrendSVG(s.trend, {width:900, height:260, dual:true})}</div>
   </div>
 
   <div class="section">
@@ -32603,9 +32675,9 @@ function iprGeneratePDF() {
     </table>
   </div>
 
-  <div class="section">
+  ${popupEvents.length ? `<div class="section">
     <h2>Pop-up Events (${popupEvents.length})</h2>
-    ${popupEvents.length ? `<table>
+    <table>
       <thead><tr><th>Tanggal</th><th>Event</th><th>Lokasi</th><th class="num">Qty Out</th><th class="num">Reinbound</th><th class="num">Sold</th><th class="num">Actual Sales</th></tr></thead>
       <tbody>${popupRows}
       <tr style="border-top:2px solid #e2e2e2;font-weight:600"><td colspan="3" style="padding-top:16px">TOTAL ${popupEvents.length} EVENTS</td>
@@ -32615,12 +32687,12 @@ function iprGeneratePDF() {
         <td class="num" style="padding-top:16px">${fmtRp(popupTotalSales)}</td>
       </tr>
       </tbody>
-    </table>` : `<div style="opacity:0.5;font-style:italic;padding:16px 0">Tidak ada event Pop-up di periode ini.</div>`}
-  </div>
+    </table>
+  </div>` : ''}
   `}
 
   <div class="footer">
-    <div class="wordmark">${escHtml(_iprPickBrandWordmark(b.revStream))}</div>
+    <div class="wordmark">${escHtml(brandWordmark)}</div>
     <div class="stamp">${escHtml(b.ipName)}<br>${ptLbl[b.periodType]||b.periodType}<br>${fmtD(b.periodStart)} — ${fmtD(b.periodEnd)}</div>
   </div>
 </div>
