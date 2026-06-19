@@ -19162,15 +19162,16 @@ function pdComputeProjection(parent, allChildren) {
   // Per-unit cost
   const unitCost = units ? modal / units : null;
 
-  // Effective SRP: prefer the value saved on the parent. Fall back to the
-  // SRP target in collection_items so revenue/margin still surface for
-  // legacy PD rows where production team hasn't re-typed SRP after Business
-  // set it.
-  let srp = Number(parent.srp||0);
-  if (!srp && parent?.collectionItemId && Array.isArray(_pdDesignRows)) {
+  // Effective SRP: Collection Dev = source of truth. Kalau parent linked
+  // ke collection item, pakai CI.srp (live value). Fallback ke parent.srp
+  // kalau gak ada CI link atau CI.srp belum di-set.
+  // Sebelumnya: parent.srp dipake duluan → jadi stale snapshot pas CD update.
+  let srp = 0;
+  if (parent?.collectionItemId && Array.isArray(_pdDesignRows)) {
     const ci = _pdDesignRows.find(r => r.id === parent.collectionItemId);
     if (ci?.srp) srp = Number(ci.srp);
   }
+  if (!srp) srp = Number(parent.srp||0);
   const revenue100 = (srp && units) ? srp * units : 0;
   const grossMargin    = revenue100 - modal;
   const grossMarginPct = revenue100 ? (grossMargin / revenue100) * 100 : null;
@@ -20858,6 +20859,9 @@ function buildPDCatalogHTML(title, parents, subsByParent, mode, vendor) {
         <div class="details">
           ${(() => {
             const dz = _pdResolveParentDesign(p);
+            // SRP: CD = source of truth via _pdResolveParentBusiness, fallback ke p.srp
+            const biz = _pdResolveParentBusiness(p);
+            const effectiveSrp = (biz?.srpTarget != null ? biz.srpTarget : p.srp) || null;
             const designRow = dz?.url
               ? `<tr><th>Design</th><td><a href="${pdEsc(dz.url)}" target="_blank" style="color:#3C3489;text-decoration:underline;word-break:break-all">${pdEsc(dz.url)}</a>${dz.status?` <span style="font-size:9px;padding:1px 5px;background:#eef0f8;color:#3C3489;border-radius:3px;margin-left:4px">${pdEsc(dz.status)}</span>`:''}</td></tr>`
               : '';
@@ -20868,7 +20872,7 @@ function buildPDCatalogHTML(title, parents, subsByParent, mode, vendor) {
               ${designerRow}
               ${showHPP ? `<tr><th>HPP/unit</th><td class="mono">${proj.unitCost?'Rp '+pdFmtIDR(Math.round(proj.unitCost)):'—'}</td></tr>` : ''}
               <tr><th>Diproduksi</th><td class="mono">${totalQty||'—'} unit</td></tr>
-              ${showSRP ? `<tr><th>SRP</th><td class="mono"><b>Rp ${pdFmtIDR(p.srp)}</b></td></tr>` : ''}
+              ${showSRP ? `<tr><th>SRP</th><td class="mono"><b>${effectiveSrp?'Rp '+pdFmtIDR(effectiveSrp):'—'}</b></td></tr>` : ''}
               ${showRatio && ratio ? `<tr><th>Ratio SRP/HPP</th><td class="mono"><b>${ratio.toFixed(2)}×</b></td></tr>` : ''}
               ${p.notes ? `<tr><th>Notes</th><td>${pdEsc(p.notes)}</td></tr>` : ''}
             </table>`;
