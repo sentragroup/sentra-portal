@@ -32856,11 +32856,11 @@ function iprGeneratePDF() {
   .section { margin-bottom:32px; }
   .section + .section { padding-top:32px; border-top:1px solid #000; }
   h2 { font-size:22px; line-height:1.1; letter-spacing:-0.02em; margin:0 0 16px; color:#000; font-weight:500; }
-  .kpi-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:0; border:1px solid #000; }
-  .kpi { padding:14px 16px; border-right:1px solid #000; }
+  .kpi-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:0; border:1px solid #000; overflow:hidden; }
+  .kpi { padding:14px 16px; border-right:1px solid #000; min-height:64px; display:flex; flex-direction:column; justify-content:center; box-sizing:border-box; }
   .kpi:last-child { border-right:none; }
   .kpi-label { font-family:'IBM Plex Mono',monospace; font-size:10px; line-height:1.3; color:#000; opacity:0.6; margin-bottom:6px; text-transform:uppercase; }
-  .kpi-value { font-family:'IBM Plex Mono',monospace; font-size:18px; line-height:1.1; letter-spacing:-0.02em; color:#000; font-weight:500; }
+  .kpi-value { font-family:'IBM Plex Mono',monospace; font-size:18px; line-height:1.1; letter-spacing:-0.02em; color:#000; font-weight:500; word-break:break-word; }
   .kpi-value.small { font-size:14px; }
   .narrative { font-size:13px; line-height:1.45; letter-spacing:-0.01em; color:#000; padding:14px 0; border-top:1px solid #000; border-bottom:1px solid #000; }
   table { width:100%; border-collapse:collapse; font-size:12px; line-height:1.3; }
@@ -32887,6 +32887,10 @@ function iprGeneratePDF() {
     .section + .section { padding-top:24px; }
     table { page-break-inside:auto; font-size:11px; }
     tr { page-break-inside:avoid; page-break-after:auto; }
+    /* KPI grid: print engines mangle sub-pixel grid borders. Force pt units +
+       explicit min-height supaya vertical dividers ke-render konsisten. */
+    .kpi-grid { border-width:0.75pt !important; }
+    .kpi { border-right-width:0.75pt !important; min-height:54px !important; }
   }
 </style>
 </head><body>
