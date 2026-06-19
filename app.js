@@ -31666,6 +31666,33 @@ function _iprPickLogo(revStream) {
   return null;
 }
 
+function _iprPickBrandWordmark(revStream) {
+  if (!revStream) return 'sentra';
+  const first = revStream.split(',')[0].trim().toLowerCase();
+  if (first.includes('marte')) return 'MARTÉ';
+  if (first.includes('lagaa')) return 'LAGAA';
+  if (first.includes('sd&y') || first.includes('sdy') || first.includes('sd y')) return 'SD&Y';
+  return revStream.split(',')[0].trim().toUpperCase();
+}
+
+// Normalize Jubelio channel/store names jadi 1 bucket per platform.
+// Sebelumnya: SHOPEE × 3 stores = 3 baris. Sekarang: semua jadi 1 "Shopee".
+function _iprNormalizeChannel(channelName, storeName) {
+  const c = (channelName||'').toUpperCase();
+  if (c.includes('SHOPEE'))   return 'Shopee';
+  if (c.includes('TOKOPEDIA'))return 'Tokopedia';
+  if (c.includes('TIKTOK'))   return 'TikTok Shop';
+  if (c.includes('LAZADA'))   return 'Lazada';
+  if (c.includes('BLIBLI'))   return 'Blibli';
+  if (c.includes('SHOPIFY'))  return 'Shopify (Online Store)';
+  if (c.includes('PLUGO'))    return 'Plugo';
+  if (c.includes('JUBELIO-POS') || c.includes('POS')) return 'Offline / POS';
+  if (c.includes('INTERNAL')) return 'Internal / Manual';
+  // Fallback: title-case raw value
+  if (channelName) return channelName.charAt(0)+channelName.slice(1).toLowerCase();
+  return 'Unknown';
+}
+
 function mapIPReport(r) {
   return {
     id: r.id,
@@ -32019,7 +32046,7 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
     cur.units += qty; cur.revenue += gross;
     if (it.item_name && (cur.name === '(unnamed)' || it.item_name.length < cur.name.length)) cur.name = it.item_name;
     parentMap.set(grpKey, cur);
-    const ch = o.channel_name || o.store_name || 'Unknown';
+    const ch = _iprNormalizeChannel(o.channel_name, o.store_name);
     const c = channelMap.get(ch) || { units:0, revenue:0 };
     c.units += qty; c.revenue += gross;
     channelMap.set(ch, c);
@@ -32027,29 +32054,33 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
 
   const orderCount = orderSet.size;
   const aov = orderCount ? Math.round(revenue / orderCount) : 0;
-  const topMoversRaw = [...parentMap.entries()]
+  // All products (not just top 5) — sorted by revenue desc
+  const allProducts = [...parentMap.entries()]
     .map(([k,v]) => ({ id:k, name:v.name, units:v.units, revenue:Math.round(v.revenue), sampleItemId:v.sampleItemId, thumb:null }))
     .sort((a,b) => b.revenue - a.revenue);
-  const topMovers = topMoversRaw.slice(0,5);
+  const topMovers = allProducts.slice(0,5);
 
-  // Fetch thumbnails for top movers
-  if (topMovers.length) {
-    const sampleIds = topMovers.map(m => m.sampleItemId).filter(Boolean);
+  // Fetch thumbnails for ALL products (not just top 5) — user wants every product
+  // dengan gambar di report. Single batched query, fallback via item_group_id.
+  if (allProducts.length) {
+    const sampleIds = allProducts.map(m => m.sampleItemId).filter(Boolean);
     if (sampleIds.length) {
       try {
         const thumbRows = await _fetchAllPagesIn('jubelio_items', 'item_id,thumbnail,item_group_id', 'item_id', sampleIds,
           q => q.not('thumbnail','is',null));
         const thumbByItem = new Map(thumbRows.map(r => [r.item_id, r.thumbnail]));
-        topMovers.forEach(m => { m.thumb = thumbByItem.get(m.sampleItemId) || null; });
-        // Fallback: try other items in same item_group_id
-        const missing = topMovers.filter(m => !m.thumb && m.id && !m.id.startsWith('single-'));
+        allProducts.forEach(m => { m.thumb = thumbByItem.get(m.sampleItemId) || null; });
+        // Fallback: try any item in same item_group_id
+        const missing = allProducts.filter(m => !m.thumb && m.id && typeof m.id === 'number' || (typeof m.id === 'string' && !m.id.startsWith('single-')));
         if (missing.length) {
-          const grpIds = missing.map(m => Number(m.id));
-          const grpThumbs = await _fetchAllPagesIn('jubelio_items', 'item_group_id,thumbnail', 'item_group_id', grpIds,
-            q => q.not('thumbnail','is',null));
-          const byGrp = new Map();
-          grpThumbs.forEach(r => { if (!byGrp.has(r.item_group_id)) byGrp.set(r.item_group_id, r.thumbnail); });
-          missing.forEach(m => { m.thumb = byGrp.get(Number(m.id)) || null; });
+          const grpIds = missing.map(m => Number(m.id)).filter(n => !isNaN(n));
+          if (grpIds.length) {
+            const grpThumbs = await _fetchAllPagesIn('jubelio_items', 'item_group_id,thumbnail', 'item_group_id', grpIds,
+              q => q.not('thumbnail','is',null));
+            const byGrp = new Map();
+            grpThumbs.forEach(r => { if (!byGrp.has(r.item_group_id)) byGrp.set(r.item_group_id, r.thumbnail); });
+            missing.forEach(m => { m.thumb = byGrp.get(Number(m.id)) || null; });
+          }
         }
       } catch(_) { /* thumbnails non-critical */ }
     }
@@ -32058,6 +32089,23 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
   const channelMix = [...channelMap.entries()]
     .map(([k,v]) => ({ name:k, units:v.units, revenue:Math.round(v.revenue), pct: revenue ? (v.revenue/revenue)*100 : 0 }))
     .sort((a,b) => b.revenue - a.revenue);
+
+  // Pop-up Booth events untuk IP ini selama periode (informational, gak additive
+  // karena popup sales udah ada di main Jubelio revenue via id_pesanan_jubelio).
+  let popupEvents = [];
+  try {
+    const { data: events } = await sb.from('popup_booths')
+      .select('id,event_name,event_date,location,actual_sales,qty_brought,reinbound_qty,event_status')
+      .eq('ip_related', ipName)
+      .gte('event_date', startD)
+      .lte('event_date', endD)
+      .order('event_date', { ascending: false });
+    popupEvents = (events||[]).map(e => ({
+      id: e.id, name: e.event_name || '(Untitled)', date: e.event_date, location: e.location||'—',
+      sales: parseFloat(e.actual_sales)||0, broughtQty: parseInt(e.qty_brought)||0,
+      reinboundQty: parseInt(e.reinbound_qty)||0, status: e.event_status||'—',
+    }));
+  } catch(_) { /* popup non-critical */ }
 
   // Build trend array: 12 months ending at periodEnd, fill 0 for missing months
   const trend = [];
@@ -32119,7 +32167,7 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
     royaltyType, royaltyPct, pphRate, fixedAmt,
     totals: { revenue: Math.round(revenue), units, orders: orderCount, aov, royaltyGross, royaltyPph, royaltyNet },
     prior:  { revenue: Math.round(priorRevenue), units: priorUnits, growthPct },
-    topMovers, channelMix, trend,
+    topMovers, allProducts, channelMix, trend, popupEvents,
     itemCount: itemIds.length, parentCount: parentMap.size,
     compiledAt: new Date().toISOString(),
   };
@@ -32161,14 +32209,17 @@ function _iprBuildNarrative(s) {
 }
 
 // ── SVG bar chart for monthly trend ──
+// metric: 'revenue' (Rp) atau 'units' (pcs). User wanted both di trend section.
 function _iprRenderTrendSVG(trend, opts={}) {
   if (!trend || !trend.length) return '<div style="color:var(--g400);font-style:italic;padding:12px">Tidak ada data trend.</div>';
   const W = opts.width  || 720;
   const H = opts.height || 200;
-  const padL = 50, padR = 12, padT = 12, padB = 36;
+  const padL = 56, padR = 12, padT = 12, padB = 36;
   const innerW = W - padL - padR;
   const innerH = H - padT - padB;
-  const maxRev = Math.max(...trend.map(t => t.revenue||0), 1);
+  const metric = opts.metric || 'revenue';
+  const valOf = t => metric === 'units' ? (t.units||0) : (t.revenue||0);
+  const maxVal = Math.max(...trend.map(valOf), 1);
   const barW = innerW / trend.length * 0.7;
   const gap  = innerW / trend.length * 0.3;
   const dark = opts.dark || false;
@@ -32181,22 +32232,28 @@ function _iprRenderTrendSVG(trend, opts={}) {
     if (n >= 1e3) return (n/1e3).toFixed(0)+'K';
     return String(n||0);
   };
+  const fmtUnit = n => {
+    if (n >= 1000) return (n/1000).toFixed(1).replace(/\.0$/,'')+'k';
+    return String(n||0);
+  };
+  const fmtAbbr = metric === 'units' ? fmtUnit : fmtRpAbbr;
   // Y-axis: 4 grid lines
   const yTicks = [];
   for (let i=0; i<=4; i++) {
-    const v = Math.round((maxRev * i / 4));
+    const v = Math.round((maxVal * i / 4));
     const y = padT + innerH - (innerH * i / 4);
     yTicks.push(`<line x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}" stroke="${lineColor}" stroke-opacity="0.15" stroke-width="0.5"/>
-      <text x="${padL-6}" y="${y+3}" font-size="9" font-family="IBM Plex Mono, monospace" fill="${labelColor}" text-anchor="end">${fmtRpAbbr(v)}</text>`);
+      <text x="${padL-6}" y="${y+3}" font-size="9" font-family="IBM Plex Mono, monospace" fill="${labelColor}" text-anchor="end">${fmtAbbr(v)}</text>`);
   }
   // Bars
   const bars = trend.map((t,i) => {
+    const v = valOf(t);
     const x = padL + (innerW / trend.length * i) + gap/2;
-    const h = maxRev > 0 ? (t.revenue||0) / maxRev * innerH : 0;
+    const h = maxVal > 0 ? v / maxVal * innerH : 0;
     const y = padT + innerH - h;
     return `<rect x="${x}" y="${y}" width="${barW}" height="${h}" fill="${barColor}"/>
       <text x="${x+barW/2}" y="${H-padB+14}" font-size="9" font-family="IBM Plex Mono, monospace" fill="${labelColor}" text-anchor="middle" letter-spacing="-0.2">${t.label}</text>
-      ${t.revenue>0?`<text x="${x+barW/2}" y="${y-3}" font-size="8" font-family="IBM Plex Mono, monospace" fill="${labelColor}" text-anchor="middle">${fmtRpAbbr(t.revenue)}</text>`:''}`;
+      ${v>0?`<text x="${x+barW/2}" y="${y-3}" font-size="8" font-family="IBM Plex Mono, monospace" fill="${labelColor}" text-anchor="middle">${fmtAbbr(v)}</text>`:''}`;
   }).join('');
   return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block">
     ${yTicks.join('')}
@@ -32216,11 +32273,12 @@ function _iprRenderPreviewHTML(b) {
   }
   const growthClr = s.prior.growthPct == null ? 'var(--g400)' : s.prior.growthPct >= 0 ? '#0a7d3a' : '#c0392b';
   const growthStr = s.prior.growthPct == null ? '—' : `${s.prior.growthPct>=0?'+':''}${s.prior.growthPct.toFixed(1)}%`;
-  const topTable = s.topMovers.length ? `<table style="width:100%;border-collapse:collapse;font-size:13px">
+  const allProducts = s.allProducts || s.topMovers || [];
+  const allProdTable = allProducts.length ? `<table style="width:100%;border-collapse:collapse;font-size:13px">
     <thead><tr style="border-bottom:1px solid var(--g100);font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">
       <th style="padding:6px;text-align:left">#</th><th style="padding:6px;text-align:left" colspan="2">Product</th><th style="padding:6px;text-align:right">Units</th><th style="padding:6px;text-align:right">Revenue</th><th style="padding:6px;text-align:right">% Share</th>
     </tr></thead>
-    <tbody>${s.topMovers.map((t,i) => `<tr style="border-top:1px solid var(--g100)">
+    <tbody>${allProducts.map((t,i) => `<tr style="border-top:1px solid var(--g100)">
       <td style="padding:8px 6px;font-family:var(--mono);color:var(--g400);vertical-align:middle">${i+1}</td>
       <td style="padding:6px;width:52px;vertical-align:middle">${t.thumb?`<img src="${t.thumb}" style="width:44px;height:44px;object-fit:cover;border:1px solid var(--g100);display:block">`:`<div style="width:44px;height:44px;background:var(--off);border:1px solid var(--g100);display:flex;align-items:center;justify-content:center;color:var(--g400);font-size:10px">—</div>`}</td>
       <td style="padding:8px 6px;vertical-align:middle">${(t.name||'').replace(/</g,'&lt;')}</td>
@@ -32229,6 +32287,28 @@ function _iprRenderPreviewHTML(b) {
       <td style="padding:8px 6px;text-align:right;font-family:var(--mono);color:var(--g600);vertical-align:middle">${s.totals.revenue?((t.revenue/s.totals.revenue)*100).toFixed(1):'0'}%</td>
     </tr>`).join('')}</tbody>
   </table>` : '<div style="color:var(--g400);font-style:italic">Tidak ada data.</div>';
+  const popupEvents = s.popupEvents || [];
+  const popupTable = popupEvents.length ? `<table style="width:100%;border-collapse:collapse;font-size:13px">
+    <thead><tr style="border-bottom:1px solid var(--g100);font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">
+      <th style="padding:6px;text-align:left">Tanggal</th><th style="padding:6px;text-align:left">Event</th><th style="padding:6px;text-align:left">Lokasi</th><th style="padding:6px;text-align:right">Qty Out</th><th style="padding:6px;text-align:right">Reinbound</th><th style="padding:6px;text-align:right">Sold</th><th style="padding:6px;text-align:right">Actual Sales</th>
+    </tr></thead>
+    <tbody>${popupEvents.map(e => `<tr style="border-top:1px solid var(--g100)">
+      <td style="padding:8px 6px;font-family:var(--mono);font-size:11px;white-space:nowrap">${fmtD(e.date)}</td>
+      <td style="padding:8px 6px"><b>${(e.name||'').replace(/</g,'&lt;')}</b></td>
+      <td style="padding:8px 6px;color:var(--g600);font-size:12px">${(e.location||'—').replace(/</g,'&lt;')}</td>
+      <td style="padding:8px 6px;text-align:right;font-family:var(--mono)">${e.broughtQty||0}</td>
+      <td style="padding:8px 6px;text-align:right;font-family:var(--mono)">${e.reinboundQty||0}</td>
+      <td style="padding:8px 6px;text-align:right;font-family:var(--mono);font-weight:600">${(e.broughtQty||0) - (e.reinboundQty||0)}</td>
+      <td style="padding:8px 6px;text-align:right;font-family:var(--mono);font-weight:600">${e.sales?fmtRp(e.sales):'—'}</td>
+    </tr>`).join('')}
+    <tr style="border-top:2px solid var(--black);background:var(--off);font-weight:700"><td colspan="3" style="padding:8px 6px">TOTAL ${popupEvents.length} EVENTS</td>
+      <td style="padding:8px 6px;text-align:right;font-family:var(--mono)">${popupEvents.reduce((s,e)=>s+(e.broughtQty||0),0)}</td>
+      <td style="padding:8px 6px;text-align:right;font-family:var(--mono)">${popupEvents.reduce((s,e)=>s+(e.reinboundQty||0),0)}</td>
+      <td style="padding:8px 6px;text-align:right;font-family:var(--mono)">${popupEvents.reduce((s,e)=>s+((e.broughtQty||0)-(e.reinboundQty||0)),0)}</td>
+      <td style="padding:8px 6px;text-align:right;font-family:var(--mono)">${fmtRp(popupEvents.reduce((s,e)=>s+(e.sales||0),0))}</td>
+    </tr>
+    </tbody>
+  </table>` : '<div style="color:var(--g400);font-style:italic;font-size:12px;padding:8px">Tidak ada event Pop-up di periode ini.</div>';
   const chTable = s.channelMix.length ? `<table style="width:100%;border-collapse:collapse;font-size:13px">
     <thead><tr style="border-bottom:1px solid var(--g100);font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">
       <th style="padding:6px;text-align:left">Channel</th><th style="padding:6px;text-align:right">Units</th><th style="padding:6px;text-align:right">Revenue</th><th style="padding:6px;text-align:right">% Share</th>
@@ -32284,15 +32364,23 @@ function _iprRenderPreviewHTML(b) {
     </div>
     <div style="margin-bottom:18px">
       <div style="font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--g400);margin-bottom:10px">12-Month Revenue Trend</div>
-      <div style="border:1px solid var(--g100);padding:12px;border-radius:6px">${_iprRenderTrendSVG(s.trend)}</div>
+      <div style="border:1px solid var(--g100);padding:12px;border-radius:6px">${_iprRenderTrendSVG(s.trend, {metric:'revenue'})}</div>
     </div>
     <div style="margin-bottom:18px">
-      <div style="font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--g400);margin-bottom:10px">Top Movers</div>
-      ${topTable}
+      <div style="font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--g400);margin-bottom:10px">12-Month Units Sold</div>
+      <div style="border:1px solid var(--g100);padding:12px;border-radius:6px">${_iprRenderTrendSVG(s.trend, {metric:'units'})}</div>
     </div>
-    <div>
+    <div style="margin-bottom:18px">
+      <div style="font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--g400);margin-bottom:10px">All Products Sold (${allProducts.length})</div>
+      ${allProdTable}
+    </div>
+    <div style="margin-bottom:18px">
       <div style="font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--g400);margin-bottom:10px">Channel Mix</div>
       ${chTable}
+    </div>
+    <div>
+      <div style="font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--g400);margin-bottom:10px">Pop-up Events (${popupEvents.length})</div>
+      ${popupTable}
     </div>
   </div>`;
 }
@@ -32317,7 +32405,8 @@ function iprGeneratePDF() {
   const growthStr = s.prior.growthPct == null ? '—' : `${s.prior.growthPct>=0?'+':''}${s.prior.growthPct.toFixed(1)}%`;
   const escHtml = t => (t||'').toString().replace(/</g,'&lt;');
 
-  const topRows = s.topMovers.map((t,i) => `<tr>
+  const allProducts = s.allProducts || s.topMovers || [];
+  const allProdRows = allProducts.map((t,i) => `<tr>
     <td class="num">${i+1}</td>
     <td class="thumb-td">${t.thumb?`<img src="${t.thumb}" alt="" style="width:56px;height:56px;object-fit:cover;display:block;border:1px solid #3d3d3d">`:`<div style="width:56px;height:56px;background:transparent;border:1px solid #3d3d3d;display:flex;align-items:center;justify-content:center;color:#3d3d3d;font-size:10px">—</div>`}</td>
     <td>${escHtml(t.name)}</td>
@@ -32326,12 +32415,27 @@ function iprGeneratePDF() {
     <td class="num">${s.totals.revenue?((t.revenue/s.totals.revenue)*100).toFixed(1):'0'}%</td>
   </tr>`).join('');
 
-  const chRows = s.channelMix.slice(0,8).map(c => `<tr>
+  const chRows = s.channelMix.map(c => `<tr>
     <td>${escHtml(c.name)}</td>
     <td class="num">${c.units.toLocaleString('id-ID')}</td>
     <td class="num">${fmtRp(c.revenue)}</td>
     <td class="num">${c.pct.toFixed(1)}%</td>
   </tr>`).join('');
+
+  const popupEvents = s.popupEvents || [];
+  const popupRows = popupEvents.map(e => `<tr>
+    <td style="white-space:nowrap">${fmtD(e.date)}</td>
+    <td><b>${escHtml(e.name)}</b></td>
+    <td>${escHtml(e.location||'—')}</td>
+    <td class="num">${e.broughtQty||0}</td>
+    <td class="num">${e.reinboundQty||0}</td>
+    <td class="num">${(e.broughtQty||0) - (e.reinboundQty||0)}</td>
+    <td class="num">${e.sales?fmtRp(e.sales):'—'}</td>
+  </tr>`).join('');
+  const popupTotalSales   = popupEvents.reduce((t,e)=>t+(e.sales||0), 0);
+  const popupTotalBrought = popupEvents.reduce((t,e)=>t+(e.broughtQty||0), 0);
+  const popupTotalReinb   = popupEvents.reduce((t,e)=>t+(e.reinboundQty||0), 0);
+  const popupTotalSold    = popupTotalBrought - popupTotalReinb;
 
   w.document.open();
   w.document.write(`<!doctype html><html lang="id"><head><meta charset="utf-8">
@@ -32421,15 +32525,20 @@ function iprGeneratePDF() {
   </div>
 
   <div class="section">
-    <h2>12-Month Trend</h2>
-    <div class="trend-box">${_iprRenderTrendSVG(s.trend, {dark:true, width:1000, height:240})}</div>
+    <h2>12-Month Revenue Trend</h2>
+    <div class="trend-box">${_iprRenderTrendSVG(s.trend, {dark:true, width:1000, height:240, metric:'revenue'})}</div>
   </div>
 
   <div class="section">
-    <h2>Top Movers</h2>
+    <h2>12-Month Units Sold</h2>
+    <div class="trend-box">${_iprRenderTrendSVG(s.trend, {dark:true, width:1000, height:240, metric:'units'})}</div>
+  </div>
+
+  <div class="section">
+    <h2>All Products Sold (${allProducts.length})</h2>
     <table>
       <thead><tr><th style="width:40px">#</th><th style="width:72px">Image</th><th>Product</th><th class="num">Units</th><th class="num">Revenue</th><th class="num">% Share</th></tr></thead>
-      <tbody>${topRows||'<tr><td colspan="6" style="opacity:0.5;font-style:italic">Tidak ada data.</td></tr>'}</tbody>
+      <tbody>${allProdRows||'<tr><td colspan="6" style="opacity:0.5;font-style:italic">Tidak ada data.</td></tr>'}</tbody>
     </table>
   </div>
 
@@ -32440,10 +32549,25 @@ function iprGeneratePDF() {
       <tbody>${chRows||'<tr><td colspan="4" style="opacity:0.5;font-style:italic">Tidak ada data.</td></tr>'}</tbody>
     </table>
   </div>
+
+  <div class="section">
+    <h2>Pop-up Events (${popupEvents.length})</h2>
+    ${popupEvents.length ? `<table>
+      <thead><tr><th>Tanggal</th><th>Event</th><th>Lokasi</th><th class="num">Qty Out</th><th class="num">Reinbound</th><th class="num">Sold</th><th class="num">Actual Sales</th></tr></thead>
+      <tbody>${popupRows}
+      <tr style="border-top:2px solid #e2e2e2;font-weight:600"><td colspan="3" style="padding-top:16px">TOTAL ${popupEvents.length} EVENTS</td>
+        <td class="num" style="padding-top:16px">${popupTotalBrought}</td>
+        <td class="num" style="padding-top:16px">${popupTotalReinb}</td>
+        <td class="num" style="padding-top:16px">${popupTotalSold}</td>
+        <td class="num" style="padding-top:16px">${fmtRp(popupTotalSales)}</td>
+      </tr>
+      </tbody>
+    </table>` : `<div style="opacity:0.5;font-style:italic;padding:16px 0">Tidak ada event Pop-up di periode ini.</div>`}
+  </div>
   `}
 
   <div class="footer">
-    <div class="wordmark">sentra</div>
+    <div class="wordmark">${escHtml(_iprPickBrandWordmark(b.revStream))}</div>
     <div class="stamp">${escHtml(b.ipName)}<br>${ptLbl[b.periodType]||b.periodType}<br>${fmtD(b.periodStart)} — ${fmtD(b.periodEnd)}</div>
   </div>
 </div>
