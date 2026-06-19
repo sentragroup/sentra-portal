@@ -32300,15 +32300,29 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
     }
   } catch(err) { console.error('IPR popup err', err); }
 
-  // Build trend array: 12 months ending at periodEnd, fill 0 for missing months
+  // Build trend array: cover SEMUA bulan dari period start (clamped ke first
+  // sale kalau gak ada data sebelumnya) sampai period end. Bukan fixed 12
+  // bulan lagi. Monthly report = 1 bulan, Quarterly = 3, All-Time = bisa
+  // banyak (e.g. 30+ bulan).
   const trend = [];
-  const endDt = new Date(endD+'T00:00:00');
-  let trY = endDt.getFullYear(), trM = endDt.getMonth()+1;
-  for (let i = 0; i < 12; i++) {
+  // Cari earliest month dari monthMap (kalau ada data dalam period+trend window)
+  const dataYMs = [...monthMap.keys()].sort();
+  const startParts = startD.split('-');
+  let trStartYM = `${startParts[0]}-${startParts[1]}`;
+  // Kalau first data month later than period start, use data start (skip empty leading months)
+  if (dataYMs.length && dataYMs[0] > trStartYM) trStartYM = dataYMs[0];
+  const endParts = endD.split('-');
+  const trEndYM = `${endParts[0]}-${endParts[1]}`;
+  let [trY, trM] = trStartYM.split('-').map(Number);
+  const [endTrY, endTrM] = trEndYM.split('-').map(Number);
+  const monthsInRange = (endTrY - trY) * 12 + (endTrM - trM) + 1;
+  // Safety cap: 60 bulan max biar chart gak meledak
+  const cap = Math.min(monthsInRange, 60);
+  for (let i = 0; i < cap; i++) {
     const ym = `${trY}-${String(trM).padStart(2,'0')}`;
     const mm = monthMap.get(ym) || { revenue:0, units:0 };
-    trend.unshift({ ym, label: new Date(trY, trM-1, 1).toLocaleDateString('id-ID',{month:'short',year:'2-digit'}).toUpperCase(), revenue: Math.round(mm.revenue), units: mm.units });
-    trM--; if (trM < 1) { trM = 12; trY--; }
+    trend.push({ ym, label: new Date(trY, trM-1, 1).toLocaleDateString('id-ID',{month:'short',year:'2-digit'}).toUpperCase(), revenue: Math.round(mm.revenue), units: mm.units });
+    trM++; if (trM > 12) { trM = 1; trY++; }
   }
 
   // Prior period growth — sum qty×price for same-length range immediately before period.
@@ -32489,7 +32503,7 @@ function _iprRenderRoyaltyTable(s, opts={}) {
         <td style="padding:6px;text-align:right;font-family:'IBM Plex Mono',monospace;font-weight:500">${fmtRp(r.balance)}</td>
       </tr>`).join('')}
       <tr style="border-top:2px solid #000;font-weight:500;background:#fafafa">
-        <td style="padding:8px 6px;font-family:'IBM Plex Mono',monospace">TOTAL 12 BULAN</td>
+        <td style="padding:8px 6px;font-family:'IBM Plex Mono',monospace">TOTAL ${rows.length} BULAN</td>
         <td style="padding:8px 6px;text-align:right;font-family:'IBM Plex Mono',monospace">${fmtRp(totalRev)}</td>
         <td style="padding:8px 6px;text-align:right;font-family:'IBM Plex Mono',monospace">${fmtRp(totalGross)}</td>
         <td style="padding:8px 6px;text-align:right;font-family:'IBM Plex Mono',monospace;color:#c0392b">${totalPph?'− '+fmtRp(totalPph):'—'}</td>
@@ -32518,7 +32532,7 @@ function _iprRenderRoyaltyTable(s, opts={}) {
       <td style="padding:8px 6px;text-align:right;font-family:var(--mono);font-weight:600">${fmtRp(r.balance)}</td>
     </tr>`).join('')}
     <tr style="border-top:2px solid var(--black);background:var(--off);font-weight:700">
-      <td style="padding:8px 6px">TOTAL 12 BULAN</td>
+      <td style="padding:8px 6px">TOTAL ${rows.length} BULAN</td>
       <td style="padding:8px 6px;text-align:right;font-family:var(--mono)">${fmtRp(totalRev)}</td>
       <td style="padding:8px 6px;text-align:right;font-family:var(--mono)">${fmtRp(totalGross)}</td>
       <td style="padding:8px 6px;text-align:right;font-family:var(--mono);color:#c0392b">${totalPph?'− '+fmtRp(totalPph):'—'}</td>
@@ -32749,7 +32763,7 @@ function _iprRenderPreviewHTML(b) {
       </div>
     </div>` : ''}
     <div style="margin-bottom:18px">
-      <div style="font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--g400);margin-bottom:10px">12-Month Trend</div>
+      <div style="font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--g400);margin-bottom:10px">Monthly Trend (${(s.trend||[]).length} bulan)</div>
       <div style="border:1px solid var(--g100);padding:12px;border-radius:6px;margin-bottom:12px">${_iprRenderTrendSVG(s.trend, {dual:true})}</div>
       ${_iprRenderRoyaltyTable(s)}
     </div>
@@ -32921,7 +32935,7 @@ function iprGeneratePDF() {
   </div>
 
   <div class="section">
-    <h2>12-Month Trend</h2>
+    <h2>Monthly Trend (${(s.trend||[]).length} bulan)</h2>
     <div class="trend-box" style="margin-bottom:16px">${_iprRenderTrendSVG(s.trend, {width:900, height:260, dual:true})}</div>
     ${_iprRenderRoyaltyTable(s, {dark:true})}
   </div>
