@@ -31675,22 +31675,31 @@ function _iprPickBrandWordmark(revStream) {
   return revStream.split(',')[0].trim().toUpperCase();
 }
 
-// Normalize Jubelio channel/store names jadi 1 bucket per platform.
-// Sebelumnya: SHOPEE × 3 stores = 3 baris. Sekarang: semua jadi 1 "Shopee".
-function _iprNormalizeChannel(channelName, storeName) {
-  const c = (channelName||'').toUpperCase();
-  if (c.includes('SHOPEE'))   return 'Shopee';
-  if (c.includes('TOKOPEDIA'))return 'Tokopedia';
-  if (c.includes('TIKTOK'))   return 'TikTok Shop';
-  if (c.includes('LAZADA'))   return 'Lazada';
-  if (c.includes('BLIBLI'))   return 'Blibli';
-  if (c.includes('SHOPIFY'))  return 'Shopify (Online Store)';
-  if (c.includes('PLUGO'))    return 'Plugo';
-  if (c.includes('JUBELIO-POS') || c.includes('POS')) return 'Offline / POS';
-  if (c.includes('INTERNAL')) return 'Internal / Manual';
-  // Fallback: title-case raw value
-  if (channelName) return channelName.charAt(0)+channelName.slice(1).toLowerCase();
-  return 'Unknown';
+// Channel mapping — Sentra business rules. Order matters:
+// 1) Catatan/note check (TOUR tags overrides all)
+// 2) Customer name patterns (Shopee International, customer dictionaries)
+// 3) Salesorder no patterns (MARTE prefix)
+// 4) Channel name mapping (with PLUGO=Webstore Lagaa, Shop|Tokopedia=Tiktok Shop)
+// Default: 'Reseller'.
+function _iprNormalizeChannel(channelName, storeName, note, customerName, salesorderNo) {
+  const n  = (note||'').toString();
+  const cu = (customerName||'').toString();
+  const sn = (salesorderNo||'').toString();
+  const ch = (channelName||'').toString();
+  if (/TOUR/i.test(n)) return 'Tour';
+  if (/Shopee International Platform/i.test(cu)) return 'Shopee International';
+  if (/MARTE/i.test(sn)) return 'Marte Store';
+  if (['Pelanggan Umum','SDY - GIG SALES','SDY - OFFLINE SALES'].includes(cu)) return 'Offline Booth';
+  if (cu === 'SDY - Employee Purchase') return 'Employee Purchase';
+  if (cu === 'licensor purchase')       return 'Licensor Purchase';
+  if (cu === 'SDY - Reseller')          return 'Reseller Platform';
+  if (cu === 'SDY - Freebies')          return 'Freebies';
+  if (ch === 'SHOPEE')                  return 'Shopee';
+  if (ch === 'TOKOPEDIA')               return 'Tokopedia';
+  if (ch === 'Shop | Tokopedia')        return 'Tiktok Shop';
+  if (ch === 'PLUGO')                   return 'Webstore Lagaa';
+  if (ch === 'SHOPIFY')                 return 'Webstore SD&Y';
+  return 'Reseller';
 }
 
 function mapIPReport(r) {
@@ -31944,15 +31953,18 @@ async function iprGenerate() {
 }
 
 async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
-  // Source of truth: same filter as Royalty Report — wms_status='COMPLETED'
-  // and exclude is_canceled_item. Match items to IP via product_mappings.ip.
+  // Source of truth: Sales Performance module logic.
+  // Status: COMPLETED + FINISH_PACK + FINISH_PICK + CLOSED (broader than Royalty).
+  // Per-item revenue: qty × price (raw, NOT amount field — amount can be off
+  // for marketplace orders). Pre-2026 data from jubelio_sales_history.
+  const SP_COMPLETED = ['COMPLETED','FINISH_PACK','FINISH_PICK','CLOSED'];
+  const SP_CUTOFF    = '2026-01-01';   // jubelio_sales_orders starts here
+
   const startISO = `${startD}T00:00:00+07:00`;
   const endIncl = new Date(endD+'T00:00:00'); endIncl.setDate(endIncl.getDate()+1);
   const endISO  = endIncl.toISOString().slice(0,10) + 'T00:00:00+07:00';
 
-  // Trend window: 12 months ending at periodEnd (gives context even if
-  // period itself is just 1 week/month). For all_time longer than 24 months,
-  // we'd cap; but query already returns only items belonging to this IP.
+  // Trend window: 12 months ending at periodEnd
   const trendStart = new Date(endD+'T00:00:00');
   trendStart.setDate(1);
   trendStart.setMonth(trendStart.getMonth() - 11);
@@ -31973,65 +31985,82 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
   const royaltyType = (ipCfg.royalty_type || '').trim() || (royaltyPct ? 'Post-Sales' : (fixedAmt ? 'Advance' : '—'));
   const pphRate     = parseFloat(ipCfg.pph_tax_rate  || 0) || 0;
 
-  // IP item IDs (paginated)
+  // Need data from sales_history (pre-2026)?
+  const needHistory = fetchStart < SP_CUTOFF;
+  const needOrders  = endD >= SP_CUTOFF;
+
+  // ── A. 2026+ from jubelio_sales_orders ──
   const pmRows = await _fetchAllPages('product_mappings', 'jubelio_item_id,item_name,ip',
     q => q.eq('ip', ipName).not('jubelio_item_id','is',null));
   const itemIds = [...new Set(pmRows.map(r => r.jubelio_item_id))];
-  if (!itemIds.length) {
-    return {
-      ipName, startD, endD, empty:true, royaltyType, royaltyPct, pphRate, fixedAmt,
-      totals:{revenue:0,units:0,orders:0,aov:0,royaltyGross:0,royaltyPph:0,royaltyNet:0},
-      prior:{revenue:0,units:0,growthPct:null}, topMovers:[], channelMix:[], trend:[],
-      itemCount:0, parentCount:0,
-      narrative:'Belum ada SKU mapped ke IP ini di product_mappings — perlu setup mapping dulu.',
-    };
-  }
-
-  // Trend-window orders (wms_status COMPLETED, not canceled) — covers BOTH
-  // period + trend in one query, less roundtrips.
-  const orders = await _fetchAllPages('jubelio_sales_orders',
-    'salesorder_id,transaction_date,channel_name,store_name,wms_status,is_canceled',
-    q => q.eq('wms_status','COMPLETED').eq('is_canceled', false)
-          .gte('transaction_date', fetchStartISO)
-          .lt('transaction_date', endISO));
-  const ordersById = new Map(orders.map(o => [o.salesorder_id, o]));
-  const orderIds = orders.map(o => o.salesorder_id);
-
-  if (!orderIds.length) {
-    return {
-      ipName, startD, endD, empty:true, royaltyType, royaltyPct, pphRate, fixedAmt,
-      totals:{revenue:0,units:0,orders:0,aov:0,royaltyGross:0,royaltyPph:0,royaltyNet:0},
-      prior:{revenue:0,units:0,growthPct:null}, topMovers:[], channelMix:[], trend:[],
-      itemCount: itemIds.length, parentCount: 0,
-      narrative: 'Belum ada transaksi COMPLETED untuk periode/trend window ini.',
-    };
-  }
-
-  // Items for those orders, filtered to this IP, not canceled
-  const allItems = await _fetchAllPagesIn('jubelio_sales_order_items',
-    'salesorder_id,item_id,item_group_id,item_name,qty,price,disc_amount,amount,is_canceled_item',
-    'salesorder_id', orderIds);
   const itemIdSet = new Set(itemIds);
-  const ipItems = allItems.filter(it => !it.is_canceled_item && itemIdSet.has(it.item_id));
+  // Also build a name→IP lookup so we catch variants whose item_id doesn't match
+  // the representative mapping (Sales Performance does this fallback).
+  const pmAll = await _fetchAllPages('product_mappings', 'jubelio_item_id,item_name,ip', q => q);
+  const nameToIp = new Map();
+  pmAll.forEach(m => { if (m.item_name && m.ip) nameToIp.set(m.item_name, m.ip); });
 
-  // Aggregate trend (full window) + period (subset)
+  // 2026+ orders for trend+period window (broader status filter)
+  let orders = [], orderIds = [], ordersById = new Map();
+  if (needOrders) {
+    const ordFrom = (fetchStart > SP_CUTOFF) ? fetchStart : SP_CUTOFF;
+    orders = await _fetchAllPages('jubelio_sales_orders',
+      'salesorder_id,transaction_date,channel_name,store_name,wms_status,sub_total,total_disc,note,customer_name,salesorder_no',
+      q => q.in('wms_status', SP_COMPLETED)
+            .gte('transaction_date', `${ordFrom}T00:00:00+07:00`)
+            .lt('transaction_date', endISO));
+    orderIds = orders.map(o => o.salesorder_id);
+    ordersById = new Map(orders.map(o => [o.salesorder_id, o]));
+  }
+
+  // 2026+ items for those orders (filtered to this IP)
+  let ipItems = [];
+  if (orderIds.length) {
+    const allItems = await _fetchAllPagesIn('jubelio_sales_order_items',
+      'salesorder_id,item_id,item_group_id,item_name,qty,price,disc_amount',
+      'salesorder_id', orderIds);
+    // Dedup by (salesorder_id, item_id) — sync can produce dupes
+    const seen = new Set();
+    const deduped = allItems.filter(it => {
+      const k = `${it.salesorder_id}:${it.item_id}`;
+      if (seen.has(k)) return false;
+      seen.add(k); return true;
+    });
+    // Filter to this IP: by item_id OR by item_name fallback (variant catch).
+    ipItems = deduped.filter(it => itemIdSet.has(it.item_id) || nameToIp.get(it.item_name) === ipName);
+  }
+
+  // ── B. Pre-2026 from jubelio_sales_history ──
+  let histItems = [];
+  if (needHistory) {
+    const histTo = (endD < SP_CUTOFF) ? endD : '2025-12-31';
+    const histRows = await _fetchAllPages('jubelio_sales_history',
+      'salesorder_no,transaction_date,channel_name,store_name,status,item_id,item_name,qty,amount,ip',
+      q => q.gte('transaction_date', fetchStart).lte('transaction_date', histTo).eq('ip', ipName));
+    // Status filter — convert to upper, check membership
+    histItems = histRows.filter(r => SP_COMPLETED.includes((r.status||'').toUpperCase()));
+  }
+
+  // Aggregation buckets
+  let revenue = 0, units = 0;
+  const orderSet = new Set();
+  const parentMap = new Map();
+  const channelMap = new Map();
+  const monthMap = new Map();
   const inPeriod = dt => dt >= startISO && dt < endISO;
   const wibYM = dt => {
     const wib = new Date(new Date(dt).getTime() + 7*3600000);
     return `${wib.getUTCFullYear()}-${String(wib.getUTCMonth()+1).padStart(2,'0')}`;
   };
 
-  let revenue = 0, units = 0;
-  const orderSet = new Set();
-  const parentMap = new Map();
-  const channelMap = new Map();
-  const monthMap = new Map(); // 'YYYY-MM' → {revenue, units}
-
+  // 2026+ aggregation
   for (const it of ipItems) {
     const o = ordersById.get(it.salesorder_id);
     if (!o) continue;
     const qty   = parseFloat(it.qty||0) || 0;
-    const gross = parseFloat(it.amount||0) || (qty * (parseFloat(it.price||0)||0) - (parseFloat(it.disc_amount||0)||0));
+    const price = parseFloat(it.price||0) || 0;
+    // SP logic: per-item revenue = qty × price (raw, no discount allocation)
+    const gross = qty * price;
     // Monthly bucket (trend)
     const ym = wibYM(o.transaction_date);
     const mm = monthMap.get(ym) || { revenue:0, units:0 };
@@ -32046,10 +32075,45 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
     cur.units += qty; cur.revenue += gross;
     if (it.item_name && (cur.name === '(unnamed)' || it.item_name.length < cur.name.length)) cur.name = it.item_name;
     parentMap.set(grpKey, cur);
-    const ch = _iprNormalizeChannel(o.channel_name, o.store_name);
+    // Channel mapping pakai semua field
+    const ch = _iprNormalizeChannel(o.channel_name, o.store_name, o.note, o.customer_name, o.salesorder_no);
     const c = channelMap.get(ch) || { units:0, revenue:0 };
     c.units += qty; c.revenue += gross;
     channelMap.set(ch, c);
+  }
+
+  // Pre-2026 aggregation (history rows don't have note/customer_name — use channel only)
+  for (const r of histItems) {
+    const dtISO = (r.transaction_date||'').length === 10 ? `${r.transaction_date}T00:00:00+07:00` : r.transaction_date;
+    const qty   = parseFloat(r.qty||0) || 0;
+    const amt   = parseFloat(r.amount||0) || 0;
+    // History rows have aggregate `amount` per line (no separate price). Use as-is.
+    const gross = amt;
+    const ym = wibYM(dtISO);
+    const mm = monthMap.get(ym) || { revenue:0, units:0 };
+    mm.revenue += gross; mm.units += qty;
+    monthMap.set(ym, mm);
+    if (!inPeriod(dtISO)) continue;
+    revenue += gross; units += qty;
+    orderSet.add('H:'+r.salesorder_no);
+    const grpKey = `hist-${r.item_name||'?'}`;
+    const cur = parentMap.get(grpKey) || { name: r.item_name||'(unnamed)', units:0, revenue:0, sampleItemId:null, itemGroupId:null };
+    cur.units += qty; cur.revenue += gross;
+    parentMap.set(grpKey, cur);
+    const ch = _iprNormalizeChannel(r.channel_name, r.store_name, null, null, r.salesorder_no);
+    const c = channelMap.get(ch) || { units:0, revenue:0 };
+    c.units += qty; c.revenue += gross;
+    channelMap.set(ch, c);
+  }
+
+  if (!parentMap.size) {
+    return {
+      ipName, startD, endD, empty:true, royaltyType, royaltyPct, pphRate, fixedAmt,
+      totals:{revenue:0,units:0,orders:0,aov:0,royaltyGross:0,royaltyPph:0,royaltyNet:0},
+      prior:{revenue:0,units:0,growthPct:null}, topMovers:[], allProducts:[], channelMix:[], trend:[], popupEvents:[],
+      itemCount: itemIds.length, parentCount: 0,
+      narrative: 'Belum ada transaksi untuk periode/trend window ini (filter status: Completed + Finish Pack + Finish Pick + Closed).',
+    };
   }
 
   const orderCount = orderSet.size;
@@ -32118,42 +32182,31 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
     trM--; if (trM < 1) { trM = 12; trY--; }
   }
 
-  // Prior period growth — same length immediately before period.
+  // Prior period growth — sum qty×price for same-length range immediately before period.
+  // Reuse already-fetched 2026 ipItems + histItems where possible.
   const prdDays = Math.round((new Date(endD) - new Date(startD)) / 86400000) + 1;
   const priorEndDt = new Date(startD+'T00:00:00'); priorEndDt.setDate(priorEndDt.getDate()-1);
   const priorStartDt = new Date(priorEndDt); priorStartDt.setDate(priorStartDt.getDate() - (prdDays-1));
-  let priorRevenue = 0, priorUnits = 0;
   const priorStartISO = priorStartDt.toISOString().slice(0,10)+'T00:00:00+07:00';
   const priorEndExclISO = (new Date(priorEndDt.getTime()+86400000)).toISOString().slice(0,10)+'T00:00:00+07:00';
-  // Reuse fetched orders if prior period overlaps trend window
-  if (priorStartISO >= fetchStartISO) {
-    for (const it of ipItems) {
-      const o = ordersById.get(it.salesorder_id);
-      if (!o) continue;
-      if (o.transaction_date >= priorStartISO && o.transaction_date < priorEndExclISO) {
-        const qty   = parseFloat(it.qty||0) || 0;
-        const gross = parseFloat(it.amount||0) || (qty * (parseFloat(it.price||0)||0) - (parseFloat(it.disc_amount||0)||0));
-        priorRevenue += gross; priorUnits += qty;
-      }
+  let priorRevenue = 0, priorUnits = 0;
+  // 2026+
+  for (const it of ipItems) {
+    const o = ordersById.get(it.salesorder_id);
+    if (!o) continue;
+    if (o.transaction_date >= priorStartISO && o.transaction_date < priorEndExclISO) {
+      const qty   = parseFloat(it.qty||0) || 0;
+      const price = parseFloat(it.price||0) || 0;
+      priorRevenue += qty * price; priorUnits += qty;
     }
-  } else {
-    // Separate fetch for prior period if outside trend window (long custom periods)
-    try {
-      const pOrders = await _fetchAllPages('jubelio_sales_orders', 'salesorder_id,transaction_date',
-        q => q.eq('wms_status','COMPLETED').eq('is_canceled', false)
-              .gte('transaction_date', priorStartISO).lt('transaction_date', priorEndExclISO));
-      const pIds = pOrders.map(o => o.salesorder_id);
-      if (pIds.length) {
-        const pItems = await _fetchAllPagesIn('jubelio_sales_order_items', 'qty,amount,price,disc_amount,item_id,is_canceled_item',
-          'salesorder_id', pIds, q => q.in('item_id', itemIds.slice(0, 1000))); // sample if huge
-        pItems.forEach(it => {
-          if (it.is_canceled_item || !itemIdSet.has(it.item_id)) return;
-          const qty   = parseFloat(it.qty||0) || 0;
-          const gross = parseFloat(it.amount||0) || (qty * (parseFloat(it.price||0)||0) - (parseFloat(it.disc_amount||0)||0));
-          priorRevenue += gross; priorUnits += qty;
-        });
-      }
-    } catch(_) {}
+  }
+  // Pre-2026
+  for (const r of histItems) {
+    const dtISO = (r.transaction_date||'').length === 10 ? `${r.transaction_date}T00:00:00+07:00` : r.transaction_date;
+    if (dtISO >= priorStartISO && dtISO < priorEndExclISO) {
+      priorRevenue += parseFloat(r.amount||0) || 0;
+      priorUnits   += parseFloat(r.qty||0) || 0;
+    }
   }
   const growthPct = priorRevenue > 0 ? ((revenue - priorRevenue)/priorRevenue)*100 : null;
 
