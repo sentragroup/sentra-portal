@@ -32131,24 +32131,29 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
     .sort((a,b) => b.revenue - a.revenue);
   const topMovers = allProducts.slice(0,5);
 
-  // Fetch thumbnails for ALL products. Strategy: 1 sweep query yang ngambil
-  // SEMUA items dalam item_group_id yang relevan. Kalau parent group punya
-  // 4 size variants, kita pick item with image — bukan stuck di variant
-  // yang kebetulan gak ada thumb. Plus image_urls[0] fallback.
+  // Fetch parent name + thumbnails for ALL products via item_group_id.
+  // jubelio_items.item_name = parent name (e.g. "Reality Club - Quick Love - T-shirt - Black")
+  // jubelio_sales_order_items.item_name = includes size ("... - Black - S")
+  // User wants per-parent rows (no size breakdown), so override aggregated
+  // name dengan parent name dari jubelio_items.
   if (allProducts.length) {
     const pickImg = r => (r?.thumbnail && r.thumbnail.trim()) || (Array.isArray(r?.image_urls) && r.image_urls.find(u => u && u.trim())) || null;
-    // Collect group ids from parent map (numeric ids) + sample item ids
-    const grpIds  = allProducts.map(m => Number(m.id)).filter(n => !isNaN(n) && n > 0);
-    const sampleIds = allProducts.map(m => m.sampleItemId).filter(Boolean);
+    const grpIds   = allProducts.map(m => Number(m.id)).filter(n => !isNaN(n) && n > 0);
+    const sampleIds= allProducts.map(m => m.sampleItemId).filter(Boolean);
     try {
-      // 1 round trip — sweep all items in relevant groups + sample items
       const [grpRows, itemRows] = await Promise.all([
-        grpIds.length ? _fetchAllPagesIn('jubelio_items', 'item_id,item_group_id,thumbnail,image_urls', 'item_group_id', grpIds) : Promise.resolve([]),
-        sampleIds.length ? _fetchAllPagesIn('jubelio_items', 'item_id,item_group_id,thumbnail,image_urls', 'item_id', sampleIds) : Promise.resolve([]),
+        grpIds.length ? _fetchAllPagesIn('jubelio_items', 'item_id,item_group_id,item_name,thumbnail,image_urls', 'item_group_id', grpIds) : Promise.resolve([]),
+        sampleIds.length ? _fetchAllPagesIn('jubelio_items', 'item_id,item_group_id,item_name,thumbnail,image_urls', 'item_id', sampleIds) : Promise.resolve([]),
       ]);
-      const imgByItem = new Map();
-      const imgByGrp  = new Map();
+      const imgByItem  = new Map();
+      const imgByGrp   = new Map();
+      const nameByItem = new Map();
+      const nameByGrp  = new Map();
       for (const r of [...grpRows, ...itemRows]) {
+        if (r.item_name) {
+          if (!nameByItem.has(r.item_id)) nameByItem.set(r.item_id, r.item_name);
+          if (r.item_group_id && !nameByGrp.has(r.item_group_id)) nameByGrp.set(r.item_group_id, r.item_name);
+        }
         const img = pickImg(r);
         if (img) {
           if (!imgByItem.has(r.item_id)) imgByItem.set(r.item_id, img);
@@ -32156,12 +32161,16 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
         }
       }
       allProducts.forEach(m => {
-        // Try: direct item → group → null
+        // Parent name: prefer group lookup, fallback to direct item, last resort = aggregated name
+        const parentName = (typeof m.id === 'number' ? nameByGrp.get(m.id) : null)
+                        || nameByItem.get(m.sampleItemId)
+                        || m.name;
+        m.name = parentName;
         m.thumb = imgByItem.get(m.sampleItemId)
               || (typeof m.id === 'number' ? imgByGrp.get(m.id) : null)
               || null;
       });
-    } catch(_) { /* thumbnails non-critical */ }
+    } catch(_) { /* non-critical */ }
   }
 
   const channelMix = [...channelMap.entries()]
