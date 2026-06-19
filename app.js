@@ -32026,6 +32026,7 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
   const grpToImg     = new Map();  // item_group_id → first non-null image
   const itemToImg    = new Map();  // item_id → first non-null image
   const grpToSampleItemId = new Map(); // item_group_id → representative item_id for thumb lookup
+  const nameToGrp    = new Map();  // parent item_name → item_group_id (for history row merge)
   const pickImg = r => (r?.thumbnail && r.thumbnail.trim()) || (Array.isArray(r?.image_urls) && r.image_urls.find(u => u && u.trim())) || null;
   for (const r of itemsMeta) {
     if (r.item_group_id) itemToGrp.set(r.item_id, r.item_group_id);
@@ -32036,6 +32037,7 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
       grpToStock.set(r.item_group_id, (grpToStock.get(r.item_group_id)||0) + stk);
       if (r.item_name && !grpToName.has(r.item_group_id)) grpToName.set(r.item_group_id, r.item_name);
       if (!grpToSampleItemId.has(r.item_group_id)) grpToSampleItemId.set(r.item_group_id, r.item_id);
+      if (r.item_name && !nameToGrp.has(r.item_name)) nameToGrp.set(r.item_name, r.item_group_id);
     }
     const img = pickImg(r);
     if (img) {
@@ -32143,8 +32145,17 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
     if (!inPeriod(dtISO)) continue;
     revenue += gross; units += qty;
     orderSet.add('H:'+r.salesorder_no);
-    const grpKey = `hist-${r.item_name||'?'}`;
-    const cur = parentMap.get(grpKey) || { name: r.item_name||'(unnamed)', units:0, revenue:0, sampleItemId:null, itemGroupId:null };
+    // Merge dengan 2026+ group via name lookup. Padel Totebag historical
+    // sales sebelumnya jadi 'hist-Padel Totebag' singleton, terpisah dari
+    // group_id 708 — bikin row duplikat di report.
+    const grpFromName = nameToGrp.get(r.item_name);
+    const grpKey = grpFromName || `hist-${r.item_name||'?'}`;
+    const cur = parentMap.get(grpKey) || {
+      name: grpFromName ? (grpToName.get(grpFromName) || r.item_name) : (r.item_name||'(unnamed)'),
+      units:0, revenue:0,
+      sampleItemId: grpFromName ? grpToSampleItemId.get(grpFromName) : null,
+      itemGroupId: grpFromName || null
+    };
     cur.units += qty; cur.revenue += gross;
     parentMap.set(grpKey, cur);
     const ch = _iprNormalizeChannel(r.channel_name, r.store_name, null, null, r.salesorder_no);
@@ -32199,16 +32210,15 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
     .map(([k,v]) => ({ name:k, units:v.units, revenue:Math.round(v.revenue), pct: revenue ? (v.revenue/revenue)*100 : 0 }))
     .sort((a,b) => b.revenue - a.revenue);
 
-  // Pop-up Booth events untuk IP ini selama periode.
-  // Sales derived from transaction_mappings (project_ref = event_name,
-  // category = 'Pop Up Booth') → join to Jubelio orders. Source of truth
-  // sesuai modul Transaction Mapping.
+  // Pop-up Booth events untuk IP ini. Tampilin semua events yang udah
+  // happen (event_date <= period_end). Filter SALES per event tetep ke
+  // periode via order transaction_date. Sebelumnya filter event_date >=
+  // startD bikin Music Gallery (April) gak nongol di report May/June.
   let popupEvents = [];
   try {
     const { data: events } = await sb.from('popup_booths')
       .select('id,event_name,event_date,location,actual_sales,qty_brought,reinbound_qty,event_status,id_pesanan_jubelio')
       .eq('ip_related', ipName)
-      .gte('event_date', startD)
       .lte('event_date', endD)
       .order('event_date', { ascending: false });
     for (const e of events||[]) {
