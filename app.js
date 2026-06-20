@@ -33320,23 +33320,31 @@ function whSwitchTab(tab, btn) {
   });
 }
 
-// Strip size suffix from item_name to get parent name. E.g.
-// 'Hindia - 1024 - Boxy T-shirt - White - M' → 'Hindia - 1024 - Boxy T-shirt - White'
-// Size detection: last segment matches common size pattern.
+// Jubelio convention: item_name is PARENT-level (sama untuk semua variants).
+// Size lives in item_code, e.g. 'HIN---102---BOX-T-S---WHI-XXL' → last `-` segment = 'XXL'.
 const _WH_SIZE_RE = /^(XS|S|M|L|XL|XXL|XXXL|XXXXL|OS|One Size|All Size)$/i;
 function _whParentName(itemName) {
   if (!itemName) return '';
+  // Already parent-level in Jubelio. Fallback strip if size suffix detected (legacy data).
   const parts = itemName.split(' - ');
   if (parts.length > 1 && _WH_SIZE_RE.test(parts[parts.length-1].trim())) {
     return parts.slice(0, -1).join(' - ');
   }
   return itemName;
 }
-function _whSizeOf(itemName) {
-  if (!itemName) return '';
-  const parts = itemName.split(' - ');
-  if (parts.length > 1 && _WH_SIZE_RE.test(parts[parts.length-1].trim())) {
-    return parts[parts.length-1].trim();
+function _whSizeOf(itemName, itemCode) {
+  // Primary: extract last `-` segment from item_code (Jubelio convention)
+  if (itemCode) {
+    const tokens = String(itemCode).split('-').filter(Boolean);
+    const last = tokens[tokens.length-1];
+    if (last && _WH_SIZE_RE.test(last.trim())) return last.trim().toUpperCase();
+  }
+  // Fallback: try item_name last segment (legacy)
+  if (itemName) {
+    const parts = itemName.split(' - ');
+    if (parts.length > 1 && _WH_SIZE_RE.test(parts[parts.length-1].trim())) {
+      return parts[parts.length-1].trim().toUpperCase();
+    }
   }
   return 'OS';
 }
@@ -33375,7 +33383,7 @@ function _whRenderItemsTable(items, totalValue) {
 function _whRenderParentCard(p, jByItemId) {
   const fmtRp = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
   // Sort variants by size
-  p.variants.sort((a, b) => _whSortSizes(_whSizeOf(a.item_name), _whSizeOf(b.item_name)));
+  p.variants.sort((a, b) => _whSortSizes(_whSizeOf(a.item_name, a.item_code), _whSizeOf(b.item_name, b.item_code)));
   // Pick thumbnail from any variant
   let thumb = null;
   for (const v of p.variants) {
@@ -33413,7 +33421,7 @@ function _whRenderParentCard(p, jByItemId) {
     const stockOk = qtyNeeded > 0 && stk >= qtyNeeded;
     const stockLow = qtyNeeded > 0 && stk < qtyNeeded;
     const stockColor = stockOk ? '#0a7d3a' : stockLow ? '#c0392b' : 'var(--g600)';
-    const sizeTag = `<span style="font-size:11px;padding:3px 9px;background:var(--black);color:var(--white);border-radius:3px;font-weight:600;letter-spacing:0.5px;font-family:var(--mono)">${_whSizeOf(v.item_name)}</span>`;
+    const sizeTag = `<span style="font-size:11px;padding:3px 9px;background:var(--black);color:var(--white);border-radius:3px;font-weight:600;letter-spacing:0.5px;font-family:var(--mono)">${_whSizeOf(v.item_name, v.item_code)}</span>`;
     const srcLbls = { stock:'📦', production:'🏭', mixed:'🔀' };
     const srcInline = `<select onchange="_whItemSource(${v.id},this.value)" style="font-size:10px;padding:2px 5px;border:1px solid var(--g100);border-radius:3px;background:var(--white)" title="Source per variant">
       <option value="stock" ${v.source_type==='stock'?'selected':''}>${srcLbls.stock} Stock</option>
@@ -33602,7 +33610,7 @@ function _whWireItemPicker() {
     drop.style.display = 'block';
     drop.innerHTML = ordered.map(g => {
       const totalStock = g.variants.reduce((s,v) => s + (parseFloat(v.total_on_hand)||0), 0);
-      const sizes = g.variants.map(v => _whSizeOf(v.item_name));
+      const sizes = g.variants.map(v => _whSizeOf(v.item_name, v.item_code));
       const sizesSorted = [...new Set(sizes)].sort(_whSortSizes);
       const sizeChips = sizesSorted.map(s => `<span style="display:inline-block;padding:1px 5px;background:var(--off);border:1px solid var(--g100);border-radius:2px;font-family:var(--mono);font-size:9px;font-weight:600;margin-right:3px">${s}</span>`).join('');
       const thumbHTML = g.thumbnail
