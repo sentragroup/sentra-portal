@@ -33590,8 +33590,8 @@ function _whWireItemPicker() {
     if (q.length < 2) { drop.style.display = 'none'; return; }
     if (!_whJubelioItemsCache) {
       try {
-        const { data } = await sb.from('jubelio_items').select('item_id,item_code,item_name,item_group_id,thumbnail,total_on_hand').limit(5000);
-        _whJubelioItemsCache = data || [];
+        // Paginate — Supabase default cap is 1000 rows, .limit() doesn't override server cap.
+        _whJubelioItemsCache = await _fetchAllPages('jubelio_items', 'item_id,item_code,item_name,item_group_id,thumbnail,total_on_hand');
       } catch(_) { _whJubelioItemsCache = []; }
     }
     // Group hits by item_group_id (fallback to item_id for singletons)
