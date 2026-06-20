@@ -33381,92 +33381,84 @@ function _whRenderParentCard(p, jByItemId) {
   }
   // Aggregate parent-level metrics
   const totalQty = p.variants.reduce((s,v) => s + (parseFloat(v.qty)||0), 0);
-  const totalStock = p.variants.reduce((s,v) => {
-    const j = jByItemId.get(v.jubelio_item_id);
-    return s + (parseFloat(j?.total_on_hand)||0);
-  }, 0);
   const subtotal = p.variants.reduce((s,v) => s + (parseFloat(v.qty)||0) * (parseFloat(v.unit_price)||0), 0);
   // Parent SRP: first variant's price (assume same across sizes; user can override per variant)
   const parentPrice = p.variants[0]?.unit_price || 0;
-  // Source: aggregate (if all same → that; else 'mixed')
+  // Source: aggregate
   const srcs = new Set(p.variants.map(v => v.source_type||'production'));
   const parentSrc = srcs.size === 1 ? [...srcs][0] : 'mixed';
-  // Source toggle at parent — applies to all variants
   const sources = [
     { v:'stock',      icon:'📦', lbl:'From Stock' },
     { v:'production', icon:'🏭', lbl:'Production' },
     { v:'mixed',      icon:'🔀', lbl:'Mixed (per-variant)' },
   ];
-  const srcToggle = `<select onchange="_whParentSource('${p.name.replace(/'/g,"\\'")}', this.value)" style="font-size:11px;padding:3px 8px;border:1px solid var(--g200);border-radius:4px;background:var(--white)">
+  const escName = p.name.replace(/'/g,"\\'");
+  const srcToggle = `<select onchange="_whParentSource('${escName}', this.value)" style="font-size:11px;padding:3px 8px;border:1px solid var(--g200);border-radius:4px;background:var(--white)">
     ${sources.map(s => `<option value="${s.v}" ${parentSrc===s.v?'selected':''}>${s.icon} ${s.lbl}</option>`).join('')}
   </select>`;
-  // Thumbnail
   const thumbHTML = thumb
-    ? `<img src="${thumb.replace(/"/g,'&quot;')}" style="width:64px;height:64px;object-fit:cover;border-radius:4px;border:1px solid var(--g100);flex-shrink:0" onerror="this.style.display='none'">`
-    : `<div style="width:64px;height:64px;background:var(--off);border:1px solid var(--g100);border-radius:4px;display:flex;align-items:center;justify-content:center;color:var(--g400);font-size:10px;flex-shrink:0">no img</div>`;
-  // Parent unit price input (applies to all variants)
-  const priceInput = `<input type="number" min="0" step="500" value="${parentPrice}" placeholder="Harga jual (Rp)" onchange="_whParentPrice('${p.name.replace(/'/g,"\\'")}', this.value)" style="width:120px;text-align:right;font-size:11px;font-family:var(--mono);padding:4px 8px;border:1px solid var(--g200);border-radius:4px;background:var(--white)">`;
-  // Variants table (transposed: sizes as columns)
-  const sizeHead = p.variants.map(v => {
+    ? `<a href="${thumb.replace(/"/g,'&quot;')}" target="_blank"><img src="${thumb.replace(/"/g,'&quot;')}" style="width:100px;height:100px;object-fit:cover;border-radius:4px;border:1px solid var(--g100);display:block" onerror="this.parentElement.outerHTML='<div style=\\'width:100px;height:100px;background:var(--off);border:1px solid var(--g100);border-radius:4px;display:flex;align-items:center;justify-content:center;color:var(--g400);font-size:10px\\'>no img</div>'"></a>`
+    : `<div style="width:100px;height:100px;background:var(--off);border:1px dashed var(--g100);border-radius:4px;display:flex;align-items:center;justify-content:center;color:var(--g400);font-size:10px">no img</div>`;
+  const priceInput = `<input type="number" min="0" step="500" value="${parentPrice}" onchange="_whParentPrice('${escName}', this.value)" style="width:120px;text-align:right;font-size:11px;font-family:var(--mono);padding:4px 8px;border:1px solid var(--g200);border-radius:4px;background:var(--white)" title="Apply harga ke semua variants">`;
+
+  // Per-variant sub-card rows (PD style)
+  const variantRows = p.variants.map(v => {
     const j = jByItemId.get(v.jubelio_item_id);
     const stk = parseFloat(j?.total_on_hand)||0;
-    return `<th style="padding:6px;text-align:center;background:#fafafa;border-bottom:1px solid var(--g100);font-size:11px;font-weight:700">${_whSizeOf(v.item_name)}</th>`;
-  }).join('');
-  const stockRow = p.variants.map(v => {
-    const j = jByItemId.get(v.jubelio_item_id);
-    const stk = parseFloat(j?.total_on_hand)||0;
-    const qtyNeeded = parseFloat(v.qty)||0;
-    const ok = stk >= qtyNeeded && qtyNeeded > 0;
-    const low = qtyNeeded > 0 && stk < qtyNeeded;
-    const clr = ok ? '#0a7d3a' : low ? '#c0392b' : 'var(--g600)';
-    return `<td style="padding:5px;text-align:center;font-family:var(--mono);font-size:11px;color:${clr}">${Math.round(stk)}</td>`;
-  }).join('');
-  const qtyRow = p.variants.map(v => `<td style="padding:4px;text-align:center;background:#f0f7ff">
-    <input type="number" min="0" step="1" value="${v.qty||0}" onchange="_whItemQty(${v.id},this.value)" style="width:54px;text-align:center;font-size:11px;font-family:var(--mono);padding:3px 4px;border:1px solid var(--g200);border-radius:4px;background:white">
-  </td>`).join('');
-  const priceRow = p.variants.map(v => `<td style="padding:4px;text-align:center">
-    <input type="number" min="0" step="500" value="${v.unit_price||0}" onchange="_whItemPrice(${v.id},this.value)" style="width:80px;text-align:right;font-size:10px;font-family:var(--mono);padding:3px 4px;border:1px solid var(--g100);border-radius:4px;background:white" title="Override harga per variant">
-  </td>`).join('');
-  const subRow = p.variants.map(v => {
     const sub = (parseFloat(v.qty)||0) * (parseFloat(v.unit_price)||0);
-    return `<td style="padding:5px;text-align:center;font-family:var(--mono);font-size:11px;font-weight:600;color:${sub>0?'var(--black)':'var(--g300)'}">${sub>0?fmtRp(sub).replace('Rp ',''):'—'}</td>`;
+    const qtyNeeded = parseFloat(v.qty)||0;
+    const stockOk = qtyNeeded > 0 && stk >= qtyNeeded;
+    const stockLow = qtyNeeded > 0 && stk < qtyNeeded;
+    const stockColor = stockOk ? '#0a7d3a' : stockLow ? '#c0392b' : 'var(--g600)';
+    const sizeTag = `<span style="font-size:11px;padding:3px 9px;background:var(--black);color:var(--white);border-radius:3px;font-weight:600;letter-spacing:0.5px;font-family:var(--mono)">${_whSizeOf(v.item_name)}</span>`;
+    const srcLbls = { stock:'📦', production:'🏭', mixed:'🔀' };
+    const srcInline = `<select onchange="_whItemSource(${v.id},this.value)" style="font-size:10px;padding:2px 5px;border:1px solid var(--g100);border-radius:3px;background:var(--white)" title="Source per variant">
+      <option value="stock" ${v.source_type==='stock'?'selected':''}>${srcLbls.stock} Stock</option>
+      <option value="production" ${v.source_type==='production'?'selected':''}>${srcLbls.production} Prod</option>
+      <option value="mixed" ${v.source_type==='mixed'?'selected':''}>${srcLbls.mixed} Mixed</option>
+    </select>`;
+    return `<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--white);border:1px solid var(--g100);border-radius:5px;margin-bottom:6px">
+      <div style="flex:0 0 auto;display:flex;align-items:center;gap:8px;min-width:0">
+        ${sizeTag}
+        <span style="font-family:var(--mono);font-size:10px;color:var(--g400);font-weight:600">${(v.item_code||v.jubelio_item_id||'—').toString().replace(/</g,'&lt;')}</span>
+      </div>
+      <div style="flex:1;display:flex;flex-wrap:wrap;gap:12px;font-size:11px;color:var(--g600);align-items:center">
+        <span>Stock: <b style="color:${stockColor}" class="mono">${Math.round(stk).toLocaleString('id-ID')}</b></span>
+        <span style="display:flex;align-items:center;gap:5px">Qty:
+          <input type="number" min="0" step="1" value="${v.qty||0}" onchange="_whItemQty(${v.id},this.value)" style="width:64px;text-align:right;font-size:11px;font-family:var(--mono);padding:3px 6px;border:1px solid var(--g200);border-radius:3px;background:#f0f7ff">
+        </span>
+        <span style="display:flex;align-items:center;gap:5px">Price:
+          <input type="number" min="0" step="500" value="${v.unit_price||0}" onchange="_whItemPrice(${v.id},this.value)" style="width:96px;text-align:right;font-size:11px;font-family:var(--mono);padding:3px 6px;border:1px solid var(--g100);border-radius:3px;background:var(--white)" title="Override harga per variant">
+        </span>
+        <span>${srcInline}</span>
+      </div>
+      <div style="flex:0 0 auto;text-align:right;font-family:var(--mono);font-size:12px;font-weight:600;min-width:110px">
+        ${sub > 0 ? fmtRp(sub) : '<span style="color:var(--g300)">—</span>'}
+      </div>
+      <button class="btn-icon" onclick="_whItemDel(${v.id})" title="Hapus variant" style="font-size:12px;color:#c0392b;padding:2px 6px;flex-shrink:0">×</button>
+    </div>`;
   }).join('');
-  const delRow = p.variants.map(v => `<td style="padding:4px;text-align:center">
-    <button class="btn-icon" onclick="_whItemDel(${v.id})" title="Hapus variant" style="font-size:10px;color:#c0392b;padding:1px 4px">×</button>
-  </td>`).join('');
-  const labelTd = 'padding:5px 10px;font-size:10px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600;background:#fafafa;border-right:1px solid var(--g100);white-space:nowrap';
-  const totalTd = 'padding:5px 10px;font-size:11px;font-family:var(--mono);text-align:right;border-left:1px solid var(--g100);background:#fafafa;font-weight:600;white-space:nowrap';
-  return `<div style="background:white;border:1px solid var(--g100);border-radius:8px;overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,0.03)">
-    <div style="padding:12px 14px;display:flex;align-items:flex-start;gap:12px;background:var(--off);border-bottom:1px solid var(--g100)">
-      ${thumbHTML}
-      <div style="flex:1;min-width:0">
-        <div style="font-size:13px;font-weight:700;line-height:1.3">${p.name.replace(/</g,'&lt;')}</div>
-        <div style="font-size:11px;color:var(--g600);margin-top:3px">${p.variants.length} variants · ${totalQty.toLocaleString('id-ID')} pcs total · Stock available: ${Math.round(totalStock).toLocaleString('id-ID')} pcs</div>
-        <div style="display:flex;gap:10px;align-items:center;margin-top:8px;flex-wrap:wrap">
-          ${srcToggle}
-          ${priceInput}
-          <span style="font-size:10px;color:var(--g400)">Harga parent apply ke semua variants (bisa override per size di tabel)</span>
+
+  return `<div style="display:flex;gap:14px;align-items:flex-start;border:1px solid var(--g100);border-radius:6px;padding:12px;background:var(--off)">
+    <div style="flex:0 0 100px">${thumbHTML}</div>
+    <div style="flex:1;min-width:0">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px">
+        <div style="min-width:0">
+          <div style="font-size:15px;font-weight:600;margin-top:2px">${p.name.replace(/</g,'&lt;')}</div>
+          <div style="font-size:11px;color:var(--g600);margin-top:3px">${p.variants.length} variant${p.variants.length===1?'':'s'} · ${totalQty.toLocaleString('id-ID')} pcs total</div>
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-size:9px;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px;font-family:var(--mono)">Subtotal</div>
+          <div style="font-size:16px;font-weight:700;font-family:var(--mono)">${fmtRp(subtotal)}</div>
         </div>
       </div>
-      <div style="font-size:18px;font-weight:700;font-family:var(--mono);text-align:right;flex-shrink:0">${fmtRp(subtotal)}</div>
-    </div>
-    <div style="overflow-x:auto">
-      <table style="width:100%;border-collapse:collapse;font-size:11px">
-        <thead>
-          <tr>
-            <th style="padding:5px 10px;text-align:right;font-size:9px;color:var(--g400);text-transform:uppercase;letter-spacing:0.3px;font-weight:600;background:#fafafa;border-right:1px solid var(--g100)">Size →</th>
-            ${sizeHead}
-            <th style="${totalTd}">Total</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr><td style="${labelTd}">Stock</td>${stockRow}<td style="${totalTd};color:var(--g600)">${Math.round(totalStock).toLocaleString('id-ID')}</td></tr>
-          <tr style="border-top:2px solid var(--g100)"><td style="${labelTd};background:#f0f7ff">Order Qty</td>${qtyRow}<td style="${totalTd};background:#f0f7ff;color:var(--black);font-weight:700;font-size:12px">${totalQty.toLocaleString('id-ID')}</td></tr>
-          <tr><td style="${labelTd}">Unit Price</td>${priceRow}<td style="${totalTd}">—</td></tr>
-          <tr><td style="${labelTd}">Subtotal</td>${subRow}<td style="${totalTd};font-weight:700;font-size:12px">${fmtRp(subtotal).replace('Rp ','')}</td></tr>
-          <tr><td style="${labelTd}"></td>${delRow}<td style="${totalTd}"></td></tr>
-        </tbody>
-      </table>
+      <div style="display:flex;gap:10px;align-items:center;margin:8px 0 12px;flex-wrap:wrap;padding:8px 10px;background:var(--white);border:1px dashed var(--g100);border-radius:5px">
+        <span style="font-size:10px;color:var(--g400);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px">Parent →</span>
+        ${srcToggle}
+        ${priceInput}
+        <span style="font-size:10px;color:var(--g400)">apply ke semua variants ↓</span>
+      </div>
+      <div>${variantRows}</div>
     </div>
   </div>`;
 }
