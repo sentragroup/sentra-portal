@@ -33182,7 +33182,7 @@ async function openWholesaleDetail(id) {
   }
   // Ensure restock_projects loaded for the picker
   try {
-    const { data } = await sb.from('restock_projects').select('id,project_ref,vendor_name,status,created_at').order('created_at',{ascending:false}).limit(100);
+    const { data } = await sb.from('restock_projects').select('id,name,status,date_created,notes').order('date_created',{ascending:false}).limit(100);
     _whRestockProjects = data || [];
   } catch(_) {}
   _whRenderDetail();
@@ -33569,7 +33569,7 @@ function _whRenderAllocTab(items, links) {
       const pending = (parseFloat(i.qty)||0) - totalAlloc;
       const batchChips = allocs.map(a => {
         const proj = _whRestockProjects.find(p => p.id === a.restock_project_id);
-        return `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:#eef0f8;color:#3C3489;border:1px solid #c9bdf0;border-radius:12px;font-size:10px;margin-right:4px;margin-bottom:4px">📦 ${(proj?.project_ref||a.restock_project_id||'?').replace(/</g,'&lt;')} · ${a.qty_allocated} pcs <button onclick="_whUnlinkBatch(${a.id})" style="background:none;border:none;color:#c0392b;cursor:pointer;padding:0;font-size:12px;line-height:1">×</button></span>`;
+        return `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:#eef0f8;color:#3C3489;border:1px solid #c9bdf0;border-radius:12px;font-size:10px;margin-right:4px;margin-bottom:4px">📦 ${(proj?.name||proj?.id||a.restock_project_id||'?').toString().replace(/</g,'&lt;')} · ${a.qty_allocated} pcs <button onclick="_whUnlinkBatch(${a.id})" style="background:none;border:none;color:#c0392b;cursor:pointer;padding:0;font-size:12px;line-height:1">×</button></span>`;
       }).join('');
       return `<tr style="border-top:1px solid var(--g100)">
         <td style="padding:7px"><b>${(i.item_name||'').replace(/</g,'&lt;')}</b></td>
@@ -33757,10 +33757,10 @@ function _whOpenLinkBatchModal(itemId, maxQty) {
     alert('Belum ada Restock Project. Bikin dulu di modul Restock PO.');
     return;
   }
-  const projList = projects.map(p => `${p.project_ref||p.id} (${p.vendor_name||'no vendor'}) · ${p.status||'-'}`).join('\n');
-  const pickId = prompt(`Pick Restock Project (paste project_ref atau id):\n\n${projList}`, projects[0].project_ref||projects[0].id);
+  const projList = projects.map(p => `${p.id} — ${p.name||'(no name)'} · ${p.status||'-'}`).join('\n');
+  const pickId = prompt(`Pick Restock Project (paste ID):\n\n${projList}`, projects[0].id);
   if (!pickId) return;
-  const proj = projects.find(p => p.project_ref === pickId || p.id === pickId);
+  const proj = projects.find(p => p.id === pickId || p.name === pickId);
   if (!proj) { alert('Project gak ketemu.'); return; }
   const qtyStr = prompt(`Qty alokasi (max ${maxQty}):`, String(maxQty));
   const qty = parseFloat(qtyStr); if (!qty || qty <= 0 || qty > maxQty) { alert('Qty invalid.'); return; }
