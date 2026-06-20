@@ -33622,6 +33622,7 @@ async function _whLinkAllVariantsToProject(parentName, selectId) {
   const { data, error } = await sb.from('wholesale_batch_links').insert(rows).select();
   if (error) { alert('Gagal: '+error.message); return; }
   o.links.push(...(data||[]));
+  await _whSyncToRestockItems(projId, targets.map(t => ({ item: t.item, qty: t.pending })));
   const h = o.header;
   if (h.status === 'new' || h.status === 'confirmed') {
     await sb.from('wholesale_customer_orders').update({status:'allocated'}).eq('id', h.id);
@@ -33667,6 +33668,7 @@ async function _whBulkLinkAllToProject() {
   const { data, error } = await sb.from('wholesale_batch_links').insert(rows).select();
   if (error) { alert('Gagal: '+error.message); return; }
   o.links.push(...(data||[]));
+  await _whSyncToRestockItems(projId, targets.map(t => ({ item: t.item, qty: t.pending })));
   // Auto-update status kalau dari new/confirmed
   const h = o.header;
   if (h.status === 'new' || h.status === 'confirmed') {
@@ -34092,6 +34094,9 @@ async function _whLinkBatch(itemId, projectId, qty) {
   }).select().single();
   if (error) { alert('Gagal: '+error.message); return; }
   _whCurrentOrder.links.push(data);
+  // Sync ke restock_projects.items biar muncul di Restock builder
+  const item = _whCurrentOrder.items.find(i => i.id === itemId);
+  if (item) await _whSyncToRestockItems(projectId, [{ item, qty }]);
   // Auto-update status to 'allocated' kalau dari 'new'/'confirmed'
   const h = _whCurrentOrder.header;
   if (h.status === 'new' || h.status === 'confirmed') {
@@ -34099,6 +34104,51 @@ async function _whLinkBatch(itemId, projectId, qty) {
     h.status = 'allocated';
   }
   _whRenderDetail();
+}
+
+// Merge wholesale-linked variants ke restock_projects.items JSONB.
+// Restock builder reads from items array — kalau item_id udah ada, increment
+// qty_planned; kalau belum, append item baru dengan field minimum (user enrich
+// brand/ip/vendor di builder kalau perlu).
+async function _whSyncToRestockItems(projectId, additions) {
+  if (!additions || !additions.length) return;
+  // Fetch project + jubelio item meta + product_mappings buat brand/ip
+  const jCache = _whJubelioItemsCache || [];
+  const jByItemId = new Map(jCache.map(j => [j.item_id, j]));
+  const itemIds = additions.map(a => a.item.jubelio_item_id).filter(Boolean);
+  const [projRes, pmRes] = await Promise.all([
+    sb.from('restock_projects').select('items').eq('id', projectId).single(),
+    itemIds.length ? sb.from('product_mappings').select('jubelio_item_id,item_name,brand,ip,collection').in('jubelio_item_id', itemIds) : Promise.resolve({data:[]}),
+  ]);
+  if (projRes.error) { console.warn('Sync ke restock gagal:', projRes.error.message); return; }
+  const pmByItemId = new Map((pmRes.data||[]).map(m => [m.jubelio_item_id, m]));
+  const items = Array.isArray(projRes.data?.items) ? [...projRes.data.items] : [];
+  for (const { item, qty } of additions) {
+    const jid = item.jubelio_item_id;
+    const idx = items.findIndex(it => it.item_id === jid);
+    if (idx >= 0) {
+      // Sudah ada — increment qty_planned
+      items[idx].qty_planned = (parseFloat(items[idx].qty_planned)||0) + qty;
+    } else {
+      const j = jByItemId.get(jid);
+      const pm = pmByItemId.get(jid);
+      items.push({
+        item_id: jid,
+        item_code: item.item_code || '',
+        parent_name: _whParentName(item.item_name) || item.item_name || '',
+        size: _whSizeOf(item.item_name, item.item_code),
+        thumbnail: j?.thumbnail || null,
+        brand: pm?.brand || null,
+        ip: pm?.ip || null,
+        collection: pm?.collection || '',
+        qty_planned: qty,
+        price_planned: 0,
+        vendor_master_id: null,
+      });
+    }
+  }
+  const { error } = await sb.from('restock_projects').update({ items, last_updated: new Date().toISOString(), last_updated_by: currentUser }).eq('id', projectId);
+  if (error) console.warn('Update restock items gagal:', error.message);
 }
 
 async function _whUnlinkBatch(linkId) {
