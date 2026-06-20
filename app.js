@@ -33397,18 +33397,7 @@ function _whRenderParentCard(p, jByItemId) {
   const parentList = parseFloat(p.variants[0]?.list_price)||0;
   const parentDisc = parseFloat(p.variants[0]?.discount_pct)||0;
   const parentNet = Math.round(parentList * (1 - parentDisc/100));
-  // Source: aggregate
-  const srcs = new Set(p.variants.map(v => v.source_type||'production'));
-  const parentSrc = srcs.size === 1 ? [...srcs][0] : 'mixed';
-  const sources = [
-    { v:'stock',      icon:'📦', lbl:'From Stock' },
-    { v:'production', icon:'🏭', lbl:'Production' },
-    { v:'mixed',      icon:'🔀', lbl:'Mixed (per-variant)' },
-  ];
   const escName = p.name.replace(/'/g,"\\'");
-  const srcToggle = `<select onchange="_whParentSource('${escName}', this.value)" style="font-size:11px;padding:3px 8px;border:1px solid var(--g200);border-radius:4px;background:var(--white)">
-    ${sources.map(s => `<option value="${s.v}" ${parentSrc===s.v?'selected':''}>${s.icon} ${s.lbl}</option>`).join('')}
-  </select>`;
   const thumbHTML = thumb
     ? `<a href="${thumb.replace(/"/g,'&quot;')}" target="_blank"><img src="${thumb.replace(/"/g,'&quot;')}" style="width:100px;height:100px;object-fit:cover;border-radius:4px;border:1px solid var(--g100);display:block" onerror="this.parentElement.outerHTML='<div style=\\'width:100px;height:100px;background:var(--off);border:1px solid var(--g100);border-radius:4px;display:flex;align-items:center;justify-content:center;color:var(--g400);font-size:10px\\'>no img</div>'"></a>`
     : `<div style="width:100px;height:100px;background:var(--off);border:1px dashed var(--g100);border-radius:4px;display:flex;align-items:center;justify-content:center;color:var(--g400);font-size:10px">no img</div>`;
@@ -33437,12 +33426,6 @@ function _whRenderParentCard(p, jByItemId) {
     const stockLow = qtyNeeded > 0 && stk < qtyNeeded;
     const stockColor = stockOk ? '#0a7d3a' : stockLow ? '#c0392b' : 'var(--g600)';
     const sizeTag = `<span style="font-size:11px;padding:3px 9px;background:var(--black);color:var(--white);border-radius:3px;font-weight:600;letter-spacing:0.5px;font-family:var(--mono)">${_whSizeOf(v.item_name, v.item_code)}</span>`;
-    const srcLbls = { stock:'📦', production:'🏭', mixed:'🔀' };
-    const srcInline = `<select onchange="_whItemSource(${v.id},this.value)" style="font-size:10px;padding:2px 5px;border:1px solid var(--g100);border-radius:3px;background:var(--white)" title="Source per variant">
-      <option value="stock" ${v.source_type==='stock'?'selected':''}>${srcLbls.stock} Stock</option>
-      <option value="production" ${v.source_type==='production'?'selected':''}>${srcLbls.production} Prod</option>
-      <option value="mixed" ${v.source_type==='mixed'?'selected':''}>${srcLbls.mixed} Mixed</option>
-    </select>`;
     return `<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--white);border:1px solid var(--g100);border-radius:5px;margin-bottom:6px">
       <div style="flex:0 0 auto;display:flex;align-items:center;gap:8px;min-width:0">
         ${sizeTag}
@@ -33456,7 +33439,6 @@ function _whRenderParentCard(p, jByItemId) {
         <span style="display:flex;align-items:center;gap:5px">Price:
           <input type="number" min="0" step="500" value="${v.unit_price||0}" onchange="_whItemPrice(${v.id},this.value)" style="width:96px;text-align:right;font-size:11px;font-family:var(--mono);padding:3px 6px;border:1px solid var(--g100);border-radius:3px;background:var(--white)" title="Override harga per variant">
         </span>
-        <span>${srcInline}</span>
       </div>
       <div style="flex:0 0 auto;text-align:right;font-family:var(--mono);font-size:12px;font-weight:600;min-width:110px">
         ${sub > 0 ? fmtRp(sub) : '<span style="color:var(--g300)">—</span>'}
@@ -33479,8 +33461,7 @@ function _whRenderParentCard(p, jByItemId) {
         </div>
       </div>
       <div style="display:flex;gap:10px;align-items:center;margin:8px 0 12px;flex-wrap:wrap;padding:8px 10px;background:var(--white);border:1px dashed var(--g100);border-radius:5px">
-        <span style="font-size:10px;color:var(--g400);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px">Parent →</span>
-        ${srcToggle}
+        <span style="font-size:10px;color:var(--g400);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px">Pricing →</span>
         ${priceBlock}
       </div>
       <div>${variantRows}</div>
@@ -33563,145 +33544,178 @@ function _whRenderAllocTab(items, links) {
     parents.get(key).variants.push(it);
   }
 
-  // Stock pickup card — items dengan source=stock atau bagian stock dari mixed
-  const stockCards = [...parents.values()].map(p => {
-    const stockRows = p.variants.filter(v => {
-      if (v.source_type === 'stock') return true;
-      if (v.source_type === 'mixed' && (parseFloat(v.qty_from_stock)||0) > 0) return true;
-      return false;
-    });
-    if (!stockRows.length) return '';
-    stockRows.sort((a,b) => _whSortSizes(_whSizeOf(a.item_name,a.item_code), _whSizeOf(b.item_name,b.item_code)));
-    const totalStockPickup = stockRows.reduce((s,v) => {
-      if (v.source_type === 'stock') return s + (parseFloat(v.qty)||0);
-      return s + (parseFloat(v.qty_from_stock)||0);
-    }, 0);
-    const sizeRows = stockRows.map(v => {
-      const size = _whSizeOf(v.item_name, v.item_code);
-      const j = jByItemId.get(v.jubelio_item_id);
-      const stk = parseFloat(j?.total_on_hand)||0;
-      const pickup = v.source_type === 'stock' ? (parseFloat(v.qty)||0) : (parseFloat(v.qty_from_stock)||0);
-      const sufficient = stk >= pickup;
-      return `<tr style="border-top:1px solid #e5e7eb">
-        <td style="padding:5px 8px"><span style="font-family:var(--mono);font-size:10px;font-weight:600;padding:2px 7px;background:var(--black);color:var(--white);border-radius:3px">${size}</span></td>
-        <td style="padding:5px 8px;font-family:var(--mono);font-size:10px;color:var(--g600)">${(v.item_code||'').replace(/</g,'&lt;')}</td>
-        <td style="padding:5px 8px;text-align:right;font-family:var(--mono);font-size:12px;font-weight:700">${pickup}</td>
-        <td style="padding:5px 8px;text-align:right;font-family:var(--mono);font-size:11px;color:${sufficient?'#0a7d3a':'#c0392b'}">${Math.round(stk)} ${sufficient?'✓':'⚠'}</td>
-      </tr>`;
-    }).join('');
-    return `<div style="background:#fff8e8;border:1px solid #f0d896;border-radius:6px;padding:12px;margin-bottom:10px">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
-        <div>
-          <div style="font-size:13px;font-weight:700">📦 ${p.name.replace(/</g,'&lt;')}</div>
-          <div style="font-size:10px;color:var(--g600);margin-top:2px;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px">Ambil dari stock existing — info buat warehouse team</div>
-        </div>
-        <div style="text-align:right">
-          <div style="font-size:9px;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px;font-family:var(--mono)">Total Pickup</div>
-          <div style="font-size:18px;font-weight:700;font-family:var(--mono)">${totalStockPickup}</div>
-        </div>
-      </div>
-      <table style="width:100%;font-size:11px;background:white;border-radius:4px">
-        <thead><tr style="background:#fef4d4">
-          <th style="padding:5px 8px;text-align:left;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Size</th>
-          <th style="padding:5px 8px;text-align:left;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">SKU</th>
-          <th style="padding:5px 8px;text-align:right;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Pickup</th>
-          <th style="padding:5px 8px;text-align:right;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Available</th>
-        </tr></thead>
-        <tbody>${sizeRows}</tbody>
-      </table>
-    </div>`;
-  }).filter(Boolean).join('');
-
-  // Production allocation card — per-parent, group all variants needing production
-  const prodCards = [...parents.values()].map(p => {
-    const prodRows = p.variants.filter(v => {
-      if (v.source_type === 'production') return true;
-      if (v.source_type === 'mixed' && (parseFloat(v.qty_from_prod)||0) > 0) return true;
-      return false;
-    });
-    if (!prodRows.length) return '';
-    prodRows.sort((a,b) => _whSortSizes(_whSizeOf(a.item_name,a.item_code), _whSizeOf(b.item_name,b.item_code)));
-    const totalProdNeed = prodRows.reduce((s,v) => {
-      if (v.source_type === 'production') return s + (parseFloat(v.qty)||0);
-      return s + (parseFloat(v.qty_from_prod)||0);
-    }, 0);
-    const rows = prodRows.map(v => {
-      const size = _whSizeOf(v.item_name, v.item_code);
-      const qtyNeed = v.source_type === 'production' ? (parseFloat(v.qty)||0) : (parseFloat(v.qty_from_prod)||0);
-      const allocs = linksByItem.get(v.id) || [];
-      const totalAlloc = allocs.reduce((s,a) => s + (parseFloat(a.qty_allocated)||0), 0);
-      const pending = qtyNeed - totalAlloc;
-      const fullDone = qtyNeed > 0 && totalAlloc >= qtyNeed;
-      const batchChips = allocs.map(a => {
-        const proj = _whRestockProjects.find(p2 => p2.id === a.restock_project_id);
-        return `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 7px;background:#eef0f8;color:#3C3489;border:1px solid #c9bdf0;border-radius:11px;font-size:10px;margin:2px 3px 2px 0">📦 ${(proj?.name||proj?.id||a.restock_project_id||'?').toString().replace(/</g,'&lt;')} · ${a.qty_allocated}p <button onclick="_whUnlinkBatch(${a.id})" style="background:none;border:none;color:#c0392b;cursor:pointer;padding:0;font-size:11px;line-height:1">×</button></span>`;
-      }).join('');
-      const pickerOpen = _whBatchPickerFor === v.id;
-      const pickerHTML = pickerOpen ? _whRenderBatchPickerInline(v.id, pending) : '';
-      return `<tr style="border-top:1px solid #e5e7eb">
-        <td style="padding:6px 8px;vertical-align:top"><span style="font-family:var(--mono);font-size:10px;font-weight:600;padding:2px 7px;background:var(--black);color:var(--white);border-radius:3px">${size}</span></td>
-        <td style="padding:6px 8px;text-align:right;vertical-align:top;font-family:var(--mono);font-size:12px;font-weight:700">${qtyNeed}</td>
-        <td style="padding:6px 8px;text-align:right;vertical-align:top;font-family:var(--mono);font-size:11px;color:${fullDone?'#0a7d3a':totalAlloc>0?'#a66800':'var(--g400)'};font-weight:600">${totalAlloc}/${qtyNeed}</td>
-        <td style="padding:6px 8px;vertical-align:top">${batchChips||'<span style="color:var(--g400);font-size:11px">—</span>'}</td>
-        <td style="padding:6px 8px;text-align:right;vertical-align:top;white-space:nowrap">${pending>0?`<button class="btn-ghost" onclick="_whBatchPickerToggle(${v.id})" style="font-size:10px;padding:2px 8px;color:#3C3489;border-color:#c9bdf0">${pickerOpen?'✕ Cancel':'+ Batch'}</button>`:'<span style="font-size:10px;color:#0a7d3a">✓ Full</span>'}</td>
-      </tr>${pickerOpen ? `<tr><td colspan="5" style="padding:0">${pickerHTML}</td></tr>` : ''}`;
-    }).join('');
-    return `<div style="background:#f0f7ff;border:1px solid #c4ddf5;border-radius:6px;padding:12px;margin-bottom:10px">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
-        <div>
-          <div style="font-size:13px;font-weight:700">🏭 ${p.name.replace(/</g,'&lt;')}</div>
-          <div style="font-size:10px;color:var(--g600);margin-top:2px;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px">Produksi via Restock Project — link ke batch existing</div>
-        </div>
-        <div style="text-align:right">
-          <div style="font-size:9px;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px;font-family:var(--mono)">Production Need</div>
-          <div style="font-size:18px;font-weight:700;font-family:var(--mono)">${totalProdNeed}</div>
-        </div>
-      </div>
-      <table style="width:100%;font-size:11px;background:white;border-radius:4px">
-        <thead><tr style="background:#dceaf7">
-          <th style="padding:5px 8px;text-align:left;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Size</th>
-          <th style="padding:5px 8px;text-align:right;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Qty Need</th>
-          <th style="padding:5px 8px;text-align:right;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Allocated</th>
-          <th style="padding:5px 8px;text-align:left;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Batches</th>
-          <th style="padding:5px 8px"></th>
-        </tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>`;
-  }).filter(Boolean).join('');
-
-  // Mixed split editor — for items with source=mixed, allow editing qty_from_stock vs qty_from_prod
-  const mixedItems = items.filter(i => i.source_type === 'mixed');
-  const mixedCard = mixedItems.length ? `<div style="background:#fff;border:1px dashed var(--g200);border-radius:6px;padding:12px;margin-bottom:10px">
-    <div style="font-size:11px;color:var(--g600);margin-bottom:8px;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">🔀 Mixed source — set split per variant</div>
-    <table style="width:100%;font-size:11px"><thead><tr style="background:#fafafa">
-      <th style="padding:5px 8px;text-align:left;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Item</th>
-      <th style="padding:5px 8px;text-align:right;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Total Qty</th>
-      <th style="padding:5px 8px;text-align:center;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">From Stock</th>
-      <th style="padding:5px 8px;text-align:center;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">From Production</th>
-    </tr></thead>
-    <tbody>${mixedItems.map(v => {
-      const size = _whSizeOf(v.item_name, v.item_code);
-      const total = parseFloat(v.qty)||0;
-      const fromStock = parseFloat(v.qty_from_stock)||0;
-      const fromProd = parseFloat(v.qty_from_prod)||0;
-      const matched = (fromStock + fromProd) === total;
-      return `<tr style="border-top:1px solid var(--g100)">
-        <td style="padding:5px 8px"><span style="font-family:var(--mono);font-size:10px;padding:1px 6px;background:var(--black);color:var(--white);border-radius:3px">${size}</span> <span style="font-size:11px">${_whParentName(v.item_name).replace(/</g,'&lt;')}</span></td>
-        <td style="padding:5px 8px;text-align:right;font-family:var(--mono);font-weight:700">${total}</td>
-        <td style="padding:5px 8px;text-align:center"><input type="number" min="0" max="${total}" value="${fromStock}" onchange="_whItemSplit(${v.id},'stock',this.value)" style="width:54px;text-align:right;font-family:var(--mono);font-size:11px;padding:2px 5px;border:1px solid var(--g100);border-radius:3px;background:#fff8e8"></td>
-        <td style="padding:5px 8px;text-align:center"><input type="number" min="0" max="${total}" value="${fromProd}" onchange="_whItemSplit(${v.id},'prod',this.value)" style="width:54px;text-align:right;font-family:var(--mono);font-size:11px;padding:2px 5px;border:1px solid var(--g100);border-radius:3px;background:#f0f7ff"></td>
-      </tr>${!matched?`<tr><td colspan="4" style="padding:0 8px 6px;font-size:10px;color:#c0392b">⚠ Split (${fromStock}+${fromProd}=${fromStock+fromProd}) gak match total ${total}</td></tr>`:''}`;
-    }).join('')}
-    </tbody></table>
-  </div>` : '';
+  const parentCards = [...parents.values()].map(p => _whRenderAllocParentCard(p, jByItemId, linksByItem)).join('');
 
   return `<div class="form-card">
     <div class="form-sec">Source Allocation</div>
-    <div style="font-size:11px;color:var(--g600);margin-bottom:14px">Items dipecah per <b>source</b>: 📦 dari stock (untuk warehouse) vs 🏭 produksi baru (link ke Restock Project).</div>
-    ${mixedCard}
-    ${stockCards||'<div style="font-size:11px;color:var(--g400);padding:8px;text-align:center">— Tidak ada items dari stock —</div>'}
-    ${prodCards||'<div style="font-size:11px;color:var(--g400);padding:8px;text-align:center">— Tidak ada items butuh produksi —</div>'}
+    <div style="font-size:11px;color:var(--g600);margin-bottom:14px">Set tiap produk: <b>📦 From Stock</b> (warehouse pickup) · <b>🏭 Production</b> (link ke Restock Project) · <b>🔀 Mixed</b> (split per variant).</div>
+    ${parentCards}
+  </div>`;
+}
+
+function _whRenderAllocParentCard(p, jByItemId, linksByItem) {
+  p.variants.sort((a,b) => _whSortSizes(_whSizeOf(a.item_name,a.item_code), _whSizeOf(b.item_name,b.item_code)));
+  // Source aggregate
+  const srcs = new Set(p.variants.map(v => v.source_type||'production'));
+  const parentSrc = srcs.size === 1 ? [...srcs][0] : 'mixed';
+  const escName = p.name.replace(/'/g,"\\'");
+
+  const totalQty = p.variants.reduce((s,v) => s + (parseFloat(v.qty)||0), 0);
+  // Thumbnail
+  let thumb = null;
+  for (const v of p.variants) {
+    const j = jByItemId.get(v.jubelio_item_id);
+    if (j?.thumbnail) { thumb = j.thumbnail; break; }
+  }
+  const thumbHTML = thumb
+    ? `<img src="${thumb.replace(/"/g,'&quot;')}" style="width:56px;height:56px;object-fit:cover;border-radius:4px;border:1px solid var(--g100);flex-shrink:0">`
+    : `<div style="width:56px;height:56px;background:var(--off);border:1px dashed var(--g100);border-radius:4px;display:flex;align-items:center;justify-content:center;color:var(--g400);font-size:9px;flex-shrink:0">no img</div>`;
+
+  // Source picker — segmented control
+  const srcOpts = [
+    { v:'stock',      icon:'📦', lbl:'From Stock',  bg:'#fff8e8', bd:'#f0d896', txt:'#a66800' },
+    { v:'production', icon:'🏭', lbl:'Production',   bg:'#f0f7ff', bd:'#c4ddf5', txt:'#3C3489' },
+    { v:'mixed',      icon:'🔀', lbl:'Mixed',        bg:'#fdf4ff', bd:'#d9b8f0', txt:'#7c4fb3' },
+  ];
+  const segCtrl = srcOpts.map(o => {
+    const active = parentSrc === o.v;
+    return `<button onclick="_whParentSource('${escName}', '${o.v}')" style="padding:5px 12px;font-size:11px;border:1px solid ${active?o.bd:'var(--g100)'};background:${active?o.bg:'var(--white)'};color:${active?o.txt:'var(--g600)'};border-radius:4px;cursor:pointer;font-weight:${active?'700':'500'}">${o.icon} ${o.lbl}</button>`;
+  }).join('');
+
+  let content = '';
+
+  // Stock pickup table — kalau source=stock
+  if (parentSrc === 'stock') {
+    content = _whRenderStockPickupTable(p, jByItemId);
+  }
+  // Production allocation table — kalau source=production
+  else if (parentSrc === 'production') {
+    content = _whRenderProdAllocTable(p, linksByItem);
+  }
+  // Mixed: split editor + dua section
+  else if (parentSrc === 'mixed') {
+    const splitEditor = _whRenderMixedSplitEditor(p);
+    const stockTbl = _whRenderStockPickupTable(p, jByItemId, true /* mixedMode */);
+    const prodTbl  = _whRenderProdAllocTable(p, linksByItem, true /* mixedMode */);
+    content = `${splitEditor}${stockTbl}${prodTbl}`;
+  }
+
+  return `<div style="background:var(--off);border:1px solid var(--g100);border-radius:6px;padding:12px;margin-bottom:12px">
+    <div style="display:flex;gap:12px;align-items:center;margin-bottom:10px">
+      ${thumbHTML}
+      <div style="flex:1;min-width:0">
+        <div style="font-size:14px;font-weight:700">${p.name.replace(/</g,'&lt;')}</div>
+        <div style="font-size:11px;color:var(--g600);margin-top:2px">${p.variants.length} variants · ${totalQty} pcs total</div>
+      </div>
+      <div style="display:flex;gap:5px;flex-wrap:wrap">${segCtrl}</div>
+    </div>
+    ${content}
+  </div>`;
+}
+
+function _whRenderStockPickupTable(p, jByItemId, mixedMode=false) {
+  const rows = p.variants.map(v => {
+    const size = _whSizeOf(v.item_name, v.item_code);
+    const j = jByItemId.get(v.jubelio_item_id);
+    const stk = parseFloat(j?.total_on_hand)||0;
+    const pickup = mixedMode ? (parseFloat(v.qty_from_stock)||0) : (parseFloat(v.qty)||0);
+    if (mixedMode && pickup === 0) return '';
+    const sufficient = stk >= pickup;
+    return `<tr style="border-top:1px solid #e5e7eb">
+      <td style="padding:5px 8px"><span style="font-family:var(--mono);font-size:10px;font-weight:600;padding:2px 7px;background:var(--black);color:var(--white);border-radius:3px">${size}</span></td>
+      <td style="padding:5px 8px;font-family:var(--mono);font-size:10px;color:var(--g600)">${(v.item_code||'').replace(/</g,'&lt;')}</td>
+      <td style="padding:5px 8px;text-align:right;font-family:var(--mono);font-size:12px;font-weight:700">${pickup}</td>
+      <td style="padding:5px 8px;text-align:right;font-family:var(--mono);font-size:11px;color:${sufficient?'#0a7d3a':'#c0392b'}">${Math.round(stk)} ${pickup>0?(sufficient?'✓':'⚠'):''}</td>
+    </tr>`;
+  }).filter(Boolean).join('');
+  if (!rows) return '';
+  const totalPickup = p.variants.reduce((s,v) => s + (mixedMode ? (parseFloat(v.qty_from_stock)||0) : (parseFloat(v.qty)||0)), 0);
+  return `<div style="background:#fff8e8;border:1px solid #f0d896;border-radius:5px;padding:10px;margin-top:8px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <div style="font-size:11px;font-weight:600;color:#a66800;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px">📦 Warehouse Pickup ${mixedMode?'(stock portion)':''}</div>
+      <div style="font-size:13px;font-weight:700;font-family:var(--mono)">${totalPickup} pcs</div>
+    </div>
+    <table style="width:100%;font-size:11px;background:white;border-radius:3px">
+      <thead><tr style="background:#fef4d4">
+        <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Size</th>
+        <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">SKU</th>
+        <th style="padding:4px 8px;text-align:right;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Pickup</th>
+        <th style="padding:4px 8px;text-align:right;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">On Hand</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+}
+
+function _whRenderProdAllocTable(p, linksByItem, mixedMode=false) {
+  const rows = p.variants.map(v => {
+    const size = _whSizeOf(v.item_name, v.item_code);
+    const qtyNeed = mixedMode ? (parseFloat(v.qty_from_prod)||0) : (parseFloat(v.qty)||0);
+    if (mixedMode && qtyNeed === 0) return '';
+    const allocs = linksByItem.get(v.id) || [];
+    const totalAlloc = allocs.reduce((s,a) => s + (parseFloat(a.qty_allocated)||0), 0);
+    const pending = qtyNeed - totalAlloc;
+    const fullDone = qtyNeed > 0 && totalAlloc >= qtyNeed;
+    const batchChips = allocs.map(a => {
+      const proj = _whRestockProjects.find(p2 => p2.id === a.restock_project_id);
+      return `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 7px;background:#eef0f8;color:#3C3489;border:1px solid #c9bdf0;border-radius:11px;font-size:10px;margin:2px 3px 2px 0">📦 ${(proj?.name||proj?.id||a.restock_project_id||'?').toString().replace(/</g,'&lt;')} · ${a.qty_allocated}p <button onclick="_whUnlinkBatch(${a.id})" style="background:none;border:none;color:#c0392b;cursor:pointer;padding:0;font-size:11px;line-height:1">×</button></span>`;
+    }).join('');
+    const pickerOpen = _whBatchPickerFor === v.id;
+    const pickerHTML = pickerOpen ? _whRenderBatchPickerInline(v.id, pending) : '';
+    return `<tr style="border-top:1px solid #e5e7eb">
+      <td style="padding:6px 8px;vertical-align:top"><span style="font-family:var(--mono);font-size:10px;font-weight:600;padding:2px 7px;background:var(--black);color:var(--white);border-radius:3px">${size}</span></td>
+      <td style="padding:6px 8px;text-align:right;vertical-align:top;font-family:var(--mono);font-size:12px;font-weight:700">${qtyNeed}</td>
+      <td style="padding:6px 8px;text-align:right;vertical-align:top;font-family:var(--mono);font-size:11px;color:${fullDone?'#0a7d3a':totalAlloc>0?'#a66800':'var(--g400)'};font-weight:600">${totalAlloc}/${qtyNeed}</td>
+      <td style="padding:6px 8px;vertical-align:top">${batchChips||'<span style="color:var(--g400);font-size:11px">—</span>'}</td>
+      <td style="padding:6px 8px;text-align:right;vertical-align:top;white-space:nowrap">${pending>0?`<button class="btn-ghost" onclick="_whBatchPickerToggle(${v.id})" style="font-size:10px;padding:2px 8px;color:#3C3489;border-color:#c9bdf0">${pickerOpen?'✕ Cancel':'+ Batch'}</button>`:'<span style="font-size:10px;color:#0a7d3a">✓ Full</span>'}</td>
+    </tr>${pickerOpen ? `<tr><td colspan="5" style="padding:0">${pickerHTML}</td></tr>` : ''}`;
+  }).filter(Boolean).join('');
+  if (!rows) return '';
+  const totalProdNeed = p.variants.reduce((s,v) => s + (mixedMode ? (parseFloat(v.qty_from_prod)||0) : (parseFloat(v.qty)||0)), 0);
+  return `<div style="background:#f0f7ff;border:1px solid #c4ddf5;border-radius:5px;padding:10px;margin-top:8px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <div style="font-size:11px;font-weight:600;color:#3C3489;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px">🏭 Production via Restock Project ${mixedMode?'(production portion)':''}</div>
+      <div style="font-size:13px;font-weight:700;font-family:var(--mono)">${totalProdNeed} pcs</div>
+    </div>
+    <table style="width:100%;font-size:11px;background:white;border-radius:3px">
+      <thead><tr style="background:#dceaf7">
+        <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Size</th>
+        <th style="padding:4px 8px;text-align:right;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Qty Need</th>
+        <th style="padding:4px 8px;text-align:right;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Allocated</th>
+        <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Batches</th>
+        <th style="padding:4px 8px"></th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+}
+
+function _whRenderMixedSplitEditor(p) {
+  return `<div style="background:#fdf4ff;border:1px solid #d9b8f0;border-radius:5px;padding:10px;margin-top:8px">
+    <div style="font-size:11px;font-weight:600;color:#7c4fb3;margin-bottom:6px;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px">🔀 Split per Variant — set portion ke stock vs production</div>
+    <table style="width:100%;font-size:11px;background:white;border-radius:3px">
+      <thead><tr style="background:#f3e5fd">
+        <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Size</th>
+        <th style="padding:4px 8px;text-align:right;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Total</th>
+        <th style="padding:4px 8px;text-align:center;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">📦 Stock</th>
+        <th style="padding:4px 8px;text-align:center;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">🏭 Prod</th>
+        <th style="padding:4px 8px;text-align:center;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Match</th>
+      </tr></thead>
+      <tbody>${p.variants.map(v => {
+        const size = _whSizeOf(v.item_name, v.item_code);
+        const total = parseFloat(v.qty)||0;
+        const fromStock = parseFloat(v.qty_from_stock)||0;
+        const fromProd = parseFloat(v.qty_from_prod)||0;
+        const matched = (fromStock + fromProd) === total;
+        return `<tr style="border-top:1px solid #e5e7eb">
+          <td style="padding:5px 8px"><span style="font-family:var(--mono);font-size:10px;padding:1px 6px;background:var(--black);color:var(--white);border-radius:3px">${size}</span></td>
+          <td style="padding:5px 8px;text-align:right;font-family:var(--mono);font-weight:700">${total}</td>
+          <td style="padding:5px 8px;text-align:center"><input type="number" min="0" max="${total}" value="${fromStock}" onchange="_whItemSplit(${v.id},'stock',this.value)" style="width:54px;text-align:right;font-family:var(--mono);font-size:11px;padding:2px 5px;border:1px solid #f0d896;border-radius:3px;background:#fff8e8"></td>
+          <td style="padding:5px 8px;text-align:center"><input type="number" min="0" max="${total}" value="${fromProd}" onchange="_whItemSplit(${v.id},'prod',this.value)" style="width:54px;text-align:right;font-family:var(--mono);font-size:11px;padding:2px 5px;border:1px solid #c4ddf5;border-radius:3px;background:#f0f7ff"></td>
+          <td style="padding:5px 8px;text-align:center;font-size:11px">${matched?'<span style="color:#0a7d3a">✓</span>':`<span style="color:#c0392b">⚠ ${fromStock+fromProd}/${total}</span>`}</td>
+        </tr>`;
+      }).join('')}
+      </tbody></table>
   </div>`;
 }
 
