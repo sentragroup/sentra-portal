@@ -33349,16 +33349,19 @@ function _whSortSizes(a, b) {
 function _whRenderItemsTable(items, totalValue) {
   const fmtRp = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
   if (!items.length) return `<div style="padding:24px;text-align:center;color:var(--g400);font-size:12px">Belum ada items. Pakai search box di atas untuk tambah SKU.</div>`;
-  // Group items by parent (item_name minus size suffix)
-  const parents = new Map();
-  for (const it of items) {
-    const pName = _whParentName(it.item_name);
-    if (!parents.has(pName)) parents.set(pName, { name: pName, variants: [] });
-    parents.get(pName).variants.push(it);
-  }
   // Fetch stock + thumb from cached jubelio items
   const jCache = _whJubelioItemsCache || [];
   const jByItemId = new Map(jCache.map(j => [j.item_id, j]));
+  // Group items by item_group_id (primary) with fallback to parsed parent name
+  const parents = new Map();
+  for (const it of items) {
+    const j = jByItemId.get(it.jubelio_item_id);
+    const gid = j?.item_group_id ?? null;
+    const key = gid != null ? `g:${gid}` : `n:${_whParentName(it.item_name)}`;
+    const pName = _whParentName(it.item_name);
+    if (!parents.has(key)) parents.set(key, { name: pName, variants: [] });
+    parents.get(key).variants.push(it);
+  }
   const cards = [...parents.values()].map(p => _whRenderParentCard(p, jByItemId)).join('');
   return `<div style="display:flex;flex-direction:column;gap:14px;margin-top:8px">
     ${cards}
@@ -33579,23 +33582,83 @@ function _whWireItemPicker() {
     if (q.length < 2) { drop.style.display = 'none'; return; }
     if (!_whJubelioItemsCache) {
       try {
-        const { data } = await sb.from('jubelio_items').select('item_id,item_code,item_name,total_on_hand').limit(5000);
+        const { data } = await sb.from('jubelio_items').select('item_id,item_code,item_name,item_group_id,thumbnail,total_on_hand').limit(5000);
         _whJubelioItemsCache = data || [];
       } catch(_) { _whJubelioItemsCache = []; }
     }
-    const hits = _whJubelioItemsCache.filter(it => `${it.item_code||''} ${it.item_name||''}`.toLowerCase().includes(q)).slice(0, 20);
-    if (!hits.length) { drop.style.display = 'none'; return; }
+    // Group hits by item_group_id (fallback to item_id for singletons)
+    const matches = _whJubelioItemsCache.filter(it => `${it.item_code||''} ${it.item_name||''}`.toLowerCase().includes(q));
+    const groups = new Map();
+    for (const it of matches) {
+      const gid = it.item_group_id ?? it.item_id;
+      if (!groups.has(gid)) groups.set(gid, { gid, parentName: _whParentName(it.item_name), thumbnail: it.thumbnail||null, variants: [] });
+      const g = groups.get(gid);
+      if (!g.thumbnail && it.thumbnail) g.thumbnail = it.thumbnail;
+      g.variants.push(it);
+    }
+    // Sort groups: most variants first (parents stand out vs singletons)
+    const ordered = [...groups.values()].slice(0, 15);
+    if (!ordered.length) { drop.style.display = 'none'; return; }
     drop.style.display = 'block';
-    drop.innerHTML = hits.map(it => `<div onmousedown="event.preventDefault();_whAddItem(${it.item_id},'${(it.item_code||'').replace(/'/g,"\\'")}','${(it.item_name||'').replace(/'/g,"\\'").replace(/"/g,'&quot;')}',${parseFloat(it.total_on_hand)||0})" style="padding:7px 10px;cursor:pointer;font-size:12px;border-bottom:1px solid var(--g100)" onmouseenter="this.style.background='var(--off)'" onmouseleave="this.style.background=''">
-      <div><b>${(it.item_name||'').replace(/</g,'&lt;')}</b></div>
-      <div style="font-size:10px;color:var(--g400);font-family:var(--mono)">${it.item_code||it.item_id} · Stock: ${Math.round(parseFloat(it.total_on_hand)||0)} pcs</div>
-    </div>`).join('');
+    drop.innerHTML = ordered.map(g => {
+      const totalStock = g.variants.reduce((s,v) => s + (parseFloat(v.total_on_hand)||0), 0);
+      const sizes = g.variants.map(v => _whSizeOf(v.item_name));
+      const sizesSorted = [...new Set(sizes)].sort(_whSortSizes);
+      const sizeChips = sizesSorted.map(s => `<span style="display:inline-block;padding:1px 5px;background:var(--off);border:1px solid var(--g100);border-radius:2px;font-family:var(--mono);font-size:9px;font-weight:600;margin-right:3px">${s}</span>`).join('');
+      const thumbHTML = g.thumbnail
+        ? `<img src="${g.thumbnail.replace(/"/g,'&quot;')}" style="width:36px;height:36px;object-fit:cover;border-radius:3px;border:1px solid var(--g100);flex-shrink:0">`
+        : `<div style="width:36px;height:36px;background:var(--off);border:1px dashed var(--g100);border-radius:3px;display:flex;align-items:center;justify-content:center;color:var(--g400);font-size:8px;flex-shrink:0">no img</div>`;
+      return `<div onmousedown="event.preventDefault();_whAddGroup(${g.gid})" style="display:flex;gap:8px;align-items:center;padding:7px 10px;cursor:pointer;border-bottom:1px solid var(--g100)" onmouseenter="this.style.background='var(--off)'" onmouseleave="this.style.background=''">
+        ${thumbHTML}
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:600;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${(g.parentName||'').replace(/</g,'&lt;')}</div>
+          <div style="font-size:10px;color:var(--g400);margin-top:2px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <span><b>${g.variants.length}</b> variant${g.variants.length===1?'':'s'}</span>
+            <span>${sizeChips}</span>
+            <span style="font-family:var(--mono)">Stock: ${Math.round(totalStock)}</span>
+          </div>
+        </div>
+        <div style="font-size:10px;color:var(--g400);font-family:var(--mono);flex-shrink:0">+ Add all</div>
+      </div>`;
+    }).join('');
   };
   inp.addEventListener('input', render);
   inp.addEventListener('focus', render);
   inp.addEventListener('blur', () => setTimeout(()=>{ drop.style.display='none'; }, 200));
 }
 
+async function _whAddGroup(groupId) {
+  const o = _whCurrentOrder; if (!o || !o.header || o.header.id === 'new') return;
+  const cache = _whJubelioItemsCache || [];
+  // Find all variants in this group (or singleton fallback by item_id)
+  const variants = cache.filter(it => (it.item_group_id ?? it.item_id) === groupId);
+  if (!variants.length) return;
+  // Skip variants already in order
+  const existingIds = new Set(o.items.map(i => i.jubelio_item_id));
+  const toAdd = variants.filter(v => !existingIds.has(v.item_id));
+  if (!toAdd.length) {
+    alert('Semua variant dari produk ini sudah masuk ke order.');
+    document.getElementById('wh-item-picker').value = '';
+    document.getElementById('wh-item-drop').style.display = 'none';
+    return;
+  }
+  const rows = toAdd.map(v => {
+    const stock = parseFloat(v.total_on_hand)||0;
+    return {
+      order_id: o.header.id, jubelio_item_id: v.item_id,
+      item_code: v.item_code||'', item_name: v.item_name||'',
+      qty: 0, unit_price: 0, source_type: stock > 0 ? 'stock' : 'production'
+    };
+  });
+  const { data, error } = await sb.from('wholesale_customer_order_items').insert(rows).select();
+  if (error) { alert('Gagal: '+error.message); return; }
+  o.items.push(...(data||[]));
+  document.getElementById('wh-item-picker').value = '';
+  document.getElementById('wh-item-drop').style.display = 'none';
+  _whRenderDetail();
+}
+
+// Legacy single-item add (kept for back-compat — not currently wired in picker)
 async function _whAddItem(itemId, code, name, stock) {
   const o = _whCurrentOrder; if (!o || !o.header || o.header.id === 'new') return;
   const source = stock > 0 ? 'stock' : 'production';
