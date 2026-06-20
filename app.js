@@ -194,7 +194,7 @@ const ACCESS_MODULES = [
   {key:'distpartner',label:'Distribution Partner'},{key:'designermaster',label:'Designer Master'},
   {key:'productmap',label:'Product Mapping'},{key:'leads',label:'Leads Management'},
   {key:'collections',label:'Collection Development'},{key:'dsgworkflow',label:'Designer Workflow'},
-  {key:'salesreport',label:'Account Report'},{key:'popupbooth',label:'Pop Up Booth'},
+  {key:'popupbooth',label:'Pop Up Booth'},
   {key:'vendormaster',label:'Vendor Master'},
   {key:'rnd',label:'R&D Product'},
   {key:'mesign',label:'Mekari Sign'},
@@ -277,7 +277,7 @@ function showPage(name, el) {
   document.getElementById("page-"+_pageId).classList.add("active");
   if (el) el.classList.add("active");
   const _c = document.querySelector('.content'); if (_c) _c.scrollTop = 0;
-  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",sampling:"Sampling",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",mktplan:"Marketing Planning",videoprod:"Video Production",txmap:"Transaction Mapping",intpurchase:"Internal Purchase",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)",vendormaster:"Vendor Master",rnd:"R&D Product",koldb:"KOL Database",outbound:"Outbond Request",meetingnotes:"Meeting Notes",ipreports:"IP Reports",cronlogs:"Cron Logs"};
+  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",sampling:"Sampling",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",mktplan:"Marketing Planning",videoprod:"Video Production",txmap:"Transaction Mapping",intpurchase:"Internal Purchase",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)",vendormaster:"Vendor Master",rnd:"R&D Product",koldb:"KOL Database",outbound:"Outbond Request",meetingnotes:"Meeting Notes",ipreports:"IP Reports",cronlogs:"Cron Logs"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -295,7 +295,8 @@ function showPage(name, el) {
   if (name==="ipmaster") { loadIPMaster(); loadStats(); }
   if (name==="recipients") loadRecipients();
   if (name==="brandmaster") loadBrandMaster();
-  if (name==="salesreport") loadSalesReport();
+  // salesreport (Account Report) di-retire — redirect ke ipreports
+  if (name==="salesreport") { showPage('ipreports', null); return; }
   if (name==="leads") loadLeads();
   if (name==="distpartner") loadDistPartner();
   if (name==="vendormaster") loadVendorMaster();
@@ -1331,303 +1332,6 @@ setupAC("bm-pic","ac-bm-pic",()=>acPics);
 setupAC("bm-agreements","ac-bm-agr",()=>acAgrOptions.map(o=>o.id),()=>acAgrOptions);
 // PKS autocomplete - special: picking sets hidden drive link
 setupACPKS("rr-pks","ac-rr-pks");
-
-// ── SALES REPORT ──
-const SR_MONTHS = [
-  {idx:0, label:"Jun 2026", year:2026, month:5},
-  {idx:1, label:"Jul 2026", year:2026, month:6},
-  {idx:2, label:"Agu 2026", year:2026, month:7},
-  {idx:3, label:"Sep 2026", year:2026, month:8},
-  {idx:4, label:"Okt 2026", year:2026, month:9},
-  {idx:5, label:"Nov 2026", year:2026, month:10},
-  {idx:6, label:"Des 2026", year:2026, month:11}
-];
-
-let srBrands = [];       // [{id, name, revenue, source, startDate}]
-let srReports = {};      // key: "brandId_monthIdx" -> {link, notes, by, date}
-let srFiltered = [];
-let srModalContext = null; // {brandId, monthIdx}
-let srSDContext = null;    // {brandId}
-
-async function loadSalesReport() {
-  document.getElementById("sr-loading").style.display = "block";
-  document.getElementById("sr-table").style.display = "none";
-  try {
-    const [bmRes,ipRes,rrRes,rptRes,sdRes,dpRes] = await Promise.all([
-      sb.from("brand_master").select("*"),
-      sb.from("ip_master").select("*"),
-      sb.from("royalty_recipients").select("*"),
-      sb.from("sr_reports").select("*"),
-      sb.from("sr_startdates").select("*"),
-      sb.from("dist_partners").select("*")
-    ]);
-    const seen={};
-    srBrands=[];
-    const addBrand=(id,name,revenue,source,pic,relatedIP)=>{if(!seen[id]){seen[id]=true;srBrands.push({id,name:name.trim(),revenue:revenue||"",source,pic:pic||"",relatedIP:relatedIP||""});}};
-    (bmRes.data||[]).filter(r=>r.live_status==="Active").forEach(r=>addBrand(r.id,r.name,r.revenue_stream,"BM",r.pic,""));
-    (ipRes.data||[]).filter(r=>r.live_status==="Active").forEach(r=>addBrand(r.id,r.name,r.revenue_stream,"IP",r.pic,""));
-    (rrRes.data||[]).forEach(r=>addBrand(r.id,r.nama,r.revenue_stream||"","CR",r.pic,r.related_ip||""));
-    (dpRes.data||[]).filter(r=>r.live_status==="Active"&&(r.type||"").toLowerCase().includes("consignment"))
-      .forEach(r=>addBrand(r.id,r.partner_name,"Distribution","DP",r.pic||"",""));
-    srReports={};
-    (rptRes.data||[]).forEach(r=>{srReports[r.brand_id+"_"+r.month_index]={link:r.link||"",notes:r.notes||"",by:r.submitted_by||""};});
-    const sdMap={};
-    (sdRes.data||[]).forEach(r=>{sdMap[r.brand_id]=r.start_date;});
-    srBrands.forEach(b=>{if(sdMap[b.id])b.startDate=sdMap[b.id];});
-    populateSRPicFilter();
-    applySRFilters();
-  } catch(e) {
-    document.getElementById("sr-loading").textContent = "Gagal memuat: "+e.message;
-  }
-}
-
-function populateSRPicFilter() {
-  const pics = [...new Set(srBrands.map(b=>b.pic).filter(Boolean))].sort();
-  const sel = document.getElementById("sr-fil-pic");
-  const cur = sel.value;
-  sel.innerHTML = `<option value="">Semua PIC</option>` + pics.map(p=>`<option value="${p}">${p}</option>`).join("");
-  if (cur && pics.includes(cur)) sel.value = cur;
-}
-
-function applySRFilters() {
-  const q       = (document.getElementById("srSearch").value||"").toLowerCase();
-  const fRev    = document.getElementById("sr-fil-revenue").value;
-  const fMonth  = document.getElementById("sr-fil-month").value;
-  const fStatus = document.getElementById("sr-fil-status").value;
-  const fPic    = document.getElementById("sr-fil-pic").value;
-  const fSrc    = document.getElementById("sr-fil-source").value;
-  ["sr-fil-revenue","sr-fil-month","sr-fil-status","sr-fil-source","sr-fil-pic"].forEach(id=>{
-    const el=document.getElementById(id);if(el)el.classList.toggle("active-filter",!!el.value);
-  });
-
-  const now = new Date();
-  const curMonth = now.getMonth(); // 0-based
-
-  srFiltered = srBrands.filter(b=>{
-    if(q    && !(b.name||"").toLowerCase().includes(q)) return false;
-    if(fRev && !(b.revenue||"").includes(fRev)) return false;
-    if(fPic && (b.pic||"") !== fPic) return false;
-    if(fSrc && b.source !== fSrc) return false;
-    if(fStatus) {
-      const checkMonth = fMonth !== "" ? parseInt(fMonth) : curMonth;
-      const mIdx = SR_MONTHS.findIndex(m=>m.month===checkMonth);
-      if(mIdx < 0) return true;
-      const key = b.id+"_"+mIdx;
-      const due = isCellDue(b, mIdx);
-      const done = !!srReports[key];
-      if(fStatus==="missing"  && (!due || done)) return false;
-      if(fStatus==="complete" && (!due || !done)) return false;
-    }
-    return true;
-  });
-
-  computeSRStats();
-  renderSRGrid();
-}
-
-function isCellDue(brand, monthIdx) {
-  if (!brand.startDate) return true; // no start date = due from Jun
-  const m = SR_MONTHS[monthIdx];
-  const startDate = new Date(brand.startDate);
-  const cellDate  = new Date(m.year, m.month, 1);
-  return cellDate >= new Date(startDate.getFullYear(), startDate.getMonth(), 1);
-}
-
-function computeSRStats() {
-  const now = new Date();
-  const curMonth = now.getMonth();
-  const curMIdx  = SR_MONTHS.findIndex(m=>m.month===curMonth);
-  const mIdx = curMIdx >= 0 ? curMIdx : 0;
-
-  let complete=0, missing=0, totalDue=0, totalDone=0;
-  srFiltered.forEach(b=>{
-    const key = b.id+"_"+mIdx;
-    const due  = isCellDue(b, mIdx);
-    if(due) {
-      totalDue++;
-      if(srReports[key]) { totalDone++; complete++; }
-      else missing++;
-    }
-    // total across all months
-    SR_MONTHS.forEach((m,i)=>{
-      if(isCellDue(b,i)) {
-        if(srReports[b.id+"_"+i]) totalDone++;
-      }
-    });
-  });
-
-  document.getElementById("sr-s-total").textContent    = srFiltered.length;
-  document.getElementById("sr-s-complete").textContent = complete;
-  document.getElementById("sr-s-missing").textContent  = missing;
-  const rate = totalDue > 0 ? Math.round((totalDone/totalDue)*100) : 0;
-  document.getElementById("sr-s-rate").textContent     = rate+"%";
-}
-
-function renderSRGrid() {
-  document.getElementById("sr-loading").style.display = "none";
-  const table = document.getElementById("sr-table");
-  table.style.display = "table";
-
-  // Filter months if month filter active
-  const fMonth = document.getElementById("sr-fil-month").value;
-  const months = fMonth !== "" ? SR_MONTHS.filter(m=>m.month===parseInt(fMonth)) : SR_MONTHS;
-
-  // Header
-  const thead = document.getElementById("sr-thead");
-  thead.innerHTML = `<tr>
-    <th style="min-width:180px;position:sticky;left:0;background:var(--off);z-index:2;">Brand</th>
-    <th style="min-width:90px;white-space:nowrap;">PIC</th>
-    <th style="min-width:60px;white-space:nowrap;">Start</th>
-    ${months.map(m=>`<th style="min-width:90px;text-align:center;">${m.label}</th>`).join("")}
-  </tr>`;
-
-  // Body
-  const tbody = document.getElementById("sr-tbody");
-  if (!srFiltered.length) {
-    tbody.innerHTML = `<tr><td class="empty-td" colspan="${months.length+3}">Tidak ada brand yang cocok.</td></tr>`;
-    return;
-  }
-
-  tbody.innerHTML = srFiltered.map(b=>{
-    const srcLabel  = {BM:"Brand Master",IP:"IP Master",CR:"Collaborator",DP:"Consignment"}[b.source]||b.source;
-    const startLabel = b.startDate
-      ? `<button class="btn-icon" onclick="openSDModal('${b.id}','${b.name.replace(/'/g,"\\'")}')">✏ ${fmtDate(b.startDate)}</button>`
-      : `<button class="btn-icon" onclick="openSDModal('${b.id}','${b.name.replace(/'/g,"\\'")}')">+ Set</button>`;
-    const cells = months.map(m=>{
-      const due  = isCellDue(b, m.idx);
-      const key  = b.id+"_"+m.idx;
-      const rep  = srReports[key];
-      if (!due) {
-        return `<td style="background:var(--g100);text-align:center;">—</td>`;
-      }
-      if (rep) {
-        return `<td style="background:#edf8ee;text-align:center;cursor:pointer;" onclick="openSRModal('${b.id}','${b.name.replace(/'/g,"\'")}',${m.idx},'${srcLabel}')">
-          <a href="${rep.link}" target="_blank" onclick="event.stopPropagation()" style="font-family:var(--mono);font-size:10px;color:#1a5c25;text-decoration:underline;">✅ Lihat</a>
-        </td>`;
-      }
-      return `<td style="background:#fdf0f0;text-align:center;cursor:pointer;" onclick="openSRModal('${b.id}','${b.name.replace(/'/g,"\'")}',${m.idx},'${srcLabel}')">
-        <span style="font-size:11px;color:#7a1f1f;font-family:var(--mono);">🔴 +</span>
-      </td>`;
-    }).join("");
-
-    const revStreams = (b.revenue||"").split(",").map(s=>s.trim()).filter(Boolean);
-    const revBadge  = revStreams.map(s=>`<span class="pill" style="background:#EEEDFE;color:#3C3489;border:0.5px solid #AFA9EC;font-size:9px;padding:1px 6px;">${s}</span>`).join(" ");
-
-    return `<tr>
-      <td style="position:sticky;left:0;background:var(--white);z-index:1;border-right:1px solid var(--g100);">
-        <div style="font-weight:500;font-size:12px;">${b.name}</div>
-        ${b.source==="CR"&&b.relatedIP?`<div style="font-size:10px;color:var(--g600);margin-top:1px;">${b.relatedIP}</div>`:""}
-        <div style="margin-top:2px;">${revBadge}</div>
-        <div style="font-size:10px;color:var(--g400);font-family:var(--mono);">${srcLabel}</div>
-      </td>
-      <td style="font-family:var(--mono);font-size:11px;color:var(--g600);white-space:nowrap;">${b.pic||"—"}</td>
-      <td style="font-family:var(--mono);font-size:10px;color:var(--g400);white-space:nowrap;">${startLabel}</td>
-      ${cells}
-    </tr>`;
-  }).join("");
-}
-
-function clearSRFilters() {
-  ["sr-fil-revenue","sr-fil-month","sr-fil-status","sr-fil-source","sr-fil-pic"].forEach(id=>{
-    const el=document.getElementById(id);if(el){el.value="";el.classList.remove("active-filter");}
-  });
-  document.getElementById("srSearch").value="";
-  applySRFilters();
-}
-
-// ── MODAL: Submit Report ──
-function openSRModal(brandId, brandName, monthIdx, srcLabel) {
-  srModalContext = {brandId, monthIdx};
-  const m   = SR_MONTHS[monthIdx];
-  const key = brandId+"_"+monthIdx;
-  const rep = srReports[key];
-  document.getElementById("sr-modal-title").textContent = brandName;
-  document.getElementById("sr-modal-sub").textContent   = (srcLabel ? srcLabel+" · " : "") + m.label;
-  document.getElementById("sr-modal-link").value  = rep ? rep.link  : "";
-  document.getElementById("sr-modal-notes").value = rep ? rep.notes : "";
-  document.getElementById("sr-modal-clear").style.display = rep ? "inline-flex" : "none";
-  document.getElementById("sr-modal-feedback").className = "feedback";
-  const modal = document.getElementById("sr-modal");
-  modal.style.display = "flex";
-}
-
-function closeSRModal() {
-  document.getElementById("sr-modal").style.display = "none";
-  srModalContext = null;
-}
-
-async function submitSRReport() {
-  if (!srModalContext) return;
-  const link = document.getElementById("sr-modal-link").value.trim();
-  if (!link) { showSRModalFeedback("Link wajib diisi.","err"); return; }
-  const btn = document.getElementById("sr-modal-btn");
-  btn.disabled=true; btn.textContent="Menyimpan...";
-  try {
-    const notes=document.getElementById("sr-modal-notes").value.trim();
-    const key=srModalContext.brandId+"_"+srModalContext.monthIdx;
-    const isUpdate=!!srReports[key];
-    if(isUpdate) {
-      const {error}=await sb.from("sr_reports").update({link,notes,submitted_by:currentUser,submitted_at:new Date().toISOString()}).eq("brand_id",srModalContext.brandId).eq("month_index",String(srModalContext.monthIdx));
-      if(error)throw error;
-    } else {
-      const {error}=await sb.from("sr_reports").insert({brand_id:srModalContext.brandId,month_index:String(srModalContext.monthIdx),link,notes,submitted_by:currentUser});
-      if(error)throw error;
-    }
-    srReports[key]={link,notes,by:currentUser};
-    logActivity("Account Report",isUpdate?"update":"submit",srModalContext.brandId,srModalContext.brandName+" — bulan "+(srModalContext.monthIdx+1));
-    closeSRModal(); applySRFilters();
-  } catch(e) { showSRModalFeedback("Gagal: "+(e.message||e),"err"); }
-  btn.disabled=false; btn.textContent="Submit";
-}
-
-async function clearSRReport() {
-  if (!srModalContext) return;
-  if (!confirm("Hapus link report ini?")) return;
-  try {
-    const {error}=await sb.from("sr_reports").delete().eq("brand_id",srModalContext.brandId).eq("month_index",String(srModalContext.monthIdx));
-    if(error)throw error;
-    logActivity("Account Report","delete",srModalContext.brandId,srModalContext.brandName+" — bulan "+(srModalContext.monthIdx+1));
-    delete srReports[srModalContext.brandId+"_"+srModalContext.monthIdx];
-    closeSRModal(); applySRFilters();
-  } catch(e) { showSRModalFeedback("Gagal: "+(e.message||e),"err"); }
-}
-
-function showSRModalFeedback(msg,type) {
-  const el=document.getElementById("sr-modal-feedback"); el.textContent=msg; el.className="feedback "+type;
-}
-
-// ── MODAL: Set Start Date ──
-function openSDModal(brandId, brandName) {
-  srSDContext = {brandId};
-  document.getElementById("sr-sd-brand").textContent = brandName;
-  const brand = srBrands.find(b=>b.id===brandId);
-  document.getElementById("sr-sd-date").value = brand && brand.startDate ? brand.startDate : "";
-  document.getElementById("sr-sd-feedback").className = "feedback";
-  document.getElementById("sr-startdate-modal").style.display = "flex";
-}
-
-function closeSDModal() {
-  document.getElementById("sr-startdate-modal").style.display = "none";
-  srSDContext = null;
-}
-
-async function saveStartDate() {
-  if (!srSDContext) return;
-  const date = document.getElementById("sr-sd-date").value;
-  if (!date) { document.getElementById("sr-sd-feedback").textContent="Pilih tanggal dulu."; document.getElementById("sr-sd-feedback").className="feedback err"; return; }
-  try {
-    const brand=srBrands.find(b=>b.id===srSDContext.brandId);
-    const {error}=await sb.from("sr_startdates").upsert({brand_id:srSDContext.brandId,brand_name:brand?brand.name:"",start_date:date,set_by:currentUser,set_at:new Date().toISOString()},{onConflict:"brand_id"});
-    if(error)throw error;
-    logActivity("Account Report","set_startdate",srSDContext.brandId,(brand?brand.name:srSDContext.brandId)+" → "+date);
-    if(brand)brand.startDate=date;
-    closeSDModal(); applySRFilters();
-  } catch(e) { document.getElementById("sr-sd-feedback").textContent="Gagal: "+(e.message||e); document.getElementById("sr-sd-feedback").className="feedback err"; }
-}
-
-// Close modals on backdrop click
-document.getElementById("sr-modal").addEventListener("click", function(e) { if(e.target===this) closeSRModal(); });
-document.getElementById("sr-startdate-modal").addEventListener("click", function(e) { if(e.target===this) closeSDModal(); });
 
 // ── PRELOAD AUTOCOMPLETE ON LOGIN ──
 async function preloadAutocomplete() {
@@ -31750,7 +31454,6 @@ function mapIPReport(r) {
 async function loadIPReports() {
   const tbody = document.getElementById('ipr-tbody');
   if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="9">Memuat...</td></tr>`;
-  // Populate IP filter dropdown
   if (!allIPRows.length) await loadIPMaster();
   const ipSel = document.getElementById('ipr-f-ip');
   if (ipSel && ipSel.options.length <= 1) {
@@ -31758,11 +31461,169 @@ async function loadIPReports() {
       .concat([...allIPRows].sort((a,b)=>(a.name||'').localeCompare(b.name||'')).map(ip => `<option value="${ip.id}">${(ip.name||ip.id).replace(/</g,'&lt;')}</option>`));
     ipSel.innerHTML = opts.join('');
   }
-  const { data, error } = await sb.from('ip_reports').select('*').order('created_at',{ascending:false}).limit(500);
+  // Populate year dropdown (current year ±2)
+  const ySel = document.getElementById('ipr-g-year');
+  if (ySel && !ySel.options.length) {
+    const curY = new Date().getFullYear();
+    ySel.innerHTML = '';
+    for (let y = curY+1; y >= curY-3; y--) {
+      const opt = document.createElement('option');
+      opt.value = y; opt.textContent = y;
+      if (y === curY) opt.selected = true;
+      ySel.appendChild(opt);
+    }
+  }
+  const { data, error } = await sb.from('ip_reports').select('*').order('created_at',{ascending:false}).limit(1000);
   if (error) { if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="9">Error: ${error.message}</td></tr>`; return; }
   allIPReports = (data||[]).map(mapIPReport);
   _iprRefreshStats();
   applyIPRFilters();
+  iprRenderGrid();
+}
+
+// ── Grid (Tracker) view ──
+function iprSwitchView(view, btn) {
+  document.querySelectorAll('#ipr-list-view .tab-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  const grid = document.getElementById('ipr-grid-wrap');
+  const hist = document.getElementById('ipr-history-wrap');
+  if (grid) grid.style.display = view === 'grid' ? '' : 'none';
+  if (hist) hist.style.display = view === 'list' ? '' : 'none';
+  if (view === 'grid') iprRenderGrid();
+}
+
+const _IPR_MONTH_LBLS = ['JAN','FEB','MAR','APR','MEI','JUN','JUL','AGT','SEP','OKT','NOV','DES'];
+
+function iprRenderGrid() {
+  const year = parseInt(document.getElementById('ipr-g-year')?.value) || new Date().getFullYear();
+  const revF = document.getElementById('ipr-g-rev')?.value || '';
+  const stF  = document.getElementById('ipr-g-status')?.value || '';
+  const q    = (document.getElementById('ipr-g-search')?.value || '').toLowerCase().trim();
+  const thead = document.getElementById('ipr-grid-thead');
+  const tbody = document.getElementById('ipr-grid-tbody');
+  if (!thead || !tbody) return;
+
+  // Active IPs only, filter by revenue + search
+  const activeIPs = allIPRows.filter(ip => (ip.liveStatus||'Active') === 'Active');
+  let ips = activeIPs;
+  if (revF) ips = ips.filter(ip => (ip.revenue||ip.revenueStream||'').split(',').map(s=>s.trim()).includes(revF));
+  if (q) ips = ips.filter(ip => (ip.name||'').toLowerCase().includes(q));
+  ips = [...ips].sort((a,b) => (a.name||'').localeCompare(b.name||''));
+
+  // Index ip_reports by ipId × month (monthly type only, period_start in target year)
+  const byIpMonth = new Map(); // `${ipId}:${monthIdx}` → {status, id}
+  for (const r of allIPReports) {
+    if (r.periodType !== 'month' && r.periodType !== 'monthly') continue;
+    if (!r.periodStart) continue;
+    const ps = r.periodStart;
+    const py = parseInt(ps.slice(0,4));
+    const pm = parseInt(ps.slice(5,7)) - 1;
+    if (py !== year) continue;
+    const key = `${r.ipId}:${pm}`;
+    // Latest report wins (sent > draft)
+    const cur = byIpMonth.get(key);
+    if (!cur || (r.status === 'sent' && cur.status !== 'sent') || (r.createdAt > cur.createdAt)) {
+      byIpMonth.set(key, r);
+    }
+  }
+
+  // Stats current month
+  const now = new Date();
+  const curM = now.getMonth();
+  const curYNow = now.getFullYear();
+  const isCurrentYear = year === curYNow;
+  let sentCnt = 0, draftCnt = 0, missingCnt = 0;
+  if (isCurrentYear) {
+    for (const ip of activeIPs) {
+      const r = byIpMonth.get(`${ip.id}:${curM}`);
+      if (!r) missingCnt++;
+      else if (r.status === 'sent') sentCnt++;
+      else draftCnt++;
+    }
+  }
+  const setN = (id,v) => { const e=document.getElementById(id); if(e) e.textContent = v; };
+  setN('ipr-g-ips', activeIPs.length);
+  setN('ipr-g-sent', isCurrentYear ? sentCnt : '—');
+  setN('ipr-g-draft', isCurrentYear ? draftCnt : '—');
+  setN('ipr-g-missing', isCurrentYear ? missingCnt : '—');
+
+  // Header
+  thead.innerHTML = `<tr>
+    <th style="text-align:left;min-width:180px;position:sticky;left:0;background:var(--off);z-index:2">IP</th>
+    <th style="text-align:center;font-size:10px;color:var(--g600)">Rev</th>
+    ${_IPR_MONTH_LBLS.map((m,i) => `<th style="text-align:center;font-size:10px;min-width:64px${i===curM&&isCurrentYear?';background:#fef5e0':''}">${m}</th>`).join('')}
+  </tr>`;
+
+  // Apply status filter
+  let displayIps = ips;
+  if (stF === 'complete') {
+    // Complete = semua bulan yang sudah lewat punya status sent
+    displayIps = ips.filter(ip => {
+      for (let m = 0; m < (isCurrentYear ? curM+1 : 12); m++) {
+        const r = byIpMonth.get(`${ip.id}:${m}`);
+        if (!r || r.status !== 'sent') return false;
+      }
+      return true;
+    });
+  } else if (stF === 'missing') {
+    displayIps = ips.filter(ip => {
+      for (let m = 0; m < (isCurrentYear ? curM+1 : 12); m++) {
+        const r = byIpMonth.get(`${ip.id}:${m}`);
+        if (!r || r.status !== 'sent') return true;
+      }
+      return false;
+    });
+  }
+
+  if (!displayIps.length) {
+    tbody.innerHTML = `<tr><td class="empty-td" colspan="14">Tidak ada IP yang cocok.</td></tr>`;
+    return;
+  }
+
+  const cellHtml = (ip, monthIdx) => {
+    const isFuture = isCurrentYear ? monthIdx > curM : year > curYNow;
+    const r = byIpMonth.get(`${ip.id}:${monthIdx}`);
+    if (!r) {
+      const tone = isFuture ? 'color:var(--g300);background:transparent' : 'color:#c0392b;background:#fef0f0';
+      const label = isFuture ? '—' : 'Missing';
+      return `<td style="text-align:center;padding:4px;font-size:10px"><span onclick="iprGridCellClick('${ip.id}',${year},${monthIdx})" style="cursor:pointer;display:inline-block;padding:3px 8px;border-radius:4px;font-family:var(--mono);${tone};border:1px dashed ${isFuture?'var(--g200)':'#fcc'}">${label}</span></td>`;
+    }
+    const clr = r.status === 'sent' ? '#0a7d3a' : '#a66800';
+    const bg  = r.status === 'sent' ? '#dff0d8' : '#fef5e0';
+    const ico = r.status === 'sent' ? '✓' : '◐';
+    const lbl = r.status === 'sent' ? 'Sent' : 'Draft';
+    return `<td style="text-align:center;padding:4px;font-size:10px"><span onclick="iprOpenBuilder('${r.id}')" title="Click to open report" style="cursor:pointer;display:inline-block;padding:3px 8px;border-radius:4px;font-family:var(--mono);color:${clr};background:${bg};border:1px solid ${clr}40">${ico} ${lbl}</span></td>`;
+  };
+
+  tbody.innerHTML = displayIps.map(ip => {
+    const rev = (ip.revenue || ip.revenueStream || '').split(',')[0].trim();
+    return `<tr>
+      <td style="font-weight:600;position:sticky;left:0;background:var(--white);z-index:1">${(ip.name||ip.id).replace(/</g,'&lt;')}</td>
+      <td style="text-align:center;font-family:var(--mono);font-size:10px;color:var(--g600)">${rev||'—'}</td>
+      ${_IPR_MONTH_LBLS.map((_,i) => cellHtml(ip, i)).join('')}
+    </tr>`;
+  }).join('');
+}
+
+// Cell click → pre-fill builder dengan IP + month range
+function iprGridCellClick(ipId, year, monthIdx) {
+  const ip = allIPRows.find(r => r.id === ipId);
+  if (!ip) return;
+  const startD = `${year}-${String(monthIdx+1).padStart(2,'0')}-01`;
+  const lastDay = new Date(year, monthIdx+1, 0).getDate();
+  const endD = `${year}-${String(monthIdx+1).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`;
+  _iprCurrentBuilder = {
+    id: null, ipId: ip.id, ipName: ip.name||'',
+    revStream: ip.revenue || ip.revenueStream || '',
+    periodType: 'month',
+    periodStart: startD, periodEnd: endD,
+    snapshot: null, status: 'draft', sentTo: [], note: ''
+  };
+  const listView   = document.getElementById('ipr-list-view');
+  const detailView = document.getElementById('ipr-builder-view');
+  if (listView) listView.style.display = 'none';
+  if (detailView) detailView.style.display = '';
+  _iprRenderBuilder();
 }
 
 function _iprRefreshStats() {

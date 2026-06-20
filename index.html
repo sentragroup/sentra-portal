@@ -202,7 +202,6 @@
         <div class="sb-label" style="margin-bottom:0.6rem">Account Management</div>
         <div class="home-grid" style="margin-bottom:1.5rem">
           <div class="tool-card" onclick="showPage('ipreports',null)"><span class="tc-icon">🗞️</span><div class="tc-name">IP Reports</div><div class="tc-desc">Generate performance report per IP — weekly, monthly, quarterly, all-time. PDF + audit trail siapa kirim apa kapan.</div></div>
-          <div class="tool-card" onclick="showPage('salesreport',null)"><span class="tc-icon">📈</span><div class="tc-name">Account Report</div><div class="tc-desc">Track report submission per brand setiap bulan.</div></div>
           <div class="tool-card" onclick="showPage('leads',null)"><span class="tc-icon">🎯</span><div class="tc-name">Leads Management</div><div class="tc-desc">Track potential brand dan artist collaboration leads.</div></div>
         </div>
 
@@ -503,77 +502,6 @@
         </div>
       </div>
 
-      <!-- SALES REPORT -->
-      <div class="page" id="page-salesreport">
-        <div class="page-header">
-          <div><div class="page-title">Account Report</div><div class="page-sub">Tracking report submission per brand per bulan.</div></div>
-        </div>
-        <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem;">
-          <div class="stat-card"><div class="stat-num" id="sr-s-total">—</div><div class="stat-lbl">Total Brand</div></div>
-          <div class="stat-card"><div class="stat-num" id="sr-s-complete">—</div><div class="stat-lbl">Complete Bulan Ini</div></div>
-          <div class="stat-card danger"><div class="stat-num" id="sr-s-missing">—</div><div class="stat-lbl">Missing Bulan Ini</div></div>
-          <div class="stat-card"><div class="stat-num" id="sr-s-rate">—</div><div class="stat-lbl">Submission Rate</div></div>
-        </div>
-        <div class="filter-panel">
-          <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="clearSRFilters()">✕ Reset</button></div>
-          <div class="filter-grid">
-            <select class="f-select" id="sr-fil-revenue" onchange="applySRFilters()"><option value="">Semua Revenue</option><option>SD&amp;Y</option><option>Lagaa</option><option>Marte</option><option>Distribution</option></select>
-            <select class="f-select" id="sr-fil-month" onchange="applySRFilters()">
-              <option value="">Semua Bulan</option>
-              <option value="5">Jun 2026</option><option value="6">Jul 2026</option><option value="7">Agu 2026</option>
-              <option value="8">Sep 2026</option><option value="9">Okt 2026</option><option value="10">Nov 2026</option><option value="11">Des 2026</option>
-            </select>
-            <select class="f-select" id="sr-fil-status" onchange="applySRFilters()"><option value="">Semua Status</option><option value="missing">Ada Missing</option><option value="complete">Complete</option></select>
-            <select class="f-select" id="sr-fil-source" onchange="applySRFilters()"><option value="">Semua Sumber</option><option value="BM">Brand Master</option><option value="IP">IP Master</option><option value="CR">Collaborator</option><option value="DP">Consignment</option></select>
-            <select class="f-select" id="sr-fil-pic" onchange="applySRFilters()"><option value="">Semua PIC</option></select>
-            <input class="search-box" type="text" id="srSearch" placeholder="Cari nama brand..." oninput="applySRFilters()" style="width:100%">
-          </div>
-        </div>
-        <div class="table-wrap" id="sr-grid-wrap">
-          <div id="sr-loading" style="text-align:center;padding:3rem;color:var(--g400);font-family:var(--mono);font-size:12px;">Memuat data...</div>
-          <table id="sr-table" style="display:none;">
-            <thead id="sr-thead"></thead>
-            <tbody id="sr-tbody"></tbody>
-          </table>
-        </div>
-        <!-- SUBMIT MODAL -->
-        <div id="sr-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:500;align-items:center;justify-content:center;">
-          <div style="background:var(--white);border-radius:12px;padding:1.75rem;width:100%;max-width:440px;box-shadow:0 20px 60px rgba(0,0,0,0.15);">
-            <div style="font-family:var(--head);font-size:18px;font-weight:700;margin-bottom:4px;" id="sr-modal-title">Submit Report</div>
-            <div style="font-size:12px;color:var(--g400);margin-bottom:1.25rem;" id="sr-modal-sub">—</div>
-            <div class="fg" style="margin-bottom:1rem;">
-              <label>Link Report (Google Drive / URL) <span class="req">*</span></label>
-              <input type="url" id="sr-modal-link" placeholder="https://drive.google.com/...">
-            </div>
-            <div class="fg" style="margin-bottom:1.25rem;">
-              <label>Notes</label>
-              <input type="text" id="sr-modal-notes" placeholder="Catatan tambahan">
-            </div>
-            <div style="display:flex;gap:10px;">
-              <button class="btn-primary" onclick="submitSRReport()" id="sr-modal-btn">Submit</button>
-              <button class="btn-ghost" onclick="closeSRModal()">Batal</button>
-              <button id="sr-modal-clear" style="display:none;margin-left:auto;" class="btn-ghost" onclick="clearSRReport()">Hapus Link</button>
-            </div>
-            <div class="feedback" id="sr-modal-feedback"></div>
-          </div>
-        </div>
-        <!-- SET START DATE MODAL -->
-        <div id="sr-startdate-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:500;align-items:center;justify-content:center;">
-          <div style="background:var(--white);border-radius:12px;padding:1.75rem;width:100%;max-width:380px;box-shadow:0 20px 60px rgba(0,0,0,0.15);">
-            <div style="font-family:var(--head);font-size:18px;font-weight:700;margin-bottom:4px;">Set Start Date</div>
-            <div style="font-size:12px;color:var(--g400);margin-bottom:1.25rem;" id="sr-sd-brand">—</div>
-            <div class="fg" style="margin-bottom:1.25rem;">
-              <label>Start Date <span class="req">*</span></label>
-              <input type="date" id="sr-sd-date">
-            </div>
-            <div style="display:flex;gap:10px;">
-              <button class="btn-primary" onclick="saveStartDate()">Simpan</button>
-              <button class="btn-ghost" onclick="closeSDModal()">Batal</button>
-            </div>
-            <div class="feedback" id="sr-sd-feedback"></div>
-          </div>
-        </div>
-      </div>
 
       <!-- BRAND MASTER -->
       <div class="page" id="page-brandmaster">
@@ -4177,6 +4105,40 @@
             </div>
             <button class="btn-primary" onclick="iprOpenBuilder('new')">+ Buat Report</button>
           </div>
+          <div class="tab-bar" style="margin-bottom:1rem">
+            <button class="tab-btn active" id="ipr-tab-grid" onclick="iprSwitchView('grid',this)">📅 Grid (Tracker)</button>
+            <button class="tab-btn" id="ipr-tab-list" onclick="iprSwitchView('list',this)">📋 History</button>
+          </div>
+          <!-- GRID VIEW -->
+          <div id="ipr-grid-wrap">
+            <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
+              <div class="stat-card"><div class="stat-num" id="ipr-g-ips">—</div><div class="stat-lbl">Total IP Aktif</div></div>
+              <div class="stat-card success"><div class="stat-num" id="ipr-g-sent">—</div><div class="stat-lbl">Sent Bulan Ini</div></div>
+              <div class="stat-card warn"><div class="stat-num" id="ipr-g-draft">—</div><div class="stat-lbl">Draft Bulan Ini</div></div>
+              <div class="stat-card danger"><div class="stat-num" id="ipr-g-missing">—</div><div class="stat-lbl">Missing Bulan Ini</div></div>
+            </div>
+            <div class="filter-panel" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:1rem">
+              <div class="fg"><label>Tahun</label><select id="ipr-g-year" onchange="iprRenderGrid()"></select></div>
+              <div class="fg"><label>Revenue Stream</label><select id="ipr-g-rev" onchange="iprRenderGrid()">
+                <option value="">Semua</option>
+                <option value="SD&Y">SD&Y</option>
+                <option value="Lagaa">Lagaa</option>
+                <option value="Marte">Marte</option>
+              </select></div>
+              <div class="fg"><label>Status</label><select id="ipr-g-status" onchange="iprRenderGrid()">
+                <option value="">Semua</option>
+                <option value="missing">Ada Missing</option>
+                <option value="complete">Complete</option>
+              </select></div>
+              <div class="fg"><label>Cari IP</label><input type="text" id="ipr-g-search" placeholder="Nama IP..." oninput="iprRenderGrid()"></div>
+            </div>
+            <div class="table-wrap"><table id="ipr-grid-table">
+              <thead id="ipr-grid-thead"></thead>
+              <tbody id="ipr-grid-tbody"><tr><td class="empty-td" colspan="14">Memuat...</td></tr></tbody>
+            </table></div>
+          </div>
+          <!-- HISTORY LIST VIEW -->
+          <div id="ipr-history-wrap" style="display:none">
           <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
             <div class="stat-card"><div class="stat-num" id="ipr-s-total">—</div><div class="stat-lbl">Total Report</div></div>
             <div class="stat-card info"><div class="stat-num" id="ipr-s-month">—</div><div class="stat-lbl">Bulan Ini</div></div>
@@ -4210,6 +4172,7 @@
             </tr></thead>
             <tbody id="ipr-tbody"><tr><td class="empty-td" colspan="9">Memuat...</td></tr></tbody>
           </table></div>
+          </div><!-- /#ipr-history-wrap -->
         </div>
         <!-- BUILDER VIEW -->
         <div id="ipr-builder-view" style="display:none"></div>
@@ -5214,6 +5177,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260615ap"></script>
+<script src="app.js?v=20260615aq"></script>
 </body>
 </html>
