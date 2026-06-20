@@ -33201,6 +33201,9 @@ function _whRenderDetail() {
   const detV = document.getElementById('wh-detail-view');
   const o = _whCurrentOrder;
   if (!detV || !o) return;
+  // Preserve active tab across re-renders (else any action di alloc/pay tab kembali ke order tab).
+  const activeBtn = detV.querySelector('.tab-btn.active');
+  const activeTab = activeBtn?.id?.replace('wh-tab-','') || 'order';
   const h = o.header;
   const isNew = h.id === 'new';
   const fmtRp = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
@@ -33309,6 +33312,11 @@ function _whRenderDetail() {
   });
   setupAC('wh-h-pic','ac-wh-pic',()=>acPics);
   if (!isNew) _whWireItemPicker();
+  // Restore previously active tab (default to 'order' on first render)
+  if (activeTab && activeTab !== 'order') {
+    const btn = document.getElementById('wh-tab-'+activeTab);
+    if (btn) whSwitchTab(activeTab, btn);
+  }
 }
 
 function whSwitchTab(tab, btn) {
