@@ -233,7 +233,8 @@
 
         <div class="sb-label" style="margin-bottom:0.6rem">Sales Operation</div>
         <div class="home-grid" style="margin-bottom:1.5rem">
-          <div class="tool-card" onclick="showPage('tradorders',null)"><span class="tc-icon">🤝</span><div class="tc-name">Wholesale Orders</div><div class="tc-desc">Monitor dan track order wholesale ke mitra retail &amp; distributor.</div></div>
+          <div class="tool-card" onclick="showPage('wholesale',null)"><span class="tc-icon">🤝</span><div class="tc-name">Wholesale Orders</div><div class="tc-desc">Manage flow 9-step wholesale: intake order, batch ke produksi, DP, kirim, sampai sync Jubelio.</div></div>
+          <div class="tool-card" onclick="showPage('tradorders',null)"><span class="tc-icon">📦</span><div class="tc-name">Wholesale Tracker (Jubelio)</div><div class="tc-desc">Post-Jubelio tracker — orders WHLSR yang udah masuk Jubelio. Track DP &amp; shipping.</div></div>
           <div class="tool-card" onclick="showPage('popupbooth',null)"><span class="tc-icon">🛍️</span><div class="tc-name">Pop Up Booth</div><div class="tc-desc">Track event pop-up booth — manpower, stok, penjualan, dan reinbound.</div></div>
           <div class="tool-card" onclick="showPage('txmap',null)"><span class="tc-icon">🗂️</span><div class="tc-name">Transaction Mapping</div><div class="tc-desc">Map transaksi non-Gudang Bintaro/Marte ke Wholesale, Consignment, Pop Up Booth, atau Internal Purchase. Bulk-edit.</div></div>
           <div class="tool-card" onclick="showPage('intpurchase',null)"><span class="tc-icon">💳</span><div class="tc-name">Internal Purchase</div><div class="tc-desc">Transaksi yang di-map ke Internal Purchase + bukti transfer dari staff. Lacak pelunasan pembelian internal.</div></div>
@@ -3617,7 +3618,56 @@
         </div>
       </div>
 
-<!-- WHOLESALE ORDERS -->
+<!-- WHOLESALE (NEW — pre-Jubelio flow 9 steps) -->
+    <div class="page" id="page-wholesale">
+      <!-- LIST VIEW -->
+      <div id="wh-list-view">
+        <div class="page-header">
+          <div>
+            <div class="page-title">Wholesale Orders</div>
+            <div class="page-sub">Manage 9-step flow: intake → batch produksi → DP → kirim → invoice → sync Jubelio.</div>
+          </div>
+          <button class="btn-primary" onclick="openWholesaleDetail('new')">+ Tambah Order</button>
+        </div>
+        <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
+          <div class="stat-card"><div class="stat-num" id="wh-s-total">—</div><div class="stat-lbl">Total Order</div></div>
+          <div class="stat-card warn"><div class="stat-num" id="wh-s-active">—</div><div class="stat-lbl">Active (belum done)</div></div>
+          <div class="stat-card info"><div class="stat-num" id="wh-s-batched">—</div><div class="stat-lbl">In Production</div></div>
+          <div class="stat-card success"><div class="stat-num" id="wh-s-value">—</div><div class="stat-lbl">Total Value Active</div></div>
+        </div>
+        <div class="filter-panel" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:1rem">
+          <div class="fg"><label>Customer</label><select id="wh-f-customer" onchange="applyWholesaleFilter()"><option value="">Semua</option></select></div>
+          <div class="fg"><label>Status</label><select id="wh-f-status" onchange="applyWholesaleFilter()">
+            <option value="">Semua</option>
+            <option value="new">New</option>
+            <option value="confirmed">Confirmed</option>
+            <option value="allocated">Allocated</option>
+            <option value="producing">Producing</option>
+            <option value="ready">Ready</option>
+            <option value="shipped">Shipped</option>
+            <option value="invoiced">Invoiced</option>
+            <option value="done">Done</option>
+            <option value="canceled">Canceled</option>
+          </select></div>
+          <div class="fg"><label>Delivery Date</label><input type="month" id="wh-f-delivery" onchange="applyWholesaleFilter()"></div>
+          <div class="fg"><label>Cari</label><input type="text" id="wh-f-q" placeholder="No PO / customer / item..." oninput="applyWholesaleFilter()"></div>
+        </div>
+        <div class="table-toolbar">
+          <button class="btn-refresh" onclick="loadWholesale()">↻ Refresh</button>
+          <div class="tcount" id="wh-tcount">— entri</div>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr>
+            <th>Order #</th><th>Customer</th><th>Order Date</th><th>Delivery</th><th>Items</th><th>Value</th><th>Status</th><th>Progress</th><th></th>
+          </tr></thead>
+          <tbody id="wh-tbody"><tr><td class="empty-td" colspan="9">Memuat...</td></tr></tbody>
+        </table></div>
+      </div>
+      <!-- DETAIL VIEW -->
+      <div id="wh-detail-view" style="display:none"></div>
+    </div>
+
+<!-- WHOLESALE TRACKER (existing post-Jubelio module) -->
     <div class="page" id="page-tradorders">
       <!-- List View -->
       <div id="trd-list-view">
@@ -5177,6 +5227,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260615aq"></script>
+<script src="app.js?v=20260615ar"></script>
 </body>
 </html>
