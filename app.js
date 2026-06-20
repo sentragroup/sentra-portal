@@ -26619,7 +26619,7 @@ async function _itLoadLookups() {
     ]);
     // dist_partners.type is comma-separated multi-value: "Wholesale, Bulk Purchase" etc.
     const allDP = (dpRes.data||[]).filter(r=>r.partner_name);
-    _itDistWholesale = allDP.filter(r => (r.type||'').toLowerCase().includes('wholesale')).map(r => ({id:r.id, name:r.partner_name}));
+    _itDistWholesale = allDP.filter(r => /bulk|wholesale/i.test(r.type||'')).map(r => ({id:r.id, name:r.partner_name}));
     _itDistConsign   = allDP.filter(r => (r.type||'').toLowerCase().includes('consignment')).map(r => ({id:r.id, name:r.partner_name}));
     // Fallback: if filter yields nothing (e.g., no type set), show all partners
     if (!_itDistWholesale.length) _itDistWholesale = allDP.map(r => ({id:r.id, name:r.partner_name}));
@@ -33081,7 +33081,7 @@ async function loadWholesale() {
     // Populate customer filter from wholesale partners
     const sel = document.getElementById('wh-f-customer');
     if (sel && sel.options.length <= 1) {
-      const cust = allDPRows.filter(r => (r.type||'').toLowerCase().includes('wholesale'));
+      const cust = allDPRows.filter(r => /bulk|wholesale/i.test(r.type||''));
       sel.innerHTML = '<option value="">Semua</option>' +
         cust.map(c => `<option value="${c.id}">${(c.name||c.id).replace(/</g,'&lt;')}</option>`).join('');
     }
@@ -33242,7 +33242,7 @@ function _whRenderDetail() {
       ${i < pipelineSteps.length-1 ? `<div style="height:2px;flex:0 0 20px;background:${s.done&&pipelineSteps[i+1].done?'#0a7d3a':'var(--g200)'};margin-top:-22px"></div>` : ''}
     </div>`).join('')}
   </div>`;
-  const wholeCustOpts = allDPRows.filter(r => (r.type||'').toLowerCase().includes('wholesale'));
+  const wholeCustOpts = allDPRows.filter(r => /bulk|wholesale/i.test(r.type||''));
   const custOpts = ['<option value="">— Pilih Customer —</option>']
     .concat(wholeCustOpts.map(c => `<option value="${c.id}" ${c.id===h.customerId?'selected':''}>${(c.name||c.id).replace(/</g,'&lt;')}</option>`)).join('');
   // 3 tabs
