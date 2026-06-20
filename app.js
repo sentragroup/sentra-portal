@@ -33551,36 +33551,208 @@ function _whRenderAllocTab(items, links) {
     const arr = linksByItem.get(l.order_item_id) || [];
     arr.push(l); linksByItem.set(l.order_item_id, arr);
   });
-  const prodItems = items.filter(i => i.source_type === 'production' || i.source_type === 'mixed');
-  if (!prodItems.length) return `<div style="padding:24px;text-align:center;color:var(--g600);font-size:13px;background:#dff0d8;border:1px dashed #b8d9b3;border-radius:8px">✓ Semua items dari stock — gak perlu batch produksi. Lanjut ke tab Payments.</div>`;
-  return `<div class="form-card">
-    <div class="form-sec">Production Allocation</div>
-    <div style="font-size:11px;color:var(--g600);margin-bottom:10px">Link items yang butuh produksi ke <b>Restock Project</b> existing (atau create baru via modul Restock). Multiple items bisa di-link ke 1 project (batched).</div>
-    <table style="width:100%;font-size:12px"><thead><tr style="font-family:var(--mono);font-size:10px;color:var(--g400);text-transform:uppercase">
-      <th style="padding:6px;text-align:left">Item</th>
-      <th style="padding:6px;text-align:right">Qty Need</th>
-      <th style="padding:6px;text-align:right">Allocated</th>
-      <th style="padding:6px;text-align:left">Batches</th>
-      <th style="padding:6px"></th>
-    </tr></thead>
-    <tbody>${prodItems.map(i => {
-      const allocs = linksByItem.get(i.id) || [];
-      const totalAlloc = allocs.reduce((s,a) => s + (parseFloat(a.qty_allocated)||0), 0);
-      const pending = (parseFloat(i.qty)||0) - totalAlloc;
-      const batchChips = allocs.map(a => {
-        const proj = _whRestockProjects.find(p => p.id === a.restock_project_id);
-        return `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:#eef0f8;color:#3C3489;border:1px solid #c9bdf0;border-radius:12px;font-size:10px;margin-right:4px;margin-bottom:4px">📦 ${(proj?.name||proj?.id||a.restock_project_id||'?').toString().replace(/</g,'&lt;')} · ${a.qty_allocated} pcs <button onclick="_whUnlinkBatch(${a.id})" style="background:none;border:none;color:#c0392b;cursor:pointer;padding:0;font-size:12px;line-height:1">×</button></span>`;
-      }).join('');
-      return `<tr style="border-top:1px solid var(--g100)">
-        <td style="padding:7px"><b>${(i.item_name||'').replace(/</g,'&lt;')}</b></td>
-        <td style="padding:7px;text-align:right;font-family:var(--mono)">${i.qty}</td>
-        <td style="padding:7px;text-align:right;font-family:var(--mono);color:${totalAlloc>=parseFloat(i.qty)?'#0a7d3a':'#a66800'};font-weight:600">${totalAlloc}/${i.qty}</td>
-        <td style="padding:7px">${batchChips||'<span style="color:var(--g400);font-size:11px">Belum di-link</span>'}</td>
-        <td style="padding:7px;text-align:right;white-space:nowrap">${pending>0?`<button class="btn-icon" onclick="_whOpenLinkBatchModal(${i.id},${pending})" style="font-size:11px;color:#3C3489">+ Batch</button>`:'<span style="font-size:10px;color:#0a7d3a">✓ Full</span>'}</td>
+  // Split by parent
+  const jCache = _whJubelioItemsCache || [];
+  const jByItemId = new Map(jCache.map(j => [j.item_id, j]));
+  const parents = new Map();
+  for (const it of items) {
+    const j = jByItemId.get(it.jubelio_item_id);
+    const gid = j?.item_group_id ?? null;
+    const key = gid != null ? `g:${gid}` : `n:${_whParentName(it.item_name)}`;
+    if (!parents.has(key)) parents.set(key, { name: _whParentName(it.item_name), variants: [] });
+    parents.get(key).variants.push(it);
+  }
+
+  // Stock pickup card — items dengan source=stock atau bagian stock dari mixed
+  const stockCards = [...parents.values()].map(p => {
+    const stockRows = p.variants.filter(v => {
+      if (v.source_type === 'stock') return true;
+      if (v.source_type === 'mixed' && (parseFloat(v.qty_from_stock)||0) > 0) return true;
+      return false;
+    });
+    if (!stockRows.length) return '';
+    stockRows.sort((a,b) => _whSortSizes(_whSizeOf(a.item_name,a.item_code), _whSizeOf(b.item_name,b.item_code)));
+    const totalStockPickup = stockRows.reduce((s,v) => {
+      if (v.source_type === 'stock') return s + (parseFloat(v.qty)||0);
+      return s + (parseFloat(v.qty_from_stock)||0);
+    }, 0);
+    const sizeRows = stockRows.map(v => {
+      const size = _whSizeOf(v.item_name, v.item_code);
+      const j = jByItemId.get(v.jubelio_item_id);
+      const stk = parseFloat(j?.total_on_hand)||0;
+      const pickup = v.source_type === 'stock' ? (parseFloat(v.qty)||0) : (parseFloat(v.qty_from_stock)||0);
+      const sufficient = stk >= pickup;
+      return `<tr style="border-top:1px solid #e5e7eb">
+        <td style="padding:5px 8px"><span style="font-family:var(--mono);font-size:10px;font-weight:600;padding:2px 7px;background:var(--black);color:var(--white);border-radius:3px">${size}</span></td>
+        <td style="padding:5px 8px;font-family:var(--mono);font-size:10px;color:var(--g600)">${(v.item_code||'').replace(/</g,'&lt;')}</td>
+        <td style="padding:5px 8px;text-align:right;font-family:var(--mono);font-size:12px;font-weight:700">${pickup}</td>
+        <td style="padding:5px 8px;text-align:right;font-family:var(--mono);font-size:11px;color:${sufficient?'#0a7d3a':'#c0392b'}">${Math.round(stk)} ${sufficient?'✓':'⚠'}</td>
       </tr>`;
+    }).join('');
+    return `<div style="background:#fff8e8;border:1px solid #f0d896;border-radius:6px;padding:12px;margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+        <div>
+          <div style="font-size:13px;font-weight:700">📦 ${p.name.replace(/</g,'&lt;')}</div>
+          <div style="font-size:10px;color:var(--g600);margin-top:2px;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px">Ambil dari stock existing — info buat warehouse team</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:9px;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px;font-family:var(--mono)">Total Pickup</div>
+          <div style="font-size:18px;font-weight:700;font-family:var(--mono)">${totalStockPickup}</div>
+        </div>
+      </div>
+      <table style="width:100%;font-size:11px;background:white;border-radius:4px">
+        <thead><tr style="background:#fef4d4">
+          <th style="padding:5px 8px;text-align:left;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Size</th>
+          <th style="padding:5px 8px;text-align:left;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">SKU</th>
+          <th style="padding:5px 8px;text-align:right;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Pickup</th>
+          <th style="padding:5px 8px;text-align:right;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Available</th>
+        </tr></thead>
+        <tbody>${sizeRows}</tbody>
+      </table>
+    </div>`;
+  }).filter(Boolean).join('');
+
+  // Production allocation card — per-parent, group all variants needing production
+  const prodCards = [...parents.values()].map(p => {
+    const prodRows = p.variants.filter(v => {
+      if (v.source_type === 'production') return true;
+      if (v.source_type === 'mixed' && (parseFloat(v.qty_from_prod)||0) > 0) return true;
+      return false;
+    });
+    if (!prodRows.length) return '';
+    prodRows.sort((a,b) => _whSortSizes(_whSizeOf(a.item_name,a.item_code), _whSizeOf(b.item_name,b.item_code)));
+    const totalProdNeed = prodRows.reduce((s,v) => {
+      if (v.source_type === 'production') return s + (parseFloat(v.qty)||0);
+      return s + (parseFloat(v.qty_from_prod)||0);
+    }, 0);
+    const rows = prodRows.map(v => {
+      const size = _whSizeOf(v.item_name, v.item_code);
+      const qtyNeed = v.source_type === 'production' ? (parseFloat(v.qty)||0) : (parseFloat(v.qty_from_prod)||0);
+      const allocs = linksByItem.get(v.id) || [];
+      const totalAlloc = allocs.reduce((s,a) => s + (parseFloat(a.qty_allocated)||0), 0);
+      const pending = qtyNeed - totalAlloc;
+      const fullDone = qtyNeed > 0 && totalAlloc >= qtyNeed;
+      const batchChips = allocs.map(a => {
+        const proj = _whRestockProjects.find(p2 => p2.id === a.restock_project_id);
+        return `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 7px;background:#eef0f8;color:#3C3489;border:1px solid #c9bdf0;border-radius:11px;font-size:10px;margin:2px 3px 2px 0">📦 ${(proj?.name||proj?.id||a.restock_project_id||'?').toString().replace(/</g,'&lt;')} · ${a.qty_allocated}p <button onclick="_whUnlinkBatch(${a.id})" style="background:none;border:none;color:#c0392b;cursor:pointer;padding:0;font-size:11px;line-height:1">×</button></span>`;
+      }).join('');
+      const pickerOpen = _whBatchPickerFor === v.id;
+      const pickerHTML = pickerOpen ? _whRenderBatchPickerInline(v.id, pending) : '';
+      return `<tr style="border-top:1px solid #e5e7eb">
+        <td style="padding:6px 8px;vertical-align:top"><span style="font-family:var(--mono);font-size:10px;font-weight:600;padding:2px 7px;background:var(--black);color:var(--white);border-radius:3px">${size}</span></td>
+        <td style="padding:6px 8px;text-align:right;vertical-align:top;font-family:var(--mono);font-size:12px;font-weight:700">${qtyNeed}</td>
+        <td style="padding:6px 8px;text-align:right;vertical-align:top;font-family:var(--mono);font-size:11px;color:${fullDone?'#0a7d3a':totalAlloc>0?'#a66800':'var(--g400)'};font-weight:600">${totalAlloc}/${qtyNeed}</td>
+        <td style="padding:6px 8px;vertical-align:top">${batchChips||'<span style="color:var(--g400);font-size:11px">—</span>'}</td>
+        <td style="padding:6px 8px;text-align:right;vertical-align:top;white-space:nowrap">${pending>0?`<button class="btn-ghost" onclick="_whBatchPickerToggle(${v.id})" style="font-size:10px;padding:2px 8px;color:#3C3489;border-color:#c9bdf0">${pickerOpen?'✕ Cancel':'+ Batch'}</button>`:'<span style="font-size:10px;color:#0a7d3a">✓ Full</span>'}</td>
+      </tr>${pickerOpen ? `<tr><td colspan="5" style="padding:0">${pickerHTML}</td></tr>` : ''}`;
+    }).join('');
+    return `<div style="background:#f0f7ff;border:1px solid #c4ddf5;border-radius:6px;padding:12px;margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+        <div>
+          <div style="font-size:13px;font-weight:700">🏭 ${p.name.replace(/</g,'&lt;')}</div>
+          <div style="font-size:10px;color:var(--g600);margin-top:2px;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px">Produksi via Restock Project — link ke batch existing</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:9px;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px;font-family:var(--mono)">Production Need</div>
+          <div style="font-size:18px;font-weight:700;font-family:var(--mono)">${totalProdNeed}</div>
+        </div>
+      </div>
+      <table style="width:100%;font-size:11px;background:white;border-radius:4px">
+        <thead><tr style="background:#dceaf7">
+          <th style="padding:5px 8px;text-align:left;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Size</th>
+          <th style="padding:5px 8px;text-align:right;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Qty Need</th>
+          <th style="padding:5px 8px;text-align:right;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Allocated</th>
+          <th style="padding:5px 8px;text-align:left;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Batches</th>
+          <th style="padding:5px 8px"></th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  }).filter(Boolean).join('');
+
+  // Mixed split editor — for items with source=mixed, allow editing qty_from_stock vs qty_from_prod
+  const mixedItems = items.filter(i => i.source_type === 'mixed');
+  const mixedCard = mixedItems.length ? `<div style="background:#fff;border:1px dashed var(--g200);border-radius:6px;padding:12px;margin-bottom:10px">
+    <div style="font-size:11px;color:var(--g600);margin-bottom:8px;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">🔀 Mixed source — set split per variant</div>
+    <table style="width:100%;font-size:11px"><thead><tr style="background:#fafafa">
+      <th style="padding:5px 8px;text-align:left;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Item</th>
+      <th style="padding:5px 8px;text-align:right;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Total Qty</th>
+      <th style="padding:5px 8px;text-align:center;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">From Stock</th>
+      <th style="padding:5px 8px;text-align:center;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">From Production</th>
+    </tr></thead>
+    <tbody>${mixedItems.map(v => {
+      const size = _whSizeOf(v.item_name, v.item_code);
+      const total = parseFloat(v.qty)||0;
+      const fromStock = parseFloat(v.qty_from_stock)||0;
+      const fromProd = parseFloat(v.qty_from_prod)||0;
+      const matched = (fromStock + fromProd) === total;
+      return `<tr style="border-top:1px solid var(--g100)">
+        <td style="padding:5px 8px"><span style="font-family:var(--mono);font-size:10px;padding:1px 6px;background:var(--black);color:var(--white);border-radius:3px">${size}</span> <span style="font-size:11px">${_whParentName(v.item_name).replace(/</g,'&lt;')}</span></td>
+        <td style="padding:5px 8px;text-align:right;font-family:var(--mono);font-weight:700">${total}</td>
+        <td style="padding:5px 8px;text-align:center"><input type="number" min="0" max="${total}" value="${fromStock}" onchange="_whItemSplit(${v.id},'stock',this.value)" style="width:54px;text-align:right;font-family:var(--mono);font-size:11px;padding:2px 5px;border:1px solid var(--g100);border-radius:3px;background:#fff8e8"></td>
+        <td style="padding:5px 8px;text-align:center"><input type="number" min="0" max="${total}" value="${fromProd}" onchange="_whItemSplit(${v.id},'prod',this.value)" style="width:54px;text-align:right;font-family:var(--mono);font-size:11px;padding:2px 5px;border:1px solid var(--g100);border-radius:3px;background:#f0f7ff"></td>
+      </tr>${!matched?`<tr><td colspan="4" style="padding:0 8px 6px;font-size:10px;color:#c0392b">⚠ Split (${fromStock}+${fromProd}=${fromStock+fromProd}) gak match total ${total}</td></tr>`:''}`;
     }).join('')}
     </tbody></table>
+  </div>` : '';
+
+  return `<div class="form-card">
+    <div class="form-sec">Source Allocation</div>
+    <div style="font-size:11px;color:var(--g600);margin-bottom:14px">Items dipecah per <b>source</b>: 📦 dari stock (untuk warehouse) vs 🏭 produksi baru (link ke Restock Project).</div>
+    ${mixedCard}
+    ${stockCards||'<div style="font-size:11px;color:var(--g400);padding:8px;text-align:center">— Tidak ada items dari stock —</div>'}
+    ${prodCards||'<div style="font-size:11px;color:var(--g400);padding:8px;text-align:center">— Tidak ada items butuh produksi —</div>'}
   </div>`;
+}
+
+let _whBatchPickerFor = null;
+
+function _whBatchPickerToggle(itemId) {
+  _whBatchPickerFor = (_whBatchPickerFor === itemId) ? null : itemId;
+  _whRenderDetail();
+}
+
+function _whRenderBatchPickerInline(itemId, maxQty) {
+  const projects = _whRestockProjects || [];
+  if (!projects.length) {
+    return `<div style="background:#fdf6f4;border:1px solid #f1c6bf;border-radius:5px;padding:10px;margin:4px 8px;font-size:11px;color:#a14e3e">
+      ⚠ Belum ada Restock Project. Bikin dulu di modul <a href="#restock" style="color:#3C3489;text-decoration:underline">Create PO Restock</a>.
+    </div>`;
+  }
+  const opts = projects.map(p => `<option value="${p.id}">${p.id} — ${(p.name||'(no name)').replace(/"/g,'&quot;')} · ${p.status||'-'}</option>`).join('');
+  return `<div style="background:#fafbff;border:1px solid #c9bdf0;border-radius:5px;padding:10px;margin:4px 8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <span style="font-size:10px;color:var(--g600);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Link Batch →</span>
+    <select id="wh-pick-proj-${itemId}" style="flex:1;min-width:220px;padding:4px 8px;font-size:11px;border:1px solid var(--g200);border-radius:4px;background:white">
+      ${opts}
+    </select>
+    <input type="number" id="wh-pick-qty-${itemId}" min="1" max="${maxQty}" value="${maxQty}" style="width:70px;text-align:right;font-family:var(--mono);font-size:11px;padding:4px 8px;border:1px solid var(--g200);border-radius:4px" placeholder="Qty">
+    <span style="font-size:10px;color:var(--g600)">max ${maxQty}</span>
+    <button class="btn-primary" onclick="_whConfirmLinkBatch(${itemId},${maxQty})" style="font-size:11px;padding:4px 14px">Link</button>
+  </div>`;
+}
+
+async function _whConfirmLinkBatch(itemId, maxQty) {
+  const projId = document.getElementById('wh-pick-proj-'+itemId)?.value;
+  const qty = parseFloat(document.getElementById('wh-pick-qty-'+itemId)?.value)||0;
+  if (!projId) { alert('Pilih project dulu.'); return; }
+  if (!qty || qty <= 0 || qty > maxQty) { alert(`Qty harus 1-${maxQty}.`); return; }
+  _whBatchPickerFor = null;
+  await _whLinkBatch(itemId, projId, qty);
+}
+
+// Split qty buat mixed-source item
+async function _whItemSplit(id, kind, val) {
+  const v = parseFloat(val) || 0;
+  const it = _whCurrentOrder.items.find(x => x.id === id); if (!it) return;
+  const total = parseFloat(it.qty)||0;
+  if (v < 0 || v > total) { alert(`Harus 0-${total}.`); _whRenderDetail(); return; }
+  const col = kind === 'stock' ? 'qty_from_stock' : 'qty_from_prod';
+  const otherCol = kind === 'stock' ? 'qty_from_prod' : 'qty_from_stock';
+  const other = total - v;
+  const update = { [col]: v, [otherCol]: other };
+  await sb.from('wholesale_customer_order_items').update(update).eq('id', id);
+  it[col] = v; it[otherCol] = other;
+  _whRenderDetail();
 }
 
 function _whRenderPayTab(h, payments, totalValue, dpAmount) {
