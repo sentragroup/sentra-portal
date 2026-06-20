@@ -161,6 +161,9 @@
       </div>
       <div class="sb-sec">
         <div class="sb-label">Logs</div>
+        <div class="sb-item" onclick="showPage('cronlogs',this)" id="nav-cronlogs">
+          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M8 4v4l2.5 2"/></svg>Cron Logs
+        </div>
         <div class="sb-item" onclick="showPage('mesign',this)" id="nav-mesign">
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2h10a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z"/><path d="M5 6h6M5 9h4"/><path d="M10 12l2-2-2-2"/></svg>Mekari Sign
         </div>
@@ -923,6 +926,42 @@
           </div>
         </div>
       </div>
+
+      <!-- CRON LOGS -->
+      <div class="page" id="page-cronlogs">
+        <div class="page-header">
+          <div>
+            <div class="page-title">Cron Logs</div>
+            <div class="page-sub">Riwayat eksekusi scheduled jobs di Supabase (sync Jubelio, backfill, dll).</div>
+          </div>
+          <button class="btn-primary" onclick="loadCronLogs()">↻ Refresh</button>
+        </div>
+        <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
+          <div class="stat-card"><div class="stat-num" id="cl-s-total">—</div><div class="stat-lbl">Total 24h</div></div>
+          <div class="stat-card success"><div class="stat-num" id="cl-s-succ">—</div><div class="stat-lbl">Succeeded</div></div>
+          <div class="stat-card danger"><div class="stat-num" id="cl-s-fail">—</div><div class="stat-lbl">Failed</div></div>
+          <div class="stat-card info"><div class="stat-num" id="cl-s-jobs">—</div><div class="stat-lbl">Active Jobs</div></div>
+        </div>
+        <div class="filter-panel" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:1rem">
+          <div class="fg"><label>Job</label><select id="cl-f-job" onchange="applyCronLogsFilter()"><option value="">Semua</option></select></div>
+          <div class="fg"><label>Status</label><select id="cl-f-status" onchange="applyCronLogsFilter()">
+            <option value="">Semua</option>
+            <option value="succeeded">Succeeded</option>
+            <option value="failed">Failed</option>
+            <option value="running">Running</option>
+          </select></div>
+          <div class="fg"><label>Cari</label><input type="text" id="cl-f-q" placeholder="job / return_message..." oninput="applyCronLogsFilter()"></div>
+        </div>
+        <div class="table-toolbar">
+          <div class="tcount" id="cl-tcount">— entri</div>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr>
+            <th>Mulai (WIB)</th><th>Job</th><th>Schedule</th><th>Status</th><th>Durasi</th><th>Pesan</th>
+          </tr></thead>
+          <tbody id="cl-tbody"><tr><td class="empty-td" colspan="6">Memuat...</td></tr></tbody>
+        </table></div>
+      </div><!-- /.page#page-cronlogs -->
 
       <!-- ACTIVITY LOG -->
       <div class="page" id="page-activitylog">
@@ -5172,6 +5211,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260615al"></script>
+<script src="app.js?v=20260615am"></script>
 </body>
 </html>

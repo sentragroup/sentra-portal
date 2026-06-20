@@ -277,7 +277,7 @@ function showPage(name, el) {
   document.getElementById("page-"+_pageId).classList.add("active");
   if (el) el.classList.add("active");
   const _c = document.querySelector('.content'); if (_c) _c.scrollTop = 0;
-  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",sampling:"Sampling",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",mktplan:"Marketing Planning",videoprod:"Video Production",txmap:"Transaction Mapping",intpurchase:"Internal Purchase",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)",vendormaster:"Vendor Master",rnd:"R&D Product",koldb:"KOL Database",outbound:"Outbond Request",meetingnotes:"Meeting Notes",ipreports:"IP Reports"};
+  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",salesreport:"Account Report",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",sampling:"Sampling",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",mktplan:"Marketing Planning",videoprod:"Video Production",txmap:"Transaction Mapping",intpurchase:"Internal Purchase",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)",vendormaster:"Vendor Master",rnd:"R&D Product",koldb:"KOL Database",outbound:"Outbond Request",meetingnotes:"Meeting Notes",ipreports:"IP Reports",cronlogs:"Cron Logs"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -401,6 +401,7 @@ function showPage(name, el) {
   if (name==="announcements") loadAnnouncements();
   if (name==="meetingnotes") loadMeetings();
   if (name==="ipreports") loadIPReports();
+  if (name==="cronlogs") loadCronLogs();
   if (name==="marte") loadMarteSettlements();
   if (name==="martereport") { const inp=document.getElementById('mr-period'); if(!inp.value) inp.value=new Date().toISOString().slice(0,7); }
   if (name==="royalty") { const inp=document.getElementById('ry-period'); if(inp && !inp.value) inp.value=new Date().toISOString().slice(0,7); }
@@ -33046,6 +33047,98 @@ async function iprDelete(id) {
   const { error } = await sb.from('ip_reports').delete().eq('id', id);
   if (error) { alert('Gagal: '+error.message); return; }
   loadIPReports();
+}
+
+// ── CRON LOGS ─────────────────────────────────────────────────────────────
+// View pg_cron run history via SECURITY DEFINER RPC. Cron schema gak accessible
+// langsung dari anon — RPC bridge required.
+let allCronRuns = [];
+let allCronJobs = [];
+
+async function loadCronLogs() {
+  const tbody = document.getElementById('cl-tbody');
+  if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="6">Memuat...</td></tr>`;
+  try {
+    const [runsRes, jobsRes] = await Promise.all([
+      sb.rpc('get_cron_job_runs', { p_limit: 500 }),
+      sb.rpc('get_cron_jobs'),
+    ]);
+    if (runsRes.error) throw runsRes.error;
+    if (jobsRes.error) throw jobsRes.error;
+    allCronRuns = runsRes.data || [];
+    allCronJobs = jobsRes.data || [];
+    // Populate job filter dropdown
+    const sel = document.getElementById('cl-f-job');
+    if (sel) {
+      const cur = sel.value;
+      sel.innerHTML = '<option value="">Semua</option>' +
+        allCronJobs.map(j => `<option value="${j.jobname}">${j.jobname}${j.active?'':' (off)'}</option>`).join('');
+      sel.value = cur;
+    }
+    _cronLogsRefreshStats();
+    applyCronLogsFilter();
+  } catch (e) {
+    if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="6">Gagal load: ${(e.message||e).toString().replace(/</g,'&lt;')}</td></tr>`;
+  }
+}
+
+function _cronLogsRefreshStats() {
+  const setN = (id,v) => { const el=document.getElementById(id); if(el) el.textContent = v; };
+  const cutoff = Date.now() - 86400000; // 24h
+  const recent = allCronRuns.filter(r => r.start_time && new Date(r.start_time).getTime() >= cutoff);
+  const succ = recent.filter(r => r.status === 'succeeded').length;
+  const fail = recent.filter(r => r.status === 'failed').length;
+  setN('cl-s-total', recent.length);
+  setN('cl-s-succ', succ);
+  setN('cl-s-fail', fail);
+  setN('cl-s-jobs', allCronJobs.filter(j => j.active).length);
+}
+
+function applyCronLogsFilter() {
+  const job  = document.getElementById('cl-f-job')?.value || '';
+  const st   = document.getElementById('cl-f-status')?.value || '';
+  const q    = (document.getElementById('cl-f-q')?.value || '').toLowerCase().trim();
+  const rows = allCronRuns.filter(r => {
+    if (job && r.jobname !== job) return false;
+    if (st && r.status !== st) return false;
+    if (q && !`${r.jobname||''} ${r.return_message||''}`.toLowerCase().includes(q)) return false;
+    return true;
+  });
+  const tbody = document.getElementById('cl-tbody');
+  const cnt   = document.getElementById('cl-tcount');
+  if (cnt) cnt.textContent = `${rows.length} entri`;
+  if (!tbody) return;
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td class="empty-td" colspan="6">Tidak ada run yang cocok.</td></tr>`;
+    return;
+  }
+  const fmtWIB = ts => {
+    if (!ts) return '—';
+    const dt = new Date(ts);
+    return dt.toLocaleString('id-ID', { day:'2-digit', month:'short', year:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', timeZone:'Asia/Jakarta' });
+  };
+  const statusPill = s => {
+    if (s === 'succeeded') return `<span class="pill p-active" style="font-size:10px">✓ ${s}</span>`;
+    if (s === 'failed')    return `<span class="pill p-expired" style="font-size:10px">✕ ${s}</span>`;
+    if (s === 'running')   return `<span class="pill p-review" style="font-size:10px">⟳ ${s}</span>`;
+    return `<span class="pill p-draft" style="font-size:10px">${s||'—'}</span>`;
+  };
+  const fmtDur = sec => {
+    if (sec == null) return '—';
+    const s = parseFloat(sec);
+    if (s < 1)   return `${Math.round(s*1000)}ms`;
+    if (s < 60)  return `${s.toFixed(1)}s`;
+    const m = Math.floor(s/60), rest = s - m*60;
+    return `${m}m ${Math.round(rest)}s`;
+  };
+  tbody.innerHTML = rows.map(r => `<tr>
+    <td style="white-space:nowrap;font-family:var(--mono);font-size:11px">${fmtWIB(r.start_time)}</td>
+    <td><strong style="font-size:12px">${(r.jobname||'(unknown)').replace(/</g,'&lt;')}</strong></td>
+    <td style="font-family:var(--mono);font-size:10px;color:var(--g600)">${(r.schedule||'—').replace(/</g,'&lt;')}</td>
+    <td>${statusPill(r.status)}</td>
+    <td style="font-family:var(--mono);font-size:11px;white-space:nowrap">${fmtDur(r.duration_sec)}</td>
+    <td style="font-size:11px;color:var(--g600);max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(r.return_message||'').replace(/"/g,'&quot;').replace(/</g,'&lt;')}">${(r.return_message||'—').replace(/</g,'&lt;')}</td>
+  </tr>`).join('');
 }
 
 // ── DUPLICATE CHECK ──
