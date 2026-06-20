@@ -32086,12 +32086,15 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
   let ipItems = [];
   if (orderIds.length) {
     const allItems = await _fetchAllPagesIn('jubelio_sales_order_items',
-      'salesorder_id,item_id,item_group_id,item_name,qty,price,disc_amount',
+      'salesorder_detail_id,salesorder_id,item_id,item_group_id,item_name,qty,price,disc_amount',
       'salesorder_id', orderIds);
-    // Dedup by (salesorder_id, item_id) — sync can produce dupes
+    // Dedup by salesorder_detail_id (PK — guaranteed unique). Sebelumnya
+    // dedup pakai (salesorder_id, item_id) → collapse multi-line items
+    // legit same SKU di 1 order (cth: 3 cap di order TP-58230..). Lalahuta
+    // Jan 2026 reported 21 pcs instead of 23 because of this.
     const seen = new Set();
     const deduped = allItems.filter(it => {
-      const k = `${it.salesorder_id}:${it.item_id}`;
+      const k = it.salesorder_detail_id;
       if (seen.has(k)) return false;
       seen.add(k); return true;
     });
