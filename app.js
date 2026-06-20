@@ -33180,10 +33180,16 @@ async function openWholesaleDetail(id) {
       payments: paysRes.data || []
     };
   }
-  // Ensure restock_projects loaded for the picker
+  // Pre-load restock_projects + jubelio_items cache parallel (thumbnail
+  // depends on cache, kalau lazy-load via picker → first render no img)
   try {
-    const { data } = await sb.from('restock_projects').select('id,name,status,date_created,notes').order('date_created',{ascending:false}).limit(100);
-    _whRestockProjects = data || [];
+    const [rp, ji] = await Promise.all([
+      sb.from('restock_projects').select('id,name,status,date_created,notes').order('date_created',{ascending:false}).limit(100),
+      _whJubelioItemsCache ? Promise.resolve({data: _whJubelioItemsCache}) :
+        _fetchAllPages('jubelio_items', 'item_id,item_code,item_name,item_group_id,thumbnail,total_on_hand').then(d => ({data: d})),
+    ]);
+    _whRestockProjects = rp.data || [];
+    if (!_whJubelioItemsCache) _whJubelioItemsCache = ji.data || [];
   } catch(_) {}
   _whRenderDetail();
 }
@@ -33906,31 +33912,43 @@ async function _whItemSplit(id, kind, val) {
 
 function _whRenderPayTab(h, payments, totalValue, dpAmount) {
   const fmtRp = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
-  const fmtD  = d => d ? new Date(d+'T00:00:00').toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'}) : '—';
   const findP = m => payments.find(p => p.milestone === m);
   const finalAmount = totalValue - dpAmount;
   const milestones = [
-    { key:'dp1', label:`DP1 (${h.dpPct||30}%)`, suggestAmount: dpAmount },
-    { key:'dp2', label:'DP2 (opsional)', suggestAmount: 0 },
-    { key:'final', label:'Final (Pelunasan)', suggestAmount: finalAmount },
+    { key:'dp1',   label:`DP1 (${h.dpPct||30}%)`,   suggestAmount: dpAmount,    invoiceType: 'proforma' },
+    { key:'dp2',   label:'DP2 (opsional)',           suggestAmount: 0,           invoiceType: 'proforma' },
+    { key:'final', label:'Final (Pelunasan)',        suggestAmount: finalAmount, invoiceType: 'invoice' },
   ];
   const payRows = milestones.map(m => {
     const p = findP(m.key);
     const amt = p?.amount || m.suggestAmount;
     const isPaid = !!p?.paid_at;
+    const bukti = p?.bukti_url;
+    const buktiBlock = bukti
+      ? `<div style="display:flex;align-items:center;gap:6px">
+          <a href="${bukti.replace(/"/g,'&quot;')}" target="_blank" style="font-size:10px;font-family:var(--mono);color:#3C3489;text-decoration:none;border:1px solid #c9bdf0;padding:3px 7px;border-radius:3px;background:#eef0f8">📎 ${bukti.match(/\.(pdf|png|jpg|jpeg|webp)$/i)?.[0]?.slice(1).toUpperCase()||'File'}</a>
+          <button onclick="_whBuktiClear('${m.key}')" title="Hapus bukti" style="background:none;border:none;color:#c0392b;cursor:pointer;font-size:11px">✕</button>
+        </div>`
+      : `<input type="file" id="wh-pay-bukti-${m.key}" accept="image/jpeg,image/png,image/webp,application/pdf" onchange="_whBuktiUpload('${m.key}',this)" style="font-size:10px;max-width:170px">`;
+    const invoiceBtnLbl = m.invoiceType === 'proforma' ? '📄 Proforma Invoice' : '📄 Invoice';
     return `<tr style="border-top:1px solid var(--g100)">
       <td style="padding:8px"><b>${m.label}</b></td>
       <td style="padding:8px"><input type="number" id="wh-pay-amt-${m.key}" value="${amt||''}" placeholder="${fmtRp(m.suggestAmount).replace('Rp ','')}" style="width:120px;font-family:var(--mono);font-size:11px;padding:3px 6px;border:1px solid var(--g100)"></td>
       <td style="padding:8px"><input type="date" id="wh-pay-date-${m.key}" value="${p?.paid_at||''}" style="font-size:11px;padding:3px 6px;border:1px solid var(--g100)"></td>
-      <td style="padding:8px"><input type="url" id="wh-pay-bukti-${m.key}" value="${p?.bukti_url||''}" placeholder="https://drive.google.com/..." style="width:180px;font-size:11px;padding:3px 6px;border:1px solid var(--g100)"></td>
-      <td style="padding:8px;text-align:right;white-space:nowrap"><button class="btn-icon" onclick="_whSavePayment('${m.key}')" style="font-size:11px;color:#0a7d3a">${isPaid?'↻ Update':'+ Save'}</button>${p?` <button class="btn-icon" onclick="_whDeletePayment('${m.key}')" style="font-size:11px;color:#c0392b">✕</button>`:''}</td>
+      <td style="padding:8px">${buktiBlock}</td>
+      <td style="padding:8px;text-align:right;white-space:nowrap">
+        <button class="btn-icon" onclick="_whSavePayment('${m.key}')" style="font-size:11px;color:#0a7d3a" title="Save amount + tanggal">${isPaid?'↻ Save':'+ Save'}</button>
+        <button class="btn-icon" onclick="_whDownloadInvoice('${m.key}','${m.invoiceType}')" style="font-size:11px;color:#3C3489" title="Download ${invoiceBtnLbl}">${m.invoiceType==='proforma'?'📋':'📄'}</button>
+        ${p?`<button class="btn-icon" onclick="_whDeletePayment('${m.key}')" style="font-size:11px;color:#c0392b" title="Hapus payment">✕</button>`:''}
+      </td>
     </tr>`;
   }).join('');
   return `<div class="form-card" style="margin-bottom:14px">
     <div class="form-sec">Payments Tracker</div>
     <div style="font-size:11px;color:var(--g600);margin-bottom:8px">Total value: <b>${fmtRp(totalValue)}</b> · DP target: <b>${fmtRp(dpAmount)}</b> · Final target: <b>${fmtRp(finalAmount)}</b></div>
-    <table style="width:100%;font-size:12px"><thead><tr style="font-family:var(--mono);font-size:10px;color:var(--g400);text-transform:uppercase"><th style="padding:6px;text-align:left">Milestone</th><th style="padding:6px;text-align:left">Amount</th><th style="padding:6px;text-align:left">Paid Date</th><th style="padding:6px;text-align:left">Bukti URL</th><th style="padding:6px"></th></tr></thead>
+    <table style="width:100%;font-size:12px"><thead><tr style="font-family:var(--mono);font-size:10px;color:var(--g400);text-transform:uppercase"><th style="padding:6px;text-align:left">Milestone</th><th style="padding:6px;text-align:left">Amount</th><th style="padding:6px;text-align:left">Paid Date</th><th style="padding:6px;text-align:left">Bukti (≤5MB)</th><th style="padding:6px"></th></tr></thead>
     <tbody>${payRows}</tbody></table>
+    <div style="font-size:10px;color:var(--g400);margin-top:8px">📋 = Proforma Invoice (DP) · 📄 = Invoice Pelunasan · Bukti: JPG/PNG/WEBP/PDF max 5MB</div>
   </div>
   <div class="form-card">
     <div class="form-sec">Shipping & Jubelio Sync</div>
@@ -34163,9 +34181,10 @@ async function _whSavePayment(milestone) {
   const o = _whCurrentOrder;
   const amount = parseFloat(document.getElementById('wh-pay-amt-'+milestone)?.value)||0;
   const paidAt = document.getElementById('wh-pay-date-'+milestone)?.value||null;
-  const buktiUrl = document.getElementById('wh-pay-bukti-'+milestone)?.value.trim()||null;
   if (!amount && !paidAt) { alert('Isi amount atau tanggal.'); return; }
-  const payload = { order_id: o.header.id, milestone, amount, paid_at: paidAt, bukti_url: buktiUrl, created_by: currentUser };
+  // Preserve existing bukti_url (file upload pakai handler terpisah)
+  const existing = o.payments.find(p => p.milestone === milestone);
+  const payload = { order_id: o.header.id, milestone, amount, paid_at: paidAt, bukti_url: existing?.bukti_url||null, created_by: currentUser };
   const { data, error } = await sb.from('wholesale_payments').upsert(payload, { onConflict:'order_id,milestone' }).select().single();
   if (error) { alert('Gagal: '+error.message); return; }
   const idx = o.payments.findIndex(p => p.milestone === milestone);
@@ -34177,6 +34196,314 @@ async function _whDeletePayment(milestone) {
   if (!confirm('Hapus payment ini?')) return;
   await sb.from('wholesale_payments').delete().eq('order_id', _whCurrentOrder.header.id).eq('milestone', milestone);
   _whCurrentOrder.payments = _whCurrentOrder.payments.filter(p => p.milestone !== milestone);
+  _whRenderDetail();
+}
+
+// ── Bukti file upload ──
+async function _whBuktiUpload(milestone, inputEl) {
+  const file = inputEl.files?.[0];
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) {
+    alert(`File terlalu besar (${(file.size/1024/1024).toFixed(1)}MB). Max 5MB.`);
+    inputEl.value = '';
+    return;
+  }
+  const o = _whCurrentOrder; if (!o) return;
+  const ext = (file.name.split('.').pop()||'bin').toLowerCase();
+  const ts = new Date().toISOString().replace(/[^0-9]/g,'').slice(0,14);
+  const path = `${o.header.id}/${milestone}-${ts}.${ext}`;
+  const { error: upErr } = await sb.storage.from('wholesale-bukti').upload(path, file, { contentType: file.type, upsert: true });
+  if (upErr) { alert('Upload gagal: '+upErr.message); return; }
+  const { data: pub } = sb.storage.from('wholesale-bukti').getPublicUrl(path);
+  const buktiUrl = pub.publicUrl;
+  // Upsert payment row (preserve amount + paid_at kalau udah ada)
+  const existing = o.payments.find(p => p.milestone === milestone);
+  const payload = {
+    order_id: o.header.id, milestone,
+    amount: existing?.amount || 0,
+    paid_at: existing?.paid_at || null,
+    bukti_url: buktiUrl,
+    created_by: currentUser
+  };
+  const { data, error } = await sb.from('wholesale_payments').upsert(payload, { onConflict:'order_id,milestone' }).select().single();
+  if (error) { alert('Save gagal: '+error.message); return; }
+  const idx = o.payments.findIndex(p => p.milestone === milestone);
+  if (idx >= 0) o.payments[idx] = data; else o.payments.push(data);
+  _whRenderDetail();
+}
+
+// ── Proforma Invoice generator ──
+// Style mengikuti mrDownloadInvoice (Inter + Space Mono, swiss-grid).
+// Page 1 = summary invoice (header + recipient + line total + terbilang +
+// signature). Page 2 = lampiran items breakdown (per parent + variant rows).
+function _whTerbilang(n) {
+  const a = ['','satu','dua','tiga','empat','lima','enam','tujuh','delapan','sembilan','sepuluh','sebelas'];
+  n = Math.round(Math.abs(n));
+  if (n < 12) return a[n];
+  if (n < 20) return a[n - 10] + ' belas';
+  if (n < 100) return a[Math.floor(n/10)] + ' puluh' + (n % 10 ? ' ' + a[n % 10] : '');
+  if (n < 200) return 'seratus' + (n - 100 ? ' ' + _whTerbilang(n - 100) : '');
+  if (n < 1000) return a[Math.floor(n/100)] + ' ratus' + (n % 100 ? ' ' + _whTerbilang(n % 100) : '');
+  if (n < 2000) return 'seribu' + (n - 1000 ? ' ' + _whTerbilang(n - 1000) : '');
+  if (n < 1000000) return _whTerbilang(Math.floor(n/1000)) + ' ribu' + (n % 1000 ? ' ' + _whTerbilang(n % 1000) : '');
+  if (n < 1000000000) return _whTerbilang(Math.floor(n/1000000)) + ' juta' + (n % 1000000 ? ' ' + _whTerbilang(n % 1000000) : '');
+  return _whTerbilang(Math.floor(n/1000000000)) + ' milyar' + (n % 1000000000 ? ' ' + _whTerbilang(n % 1000000000) : '');
+}
+
+async function _whDownloadInvoice(milestone, invoiceType) {
+  const o = _whCurrentOrder; if (!o) return;
+  const h = o.header;
+  const items = o.items || [];
+  if (!items.length) { alert('Order belum ada items.'); return; }
+  const customer = allDPRows.find(c => c.id === h.customerId);
+  // Totals
+  const subtotal = items.reduce((s,i) => s + (parseFloat(i.qty)||0) * (parseFloat(i.unit_price)||0), 0);
+  const dpPct = parseFloat(h.dpPct)||30;
+  const dpAmount = Math.round(subtotal * dpPct / 100);
+  const finalAmount = subtotal - dpAmount;
+  let docTitle, amountDue, descLine;
+  if (invoiceType === 'proforma') {
+    docTitle = 'PROFORMA INVOICE';
+    amountDue = milestone === 'dp1' ? dpAmount : dpAmount; // DP2 also uses dpAmount as guidance
+    descLine = `Down Payment ${dpPct}% — Pesanan Wholesale ${h.customerName||''}`;
+  } else {
+    docTitle = 'INVOICE';
+    amountDue = finalAmount;
+    descLine = `Pelunasan — Pesanan Wholesale ${h.customerName||''}`;
+  }
+  const today = new Date();
+  const dd = String(today.getDate()).padStart(2,'0');
+  const mm = String(today.getMonth()+1).padStart(2,'0');
+  const yyyy = today.getFullYear();
+  const orderDate = h.orderDate || `${yyyy}-${mm}-${dd}`;
+  // Invoice number: WS-{milestone}-{order id}
+  const orderShort = (h.id||'').replace(/^WCO-/,'').replace(/-/g,'');
+  const invoiceNo = `WS-${milestone.toUpperCase()}-${orderShort}`;
+  // Format helpers
+  const fmtRp = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
+  const monthNames = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+  const fmtTglFull = d => {
+    if (!d) return '—';
+    const x = new Date(d+'T00:00:00');
+    return `${x.getDate()} ${monthNames[x.getMonth()]} ${x.getFullYear()}`;
+  };
+  // Group items by parent for lampiran
+  const jByItemId = new Map((_whJubelioItemsCache||[]).map(j => [j.item_id, j]));
+  const parents = new Map();
+  for (const it of items) {
+    const j = jByItemId.get(it.jubelio_item_id);
+    const gid = j?.item_group_id ?? null;
+    const key = gid != null ? `g:${gid}` : `n:${_whParentName(it.item_name)}`;
+    if (!parents.has(key)) parents.set(key, { name: _whParentName(it.item_name), variants: [] });
+    parents.get(key).variants.push(it);
+  }
+  for (const p of parents.values()) {
+    p.variants.sort((a,b) => _whSortSizes(_whSizeOf(a.item_name,a.item_code), _whSizeOf(b.item_name,b.item_code)));
+  }
+  const terbilangStr = (_whTerbilang(amountDue) + ' rupiah').replace(/\b\w/g, c => c.toUpperCase());
+
+  // Build lampiran rows
+  const lampiranBody = [...parents.values()].map(p => {
+    const totalQty = p.variants.reduce((s,v) => s + (parseFloat(v.qty)||0), 0);
+    const totalSub = p.variants.reduce((s,v) => s + (parseFloat(v.qty)||0) * (parseFloat(v.unit_price)||0), 0);
+    const list = parseFloat(p.variants[0]?.list_price)||0;
+    const disc = parseFloat(p.variants[0]?.discount_pct)||0;
+    const variantRows = p.variants.map(v => {
+      const size = _whSizeOf(v.item_name, v.item_code);
+      const qty = parseFloat(v.qty)||0;
+      const price = parseFloat(v.unit_price)||0;
+      const sub = qty * price;
+      return `<tr>
+        <td class="sz">${size}</td>
+        <td class="sku">${(v.item_code||'').replace(/</g,'&lt;')}</td>
+        <td class="r">${qty}</td>
+        <td class="r">${fmtRp(price)}</td>
+        <td class="r">${fmtRp(sub)}</td>
+      </tr>`;
+    }).join('');
+    const priceInfo = list > 0 ? `<span style="font-size:10px;color:#777;font-family:'Space Mono',monospace">List ${fmtRp(list)}${disc>0?` − ${disc}%`:''}</span>` : '';
+    return `<tbody class="parent-group">
+      <tr class="parent-row">
+        <td colspan="5">
+          <div style="font-weight:700;font-size:13px">${p.name.replace(/</g,'&lt;')}</div>
+          <div style="font-size:11px;color:#666;margin-top:2px">${p.variants.length} variants · ${totalQty} pcs · Subtotal ${fmtRp(totalSub)} ${priceInfo}</div>
+        </td>
+      </tr>
+      ${variantRows}
+    </tbody>`;
+  }).join('');
+
+  // Open print window
+  const w = window.open('', '_blank');
+  if (!w) { alert('Pop-up diblokir browser'); return; }
+  w.document.write(`<!doctype html><html lang="id"><head><meta charset="utf-8">
+    <title>${docTitle} ${invoiceNo} · ${h.customerName||''}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+      *{box-sizing:border-box}
+      html,body{margin:0;padding:0;background:#fff;color:#111;font-family:'Inter',system-ui,sans-serif;font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased}
+      .page{max-width:780px;margin:0 auto;padding:48px 56px;position:relative;page-break-after:always}
+      .page:last-of-type{page-break-after:auto}
+      .top{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #111;padding-bottom:20px;margin-bottom:32px}
+      .issuer{max-width:420px}
+      .issuer h2{margin:0 0 4px;font-size:15px;font-weight:700}
+      .issuer p{margin:0;font-size:11px;color:#333;line-height:1.5}
+      .doc-meta{text-align:right}
+      .doc-meta h1{margin:0;font-family:'Space Mono',monospace;font-size:26px;letter-spacing:0.08em;color:#111;font-weight:700}
+      .doc-meta .label{font-family:'Space Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#666;margin-top:8px}
+      .doc-meta .val{font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:#111;margin-top:2px}
+      .recipient{margin-bottom:32px;padding:14px 18px;background:#f7f6f0;border-radius:8px}
+      .recipient .lbl{font-family:'Space Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#666;margin-bottom:4px}
+      .recipient .name{font-size:18px;font-weight:700;color:#111}
+      .recipient .sub{font-size:12px;color:#555;margin-top:2px}
+      table.line{width:100%;border-collapse:collapse;margin-bottom:24px}
+      table.line th{font-family:'Space Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#666;font-weight:700;text-align:left;padding:10px 12px;border-bottom:2px solid #111}
+      table.line th.r{text-align:right}
+      table.line td{padding:14px 12px;border-bottom:1px solid #e5e5e5;vertical-align:top;font-size:13px}
+      table.line td.r{text-align:right;font-family:'Space Mono',monospace}
+      .totals{margin-left:auto;width:50%;margin-bottom:20px}
+      .totals .row{display:flex;justify-content:space-between;padding:8px 0;font-size:13px}
+      .totals .row.lbl{color:#666}
+      .totals .row.total{border-top:2px solid #111;margin-top:6px;padding:14px 0 0;font-size:16px;font-weight:700}
+      .totals .row.total .v{font-family:'Space Mono',monospace}
+      .terbilang{margin:18px 0 32px;padding:12px 16px;background:#fbf9f0;border-left:4px solid #d4af37;font-size:12px;font-style:italic;color:#333}
+      .terbilang b{font-style:normal;color:#111}
+      .sig-row{display:flex;justify-content:space-between;margin-top:48px;gap:32px}
+      .sig{flex:1;text-align:center}
+      .sig .lbl{font-family:'Space Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#666}
+      .sig .gap{height:64px}
+      .sig .name{border-top:1px solid #111;padding-top:6px;font-weight:600;font-size:12px}
+      footer{margin-top:48px;padding-top:18px;border-top:1px solid #e5e5e5;font-size:10px;color:#999;text-align:center;font-family:'Space Mono',monospace;letter-spacing:0.05em}
+      /* Lampiran styling */
+      .lampiran-title{font-family:'Space Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:0.1em;color:#666;margin-bottom:6px}
+      .lampiran-sub{font-size:13px;color:#333;margin-bottom:24px}
+      table.lampiran{width:100%;border-collapse:collapse;font-size:12px}
+      table.lampiran thead th{font-family:'Space Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:#666;font-weight:700;text-align:left;padding:8px 10px;border-bottom:2px solid #111;background:#fafafa}
+      table.lampiran thead th.r{text-align:right}
+      table.lampiran tbody.parent-group{break-inside:avoid}
+      table.lampiran tr.parent-row td{background:#f7f6f0;padding:10px 12px;border-top:1px solid #ddd;border-bottom:1px solid #ddd}
+      table.lampiran td{padding:6px 10px;border-bottom:1px solid #eee;font-size:12px}
+      table.lampiran td.sz{font-family:'Space Mono',monospace;font-weight:700;width:50px}
+      table.lampiran td.sku{font-family:'Space Mono',monospace;font-size:10px;color:#666}
+      table.lampiran td.r{text-align:right;font-family:'Space Mono',monospace}
+      @media print{
+        html,body{background:#fff}
+        .page{padding:32px 40px}
+      }
+    </style></head>
+    <body>
+      <!-- PAGE 1: Invoice Summary -->
+      <div class="page">
+        <div class="top">
+          <div class="issuer">
+            <h2>Sentra Group</h2>
+            <p>PT Sandang Dunia Yuwana<br>
+            Jakarta, Indonesia<br>
+            finance@sentragroup.id</p>
+          </div>
+          <div class="doc-meta">
+            <h1>${docTitle}</h1>
+            <div class="label">No. Invoice</div>
+            <div class="val">${invoiceNo}</div>
+            <div class="label">Tanggal</div>
+            <div class="val">${fmtTglFull(orderDate)}</div>
+          </div>
+        </div>
+        <div class="recipient">
+          <div class="lbl">Ditagih kepada</div>
+          <div class="name">${(h.customerName||'—').replace(/</g,'&lt;')}</div>
+          ${customer?.contactPerson?`<div class="sub">${customer.contactPerson.replace(/</g,'&lt;')}${customer.contactInfo?` · ${customer.contactInfo.replace(/</g,'&lt;')}`:''}</div>`:''}
+          ${h.customerPoNo?`<div class="sub">Customer PO: ${h.customerPoNo.replace(/</g,'&lt;')}</div>`:''}
+        </div>
+        <table class="line">
+          <thead><tr>
+            <th>Deskripsi</th>
+            <th class="r">Subtotal Order</th>
+            <th class="r">${invoiceType==='proforma'?'DP '+dpPct+'%':'Total'}</th>
+          </tr></thead>
+          <tbody>
+            <tr>
+              <td>
+                <div style="font-weight:600">${descLine.replace(/</g,'&lt;')}</div>
+                <div style="font-size:11px;color:#666;margin-top:4px">${items.length} variants · ${items.reduce((s,i)=>s+(parseFloat(i.qty)||0),0)} pcs · Lihat lampiran untuk detail</div>
+              </td>
+              <td class="r">${fmtRp(subtotal)}</td>
+              <td class="r" style="font-weight:700">${fmtRp(amountDue)}</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="totals">
+          <div class="row lbl"><span>Subtotal Order</span><span style="font-family:'Space Mono',monospace">${fmtRp(subtotal)}</span></div>
+          ${invoiceType==='proforma' ? `<div class="row lbl"><span>DP ${dpPct}%</span><span style="font-family:'Space Mono',monospace">${fmtRp(dpAmount)}</span></div>` : `<div class="row lbl"><span>(${dpPct}% DP sudah dibayar)</span><span style="font-family:'Space Mono',monospace">−${fmtRp(dpAmount)}</span></div>`}
+          <div class="row total"><span>Total Tagihan</span><span class="v">${fmtRp(amountDue)}</span></div>
+        </div>
+        <div class="terbilang">Terbilang: <b>${terbilangStr}</b></div>
+        <div class="sig-row">
+          <div class="sig">
+            <div class="lbl">Hormat Kami</div>
+            <div class="gap"></div>
+            <div class="name">Sentra Group</div>
+          </div>
+          <div class="sig">
+            <div class="lbl">Diterima Oleh</div>
+            <div class="gap"></div>
+            <div class="name">${(h.customerName||'—').replace(/</g,'&lt;')}</div>
+          </div>
+        </div>
+        <footer>Pembayaran ke rekening atas nama PT Sandang Dunia Yuwana · Mohon konfirmasi setelah transfer · ${docTitle} berlaku 14 hari dari tanggal diterbitkan.</footer>
+      </div>
+
+      <!-- PAGE 2: Lampiran Items -->
+      <div class="page">
+        <div class="top">
+          <div class="issuer">
+            <h2>Sentra Group</h2>
+            <p>Lampiran ${docTitle}<br>${invoiceNo}</p>
+          </div>
+          <div class="doc-meta">
+            <h1>LAMPIRAN</h1>
+            <div class="label">Pesanan</div>
+            <div class="val">${(h.id||'').replace(/</g,'&lt;')}</div>
+          </div>
+        </div>
+        <div class="lampiran-title">Detail Barang Pesanan</div>
+        <div class="lampiran-sub">Pelanggan: <b>${(h.customerName||'—').replace(/</g,'&lt;')}</b> · ${items.length} variants total, ${items.reduce((s,i)=>s+(parseFloat(i.qty)||0),0)} pcs</div>
+        <table class="lampiran">
+          <thead><tr>
+            <th>Size</th>
+            <th>SKU</th>
+            <th class="r">Qty</th>
+            <th class="r">Unit Price</th>
+            <th class="r">Subtotal</th>
+          </tr></thead>
+          ${lampiranBody}
+          <tbody><tr><td colspan="2" style="padding:14px 10px;border-top:2px solid #111;font-weight:700">TOTAL</td>
+            <td class="r" style="padding:14px 10px;border-top:2px solid #111;font-weight:700">${items.reduce((s,i)=>s+(parseFloat(i.qty)||0),0)}</td>
+            <td class="r" style="padding:14px 10px;border-top:2px solid #111"></td>
+            <td class="r" style="padding:14px 10px;border-top:2px solid #111;font-weight:700">${fmtRp(subtotal)}</td>
+          </tr></tbody>
+        </table>
+        <footer>Halaman 2 dari 2 · ${docTitle} ${invoiceNo}</footer>
+      </div>
+      <script>setTimeout(()=>window.print(),500);<\/script>
+    </body></html>`);
+  w.document.close();
+}
+
+async function _whBuktiClear(milestone) {
+  if (!confirm('Hapus file bukti?')) return;
+  const o = _whCurrentOrder;
+  const p = o.payments.find(p => p.milestone === milestone);
+  if (!p) return;
+  // Best-effort delete dari storage (kalau gagal, gpp — public file)
+  if (p.bukti_url) {
+    const m = p.bukti_url.match(/wholesale-bukti\/(.+)$/);
+    if (m) await sb.storage.from('wholesale-bukti').remove([m[1]]).catch(()=>{});
+  }
+  await sb.from('wholesale_payments').update({bukti_url: null}).eq('order_id', o.header.id).eq('milestone', milestone);
+  p.bukti_url = null;
   _whRenderDetail();
 }
 
