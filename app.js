@@ -14310,16 +14310,18 @@ async function loadSalesPerf() {
       for (let i = 0; i < soIds.length; i += 500) {
         const chunk = soIds.slice(i, i + 500);
         const rows = await _fetchAllPages('jubelio_sales_order_items',
-          'salesorder_id,item_id,item_name,qty,price,disc_amount',
+          'salesorder_detail_id,salesorder_id,item_id,item_name,qty,price,disc_amount',
           q => q.in('salesorder_id', chunk)
         );
         allItems.push(...rows);
       }
     }
-    // Deduplicate items: sync can produce duplicate rows for same (salesorder_id, item_id).
+    // Dedup pakai salesorder_detail_id (PK = guaranteed unique). Sebelumnya
+    // pakai (salesorder_id, item_id) → collapse multi-line items legit same
+    // SKU di 1 order (Lalahuta Jan 26: 3 cap di 1 order jadi 1, kehilangan 2 pcs).
     const _seen = new Set();
     const allItemsDeduped = allItems.filter(it => {
-      const key = `${it.salesorder_id}:${it.item_id}`;
+      const key = it.salesorder_detail_id;
       if (_seen.has(key)) return false;
       _seen.add(key);
       return true;
@@ -14853,11 +14855,13 @@ async function loadInsights() {
     const soIds = orders.map(o=>o.salesorder_id);
     const _rawItems = [];
     for (let i=0;i<soIds.length;i+=500) {
-      const rows = await _fetchAllPages('jubelio_sales_order_items','salesorder_id,item_id,item_name,qty,price,disc_amount',q=>q.in('salesorder_id',soIds.slice(i,i+500)));
+      const rows = await _fetchAllPages('jubelio_sales_order_items','salesorder_detail_id,salesorder_id,item_id,item_name,qty,price,disc_amount',q=>q.in('salesorder_id',soIds.slice(i,i+500)));
       _rawItems.push(...rows);
     }
+    // Dedup pakai salesorder_detail_id (PK = guaranteed unique). Sebelumnya
+    // pakai (salesorder_id, item_id) → collapse multi-line items legit.
     const _seen=new Set();
-    const items = _rawItems.filter(it=>{ const k=`${it.salesorder_id}:${it.item_id}`; if(_seen.has(k))return false; _seen.add(k); return true; });
+    const items = _rawItems.filter(it=>{ const k=it.salesorder_detail_id; if(_seen.has(k))return false; _seen.add(k); return true; });
 
     if (!_spAllMappings) _spAllMappings = await _fetchAllPages('product_mappings','jubelio_item_id,item_name,brand,ip,collection');
     // Index by id AND name — product_mappings stores only one representative item_id
