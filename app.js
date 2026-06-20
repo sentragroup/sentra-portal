@@ -12683,6 +12683,7 @@ let projTaskCounts = {};
 let _projSearchTimer = null;
 let projFilterCat = '';
 let projFilterSearch = '';
+let projFilterPIC = '';
 let _projDirty = false;
 
 const PROJ_STATUSES = [
@@ -12757,6 +12758,7 @@ async function loadProjects(){
 function projGetFiltered(){
   let f = projAll;
   if(projFilterCat) f = f.filter(p => p.categoryId === projFilterCat);
+  if(projFilterPIC) f = f.filter(p => (p.assignee||'').trim() === projFilterPIC);
   if(projFilterSearch){ const q = projFilterSearch.toLowerCase(); f = f.filter(p => p.title.toLowerCase().includes(q)||(p.description||'').toLowerCase().includes(q)||(p.assignee||'').toLowerCase().includes(q)); }
   return f;
 }
@@ -12799,10 +12801,24 @@ function renderProjCatFilter(){
   const cur = sel.value;
   sel.innerHTML = `<option value="">Semua Kategori</option>` +
     projCats.map(c=>`<option value="${c.id}" ${cur===c.id?'selected':''}>${projEsc(c.name)}</option>`).join('');
+  // PIC filter — list HANYA yang udah ada PIC-nya di projects
+  const picSel = document.getElementById('proj-pic-filter');
+  if (picSel) {
+    const cur = picSel.value;
+    const pics = [...new Set(projAll.map(p => (p.assignee||'').trim()).filter(Boolean))].sort();
+    picSel.innerHTML = `<option value="">Semua PIC</option>` +
+      pics.map(p => `<option value="${projEsc(p)}" ${cur===p?'selected':''}>${projEsc(p)}</option>`).join('');
+  }
 }
 
 function projCatFilterChange(){
   projFilterCat = document.getElementById('proj-cat-filter')?.value || '';
+  renderProjStats();
+  renderKanban();
+}
+
+function projPICFilterChange(){
+  projFilterPIC = document.getElementById('proj-pic-filter')?.value || '';
   renderProjStats();
   renderKanban();
 }
