@@ -33320,37 +33320,182 @@ function whSwitchTab(tab, btn) {
   });
 }
 
+// Strip size suffix from item_name to get parent name. E.g.
+// 'Hindia - 1024 - Boxy T-shirt - White - M' → 'Hindia - 1024 - Boxy T-shirt - White'
+// Size detection: last segment matches common size pattern.
+const _WH_SIZE_RE = /^(XS|S|M|L|XL|XXL|XXXL|XXXXL|OS|One Size|All Size)$/i;
+function _whParentName(itemName) {
+  if (!itemName) return '';
+  const parts = itemName.split(' - ');
+  if (parts.length > 1 && _WH_SIZE_RE.test(parts[parts.length-1].trim())) {
+    return parts.slice(0, -1).join(' - ');
+  }
+  return itemName;
+}
+function _whSizeOf(itemName) {
+  if (!itemName) return '';
+  const parts = itemName.split(' - ');
+  if (parts.length > 1 && _WH_SIZE_RE.test(parts[parts.length-1].trim())) {
+    return parts[parts.length-1].trim();
+  }
+  return 'OS';
+}
+const _WH_SIZE_ORDER = ['XS','S','M','L','XL','XXL','XXXL','XXXXL','OS','One Size','All Size'];
+function _whSortSizes(a, b) {
+  const ai = _WH_SIZE_ORDER.indexOf(a); const bi = _WH_SIZE_ORDER.indexOf(b);
+  return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi);
+}
+
 function _whRenderItemsTable(items, totalValue) {
   const fmtRp = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
   if (!items.length) return `<div style="padding:24px;text-align:center;color:var(--g400);font-size:12px">Belum ada items. Pakai search box di atas untuk tambah SKU.</div>`;
-  return `<div class="table-wrap" style="margin-top:8px"><table style="width:100%;font-size:12px">
-    <thead><tr style="font-family:var(--mono);font-size:10px;color:var(--g400);text-transform:uppercase">
-      <th style="padding:6px;text-align:left">Item</th>
-      <th style="padding:6px;text-align:right">Qty</th>
-      <th style="padding:6px;text-align:right">Unit Price</th>
-      <th style="padding:6px;text-align:right">Subtotal</th>
-      <th style="padding:6px;text-align:center">Source</th>
-      <th style="padding:6px"></th>
-    </tr></thead>
-    <tbody>${items.map(i => {
-      const sub = (parseFloat(i.qty)||0) * (parseFloat(i.unit_price)||0);
-      const srcLbl = { stock:'📦 Stock', production:'🏭 Production', mixed:'🔀 Mixed' };
-      return `<tr style="border-top:1px solid var(--g100)">
-        <td style="padding:7px"><div><b>${(i.item_name||'').replace(/</g,'&lt;')}</b></div><div style="font-family:var(--mono);font-size:10px;color:var(--g400)">${i.item_code||i.jubelio_item_id||'—'}</div></td>
-        <td style="padding:7px;text-align:right;font-family:var(--mono)"><input type="number" value="${i.qty||0}" onchange="_whItemQty(${i.id},this.value)" style="width:70px;text-align:right;border:1px solid var(--g100);padding:3px 6px;font-family:var(--mono)"></td>
-        <td style="padding:7px;text-align:right;font-family:var(--mono)"><input type="number" value="${i.unit_price||0}" onchange="_whItemPrice(${i.id},this.value)" style="width:100px;text-align:right;border:1px solid var(--g100);padding:3px 6px;font-family:var(--mono)"></td>
-        <td style="padding:7px;text-align:right;font-family:var(--mono);font-weight:600">${fmtRp(sub)}</td>
-        <td style="padding:7px;text-align:center"><select onchange="_whItemSource(${i.id},this.value)" style="font-size:11px"><option value="stock" ${i.source_type==='stock'?'selected':''}>${srcLbl.stock}</option><option value="production" ${i.source_type==='production'?'selected':''}>${srcLbl.production}</option><option value="mixed" ${i.source_type==='mixed'?'selected':''}>${srcLbl.mixed}</option></select></td>
-        <td style="padding:7px;text-align:right"><button class="btn-icon" style="font-size:10px;color:#c0392b" onclick="_whItemDel(${i.id})">✕</button></td>
-      </tr>`;
-    }).join('')}
-    <tr style="border-top:2px solid var(--black);background:var(--off);font-weight:600">
-      <td colspan="3" style="padding:8px;text-align:right">TOTAL</td>
-      <td style="padding:8px;text-align:right;font-family:var(--mono);font-size:13px">${fmtRp(totalValue)}</td>
-      <td colspan="2"></td>
-    </tr>
-    </tbody>
-  </table></div>`;
+  // Group items by parent (item_name minus size suffix)
+  const parents = new Map();
+  for (const it of items) {
+    const pName = _whParentName(it.item_name);
+    if (!parents.has(pName)) parents.set(pName, { name: pName, variants: [] });
+    parents.get(pName).variants.push(it);
+  }
+  // Fetch stock + thumb from cached jubelio items
+  const jCache = _whJubelioItemsCache || [];
+  const jByItemId = new Map(jCache.map(j => [j.item_id, j]));
+  const cards = [...parents.values()].map(p => _whRenderParentCard(p, jByItemId)).join('');
+  return `<div style="display:flex;flex-direction:column;gap:14px;margin-top:8px">
+    ${cards}
+    <div style="display:flex;justify-content:flex-end;padding:14px 18px;background:var(--off);border:1px solid var(--g100);border-radius:8px">
+      <div style="font-size:11px;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px;font-family:var(--mono);margin-right:14px;align-self:center">GRAND TOTAL</div>
+      <div style="font-size:18px;font-weight:700;font-family:var(--mono)">${fmtRp(totalValue)}</div>
+    </div>
+  </div>`;
+}
+
+function _whRenderParentCard(p, jByItemId) {
+  const fmtRp = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
+  // Sort variants by size
+  p.variants.sort((a, b) => _whSortSizes(_whSizeOf(a.item_name), _whSizeOf(b.item_name)));
+  // Pick thumbnail from any variant
+  let thumb = null;
+  for (const v of p.variants) {
+    const j = jByItemId.get(v.jubelio_item_id);
+    if (j?.thumbnail) { thumb = j.thumbnail; break; }
+  }
+  // Aggregate parent-level metrics
+  const totalQty = p.variants.reduce((s,v) => s + (parseFloat(v.qty)||0), 0);
+  const totalStock = p.variants.reduce((s,v) => {
+    const j = jByItemId.get(v.jubelio_item_id);
+    return s + (parseFloat(j?.total_on_hand)||0);
+  }, 0);
+  const subtotal = p.variants.reduce((s,v) => s + (parseFloat(v.qty)||0) * (parseFloat(v.unit_price)||0), 0);
+  // Parent SRP: first variant's price (assume same across sizes; user can override per variant)
+  const parentPrice = p.variants[0]?.unit_price || 0;
+  // Source: aggregate (if all same → that; else 'mixed')
+  const srcs = new Set(p.variants.map(v => v.source_type||'production'));
+  const parentSrc = srcs.size === 1 ? [...srcs][0] : 'mixed';
+  // Source toggle at parent — applies to all variants
+  const sources = [
+    { v:'stock',      icon:'📦', lbl:'From Stock' },
+    { v:'production', icon:'🏭', lbl:'Production' },
+    { v:'mixed',      icon:'🔀', lbl:'Mixed (per-variant)' },
+  ];
+  const srcToggle = `<select onchange="_whParentSource('${p.name.replace(/'/g,"\\'")}', this.value)" style="font-size:11px;padding:3px 8px;border:1px solid var(--g200);border-radius:4px;background:var(--white)">
+    ${sources.map(s => `<option value="${s.v}" ${parentSrc===s.v?'selected':''}>${s.icon} ${s.lbl}</option>`).join('')}
+  </select>`;
+  // Thumbnail
+  const thumbHTML = thumb
+    ? `<img src="${thumb.replace(/"/g,'&quot;')}" style="width:64px;height:64px;object-fit:cover;border-radius:4px;border:1px solid var(--g100);flex-shrink:0" onerror="this.style.display='none'">`
+    : `<div style="width:64px;height:64px;background:var(--off);border:1px solid var(--g100);border-radius:4px;display:flex;align-items:center;justify-content:center;color:var(--g400);font-size:10px;flex-shrink:0">no img</div>`;
+  // Parent unit price input (applies to all variants)
+  const priceInput = `<input type="number" min="0" step="500" value="${parentPrice}" placeholder="Harga jual (Rp)" onchange="_whParentPrice('${p.name.replace(/'/g,"\\'")}', this.value)" style="width:120px;text-align:right;font-size:11px;font-family:var(--mono);padding:4px 8px;border:1px solid var(--g200);border-radius:4px;background:var(--white)">`;
+  // Variants table (transposed: sizes as columns)
+  const sizeHead = p.variants.map(v => {
+    const j = jByItemId.get(v.jubelio_item_id);
+    const stk = parseFloat(j?.total_on_hand)||0;
+    return `<th style="padding:6px;text-align:center;background:#fafafa;border-bottom:1px solid var(--g100);font-size:11px;font-weight:700">${_whSizeOf(v.item_name)}</th>`;
+  }).join('');
+  const stockRow = p.variants.map(v => {
+    const j = jByItemId.get(v.jubelio_item_id);
+    const stk = parseFloat(j?.total_on_hand)||0;
+    const qtyNeeded = parseFloat(v.qty)||0;
+    const ok = stk >= qtyNeeded && qtyNeeded > 0;
+    const low = qtyNeeded > 0 && stk < qtyNeeded;
+    const clr = ok ? '#0a7d3a' : low ? '#c0392b' : 'var(--g600)';
+    return `<td style="padding:5px;text-align:center;font-family:var(--mono);font-size:11px;color:${clr}">${Math.round(stk)}</td>`;
+  }).join('');
+  const qtyRow = p.variants.map(v => `<td style="padding:4px;text-align:center;background:#f0f7ff">
+    <input type="number" min="0" step="1" value="${v.qty||0}" onchange="_whItemQty(${v.id},this.value)" style="width:54px;text-align:center;font-size:11px;font-family:var(--mono);padding:3px 4px;border:1px solid var(--g200);border-radius:4px;background:white">
+  </td>`).join('');
+  const priceRow = p.variants.map(v => `<td style="padding:4px;text-align:center">
+    <input type="number" min="0" step="500" value="${v.unit_price||0}" onchange="_whItemPrice(${v.id},this.value)" style="width:80px;text-align:right;font-size:10px;font-family:var(--mono);padding:3px 4px;border:1px solid var(--g100);border-radius:4px;background:white" title="Override harga per variant">
+  </td>`).join('');
+  const subRow = p.variants.map(v => {
+    const sub = (parseFloat(v.qty)||0) * (parseFloat(v.unit_price)||0);
+    return `<td style="padding:5px;text-align:center;font-family:var(--mono);font-size:11px;font-weight:600;color:${sub>0?'var(--black)':'var(--g300)'}">${sub>0?fmtRp(sub).replace('Rp ',''):'—'}</td>`;
+  }).join('');
+  const delRow = p.variants.map(v => `<td style="padding:4px;text-align:center">
+    <button class="btn-icon" onclick="_whItemDel(${v.id})" title="Hapus variant" style="font-size:10px;color:#c0392b;padding:1px 4px">×</button>
+  </td>`).join('');
+  const labelTd = 'padding:5px 10px;font-size:10px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600;background:#fafafa;border-right:1px solid var(--g100);white-space:nowrap';
+  const totalTd = 'padding:5px 10px;font-size:11px;font-family:var(--mono);text-align:right;border-left:1px solid var(--g100);background:#fafafa;font-weight:600;white-space:nowrap';
+  return `<div style="background:white;border:1px solid var(--g100);border-radius:8px;overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,0.03)">
+    <div style="padding:12px 14px;display:flex;align-items:flex-start;gap:12px;background:var(--off);border-bottom:1px solid var(--g100)">
+      ${thumbHTML}
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:700;line-height:1.3">${p.name.replace(/</g,'&lt;')}</div>
+        <div style="font-size:11px;color:var(--g600);margin-top:3px">${p.variants.length} variants · ${totalQty.toLocaleString('id-ID')} pcs total · Stock available: ${Math.round(totalStock).toLocaleString('id-ID')} pcs</div>
+        <div style="display:flex;gap:10px;align-items:center;margin-top:8px;flex-wrap:wrap">
+          ${srcToggle}
+          ${priceInput}
+          <span style="font-size:10px;color:var(--g400)">Harga parent apply ke semua variants (bisa override per size di tabel)</span>
+        </div>
+      </div>
+      <div style="font-size:18px;font-weight:700;font-family:var(--mono);text-align:right;flex-shrink:0">${fmtRp(subtotal)}</div>
+    </div>
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:11px">
+        <thead>
+          <tr>
+            <th style="padding:5px 10px;text-align:right;font-size:9px;color:var(--g400);text-transform:uppercase;letter-spacing:0.3px;font-weight:600;background:#fafafa;border-right:1px solid var(--g100)">Size →</th>
+            ${sizeHead}
+            <th style="${totalTd}">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td style="${labelTd}">Stock</td>${stockRow}<td style="${totalTd};color:var(--g600)">${Math.round(totalStock).toLocaleString('id-ID')}</td></tr>
+          <tr style="border-top:2px solid var(--g100)"><td style="${labelTd};background:#f0f7ff">Order Qty</td>${qtyRow}<td style="${totalTd};background:#f0f7ff;color:var(--black);font-weight:700;font-size:12px">${totalQty.toLocaleString('id-ID')}</td></tr>
+          <tr><td style="${labelTd}">Unit Price</td>${priceRow}<td style="${totalTd}">—</td></tr>
+          <tr><td style="${labelTd}">Subtotal</td>${subRow}<td style="${totalTd};font-weight:700;font-size:12px">${fmtRp(subtotal).replace('Rp ','')}</td></tr>
+          <tr><td style="${labelTd}"></td>${delRow}<td style="${totalTd}"></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+// Apply parent-level source toggle to all variants of parent
+async function _whParentSource(parentName, src) {
+  const o = _whCurrentOrder; if (!o) return;
+  const targets = o.items.filter(i => _whParentName(i.item_name) === parentName);
+  for (const it of targets) {
+    if (it.source_type !== src) {
+      await sb.from('wholesale_customer_order_items').update({source_type:src}).eq('id', it.id);
+      it.source_type = src;
+    }
+  }
+  _whRenderDetail();
+}
+
+// Apply parent-level unit price to all variants of parent
+async function _whParentPrice(parentName, val) {
+  const v = parseFloat(val) || 0;
+  const o = _whCurrentOrder; if (!o) return;
+  const targets = o.items.filter(i => _whParentName(i.item_name) === parentName);
+  for (const it of targets) {
+    if (parseFloat(it.unit_price) !== v) {
+      await sb.from('wholesale_customer_order_items').update({unit_price:v}).eq('id', it.id);
+      it.unit_price = v;
+    }
+  }
+  _whRenderDetail();
 }
 
 function _whRenderAllocTab(items, links) {
