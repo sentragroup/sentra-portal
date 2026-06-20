@@ -33546,11 +33546,126 @@ function _whRenderAllocTab(items, links) {
 
   const parentCards = [...parents.values()].map(p => _whRenderAllocParentCard(p, jByItemId, linksByItem)).join('');
 
+  // Quick actions bar — bulk operations
+  const quickActions = `<div style="display:flex;gap:8px;align-items:center;padding:10px 12px;background:#fafbff;border:1px dashed #c9bdf0;border-radius:6px;margin-bottom:14px;flex-wrap:wrap">
+    <span style="font-size:10px;color:var(--g600);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">⚡ Quick Action →</span>
+    <button onclick="_whBulkSetSourceAll('production')" style="padding:5px 12px;font-size:11px;border:1px solid #c4ddf5;background:#f0f7ff;color:#3C3489;border-radius:4px;cursor:pointer;font-weight:600">🏭 Set Semua ke Produksi</button>
+    <button onclick="_whBulkSetSourceAll('stock')" style="padding:5px 12px;font-size:11px;border:1px solid #f0d896;background:#fff8e8;color:#a66800;border-radius:4px;cursor:pointer;font-weight:600">📦 Set Semua dari Stock</button>
+    <span style="flex:1"></span>
+    ${_whRestockProjects.length ? `<select id="wh-bulk-link-proj" style="padding:4px 8px;font-size:11px;border:1px solid var(--g200);border-radius:4px;background:white;max-width:280px">
+      <option value="">— Link semua production qty ke project —</option>
+      ${_whRestockProjects.map(p => `<option value="${p.id}">${p.id} — ${(p.name||'(no name)').replace(/"/g,'&quot;')}</option>`).join('')}
+    </select>
+    <button onclick="_whBulkLinkAllToProject()" style="padding:5px 12px;font-size:11px;border:1px solid #3C3489;background:#3C3489;color:white;border-radius:4px;cursor:pointer;font-weight:600">Link Semua</button>` : ''}
+  </div>`;
+
   return `<div class="form-card">
     <div class="form-sec">Source Allocation</div>
     <div style="font-size:11px;color:var(--g600);margin-bottom:14px">Set tiap produk: <b>📦 From Stock</b> (warehouse pickup) · <b>🏭 Production</b> (link ke Restock Project) · <b>🔀 Mixed</b> (split per variant).</div>
+    ${quickActions}
     ${parentCards}
   </div>`;
+}
+
+// Bulk: set source semua parents
+async function _whBulkSetSourceAll(src) {
+  const o = _whCurrentOrder; if (!o) return;
+  const lbl = src === 'production' ? 'Produksi' : src === 'stock' ? 'Stock' : 'Mixed';
+  if (!confirm(`Set semua items ke "${lbl}"?`)) return;
+  for (const it of o.items) {
+    if (it.source_type !== src) {
+      await sb.from('wholesale_customer_order_items').update({source_type:src}).eq('id', it.id);
+      it.source_type = src;
+    }
+  }
+  _whRenderDetail();
+}
+
+// Bulk: link semua pending production variants di 1 parent ke 1 project
+async function _whLinkAllVariantsToProject(parentName, selectId) {
+  const projId = document.getElementById(selectId)?.value;
+  if (!projId) { alert('Pilih project dulu.'); return; }
+  const proj = _whRestockProjects.find(p => p.id === projId);
+  const o = _whCurrentOrder; if (!o) return;
+  const links = o.links || [];
+  const linksByItem = new Map();
+  links.forEach(l => {
+    const arr = linksByItem.get(l.order_item_id) || [];
+    arr.push(l); linksByItem.set(l.order_item_id, arr);
+  });
+  const targets = [];
+  for (const it of o.items) {
+    if (_whParentName(it.item_name) !== parentName) continue;
+    const isProd = it.source_type === 'production';
+    const isMixed = it.source_type === 'mixed';
+    if (!isProd && !isMixed) continue;
+    const qtyNeed = isProd ? (parseFloat(it.qty)||0) : (parseFloat(it.qty_from_prod)||0);
+    if (qtyNeed <= 0) continue;
+    const allocs = linksByItem.get(it.id) || [];
+    const totalAlloc = allocs.reduce((s,a) => s + (parseFloat(a.qty_allocated)||0), 0);
+    const pending = qtyNeed - totalAlloc;
+    if (pending > 0) targets.push({ item: it, pending });
+  }
+  if (!targets.length) { alert('Gak ada pending variants di parent ini.'); return; }
+  const rows = targets.map(t => ({
+    order_item_id: t.item.id, restock_project_id: projId,
+    qty_allocated: t.pending, created_by: currentUser
+  }));
+  const { data, error } = await sb.from('wholesale_batch_links').insert(rows).select();
+  if (error) { alert('Gagal: '+error.message); return; }
+  o.links.push(...(data||[]));
+  const h = o.header;
+  if (h.status === 'new' || h.status === 'confirmed') {
+    await sb.from('wholesale_customer_orders').update({status:'allocated'}).eq('id', h.id);
+    h.status = 'allocated';
+  }
+  _whRenderDetail();
+}
+
+// Bulk: link semua pending production qty ke 1 project (across all parents)
+async function _whBulkLinkAllToProject() {
+  const projId = document.getElementById('wh-bulk-link-proj')?.value;
+  if (!projId) { alert('Pilih project dulu.'); return; }
+  const proj = _whRestockProjects.find(p => p.id === projId);
+  const o = _whCurrentOrder; if (!o) return;
+  const links = o.links || [];
+  const linksByItem = new Map();
+  links.forEach(l => {
+    const arr = linksByItem.get(l.order_item_id) || [];
+    arr.push(l); linksByItem.set(l.order_item_id, arr);
+  });
+  // Collect items butuh produksi dengan pending qty > 0
+  const targets = [];
+  for (const it of o.items) {
+    const isProd = it.source_type === 'production';
+    const isMixed = it.source_type === 'mixed';
+    if (!isProd && !isMixed) continue;
+    const qtyNeed = isProd ? (parseFloat(it.qty)||0) : (parseFloat(it.qty_from_prod)||0);
+    if (qtyNeed <= 0) continue;
+    const allocs = linksByItem.get(it.id) || [];
+    const totalAlloc = allocs.reduce((s,a) => s + (parseFloat(a.qty_allocated)||0), 0);
+    const pending = qtyNeed - totalAlloc;
+    if (pending > 0) targets.push({ item: it, pending });
+  }
+  if (!targets.length) {
+    alert('Semua items production sudah ter-link, atau gak ada items butuh produksi.');
+    return;
+  }
+  if (!confirm(`Link ${targets.length} variant ke "${proj.name||projId}"?\nTotal: ${targets.reduce((s,t)=>s+t.pending,0)} pcs.`)) return;
+  const rows = targets.map(t => ({
+    order_item_id: t.item.id, restock_project_id: projId,
+    qty_allocated: t.pending, created_by: currentUser
+  }));
+  const { data, error } = await sb.from('wholesale_batch_links').insert(rows).select();
+  if (error) { alert('Gagal: '+error.message); return; }
+  o.links.push(...(data||[]));
+  // Auto-update status kalau dari new/confirmed
+  const h = o.header;
+  if (h.status === 'new' || h.status === 'confirmed') {
+    await sb.from('wholesale_customer_orders').update({status:'allocated'}).eq('id', h.id);
+    h.status = 'allocated';
+  }
+  _whRenderDetail();
 }
 
 function _whRenderAllocParentCard(p, jByItemId, linksByItem) {
@@ -33658,7 +33773,8 @@ function _whRenderProdAllocTable(p, linksByItem, mixedMode=false) {
     const fullDone = qtyNeed > 0 && totalAlloc >= qtyNeed;
     const batchChips = allocs.map(a => {
       const proj = _whRestockProjects.find(p2 => p2.id === a.restock_project_id);
-      return `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 7px;background:#eef0f8;color:#3C3489;border:1px solid #c9bdf0;border-radius:11px;font-size:10px;margin:2px 3px 2px 0">📦 ${(proj?.name||proj?.id||a.restock_project_id||'?').toString().replace(/</g,'&lt;')} · ${a.qty_allocated}p <button onclick="_whUnlinkBatch(${a.id})" style="background:none;border:none;color:#c0392b;cursor:pointer;padding:0;font-size:11px;line-height:1">×</button></span>`;
+      const projLbl = (proj?.name||proj?.id||a.restock_project_id||'?').toString().replace(/</g,'&lt;');
+      return `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 7px;background:#eef0f8;color:#3C3489;border:1px solid #c9bdf0;border-radius:11px;font-size:10px;margin:2px 3px 2px 0"><a href="#restock" onclick="showPage('restock',null);return false" title="Buka di modul Create PO Restock" style="color:#3C3489;text-decoration:none">📦 ${projLbl} · ${a.qty_allocated}p</a> <button onclick="_whUnlinkBatch(${a.id})" title="Unlink" style="background:none;border:none;color:#c0392b;cursor:pointer;padding:0;font-size:11px;line-height:1">×</button></span>`;
     }).join('');
     const pickerOpen = _whBatchPickerFor === v.id;
     const pickerHTML = pickerOpen ? _whRenderBatchPickerInline(v.id, pending) : '';
@@ -33672,11 +33788,20 @@ function _whRenderProdAllocTable(p, linksByItem, mixedMode=false) {
   }).filter(Boolean).join('');
   if (!rows) return '';
   const totalProdNeed = p.variants.reduce((s,v) => s + (mixedMode ? (parseFloat(v.qty_from_prod)||0) : (parseFloat(v.qty)||0)), 0);
+  const parentKey = p.name.replace(/'/g,"\\'");
+  const parentLink = _whRestockProjects.length ? `<div style="display:flex;gap:5px;align-items:center;margin-top:6px;padding:6px 8px;background:white;border:1px dashed #c9bdf0;border-radius:4px">
+    <span style="font-size:9px;color:var(--g600);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px">Quick →</span>
+    <select id="wh-parent-link-${btoa(parentKey).replace(/=/g,'')}" style="flex:1;padding:3px 6px;font-size:10px;border:1px solid var(--g200);border-radius:3px;background:white">
+      ${_whRestockProjects.map(pj => `<option value="${pj.id}">${pj.id} — ${(pj.name||'(no name)').replace(/"/g,'&quot;')}</option>`).join('')}
+    </select>
+    <button onclick="_whLinkAllVariantsToProject('${parentKey}','wh-parent-link-${btoa(parentKey).replace(/=/g,'')}')" style="padding:3px 10px;font-size:10px;border:1px solid #3C3489;background:#3C3489;color:white;border-radius:3px;cursor:pointer;font-weight:600">Link semua variants</button>
+  </div>` : '';
   return `<div style="background:#f0f7ff;border:1px solid #c4ddf5;border-radius:5px;padding:10px;margin-top:8px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
       <div style="font-size:11px;font-weight:600;color:#3C3489;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px">🏭 Production via Restock Project ${mixedMode?'(production portion)':''}</div>
       <div style="font-size:13px;font-weight:700;font-family:var(--mono)">${totalProdNeed} pcs</div>
     </div>
+    ${parentLink}
     <table style="width:100%;font-size:11px;background:white;border-radius:3px">
       <thead><tr style="background:#dceaf7">
         <th style="padding:4px 8px;text-align:left;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Size</th>
