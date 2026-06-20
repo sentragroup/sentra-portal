@@ -33393,8 +33393,10 @@ function _whRenderParentCard(p, jByItemId) {
   // Aggregate parent-level metrics
   const totalQty = p.variants.reduce((s,v) => s + (parseFloat(v.qty)||0), 0);
   const subtotal = p.variants.reduce((s,v) => s + (parseFloat(v.qty)||0) * (parseFloat(v.unit_price)||0), 0);
-  // Parent SRP: first variant's price (assume same across sizes; user can override per variant)
-  const parentPrice = p.variants[0]?.unit_price || 0;
+  // Parent-level pricing: list_price + discount_pct → net unit_price
+  const parentList = parseFloat(p.variants[0]?.list_price)||0;
+  const parentDisc = parseFloat(p.variants[0]?.discount_pct)||0;
+  const parentNet = Math.round(parentList * (1 - parentDisc/100));
   // Source: aggregate
   const srcs = new Set(p.variants.map(v => v.source_type||'production'));
   const parentSrc = srcs.size === 1 ? [...srcs][0] : 'mixed';
@@ -33410,7 +33412,20 @@ function _whRenderParentCard(p, jByItemId) {
   const thumbHTML = thumb
     ? `<a href="${thumb.replace(/"/g,'&quot;')}" target="_blank"><img src="${thumb.replace(/"/g,'&quot;')}" style="width:100px;height:100px;object-fit:cover;border-radius:4px;border:1px solid var(--g100);display:block" onerror="this.parentElement.outerHTML='<div style=\\'width:100px;height:100px;background:var(--off);border:1px solid var(--g100);border-radius:4px;display:flex;align-items:center;justify-content:center;color:var(--g400);font-size:10px\\'>no img</div>'"></a>`
     : `<div style="width:100px;height:100px;background:var(--off);border:1px dashed var(--g100);border-radius:4px;display:flex;align-items:center;justify-content:center;color:var(--g400);font-size:10px">no img</div>`;
-  const priceInput = `<input type="number" min="0" step="500" value="${parentPrice}" onchange="_whParentPrice('${escName}', this.value)" style="width:120px;text-align:right;font-size:11px;font-family:var(--mono);padding:4px 8px;border:1px solid var(--g200);border-radius:4px;background:var(--white)" title="Apply harga ke semua variants">`;
+  const priceBlock = `
+    <div style="display:flex;align-items:center;gap:5px">
+      <span style="font-size:10px;color:var(--g600)">List:</span>
+      <input type="number" min="0" step="500" value="${parentList}" onchange="_whParentList('${escName}', this.value)" placeholder="Harga atas" style="width:100px;text-align:right;font-size:11px;font-family:var(--mono);padding:4px 8px;border:1px solid var(--g200);border-radius:4px;background:var(--white)" title="Harga atas (SRP) sebelum diskon">
+    </div>
+    <div style="display:flex;align-items:center;gap:5px">
+      <span style="font-size:10px;color:var(--g600)">Disc:</span>
+      <input type="number" min="0" max="100" step="1" value="${parentDisc}" onchange="_whParentDisc('${escName}', this.value)" style="width:54px;text-align:right;font-size:11px;font-family:var(--mono);padding:4px 8px;border:1px solid var(--g200);border-radius:4px;background:var(--white)" title="Diskon dalam persen">
+      <span style="font-size:11px;color:var(--g600)">%</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:5px;padding:3px 10px;background:#f0f7ff;border:1px solid #c4ddf5;border-radius:4px">
+      <span style="font-size:10px;color:var(--g600)">Net:</span>
+      <span style="font-size:12px;font-family:var(--mono);font-weight:700">${parentNet>0?'Rp '+parentNet.toLocaleString('id-ID'):'—'}</span>
+    </div>`;
 
   // Per-variant sub-card rows (PD style)
   const variantRows = p.variants.map(v => {
@@ -33466,8 +33481,7 @@ function _whRenderParentCard(p, jByItemId) {
       <div style="display:flex;gap:10px;align-items:center;margin:8px 0 12px;flex-wrap:wrap;padding:8px 10px;background:var(--white);border:1px dashed var(--g100);border-radius:5px">
         <span style="font-size:10px;color:var(--g400);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px">Parent →</span>
         ${srcToggle}
-        ${priceInput}
-        <span style="font-size:10px;color:var(--g400)">apply ke semua variants ↓</span>
+        ${priceBlock}
       </div>
       <div>${variantRows}</div>
     </div>
@@ -33487,7 +33501,36 @@ async function _whParentSource(parentName, src) {
   _whRenderDetail();
 }
 
-// Apply parent-level unit price to all variants of parent
+// Apply parent-level list_price → recompute net = list × (1 - disc/100), bulk-update
+async function _whParentList(parentName, val) {
+  const list = parseFloat(val) || 0;
+  const o = _whCurrentOrder; if (!o) return;
+  const targets = o.items.filter(i => _whParentName(i.item_name) === parentName);
+  for (const it of targets) {
+    const disc = parseFloat(it.discount_pct) || 0;
+    const net = Math.round(list * (1 - disc/100));
+    await sb.from('wholesale_customer_order_items').update({list_price:list, unit_price:net}).eq('id', it.id);
+    it.list_price = list; it.unit_price = net;
+  }
+  _whRenderDetail();
+}
+
+// Apply parent-level discount_pct → recompute net, bulk-update
+async function _whParentDisc(parentName, val) {
+  let disc = parseFloat(val) || 0;
+  if (disc < 0) disc = 0; if (disc > 100) disc = 100;
+  const o = _whCurrentOrder; if (!o) return;
+  const targets = o.items.filter(i => _whParentName(i.item_name) === parentName);
+  for (const it of targets) {
+    const list = parseFloat(it.list_price) || 0;
+    const net = Math.round(list * (1 - disc/100));
+    await sb.from('wholesale_customer_order_items').update({discount_pct:disc, unit_price:net}).eq('id', it.id);
+    it.discount_pct = disc; it.unit_price = net;
+  }
+  _whRenderDetail();
+}
+
+// Legacy direct unit_price override (kept for back-compat — not currently bound to parent UI)
 async function _whParentPrice(parentName, val) {
   const v = parseFloat(val) || 0;
   const o = _whCurrentOrder; if (!o) return;
