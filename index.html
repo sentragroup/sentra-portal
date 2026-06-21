@@ -3689,39 +3689,72 @@
           </div>
           <button class="btn-primary" onclick="openWholesaleDetail('new')">+ Tambah Order</button>
         </div>
-        <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
-          <div class="stat-card"><div class="stat-num" id="wh-s-total">—</div><div class="stat-lbl">Total Order</div></div>
-          <div class="stat-card warn"><div class="stat-num" id="wh-s-active">—</div><div class="stat-lbl">Active (belum done)</div></div>
-          <div class="stat-card info"><div class="stat-num" id="wh-s-batched">—</div><div class="stat-lbl">In Production</div></div>
-          <div class="stat-card success"><div class="stat-num" id="wh-s-value">—</div><div class="stat-lbl">Total Value Active</div></div>
+        <div class="tab-bar" style="margin-bottom:1rem">
+          <button class="tab-btn active" id="wh-listtab-active" onclick="whSwitchListTab('active',this)">📋 Active Orders</button>
+          <button class="tab-btn" id="wh-listtab-past" onclick="whSwitchListTab('past',this)">📚 Past Transactions (Jubelio)</button>
         </div>
-        <div class="filter-panel" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:1rem">
-          <div class="fg"><label>Customer</label><select id="wh-f-customer" onchange="applyWholesaleFilter()"><option value="">Semua</option></select></div>
-          <div class="fg"><label>Status</label><select id="wh-f-status" onchange="applyWholesaleFilter()">
-            <option value="">Semua</option>
-            <option value="new">New</option>
-            <option value="confirmed">Confirmed</option>
-            <option value="allocated">Allocated</option>
-            <option value="producing">Producing</option>
-            <option value="ready">Ready</option>
-            <option value="shipped">Shipped</option>
-            <option value="invoiced">Invoiced</option>
-            <option value="done">Done</option>
-            <option value="canceled">Canceled</option>
-          </select></div>
-          <div class="fg"><label>Delivery Date</label><input type="month" id="wh-f-delivery" onchange="applyWholesaleFilter()"></div>
-          <div class="fg"><label>Cari</label><input type="text" id="wh-f-q" placeholder="No PO / customer / item..." oninput="applyWholesaleFilter()"></div>
+
+        <!-- TAB: Active Orders -->
+        <div id="wh-listcontent-active">
+          <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
+            <div class="stat-card"><div class="stat-num" id="wh-s-total">—</div><div class="stat-lbl">Total Order</div></div>
+            <div class="stat-card warn"><div class="stat-num" id="wh-s-active">—</div><div class="stat-lbl">Active (belum done)</div></div>
+            <div class="stat-card info"><div class="stat-num" id="wh-s-batched">—</div><div class="stat-lbl">In Production</div></div>
+            <div class="stat-card success"><div class="stat-num" id="wh-s-value">—</div><div class="stat-lbl">Total Value Active</div></div>
+          </div>
+          <div class="filter-panel" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:1rem">
+            <div class="fg"><label>Customer</label><select id="wh-f-customer" onchange="applyWholesaleFilter()"><option value="">Semua</option></select></div>
+            <div class="fg"><label>Status</label><select id="wh-f-status" onchange="applyWholesaleFilter()">
+              <option value="">Semua</option>
+              <option value="new">New</option>
+              <option value="confirmed">Confirmed</option>
+              <option value="allocated">Allocated</option>
+              <option value="producing">Producing</option>
+              <option value="ready">Ready</option>
+              <option value="shipped">Shipped</option>
+              <option value="invoiced">Invoiced</option>
+              <option value="done">Done</option>
+              <option value="canceled">Canceled</option>
+            </select></div>
+            <div class="fg"><label>Delivery Date</label><input type="month" id="wh-f-delivery" onchange="applyWholesaleFilter()"></div>
+            <div class="fg"><label>Cari</label><input type="text" id="wh-f-q" placeholder="No PO / customer / item..." oninput="applyWholesaleFilter()"></div>
+          </div>
+          <div class="table-toolbar">
+            <button class="btn-refresh" onclick="loadWholesale()">↻ Refresh</button>
+            <div class="tcount" id="wh-tcount">— entri</div>
+          </div>
+          <div class="table-wrap"><table>
+            <thead><tr>
+              <th>Order #</th><th>Customer</th><th>Order Date</th><th>Delivery</th><th>Items</th><th>Value</th><th>Status</th><th>Progress</th><th></th>
+            </tr></thead>
+            <tbody id="wh-tbody"><tr><td class="empty-td" colspan="9">Memuat...</td></tr></tbody>
+          </table></div>
         </div>
-        <div class="table-toolbar">
-          <button class="btn-refresh" onclick="loadWholesale()">↻ Refresh</button>
-          <div class="tcount" id="wh-tcount">— entri</div>
+
+        <!-- TAB: Past Transactions -->
+        <div id="wh-listcontent-past" style="display:none">
+          <div class="stats-row" style="grid-template-columns:repeat(3,1fr);margin-bottom:1.25rem">
+            <div class="stat-card"><div class="stat-num" id="wh-past-s-total">—</div><div class="stat-lbl">Total Transactions</div></div>
+            <div class="stat-card info"><div class="stat-num" id="wh-past-s-customers">—</div><div class="stat-lbl">Unique Customers</div></div>
+            <div class="stat-card success"><div class="stat-num" id="wh-past-s-value">—</div><div class="stat-lbl">Total Value</div></div>
+          </div>
+          <div class="filter-panel" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:1rem">
+            <div class="fg"><label>Customer</label><select id="wh-past-f-customer" onchange="applyWholesalePastFilter()"><option value="">Semua</option></select></div>
+            <div class="fg"><label>Period (Tahun-Bulan)</label><input type="month" id="wh-past-f-month" onchange="applyWholesalePastFilter()"></div>
+            <div class="fg"><label>Cari</label><input type="text" id="wh-past-f-q" placeholder="SO no / customer..." oninput="applyWholesalePastFilter()"></div>
+            <div class="fg"><label>&nbsp;</label><button class="btn-refresh" onclick="loadWholesalePast()" style="width:100%">↻ Refresh</button></div>
+          </div>
+          <div class="table-toolbar">
+            <div class="tcount" id="wh-past-tcount">— entri</div>
+          </div>
+          <div class="table-wrap"><table>
+            <thead><tr>
+              <th>SO No</th><th>Customer</th><th>Date</th><th>Channel</th><th style="text-align:right">Value</th><th>Status</th><th>Note</th><th></th>
+            </tr></thead>
+            <tbody id="wh-past-tbody"><tr><td class="empty-td" colspan="8">Klik Refresh untuk memuat past transactions.</td></tr></tbody>
+          </table></div>
+          <div style="font-size:11px;color:var(--g400);margin-top:8px;font-family:var(--mono)">Source: Transaction Mapping (category=Wholesale) → join jubelio_sales_orders</div>
         </div>
-        <div class="table-wrap"><table>
-          <thead><tr>
-            <th>Order #</th><th>Customer</th><th>Order Date</th><th>Delivery</th><th>Items</th><th>Value</th><th>Status</th><th>Progress</th><th></th>
-          </tr></thead>
-          <tbody id="wh-tbody"><tr><td class="empty-td" colspan="9">Memuat...</td></tr></tbody>
-        </table></div>
       </div>
       <!-- DETAIL VIEW -->
       <div id="wh-detail-view" style="display:none"></div>
@@ -5287,6 +5320,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260615bv"></script>
+<script src="app.js?v=20260615bw"></script>
 </body>
 </html>

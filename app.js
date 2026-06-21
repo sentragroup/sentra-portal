@@ -33222,6 +33222,124 @@ function _whPpRemove(idx) {
   _whRenderDetail();
 }
 
+// Switch antara Active Orders / Past Transactions di list view
+function whSwitchListTab(tab, btn) {
+  document.querySelectorAll('#wh-list-view .tab-bar .tab-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  ['active','past'].forEach(t => {
+    const el = document.getElementById('wh-listcontent-'+t);
+    if (el) el.style.display = t === tab ? '' : 'none';
+  });
+  if (tab === 'past' && !_whPastRowsLoaded) loadWholesalePast();
+}
+
+// Past Transactions — fetch tx_mappings WHERE category='Wholesale' join jubelio_sales_orders
+let _whPastRows = [];
+let _whPastRowsLoaded = false;
+async function loadWholesalePast() {
+  const tb = document.getElementById('wh-past-tbody');
+  if (tb) tb.innerHTML = '<tr><td class="empty-td" colspan="8">Memuat...</td></tr>';
+  try {
+    const { data: txMaps } = await sb.from('transaction_mappings')
+      .select('salesorder_id,category,project_ref,notes,mapped_at,mapped_by')
+      .eq('category','Wholesale');
+    const ids = (txMaps||[]).map(m => m.salesorder_id).filter(Boolean);
+    if (!ids.length) {
+      _whPastRows = [];
+      _whPastRowsLoaded = true;
+      renderWholesalePast([]);
+      computeWholesalePastStats([]);
+      return;
+    }
+    // Fetch jubelio_sales_orders dalam chunks (safety untuk URL length)
+    const orders = await _fetchAllPagesIn('jubelio_sales_orders',
+      'salesorder_id,salesorder_no,customer_name,salesorder_date,sub_total,status,channel,store',
+      'salesorder_id', ids);
+    const orderById = new Map((orders||[]).map(o => [o.salesorder_id, o]));
+    _whPastRows = (txMaps||[]).map(m => {
+      const o = orderById.get(m.salesorder_id) || {};
+      return {
+        salesorder_id: m.salesorder_id,
+        salesorder_no: o.salesorder_no || `#${m.salesorder_id}`,
+        customer_name: o.customer_name || '',
+        salesorder_date: o.salesorder_date || null,
+        sub_total: parseFloat(o.sub_total)||0,
+        status: o.status || '',
+        channel: o.channel || '',
+        store: o.store || '',
+        note: m.notes || '',
+        mapped_at: m.mapped_at,
+        mapped_by: m.mapped_by,
+      };
+    }).sort((a,b) => (b.salesorder_date||'').localeCompare(a.salesorder_date||''));
+    _whPastRowsLoaded = true;
+    // Populate customer filter dropdown
+    const custSel = document.getElementById('wh-past-f-customer');
+    if (custSel) {
+      const cur = custSel.value;
+      while(custSel.options.length > 1) custSel.remove(1);
+      [...new Set(_whPastRows.map(r => r.customer_name).filter(Boolean))].sort().forEach(n => {
+        const o = document.createElement('option'); o.value = o.textContent = n; custSel.appendChild(o);
+      });
+      custSel.value = cur;
+    }
+    applyWholesalePastFilter();
+  } catch(e) {
+    if (tb) tb.innerHTML = `<tr><td class="empty-td" colspan="8">Gagal: ${e.message}</td></tr>`;
+  }
+}
+
+function applyWholesalePastFilter() {
+  const fCust = document.getElementById('wh-past-f-customer')?.value || '';
+  const fMonth = document.getElementById('wh-past-f-month')?.value || ''; // YYYY-MM
+  const q = (document.getElementById('wh-past-f-q')?.value||'').toLowerCase();
+  let rows = _whPastRows.filter(r => {
+    if (fCust && r.customer_name !== fCust) return false;
+    if (fMonth && (r.salesorder_date||'').slice(0,7) !== fMonth) return false;
+    if (q && !(`${r.salesorder_no} ${r.customer_name}`.toLowerCase().includes(q))) return false;
+    return true;
+  });
+  computeWholesalePastStats(rows);
+  renderWholesalePast(rows);
+}
+
+function computeWholesalePastStats(rows) {
+  const fmtRp = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
+  document.getElementById('wh-past-s-total').textContent = rows.length;
+  document.getElementById('wh-past-s-customers').textContent = new Set(rows.map(r => r.customer_name).filter(Boolean)).size;
+  document.getElementById('wh-past-s-value').textContent = fmtRp(rows.reduce((s,r) => s + r.sub_total, 0));
+}
+
+function renderWholesalePast(rows) {
+  const fmtRp = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
+  const fmtTgl = d => d ? new Date(d.length===10?d+'T00:00:00':d).toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'}) : '—';
+  document.getElementById('wh-past-tcount').textContent = rows.length + ' entri';
+  const tb = document.getElementById('wh-past-tbody');
+  if (!rows.length) { tb.innerHTML = '<tr><td class="empty-td" colspan="8">Gak ada past transactions dengan filter ini.</td></tr>'; return; }
+  tb.innerHTML = rows.map(r => {
+    const statusCls = (r.status||'').toUpperCase().includes('COMPLET') ? 'p-active' : (r.status||'').toUpperCase().includes('CANCEL') ? 'p-expired' : 'p-draft';
+    return `<tr>
+      <td><span style="font-family:var(--mono);font-size:11px;font-weight:600">${(r.salesorder_no||'—').replace(/</g,'&lt;')}</span><div style="font-size:9px;color:var(--g400);font-family:var(--mono)">#${r.salesorder_id}</div></td>
+      <td style="font-size:12px;font-weight:500">${(r.customer_name||'—').replace(/</g,'&lt;')}</td>
+      <td style="font-size:11px;font-family:var(--mono);color:var(--g600)">${fmtTgl(r.salesorder_date)}</td>
+      <td style="font-size:11px;color:var(--g600)">${(r.channel||'—').replace(/</g,'&lt;')}${r.store?`<div style="font-size:9px;color:var(--g400);font-family:var(--mono)">${r.store.replace(/</g,'&lt;')}</div>`:''}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:12px;font-weight:700">${fmtRp(r.sub_total)}</td>
+      <td><span class="pill ${statusCls}" style="font-size:10px">${(r.status||'—').replace(/</g,'&lt;')}</span></td>
+      <td style="font-size:11px;color:var(--g600)">${(r.note||'').replace(/</g,'&lt;')||'<span style="color:var(--g300)">—</span>'}</td>
+      <td><button onclick="_whPastViewMapping(${r.salesorder_id})" style="font-size:11px;padding:4px 10px;border:1px solid #3C3489;background:white;color:#3C3489;border-radius:4px;cursor:pointer;font-weight:600;white-space:nowrap" title="Buka di Transaction Mapping">↗ Mapping</button></td>
+    </tr>`;
+  }).join('');
+}
+
+function _whPastViewMapping(soId) {
+  // Jump to Transaction Mapping module dan filter by SO id
+  showPage('txmap', null);
+  setTimeout(() => {
+    const el = document.getElementById('txSearch');
+    if (el) { el.value = String(soId); el.dispatchEvent(new Event('input')); }
+  }, 200);
+}
+
 async function loadWholesale() {
   const tbody = document.getElementById('wh-tbody');
   if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="9">Memuat...</td></tr>`;
