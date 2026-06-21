@@ -107,9 +107,6 @@
       </div>
       <div class="sb-sec">
         <div class="sb-label">General</div>
-        <div class="sb-item" onclick="showPage('arreceivables',this)" id="nav-arreceivables">
-          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12v8H2z"/><path d="M2 7h12"/><circle cx="5" cy="10" r="1"/><path d="M9 10h3"/></svg>Account Receivables
-        </div>
         <div class="sb-item" onclick="showPage('ipreports',this)" id="nav-ipreports">
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2h7l3 3v9a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z"/><path d="M10 2v3h3"/><path d="M5 9h6M5 11h6M5 13h4"/></svg>IP Reports
         </div>
@@ -197,6 +194,7 @@
 
         <div class="sb-label" style="margin-bottom:0.6rem">Legal &amp; Finance</div>
         <div class="home-grid" style="margin-bottom:1.5rem">
+          <div class="tool-card" onclick="showPage('arreceivables',null)"><span class="tc-icon">💰</span><div class="tc-name">Account Receivables</div><div class="tc-desc">Tagihan customer wholesale &amp; manual purchase — total AR, overdue, aging buckets. Loop dari payment trackers tiap order.</div></div>
           <div class="tool-card" onclick="showPage('agreement',null)"><span class="tc-icon">📄</span><div class="tc-name">Agreement</div><div class="tc-desc">Submit dan pantau semua perjanjian, kontrak, dan kemitraan.</div></div>
           <div class="tool-card" onclick="showPage('royalty',null)"><span class="tc-icon">💰</span><div class="tc-name">Royalty Report</div><div class="tc-desc">Laporan royalty per IP per periode — gross sales, % royalty, PPh, net payout. Auto-mapped dari Product Mapping.</div></div>
           <div class="tool-card" onclick="showPage('income',null)"><span class="tc-icon">📑</span><div class="tc-name">Income Statement</div><div class="tc-desc">Laporan laba-rugi per bulan — net sales, COGS, gross profit &amp; gross margin.</div></div>
@@ -204,7 +202,6 @@
 
         <div class="sb-label" style="margin-bottom:0.6rem">Account Management</div>
         <div class="home-grid" style="margin-bottom:1.5rem">
-          <div class="tool-card" onclick="showPage('arreceivables',null)"><span class="tc-icon">💰</span><div class="tc-name">Account Receivables</div><div class="tc-desc">Tagihan customer wholesale — total AR, overdue, aging buckets. Loop dari payment trackers tiap order.</div></div>
           <div class="tool-card" onclick="showPage('ipreports',null)"><span class="tc-icon">🗞️</span><div class="tc-name">IP Reports</div><div class="tc-desc">Generate performance report per IP — weekly, monthly, quarterly, all-time. PDF + audit trail siapa kirim apa kapan.</div></div>
           <div class="tool-card" onclick="showPage('leads',null)"><span class="tc-icon">🎯</span><div class="tc-name">Leads Management</div><div class="tc-desc">Track potential brand dan artist collaboration leads.</div></div>
         </div>
@@ -5280,6 +5277,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260615df"></script>
+<script src="app.js?v=20260615e0"></script>
 </body>
 </html>
