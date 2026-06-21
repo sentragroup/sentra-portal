@@ -2471,6 +2471,12 @@ async function _pbComputeEventAggregates(events) {
   }
 
   // Group lookups
+  // Compute ambiguous names up front — used by both SO + Adj legacy fallback below.
+  const ambiguousNames = new Set();
+  const nameCount = new Map();
+  events.forEach(e => { if (e.name) nameCount.set(e.name, (nameCount.get(e.name)||0)+1); });
+  nameCount.forEach((c,n) => { if (c > 1) ambiguousNames.add(n); });
+
   const eventTrfIds = new Map();
   trfMaps.forEach(m => {
     if (!eventTrfIds.has(m.ref_label)) eventTrfIds.set(m.ref_label, []);
@@ -2494,12 +2500,7 @@ async function _pbComputeEventAggregates(events) {
     if (!eventAdjIds.has(m.popup_booth_id)) eventAdjIds.set(m.popup_booth_id, []);
     eventAdjIds.get(m.popup_booth_id).push(m.item_adj_id);
   });
-  // Legacy fallback: route by name → first booth with that name (only if unique).
-  // Ambiguous (duplicate-name) legacy rows are skipped — user needs to re-pick in Stock Adjustment.
-  const ambiguousNames = new Set();
-  const nameCount = new Map();
-  events.forEach(e => { if (e.name) nameCount.set(e.name, (nameCount.get(e.name)||0)+1); });
-  nameCount.forEach((c,n) => { if (c > 1) ambiguousNames.add(n); });
+  // Legacy fallback (skipped ambiguous): user needs to re-pick in Stock Adjustment
   adjByName.forEach(m => {
     if (!m.event_ref || ambiguousNames.has(m.event_ref)) return;
     const boothId = nameToId.get(m.event_ref);
