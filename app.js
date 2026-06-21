@@ -34494,7 +34494,6 @@ async function _whDownloadInvoice(milestone, invoiceType) {
       const price = parseFloat(v.unit_price)||0;
       const sub = qty * price;
       return `<tr>
-        <td></td>
         <td class="sz">${size}</td>
         <td class="sku">${(v.item_code||'').replace(/</g,'&lt;')}</td>
         <td class="r">${qty}</td>
