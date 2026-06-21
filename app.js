@@ -36670,7 +36670,7 @@ async function _mpurcGenInvoicePDFMs(milestoneKey) {
   // Shipping cost added only on the final invoice
   const shippingCost = parseFloat(h.shippingCost)||0;
   const shippingOnThisMs = isFinal ? shippingCost : 0;
-  const descLine = `${pm.label} ${milestonePct}% — Pesanan Manual Purchase ${h.lineBrand || ''}`.trim();
+  const descLine = [h.invoiceCategory || 'Pesanan Manual Purchase', h.lineBrand].filter(Boolean).join(' — ');
   const paymentDue = subtotal - totalReceived;
   const totalQty = items.reduce((s,i)=>s+(parseFloat(i.qty)||0),0);
   const invoiceNo = h.invoiceNo || _mpurcAutoInvoiceNo(h.id);
