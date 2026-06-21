@@ -26215,6 +26215,17 @@ async function loadTxMap() {
   const pageSize = parseInt(document.getElementById('tx-page-size').value, 10) || 100;
 
   try {
+    // Kalau filter category aktif, pre-fetch SO ids dari transaction_mappings
+    // dulu — biar SQL bisa langsung narik SO yang relevan tanpa harus paginate
+    // dulu lalu post-filter (yang bikin halaman terbaru kosong kalau wholesale
+    // ada di periode lebih lama).
+    let categoryIdsFilter = null;
+    if (cat) {
+      const { data: catMaps } = await sb.from('transaction_mappings')
+        .select('salesorder_id').eq('category', cat);
+      categoryIdsFilter = (catMaps||[]).map(m => m.salesorder_id).filter(Boolean);
+      if (!categoryIdsFilter.length) categoryIdsFilter = [-1]; // ensure 0 results
+    }
     // Base sales orders query (excluding Bintaro & Marte)
     const baseFilter = q => {
       let qq = q
@@ -26223,6 +26234,7 @@ async function loadTxMap() {
       if (to)   qq = qq.lte('transaction_date', to + 'T23:59:59');
       if (loc)  qq = qq.eq('location_name', loc);
       if (chan) qq = qq.eq('channel_name', chan);
+      if (categoryIdsFilter) qq = qq.in('salesorder_id', categoryIdsFilter);
       if (search) {
         // OR across SO no, customer name, ref
         qq = qq.or(`salesorder_no.ilike.%${search}%,customer_name.ilike.%${search}%,shipping_full_name.ilike.%${search}%`);
