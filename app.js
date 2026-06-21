@@ -26188,7 +26188,7 @@ function _renderTxTable() {
     const checked = _txSelected.has(r.salesorder_id) ? ' checked' : '';
     return `<tr style="${rowBg}">
       <td style="text-align:center"><input type="checkbox" data-tx-id="${r.salesorder_id}" onclick="toggleTxSelect(${r.salesorder_id},this.checked)"${checked}></td>
-      <td class="mono" style="font-size:11px;font-weight:600">${_txEsc(r.salesorder_no || ('#'+r.salesorder_id))}</td>
+      <td class="mono" style="font-size:11px;font-weight:600;white-space:nowrap"><button onclick="_txToggleItems(${r.salesorder_id})" id="tx-toggle-${r.salesorder_id}" style="border:none;background:none;cursor:pointer;font-size:10px;color:var(--g600);padding:0 4px 0 0" title="Lihat items">▸</button>${_txEsc(r.salesorder_no || ('#'+r.salesorder_id))}</td>
       <td class="mono" style="font-size:11px;white-space:nowrap">${_txDate(r.transaction_date)}</td>
       <td style="font-size:11px">${_txEsc(r.location_name || '—')}</td>
       <td style="font-size:11px">${_txEsc([r.channel_name, r.store_name].filter(Boolean).join(' / ')) || '—'}</td>
@@ -26203,6 +26203,88 @@ function _renderTxTable() {
       <td style="text-align:center">${isMapped ? `<button class="btn-icon" style="font-size:10px;color:#c33" onclick="unmapTx(${r.salesorder_id})">✕</button>` : '—'}</td>
     </tr>`;
   }).join('');
+}
+
+const _txItemsCache = new Map(); // salesorder_id → items array
+async function _txToggleItems(salesorderId) {
+  const tbody = document.getElementById('txTableBody'); if (!tbody) return;
+  const toggleBtn = document.getElementById(`tx-toggle-${salesorderId}`);
+  const existing = document.getElementById(`tx-items-${salesorderId}`);
+  if (existing) {
+    existing.remove();
+    if (toggleBtn) toggleBtn.textContent = '▸';
+    return;
+  }
+  // Find the parent row to insert after
+  const parentRow = toggleBtn?.closest('tr'); if (!parentRow) return;
+  if (toggleBtn) toggleBtn.textContent = '▾';
+  // Insert loading row
+  const loadingRow = document.createElement('tr');
+  loadingRow.id = `tx-items-${salesorderId}`;
+  loadingRow.innerHTML = `<td colspan="14" style="background:#fafafa;padding:14px 20px;font-size:11px;color:var(--g400)">Memuat items...</td>`;
+  parentRow.parentNode.insertBefore(loadingRow, parentRow.nextSibling);
+  // Fetch or use cache
+  let items = _txItemsCache.get(salesorderId);
+  if (!items) {
+    try {
+      const { data } = await sb.from('jubelio_sales_order_items')
+        .select('item_id,item_code,item_name,qty,price,disc_amount,amount,is_canceled_item')
+        .eq('salesorder_id', salesorderId)
+        .order('salesorder_detail_id');
+      items = data || [];
+      _txItemsCache.set(salesorderId, items);
+    } catch(e) {
+      loadingRow.innerHTML = `<td colspan="14" style="background:#fff5f5;padding:14px 20px;font-size:11px;color:#c0392b">Gagal load: ${e.message}</td>`;
+      return;
+    }
+  }
+  if (!items.length) {
+    loadingRow.innerHTML = `<td colspan="14" style="background:#fafafa;padding:14px 20px;font-size:11px;color:var(--g400)">Order ini belum ada items di Jubelio sync.</td>`;
+    return;
+  }
+  const fmtRp = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
+  const totalQty = items.reduce((s,i) => s + (i.is_canceled_item ? 0 : (parseFloat(i.qty)||0)), 0);
+  const totalRev = items.reduce((s,i) => s + (i.is_canceled_item ? 0 : (parseFloat(i.amount)||0)), 0);
+  const rows = items.map(it => {
+    const qty = parseFloat(it.qty)||0;
+    const price = parseFloat(it.price)||0;
+    const disc = parseFloat(it.disc_amount)||0;
+    const amt = parseFloat(it.amount)||0;
+    const cancelled = it.is_canceled_item;
+    return `<tr style="${cancelled?'opacity:0.45;text-decoration:line-through':''}">
+      <td style="font-size:10px;color:var(--g400);font-family:var(--mono);padding:5px 10px">${(it.item_code||'—').replace(/</g,'&lt;')}</td>
+      <td style="font-size:11px;padding:5px 10px">${(it.item_name||'—').replace(/</g,'&lt;')}</td>
+      <td style="font-size:11px;text-align:right;font-family:var(--mono);padding:5px 10px">${qty}</td>
+      <td style="font-size:11px;text-align:right;font-family:var(--mono);padding:5px 10px">${fmtRp(price)}</td>
+      <td style="font-size:11px;text-align:right;font-family:var(--mono);color:${disc>0?'#c0392b':'var(--g400)'};padding:5px 10px">${disc>0?'-'+fmtRp(disc):'—'}</td>
+      <td style="font-size:11px;text-align:right;font-family:var(--mono);font-weight:600;padding:5px 10px">${fmtRp(amt)}</td>
+      ${cancelled?'<td style="font-size:10px;color:#c0392b;padding:5px 10px">CANCELED</td>':'<td></td>'}
+    </tr>`;
+  }).join('');
+  loadingRow.innerHTML = `<td colspan="14" style="background:#fafafa;padding:0">
+    <div style="padding:10px 20px;border-left:3px solid var(--g200)">
+      <div style="font-size:10px;color:var(--g600);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Items (${items.length})</div>
+      <table style="width:100%;border-collapse:collapse">
+        <thead><tr style="font-size:9px;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px;font-family:var(--mono)">
+          <th style="text-align:left;padding:3px 10px;width:140px">SKU</th>
+          <th style="text-align:left;padding:3px 10px">Item</th>
+          <th style="text-align:right;padding:3px 10px;width:50px">Qty</th>
+          <th style="text-align:right;padding:3px 10px;width:90px">Price</th>
+          <th style="text-align:right;padding:3px 10px;width:80px">Disc</th>
+          <th style="text-align:right;padding:3px 10px;width:100px">Subtotal</th>
+          <th style="width:80px"></th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+        <tfoot><tr style="border-top:1px solid var(--g100);font-weight:600">
+          <td colspan="2" style="padding:6px 10px;font-size:11px">Total (non-cancelled)</td>
+          <td style="text-align:right;padding:6px 10px;font-size:11px;font-family:var(--mono)">${totalQty}</td>
+          <td colspan="2"></td>
+          <td style="text-align:right;padding:6px 10px;font-size:11px;font-family:var(--mono);font-weight:700">${fmtRp(totalRev)}</td>
+          <td></td>
+        </tr></tfoot>
+      </table>
+    </div>
+  </td>`;
 }
 
 function _renderTxPagination(pageSize) {
