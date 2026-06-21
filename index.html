@@ -107,6 +107,9 @@
       </div>
       <div class="sb-sec">
         <div class="sb-label">General</div>
+        <div class="sb-item" onclick="showPage('arreceivables',this)" id="nav-arreceivables">
+          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12v8H2z"/><path d="M2 7h12"/><circle cx="5" cy="10" r="1"/><path d="M9 10h3"/></svg>Account Receivables
+        </div>
         <div class="sb-item" onclick="showPage('ipreports',this)" id="nav-ipreports">
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2h7l3 3v9a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z"/><path d="M10 2v3h3"/><path d="M5 9h6M5 11h6M5 13h4"/></svg>IP Reports
         </div>
@@ -201,6 +204,7 @@
 
         <div class="sb-label" style="margin-bottom:0.6rem">Account Management</div>
         <div class="home-grid" style="margin-bottom:1.5rem">
+          <div class="tool-card" onclick="showPage('arreceivables',null)"><span class="tc-icon">💰</span><div class="tc-name">Account Receivables</div><div class="tc-desc">Tagihan customer wholesale — total AR, overdue, aging buckets. Loop dari payment trackers tiap order.</div></div>
           <div class="tool-card" onclick="showPage('ipreports',null)"><span class="tc-icon">🗞️</span><div class="tc-name">IP Reports</div><div class="tc-desc">Generate performance report per IP — weekly, monthly, quarterly, all-time. PDF + audit trail siapa kirim apa kapan.</div></div>
           <div class="tool-card" onclick="showPage('leads',null)"><span class="tc-icon">🎯</span><div class="tc-name">Leads Management</div><div class="tc-desc">Track potential brand dan artist collaboration leads.</div></div>
         </div>
@@ -896,6 +900,57 @@
           <tbody id="cl-tbody"><tr><td class="empty-td" colspan="6">Memuat...</td></tr></tbody>
         </table></div>
       </div><!-- /.page#page-cronlogs -->
+
+      <!-- ACCOUNT RECEIVABLES -->
+      <div class="page" id="page-arreceivables">
+        <div class="page-header">
+          <div>
+            <div class="page-title">Account Receivables</div>
+            <div class="page-sub">Tagihan customer wholesale — aggregated dari payment trackers tiap order.</div>
+          </div>
+          <button class="btn-refresh" onclick="loadAR()" style="font-size:12px;padding:6px 14px">↻ Refresh</button>
+        </div>
+        <div class="stats-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:1rem">
+          <div class="stat-card"><div class="stat-num" id="ar-s-total">—</div><div class="stat-lbl">Total AR</div></div>
+          <div class="stat-card info"><div class="stat-num" id="ar-s-outstanding">—</div><div class="stat-lbl">Outstanding</div></div>
+          <div class="stat-card"><div class="stat-num" id="ar-s-overdue" style="color:#c0392b">—</div><div class="stat-lbl">Overdue</div></div>
+          <div class="stat-card"><div class="stat-num" id="ar-s-paid" style="color:#0a7d3a">—</div><div class="stat-lbl">Paid</div></div>
+          <div class="stat-card"><div class="stat-num" id="ar-s-dso">—</div><div class="stat-lbl">Avg DSO (hari)</div></div>
+        </div>
+        <div class="form-card" style="margin-bottom:1rem;padding:14px 16px">
+          <div style="font-size:11px;color:var(--g600);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px;font-weight:600;margin-bottom:10px">Aging Buckets</div>
+          <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px">
+            <div style="padding:10px 12px;background:#dff0d8;border:1px solid #b8d9b3;border-radius:5px"><div style="font-size:10px;color:#0a7d3a;text-transform:uppercase;letter-spacing:0.3px;font-weight:700">Current (not due)</div><div id="ar-bucket-current" style="font-size:15px;font-weight:700;font-family:var(--mono);margin-top:4px">—</div></div>
+            <div style="padding:10px 12px;background:#fff8e8;border:1px solid #f0d896;border-radius:5px"><div style="font-size:10px;color:#a66800;text-transform:uppercase;letter-spacing:0.3px;font-weight:700">1–30 hari</div><div id="ar-bucket-30" style="font-size:15px;font-weight:700;font-family:var(--mono);margin-top:4px">—</div></div>
+            <div style="padding:10px 12px;background:#fef4d4;border:1px solid #e8c660;border-radius:5px"><div style="font-size:10px;color:#a66800;text-transform:uppercase;letter-spacing:0.3px;font-weight:700">31–60 hari</div><div id="ar-bucket-60" style="font-size:15px;font-weight:700;font-family:var(--mono);margin-top:4px">—</div></div>
+            <div style="padding:10px 12px;background:#fdebd2;border:1px solid #e8a85f;border-radius:5px"><div style="font-size:10px;color:#a14e3e;text-transform:uppercase;letter-spacing:0.3px;font-weight:700">61–90 hari</div><div id="ar-bucket-90" style="font-size:15px;font-weight:700;font-family:var(--mono);margin-top:4px">—</div></div>
+            <div style="padding:10px 12px;background:#fdf6f4;border:1px solid #f1c6bf;border-radius:5px"><div style="font-size:10px;color:#c0392b;text-transform:uppercase;letter-spacing:0.3px;font-weight:700">90+ hari</div><div id="ar-bucket-90plus" style="font-size:15px;font-weight:700;font-family:var(--mono);margin-top:4px">—</div></div>
+          </div>
+        </div>
+        <div class="filter-panel">
+          <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="clearARFilters()">✕ Reset</button></div>
+          <div class="filter-grid">
+            <select class="f-select" id="ar-fil-status" onchange="applyARFilters()">
+              <option value="">Semua Status</option>
+              <option value="overdue">⚠ Overdue</option>
+              <option value="unpaid">⏳ Outstanding</option>
+              <option value="paid">✓ Paid</option>
+            </select>
+            <select class="f-select" id="ar-fil-customer" onchange="applyARFilters()"><option value="">Semua Customer</option></select>
+            <select class="f-select" id="ar-fil-milestone" onchange="applyARFilters()"><option value="">Semua Milestone</option></select>
+            <input class="search-box" type="text" id="arSearch" placeholder="Cari order ID atau customer..." oninput="applyARFilters()" style="width:100%">
+          </div>
+        </div>
+        <div class="table-toolbar">
+          <div class="tcount" id="ar-tcount">— entri</div>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr>
+            <th>Order</th><th>Customer</th><th>Milestone</th><th style="text-align:right">Amount</th><th>Invoice Date</th><th>Due Date</th><th style="text-align:right">Days</th><th>Status</th><th></th>
+          </tr></thead>
+          <tbody id="ar-tbody"><tr><td class="empty-td" colspan="9">Klik Refresh untuk memuat data.</td></tr></tbody>
+        </table></div>
+      </div><!-- /.page#page-arreceivables -->
 
       <!-- ACTIVITY LOG -->
       <div class="page" id="page-activitylog">
@@ -5232,6 +5287,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260615bt"></script>
+<script src="app.js?v=20260615bu"></script>
 </body>
 </html>
