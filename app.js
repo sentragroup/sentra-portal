@@ -33459,11 +33459,14 @@ function _whRenderDetail() {
       </div>
       ${_whRenderPaymentPlanEditor(h)}
       ${!isNew ? `<div class="form-card">
-        <div class="form-sec" style="display:flex;justify-content:space-between;align-items:center">
+        <div class="form-sec" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
           <span>Items (${items.length})</span>
-          <div style="display:flex;gap:6px;align-items:center;position:relative">
-            <input type="text" id="wh-item-picker" placeholder="Cari SKU dari Jubelio..." autocomplete="off" style="font-size:12px;padding:5px 10px;border:1px solid var(--g100);border-radius:5px;width:280px">
-            <div id="wh-item-drop" style="display:none;position:absolute;top:32px;left:0;right:0;max-height:280px;overflow-y:auto;background:var(--white);border:1px solid var(--g200);border-radius:6px;box-shadow:0 6px 18px rgba(0,0,0,.1);z-index:100"></div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <button onclick="_whDownloadCustomerPO()" style="font-size:11px;padding:5px 12px;border:1px solid #3C3489;background:#3C3489;color:white;border-radius:5px;cursor:pointer;font-weight:600" title="Generate PDF Purchase Order — customer kirim ke PT SDY, customer yang sign">📋 Generate Customer PO</button>
+            <div style="display:flex;gap:6px;align-items:center;position:relative">
+              <input type="text" id="wh-item-picker" placeholder="Cari SKU dari Jubelio..." autocomplete="off" style="font-size:12px;padding:5px 10px;border:1px solid var(--g100);border-radius:5px;width:280px">
+              <div id="wh-item-drop" style="display:none;position:absolute;top:32px;left:0;right:0;max-height:280px;overflow-y:auto;background:var(--white);border:1px solid var(--g200);border-radius:6px;box-shadow:0 6px 18px rgba(0,0,0,.1);z-index:100"></div>
+            </div>
           </div>
         </div>
         ${_whRenderItemsTable(items, totalValue)}
@@ -34856,6 +34859,251 @@ async function _whFileClear(milestone, kind) {
 }
 // Legacy alias
 async function _whBuktiClear(milestone) { return _whFileClear(milestone, 'bukti'); }
+
+// ── Customer Purchase Order generator ──
+// PDF Purchase Order dari Customer ke PT Sandang Dunia Yuwana. Karena
+// customer wholesale kebanyakan bukan corporate, kita buatin draftnya
+// untuk mereka tanda tangan + kirim balik. Format mirror invoice tapi
+// flipped: From=Customer (dari Jubelio contact), To=PT SDY. Satu sig
+// block aja (customer).
+async function _whDownloadCustomerPO() {
+  const o = _whCurrentOrder; if (!o) return;
+  const h = o.header;
+  const items = o.items || [];
+  if (!items.length) { alert('Order belum ada items.'); return; }
+  if (!h.orderDate) { alert('Order date wajib di-set sebelum generate PO.'); return; }
+  const customer = allDPRows.find(c => c.id === h.customerId);
+  // Fetch Jubelio contact buat detail customer
+  let jubContact = null;
+  if (customer?.jubelioContactId) {
+    try {
+      const { data } = await sb.from('jubelio_contacts').select('contact_name,primary_contact,phone,mobile,billing_address,billing_city,billing_province,billing_post_code,shipping_address,npwp').eq('contact_id', customer.jubelioContactId).maybeSingle();
+      jubContact = data;
+    } catch(_) {}
+  }
+  const subtotal = items.reduce((s,i) => s + (parseFloat(i.qty)||0) * (parseFloat(i.unit_price)||0), 0);
+  // PO number: pakai customer_po_no kalau di-set, else generate dari order id
+  const orderShort = (h.id||'').replace(/^WCO-/,'').replace(/-/g,'');
+  const poNo = h.customerPoNo?.trim() || `PO-${orderShort}`;
+  // Format helpers
+  const fmtRp = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
+  const monthNames = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+  const fmtTglFull = d => {
+    if (!d) return '—';
+    const x = new Date(d+'T00:00:00');
+    return `${x.getDate()} ${monthNames[x.getMonth()]} ${x.getFullYear()}`;
+  };
+  // Group items by parent for lampiran (same as invoice)
+  const jByItemId = new Map((_whJubelioItemsCache||[]).map(j => [j.item_id, j]));
+  const parents = new Map();
+  for (const it of items) {
+    const j = jByItemId.get(it.jubelio_item_id);
+    const gid = j?.item_group_id ?? null;
+    const key = gid != null ? `g:${gid}` : `n:${_whParentName(it.item_name)}`;
+    if (!parents.has(key)) parents.set(key, { name: _whParentName(it.item_name), variants: [] });
+    parents.get(key).variants.push(it);
+  }
+  for (const p of parents.values()) {
+    p.variants.sort((a,b) => _whSortSizes(_whSizeOf(a.item_name,a.item_code), _whSizeOf(b.item_name,b.item_code)));
+  }
+  const terbilangStr = (_whTerbilang(subtotal) + ' rupiah').replace(/\b\w/g, c => c.toUpperCase());
+
+  // Buyer (From) — Customer
+  const buyerName = jubContact?.contact_name || h.customerName || '—';
+  const buyerRef  = jubContact?.primary_contact || customer?.contactPerson || '';
+  const buyerPhone = jubContact?.phone || jubContact?.mobile || customer?.contactInfo || '';
+  const buyerAddrParts = [
+    jubContact?.billing_address || jubContact?.shipping_address || '',
+    jubContact?.billing_city || '', jubContact?.billing_province || '', jubContact?.billing_post_code || ''
+  ].filter(Boolean);
+  const buyerAddr = buyerAddrParts.length ? buyerAddrParts.join(', ') : '';
+  const buyerNpwp = jubContact?.npwp || '';
+
+  // Build items table rows — same as invoice lampiran
+  const itemsBody = [...parents.values()].map(p => {
+    const totalQty = p.variants.reduce((s,v) => s + (parseFloat(v.qty)||0), 0);
+    const totalSub = p.variants.reduce((s,v) => s + (parseFloat(v.qty)||0) * (parseFloat(v.unit_price)||0), 0);
+    let thumb = null;
+    for (const v of p.variants) { const j = jByItemId.get(v.jubelio_item_id); if (j?.thumbnail) { thumb = j.thumbnail; break; } }
+    const thumbCell = thumb
+      ? `<img src="${thumb.replace(/"/g,'&quot;')}" style="width:56px;height:56px;object-fit:cover;border-radius:4px;border:1px solid #ddd;display:block">`
+      : `<div style="width:56px;height:56px;background:#f0f0f0;border:1px dashed #ccc;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#999;font-size:9px">no img</div>`;
+    const variantRows = p.variants.map(v => {
+      const size = _whSizeOf(v.item_name, v.item_code);
+      const qty = parseFloat(v.qty)||0;
+      const price = parseFloat(v.unit_price)||0;
+      const sub = qty * price;
+      return `<tr>
+        <td class="sz">${size}</td>
+        <td class="sku">${(v.item_code||'').replace(/</g,'&lt;')}</td>
+        <td class="r">${qty}</td>
+        <td class="r">${fmtRp(price)}</td>
+        <td class="r">${fmtRp(sub)}</td>
+      </tr>`;
+    }).join('');
+    return `<tbody class="parent-group">
+      <tr class="parent-row">
+        <td rowspan="${p.variants.length+1}" style="width:72px;vertical-align:top;padding:10px 8px">${thumbCell}</td>
+        <td colspan="5">
+          <div style="font-weight:700;font-size:13px">${p.name.replace(/</g,'&lt;')}</div>
+          <div style="font-size:11px;color:#666;margin-top:2px">${p.variants.length} variants · ${totalQty} pcs · Subtotal ${fmtRp(totalSub)}</div>
+        </td>
+      </tr>
+      ${variantRows}
+    </tbody>`;
+  }).join('');
+
+  const w = window.open('', '_blank');
+  if (!w) { alert('Pop-up diblokir browser'); return; }
+  w.document.write(`<!doctype html><html lang="id"><head><meta charset="utf-8">
+    <title>PURCHASE ORDER ${poNo} · ${buyerName}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+      *{box-sizing:border-box}
+      @page{size:A4;margin:0}
+      html,body{margin:0;padding:0;background:#fff;color:#111;font-family:'Inter',system-ui,sans-serif;font-size:12px;line-height:1.45;-webkit-font-smoothing:antialiased}
+      .page{width:210mm;min-height:297mm;margin:0 auto;padding:18mm;display:flex;flex-direction:column;page-break-after:always}
+      .page:last-of-type{page-break-after:auto}
+      .lampiran-page{min-height:auto}
+      .top{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #111;padding-bottom:14px;margin-bottom:20px}
+      .issuer{max-width:420px}
+      .issuer h2{margin:0 0 4px;font-size:14px;font-weight:700}
+      .issuer p{margin:0;font-size:10.5px;color:#333;line-height:1.45}
+      .doc-meta{text-align:right}
+      .doc-meta h1{margin:0;font-family:'Space Mono',monospace;font-size:22px;letter-spacing:0.08em;color:#111;font-weight:700}
+      .doc-meta .label{font-family:'Space Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:#666;margin-top:6px}
+      .doc-meta .val{font-family:'Space Mono',monospace;font-size:12px;font-weight:700;color:#111;margin-top:2px}
+      .recipient{margin-bottom:14px;padding:12px 16px;background:#f7f6f0;border-radius:6px}
+      .recipient .lbl{font-family:'Space Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:#666;margin-bottom:3px}
+      .recipient .name{font-size:16px;font-weight:700;color:#111}
+      .recipient .sub{font-size:11px;color:#555;margin-top:2px}
+      table.summary{width:100%;border-collapse:collapse;margin-bottom:14px}
+      table.summary th{font-family:'Space Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:#666;font-weight:700;text-align:left;padding:8px 10px;border-bottom:2px solid #111}
+      table.summary th.r{text-align:right}
+      table.summary td{padding:10px;border-bottom:1px solid #e5e5e5;vertical-align:top;font-size:12px}
+      table.summary td.r{text-align:right;font-family:'Space Mono',monospace}
+      .totals{margin-left:auto;width:50%;margin-bottom:10px}
+      .totals .row{display:flex;justify-content:space-between;padding:6px 0;font-size:12px}
+      .totals .row.lbl{color:#666}
+      .totals .row.total{border-top:2px solid #111;margin-top:4px;padding:10px 0 0;font-size:15px;font-weight:700}
+      .totals .row.total .v{font-family:'Space Mono',monospace}
+      .terbilang{margin:10px 0 12px;padding:9px 14px;background:#fbf9f0;border-left:4px solid #d4af37;font-size:11px;font-style:italic;color:#333}
+      .terbilang b{font-style:normal;color:#111}
+      .sig-row{display:flex;justify-content:flex-end;margin-top:auto;padding-top:20px}
+      .sig{width:42%;text-align:center}
+      .sig .company{font-weight:600;font-size:11.5px;margin-bottom:4px}
+      .sig .gap{height:72px}
+      .sig .name{border-top:1px solid #111;padding-top:5px;font-weight:600;font-size:11.5px;color:#666}
+      .sig .role{font-size:10.5px;color:#888;margin-top:2px}
+      footer{margin-top:16px;padding-top:12px;border-top:1px solid #e5e5e5;font-size:9px;color:#999;text-align:center;font-family:'Space Mono',monospace;letter-spacing:0.05em}
+      .lampiran-title{font-family:'Space Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:0.1em;color:#666;margin-bottom:6px}
+      .lampiran-sub{font-size:13px;color:#333;margin-bottom:24px}
+      table.lampiran{width:100%;border-collapse:collapse;font-size:12px}
+      table.lampiran thead th{font-family:'Space Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:#666;font-weight:700;text-align:left;padding:8px 10px;border-bottom:2px solid #111;background:#fafafa}
+      table.lampiran thead th.r{text-align:right}
+      table.lampiran tbody.parent-group{break-inside:avoid}
+      table.lampiran tr.parent-row td{background:#f7f6f0;padding:10px 12px;border-top:1px solid #ddd;border-bottom:1px solid #ddd}
+      table.lampiran td{padding:6px 10px;border-bottom:1px solid #eee;font-size:12px}
+      table.lampiran td.sz{font-family:'Space Mono',monospace;font-weight:700;width:50px}
+      table.lampiran td.sku{font-family:'Space Mono',monospace;font-size:10px;color:#666}
+      table.lampiran td.r{text-align:right;font-family:'Space Mono',monospace}
+    </style></head>
+    <body>
+      <!-- PAGE 1: PO Summary -->
+      <div class="page">
+        <div class="top">
+          <div class="issuer">
+            <h2>${buyerName.replace(/</g,'&lt;')}</h2>
+            <p>${buyerAddr ? buyerAddr.replace(/</g,'&lt;') : '—'}${buyerPhone?`<br>${buyerPhone.replace(/</g,'&lt;')}`:''}${buyerNpwp?`<br>NPWP: ${buyerNpwp.replace(/</g,'&lt;')}`:''}</p>
+          </div>
+          <div class="doc-meta">
+            <h1>PURCHASE ORDER</h1>
+            <div class="label">No. PO</div>
+            <div class="val">${poNo}</div>
+            <div class="label">Tanggal</div>
+            <div class="val">${fmtTglFull(h.orderDate)}</div>
+            ${h.deliveryDate?`<div class="label">Delivery</div><div class="val">${fmtTglFull(h.deliveryDate)}</div>`:''}
+          </div>
+        </div>
+        <div class="recipient">
+          <div class="lbl">Dikirim kepada (Supplier)</div>
+          <div class="name">PT Sandang Dunia Yuwana</div>
+          <div class="sub">📍 Jl. Wahid Hasyim No. 10D RT.002 RW.007, Kebon Sirih, Menteng, Jakarta Pusat</div>
+          <div class="sub">NPWP: 63.875.985.0-021.000</div>
+        </div>
+        <table class="summary">
+          <thead><tr>
+            <th>Deskripsi</th>
+            <th class="r">Jumlah Item</th>
+            <th class="r">Total Pesanan</th>
+          </tr></thead>
+          <tbody>
+            <tr>
+              <td>
+                <div style="font-weight:600">Pesanan Wholesale Merchandise</div>
+                <div style="font-size:11px;color:#666;margin-top:4px">${items.length} variants · Lihat lampiran untuk detail per SKU</div>
+              </td>
+              <td class="r">${items.reduce((s,i)=>s+(parseFloat(i.qty)||0),0)} pcs</td>
+              <td class="r" style="font-weight:700">${fmtRp(subtotal)}</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="totals">
+          <div class="row total"><span>Grand Total</span><span class="v">${fmtRp(subtotal)}</span></div>
+        </div>
+        <div class="terbilang">Terbilang: <b>${terbilangStr}</b></div>
+        <div class="sig-row">
+          <div class="sig">
+            <div class="company">${buyerName.replace(/</g,'&lt;')}</div>
+            <div class="gap"></div>
+            <div class="name">${buyerRef ? buyerRef.replace(/</g,'&lt;') : '_______________'}</div>
+            <div class="role">Tanda tangan & cap</div>
+          </div>
+        </div>
+        <footer>Purchase Order ini dikirim kepada PT Sandang Dunia Yuwana sebagai dasar pengadaan barang · Lihat lampiran untuk detail SKU per ukuran.</footer>
+      </div>
+
+      <!-- PAGE 2: Lampiran Items -->
+      <div class="page lampiran-page">
+        <div class="top">
+          <div class="issuer">
+            <h2>${buyerName.replace(/</g,'&lt;')}</h2>
+            <p>Lampiran Purchase Order<br>${poNo}</p>
+          </div>
+          <div class="doc-meta">
+            <h1>LAMPIRAN</h1>
+            <div class="label">Pesanan</div>
+            <div class="val">${(h.id||'').replace(/</g,'&lt;')}</div>
+          </div>
+        </div>
+        <div class="lampiran-title">Detail Barang Pesanan</div>
+        <div class="lampiran-sub">Total: <b>${items.length} variants, ${items.reduce((s,i)=>s+(parseFloat(i.qty)||0),0)} pcs</b></div>
+        <table class="lampiran">
+          <thead><tr>
+            <th style="width:72px">Foto</th>
+            <th>Size</th>
+            <th>SKU</th>
+            <th class="r">Qty</th>
+            <th class="r">Unit Price</th>
+            <th class="r">Subtotal</th>
+          </tr></thead>
+          ${itemsBody}
+          <tbody><tr>
+            <td style="padding:14px 10px;border-top:2px solid #111"></td>
+            <td colspan="2" style="padding:14px 10px;border-top:2px solid #111;font-weight:700">TOTAL</td>
+            <td class="r" style="padding:14px 10px;border-top:2px solid #111;font-weight:700">${items.reduce((s,i)=>s+(parseFloat(i.qty)||0),0)}</td>
+            <td class="r" style="padding:14px 10px;border-top:2px solid #111"></td>
+            <td class="r" style="padding:14px 10px;border-top:2px solid #111;font-weight:700">${fmtRp(subtotal)}</td>
+          </tr></tbody>
+        </table>
+        <footer>Halaman 2 dari 2 · Purchase Order ${poNo}</footer>
+      </div>
+      <script>setTimeout(()=>window.print(),500);<\/script>
+    </body></html>`);
+  w.document.close();
+}
 
 // ── Save header ──
 async function saveWholesale() {
