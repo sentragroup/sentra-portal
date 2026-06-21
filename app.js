@@ -33253,7 +33253,7 @@ async function loadWholesalePast() {
     }
     // Fetch jubelio_sales_orders dalam chunks (safety untuk URL length)
     const orders = await _fetchAllPagesIn('jubelio_sales_orders',
-      'salesorder_id,salesorder_no,customer_name,salesorder_date,sub_total,status,channel,store',
+      'salesorder_id,salesorder_no,customer_name,transaction_date,sub_total,wms_status,channel_name,store_name',
       'salesorder_id', ids);
     const orderById = new Map((orders||[]).map(o => [o.salesorder_id, o]));
     _whPastRows = (txMaps||[]).map(m => {
@@ -33262,11 +33262,11 @@ async function loadWholesalePast() {
         salesorder_id: m.salesorder_id,
         salesorder_no: o.salesorder_no || `#${m.salesorder_id}`,
         customer_name: o.customer_name || '',
-        salesorder_date: o.salesorder_date || null,
+        salesorder_date: o.transaction_date || null,
         sub_total: parseFloat(o.sub_total)||0,
-        status: o.status || '',
-        channel: o.channel || '',
-        store: o.store || '',
+        status: o.wms_status || '',
+        channel: o.channel_name || '',
+        store: o.store_name || '',
         note: m.notes || '',
         mapped_at: m.mapped_at,
         mapped_by: m.mapped_by,
