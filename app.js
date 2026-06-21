@@ -35633,7 +35633,7 @@ async function openManualPurchaseDetail(id) {
   const existingItemIds = (_mpurcCurrent.items||[]).map(i => Number(i.jubelio_item_id)).filter(Boolean);
   if (existingItemIds.length) {
     try {
-      const metas = await _fetchAllPagesIn('jubelio_items','item_id,item_code,item_name,thumbnail,image_urls,price',
+      const metas = await _fetchAllPagesIn('jubelio_items','item_id,item_code,item_name,thumbnail,image_urls',
         'item_id', existingItemIds);
       window.__mpurcItemsCache = window.__mpurcItemsCache || new Map();
       for (const m of (metas||[])) window.__mpurcItemsCache.set(Number(m.item_id), m);
@@ -35925,6 +35925,8 @@ async function _mpurcRecalcHeader() {
 // ---- Stock Picker Modal ----
 async function _mpurcOpenStockPicker() {
   const o = _mpurcCurrent; if (!o) return;
+  // Guard against double-click stacking
+  document.getElementById('_mpurc-stock-modal')?.remove();
   // Always refetch to dodge stale cache from previous deploys
   try {
     _mpurcStockCache = await _fetchAllPages('jubelio_inventory_by_location','item_id,location_name,qty_on_hand,qty_available',
@@ -35953,9 +35955,12 @@ async function _mpurcOpenStockPicker() {
   // Fetch items metadata (name, code, thumbnail, image_urls)
   let metaRows = [];
   try {
-    metaRows = await _fetchAllPagesIn('jubelio_items','item_id,item_code,item_name,thumbnail,image_urls,price',
+    metaRows = await _fetchAllPagesIn('jubelio_items','item_id,item_code,item_name,thumbnail,image_urls',
       'item_id', itemIds);
-  } catch(_) {}
+  } catch(e) {
+    alert('Gagal load metadata items: '+e.message);
+    return;
+  }
   window.__mpurcItemsCache = new Map(metaRows.map(r => [Number(r.item_id), r]));
   // Build picker
   const existingIds = new Set((o.items||[]).map(i => Number(i.jubelio_item_id)));
@@ -36015,11 +36020,11 @@ function _mpurcFilterStockPicker(q) {
       </div>
       ${inOrder
         ? `<button class="btn-ghost" disabled style="font-size:11px;opacity:0.5">✓ Ditambah</button>`
-        : `<button class="btn-primary" onclick="_mpurcAddItem(${r.item_id},${parseFloat(r.price)||0})" style="font-size:11px">＋ Tambah</button>`}
+        : `<button class="btn-primary" onclick="_mpurcAddItem(${r.item_id})" style="font-size:11px">＋ Tambah</button>`}
     </div>`;
   }).join('') + (filtered.length > 200 ? `<div style="padding:12px;text-align:center;color:var(--g400);font-size:11px">+${filtered.length-200} more... refine search</div>` : '');
 }
-async function _mpurcAddItem(jubelioItemId, defaultPrice) {
+async function _mpurcAddItem(jubelioItemId) {
   const o = _mpurcCurrent; if (!o) return;
   const meta = (window.__mpurcItemsCache || new Map()).get(Number(jubelioItemId));
   const row = {
@@ -36028,10 +36033,10 @@ async function _mpurcAddItem(jubelioItemId, defaultPrice) {
     item_code: meta?.item_code || null,
     item_name: meta?.item_name || null,
     qty: 1,
-    unit_price: defaultPrice || 0,
+    unit_price: 0,
     discount_pct: 0,
     discount_amount: 0,
-    subtotal: defaultPrice || 0,
+    subtotal: 0,
   };
   const { data, error } = await sb.from('manual_purchase_items').insert(row).select().single();
   if (error) { alert('Gagal tambah item: '+error.message); return; }
