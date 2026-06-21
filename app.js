@@ -25853,10 +25853,10 @@ async function _txLoadLookups() {
   try {
     const [dpRes, pbRes] = await Promise.all([
       sb.from('dist_partners').select('id,partner_name').order('partner_name'),
-      sb.from('popup_booths').select('id,event_name,event_date').order('event_date',{ascending:false})
+      sb.from('popup_booths').select('id,event_name,event_date,ip_related').order('event_date',{ascending:false})
     ]);
     _txDistPartners = (dpRes.data||[]).filter(r=>r.partner_name).map(r => ({id:r.id, name:r.partner_name}));
-    _txPopupBooths  = (pbRes.data||[]).filter(r=>r.event_name).map(r => ({id:r.id, name:r.event_name, date:r.event_date}));
+    _txPopupBooths  = (pbRes.data||[]).filter(r=>r.event_name).map(r => ({id:r.id, name:r.event_name, date:r.event_date, ip:r.ip_related||''}));
   } catch(e) { console.error('_txLoadLookups:', e); }
 }
 
@@ -25868,7 +25868,8 @@ function _txRefOptions(category) {
   if (category === 'Pop Up Booth') {
     return _txPopupBooths.map(p => {
       const dateLbl = p.date ? ` (${new Date(p.date).toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'2-digit'})})` : '';
-      return {value:p.name, label:p.name + dateLbl};
+      const ipPrefix = p.ip ? `${p.ip} — ` : '';
+      return {value:p.name, label: ipPrefix + p.name + dateLbl};
     });
   }
   return [];
