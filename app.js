@@ -35492,7 +35492,7 @@ let _mpurcRows = [];
 let _mpurcCurrent = null;
 let _mpurcStockCache = null;  // jubelio_inventory_by_location di 2 lokasi tsb
 
-function mapMP(r) {
+function mapMpurc(r) {
   return {
     id: r.id, invoiceNo: r.invoice_no||'',
     lineBrand: r.line_brand||'SDY',
@@ -35528,7 +35528,7 @@ async function loadManualPurchase() {
   try {
     const { data, error } = await sb.from('manual_purchase_orders').select('*').order('order_date',{ascending:false}).order('created_at',{ascending:false});
     if (error) throw error;
-    _mpurcRows = (data||[]).map(mapMP);
+    _mpurcRows = (data||[]).map(mapMpurc);
     computeMPStats(_mpurcRows);
     applyMPFilter();
   } catch(e) {
@@ -35613,7 +35613,7 @@ async function openManualPurchaseDetail(id) {
       const { data } = await sb.from('manual_purchase_shipment_items').select('*').in('order_item_id', itemIds);
       shipItems = data || [];
     }
-    _mpurcCurrent = { header: mapMP(hRes.data), items, payments: pRes.data||[], shipments: sRes.data||[], shipItems };
+    _mpurcCurrent = { header: mapMpurc(hRes.data), items, payments: pRes.data||[], shipments: sRes.data||[], shipItems };
   }
   // Pre-load stock cache (Bintaro + Penerimaan Barang)
   if (!_mpurcStockCache) {
@@ -35621,6 +35621,16 @@ async function openManualPurchaseDetail(id) {
       _mpurcStockCache = await _fetchAllPages('jubelio_inventory_by_location','item_id,location_name,on_hand,available',
         q => q.in('location_name', MP_STOCK_LOCATIONS));
     } catch(_) { _mpurcStockCache = []; }
+  }
+  // Pre-load item metadata for existing items (so thumbnails render)
+  const existingItemIds = (_mpurcCurrent.items||[]).map(i => Number(i.jubelio_item_id)).filter(Boolean);
+  if (existingItemIds.length) {
+    try {
+      const metas = await _fetchAllPagesIn('jubelio_items','item_id,item_code,item_name,thumbnail,image_urls,price',
+        'item_id', existingItemIds);
+      window.__mpurcItemsCache = window.__mpurcItemsCache || new Map();
+      for (const m of (metas||[])) window.__mpurcItemsCache.set(Number(m.item_id), m);
+    } catch(_) {}
   }
   _mpurcRenderDetail();
 }
@@ -35701,7 +35711,11 @@ function _mpurcRenderDetail() {
           <span>Items (${items.length})</span>
           <span style="font-size:12px;color:var(--g600);font-family:var(--mono)">Grand Total: <b style="font-size:14px;color:var(--black)">${fmtRp(subtotal)}</b></span>
         </div>
-        <div style="padding:30px;text-align:center;color:var(--g400);font-size:12px;background:var(--off);border-radius:6px">⓿ Items table — coming next phase (SKU picker filter Bintaro+Penerimaan Barang + per-item discount).</div>
+        ${_mpurcItemsHTML(items)}
+        <div style="margin-top:10px">
+          <button class="btn-ghost" onclick="_mpurcOpenStockPicker()" style="font-size:12px">＋ Tambah Item dari Stock</button>
+          <span style="font-size:11px;color:var(--g400);margin-left:8px">Hanya stock di Gudang Bintaro + Gudang Penerimaan Barang.</span>
+        </div>
       </div>`}
     </div>
     <!-- Tab: Payments & Shipping -->
@@ -35725,6 +35739,254 @@ function mpSwitchTab(tab, btn) {
     const el = document.getElementById('mp-tab-content-'+t);
     if (el) el.style.display = t === tab ? '' : 'none';
   });
+}
+
+// ---- Manual Purchase: items table ----
+function _mpurcStockFor(jubelioItemId) {
+  if (!_mpurcStockCache || !jubelioItemId) return 0;
+  return _mpurcStockCache
+    .filter(r => Number(r.item_id) === Number(jubelioItemId))
+    .reduce((s,r) => s + (parseFloat(r.available)||0), 0);
+}
+function _mpurcThumbFor(jubelioItemId) {
+  const cache = window.__mpurcItemsCache || new Map();
+  const j = cache.get(Number(jubelioItemId));
+  if (!j) return null;
+  if (j.thumbnail) return j.thumbnail;
+  try { const arr = j.image_urls || []; return arr[0] || null; } catch(_) { return null; }
+}
+function _mpurcItemsHTML(items) {
+  if (!items || items.length === 0) {
+    return `<div style="padding:30px;text-align:center;color:var(--g400);font-size:12px;background:var(--off);border-radius:6px;margin-top:8px">
+      Belum ada item. Klik "Tambah Item dari Stock" di bawah.
+    </div>`;
+  }
+  const fmtRp = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
+  const rows = items.map(it => {
+    const jid = it.jubelio_item_id;
+    const stk = _mpurcStockFor(jid);
+    const qty = parseFloat(it.qty)||0;
+    const list = parseFloat(it.unit_price)||0;
+    const disc = parseFloat(it.discount_pct)||0;
+    const net = Math.round(list * (1 - disc/100));
+    const sub = qty * net;
+    const stockColor = qty > 0 && stk < qty ? '#c0392b' : qty > 0 && stk >= qty ? '#0a7d3a' : 'var(--g600)';
+    const thumb = _mpurcThumbFor(jid);
+    const thumbHTML = thumb
+      ? `<img src="${thumb.replace(/"/g,'&quot;')}" style="width:40px;height:40px;object-fit:cover;border-radius:3px;border:1px solid var(--g100)" onerror="this.style.display='none'">`
+      : `<div style="width:40px;height:40px;background:var(--off);border:1px solid var(--g100);border-radius:3px"></div>`;
+    return `<tr>
+      <td style="width:48px">${thumbHTML}</td>
+      <td>
+        <div style="font-size:12px;font-weight:600;line-height:1.3">${(it.item_name||'—').replace(/</g,'&lt;')}</div>
+        <div style="font-size:10px;color:var(--g400);font-family:var(--mono);margin-top:2px">${(it.item_code||'—').replace(/</g,'&lt;')}</div>
+      </td>
+      <td style="text-align:right;font-family:var(--mono);font-size:11px;color:${stockColor}">${Math.round(stk).toLocaleString('id-ID')}</td>
+      <td style="text-align:right">
+        <input type="number" min="0" step="1" value="${qty}" onchange="_mpurcItemQty(${it.id},this.value)" style="width:64px;text-align:right;font-size:11px;font-family:var(--mono);padding:3px 6px;border:1px solid var(--g200);border-radius:3px">
+      </td>
+      <td style="text-align:right">
+        <input type="number" min="0" step="500" value="${list}" onchange="_mpurcItemPrice(${it.id},this.value)" style="width:96px;text-align:right;font-size:11px;font-family:var(--mono);padding:3px 6px;border:1px solid var(--g200);border-radius:3px">
+      </td>
+      <td style="text-align:right">
+        <input type="number" min="0" max="100" step="1" value="${disc}" onchange="_mpurcItemDisc(${it.id},this.value)" style="width:52px;text-align:right;font-size:11px;font-family:var(--mono);padding:3px 6px;border:1px solid var(--g200);border-radius:3px">
+      </td>
+      <td style="text-align:right;font-family:var(--mono);font-size:11px;color:var(--g600)">${net>0?fmtRp(net):'—'}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:12px;font-weight:600">${sub>0?fmtRp(sub):'—'}</td>
+      <td style="text-align:center">
+        <button class="btn-icon" onclick="_mpurcItemDel(${it.id})" title="Hapus" style="font-size:13px;color:#c0392b;padding:2px 6px">×</button>
+      </td>
+    </tr>`;
+  }).join('');
+  const totalQty = items.reduce((s,i) => s + (parseFloat(i.qty)||0), 0);
+  const totalSub = items.reduce((s,i) => {
+    const net = Math.round((parseFloat(i.unit_price)||0) * (1 - (parseFloat(i.discount_pct)||0)/100));
+    return s + (parseFloat(i.qty)||0) * net;
+  }, 0);
+  return `<div class="table-wrap" style="margin-top:8px"><table style="font-size:11px">
+    <thead><tr>
+      <th></th><th>Item</th><th style="text-align:right">Stock</th>
+      <th style="text-align:right">Qty</th><th style="text-align:right">Harga</th>
+      <th style="text-align:right">Disc %</th><th style="text-align:right">Net</th>
+      <th style="text-align:right">Subtotal</th><th></th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+    <tfoot><tr style="background:var(--off);font-weight:600">
+      <td colspan="3" style="text-align:right;font-family:var(--mono);font-size:11px">Total ${items.length} item</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:12px">${totalQty.toLocaleString('id-ID')}</td>
+      <td colspan="3"></td>
+      <td style="text-align:right;font-family:var(--mono);font-size:13px;font-weight:700">${fmtRp(totalSub)}</td>
+      <td></td>
+    </tr></tfoot>
+  </table></div>`;
+}
+
+async function _mpurcItemQty(itemId, val) {
+  const o = _mpurcCurrent; if (!o) return;
+  const it = o.items.find(i => i.id === itemId); if (!it) return;
+  const qty = Math.max(0, parseFloat(val)||0);
+  const net = Math.round((parseFloat(it.unit_price)||0) * (1 - (parseFloat(it.discount_pct)||0)/100));
+  it.qty = qty; it.subtotal = qty * net;
+  await sb.from('manual_purchase_items').update({qty: it.qty, subtotal: it.subtotal}).eq('id', itemId);
+  await _mpurcRecalcHeader();
+  _mpurcRenderDetail();
+}
+async function _mpurcItemPrice(itemId, val) {
+  const o = _mpurcCurrent; if (!o) return;
+  const it = o.items.find(i => i.id === itemId); if (!it) return;
+  it.unit_price = Math.max(0, parseFloat(val)||0);
+  const net = Math.round(it.unit_price * (1 - (parseFloat(it.discount_pct)||0)/100));
+  it.subtotal = (parseFloat(it.qty)||0) * net;
+  await sb.from('manual_purchase_items').update({unit_price: it.unit_price, subtotal: it.subtotal}).eq('id', itemId);
+  await _mpurcRecalcHeader();
+  _mpurcRenderDetail();
+}
+async function _mpurcItemDisc(itemId, val) {
+  const o = _mpurcCurrent; if (!o) return;
+  const it = o.items.find(i => i.id === itemId); if (!it) return;
+  let disc = parseFloat(val)||0;
+  if (disc < 0) disc = 0; if (disc > 100) disc = 100;
+  it.discount_pct = disc;
+  const net = Math.round((parseFloat(it.unit_price)||0) * (1 - disc/100));
+  it.discount_amount = Math.round((parseFloat(it.unit_price)||0) * (disc/100));
+  it.subtotal = (parseFloat(it.qty)||0) * net;
+  await sb.from('manual_purchase_items').update({discount_pct: it.discount_pct, discount_amount: it.discount_amount, subtotal: it.subtotal}).eq('id', itemId);
+  await _mpurcRecalcHeader();
+  _mpurcRenderDetail();
+}
+async function _mpurcItemDel(itemId) {
+  if (!confirm('Hapus item ini?')) return;
+  const o = _mpurcCurrent; if (!o) return;
+  await sb.from('manual_purchase_items').delete().eq('id', itemId);
+  o.items = o.items.filter(i => i.id !== itemId);
+  await _mpurcRecalcHeader();
+  _mpurcRenderDetail();
+}
+async function _mpurcRecalcHeader() {
+  const o = _mpurcCurrent; if (!o) return;
+  const subtotal = o.items.reduce((s,i) => s + (parseFloat(i.subtotal)||0), 0);
+  const totalReceived = (o.payments||[]).reduce((s,p) => s + (parseFloat(p.amount)||0), 0);
+  const paymentDue = subtotal - totalReceived;
+  o.header.grandTotal = subtotal;
+  o.header.totalReceived = totalReceived;
+  o.header.paymentDue = paymentDue;
+  if (o.header.id !== 'new') {
+    await sb.from('manual_purchase_orders').update({
+      grand_total: subtotal, total_received: totalReceived, payment_due: paymentDue,
+    }).eq('id', o.header.id);
+  }
+}
+
+// ---- Stock Picker Modal ----
+async function _mpurcOpenStockPicker() {
+  const o = _mpurcCurrent; if (!o) return;
+  if (!_mpurcStockCache || _mpurcStockCache.length === 0) {
+    alert('Stock cache kosong. Cek koneksi atau coba reload halaman.');
+    return;
+  }
+  // Aggregate stock by item_id (across the 2 locations)
+  const agg = new Map();
+  for (const r of _mpurcStockCache) {
+    const id = Number(r.item_id);
+    if (!agg.has(id)) agg.set(id, 0);
+    agg.set(id, agg.get(id) + (parseFloat(r.available)||0));
+  }
+  // Only items with stock > 0
+  const itemIds = Array.from(agg.entries()).filter(([_,v]) => v > 0).map(([k]) => k);
+  if (itemIds.length === 0) {
+    alert('Tidak ada stock tersedia di Gudang Bintaro / Gudang Penerimaan Barang.');
+    return;
+  }
+  // Fetch items metadata (name, code, thumbnail, image_urls)
+  let metaRows = [];
+  try {
+    metaRows = await _fetchAllPagesIn('jubelio_items','item_id,item_code,item_name,thumbnail,image_urls,price',
+      'item_id', itemIds);
+  } catch(_) {}
+  window.__mpurcItemsCache = new Map(metaRows.map(r => [Number(r.item_id), r]));
+  // Build picker
+  const existingIds = new Set((o.items||[]).map(i => Number(i.jubelio_item_id)));
+  const rows = metaRows
+    .map(r => ({ ...r, _stock: agg.get(Number(r.item_id)) || 0 }))
+    .filter(r => r._stock > 0)
+    .sort((a,b) => (a.item_name||'').localeCompare(b.item_name||''));
+  const modal = document.createElement('div');
+  modal.id = '_mpurc-stock-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px';
+  modal.innerHTML = `
+    <div style="background:var(--white);border-radius:10px;width:min(900px,100%);max-height:88vh;display:flex;flex-direction:column;overflow:hidden">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--g100);display:flex;justify-content:space-between;align-items:center;gap:12px">
+        <div>
+          <div style="font-size:16px;font-weight:700">Pilih Item dari Stock</div>
+          <div style="font-size:11px;color:var(--g600);margin-top:2px">Gudang Bintaro + Gudang Penerimaan Barang · ${rows.length} item tersedia</div>
+        </div>
+        <button class="btn-ghost" onclick="document.getElementById('_mpurc-stock-modal')?.remove()" style="font-size:12px">✕ Tutup</button>
+      </div>
+      <div style="padding:10px 20px;border-bottom:1px solid var(--g100)">
+        <input id="_mpurc-stock-search" type="text" placeholder="Cari nama / SKU..." style="width:100%;padding:8px 10px;border:1px solid var(--g200);border-radius:5px;font-size:12px" oninput="_mpurcFilterStockPicker(this.value)">
+      </div>
+      <div style="overflow:auto;flex:1" id="_mpurc-stock-list"></div>
+    </div>`;
+  document.body.appendChild(modal);
+  window.__mpurcPickerRows = rows;
+  window.__mpurcPickerExisting = existingIds;
+  _mpurcFilterStockPicker('');
+}
+function _mpurcFilterStockPicker(q) {
+  const rows = window.__mpurcPickerRows || [];
+  const existing = window.__mpurcPickerExisting || new Set();
+  const needle = (q||'').toLowerCase().trim();
+  const filtered = needle
+    ? rows.filter(r => (r.item_name||'').toLowerCase().includes(needle) || (r.item_code||'').toLowerCase().includes(needle))
+    : rows;
+  const list = document.getElementById('_mpurc-stock-list'); if (!list) return;
+  if (filtered.length === 0) {
+    list.innerHTML = `<div style="padding:30px;text-align:center;color:var(--g400);font-size:12px">Tidak ada match.</div>`;
+    return;
+  }
+  list.innerHTML = filtered.slice(0, 200).map(r => {
+    const thumb = r.thumbnail || (r.image_urls && r.image_urls[0]) || null;
+    const inOrder = existing.has(Number(r.item_id));
+    const thumbHTML = thumb
+      ? `<img src="${thumb.replace(/"/g,'&quot;')}" style="width:44px;height:44px;object-fit:cover;border-radius:4px;border:1px solid var(--g100)" onerror="this.style.display='none'">`
+      : `<div style="width:44px;height:44px;background:var(--off);border:1px solid var(--g100);border-radius:4px"></div>`;
+    return `<div style="display:flex;gap:12px;align-items:center;padding:10px 20px;border-bottom:1px solid var(--g100)">
+      ${thumbHTML}
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12px;font-weight:600">${(r.item_name||'—').replace(/</g,'&lt;')}</div>
+        <div style="font-size:10px;color:var(--g400);font-family:var(--mono);margin-top:2px">${(r.item_code||'—').replace(/</g,'&lt;')}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:9px;color:var(--g400);text-transform:uppercase;letter-spacing:0.3px">Stock</div>
+        <div style="font-size:13px;font-family:var(--mono);font-weight:600">${Math.round(r._stock).toLocaleString('id-ID')}</div>
+      </div>
+      ${inOrder
+        ? `<button class="btn-ghost" disabled style="font-size:11px;opacity:0.5">✓ Ditambah</button>`
+        : `<button class="btn-primary" onclick="_mpurcAddItem(${r.item_id},${parseFloat(r.price)||0})" style="font-size:11px">＋ Tambah</button>`}
+    </div>`;
+  }).join('') + (filtered.length > 200 ? `<div style="padding:12px;text-align:center;color:var(--g400);font-size:11px">+${filtered.length-200} more... refine search</div>` : '');
+}
+async function _mpurcAddItem(jubelioItemId, defaultPrice) {
+  const o = _mpurcCurrent; if (!o) return;
+  const meta = (window.__mpurcItemsCache || new Map()).get(Number(jubelioItemId));
+  const row = {
+    order_id: o.header.id,
+    jubelio_item_id: jubelioItemId,
+    item_code: meta?.item_code || null,
+    item_name: meta?.item_name || null,
+    qty: 1,
+    unit_price: defaultPrice || 0,
+    discount_pct: 0,
+    discount_amount: 0,
+    subtotal: defaultPrice || 0,
+  };
+  const { data, error } = await sb.from('manual_purchase_items').insert(row).select().single();
+  if (error) { alert('Gagal tambah item: '+error.message); return; }
+  o.items.push(data);
+  (window.__mpurcPickerExisting || new Set()).add(Number(jubelioItemId));
+  await _mpurcRecalcHeader();
+  _mpurcRenderDetail();
+  _mpurcFilterStockPicker(document.getElementById('_mpurc-stock-search')?.value || '');
 }
 
 async function saveManualPurchase() {
@@ -35760,7 +36022,7 @@ async function saveManualPurchase() {
   } else {
     const { error } = await sb.from('manual_purchase_orders').update(payload).eq('id', h.id);
     if (error) { alert('Gagal: '+error.message); return; }
-    Object.assign(o.header, mapMP({...payload, id: h.id, invoice_no: h.invoiceNo, status: h.status,
+    Object.assign(o.header, mapMpurc({...payload, id: h.id, invoice_no: h.invoiceNo, status: h.status,
       grand_total: h.grandTotal, total_received: h.totalReceived, payment_due: h.paymentDue,
       jubelio_so_no: h.jubelioSoNo, created_by: h.createdBy, created_at: h.createdAt}));
     alert('Tersimpan.');
