@@ -33451,8 +33451,15 @@ function _whRenderDetail() {
           <div class="fg"><label>Customer <span class="req">*</span></label><select id="wh-h-customer">${custOpts}</select></div>
           <div class="fg"><label>Order Date</label><input type="date" id="wh-h-orderdate" value="${h.orderDate||''}"></div>
           <div class="fg"><label>Delivery Date</label><input type="date" id="wh-h-deliverydate" value="${h.deliveryDate||''}"></div>
-          <div class="fg"><label>Customer PO No</label><input type="text" id="wh-h-pono" value="${(h.customerPoNo||'').replace(/"/g,'&quot;')}" placeholder="PO-XXX-2026"></div>
-          <div class="fg"><label>Customer PO URL</label><input type="url" id="wh-h-pourl" value="${(h.customerPoUrl||'').replace(/"/g,'&quot;')}" placeholder="https://drive.google.com/..."></div>
+          <div class="fg"><label>Customer PO No <span style="font-size:10px;color:var(--g400)">(auto)</span></label>
+            <input type="text" id="wh-h-pono" value="${_whAutoPoNo(h).replace(/"/g,'&quot;')}" readonly style="background:var(--off);color:var(--g600);font-family:var(--mono);font-size:11px">
+          </div>
+          <div class="fg"><label>Customer PO Signed (upload PDF/IMG ≤5MB)</label>
+            ${(h.customerPoUrl||'').trim() ? `<div style="display:flex;align-items:center;gap:6px;padding:6px 0">
+              <a href="${h.customerPoUrl.replace(/"/g,'&quot;')}" target="_blank" style="font-size:11px;font-family:var(--mono);color:#3C3489;text-decoration:none;border:1px solid #c9bdf0;padding:4px 10px;border-radius:4px;background:#eef0f8">📎 ${(h.customerPoUrl.match(/\.(pdf|png|jpg|jpeg|webp)$/i)?.[0]?.slice(1).toUpperCase()||'File')}</a>
+              <button onclick="_whCustomerPoSignedClear()" title="Hapus" style="background:none;border:none;color:#c0392b;cursor:pointer;font-size:12px">✕</button>
+            </div>` : `<input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onchange="_whCustomerPoSignedUpload(this)" style="font-size:11px">`}
+          </div>
           <div class="fg" style="position:relative"><label>PIC</label><input type="text" id="wh-h-pic" value="${(h.pic||'').replace(/"/g,'&quot;')}" autocomplete="off"><div class="ac-list" id="ac-wh-pic"></div></div>
           <div class="fg full"><label>Notes</label><textarea id="wh-h-notes" rows="2">${h.notes||''}</textarea></div>
         </div>
@@ -34860,6 +34867,49 @@ async function _whFileClear(milestone, kind) {
 // Legacy alias
 async function _whBuktiClear(milestone) { return _whFileClear(milestone, 'bukti'); }
 
+// Auto Customer PO number — deterministic dari order id.
+// Untuk order baru (id='new'), fallback ke 'PO-WS-AUTO' (regenerate setelah save).
+function _whAutoPoNo(h) {
+  if (!h?.id || h.id === 'new') return 'PO-WS-AUTO (assigned setelah save)';
+  const short = (h.id||'').replace(/^WCO-/,'').replace(/-/g,'');
+  return `PO-WS-${short}`;
+}
+
+// Customer PO Signed upload — pakai bucket wholesale-bukti dengan path
+// {orderId}/custpo-signed-{ts}.{ext}
+async function _whCustomerPoSignedUpload(inputEl) {
+  const file = inputEl.files?.[0];
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) {
+    alert(`File terlalu besar (${(file.size/1024/1024).toFixed(1)}MB). Max 5MB.`);
+    inputEl.value = ''; return;
+  }
+  const o = _whCurrentOrder; if (!o) return;
+  if (o.header.id === 'new') { alert('Simpan order dulu sebelum upload file.'); return; }
+  const ext = (file.name.split('.').pop()||'bin').toLowerCase();
+  const ts = new Date().toISOString().replace(/[^0-9]/g,'').slice(0,14);
+  const path = `${o.header.id}/custpo-signed-${ts}.${ext}`;
+  const { error: upErr } = await sb.storage.from('wholesale-bukti').upload(path, file, { contentType: file.type, upsert: true });
+  if (upErr) { alert('Upload gagal: '+upErr.message); return; }
+  const { data: pub } = sb.storage.from('wholesale-bukti').getPublicUrl(path);
+  await sb.from('wholesale_customer_orders').update({customer_po_url: pub.publicUrl}).eq('id', o.header.id);
+  o.header.customerPoUrl = pub.publicUrl;
+  _whRenderDetail();
+}
+
+async function _whCustomerPoSignedClear() {
+  if (!confirm('Hapus file PO Signed?')) return;
+  const o = _whCurrentOrder; if (!o) return;
+  const url = o.header.customerPoUrl;
+  if (url) {
+    const m = url.match(/wholesale-bukti\/(.+)$/);
+    if (m) await sb.storage.from('wholesale-bukti').remove([m[1]]).catch(()=>{});
+  }
+  await sb.from('wholesale_customer_orders').update({customer_po_url: null}).eq('id', o.header.id);
+  o.header.customerPoUrl = '';
+  _whRenderDetail();
+}
+
 // ── Customer Purchase Order generator ──
 // PDF Purchase Order dari Customer ke PT Sandang Dunia Yuwana. Karena
 // customer wholesale kebanyakan bukan corporate, kita buatin draftnya
@@ -34882,9 +34932,8 @@ async function _whDownloadCustomerPO() {
     } catch(_) {}
   }
   const subtotal = items.reduce((s,i) => s + (parseFloat(i.qty)||0) * (parseFloat(i.unit_price)||0), 0);
-  // PO number: pakai customer_po_no kalau di-set, else generate dari order id
-  const orderShort = (h.id||'').replace(/^WCO-/,'').replace(/-/g,'');
-  const poNo = h.customerPoNo?.trim() || `PO-${orderShort}`;
+  // PO number: auto-generated dari order id (sama dengan _whAutoPoNo)
+  const poNo = h.customerPoNo?.trim() || _whAutoPoNo(h);
   // Format helpers
   const fmtRp = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
   const monthNames = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
@@ -35122,8 +35171,10 @@ async function saveWholesale() {
     customer_name: customerObj?.name || '',
     order_date: document.getElementById('wh-h-orderdate')?.value,
     delivery_date: document.getElementById('wh-h-deliverydate')?.value || null,
-    customer_po_no: document.getElementById('wh-h-pono')?.value.trim() || null,
-    customer_po_url: document.getElementById('wh-h-pourl')?.value.trim() || null,
+    // PO No auto-generated dari order id setelah save (kalau new, biarin null,
+    // backfill setelah insert ada id). PO URL di-set lewat upload handler.
+    customer_po_no: (h.id && h.id !== 'new') ? _whAutoPoNo(h) : null,
+    customer_po_url: h.customerPoUrl || null,
     payment_plan: plan,
     // Legacy: dp_pct di-derive dari milestone pertama buat back-compat
     dp_pct: (plan.milestones?.[0]?.pct) || 30,
@@ -35146,6 +35197,8 @@ async function saveWholesale() {
     payload.id = genId('WCO');
     payload.created_by = currentUser;
     payload.status = 'new';
+    // PO No auto-generated dari id yang baru di-assign
+    payload.customer_po_no = _whAutoPoNo({id: payload.id});
     const { error } = await sb.from('wholesale_customer_orders').insert(payload);
     if (error) { alert('Gagal: '+error.message); return; }
     // Reopen as edit
