@@ -35515,10 +35515,21 @@ function mapMpurc(r) {
     shipToPhone: r.ship_to_phone||'',
     shipToCourier: r.ship_to_courier||'',
     shipToNotes: r.ship_to_notes||'',
+    paymentPlan: r.payment_plan || null,
     createdBy: r.created_by||'', createdAt: r.created_at,
   };
 }
 const MP_OFFICE_ADDRESS = 'Jl. Wahid Hasyim No. 10D RT.002 RW.007, Kebon Sirih, Menteng, Jakarta Pusat';
+
+function _mpurcDefaultPaymentPlan() {
+  return {
+    type: 'CAD',
+    milestones: [
+      { key: 'dp1',   label: 'DP',        pct: 30 },
+      { key: 'final', label: 'Pelunasan', pct: 70 },
+    ]
+  };
+}
 
 function _mpurcGenId() {
   const d = new Date().toISOString().slice(0,10).replace(/-/g,'');
@@ -35610,7 +35621,7 @@ async function openManualPurchaseDetail(id) {
     const [hRes, iRes, pRes, sRes] = await Promise.all([
       sb.from('manual_purchase_orders').select('*').eq('id',id).maybeSingle(),
       sb.from('manual_purchase_items').select('*').eq('order_id',id).order('id'),
-      sb.from('manual_purchase_received_payments').select('*').eq('order_id',id).order('received_date',{ascending:true,nullsFirst:true}),
+      sb.from('manual_purchase_payments').select('*').eq('order_id',id).order('received_date',{ascending:true,nullsFirst:true}),
       sb.from('manual_purchase_shipments').select('*').eq('order_id',id).order('ship_date',{ascending:true,nullsFirst:true}),
     ]);
     if (!hRes.data) { closeManualPurchaseDetail(); return; }
@@ -35729,6 +35740,7 @@ function _mpurcRenderDetail() {
           <div class="fg full"><label>Catatan Pengiriman</label><input type="text" id="mp-h-shipnotes" value="${(h.shipToNotes||'').replace(/"/g,'&quot;')}" placeholder="Instruksi khusus untuk gudang"></div>
         </div>
       </div>
+      ${_mpurcRenderPaymentPlanEditor(h)}
       ${isNew ? `<div class="form-card" style="background:var(--off);border:1px dashed var(--g200)">
         <div style="text-align:center;padding:14px;font-size:12px;color:var(--g600)">💾 Simpan order dulu, baru bisa tambah items.</div>
       </div>` : `<div class="form-card">
@@ -35750,23 +35762,10 @@ function _mpurcRenderDetail() {
       </div>` : `
       <div class="form-card" style="margin-bottom:14px">
         <div class="form-sec" style="display:flex;justify-content:space-between;align-items:center">
-          <span>Received Payments (${(o.payments||[]).length})</span>
+          <span>Payment Milestones</span>
           <span style="font-size:12px;color:var(--g600);font-family:var(--mono)">Total: <b style="font-size:14px;color:var(--black)">${fmtRp(totalReceived)}</b> / ${fmtRp(subtotal)} · Sisa: <b style="color:${paymentDue>0?'#c0392b':'#0a7d3a'}">${fmtRp(paymentDue)}</b></span>
         </div>
-        ${_mpurcPaymentsHTML(o.payments)}
-        <div style="margin-top:12px;padding:10px 12px;background:var(--off);border-radius:6px">
-          <div style="font-size:11px;color:var(--g600);margin-bottom:8px;font-weight:600">+ Tambah Penerimaan</div>
-          <div style="display:grid;grid-template-columns:1.5fr 1fr 1fr 2fr;gap:8px;align-items:end">
-            <div><label style="font-size:10px;color:var(--g600)">Label</label><input type="text" id="mp-py-label" placeholder="DP / Pelunasan / Termin 1" style="width:100%;padding:6px 8px;border:1px solid var(--g200);border-radius:4px;font-size:11px"></div>
-            <div><label style="font-size:10px;color:var(--g600)">Jumlah</label><input type="number" id="mp-py-amount" min="0" step="1000" style="width:100%;padding:6px 8px;border:1px solid var(--g200);border-radius:4px;font-size:11px;font-family:var(--mono);text-align:right"></div>
-            <div><label style="font-size:10px;color:var(--g600)">Tanggal</label><input type="date" id="mp-py-date" value="${new Date().toISOString().slice(0,10)}" style="width:100%;padding:6px 8px;border:1px solid var(--g200);border-radius:4px;font-size:11px"></div>
-            <div style="display:flex;gap:6px;align-items:end">
-              <div style="flex:1"><label style="font-size:10px;color:var(--g600)">Bukti Bayar</label><input type="file" id="mp-py-file" accept="image/*,.pdf" style="width:100%;padding:5px 6px;border:1px solid var(--g200);border-radius:4px;font-size:10px"></div>
-              <button class="btn-primary" onclick="_mpurcAddPayment()" style="font-size:11px;padding:7px 14px">Simpan</button>
-            </div>
-          </div>
-          <input type="text" id="mp-py-notes" placeholder="Catatan opsional" style="width:100%;padding:6px 8px;border:1px solid var(--g200);border-radius:4px;font-size:11px;margin-top:8px">
-        </div>
+        ${_mpurcMilestoneTableHTML(o, subtotal)}
       </div>
       <div class="form-card" style="margin-bottom:14px">
         <div class="form-sec" style="display:flex;justify-content:space-between;align-items:center">
@@ -35823,6 +35822,99 @@ function mpSwitchTab(tab, btn) {
     const el = document.getElementById('mp-tab-content-'+t);
     if (el) el.style.display = t === tab ? '' : 'none';
   });
+}
+
+// ---- Payment Plan editor (mirror Wholesale CAD/CBD pattern) ----
+function _mpurcRenderPaymentPlanEditor(h) {
+  const plan = h.paymentPlan || _mpurcDefaultPaymentPlan();
+  const type = plan.type || 'CAD';
+  const milestones = plan.milestones || [];
+  const totalPct = milestones.reduce((s,m) => s + (parseFloat(m.pct)||0), 0);
+  const totalOk = totalPct === 100;
+  const TYPE_DESC = {
+    CAD: 'Cash After Delivery — DP di awal, pelunasan setelah kirim',
+    CBD: 'Cash Before Delivery — split pembayaran bertahap sebelum produksi/kirim',
+  };
+  const rows = milestones.map((m, idx) => `<tr>
+    <td style="padding:6px;width:32px;font-family:var(--mono);font-size:11px;color:var(--g400)">${idx+1}.</td>
+    <td style="padding:6px"><input type="text" value="${(m.label||'').replace(/"/g,'&quot;')}" onchange="_mpPpEditLabel(${idx},this.value)" placeholder="Label" style="width:100%;font-size:12px;padding:4px 8px;border:1px solid var(--g100);border-radius:4px"></td>
+    <td style="padding:6px;width:90px"><input type="number" min="0" max="100" step="5" value="${m.pct||0}" onchange="_mpPpEditPct(${idx},this.value)" style="width:60px;text-align:right;font-family:var(--mono);font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:4px"> %</td>
+    <td style="padding:6px;width:32px;text-align:center">${milestones.length > 2 ? `<button class="btn-icon" onclick="_mpPpRemove(${idx})" style="font-size:13px;color:#c0392b;padding:2px 6px" title="Hapus milestone">×</button>` : ''}</td>
+  </tr>`).join('');
+  return `<div class="form-card" style="margin-bottom:14px">
+    <div class="form-sec" style="display:flex;justify-content:space-between;align-items:center">
+      <span>Payment Plan</span>
+      <span style="font-size:11px;color:${totalOk?'#0a7d3a':'#c0392b'};font-family:var(--mono);font-weight:600">Total ${totalPct}%${totalOk?' ✓':' ⚠ harus = 100'}</span>
+    </div>
+    <div style="display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap">
+      <div style="flex:0 0 auto">
+        <label style="font-size:10px;color:var(--g600);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px;margin-bottom:4px;display:block">Type</label>
+        <select onchange="_mpPpChangeType(this.value)" style="font-size:12px;padding:6px 10px;border:1px solid var(--g200);border-radius:5px;background:white;min-width:80px">
+          <option value="CAD" ${type==='CAD'?'selected':''}>CAD</option>
+          <option value="CBD" ${type==='CBD'?'selected':''}>CBD</option>
+        </select>
+        <div style="font-size:10px;color:var(--g400);margin-top:4px;max-width:180px">${TYPE_DESC[type]||''}</div>
+      </div>
+      <div style="flex:1;min-width:320px">
+        <label style="font-size:10px;color:var(--g600);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px;margin-bottom:4px;display:block">Milestones</label>
+        <table style="width:100%"><tbody>${rows}</tbody></table>
+        <div style="margin-top:6px">
+          <button class="btn-ghost" onclick="_mpPpAddRow()" style="font-size:11px;padding:4px 10px">+ Milestone</button>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function _mpPpEnsure() {
+  const o = _mpurcCurrent; if (!o) return null;
+  if (!o.header.paymentPlan) o.header.paymentPlan = _mpurcDefaultPaymentPlan();
+  if (!Array.isArray(o.header.paymentPlan.milestones)) o.header.paymentPlan.milestones = [];
+  return o.header.paymentPlan;
+}
+function _mpPpChangeType(type) {
+  const plan = _mpPpEnsure(); if (!plan) return;
+  plan.type = type;
+  if (type === 'CBD') {
+    plan.milestones = [
+      { key:'dp1',   label:'DP 1',      pct:25 },
+      { key:'dp2',   label:'DP 2',      pct:25 },
+      { key:'dp3',   label:'DP 3',      pct:25 },
+      { key:'final', label:'Pelunasan', pct:25 },
+    ];
+  } else {
+    plan.milestones = [
+      { key:'dp1',   label:'DP',        pct:30 },
+      { key:'final', label:'Pelunasan', pct:70 },
+    ];
+  }
+  _mpurcRenderDetail();
+}
+function _mpPpEditLabel(idx, val) {
+  const plan = _mpPpEnsure(); if (!plan?.milestones[idx]) return;
+  plan.milestones[idx].label = val.trim();
+}
+function _mpPpEditPct(idx, val) {
+  const plan = _mpPpEnsure(); if (!plan?.milestones[idx]) return;
+  let v = parseFloat(val)||0;
+  if (v < 0) v = 0; if (v > 100) v = 100;
+  plan.milestones[idx].pct = v;
+  _mpurcRenderDetail();
+}
+function _mpPpAddRow() {
+  const plan = _mpPpEnsure(); if (!plan) return;
+  const finalIdx = plan.milestones.findIndex(m => m.key === 'final');
+  const dpCount = plan.milestones.filter(m => m.key.startsWith('dp')).length + 1;
+  const newRow = { key: `dp${dpCount}`, label: `DP ${dpCount}`, pct: 0 };
+  if (finalIdx >= 0) plan.milestones.splice(finalIdx, 0, newRow);
+  else plan.milestones.push(newRow);
+  _mpurcRenderDetail();
+}
+function _mpPpRemove(idx) {
+  const plan = _mpPpEnsure(); if (!plan?.milestones[idx]) return;
+  if (plan.milestones.length <= 2) { alert('Minimal 2 milestones.'); return; }
+  plan.milestones.splice(idx, 1);
+  _mpurcRenderDetail();
 }
 
 // ---- Manual Purchase: items table ----
@@ -35949,7 +36041,8 @@ async function _mpurcItemDel(itemId) {
 async function _mpurcRecalcHeader() {
   const o = _mpurcCurrent; if (!o) return;
   const subtotal = o.items.reduce((s,i) => s + (parseFloat(i.subtotal)||0), 0);
-  const totalReceived = (o.payments||[]).reduce((s,p) => s + (parseFloat(p.amount)||0), 0);
+  // totalReceived = sum of amounts where paid_at is set (milestone-based)
+  const totalReceived = (o.payments||[]).reduce((s,p) => p.paid_at ? s + (parseFloat(p.amount)||0) : s, 0);
   const paymentDue = subtotal - totalReceived;
   o.header.grandTotal = subtotal;
   o.header.totalReceived = totalReceived;
@@ -36150,63 +36243,129 @@ async function _mpurcAddItem(jubelioItemId) {
   _mpurcFilterStockPicker(document.getElementById('_mpurc-stock-search')?.value || '');
 }
 
-// ---- Payments ----
-function _mpurcPaymentsHTML(payments) {
-  if (!payments || payments.length === 0) {
-    return `<div style="padding:18px;text-align:center;color:var(--g400);font-size:12px;background:var(--off);border-radius:6px">Belum ada penerimaan tercatat.</div>`;
+// ---- Payments: milestone-based (mirror Wholesale) ----
+function _mpurcMilestoneTableHTML(o, subtotal) {
+  const h = o.header;
+  const plan = h.paymentPlan || _mpurcDefaultPaymentPlan();
+  const milestones = plan.milestones || [];
+  if (!milestones.length) {
+    return `<div style="padding:18px;text-align:center;color:var(--g400);font-size:12px;background:var(--off);border-radius:6px">Belum ada milestone. Set Payment Plan di tab Order & Items.</div>`;
   }
   const fmtRp = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
-  const fmtD = d => d ? new Date(d).toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'numeric'}) : '—';
-  const rows = payments.map(p => `<tr>
-    <td style="font-size:11px;font-weight:600">${(p.label||'—').replace(/</g,'&lt;')}</td>
-    <td style="font-size:11px;font-family:var(--mono);text-align:right;font-weight:600">${fmtRp(p.amount)}</td>
-    <td style="font-size:11px;color:var(--g600)">${fmtD(p.received_date)}</td>
-    <td style="font-size:11px">${p.bukti_url ? `<a href="${p.bukti_url}" target="_blank" style="color:#0a7d3a;text-decoration:none">📎 Bukti</a>` : '<span style="color:var(--g300)">—</span>'}</td>
-    <td style="font-size:11px;color:var(--g600)">${(p.notes||'').replace(/</g,'&lt;') || '—'}</td>
-    <td style="text-align:center"><button class="btn-icon" onclick="_mpurcDelPayment(${p.id})" style="font-size:13px;color:#c0392b;padding:2px 6px">×</button></td>
-  </tr>`).join('');
-  return `<div class="table-wrap"><table style="font-size:11px;margin-top:6px">
-    <thead><tr><th>Label</th><th style="text-align:right">Jumlah</th><th>Tanggal</th><th>Bukti</th><th>Catatan</th><th></th></tr></thead>
+  const payByMs = new Map((o.payments||[]).map(p => [p.milestone, p]));
+  const rows = milestones.map(m => {
+    const pay = payByMs.get(m.key);
+    const amount = parseFloat(pay?.amount) || Math.round(subtotal * (parseFloat(m.pct)||0) / 100);
+    const invDate = pay?.invoice_date || '';
+    const dueDate = pay?.due_date || '';
+    const paidAt = pay?.paid_at || '';
+    const buktiUrl = pay?.bukti_url || '';
+    const signedUrl = pay?.signed_invoice_url || '';
+    const isPaid = !!paidAt;
+    const statusPill = isPaid
+      ? `<span class="pill p-active" style="font-size:9px">✓ PAID</span>`
+      : invDate
+        ? `<span class="pill p-review" style="font-size:9px">⏳ Outstanding</span>`
+        : `<span class="pill p-draft" style="font-size:9px">— Draft</span>`;
+    const fileChip = (url, kind) => {
+      if (!url) {
+        const labelTxt = kind === 'signed' ? 'Signed Inv' : 'Bukti';
+        return `<label style="display:inline-flex;align-items:center;gap:3px;font-size:9px;padding:3px 7px;border:1px dashed var(--g200);border-radius:4px;cursor:pointer;color:var(--g400)" title="Upload ${labelTxt}"><input type="file" accept="image/*,.pdf" onchange="_mpurcUploadMsFile('${m.key}','${kind}',this)" style="display:none">📎 Upload</label>`;
+      }
+      const cfg = kind === 'signed' ? { color:'#3C3489', icon:'📋' } : { color:'#0a7d3a', icon:'💵' };
+      return `<a href="${url.replace(/"/g,'&quot;')}" target="_blank" style="font-size:9px;color:${cfg.color};text-decoration:none;font-weight:600" title="Klik untuk buka">${cfg.icon} View</a> <button class="btn-icon" onclick="_mpurcRemoveMsFile('${m.key}','${kind}')" style="font-size:10px;color:#c0392b;padding:0 3px" title="Hapus file">×</button>`;
+    };
+    return `<tr>
+      <td style="font-size:11px;font-weight:600">${(m.label||'').replace(/</g,'&lt;')} <span style="font-size:9px;color:var(--g400);font-family:var(--mono)">${m.pct}%</span></td>
+      <td style="text-align:right;font-family:var(--mono);font-size:11px;font-weight:600">${fmtRp(amount)}</td>
+      <td><input type="date" value="${invDate}" onchange="_mpurcSaveMsField('${m.key}','invoice_date',this.value)" style="width:115px;padding:3px 5px;border:1px solid var(--g100);border-radius:3px;font-size:10px"></td>
+      <td><input type="date" value="${dueDate}" onchange="_mpurcSaveMsField('${m.key}','due_date',this.value)" style="width:115px;padding:3px 5px;border:1px solid var(--g100);border-radius:3px;font-size:10px"></td>
+      <td><input type="date" value="${paidAt}" onchange="_mpurcSaveMsField('${m.key}','paid_at',this.value)" style="width:115px;padding:3px 5px;border:1px solid var(--g100);border-radius:3px;font-size:10px"></td>
+      <td style="text-align:center">${statusPill}</td>
+      <td style="text-align:center">${fileChip(signedUrl,'signed')}</td>
+      <td style="text-align:center">${fileChip(buktiUrl,'bukti')}</td>
+      <td style="text-align:center"><button class="btn-ghost" onclick="_mpurcGenInvoicePDFMs('${m.key}')" style="font-size:9px;padding:3px 7px" title="Generate Invoice PDF untuk milestone ini">📄 PDF</button></td>
+    </tr>`;
+  }).join('');
+  return `<div class="table-wrap" style="margin-top:6px"><table style="font-size:11px">
+    <thead><tr>
+      <th>Milestone</th>
+      <th style="text-align:right">Jumlah</th>
+      <th>Invoice Date</th>
+      <th>Due Date</th>
+      <th>Paid At</th>
+      <th style="text-align:center">Status</th>
+      <th style="text-align:center">Signed Inv</th>
+      <th style="text-align:center">Bukti</th>
+      <th style="text-align:center">Invoice</th>
+    </tr></thead>
     <tbody>${rows}</tbody>
   </table></div>`;
 }
 
-async function _mpurcAddPayment() {
-  const o = _mpurcCurrent; if (!o) return;
-  const label = document.getElementById('mp-py-label')?.value.trim();
-  const amount = parseFloat(document.getElementById('mp-py-amount')?.value)||0;
-  const date = document.getElementById('mp-py-date')?.value;
-  const notes = document.getElementById('mp-py-notes')?.value.trim();
-  const fileEl = document.getElementById('mp-py-file');
-  const file = fileEl?.files?.[0];
-  if (!label) { alert('Label wajib diisi (mis. DP, Pelunasan, Termin 1)'); return; }
-  if (amount <= 0) { alert('Jumlah harus > 0'); return; }
-  let buktiUrl = null;
-  if (file) {
-    if (file.size > 5*1024*1024) { alert('File maks 5MB'); return; }
-    const ext = file.name.split('.').pop() || 'bin';
-    const path = `manual-purchase/${o.header.id}/payment-${Date.now()}.${ext}`;
-    const { error: upErr } = await sb.storage.from('wholesale-bukti').upload(path, file, { contentType: file.type, upsert: true });
-    if (upErr) { alert('Upload gagal: '+upErr.message); return; }
-    const { data: pub } = sb.storage.from('wholesale-bukti').getPublicUrl(path);
-    buktiUrl = pub.publicUrl;
+async function _mpurcEnsureMilestoneRow(milestoneKey) {
+  const o = _mpurcCurrent; if (!o) return null;
+  const plan = o.header.paymentPlan || _mpurcDefaultPaymentPlan();
+  const m = (plan.milestones||[]).find(x => x.key === milestoneKey);
+  if (!m) return null;
+  let pay = (o.payments||[]).find(p => p.milestone === milestoneKey);
+  if (!pay) {
+    const subtotal = (o.items||[]).reduce((s,i) => s + (parseFloat(i.subtotal)||0), 0);
+    const amount = Math.round(subtotal * (parseFloat(m.pct)||0) / 100);
+    const { data, error } = await sb.from('manual_purchase_payments').insert({
+      order_id: o.header.id,
+      milestone: milestoneKey,
+      label: m.label || milestoneKey,
+      amount,
+      created_by: currentUser,
+    }).select().single();
+    if (error) { alert('Gagal init milestone: '+error.message); return null; }
+    o.payments.push(data);
+    pay = data;
   }
-  const { data, error } = await sb.from('manual_purchase_received_payments').insert({
-    order_id: o.header.id, label, amount, received_date: date || null,
-    bukti_url: buktiUrl, notes: notes || null, created_by: currentUser,
-  }).select().single();
-  if (error) { alert('Gagal simpan: '+error.message); return; }
-  o.payments.push(data);
+  return pay;
+}
+
+async function _mpurcSaveMsField(milestoneKey, field, value) {
+  const o = _mpurcCurrent; if (!o) return;
+  const pay = await _mpurcEnsureMilestoneRow(milestoneKey); if (!pay) return;
+  const update = { [field]: value || null };
+  await sb.from('manual_purchase_payments').update(update).eq('id', pay.id);
+  Object.assign(pay, update);
   await _mpurcRecalcHeader();
   _mpurcRenderDetail();
 }
 
-async function _mpurcDelPayment(id) {
-  if (!confirm('Hapus penerimaan ini?')) return;
+async function _mpurcUploadMsFile(milestoneKey, kind, inputEl) {
   const o = _mpurcCurrent; if (!o) return;
-  await sb.from('manual_purchase_received_payments').delete().eq('id', id);
-  o.payments = o.payments.filter(p => p.id !== id);
-  await _mpurcRecalcHeader();
+  const file = inputEl?.files?.[0]; if (!file) return;
+  if (file.size > 5*1024*1024) { alert('File maks 5MB'); return; }
+  const pay = await _mpurcEnsureMilestoneRow(milestoneKey); if (!pay) return;
+  const ext = file.name.split('.').pop() || 'bin';
+  const path = `manual-purchase/${o.header.id}/${milestoneKey}-${kind}-${Date.now()}.${ext}`;
+  const { error: upErr } = await sb.storage.from('wholesale-bukti').upload(path, file, { contentType: file.type, upsert: true });
+  if (upErr) { alert('Upload gagal: '+upErr.message); return; }
+  const { data: pub } = sb.storage.from('wholesale-bukti').getPublicUrl(path);
+  const col = kind === 'signed' ? 'signed_invoice_url' : 'bukti_url';
+  await sb.from('manual_purchase_payments').update({ [col]: pub.publicUrl }).eq('id', pay.id);
+  pay[col] = pub.publicUrl;
+  _mpurcRenderDetail();
+}
+
+async function _mpurcRemoveMsFile(milestoneKey, kind) {
+  if (!confirm('Hapus file ini?')) return;
+  const o = _mpurcCurrent; if (!o) return;
+  const pay = (o.payments||[]).find(p => p.milestone === milestoneKey); if (!pay) return;
+  const col = kind === 'signed' ? 'signed_invoice_url' : 'bukti_url';
+  const url = pay[col];
+  if (url) {
+    try {
+      const m = url.match(/wholesale-bukti\/(.+)$/);
+      if (m) await sb.storage.from('wholesale-bukti').remove([m[1]]).catch(()=>{});
+    } catch(_) {}
+  }
+  await sb.from('manual_purchase_payments').update({ [col]: null }).eq('id', pay.id);
+  pay[col] = null;
   _mpurcRenderDetail();
 }
 
@@ -36446,18 +36605,52 @@ function _mpurcInvoiceCSS() {
   `;
 }
 
+// Wrapper called from the Dokumen Section button — prompts user to pick which milestone
 async function _mpurcGenInvoicePDF() {
+  const o = _mpurcCurrent; if (!o) return;
+  const plan = o.header.paymentPlan || _mpurcDefaultPaymentPlan();
+  const milestones = plan.milestones || [];
+  if (!milestones.length) { alert('Belum ada milestone di Payment Plan.'); return; }
+  if (milestones.length === 1) return _mpurcGenInvoicePDFMs(milestones[0].key);
+  const choices = milestones.map((m,i) => `${i+1}. ${m.label} (${m.pct}%)`).join('\n');
+  const pick = prompt(`Pilih milestone untuk invoice:\n${choices}\n\nMasukkan nomor (1-${milestones.length}):`);
+  const idx = parseInt(pick,10) - 1;
+  if (isNaN(idx) || idx < 0 || idx >= milestones.length) return;
+  return _mpurcGenInvoicePDFMs(milestones[idx].key);
+}
+
+// Per-milestone Invoice PDF (Proforma if no paid_at on prior milestone, else final)
+async function _mpurcGenInvoicePDFMs(milestoneKey) {
   const o = _mpurcCurrent; if (!o) return;
   const h = o.header;
   const items = o.items || [];
   if (!items.length) { alert('Order belum ada items.'); return; }
   if (h.id === 'new') { alert('Simpan order dulu.'); return; }
-  if (!h.invoiceDate) { alert('Invoice Date belum di-set. Edit di header form, simpan, lalu generate.'); return; }
+  const plan = h.paymentPlan || _mpurcDefaultPaymentPlan();
+  const milestones = plan.milestones || [];
+  const pm = milestones.find(m => m.key === milestoneKey);
+  if (!pm) { alert('Milestone gak ketemu di payment plan.'); return; }
+  const pay = (o.payments||[]).find(p => p.milestone === milestoneKey);
+  if (!pay?.invoice_date) {
+    alert(`Invoice Date untuk milestone "${pm.label}" belum di-set.\n\nIsi di tab Payments → kolom Invoice Date untuk milestone ini.`);
+    return;
+  }
   const fmtRp = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
   const monthNames = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
   const fmtTgl = d => { if (!d) return '—'; const x = new Date(d+'T00:00:00'); return `${x.getDate()} ${monthNames[x.getMonth()]} ${x.getFullYear()}`; };
   const subtotal = items.reduce((s,i) => s + (parseFloat(i.subtotal)||0), 0);
-  const totalReceived = (o.payments||[]).reduce((s,p) => s + (parseFloat(p.amount)||0), 0);
+  const totalReceived = (o.payments||[]).reduce((s,p) => p.paid_at ? s + (parseFloat(p.amount)||0) : s, 0);
+  // Milestone amounts
+  const milestonePct = parseFloat(pm.pct)||0;
+  const amountDue = parseFloat(pay.amount) || Math.round(subtotal * milestonePct / 100);
+  // Prior milestones (paid sebelum yang ini)
+  const msIdx = milestones.indexOf(pm);
+  const priorPct = milestones.slice(0, msIdx).reduce((s,m) => s + (parseFloat(m.pct)||0), 0);
+  const priorAmount = Math.round(subtotal * priorPct / 100);
+  // Proforma if no paid_at yet, else Final Invoice
+  const isFinal = !!pay.paid_at;
+  const docTitle = isFinal ? 'INVOICE' : 'PROFORMA INVOICE';
+  const descLine = `${pm.label} ${milestonePct}% — Pesanan Manual Purchase ${h.lineBrand || ''}`.trim();
   const paymentDue = subtotal - totalReceived;
   const totalQty = items.reduce((s,i)=>s+(parseFloat(i.qty)||0),0);
   const invoiceNo = h.invoiceNo || _mpurcAutoInvoiceNo(h.id);
@@ -36509,16 +36702,18 @@ async function _mpurcGenInvoicePDF() {
       ${variantRows}
     </tbody>`;
   }).join('');
-  const terbilangStr = (_whTerbilang(Math.round(subtotal)) + ' rupiah').replace(/\b\w/g, c => c.toUpperCase());
+  const terbilangStr = (_whTerbilang(Math.round(amountDue)) + ' rupiah').replace(/\b\w/g, c => c.toUpperCase());
   const recName = h.billedToName || '—';
   const recRef = h.clientRepName || '';
   const recAddr = h.billedToAddress || '';
   const recEmail = h.clientRepEmail || '';
-  const descLine = `Pesanan Manual Purchase ${h.invoiceCategory || h.lineBrand || ''}`.trim();
+  // Per-milestone invoice number: INV-MP-{orderShort}-{milestone}
+  const orderShort = (h.id||'').replace(/^MP-/,'').replace(/-/g,'');
+  const msInvoiceNo = `INV-MP-${orderShort}-${milestoneKey.toUpperCase()}`;
   const w = window.open('', '_blank');
   if (!w) { alert('Pop-up diblokir browser'); return; }
   w.document.write(`<!doctype html><html lang="id"><head><meta charset="utf-8">
-    <title>INVOICE ${invoiceNo} · ${recName}</title>
+    <title>${docTitle} ${msInvoiceNo} · ${recName}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
@@ -36531,12 +36726,12 @@ async function _mpurcGenInvoicePDF() {
             <p>Jl. Wahid Hasyim No. 10D RT.002 RW.007<br>Kebon Sirih, Menteng, Jakarta Pusat</p>
           </div>
           <div class="doc-meta">
-            <h1>INVOICE</h1>
+            <h1>${docTitle}</h1>
             <div class="label">No. Invoice</div>
-            <div class="val">${invoiceNo}</div>
+            <div class="val">${msInvoiceNo}</div>
             <div class="label">Tanggal</div>
-            <div class="val">${fmtTgl(h.invoiceDate)}</div>
-            ${h.dueDate ? `<div class="label" style="color:#a14e3e">Jatuh Tempo</div><div class="val" style="color:#a14e3e">${fmtTgl(h.dueDate)}</div>` : ''}
+            <div class="val">${fmtTgl(pay.invoice_date)}</div>
+            ${pay.due_date ? `<div class="label" style="color:#a14e3e">Jatuh Tempo</div><div class="val" style="color:#a14e3e">${fmtTgl(pay.due_date)}</div>` : ''}
           </div>
         </div>
         <div class="recipient">
@@ -36548,7 +36743,8 @@ async function _mpurcGenInvoicePDF() {
         <table class="line">
           <thead><tr>
             <th>Deskripsi</th>
-            <th class="r">Total</th>
+            <th class="r">Subtotal Order</th>
+            <th class="r">${pm.label} ${milestonePct}%</th>
           </tr></thead>
           <tbody>
             <tr>
@@ -36557,14 +36753,15 @@ async function _mpurcGenInvoicePDF() {
                 <div style="font-size:11px;color:#666;margin-top:4px">${items.length} variants · ${totalQty} pcs · Lihat lampiran untuk detail</div>
                 ${h.notes?`<div style="font-size:11px;color:#555;margin-top:6px;font-style:italic">${h.notes.replace(/</g,'&lt;')}</div>`:''}
               </td>
-              <td class="r" style="font-weight:700">${fmtRp(subtotal)}</td>
+              <td class="r">${fmtRp(subtotal)}</td>
+              <td class="r" style="font-weight:700">${fmtRp(amountDue)}</td>
             </tr>
           </tbody>
         </table>
         <div class="totals">
           <div class="row lbl"><span>Subtotal Order</span><span style="font-family:'Space Mono',monospace">${fmtRp(subtotal)}</span></div>
-          ${totalReceived > 0 ? `<div class="row lbl"><span>Sudah Dibayar</span><span style="font-family:'Space Mono',monospace">−${fmtRp(totalReceived)}</span></div>` : ''}
-          <div class="row total"><span>${totalReceived > 0 ? 'Sisa Tagihan' : 'Total Tagihan'}</span><span class="v">${fmtRp(paymentDue)}</span></div>
+          ${priorPct > 0 ? `<div class="row lbl"><span>(${priorPct}% sudah ditagih sebelumnya)</span><span style="font-family:'Space Mono',monospace">−${fmtRp(priorAmount)}</span></div>` : ''}
+          <div class="row total"><span>${pm.label} ${milestonePct}%</span><span class="v">${fmtRp(amountDue)}</span></div>
         </div>
         <div class="terbilang">Terbilang: <b>${terbilangStr}</b></div>
         <div class="payment-info">
@@ -36591,7 +36788,7 @@ async function _mpurcGenInvoicePDF() {
         <div class="top">
           <div class="issuer">
             <h2>PT Sandang Dunia Yuwana</h2>
-            <p>Lampiran Invoice<br>${invoiceNo}</p>
+            <p>Lampiran ${docTitle}<br>${msInvoiceNo}</p>
           </div>
           <div class="doc-meta">
             <h1>LAMPIRAN</h1>
@@ -36619,7 +36816,7 @@ async function _mpurcGenInvoicePDF() {
             <td class="r" style="padding:14px 10px;border-top:2px solid #111;font-weight:700">${fmtRp(subtotal)}</td>
           </tr></tbody>
         </table>
-        <footer>Halaman 2 dari 2 · Invoice ${invoiceNo}</footer>
+        <footer>Halaman 2 dari 2 · ${docTitle} ${msInvoiceNo}</footer>
       </div>
       <script>setTimeout(()=>window.print(),500);<\/script>
     </body></html>`);
@@ -36791,6 +36988,7 @@ async function saveManualPurchase() {
     ship_to_recipient: document.getElementById('mp-h-shiprecipient')?.value.trim() || null,
     ship_to_phone: document.getElementById('mp-h-shipphone')?.value.trim() || null,
     ship_to_notes: document.getElementById('mp-h-shipnotes')?.value.trim() || null,
+    payment_plan: h.paymentPlan || null,
     last_updated: new Date().toISOString(),
     last_updated_by: currentUser,
   };
@@ -36839,8 +37037,8 @@ async function loadAR() {
       sb.from('wholesale_customer_orders').select('id,customer_id,customer_name,order_date,status,payment_plan,dp_pct').order('order_date',{ascending:false}),
       sb.from('wholesale_payments').select('*'),
       sb.from('wholesale_customer_order_items').select('order_id,qty,unit_price'),
-      sb.from('manual_purchase_orders').select('id,billed_to_name,line_brand,invoice_no,invoice_date,due_date,grand_total,total_received,payment_due,status').order('invoice_date',{ascending:false,nullsFirst:false}),
-      sb.from('manual_purchase_received_payments').select('*'),
+      sb.from('manual_purchase_orders').select('id,billed_to_name,line_brand,invoice_no,invoice_date,due_date,grand_total,total_received,payment_due,status,payment_plan').order('invoice_date',{ascending:false,nullsFirst:false}),
+      sb.from('manual_purchase_payments').select('*'),
       sb.from('manual_purchase_items').select('order_id,subtotal'),
     ]);
     const orders = ordersRes.data || [];
@@ -36923,62 +37121,54 @@ async function loadAR() {
       }
       _arAllCustomers.set(o.customer_id, o.customer_name || '');
     }
-    // ── Manual Purchase rows (free-form payments — 1 AR row per order) ──
+    // ── Manual Purchase rows (milestone-based, mirror Wholesale) ──
     for (const mo of mpOrders) {
-      const invDate = mo.invoice_date;
-      if (!invDate) continue;  // skip if invoice not issued
-      const totalAmount = parseFloat(mo.grand_total) || mpTotalByOrder.get(mo.id) || 0;
-      if (totalAmount <= 0) continue;
+      const plan = mo.payment_plan || _mpurcDefaultPaymentPlan();
+      const milestones = plan.milestones || [];
+      const totalValue = parseFloat(mo.grand_total) || mpTotalByOrder.get(mo.id) || 0;
+      if (totalValue <= 0) continue;
       const orderPays = mpPaysByOrder.get(mo.id) || [];
-      const totalReceived = orderPays.reduce((s,p) => s + (parseFloat(p.amount)||0), 0);
-      const paymentDue = totalAmount - totalReceived;
-      const dueDate = mo.due_date;
-      const isPaid = paymentDue <= 1; // tolerance for rounding
-      let daysOut = 0, daysOverdue = 0, isOverdue = false, status = '';
-      const todayDt = new Date(today+'T00:00:00');
-      const inv = new Date(invDate+'T00:00:00');
-      if (isPaid) {
-        status = 'paid';
-        // Last payment date
-        const lastPay = orderPays
-          .filter(p => p.received_date)
-          .sort((a,b) => (b.received_date||'').localeCompare(a.received_date||''))[0];
-        if (lastPay?.received_date) {
-          const pd = new Date(lastPay.received_date+'T00:00:00');
-          daysOut = Math.max(0, Math.round((pd-inv)/86400000));
+      for (const m of milestones) {
+        const pay = orderPays.find(p => p.milestone === m.key);
+        const invDate = pay?.invoice_date || null;
+        if (!invDate) continue;  // skip if milestone invoice not issued
+        const dueDate = pay?.due_date || null;
+        const amount = parseFloat(pay?.amount) || Math.round(totalValue * (parseFloat(m.pct)||0) / 100);
+        const paidAt = pay?.paid_at || null;
+        let daysOut = 0, daysOverdue = 0, isOverdue = false, status = '';
+        if (paidAt) {
+          status = 'paid';
+          if (invDate && paidAt) {
+            const inv = new Date(invDate+'T00:00:00');
+            const pd = new Date(paidAt+'T00:00:00');
+            daysOut = Math.max(0, Math.round((pd-inv)/86400000));
+          }
+        } else {
+          const inv = new Date(invDate+'T00:00:00');
+          const due = dueDate ? new Date(dueDate+'T00:00:00') : null;
+          const todayDt = new Date(today+'T00:00:00');
+          daysOut = Math.max(0, Math.round((todayDt-inv)/86400000));
+          if (due && todayDt > due) { isOverdue = true; daysOverdue = Math.round((todayDt-due)/86400000); }
+          status = isOverdue ? 'overdue' : 'unpaid';
         }
-      } else {
-        daysOut = Math.max(0, Math.round((todayDt-inv)/86400000));
-        if (dueDate) {
-          const due = new Date(dueDate+'T00:00:00');
-          if (todayDt > due) { isOverdue = true; daysOverdue = Math.round((todayDt-due)/86400000); }
-        }
-        status = isOverdue ? 'overdue' : 'unpaid';
+        rows.push({
+          type: 'manual_purchase',
+          orderId: mo.id,
+          customerId: null,
+          customerName: mo.billed_to_name || '—',
+          milestoneKey: m.key,
+          milestoneLabel: `${m.label} (${m.pct}%)`,
+          amount,
+          invoiceDate: invDate,
+          dueDate,
+          paidAt,
+          status,
+          daysOut,
+          daysOverdue,
+          bukti: pay?.bukti_url || null,
+          signedInvoice: pay?.signed_invoice_url || null,
+        });
       }
-      // Bukti: first bukti_url, or count if multiple
-      const buktis = orderPays.filter(p => p.bukti_url);
-      const buktiUrl = buktis[0]?.bukti_url || null;
-      const buktiCount = buktis.length;
-      rows.push({
-        type: 'manual_purchase',
-        orderId: mo.id,
-        customerId: null,
-        customerName: mo.billed_to_name || '—',
-        milestoneKey: 'total',
-        milestoneLabel: `Total · ${mo.line_brand||''}`.trim(),
-        amount: paymentDue > 0 ? paymentDue : totalAmount,
-        invoiceDate: invDate,
-        dueDate,
-        paidAt: isPaid ? (orderPays.find(p=>p.received_date)?.received_date || null) : null,
-        status,
-        daysOut,
-        daysOverdue,
-        bukti: buktiUrl,
-        buktiCount,
-        signedInvoice: null,  // MP doesn't track signed-invoice file
-        totalAmount,
-        totalReceived,
-      });
     }
     _arRows = rows;
     // Populate filter dropdowns
