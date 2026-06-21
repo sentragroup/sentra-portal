@@ -34424,45 +34424,47 @@ async function _whDownloadInvoice(milestone, invoiceType) {
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
     <style>
       *{box-sizing:border-box}
-      html,body{margin:0;padding:0;background:#fff;color:#111;font-family:'Inter',system-ui,sans-serif;font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased}
-      .page{max-width:780px;margin:0 auto;padding:48px 56px;position:relative;page-break-after:always}
+      @page{size:A4;margin:0}
+      html,body{margin:0;padding:0;background:#fff;color:#111;font-family:'Inter',system-ui,sans-serif;font-size:12px;line-height:1.45;-webkit-font-smoothing:antialiased}
+      .page{width:210mm;min-height:297mm;margin:0 auto;padding:18mm 18mm;position:relative;page-break-after:always;display:flex;flex-direction:column}
       .page:last-of-type{page-break-after:auto}
-      .top{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #111;padding-bottom:20px;margin-bottom:32px}
+      .lampiran-page{min-height:auto}
+      .top{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #111;padding-bottom:14px;margin-bottom:20px}
       .issuer{max-width:420px}
-      .issuer h2{margin:0 0 4px;font-size:15px;font-weight:700}
-      .issuer p{margin:0;font-size:11px;color:#333;line-height:1.5}
+      .issuer h2{margin:0 0 4px;font-size:14px;font-weight:700}
+      .issuer p{margin:0;font-size:10.5px;color:#333;line-height:1.45}
       .doc-meta{text-align:right}
-      .doc-meta h1{margin:0;font-family:'Space Mono',monospace;font-size:26px;letter-spacing:0.08em;color:#111;font-weight:700}
-      .doc-meta .label{font-family:'Space Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#666;margin-top:8px}
-      .doc-meta .val{font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:#111;margin-top:2px}
-      .recipient{margin-bottom:32px;padding:14px 18px;background:#f7f6f0;border-radius:8px}
-      .recipient .lbl{font-family:'Space Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#666;margin-bottom:4px}
-      .recipient .name{font-size:18px;font-weight:700;color:#111}
-      .recipient .sub{font-size:12px;color:#555;margin-top:2px}
-      table.line{width:100%;border-collapse:collapse;margin-bottom:24px}
-      table.line th{font-family:'Space Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#666;font-weight:700;text-align:left;padding:10px 12px;border-bottom:2px solid #111}
+      .doc-meta h1{margin:0;font-family:'Space Mono',monospace;font-size:22px;letter-spacing:0.08em;color:#111;font-weight:700}
+      .doc-meta .label{font-family:'Space Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:#666;margin-top:6px}
+      .doc-meta .val{font-family:'Space Mono',monospace;font-size:12px;font-weight:700;color:#111;margin-top:2px}
+      .recipient{margin-bottom:18px;padding:12px 16px;background:#f7f6f0;border-radius:6px}
+      .recipient .lbl{font-family:'Space Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:#666;margin-bottom:3px}
+      .recipient .name{font-size:16px;font-weight:700;color:#111}
+      .recipient .sub{font-size:11px;color:#555;margin-top:2px}
+      table.line{width:100%;border-collapse:collapse;margin-bottom:14px}
+      table.line th{font-family:'Space Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:#666;font-weight:700;text-align:left;padding:8px 10px;border-bottom:2px solid #111}
       table.line th.r{text-align:right}
-      table.line td{padding:14px 12px;border-bottom:1px solid #e5e5e5;vertical-align:top;font-size:13px}
+      table.line td{padding:10px;border-bottom:1px solid #e5e5e5;vertical-align:top;font-size:12px}
       table.line td.r{text-align:right;font-family:'Space Mono',monospace}
-      .totals{margin-left:auto;width:50%;margin-bottom:20px}
-      .totals .row{display:flex;justify-content:space-between;padding:8px 0;font-size:13px}
+      .totals{margin-left:auto;width:50%;margin-bottom:10px}
+      .totals .row{display:flex;justify-content:space-between;padding:6px 0;font-size:12px}
       .totals .row.lbl{color:#666}
-      .totals .row.total{border-top:2px solid #111;margin-top:6px;padding:14px 0 0;font-size:16px;font-weight:700}
+      .totals .row.total{border-top:2px solid #111;margin-top:4px;padding:10px 0 0;font-size:15px;font-weight:700}
       .totals .row.total .v{font-family:'Space Mono',monospace}
-      .terbilang{margin:18px 0 20px;padding:12px 16px;background:#fbf9f0;border-left:4px solid #d4af37;font-size:12px;font-style:italic;color:#333}
+      .terbilang{margin:10px 0 12px;padding:9px 14px;background:#fbf9f0;border-left:4px solid #d4af37;font-size:11px;font-style:italic;color:#333}
       .terbilang b{font-style:normal;color:#111}
-      .payment-info{margin:20px 0 32px;padding:16px 20px;background:#f7f6f0;border:1px solid #e3dfc8;border-radius:8px}
-      .payment-info .pi-title{font-family:'Space Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:0.1em;color:#666;font-weight:700;margin-bottom:10px}
-      .payment-info .pi-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 24px}
+      .payment-info{margin:8px 0 16px;padding:12px 16px;background:#f7f6f0;border:1px solid #e3dfc8;border-radius:6px}
+      .payment-info .pi-title{font-family:'Space Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#666;font-weight:700;margin-bottom:8px}
+      .payment-info .pi-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 24px}
       .payment-info .pi-grid > div{display:flex;flex-direction:column}
-      .payment-info .pi-lbl{font-family:'Space Mono',monospace;font-size:10px;color:#666;text-transform:uppercase;letter-spacing:0.05em}
-      .payment-info .pi-val{font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:#111;margin-top:2px}
-      .sig-row{display:flex;justify-content:space-between;margin-top:48px;gap:32px}
-      .sig{flex:1;text-align:center}
+      .payment-info .pi-lbl{font-family:'Space Mono',monospace;font-size:9px;color:#666;text-transform:uppercase;letter-spacing:0.05em}
+      .payment-info .pi-val{font-family:'Space Mono',monospace;font-size:12px;font-weight:700;color:#111;margin-top:1px}
+      .sig-row{display:flex;justify-content:flex-start;margin-top:auto;padding-top:20px;gap:32px}
+      .sig{width:42%;text-align:center}
       .sig .lbl{font-family:'Space Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#666}
-      .sig .gap{height:64px}
-      .sig .name{border-top:1px solid #111;padding-top:6px;font-weight:600;font-size:12px}
-      footer{margin-top:48px;padding-top:18px;border-top:1px solid #e5e5e5;font-size:10px;color:#999;text-align:center;font-family:'Space Mono',monospace;letter-spacing:0.05em}
+      .sig .gap{height:50px}
+      .sig .name{border-top:1px solid #111;padding-top:5px;font-weight:600;font-size:11.5px}
+      footer{margin-top:16px;padding-top:12px;border-top:1px solid #e5e5e5;font-size:9px;color:#999;text-align:center;font-family:'Space Mono',monospace;letter-spacing:0.05em}
       /* Lampiran styling */
       .lampiran-title{font-family:'Space Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:0.1em;color:#666;margin-bottom:6px}
       .lampiran-sub{font-size:13px;color:#333;margin-bottom:24px}
@@ -34477,7 +34479,6 @@ async function _whDownloadInvoice(milestone, invoiceType) {
       table.lampiran td.r{text-align:right;font-family:'Space Mono',monospace}
       @media print{
         html,body{background:#fff}
-        .page{padding:32px 40px}
       }
     </style></head>
     <body>
@@ -34486,8 +34487,8 @@ async function _whDownloadInvoice(milestone, invoiceType) {
         <div class="top">
           <div class="issuer">
             <h2>PT Sandang Dunia Yuwana</h2>
-            <p>Jakarta, Indonesia<br>
-            finance@sentragroup.id</p>
+            <p>Jl. Wahid Hasyim No. 10D RT.002 RW.007<br>
+            Kebon Sirih, Menteng, Jakarta Pusat</p>
           </div>
           <div class="doc-meta">
             <h1>${docTitle}</h1>
@@ -34534,6 +34535,7 @@ async function _whDownloadInvoice(milestone, invoiceType) {
             <div><span class="pi-lbl">No. Rekening</span><span class="pi-val">4780383289</span></div>
             <div><span class="pi-lbl">Atas Nama</span><span class="pi-val">PT Sandang Dunia Yuwana</span></div>
             <div><span class="pi-lbl">SWIFT Code</span><span class="pi-val">CENAIDJA</span></div>
+            <div style="grid-column:1/-1"><span class="pi-lbl">NPWP</span><span class="pi-val">63.875.985.0-021.000</span></div>
           </div>
         </div>
         <div class="sig-row">
@@ -34542,17 +34544,12 @@ async function _whDownloadInvoice(milestone, invoiceType) {
             <div class="gap"></div>
             <div class="name">PT Sandang Dunia Yuwana</div>
           </div>
-          <div class="sig">
-            <div class="lbl">Diterima Oleh</div>
-            <div class="gap"></div>
-            <div class="name">${recName.replace(/</g,'&lt;')}</div>
-          </div>
         </div>
         <footer>Pembayaran ke rekening atas nama PT Sandang Dunia Yuwana · Mohon konfirmasi setelah transfer · ${docTitle} berlaku 14 hari dari tanggal diterbitkan.</footer>
       </div>
 
       <!-- PAGE 2: Lampiran Items -->
-      <div class="page">
+      <div class="page lampiran-page">
         <div class="top">
           <div class="issuer">
             <h2>PT Sandang Dunia Yuwana</h2>
