@@ -34439,13 +34439,14 @@ async function _whDownloadInvoice(milestone, invoiceType) {
     amountDue = finalAmount;
     descLine = `Pelunasan — Pesanan Wholesale ${h.customerName||''}`;
   }
-  const today = new Date();
-  const dd = String(today.getDate()).padStart(2,'0');
-  const mm = String(today.getMonth()+1).padStart(2,'0');
-  const yyyy = today.getFullYear();
-  // Invoice date: dari payment milestone (manual input). Fallback ke order date kalau belum di-set.
+  // Invoice date: HARUS dari payment milestone (manual input di Payments tab).
+  // Kalau belum di-set, block — invoice tanggalnya gak boleh ngarang.
   const milestonePay = (o.payments||[]).find(p => p.milestone === milestone);
-  const invoiceDate = milestonePay?.invoice_date || h.orderDate || `${yyyy}-${mm}-${dd}`;
+  const invoiceDate = milestonePay?.invoice_date;
+  if (!invoiceDate) {
+    alert(`Invoice date buat milestone "${milestone.toUpperCase()}" belum di-set.\n\nBuka tab Payments & Shipping → isi kolom "Invoice Date" untuk milestone ini, klik Save, baru bisa generate invoice.`);
+    return;
+  }
   const orderDate = invoiceDate;  // dipakai di doc-meta sebagai 'Tanggal'
   // Invoice number: WS-{milestone}-{order id}
   const orderShort = (h.id||'').replace(/^WCO-/,'').replace(/-/g,'');
