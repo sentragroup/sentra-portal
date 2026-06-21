@@ -35491,6 +35491,7 @@ const MP_INVOICE_CATEGORIES = [
 let _mpurcRows = [];
 let _mpurcCurrent = null;
 let _mpurcStockCache = null;  // jubelio_inventory_by_location di 2 lokasi tsb
+let _mpurcSrpCache = null;    // Map<lowered sku_name, srp> dari product_dev parents
 
 function mapMpurc(r) {
   return {
@@ -35961,6 +35962,17 @@ async function _mpurcOpenStockPicker() {
     alert('Gagal load metadata items: '+e.message);
     return;
   }
+  // Pre-load SRP catalog from product_dev parents (master price)
+  if (!_mpurcSrpCache) {
+    try {
+      const pdParents = await _fetchAllPages('product_dev','sku_name,srp', q => q.is('parent_id', null));
+      _mpurcSrpCache = new Map();
+      for (const p of (pdParents||[])) {
+        const k = (p.sku_name||'').toLowerCase().trim();
+        if (k && parseFloat(p.srp) > 0) _mpurcSrpCache.set(k, parseFloat(p.srp));
+      }
+    } catch(_) { _mpurcSrpCache = new Map(); }
+  }
   window.__mpurcItemsCache = new Map(metaRows.map(r => [Number(r.item_id), r]));
   // Build picker
   const existingIds = new Set((o.items||[]).map(i => Number(i.jubelio_item_id)));
@@ -36005,9 +36017,13 @@ function _mpurcFilterStockPicker(q) {
   list.innerHTML = filtered.slice(0, 200).map(r => {
     const thumb = r.thumbnail || (r.image_urls && r.image_urls[0]) || null;
     const inOrder = existing.has(Number(r.item_id));
+    const srp = _mpurcSrpCache?.get((r.item_name||'').toLowerCase().trim()) || 0;
     const thumbHTML = thumb
       ? `<img src="${thumb.replace(/"/g,'&quot;')}" style="width:44px;height:44px;object-fit:cover;border-radius:4px;border:1px solid var(--g100)" onerror="this.style.display='none'">`
       : `<div style="width:44px;height:44px;background:var(--off);border:1px solid var(--g100);border-radius:4px"></div>`;
+    const srpBlock = srp > 0
+      ? `<div style="text-align:right"><div style="font-size:9px;color:var(--g400);text-transform:uppercase;letter-spacing:0.3px">SRP (CD)</div><div style="font-size:12px;font-family:var(--mono);font-weight:600;color:#0a7d3a">Rp ${srp.toLocaleString('id-ID')}</div></div>`
+      : `<div style="text-align:right"><div style="font-size:9px;color:var(--g400);text-transform:uppercase;letter-spacing:0.3px">SRP</div><div style="font-size:11px;font-family:var(--mono);color:var(--g300)" title="Akan pakai harga terakhir terjual sebagai default">— fallback</div></div>`;
     return `<div style="display:flex;gap:12px;align-items:center;padding:10px 20px;border-bottom:1px solid var(--g100)">
       ${thumbHTML}
       <div style="flex:1;min-width:0">
@@ -36018,6 +36034,7 @@ function _mpurcFilterStockPicker(q) {
         <div style="font-size:9px;color:var(--g400);text-transform:uppercase;letter-spacing:0.3px">Stock</div>
         <div style="font-size:13px;font-family:var(--mono);font-weight:600">${Math.round(r._stock).toLocaleString('id-ID')}</div>
       </div>
+      ${srpBlock}
       ${inOrder
         ? `<button class="btn-ghost" disabled style="font-size:11px;opacity:0.5">✓ Ditambah</button>`
         : `<button class="btn-primary" onclick="_mpurcAddItem(${r.item_id})" style="font-size:11px">＋ Tambah</button>`}
@@ -36027,16 +36044,30 @@ function _mpurcFilterStockPicker(q) {
 async function _mpurcAddItem(jubelioItemId) {
   const o = _mpurcCurrent; if (!o) return;
   const meta = (window.__mpurcItemsCache || new Map()).get(Number(jubelioItemId));
+  // Price catalog lookup: PD parent SRP → fallback last sell_price
+  let unitPrice = _mpurcSrpCache?.get((meta?.item_name||'').toLowerCase().trim()) || 0;
+  if (!unitPrice) {
+    try {
+      const { data } = await sb.from('jubelio_sales_order_items')
+        .select('sell_price,price,salesorder_detail_id')
+        .eq('item_id', jubelioItemId)
+        .gt('sell_price', 0)
+        .order('salesorder_detail_id', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (data) unitPrice = parseFloat(data.sell_price) || parseFloat(data.price) || 0;
+    } catch(_) {}
+  }
   const row = {
     order_id: o.header.id,
     jubelio_item_id: jubelioItemId,
     item_code: meta?.item_code || null,
     item_name: meta?.item_name || null,
     qty: 1,
-    unit_price: 0,
+    unit_price: unitPrice,
     discount_pct: 0,
     discount_amount: 0,
-    subtotal: 0,
+    subtotal: unitPrice,
   };
   const { data, error } = await sb.from('manual_purchase_items').insert(row).select().single();
   if (error) { alert('Gagal tambah item: '+error.message); return; }
