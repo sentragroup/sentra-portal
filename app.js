@@ -35674,7 +35674,7 @@ function _mpurcRenderDetail() {
             <option value="Lagaa" ${h.lineBrand==='Lagaa'?'selected':''}>Lagaa</option>
             <option value="Marte" ${h.lineBrand==='Marte'?'selected':''}>Marte</option>
           </select></div>
-          <div class="fg"><label>Requestor Name</label><input type="text" id="mp-h-requestor" value="${(h.requestorName||'').replace(/"/g,'&quot;')}"></div>
+          <div class="fg" style="position:relative"><label>Requestor Name</label><input type="text" id="mp-h-requestor" value="${(h.requestorName||'').replace(/"/g,'&quot;')}" autocomplete="off" placeholder="Tim/orang yang request"><div class="ac-list" id="ac-mp-requestor"></div></div>
           <div class="fg"><label>Invoice Category</label><select id="mp-h-category">
             <option value="">— Pilih —</option>
             ${MP_INVOICE_CATEGORIES.map(c => `<option ${h.invoiceCategory===c?'selected':''}>${c}</option>`).join('')}
@@ -35682,8 +35682,6 @@ function _mpurcRenderDetail() {
           <div class="fg"><label>Order Date</label><input type="date" id="mp-h-orderdate" value="${h.orderDate||''}"></div>
           <div class="fg"><label>Invoice Date</label><input type="date" id="mp-h-invdate" value="${h.invoiceDate||''}"></div>
           <div class="fg"><label>Due Date</label><input type="date" id="mp-h-duedate" value="${h.dueDate||''}"></div>
-          <div class="fg" style="position:relative"><label>PIC</label><input type="text" id="mp-h-pic" value="${(h.pic||'').replace(/"/g,'&quot;')}" autocomplete="off"><div class="ac-list" id="ac-mp-pic"></div></div>
-          <div class="fg" style="grid-column:span 2"><label>Payment Term</label><input type="text" id="mp-h-payterm" value="${(h.paymentTerm||'').replace(/"/g,'&quot;')}" placeholder="e.g. DP 50% + Pelunasan H+30, NET 14, dst"></div>
         </div>
       </div>
       <div class="form-card" style="margin-bottom:14px">
@@ -35713,7 +35711,7 @@ function _mpurcRenderDetail() {
       </div>
     </div>
   `;
-  setupAC('mp-h-pic','ac-mp-pic',()=>acPics);
+  setupAC('mp-h-requestor','ac-mp-requestor',()=>acPics);
   if (activeTab && activeTab !== 'order') {
     const btn = document.getElementById('mp-tab-'+activeTab);
     if (btn) mpSwitchTab(activeTab, btn);
@@ -35745,11 +35743,9 @@ async function saveManualPurchase() {
     client_rep_name: document.getElementById('mp-h-clientname')?.value.trim() || null,
     client_rep_email: document.getElementById('mp-h-clientemail')?.value.trim() || null,
     notes: document.getElementById('mp-h-notes')?.value.trim() || null,
-    payment_term: document.getElementById('mp-h-payterm')?.value.trim() || null,
     order_date: orderDate,
     invoice_date: document.getElementById('mp-h-invdate')?.value || null,
     due_date: document.getElementById('mp-h-duedate')?.value || null,
-    pic: document.getElementById('mp-h-pic')?.value.trim() || null,
     last_updated: new Date().toISOString(),
     last_updated_by: currentUser,
   };
