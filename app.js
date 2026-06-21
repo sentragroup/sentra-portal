@@ -33367,7 +33367,7 @@ function _whRenderDetail() {
     if (opt) _whCurrentOrder.header.customerName = opt.name;
   });
   setupAC('wh-h-pic','ac-wh-pic',()=>acPics);
-  if (!isNew) _whWireItemPicker();
+  if (!isNew) { _whWireItemPicker(); _whWireJubSoPicker(); }
   // Restore previously active tab (default to 'order' on first render)
   if (activeTab && activeTab !== 'order') {
     const btn = document.getElementById('wh-tab-'+activeTab);
@@ -33965,8 +33965,6 @@ function _whRenderPayTab(h, payments, totalValue, dpAmount) {
   const fmtTgl = d => d ? new Date(d+'T00:00:00').toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'}) : '—';
   const findP = m => payments.find(p => p.milestone === m);
   const finalAmount = totalValue - dpAmount;
-  // Due date auto = order_date + 7 days
-  const dueDate = _whComputeDueDate(h.orderDate);
   const milestones = [
     { key:'dp1',   label:`DP1 (${h.dpPct||30}%)`,   suggestAmount: dpAmount,    invoiceType: 'proforma' },
     { key:'dp2',   label:'DP2 (opsional)',           suggestAmount: 0,           invoiceType: 'proforma' },
@@ -33985,26 +33983,29 @@ function _whRenderPayTab(h, payments, totalValue, dpAmount) {
     const isPaid = !!p?.paid_at;
     const bukti = p?.bukti_url;
     const signed = p?.signed_invoice_url;
+    // Invoice date default = order_date (kalau belum di-input); due = invoice_date + 7
+    const invDate = p?.invoice_date || '';
+    const dueDate = invDate ? _whComputeDueDate(invDate) : null;
     const buktiBlock = bukti
       ? fileChip(bukti, m.key, 'bukti')
-      : `<input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onchange="_whFileUpload('${m.key}','bukti',this)" style="font-size:10px;max-width:160px">`;
+      : `<input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onchange="_whFileUpload('${m.key}','bukti',this)" style="font-size:10px;max-width:150px">`;
     const signedBlock = signed
       ? fileChip(signed, m.key, 'signed')
-      : `<input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onchange="_whFileUpload('${m.key}','signed',this)" style="font-size:10px;max-width:160px">`;
-    // Status badge: paid / overdue / pending
+      : `<input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onchange="_whFileUpload('${m.key}','signed',this)" style="font-size:10px;max-width:150px">`;
     const today = new Date().toISOString().slice(0,10);
     const isOverdue = !isPaid && dueDate && dueDate < today;
-    const dueColor = isPaid ? '#0a7d3a' : isOverdue ? '#c0392b' : '#666';
-    const dueIcon  = isPaid ? '✓ Paid' : isOverdue ? '⚠ Overdue' : '⏳ Due';
+    const dueColor = isPaid ? '#0a7d3a' : isOverdue ? '#c0392b' : (dueDate ? '#666' : '#aaa');
+    const dueIcon  = isPaid ? '✓ Paid' : isOverdue ? '⚠ Overdue' : (dueDate ? '⏳ Due' : '— Set inv. date');
     return `<tr style="border-top:1px solid var(--g100)">
       <td style="padding:8px"><b>${m.label}</b></td>
-      <td style="padding:8px"><input type="number" id="wh-pay-amt-${m.key}" value="${amt||''}" placeholder="${fmtRp(m.suggestAmount).replace('Rp ','')}" style="width:120px;font-family:var(--mono);font-size:11px;padding:3px 6px;border:1px solid var(--g100)"></td>
-      <td style="padding:8px;font-size:11px;font-family:var(--mono);color:${dueColor}">${fmtTgl(dueDate)}<br><span style="font-size:9px;text-transform:uppercase;letter-spacing:0.3px">${dueIcon}</span></td>
+      <td style="padding:8px"><input type="number" id="wh-pay-amt-${m.key}" value="${amt||''}" placeholder="${fmtRp(m.suggestAmount).replace('Rp ','')}" style="width:110px;font-family:var(--mono);font-size:11px;padding:3px 6px;border:1px solid var(--g100)"></td>
+      <td style="padding:8px"><input type="date" id="wh-pay-invdate-${m.key}" value="${invDate}" style="font-size:11px;padding:3px 6px;border:1px solid var(--g100)" title="Tanggal invoice diterbitkan"></td>
+      <td style="padding:8px;font-size:11px;font-family:var(--mono);color:${dueColor};white-space:nowrap">${fmtTgl(dueDate)}<br><span style="font-size:9px;text-transform:uppercase;letter-spacing:0.3px">${dueIcon}</span></td>
       <td style="padding:8px"><input type="date" id="wh-pay-date-${m.key}" value="${p?.paid_at||''}" style="font-size:11px;padding:3px 6px;border:1px solid var(--g100)"></td>
       <td style="padding:8px">${buktiBlock}</td>
       <td style="padding:8px">${signedBlock}</td>
       <td style="padding:8px;text-align:right;white-space:nowrap">
-        <button class="btn-icon" onclick="_whSavePayment('${m.key}')" style="font-size:11px;color:#0a7d3a" title="Save amount + tanggal">${isPaid?'↻ Save':'+ Save'}</button>
+        <button class="btn-icon" onclick="_whSavePayment('${m.key}')" style="font-size:11px;color:#0a7d3a" title="Save">${p?'↻ Save':'+ Save'}</button>
         <button class="btn-icon" onclick="_whDownloadInvoice('${m.key}','${m.invoiceType}')" style="font-size:11px;color:#3C3489" title="Download invoice">${m.invoiceType==='proforma'?'📋':'📄'}</button>
         ${p?`<button class="btn-icon" onclick="_whDeletePayment('${m.key}')" style="font-size:11px;color:#c0392b" title="Hapus payment">✕</button>`:''}
       </td>
@@ -34012,11 +34013,12 @@ function _whRenderPayTab(h, payments, totalValue, dpAmount) {
   }).join('');
   return `<div class="form-card" style="margin-bottom:14px">
     <div class="form-sec">Payments Tracker</div>
-    <div style="font-size:11px;color:var(--g600);margin-bottom:8px">Total value: <b>${fmtRp(totalValue)}</b> · DP target: <b>${fmtRp(dpAmount)}</b> · Final target: <b>${fmtRp(finalAmount)}</b> · Due date: <b>${fmtTgl(dueDate)}</b> <span style="color:var(--g400)">(order +7 hari)</span></div>
+    <div style="font-size:11px;color:var(--g600);margin-bottom:8px">Total value: <b>${fmtRp(totalValue)}</b> · DP target: <b>${fmtRp(dpAmount)}</b> · Final target: <b>${fmtRp(finalAmount)}</b></div>
     <table style="width:100%;font-size:12px">
       <thead><tr style="font-family:var(--mono);font-size:10px;color:var(--g400);text-transform:uppercase">
         <th style="padding:6px;text-align:left">Milestone</th>
         <th style="padding:6px;text-align:left">Amount</th>
+        <th style="padding:6px;text-align:left">Invoice Date</th>
         <th style="padding:6px;text-align:left">Due Date</th>
         <th style="padding:6px;text-align:left">Paid Date</th>
         <th style="padding:6px;text-align:left">Bukti Bayar</th>
@@ -34025,7 +34027,7 @@ function _whRenderPayTab(h, payments, totalValue, dpAmount) {
       </tr></thead>
       <tbody>${payRows}</tbody>
     </table>
-    <div style="font-size:10px;color:var(--g400);margin-top:8px">📋 = Proforma Invoice (DP) · 📄 = Invoice Pelunasan · Due date auto: order date + 7 hari · File: JPG/PNG/WEBP/PDF max 5MB</div>
+    <div style="font-size:10px;color:var(--g400);margin-top:8px">📋 = Proforma Invoice (DP) · 📄 = Invoice Pelunasan · Due date auto = Invoice Date + 7 hari · File: JPG/PNG/WEBP/PDF max 5MB</div>
   </div>
   <div class="form-card">
     <div class="form-sec">Shipping & Jubelio Sync</div>
@@ -34033,10 +34035,65 @@ function _whRenderPayTab(h, payments, totalValue, dpAmount) {
       <div class="fg"><label>AWB / Resi</label><input type="text" id="wh-ship-awb" value="${(h.awbNo||'').replace(/"/g,'&quot;')}"></div>
       <div class="fg"><label>Courier</label><input type="text" id="wh-ship-courier" value="${(h.courier||'').replace(/"/g,'&quot;')}" placeholder="JNE, Sicepat, dll"></div>
       <div class="fg"><label>Shipped Date</label><input type="date" id="wh-ship-date" value="${h.shippedDate||''}"></div>
-      <div class="fg"><label>Jubelio SO No (step 9)</label><input type="text" id="wh-jubelio-so" value="${(h.jubelioSoNo||'').replace(/"/g,'&quot;')}" placeholder="SP-XXX..."></div>
+      <div class="fg"><label>Jubelio SO No (step 9)</label>
+        <div class="ac-wrap"><input type="text" id="wh-jubelio-so" value="${(h.jubelioSoNo||'').replace(/"/g,'&quot;')}" placeholder="Ketik SO no atau pilih..." autocomplete="off"><div class="ac-list" id="ac-wh-jubelio-so"></div></div>
+        <div style="font-size:10px;color:var(--g400);margin-top:2px;font-family:var(--mono)">Source: Transaction Mapping (category=Wholesale)</div>
+      </div>
     </div>
     <div style="font-size:11px;color:var(--g600);margin-top:8px">⓿ Setelah AWB diisi → status pindah ke <b>Shipped</b>. Setelah Jubelio SO No diisi → status <b>Done</b>.</div>
   </div>`;
+}
+
+// Wholesale Jubelio SO picker — autocomplete dari transaction_mappings yang
+// di-tag Wholesale, join ke jubelio_sales_orders buat dapet salesorder_no
+// + customer_name.
+let _whJubSoCache = null;
+async function _whWireJubSoPicker() {
+  const inp = document.getElementById('wh-jubelio-so');
+  const list = document.getElementById('ac-wh-jubelio-so');
+  if (!inp || !list) return;
+  const ensureCache = async () => {
+    if (_whJubSoCache) return;
+    try {
+      const { data: txMaps } = await sb.from('transaction_mappings').select('salesorder_id,notes').eq('category','Wholesale');
+      const ids = (txMaps||[]).map(m => m.salesorder_id).filter(Boolean);
+      if (!ids.length) { _whJubSoCache = []; return; }
+      const orders = await _fetchAllPagesIn('jubelio_sales_orders','salesorder_id,salesorder_no,customer_name,sub_total','salesorder_id', ids);
+      const orderById = new Map((orders||[]).map(o => [o.salesorder_id, o]));
+      _whJubSoCache = (txMaps||[]).map(m => {
+        const o = orderById.get(m.salesorder_id) || {};
+        return {
+          salesorder_id: m.salesorder_id,
+          salesorder_no: o.salesorder_no || `#${m.salesorder_id}`,
+          customer_name: o.customer_name || '',
+          sub_total: o.sub_total || 0,
+          notes: m.notes || ''
+        };
+      }).sort((a,b) => (b.salesorder_no||'').localeCompare(a.salesorder_no||''));
+    } catch(_) { _whJubSoCache = []; }
+  };
+  const render = async () => {
+    const q = (inp.value||'').toLowerCase().trim();
+    await ensureCache();
+    const all = _whJubSoCache || [];
+    const hits = q.length === 0
+      ? all.slice(0, 15)
+      : all.filter(s => `${s.salesorder_no||''} ${s.customer_name||''}`.toLowerCase().includes(q)).slice(0, 15);
+    if (!hits.length) { list.style.display='none'; return; }
+    list.style.display='block';
+    list.innerHTML = hits.map(s => `<div onmousedown="event.preventDefault();_whPickJubSo('${(s.salesorder_no||'').replace(/'/g,"\\'")}')" style="padding:7px 10px;cursor:pointer;border-bottom:1px solid var(--g100);font-size:12px" onmouseenter="this.style.background='var(--off)'" onmouseleave="this.style.background=''">
+      <div><b>${(s.salesorder_no||'').replace(/</g,'&lt;')}</b> <span style="font-size:10px;color:var(--g400)">#${s.salesorder_id}</span></div>
+      <div style="font-size:10px;color:var(--g600);margin-top:2px">${(s.customer_name||'—').replace(/</g,'&lt;')} · Rp ${Math.round(s.sub_total||0).toLocaleString('id-ID')}</div>
+    </div>`).join('');
+  };
+  inp.addEventListener('input', render);
+  inp.addEventListener('focus', render);
+  inp.addEventListener('blur', () => setTimeout(()=>{ list.style.display='none'; }, 200));
+}
+function _whPickJubSo(soNo) {
+  const inp = document.getElementById('wh-jubelio-so');
+  if (inp) inp.value = soNo;
+  document.getElementById('ac-wh-jubelio-so').style.display = 'none';
 }
 
 // ── Item picker ──
@@ -34258,10 +34315,18 @@ async function _whSavePayment(milestone) {
   const o = _whCurrentOrder;
   const amount = parseFloat(document.getElementById('wh-pay-amt-'+milestone)?.value)||0;
   const paidAt = document.getElementById('wh-pay-date-'+milestone)?.value||null;
-  if (!amount && !paidAt) { alert('Isi amount atau tanggal.'); return; }
-  // Preserve existing bukti_url (file upload pakai handler terpisah)
+  const invDate = document.getElementById('wh-pay-invdate-'+milestone)?.value||null;
+  if (!amount && !paidAt && !invDate) { alert('Isi minimal salah satu: amount, tanggal invoice, atau tanggal bayar.'); return; }
+  // Preserve existing file URLs (upload pakai handler terpisah)
   const existing = o.payments.find(p => p.milestone === milestone);
-  const payload = { order_id: o.header.id, milestone, amount, paid_at: paidAt, bukti_url: existing?.bukti_url||null, created_by: currentUser };
+  const payload = {
+    order_id: o.header.id, milestone, amount,
+    paid_at: paidAt,
+    invoice_date: invDate,
+    bukti_url: existing?.bukti_url||null,
+    signed_invoice_url: existing?.signed_invoice_url||null,
+    created_by: currentUser
+  };
   const { data, error } = await sb.from('wholesale_payments').upsert(payload, { onConflict:'order_id,milestone' }).select().single();
   if (error) { alert('Gagal: '+error.message); return; }
   const idx = o.payments.findIndex(p => p.milestone === milestone);
@@ -34378,7 +34443,10 @@ async function _whDownloadInvoice(milestone, invoiceType) {
   const dd = String(today.getDate()).padStart(2,'0');
   const mm = String(today.getMonth()+1).padStart(2,'0');
   const yyyy = today.getFullYear();
-  const orderDate = h.orderDate || `${yyyy}-${mm}-${dd}`;
+  // Invoice date: dari payment milestone (manual input). Fallback ke order date kalau belum di-set.
+  const milestonePay = (o.payments||[]).find(p => p.milestone === milestone);
+  const invoiceDate = milestonePay?.invoice_date || h.orderDate || `${yyyy}-${mm}-${dd}`;
+  const orderDate = invoiceDate;  // dipakai di doc-meta sebagai 'Tanggal'
   // Invoice number: WS-{milestone}-{order id}
   const orderShort = (h.id||'').replace(/^WCO-/,'').replace(/-/g,'');
   const invoiceNo = `WS-${milestone.toUpperCase()}-${orderShort}`;
