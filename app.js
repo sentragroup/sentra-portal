@@ -35618,7 +35618,7 @@ async function openManualPurchaseDetail(id) {
   // Pre-load stock cache (Bintaro + Penerimaan Barang)
   if (!_mpurcStockCache) {
     try {
-      _mpurcStockCache = await _fetchAllPages('jubelio_inventory_by_location','item_id,location_name,on_hand,available',
+      _mpurcStockCache = await _fetchAllPages('jubelio_inventory_by_location','item_id,location_name,qty_on_hand,qty_available',
         q => q.in('location_name', MP_STOCK_LOCATIONS));
     } catch(_) { _mpurcStockCache = []; }
   }
@@ -35746,7 +35746,7 @@ function _mpurcStockFor(jubelioItemId) {
   if (!_mpurcStockCache || !jubelioItemId) return 0;
   return _mpurcStockCache
     .filter(r => Number(r.item_id) === Number(jubelioItemId))
-    .reduce((s,r) => s + (parseFloat(r.available)||0), 0);
+    .reduce((s,r) => s + (parseFloat(r.qty_available)||0), 0);
 }
 function _mpurcThumbFor(jubelioItemId) {
   const cache = window.__mpurcItemsCache || new Map();
@@ -35889,7 +35889,7 @@ async function _mpurcOpenStockPicker() {
   for (const r of _mpurcStockCache) {
     const id = Number(r.item_id);
     if (!agg.has(id)) agg.set(id, 0);
-    agg.set(id, agg.get(id) + (parseFloat(r.available)||0));
+    agg.set(id, agg.get(id) + (parseFloat(r.qty_available)||0));
   }
   // Only items with stock > 0
   const itemIds = Array.from(agg.entries()).filter(([_,v]) => v > 0).map(([k]) => k);
