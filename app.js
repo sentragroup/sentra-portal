@@ -35953,10 +35953,10 @@ async function _mpurcOpenStockPicker() {
     alert('Tidak ada stock tersedia di Gudang Bintaro / Gudang Penerimaan Barang.');
     return;
   }
-  // Fetch items metadata (name, code, thumbnail, image_urls)
+  // Fetch items metadata (name, code, thumbnail, image_urls, item_group_id)
   let metaRows = [];
   try {
-    metaRows = await _fetchAllPagesIn('jubelio_items','item_id,item_code,item_name,thumbnail,image_urls',
+    metaRows = await _fetchAllPagesIn('jubelio_items','item_id,item_code,item_name,item_group_id,thumbnail,image_urls',
       'item_id', itemIds);
   } catch(e) {
     alert('Gagal load metadata items: '+e.message);
@@ -36006,40 +36006,74 @@ function _mpurcFilterStockPicker(q) {
   const rows = window.__mpurcPickerRows || [];
   const existing = window.__mpurcPickerExisting || new Set();
   const needle = (q||'').toLowerCase().trim();
+  // Group by item_group_id (fallback item_name)
+  const groups = new Map();
+  for (const r of rows) {
+    const key = r.item_group_id != null ? `g:${r.item_group_id}` : `n:${(r.item_name||'').toLowerCase()}`;
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        name: r.item_name || '—',
+        thumb: r.thumbnail || (r.image_urls && r.image_urls[0]) || null,
+        variants: [],
+      });
+    }
+    groups.get(key).variants.push(r);
+  }
+  // Sort variants per group by size; compute totals
+  for (const g of groups.values()) {
+    g.variants.sort((a,b) => _whSortSizes(_whSizeOf(a.item_name, a.item_code), _whSizeOf(b.item_name, b.item_code)));
+    g.totalStock = g.variants.reduce((s,v) => s + (v._stock||0), 0);
+  }
+  // Filter groups by needle (search across parent name OR any variant SKU)
   const filtered = needle
-    ? rows.filter(r => (r.item_name||'').toLowerCase().includes(needle) || (r.item_code||'').toLowerCase().includes(needle))
-    : rows;
+    ? Array.from(groups.values()).filter(g =>
+        (g.name||'').toLowerCase().includes(needle)
+        || g.variants.some(v => (v.item_code||'').toLowerCase().includes(needle))
+      )
+    : Array.from(groups.values());
+  filtered.sort((a,b) => a.name.localeCompare(b.name));
   const list = document.getElementById('_mpurc-stock-list'); if (!list) return;
   if (filtered.length === 0) {
     list.innerHTML = `<div style="padding:30px;text-align:center;color:var(--g400);font-size:12px">Tidak ada match.</div>`;
     return;
   }
-  list.innerHTML = filtered.slice(0, 200).map(r => {
-    const thumb = r.thumbnail || (r.image_urls && r.image_urls[0]) || null;
-    const inOrder = existing.has(Number(r.item_id));
-    const srp = _mpurcSrpCache?.get((r.item_name||'').toLowerCase().trim()) || 0;
-    const thumbHTML = thumb
-      ? `<img src="${thumb.replace(/"/g,'&quot;')}" style="width:44px;height:44px;object-fit:cover;border-radius:4px;border:1px solid var(--g100)" onerror="this.style.display='none'">`
-      : `<div style="width:44px;height:44px;background:var(--off);border:1px solid var(--g100);border-radius:4px"></div>`;
+  list.innerHTML = filtered.slice(0, 80).map(g => {
+    const srp = _mpurcSrpCache?.get((g.name||'').toLowerCase().trim()) || 0;
+    const thumbHTML = g.thumb
+      ? `<img src="${g.thumb.replace(/"/g,'&quot;')}" style="width:54px;height:54px;object-fit:cover;border-radius:5px;border:1px solid var(--g100)" onerror="this.style.display='none'">`
+      : `<div style="width:54px;height:54px;background:var(--off);border:1px solid var(--g100);border-radius:5px"></div>`;
     const srpBlock = srp > 0
-      ? `<div style="text-align:right"><div style="font-size:9px;color:var(--g400);text-transform:uppercase;letter-spacing:0.3px">SRP (CD)</div><div style="font-size:12px;font-family:var(--mono);font-weight:600;color:#0a7d3a">Rp ${srp.toLocaleString('id-ID')}</div></div>`
-      : `<div style="text-align:right"><div style="font-size:9px;color:var(--g400);text-transform:uppercase;letter-spacing:0.3px">SRP</div><div style="font-size:11px;font-family:var(--mono);color:var(--g300)" title="Akan pakai harga terakhir terjual sebagai default">— fallback</div></div>`;
-    return `<div style="display:flex;gap:12px;align-items:center;padding:10px 20px;border-bottom:1px solid var(--g100)">
+      ? `<span style="font-size:11px;font-family:var(--mono);font-weight:600;color:#0a7d3a;padding:2px 7px;background:#e8f5ed;border-radius:3px">SRP Rp ${srp.toLocaleString('id-ID')}</span>`
+      : `<span style="font-size:10px;color:var(--g400);font-style:italic">SRP fallback dari sales</span>`;
+    const variantChips = g.variants.map(v => {
+      const inOrder = existing.has(Number(v.item_id));
+      const size = _whSizeOf(v.item_name, v.item_code) || 'OS';
+      const stk = Math.round(v._stock).toLocaleString('id-ID');
+      return inOrder
+        ? `<div style="display:inline-flex;flex-direction:column;align-items:center;gap:2px;padding:6px 9px;background:var(--off);border:1px solid var(--g100);border-radius:4px;opacity:0.45;min-width:54px">
+            <span style="font-size:10px;font-family:var(--mono);font-weight:600">${size}</span>
+            <span style="font-size:10px;color:var(--g600)">${stk}</span>
+            <span style="font-size:9px;color:#0a7d3a;font-weight:600">✓ in</span>
+          </div>`
+        : `<button onclick="_mpurcAddItem(${v.item_id})" style="display:inline-flex;flex-direction:column;align-items:center;gap:2px;padding:6px 9px;background:var(--white);border:1px solid var(--g200);border-radius:4px;cursor:pointer;min-width:54px;font-family:inherit" onmouseover="this.style.borderColor='var(--black)';this.style.background='var(--off)'" onmouseout="this.style.borderColor='var(--g200)';this.style.background='var(--white)'">
+            <span style="font-size:10px;font-family:var(--mono);font-weight:700">${size}</span>
+            <span style="font-size:10px;color:var(--g600)">${stk}</span>
+            <span style="font-size:9px;color:var(--black);font-weight:600">＋ tambah</span>
+          </button>`;
+    }).join('');
+    return `<div style="display:flex;gap:12px;align-items:center;padding:12px 20px;border-bottom:1px solid var(--g100)">
       ${thumbHTML}
       <div style="flex:1;min-width:0">
-        <div style="font-size:12px;font-weight:600">${(r.item_name||'—').replace(/</g,'&lt;')}</div>
-        <div style="font-size:10px;color:var(--g400);font-family:var(--mono);margin-top:2px">${(r.item_code||'—').replace(/</g,'&lt;')}</div>
+        <div style="font-size:12px;font-weight:600;margin-bottom:3px">${(g.name||'—').replace(/</g,'&lt;')}</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+          ${srpBlock}
+          <span style="font-size:10px;color:var(--g400)">${g.variants.length} variant · Total stock <b style="color:var(--black)">${Math.round(g.totalStock).toLocaleString('id-ID')}</b></span>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:5px">${variantChips}</div>
       </div>
-      <div style="text-align:right">
-        <div style="font-size:9px;color:var(--g400);text-transform:uppercase;letter-spacing:0.3px">Stock</div>
-        <div style="font-size:13px;font-family:var(--mono);font-weight:600">${Math.round(r._stock).toLocaleString('id-ID')}</div>
-      </div>
-      ${srpBlock}
-      ${inOrder
-        ? `<button class="btn-ghost" disabled style="font-size:11px;opacity:0.5">✓ Ditambah</button>`
-        : `<button class="btn-primary" onclick="_mpurcAddItem(${r.item_id})" style="font-size:11px">＋ Tambah</button>`}
     </div>`;
-  }).join('') + (filtered.length > 200 ? `<div style="padding:12px;text-align:center;color:var(--g400);font-size:11px">+${filtered.length-200} more... refine search</div>` : '');
+  }).join('') + (filtered.length > 80 ? `<div style="padding:12px;text-align:center;color:var(--g400);font-size:11px">+${filtered.length-80} group lain... refine search</div>` : '');
 }
 async function _mpurcAddItem(jubelioItemId) {
   const o = _mpurcCurrent; if (!o) return;
