@@ -35725,8 +35725,7 @@ function _mpurcRenderDetail() {
           <div class="fg"><label>Penerima</label><input type="text" id="mp-h-shiprecipient" value="${(h.shipToRecipient||'').replace(/"/g,'&quot;')}" placeholder="${h.shipToType==='kantor'?'PIC Kantor / Requestor':'Nama penerima'}"></div>
           <div class="fg"><label>No HP Penerima</label><input type="text" id="mp-h-shipphone" value="${(h.shipToPhone||'').replace(/"/g,'&quot;')}" placeholder="08..."></div>
           <div class="fg full"><label>Alamat Kirim</label><textarea id="mp-h-shipaddr" rows="2" placeholder="Alamat lengkap pengiriman">${(h.shipToAddress||'').replace(/</g,'&lt;')}</textarea></div>
-          <div class="fg"><label>Ekspedisi / Kurir</label><input type="text" id="mp-h-shipcourier" value="${(h.shipToCourier||'').replace(/"/g,'&quot;')}" placeholder="e.g. JNE, Sicepat, Internal"></div>
-          <div class="fg" style="grid-column:span 2"><label>Catatan Pengiriman</label><input type="text" id="mp-h-shipnotes" value="${(h.shipToNotes||'').replace(/"/g,'&quot;')}" placeholder="Instruksi khusus untuk gudang/ekspedisi"></div>
+          <div class="fg full"><label>Catatan Pengiriman</label><input type="text" id="mp-h-shipnotes" value="${(h.shipToNotes||'').replace(/"/g,'&quot;')}" placeholder="Instruksi khusus untuk gudang"></div>
         </div>
       </div>
       ${isNew ? `<div class="form-card" style="background:var(--off);border:1px dashed var(--g200)">
@@ -35766,18 +35765,16 @@ function _mpurcShipTypeChange(val) {
   const recipEl = document.getElementById('mp-h-shiprecipient');
   if (!addrEl || !recipEl) return;
   if (val === 'kantor') {
-    if (!addrEl.value.trim()) addrEl.value = MP_OFFICE_ADDRESS;
-    if (!recipEl.value.trim()) {
-      const req = document.getElementById('mp-h-requestor')?.value.trim();
-      recipEl.value = req ? `${req} (PIC Kantor)` : 'PIC Kantor';
-    }
+    addrEl.value = MP_OFFICE_ADDRESS;
+    const req = document.getElementById('mp-h-requestor')?.value.trim();
+    recipEl.value = req ? `${req} (PIC Kantor)` : 'PIC Kantor';
   } else if (val === 'customer') {
-    const billAddr = document.getElementById('mp-h-billedaddr')?.value.trim() || '';
-    const billName = document.getElementById('mp-h-clientname')?.value.trim() || '';
-    if (billAddr && (addrEl.value === MP_OFFICE_ADDRESS || !addrEl.value.trim())) addrEl.value = billAddr;
-    if (billName && (!recipEl.value.trim() || /PIC Kantor/.test(recipEl.value))) recipEl.value = billName;
+    addrEl.value = document.getElementById('mp-h-billedaddr')?.value.trim() || '';
+    recipEl.value = document.getElementById('mp-h-clientname')?.value.trim() || '';
+  } else {
+    addrEl.value = '';
+    recipEl.value = '';
   }
-  // lainnya = leave manual
 }
 
 function mpSwitchTab(tab, btn) {
@@ -35928,8 +35925,16 @@ async function _mpurcRecalcHeader() {
 // ---- Stock Picker Modal ----
 async function _mpurcOpenStockPicker() {
   const o = _mpurcCurrent; if (!o) return;
+  // Always refetch to dodge stale cache from previous deploys
+  try {
+    _mpurcStockCache = await _fetchAllPages('jubelio_inventory_by_location','item_id,location_name,qty_on_hand,qty_available',
+      q => q.in('location_name', MP_STOCK_LOCATIONS));
+  } catch(e) {
+    alert('Gagal load stock: '+e.message);
+    return;
+  }
   if (!_mpurcStockCache || _mpurcStockCache.length === 0) {
-    alert('Stock cache kosong. Cek koneksi atau coba reload halaman.');
+    alert('Stock cache kosong di Jubelio inventory table.');
     return;
   }
   // Aggregate stock by item_id (across the 2 locations)
@@ -36060,7 +36065,6 @@ async function saveManualPurchase() {
     ship_to_address: document.getElementById('mp-h-shipaddr')?.value.trim() || null,
     ship_to_recipient: document.getElementById('mp-h-shiprecipient')?.value.trim() || null,
     ship_to_phone: document.getElementById('mp-h-shipphone')?.value.trim() || null,
-    ship_to_courier: document.getElementById('mp-h-shipcourier')?.value.trim() || null,
     ship_to_notes: document.getElementById('mp-h-shipnotes')?.value.trim() || null,
     last_updated: new Date().toISOString(),
     last_updated_by: currentUser,
