@@ -161,7 +161,7 @@ function enterApp(user, freshLogin) {
   // Restore page: prefer URL hash, fall back to sessionStorage
   let _pg = location.hash.slice(1).split('/')[0];
   if (!_pg) _pg = sessionStorage.getItem('snt_page') || '';
-  const _pages = ['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','vendormaster','rnd','popupbooth','activitylog','mesign','po','stockmovement','productmap','productdev','collections','designermaster','dsgworkflow','warehousekpi','stockadjmgmt','returnreason','tradorders','invcheck','salesperf','reminders','announcements','marte','royalty','income','contentplan','adsmgmt','mktactivation','publication','photoshoot','kolmgmt','txmap','sampling'];
+  const _pages = ['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','vendormaster','rnd','popupbooth','activitylog','mesign','po','stockmovement','productmap','productdev','collections','designermaster','dsgworkflow','warehousekpi','stockadjmgmt','returnreason','tradorders','invcheck','salesperf','reminders','announcements','marte','royalty','income','contentplan','adsmgmt','mktactivation','publication','photoshoot','kolmgmt','txmap','sampling','arreceivables'];
   if (_pages.includes(_pg))
     showPage(_pg, document.getElementById('nav-'+_pg));
 }
@@ -277,7 +277,7 @@ function showPage(name, el) {
   document.getElementById("page-"+_pageId).classList.add("active");
   if (el) el.classList.add("active");
   const _c = document.querySelector('.content'); if (_c) _c.scrollTop = 0;
-  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",sampling:"Sampling",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",mktplan:"Marketing Planning",videoprod:"Video Production",txmap:"Transaction Mapping",intpurchase:"Internal Purchase",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)",vendormaster:"Vendor Master",rnd:"R&D Product",koldb:"KOL Database",outbound:"Outbond Request",meetingnotes:"Meeting Notes",ipreports:"IP Reports",cronlogs:"Cron Logs",wholesale:"Wholesale Orders"};
+  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",sampling:"Sampling",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",mktplan:"Marketing Planning",videoprod:"Video Production",txmap:"Transaction Mapping",intpurchase:"Internal Purchase",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)",vendormaster:"Vendor Master",rnd:"R&D Product",koldb:"KOL Database",outbound:"Outbond Request",meetingnotes:"Meeting Notes",ipreports:"IP Reports",cronlogs:"Cron Logs",wholesale:"Wholesale Orders",arreceivables:"Account Receivables"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -403,6 +403,7 @@ function showPage(name, el) {
   if (name==="meetingnotes") loadMeetings();
   if (name==="ipreports") loadIPReports();
   if (name==="cronlogs") loadCronLogs();
+  if (name==="arreceivables") loadAR();
   if (name==="wholesale") loadWholesale();
   if (name==="marte") loadMarteSettlements();
   if (name==="martereport") { const inp=document.getElementById('mr-period'); if(!inp.value) inp.value=new Date().toISOString().slice(0,7); }
@@ -35791,6 +35792,211 @@ async function deleteWholesale(id) {
   const { error } = await sb.from('wholesale_customer_orders').delete().eq('id', id);
   if (error) { alert('Gagal: '+error.message); return; }
   loadWholesale();
+}
+
+// ── ACCOUNT RECEIVABLES ─────────────────────────────────────────────────
+// Aggregate semua payment milestones dari wholesale orders. Per row =
+// 1 milestone (e.g. DP1 untuk order WCO-X, Pelunasan untuk order WCO-Y).
+// Status derivation:
+//   - paid: kalau wholesale_payments.paid_at terisi
+//   - overdue: kalau invoice_date+7 < today dan belum paid
+//   - unpaid: kalau invoice_date di-set tapi belum overdue
+//   - draft: kalau invoice_date belum di-set (di-skip dari AR list)
+let _arRows = [];
+let _arAllCustomers = new Map();
+
+async function loadAR() {
+  const tb = document.getElementById('ar-tbody');
+  if (tb) tb.innerHTML = '<tr><td class="empty-td" colspan="9">Memuat...</td></tr>';
+  try {
+    const [ordersRes, paymentsRes, itemsRes] = await Promise.all([
+      sb.from('wholesale_customer_orders').select('id,customer_id,customer_name,order_date,status,payment_plan,dp_pct').order('order_date',{ascending:false}),
+      sb.from('wholesale_payments').select('*'),
+      sb.from('wholesale_customer_order_items').select('order_id,qty,unit_price'),
+    ]);
+    const orders = ordersRes.data || [];
+    const payments = paymentsRes.data || [];
+    const items = itemsRes.data || [];
+    // Total value per order
+    const totalByOrder = new Map();
+    for (const i of items) {
+      const v = (parseFloat(i.qty)||0) * (parseFloat(i.unit_price)||0);
+      totalByOrder.set(i.order_id, (totalByOrder.get(i.order_id)||0) + v);
+    }
+    // Payments grouped by order
+    const paysByOrder = new Map();
+    for (const p of payments) {
+      const arr = paysByOrder.get(p.order_id) || [];
+      arr.push(p); paysByOrder.set(p.order_id, arr);
+    }
+    const today = new Date().toISOString().slice(0,10);
+    const rows = [];
+    for (const o of orders) {
+      const plan = o.payment_plan || _whDefaultPaymentPlan();
+      const milestones = plan.milestones || [];
+      const totalValue = totalByOrder.get(o.id)||0;
+      const orderPayments = paysByOrder.get(o.id)||[];
+      for (const m of milestones) {
+        const pay = orderPayments.find(p => p.milestone === m.key);
+        const invDate = pay?.invoice_date || null;
+        // Skip kalau invoice belum di-set — gak boleh AR
+        if (!invDate) continue;
+        const dueDate = _whComputeDueDate(invDate);
+        const amount = parseFloat(pay?.amount) || Math.round(totalValue * (parseFloat(m.pct)||0) / 100);
+        const paidAt = pay?.paid_at || null;
+        // Days outstanding
+        let daysOut = 0, daysOverdue = 0, isOverdue = false, status = '';
+        if (paidAt) {
+          status = 'paid';
+          if (invDate && paidAt) {
+            const inv = new Date(invDate+'T00:00:00');
+            const pd = new Date(paidAt+'T00:00:00');
+            daysOut = Math.max(0, Math.round((pd-inv)/86400000));
+          }
+        } else {
+          const inv = new Date(invDate+'T00:00:00');
+          const due = dueDate ? new Date(dueDate+'T00:00:00') : null;
+          const todayDt = new Date(today+'T00:00:00');
+          daysOut = Math.max(0, Math.round((todayDt-inv)/86400000));
+          if (due && todayDt > due) { isOverdue = true; daysOverdue = Math.round((todayDt-due)/86400000); }
+          status = isOverdue ? 'overdue' : 'unpaid';
+        }
+        rows.push({
+          orderId: o.id,
+          customerId: o.customer_id,
+          customerName: o.customer_name || '',
+          milestoneKey: m.key,
+          milestoneLabel: `${m.label} (${m.pct}%)`,
+          amount,
+          invoiceDate: invDate,
+          dueDate,
+          paidAt,
+          status,
+          daysOut,
+          daysOverdue,
+          bukti: pay?.bukti_url || null,
+          signedInvoice: pay?.signed_invoice_url || null,
+        });
+      }
+      _arAllCustomers.set(o.customer_id, o.customer_name || '');
+    }
+    _arRows = rows;
+    // Populate filter dropdowns
+    const custSel = document.getElementById('ar-fil-customer');
+    if (custSel) {
+      const cur = custSel.value;
+      while(custSel.options.length > 1) custSel.remove(1);
+      [...new Set(rows.map(r => r.customerName).filter(Boolean))].sort().forEach(n => {
+        const o = document.createElement('option'); o.value = o.textContent = n; custSel.appendChild(o);
+      });
+      custSel.value = cur;
+    }
+    const msSel = document.getElementById('ar-fil-milestone');
+    if (msSel) {
+      const cur = msSel.value;
+      while(msSel.options.length > 1) msSel.remove(1);
+      [...new Set(rows.map(r => r.milestoneLabel))].sort().forEach(n => {
+        const o = document.createElement('option'); o.value = o.textContent = n; msSel.appendChild(o);
+      });
+      msSel.value = cur;
+    }
+    computeARStats(rows);
+    applyARFilters();
+  } catch(e) {
+    if (tb) tb.innerHTML = `<tr><td class="empty-td" colspan="9">Gagal: ${e.message}</td></tr>`;
+  }
+}
+
+function computeARStats(rows) {
+  const fmtRp = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
+  const total = rows.reduce((s,r) => s+r.amount, 0);
+  const outstanding = rows.filter(r => r.status !== 'paid').reduce((s,r) => s+r.amount, 0);
+  const overdue = rows.filter(r => r.status === 'overdue').reduce((s,r) => s+r.amount, 0);
+  const paid = rows.filter(r => r.status === 'paid').reduce((s,r) => s+r.amount, 0);
+  const paidRows = rows.filter(r => r.status === 'paid');
+  const dso = paidRows.length ? Math.round(paidRows.reduce((s,r) => s+r.daysOut, 0) / paidRows.length) : 0;
+  document.getElementById('ar-s-total').textContent = fmtRp(total);
+  document.getElementById('ar-s-outstanding').textContent = fmtRp(outstanding);
+  document.getElementById('ar-s-overdue').textContent = fmtRp(overdue);
+  document.getElementById('ar-s-paid').textContent = fmtRp(paid);
+  document.getElementById('ar-s-dso').textContent = dso;
+  // Aging buckets (hanya rows yang belum paid)
+  const outstandingRows = rows.filter(r => r.status !== 'paid');
+  const bCurrent = outstandingRows.filter(r => r.daysOverdue === 0).reduce((s,r) => s+r.amount, 0);
+  const b30  = outstandingRows.filter(r => r.daysOverdue >= 1 && r.daysOverdue <= 30).reduce((s,r) => s+r.amount, 0);
+  const b60  = outstandingRows.filter(r => r.daysOverdue >= 31 && r.daysOverdue <= 60).reduce((s,r) => s+r.amount, 0);
+  const b90  = outstandingRows.filter(r => r.daysOverdue >= 61 && r.daysOverdue <= 90).reduce((s,r) => s+r.amount, 0);
+  const b90p = outstandingRows.filter(r => r.daysOverdue > 90).reduce((s,r) => s+r.amount, 0);
+  document.getElementById('ar-bucket-current').textContent = fmtRp(bCurrent);
+  document.getElementById('ar-bucket-30').textContent = fmtRp(b30);
+  document.getElementById('ar-bucket-60').textContent = fmtRp(b60);
+  document.getElementById('ar-bucket-90').textContent = fmtRp(b90);
+  document.getElementById('ar-bucket-90plus').textContent = fmtRp(b90p);
+}
+
+function applyARFilters() {
+  const fStat = document.getElementById('ar-fil-status')?.value || '';
+  const fCust = document.getElementById('ar-fil-customer')?.value || '';
+  const fMs   = document.getElementById('ar-fil-milestone')?.value || '';
+  const q = (document.getElementById('arSearch')?.value||'').toLowerCase();
+  let rows = _arRows.filter(r => {
+    if (fStat && r.status !== fStat) return false;
+    if (fCust && r.customerName !== fCust) return false;
+    if (fMs && r.milestoneLabel !== fMs) return false;
+    if (q && !(`${r.orderId} ${r.customerName}`.toLowerCase().includes(q))) return false;
+    return true;
+  });
+  // Default sort: overdue dulu (descending days), unpaid, paid
+  const statusOrder = { overdue: 0, unpaid: 1, paid: 2 };
+  rows.sort((a,b) => {
+    const s = (statusOrder[a.status]||9) - (statusOrder[b.status]||9);
+    if (s !== 0) return s;
+    return (b.daysOverdue||0) - (a.daysOverdue||0);
+  });
+  renderARTable(rows);
+}
+
+function renderARTable(rows) {
+  const fmtRp = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
+  const fmtTgl = d => d ? new Date(d+'T00:00:00').toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'}) : '—';
+  document.getElementById('ar-tcount').textContent = rows.length + ' entri';
+  const tb = document.getElementById('ar-tbody');
+  if (!rows.length) { tb.innerHTML = '<tr><td class="empty-td" colspan="9">Gak ada data dengan filter ini.</td></tr>'; return; }
+  tb.innerHTML = rows.map(r => {
+    let statusPill, daysCol;
+    if (r.status === 'paid') {
+      statusPill = `<span class="pill p-active" style="font-size:10px">✓ Paid</span>`;
+      daysCol = `<span style="font-size:11px;color:#0a7d3a;font-family:var(--mono)">${r.daysOut}d</span><div style="font-size:9px;color:var(--g400)">paid in</div>`;
+    } else if (r.status === 'overdue') {
+      statusPill = `<span class="pill p-expired" style="font-size:10px">⚠ Overdue</span>`;
+      daysCol = `<span style="font-size:11px;color:#c0392b;font-family:var(--mono);font-weight:700">+${r.daysOverdue}d</span><div style="font-size:9px;color:#c0392b">overdue</div>`;
+    } else {
+      statusPill = `<span class="pill p-review" style="font-size:10px">⏳ Outstanding</span>`;
+      daysCol = `<span style="font-size:11px;color:var(--g600);font-family:var(--mono)">${r.daysOut}d</span><div style="font-size:9px;color:var(--g400)">outstanding</div>`;
+    }
+    const files = [];
+    if (r.signedInvoice) files.push(`<a href="${r.signedInvoice.replace(/"/g,'&quot;')}" target="_blank" title="Invoice Signed" style="font-size:10px;color:#3C3489;text-decoration:none">📋</a>`);
+    if (r.bukti) files.push(`<a href="${r.bukti.replace(/"/g,'&quot;')}" target="_blank" title="Bukti Bayar" style="font-size:10px;color:#0a7d3a;text-decoration:none">💵</a>`);
+    return `<tr>
+      <td><a href="#" onclick="openWholesaleDetail('${r.orderId}');showPage('wholesale',null);return false" style="font-family:var(--mono);font-size:11px;color:#3C3489;text-decoration:none">${r.orderId}</a></td>
+      <td style="font-size:12px;font-weight:500">${(r.customerName||'—').replace(/</g,'&lt;')}</td>
+      <td style="font-size:11px;font-family:var(--mono);color:var(--g600)">${r.milestoneLabel}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:12px;font-weight:700">${fmtRp(r.amount)}</td>
+      <td style="font-size:11px;font-family:var(--mono);color:var(--g600)">${fmtTgl(r.invoiceDate)}</td>
+      <td style="font-size:11px;font-family:var(--mono);color:${r.status==='overdue'?'#c0392b':'var(--g600)'}">${fmtTgl(r.dueDate)}</td>
+      <td style="text-align:right">${daysCol}</td>
+      <td>${statusPill}</td>
+      <td style="white-space:nowrap;font-size:14px">${files.join(' ')||'<span style="color:var(--g300)">—</span>'}</td>
+    </tr>`;
+  }).join('');
+}
+
+function clearARFilters() {
+  document.getElementById('ar-fil-status').value = '';
+  document.getElementById('ar-fil-customer').value = '';
+  document.getElementById('ar-fil-milestone').value = '';
+  document.getElementById('arSearch').value = '';
+  applyARFilters();
 }
 
 // ── DUPLICATE CHECK ──
