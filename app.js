@@ -36644,8 +36644,8 @@ async function _mpurcGenInvoicePDFMs(milestoneKey) {
   const msIdx = milestones.indexOf(pm);
   const priorPct = milestones.slice(0, msIdx).reduce((s,m) => s + (parseFloat(m.pct)||0), 0);
   const priorAmount = Math.round(subtotal * priorPct / 100);
-  // Proforma if no paid_at yet, else Final Invoice
-  const isFinal = !!pay.paid_at;
+  // Rule: DP milestones → PROFORMA INVOICE, final/last → INVOICE
+  const isFinal = milestoneKey === 'final' || msIdx === milestones.length - 1;
   const docTitle = isFinal ? 'INVOICE' : 'PROFORMA INVOICE';
   const descLine = `${pm.label} ${milestonePct}% — Pesanan Manual Purchase ${h.lineBrand || ''}`.trim();
   const paymentDue = subtotal - totalReceived;
