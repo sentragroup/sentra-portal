@@ -2793,14 +2793,14 @@
             <select id="tx-fil-channel"><option value="">Semua channel</option></select>
           </div>
           <div class="fg" style="min-width:140px;margin:0"><label style="font-size:11px">Mapping</label>
-            <select id="tx-fil-mapstatus" onchange="loadTxMap()">
+            <select id="tx-fil-mapstatus" onchange="txReloadFiltered()">
               <option value="unmapped">Unmapped only</option>
               <option value="">Semua</option>
               <option value="mapped">Mapped only</option>
             </select>
           </div>
           <div class="fg" style="min-width:140px;margin:0"><label style="font-size:11px">Category</label>
-            <select id="tx-fil-category" onchange="loadTxMap()">
+            <select id="tx-fil-category" onchange="txReloadFiltered()">
               <option value="">Semua category</option>
               <option>Wholesale</option>
               <option>Consignment</option>
@@ -2809,9 +2809,9 @@
             </select>
           </div>
           <div class="fg" style="min-width:200px;flex:1;margin:0"><label style="font-size:11px">Cari (SO, customer, project ref...)</label>
-            <input type="text" id="tx-search" placeholder="SO-XXX / nama customer / project ref" oninput="loadTxMap()">
+            <input type="text" id="tx-search" placeholder="SO-XXX / nama customer / project ref" oninput="txReloadFiltered()">
           </div>
-          <button class="btn-primary" style="padding:7px 16px;font-size:12px" onclick="loadTxMap()">Apply</button>
+          <button class="btn-primary" style="padding:7px 16px;font-size:12px" onclick="txReloadFiltered()">Apply</button>
           <button class="btn-ghost" style="padding:7px 12px;font-size:12px" onclick="clearTxFilters()">✕ Reset</button>
         </div>
       </div>
@@ -2839,7 +2839,7 @@
 
       <div class="table-toolbar" style="gap:8px;align-items:center">
         <button class="btn-refresh" onclick="loadTxMap()">↻ Refresh</button>
-        <select id="tx-page-size" onchange="loadTxMap()" style="padding:5px 10px;font-size:12px;border:1px solid var(--g100);border-radius:6px;background:var(--white)">
+        <select id="tx-page-size" onchange="txReloadFiltered()" style="padding:5px 10px;font-size:12px;border:1px solid var(--g100);border-radius:6px;background:var(--white)">
           <option value="50">50 / page</option>
           <option value="100" selected>100 / page</option>
           <option value="200">200 / page</option>
@@ -5277,6 +5277,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260615e5"></script>
+<script src="app.js?v=20260615e6"></script>
 </body>
 </html>
