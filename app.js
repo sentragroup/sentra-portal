@@ -33328,25 +33328,33 @@ async function openWholesaleDetail(id) {
   if (id === 'new') {
     _whCurrentOrder = {
       header: { id:'new', customerId:'', customerName:'', orderDate: new Date().toISOString().slice(0,10), deliveryDate:'', status:'new', paymentTerms:'', dpPct:30, paymentPlan:_whDefaultPaymentPlan(), customerPoUrl:'', customerPoNo:'', pic:currentUser||'', notes:'', jubelioSoNo:'', awbNo:'', courier:'', shippedDate:'' },
-      items: [], links: [], payments: []
+      items: [], links: [], payments: [], shipments: [], shipItems: []
     };
   } else {
-    const [headerRes, itemsRes, linksRes, paysRes] = await Promise.all([
+    const [headerRes, itemsRes, linksRes, paysRes, shipmentsRes] = await Promise.all([
       sb.from('wholesale_customer_orders').select('*').eq('id', id).maybeSingle(),
       sb.from('wholesale_customer_order_items').select('*').eq('order_id', id).order('id'),
       sb.from('wholesale_batch_links').select('*').in('order_item_id', [-1]), // placeholder, will refill after items load
       sb.from('wholesale_payments').select('*').eq('order_id', id),
+      sb.from('wholesale_shipments').select('*').eq('order_id', id).order('ship_date',{ascending:true,nullsFirst:true}).order('id'),
     ]);
     if (!headerRes.data) { closeWholesaleDetail(); return; }
     const itemIds = (itemsRes.data||[]).map(i => i.id);
     let links = [];
+    let shipItems = [];
     if (itemIds.length) {
-      const { data } = await sb.from('wholesale_batch_links').select('*').in('order_item_id', itemIds);
-      links = data || [];
+      const [linksData, shipItemsData] = await Promise.all([
+        sb.from('wholesale_batch_links').select('*').in('order_item_id', itemIds),
+        sb.from('wholesale_shipment_items').select('*').in('order_item_id', itemIds),
+      ]);
+      links = linksData.data || [];
+      shipItems = shipItemsData.data || [];
     }
     _whCurrentOrder = {
       header: mapWO(headerRes.data),
       items: itemsRes.data || [],
+      shipments: shipmentsRes.data || [],
+      shipItems,
       links,
       payments: paysRes.data || []
     };
@@ -33398,7 +33406,7 @@ function _whRenderDetail() {
     dpPaid: payments.some(p => p.milestone === 'dp1' && p.paid_at),
     supplierPO: links.some(l => l.restock_project_id), // (also batched fact)
     received: ['ready','shipped','invoiced','done'].includes(h.status),
-    shipped: !!h.shippedDate,
+    shipped: (_whCurrentOrder?.shipments||[]).some(s => s.ship_date),
     finalPaid: payments.some(p => p.milestone === 'final' && p.paid_at),
     jubelio: !!h.jubelioSoNo,
   };
@@ -34163,19 +34171,170 @@ function _whRenderPayTab(h, payments, totalValue, dpAmount) {
     </table>
     <div style="font-size:10px;color:var(--g400);margin-top:8px">📋 = Proforma Invoice (DP) · 📄 = Invoice Pelunasan · Due date auto = Invoice Date + 7 hari · File: JPG/PNG/WEBP/PDF max 5MB</div>
   </div>
+  ${_whRenderShipmentsCard(h, _whCurrentOrder?.items||[], _whCurrentOrder?.shipments||[], _whCurrentOrder?.shipItems||[])}
   <div class="form-card">
-    <div class="form-sec">Shipping & Jubelio Sync</div>
-    <div class="form-grid" style="grid-template-columns:repeat(4,1fr)">
-      <div class="fg"><label>AWB / Resi</label><input type="text" id="wh-ship-awb" value="${(h.awbNo||'').replace(/"/g,'&quot;')}"></div>
-      <div class="fg"><label>Courier</label><input type="text" id="wh-ship-courier" value="${(h.courier||'').replace(/"/g,'&quot;')}" placeholder="JNE, Sicepat, dll"></div>
-      <div class="fg"><label>Shipped Date</label><input type="date" id="wh-ship-date" value="${h.shippedDate||''}"></div>
-      <div class="fg"><label>Jubelio SO No (step 9)</label>
+    <div class="form-sec">Jubelio Sync (Step 9)</div>
+    <div class="form-grid" style="grid-template-columns:1fr">
+      <div class="fg"><label>Jubelio SO No</label>
         <div class="ac-wrap"><input type="text" id="wh-jubelio-so" value="${(h.jubelioSoNo||'').replace(/"/g,'&quot;')}" placeholder="Ketik SO no atau pilih..." autocomplete="off"><div class="ac-list" id="ac-wh-jubelio-so"></div></div>
         <div style="font-size:10px;color:var(--g400);margin-top:2px;font-family:var(--mono)">Source: Transaction Mapping (category=Wholesale)</div>
       </div>
     </div>
-    <div style="font-size:11px;color:var(--g600);margin-top:8px">⓿ Setelah AWB diisi → status pindah ke <b>Shipped</b>. Setelah Jubelio SO No diisi → status <b>Done</b>.</div>
+    <div style="font-size:11px;color:var(--g600);margin-top:8px">⓿ Setelah ada shipment dengan items → status <b>Shipped</b>. Setelah Jubelio SO No diisi → status <b>Done</b>.</div>
   </div>`;
+}
+
+// ── Shipments manager (di Payments & Shipping tab) ──
+function _whRenderShipmentsCard(h, items, shipments, shipItems) {
+  const fmtTgl = d => d ? new Date(d+'T00:00:00').toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'}) : '—';
+  // Compute already-shipped per order item across ALL shipments
+  const shippedByItem = new Map();
+  shipItems.forEach(si => {
+    shippedByItem.set(si.order_item_id, (shippedByItem.get(si.order_item_id)||0) + (parseFloat(si.qty_shipped)||0));
+  });
+  const totalOrdered = items.reduce((s,i) => s + (parseFloat(i.qty)||0), 0);
+  const totalShipped = [...shippedByItem.values()].reduce((s,v) => s+v, 0);
+  const fulfillment = totalOrdered ? Math.round(totalShipped/totalOrdered*100) : 0;
+  const isComplete = totalOrdered > 0 && totalShipped >= totalOrdered;
+  const shipmentCards = shipments.map(s => _whRenderShipmentCard(s, items, shipItems, shippedByItem)).join('');
+  return `<div class="form-card" style="margin-bottom:14px">
+    <div class="form-sec" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <span>Shipments (${shipments.length})</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span style="font-size:11px;color:${isComplete?'#0a7d3a':'#a66800'};font-family:var(--mono);font-weight:600">
+          ${totalShipped} / ${totalOrdered} pcs ${isComplete?'✓ Complete':`(${fulfillment}%)`}
+        </span>
+        <button class="btn-primary" onclick="_whAddShipment()" style="font-size:11px;padding:5px 12px">+ Shipment</button>
+      </div>
+    </div>
+    ${shipments.length ? shipmentCards : `<div style="padding:20px;text-align:center;color:var(--g400);font-size:12px;background:var(--off);border-radius:6px">Belum ada shipment. Klik <b>+ Shipment</b> untuk bikin pengiriman pertama.</div>`}
+  </div>`;
+}
+
+function _whRenderShipmentCard(s, items, shipItems, globalShippedByItem) {
+  const fmtTgl = d => d ? new Date(d+'T00:00:00').toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'}) : '—';
+  const sItems = shipItems.filter(si => si.shipment_id === s.id);
+  const sItemsByOi = new Map(sItems.map(si => [si.order_item_id, si]));
+  const totalThisShipment = sItems.reduce((sum,si) => sum + (parseFloat(si.qty_shipped)||0), 0);
+  // Group items by parent for display
+  const jByItemId = new Map((_whJubelioItemsCache||[]).map(j => [j.item_id, j]));
+  const parents = new Map();
+  for (const it of items) {
+    const j = jByItemId.get(it.jubelio_item_id);
+    const gid = j?.item_group_id ?? null;
+    const key = gid != null ? `g:${gid}` : `n:${_whParentName(it.item_name)}`;
+    if (!parents.has(key)) parents.set(key, { name: _whParentName(it.item_name), variants: [] });
+    parents.get(key).variants.push(it);
+  }
+  for (const p of parents.values()) {
+    p.variants.sort((a,b) => _whSortSizes(_whSizeOf(a.item_name,a.item_code), _whSizeOf(b.item_name,b.item_code)));
+  }
+  const parentRows = [...parents.values()].map(p => {
+    const variantCols = p.variants.map(v => {
+      const ordered = parseFloat(v.qty)||0;
+      const thisQty = parseFloat(sItemsByOi.get(v.id)?.qty_shipped)||0;
+      // Already shipped in OTHER shipments (exclude current)
+      const shippedElsewhere = (globalShippedByItem.get(v.id)||0) - thisQty;
+      const remaining = ordered - shippedElsewhere;
+      const max = Math.max(0, remaining);
+      const size = _whSizeOf(v.item_name, v.item_code);
+      const color = thisQty > 0 ? '#0a7d3a' : 'var(--g400)';
+      return `<td style="padding:5px;text-align:center;border-right:1px solid var(--g100)">
+        <div style="font-family:var(--mono);font-size:10px;font-weight:600;padding:1px 6px;background:var(--black);color:var(--white);border-radius:3px;display:inline-block">${size}</div>
+        <div style="margin-top:4px"><input type="number" min="0" max="${max}" value="${thisQty||''}" onchange="_whSetShipItemQty(${s.id},${v.id},this.value,${max})" placeholder="0" style="width:54px;text-align:center;font-family:var(--mono);font-size:11px;padding:3px 4px;border:1px solid var(--g100);border-radius:3px;background:#f0f7ff;color:${color}"></div>
+        <div style="margin-top:2px;font-size:9px;color:var(--g400);font-family:var(--mono)">${ordered}/${max>=0?max:0}</div>
+      </td>`;
+    }).join('');
+    return `<table style="width:100%;border-collapse:collapse;margin-top:6px;background:white;border:1px solid var(--g100);border-radius:4px">
+      <tr><td colspan="${p.variants.length}" style="padding:6px 10px;background:#fafafa;font-size:11px;font-weight:600">${p.name.replace(/</g,'&lt;')}</td></tr>
+      <tr>${variantCols}</tr>
+    </table>`;
+  }).join('');
+  return `<div style="border:1px solid var(--g100);border-radius:6px;padding:12px;margin-bottom:10px;background:var(--off)">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:10px">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;flex:1">
+        <span style="font-size:13px;font-weight:700;font-family:var(--mono)">${(s.shipment_no||`SJ-${s.id}`).replace(/</g,'&lt;')}</span>
+        <span style="font-size:11px;color:var(--g600);padding:3px 8px;background:white;border:1px solid var(--g100);border-radius:4px">📦 ${totalThisShipment} pcs</span>
+        ${s.delivered_at ? `<span class="pill p-active" style="font-size:10px">✓ Delivered ${fmtTgl(s.delivered_at)}</span>` : s.ship_date ? `<span class="pill p-signings" style="font-size:10px">🚚 Shipped ${fmtTgl(s.ship_date)}</span>` : `<span class="pill p-draft" style="font-size:10px">📝 Draft</span>`}
+      </div>
+      <div style="display:flex;gap:5px">
+        <button class="btn-icon" onclick="_whDownloadSuratJalan(${s.id})" style="font-size:11px;color:#3C3489" title="Download Surat Jalan">📋 SJ</button>
+        <button class="btn-icon" onclick="_whDeleteShipment(${s.id})" style="font-size:11px;color:#c0392b" title="Hapus shipment">✕</button>
+      </div>
+    </div>
+    <div class="form-grid" style="grid-template-columns:repeat(4,1fr);gap:8px">
+      <div class="fg"><label style="font-size:10px">Ship Date</label><input type="date" id="wh-ship-date-${s.id}" value="${s.ship_date||''}" onchange="_whUpdateShipmentField(${s.id},'ship_date',this.value)" style="font-size:11px"></div>
+      <div class="fg"><label style="font-size:10px">Delivered Date</label><input type="date" id="wh-ship-delivered-${s.id}" value="${s.delivered_at||''}" onchange="_whUpdateShipmentField(${s.id},'delivered_at',this.value)" style="font-size:11px"></div>
+      <div class="fg"><label style="font-size:10px">AWB / Resi</label><input type="text" id="wh-ship-awb-${s.id}" value="${(s.awb_no||'').replace(/"/g,'&quot;')}" onchange="_whUpdateShipmentField(${s.id},'awb_no',this.value)" style="font-size:11px"></div>
+      <div class="fg"><label style="font-size:10px">Courier</label><input type="text" id="wh-ship-courier-${s.id}" value="${(s.courier||'').replace(/"/g,'&quot;')}" placeholder="JNE, Sicepat..." onchange="_whUpdateShipmentField(${s.id},'courier',this.value)" style="font-size:11px"></div>
+    </div>
+    <div style="margin-top:10px">
+      <div style="font-size:10px;color:var(--g600);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px;font-weight:600;margin-bottom:4px">Items pengiriman ini · ordered/sisa di bawah input</div>
+      ${parentRows}
+    </div>
+  </div>`;
+}
+
+// ── Shipment CRUD ──
+async function _whAddShipment() {
+  const o = _whCurrentOrder; if (!o || o.header.id === 'new') { alert('Simpan order dulu.'); return; }
+  const seq = (o.shipments||[]).length + 1;
+  const orderShort = (o.header.id||'').replace(/^WCO-/,'').replace(/-/g,'');
+  const shipmentNo = `SJ-WS-${orderShort}-${String(seq).padStart(2,'0')}`;
+  const { data, error } = await sb.from('wholesale_shipments').insert({
+    order_id: o.header.id, shipment_no: shipmentNo, created_by: currentUser
+  }).select().single();
+  if (error) { alert('Gagal: '+error.message); return; }
+  o.shipments.push(data);
+  _whRenderDetail();
+}
+
+async function _whUpdateShipmentField(shipmentId, field, value) {
+  const o = _whCurrentOrder; if (!o) return;
+  const v = (typeof value === 'string' ? value.trim() : value) || null;
+  await sb.from('wholesale_shipments').update({[field]: v}).eq('id', shipmentId);
+  const s = o.shipments.find(x => x.id === shipmentId);
+  if (s) s[field] = v;
+  // Auto-progress status kalau ada shipment + ship_date di-set
+  if (field === 'ship_date' && v) {
+    const h = o.header;
+    if (h.status === 'new' || h.status === 'confirmed' || h.status === 'allocated' || h.status === 'ready') {
+      await sb.from('wholesale_customer_orders').update({status:'shipped'}).eq('id', h.id);
+      h.status = 'shipped';
+    }
+  }
+  _whRenderDetail();
+}
+
+async function _whDeleteShipment(shipmentId) {
+  if (!confirm('Hapus shipment ini? Semua item shipments-nya akan ikut terhapus.')) return;
+  const o = _whCurrentOrder;
+  await sb.from('wholesale_shipments').delete().eq('id', shipmentId);
+  o.shipments = o.shipments.filter(s => s.id !== shipmentId);
+  o.shipItems = o.shipItems.filter(si => si.shipment_id !== shipmentId);
+  _whRenderDetail();
+}
+
+async function _whSetShipItemQty(shipmentId, orderItemId, val, maxAllowed) {
+  let qty = parseFloat(val)||0;
+  if (qty < 0) qty = 0;
+  if (qty > maxAllowed) { alert(`Max ${maxAllowed} pcs (sisa available).`); _whRenderDetail(); return; }
+  const o = _whCurrentOrder;
+  const existing = o.shipItems.find(si => si.shipment_id === shipmentId && si.order_item_id === orderItemId);
+  if (qty === 0) {
+    // Delete row kalau qty 0
+    if (existing) {
+      await sb.from('wholesale_shipment_items').delete().eq('id', existing.id);
+      o.shipItems = o.shipItems.filter(si => si.id !== existing.id);
+    }
+  } else {
+    const { data, error } = await sb.from('wholesale_shipment_items').upsert({
+      shipment_id: shipmentId, order_item_id: orderItemId, qty_shipped: qty
+    }, { onConflict: 'shipment_id,order_item_id' }).select().single();
+    if (error) { alert('Gagal: '+error.message); return; }
+    if (existing) Object.assign(existing, data); else o.shipItems.push(data);
+  }
+  _whRenderDetail();
 }
 
 // Wholesale Jubelio SO picker — autocomplete dari transaction_mappings yang
@@ -34910,6 +35069,190 @@ async function _whCustomerPoSignedClear() {
   _whRenderDetail();
 }
 
+// ── Surat Jalan PDF generator (per shipment) ──
+// Format: PT SDY (sender) → Customer (recipient). 1 sig per side: pengirim + penerima.
+async function _whDownloadSuratJalan(shipmentId) {
+  const o = _whCurrentOrder; if (!o) return;
+  const h = o.header;
+  const ship = o.shipments.find(s => s.id === shipmentId);
+  if (!ship) { alert('Shipment gak ketemu.'); return; }
+  if (!ship.ship_date) { alert('Ship Date wajib di-set sebelum generate Surat Jalan.'); return; }
+  const sItems = o.shipItems.filter(si => si.shipment_id === shipmentId);
+  if (!sItems.length) { alert('Shipment ini belum ada items. Isi qty per size dulu.'); return; }
+  const customer = allDPRows.find(c => c.id === h.customerId);
+  let jubContact = null;
+  if (customer?.jubelioContactId) {
+    try {
+      const { data } = await sb.from('jubelio_contacts').select('contact_name,primary_contact,phone,mobile,billing_address,billing_city,billing_province,billing_post_code,shipping_address,shipping_city,shipping_province,shipping_postcode').eq('contact_id', customer.jubelioContactId).maybeSingle();
+      jubContact = data;
+    } catch(_) {}
+  }
+  const recName = jubContact?.contact_name || h.customerName || '—';
+  const recRef  = jubContact?.primary_contact || customer?.contactPerson || '';
+  const recPhone = jubContact?.phone || jubContact?.mobile || customer?.contactInfo || '';
+  // Prefer shipping_address; fallback billing
+  const shipAddrParts = [
+    jubContact?.shipping_address || jubContact?.billing_address || '',
+    jubContact?.shipping_city || jubContact?.billing_city || '',
+    jubContact?.shipping_province || jubContact?.billing_province || '',
+    jubContact?.shipping_postcode || jubContact?.billing_post_code || ''
+  ].filter(Boolean);
+  const recAddr = shipAddrParts.length ? shipAddrParts.join(', ') : '';
+  // Items
+  const itemById = new Map(o.items.map(i => [i.id, i]));
+  const sItemsResolved = sItems.map(si => ({ ...si, item: itemById.get(si.order_item_id) })).filter(x => x.item);
+  const totalQty = sItemsResolved.reduce((s,x) => s + (parseFloat(x.qty_shipped)||0), 0);
+  // Group by parent
+  const jByItemId = new Map((_whJubelioItemsCache||[]).map(j => [j.item_id, j]));
+  const parents = new Map();
+  for (const x of sItemsResolved) {
+    const j = jByItemId.get(x.item.jubelio_item_id);
+    const gid = j?.item_group_id ?? null;
+    const key = gid != null ? `g:${gid}` : `n:${_whParentName(x.item.item_name)}`;
+    if (!parents.has(key)) parents.set(key, { name: _whParentName(x.item.item_name), rows: [] });
+    parents.get(key).rows.push(x);
+  }
+  for (const p of parents.values()) {
+    p.rows.sort((a,b) => _whSortSizes(_whSizeOf(a.item.item_name,a.item.item_code), _whSizeOf(b.item.item_name,b.item.item_code)));
+  }
+  const monthNames = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+  const fmtTglFull = d => {
+    if (!d) return '—';
+    const x = new Date(d+'T00:00:00');
+    return `${x.getDate()} ${monthNames[x.getMonth()]} ${x.getFullYear()}`;
+  };
+  const itemsBody = [...parents.values()].map(p => {
+    let thumb = null;
+    for (const x of p.rows) { const j = jByItemId.get(x.item.jubelio_item_id); if (j?.thumbnail) { thumb = j.thumbnail; break; } }
+    const totalP = p.rows.reduce((s,x) => s + (parseFloat(x.qty_shipped)||0), 0);
+    const thumbCell = thumb
+      ? `<img src="${thumb.replace(/"/g,'&quot;')}" style="width:56px;height:56px;object-fit:cover;border-radius:4px;border:1px solid #ddd;display:block">`
+      : `<div style="width:56px;height:56px;background:#f0f0f0;border:1px dashed #ccc;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#999;font-size:9px">no img</div>`;
+    const variantRows = p.rows.map(x => {
+      const size = _whSizeOf(x.item.item_name, x.item.item_code);
+      return `<tr>
+        <td class="sz">${size}</td>
+        <td class="sku">${(x.item.item_code||'').replace(/</g,'&lt;')}</td>
+        <td class="r">${parseFloat(x.qty_shipped)||0}</td>
+      </tr>`;
+    }).join('');
+    return `<tbody class="parent-group">
+      <tr class="parent-row">
+        <td rowspan="${p.rows.length+1}" style="width:72px;vertical-align:top;padding:10px 8px">${thumbCell}</td>
+        <td colspan="3">
+          <div style="font-weight:700;font-size:13px">${p.name.replace(/</g,'&lt;')}</div>
+          <div style="font-size:11px;color:#666;margin-top:2px">${p.rows.length} variants · ${totalP} pcs</div>
+        </td>
+      </tr>
+      ${variantRows}
+    </tbody>`;
+  }).join('');
+  const sjNo = ship.shipment_no || `SJ-${shipmentId}`;
+  const w = window.open('', '_blank');
+  if (!w) { alert('Pop-up diblokir browser'); return; }
+  w.document.write(`<!doctype html><html lang="id"><head><meta charset="utf-8">
+    <title>SURAT JALAN ${sjNo} · ${recName}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+      *{box-sizing:border-box}
+      @page{size:A4;margin:0}
+      html,body{margin:0;padding:0;background:#fff;color:#111;font-family:'Inter',system-ui,sans-serif;font-size:12px;line-height:1.45;-webkit-font-smoothing:antialiased}
+      .page{width:210mm;min-height:297mm;margin:0 auto;padding:18mm;display:flex;flex-direction:column}
+      .top{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #111;padding-bottom:14px;margin-bottom:20px}
+      .issuer{max-width:420px}
+      .issuer h2{margin:0 0 4px;font-size:14px;font-weight:700}
+      .issuer p{margin:0;font-size:10.5px;color:#333;line-height:1.45}
+      .doc-meta{text-align:right}
+      .doc-meta h1{margin:0;font-family:'Space Mono',monospace;font-size:22px;letter-spacing:0.08em;color:#111;font-weight:700}
+      .doc-meta .label{font-family:'Space Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:#666;margin-top:6px}
+      .doc-meta .val{font-family:'Space Mono',monospace;font-size:12px;font-weight:700;color:#111;margin-top:2px}
+      .recipient{margin-bottom:14px;padding:12px 16px;background:#f7f6f0;border-radius:6px}
+      .recipient .lbl{font-family:'Space Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:#666;margin-bottom:3px}
+      .recipient .name{font-size:16px;font-weight:700;color:#111}
+      .recipient .sub{font-size:11px;color:#555;margin-top:2px}
+      .courier-info{margin-bottom:14px;padding:10px 14px;background:#eef0f8;border:1px solid #c9bdf0;border-radius:6px;display:flex;gap:24px;font-size:11px;flex-wrap:wrap}
+      .courier-info .ci-lbl{font-family:'Space Mono',monospace;font-size:9px;color:#666;text-transform:uppercase;letter-spacing:0.1em}
+      .courier-info .ci-val{font-family:'Space Mono',monospace;font-size:12px;font-weight:700;color:#111;margin-left:6px}
+      table.lampiran{width:100%;border-collapse:collapse;font-size:12px}
+      table.lampiran thead th{font-family:'Space Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:#666;font-weight:700;text-align:left;padding:8px 10px;border-bottom:2px solid #111;background:#fafafa}
+      table.lampiran thead th.r{text-align:right}
+      table.lampiran tbody.parent-group{break-inside:avoid}
+      table.lampiran tr.parent-row td{background:#f7f6f0;padding:10px 12px;border-top:1px solid #ddd;border-bottom:1px solid #ddd}
+      table.lampiran td{padding:6px 10px;border-bottom:1px solid #eee;font-size:12px}
+      table.lampiran td.sz{font-family:'Space Mono',monospace;font-weight:700;width:50px}
+      table.lampiran td.sku{font-family:'Space Mono',monospace;font-size:10px;color:#666}
+      table.lampiran td.r{text-align:right;font-family:'Space Mono',monospace}
+      .sig-row{display:flex;justify-content:space-between;margin-top:auto;padding-top:30px;gap:40px}
+      .sig{flex:1;text-align:center}
+      .sig .company{font-weight:600;font-size:11.5px;margin-bottom:4px}
+      .sig .gap{height:72px}
+      .sig .name{border-top:1px solid #111;padding-top:5px;font-weight:600;font-size:11.5px}
+      .sig .role{font-size:10.5px;color:#555;margin-top:2px}
+      footer{margin-top:18px;padding-top:12px;border-top:1px solid #e5e5e5;font-size:9px;color:#999;text-align:center;font-family:'Space Mono',monospace;letter-spacing:0.05em}
+    </style></head>
+    <body>
+      <div class="page">
+        <div class="top">
+          <div class="issuer">
+            <h2>PT Sandang Dunia Yuwana</h2>
+            <p>Jl. Wahid Hasyim No. 10D RT.002 RW.007<br>Kebon Sirih, Menteng, Jakarta Pusat</p>
+          </div>
+          <div class="doc-meta">
+            <h1>SURAT JALAN</h1>
+            <div class="label">No. SJ</div>
+            <div class="val">${sjNo.replace(/</g,'&lt;')}</div>
+            <div class="label">Tanggal Kirim</div>
+            <div class="val">${fmtTglFull(ship.ship_date)}</div>
+          </div>
+        </div>
+        <div class="recipient">
+          <div class="lbl">Dikirim kepada</div>
+          <div class="name">${recRef ? `${recRef.replace(/</g,'&lt;')} — ${recName.replace(/</g,'&lt;')}` : recName.replace(/</g,'&lt;')}</div>
+          ${recPhone?`<div class="sub">📞 ${recPhone.replace(/</g,'&lt;')}</div>`:''}
+          ${recAddr?`<div class="sub">📍 ${recAddr.replace(/</g,'&lt;')}</div>`:''}
+        </div>
+        ${(ship.awb_no || ship.courier) ? `<div class="courier-info">
+          ${ship.courier?`<div><span class="ci-lbl">Courier</span><span class="ci-val">${ship.courier.replace(/</g,'&lt;')}</span></div>`:''}
+          ${ship.awb_no?`<div><span class="ci-lbl">AWB / Resi</span><span class="ci-val">${ship.awb_no.replace(/</g,'&lt;')}</span></div>`:''}
+        </div>` : ''}
+        <table class="lampiran">
+          <thead><tr>
+            <th style="width:72px">Foto</th>
+            <th>Size</th>
+            <th>SKU</th>
+            <th class="r">Qty</th>
+          </tr></thead>
+          ${itemsBody}
+          <tbody><tr>
+            <td style="padding:14px 10px;border-top:2px solid #111"></td>
+            <td colspan="2" style="padding:14px 10px;border-top:2px solid #111;font-weight:700">TOTAL</td>
+            <td class="r" style="padding:14px 10px;border-top:2px solid #111;font-weight:700">${totalQty} pcs</td>
+          </tr></tbody>
+        </table>
+        ${ship.notes?`<div style="margin-top:14px;padding:10px 14px;background:#fbf9f0;border-left:4px solid #d4af37;font-size:11px;font-style:italic;color:#333">Catatan: ${ship.notes.replace(/</g,'&lt;')}</div>`:''}
+        <div class="sig-row">
+          <div class="sig">
+            <div class="company">Pengirim</div>
+            <div class="gap"></div>
+            <div class="name">PT Sandang Dunia Yuwana</div>
+            <div class="role">Tanda tangan & cap</div>
+          </div>
+          <div class="sig">
+            <div class="company">Penerima</div>
+            <div class="gap"></div>
+            <div class="name">${recName.replace(/</g,'&lt;')}</div>
+            <div class="role">Tanda tangan & cap</div>
+          </div>
+        </div>
+        <footer>Surat Jalan ini menjadi bukti serah-terima barang · Mohon ditandatangani penerima dan dikembalikan satu rangkap</footer>
+      </div>
+      <script>setTimeout(()=>window.print(),500);<\/script>
+    </body></html>`);
+  w.document.close();
+}
+
 // ── Customer Purchase Order generator ──
 // PDF Purchase Order dari Customer ke PT Sandang Dunia Yuwana. Karena
 // customer wholesale kebanyakan bukan corporate, kita buatin draftnya
@@ -35180,17 +35523,14 @@ async function saveWholesale() {
     dp_pct: (plan.milestones?.[0]?.pct) || 30,
     pic: document.getElementById('wh-h-pic')?.value.trim() || null,
     notes: document.getElementById('wh-h-notes')?.value.trim() || null,
-    awb_no: document.getElementById('wh-ship-awb')?.value.trim() || null,
-    courier: document.getElementById('wh-ship-courier')?.value.trim() || null,
-    shipped_date: document.getElementById('wh-ship-date')?.value || null,
     jubelio_so_no: document.getElementById('wh-jubelio-so')?.value.trim() || null,
     updated_at: new Date().toISOString(),
     updated_by: currentUser,
   };
-  // Auto-progress status based on filled fields
+  // Auto-progress status based on filled fields (shipments handled separately)
   let nextStatus = h.status;
   if (payload.jubelio_so_no) nextStatus = 'done';
-  else if (payload.awb_no || payload.shipped_date) nextStatus = 'shipped';
+  else if ((o.shipments||[]).some(s => s.ship_date)) nextStatus = 'shipped';
   payload.status = nextStatus;
 
   if (h.id === 'new') {
