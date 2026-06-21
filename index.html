@@ -239,8 +239,8 @@
         <div class="home-grid" style="margin-bottom:1.5rem">
           <div class="tool-card" onclick="showPage('wholesale',null)"><span class="tc-icon">🤝</span><div class="tc-name">Wholesale Orders</div><div class="tc-desc">Manage flow 9-step wholesale: intake order, batch ke produksi, DP, kirim, sampai sync Jubelio.</div></div>
           <div class="tool-card" onclick="showPage('popupbooth',null)"><span class="tc-icon">🛍️</span><div class="tc-name">Pop Up Booth</div><div class="tc-desc">Track event pop-up booth — manpower, stok, penjualan, dan reinbound.</div></div>
-          <div class="tool-card" onclick="showPage('txmap',null)"><span class="tc-icon">🗂️</span><div class="tc-name">Transaction Mapping</div><div class="tc-desc">Map transaksi non-Gudang Bintaro/Marte ke Wholesale, Consignment, Pop Up Booth, atau Internal Purchase. Bulk-edit.</div></div>
-          <div class="tool-card" onclick="showPage('intpurchase',null)"><span class="tc-icon">💳</span><div class="tc-name">Internal Purchase</div><div class="tc-desc">Transaksi yang di-map ke Internal Purchase + bukti transfer dari staff. Lacak pelunasan pembelian internal.</div></div>
+          <div class="tool-card" onclick="showPage('txmap',null)"><span class="tc-icon">🗂️</span><div class="tc-name">Transaction Mapping</div><div class="tc-desc">Map transaksi non-Gudang Bintaro/Marte ke Wholesale, Consignment, Pop Up Booth, atau Manual Purchase. Bulk-edit.</div></div>
+          <div class="tool-card" onclick="showPage('manualpurchase',null)"><span class="tc-icon">💳</span><div class="tc-name">Manual Purchase</div><div class="tc-desc">Pembelian manual ke customer/reseller — create order, generate invoice, surat jalan. Stock dari Gudang Bintaro + Penerimaan Barang.</div></div>
         </div>
 
         <div class="sb-label" style="margin-bottom:0.6rem">Purchasing</div>
@@ -2808,7 +2808,7 @@
               <option>Wholesale</option>
               <option>Consignment</option>
               <option>Pop Up Booth</option>
-              <option>Internal Purchase</option>
+              <option>Manual Purchase</option>
             </select>
           </div>
           <div class="fg" style="min-width:200px;flex:1;margin:0"><label style="font-size:11px">Cari (SO, customer, project ref...)</label>
@@ -2829,7 +2829,7 @@
           <option>Wholesale</option>
           <option>Consignment</option>
           <option>Pop Up Booth</option>
-          <option>Internal Purchase</option>
+          <option>Manual Purchase</option>
         </select>
         <label style="font-size:11px;color:var(--g600);margin-left:6px">Ref:</label>
         <select id="tx-bulk-project-ref" style="padding:5px 10px;font-size:12px;border:1px solid var(--g100);border-radius:4px;background:var(--white);min-width:220px">
@@ -2878,60 +2878,65 @@
       <div id="tx-pagination" style="display:flex;align-items:center;gap:10px;padding:12px 0;justify-content:center"></div>
     </div>
 
-    <!-- INTERNAL PURCHASE -->
-    <div class="page" id="page-intpurchase">
-      <div class="page-header">
-        <div><div class="page-title">Internal Purchase</div><div class="page-sub">Transaksi yang di-map ke kategori "Internal Purchase" di Transaction Mapping — lengkapi bukti transfer di sini.</div></div>
-      </div>
-
-      <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
-        <div class="stat-card"><div class="stat-num" id="ip-s-total">—</div><div class="stat-lbl">Total Tx</div></div>
-        <div class="stat-card"><div class="stat-num" id="ip-s-pending">—</div><div class="stat-lbl">Belum Ada Bukti</div></div>
-        <div class="stat-card"><div class="stat-num" id="ip-s-done">—</div><div class="stat-lbl">Lengkap</div></div>
-        <div class="stat-card"><div class="stat-num" id="ip-s-amount">—</div><div class="stat-lbl">Total Nilai</div></div>
-      </div>
-
-      <div class="form-card" style="margin-bottom:1.25rem;padding:14px 16px">
-        <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
-          <div class="fg" style="min-width:140px;margin:0"><label style="font-size:11px">Dari</label><input type="date" id="ip-from" onchange="loadInternalPurchase()"></div>
-          <div class="fg" style="min-width:140px;margin:0"><label style="font-size:11px">Sampai</label><input type="date" id="ip-to" onchange="loadInternalPurchase()"></div>
-          <div class="fg" style="min-width:140px;margin:0"><label style="font-size:11px">Filter Bukti</label>
-            <select id="ip-fil-proof" onchange="loadInternalPurchase()">
-              <option value="">Semua</option>
-              <option value="missing">Belum ada bukti</option>
-              <option value="filled">Sudah ada bukti</option>
-            </select>
+    <!-- MANUAL PURCHASE -->
+    <div class="page" id="page-manualpurchase">
+      <!-- LIST VIEW -->
+      <div id="mp-list-view">
+        <div class="page-header">
+          <div>
+            <div class="page-title">Manual Purchase</div>
+            <div class="page-sub">Pembelian manual ke customer/reseller — order, invoice, surat jalan, payment tracking.</div>
           </div>
-          <div class="fg" style="min-width:200px;flex:1;margin:0"><label style="font-size:11px">Cari (SO no, pembeli, customer...)</label>
-            <input type="text" id="ip-search" placeholder="SO-XXX / nama pembeli" oninput="loadInternalPurchase()">
-          </div>
-          <button class="btn-ghost" style="padding:7px 12px;font-size:12px" onclick="clearInternalPurchaseFilters()">✕ Reset</button>
+          <button class="btn-primary" onclick="openManualPurchaseDetail('new')">+ Tambah Order</button>
         </div>
+        <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
+          <div class="stat-card"><div class="stat-num" id="mp-s-total">—</div><div class="stat-lbl">Total Order</div></div>
+          <div class="stat-card warn"><div class="stat-num" id="mp-s-outstanding">—</div><div class="stat-lbl">Outstanding</div></div>
+          <div class="stat-card info"><div class="stat-num" id="mp-s-due">—</div><div class="stat-lbl">Total Due</div></div>
+          <div class="stat-card success"><div class="stat-num" id="mp-s-received">—</div><div class="stat-lbl">Total Received</div></div>
+        </div>
+        <div class="filter-panel" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:1rem">
+          <div class="fg"><label>Brand</label><select id="mp-f-brand" onchange="applyMPFilter()">
+            <option value="">Semua</option>
+            <option value="SDY">SDY</option>
+            <option value="Lagaa">Lagaa</option>
+            <option value="Marte">Marte</option>
+          </select></div>
+          <div class="fg"><label>Status</label><select id="mp-f-status" onchange="applyMPFilter()">
+            <option value="">Semua</option>
+            <option value="draft">Draft</option>
+            <option value="sent">Sent</option>
+            <option value="partial">Partial Paid</option>
+            <option value="paid">Paid</option>
+            <option value="shipped">Shipped</option>
+            <option value="done">Done</option>
+            <option value="canceled">Canceled</option>
+          </select></div>
+          <div class="fg"><label>Invoice Category</label><select id="mp-f-category" onchange="applyMPFilter()">
+            <option value="">Semua</option>
+            <option>Penjualan Merchandise Retail</option>
+            <option>Reseller</option>
+            <option>Project Merchandise</option>
+            <option>Event &amp; Activation</option>
+            <option>Production &amp; Service Fee</option>
+            <option>Royalty / Revenue Share</option>
+            <option>Lainnya</option>
+          </select></div>
+          <div class="fg"><label>Cari</label><input type="text" id="mp-f-q" placeholder="Order ID / customer / requestor..." oninput="applyMPFilter()"></div>
+        </div>
+        <div class="table-toolbar">
+          <button class="btn-refresh" onclick="loadManualPurchase()">↻ Refresh</button>
+          <div class="tcount" id="mp-tcount">— entri</div>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr>
+            <th>Order ID</th><th>Brand</th><th>Billed To</th><th>Category</th><th>Date</th><th>Items</th><th>Grand Total</th><th>Due</th><th>Status</th><th></th>
+          </tr></thead>
+          <tbody id="mp-tbody"><tr><td class="empty-td" colspan="10">Memuat...</td></tr></tbody>
+        </table></div>
       </div>
-
-      <div class="table-toolbar">
-        <button class="btn-refresh" onclick="loadInternalPurchase()">↻ Refresh</button>
-        <div id="ip-tcount" style="margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--g400)">— entri</div>
-      </div>
-
-      <div class="table-wrap" style="overflow-x:auto">
-        <table>
-          <thead>
-            <tr>
-              <th style="min-width:110px">SO No</th>
-              <th style="white-space:nowrap">Tx Date</th>
-              <th>Pembeli (Ref)</th>
-              <th>Customer Jubelio</th>
-              <th style="text-align:right">Sub Total</th>
-              <th>Status</th>
-              <th style="min-width:240px">Bukti Transfer</th>
-              <th>Jubelio Note</th>
-              <th>Mapped At</th>
-            </tr>
-          </thead>
-          <tbody id="ipTableBody"><tr><td class="empty-td" colspan="9">Klik "Refresh" untuk memuat data.</td></tr></tbody>
-        </table>
-      </div>
+      <!-- DETAIL VIEW -->
+      <div id="mp-detail-view" style="display:none"></div>
     </div>
 
     <!-- INVENTORY TRANSFER (shared page for TRFO + TRFI) -->
@@ -5275,6 +5280,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260615ca"></script>
+<script src="app.js?v=20260615cb"></script>
 </body>
 </html>

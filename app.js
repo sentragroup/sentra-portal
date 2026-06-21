@@ -161,7 +161,7 @@ function enterApp(user, freshLogin) {
   // Restore page: prefer URL hash, fall back to sessionStorage
   let _pg = location.hash.slice(1).split('/')[0];
   if (!_pg) _pg = sessionStorage.getItem('snt_page') || '';
-  const _pages = ['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','vendormaster','rnd','popupbooth','activitylog','mesign','po','stockmovement','productmap','productdev','collections','designermaster','dsgworkflow','warehousekpi','stockadjmgmt','returnreason','invcheck','salesperf','reminders','announcements','marte','royalty','income','contentplan','adsmgmt','mktactivation','publication','photoshoot','kolmgmt','txmap','sampling','arreceivables'];
+  const _pages = ['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','vendormaster','rnd','popupbooth','activitylog','mesign','po','stockmovement','productmap','productdev','collections','designermaster','dsgworkflow','warehousekpi','stockadjmgmt','returnreason','invcheck','salesperf','reminders','announcements','marte','royalty','income','contentplan','adsmgmt','mktactivation','publication','photoshoot','kolmgmt','txmap','sampling','arreceivables','manualpurchase'];
   if (_pages.includes(_pg))
     showPage(_pg, document.getElementById('nav-'+_pg));
 }
@@ -277,7 +277,7 @@ function showPage(name, el) {
   document.getElementById("page-"+_pageId).classList.add("active");
   if (el) el.classList.add("active");
   const _c = document.querySelector('.content'); if (_c) _c.scrollTop = 0;
-  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",sampling:"Sampling",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",mktplan:"Marketing Planning",videoprod:"Video Production",txmap:"Transaction Mapping",intpurchase:"Internal Purchase",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)",vendormaster:"Vendor Master",rnd:"R&D Product",koldb:"KOL Database",outbound:"Outbond Request",meetingnotes:"Meeting Notes",ipreports:"IP Reports",cronlogs:"Cron Logs",wholesale:"Wholesale Orders",arreceivables:"Account Receivables"};
+  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",sampling:"Sampling",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",mktplan:"Marketing Planning",videoprod:"Video Production",txmap:"Transaction Mapping",manualpurchase:"Manual Purchase",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)",vendormaster:"Vendor Master",rnd:"R&D Product",koldb:"KOL Database",outbound:"Outbond Request",meetingnotes:"Meeting Notes",ipreports:"IP Reports",cronlogs:"Cron Logs",wholesale:"Wholesale Orders",arreceivables:"Account Receivables"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -328,15 +328,7 @@ function showPage(name, el) {
     if(_te && !_te.value) _te.value=_to;
     loadTxMap();
   }
-  if (name==="intpurchase") {
-    // Default date range: last 90 days (internal purchases are lower volume)
-    const _now=new Date(), _to=_now.toISOString().slice(0,10);
-    const _fr=new Date(_now-90*864e5).toISOString().slice(0,10);
-    const _fe=document.getElementById('ip-from'), _te=document.getElementById('ip-to');
-    if(_fe && !_fe.value) _fe.value=_fr;
-    if(_te && !_te.value) _te.value=_to;
-    loadInternalPurchase();
-  }
+  if (name==="manualpurchase") loadManualPurchase();
   if (name==="invtransferout" || name==="invtransferin" || name==="invtransfer") {
     // Default: last 90 days (transfers are lower-volume than sales)
     const _now=new Date(), _to=_now.toISOString().slice(0,10);
@@ -25803,7 +25795,7 @@ async function saveKolEdit(id) {
 // Supports bulk-edit: select multiple rows, set category + project ref once.
 
 const TX_EXCLUDE_LOCATIONS = ['Gudang Bintaro', 'Gudang Marte'];
-const TX_CATEGORIES = ['Wholesale', 'Consignment', 'Pop Up Booth', 'Internal Purchase'];
+const TX_CATEGORIES = ['Wholesale', 'Consignment', 'Pop Up Booth', 'Manual Purchase'];
 let _txRows = [];               // current page rows with mapping merged in
 let _txTotalCount = 0;
 let _txPage = 0;
@@ -25841,8 +25833,8 @@ function _txRefSelectHTML(rowId, category, currentValue) {
   if (!category) {
     return `<select disabled style="width:100%;padding:4px 6px;font-size:11px;border:1px solid var(--g100);border-radius:3px;background:var(--off);color:var(--g400)"><option>— pilih category dulu —</option></select>`;
   }
-  // Internal Purchase doesn't have a lookup table — free-text input (buyer name)
-  if (category === 'Internal Purchase') {
+  // Manual Purchase doesn't have a lookup table — free-text input (buyer name)
+  if (category === 'Manual Purchase') {
     return `<input type="text" value="${_txEsc(currentValue||'')}" placeholder="Nama pembeli / staff" style="width:100%;padding:4px 6px;font-size:11px;border:1px solid var(--g100);border-radius:3px;background:var(--white)" onblur="updateTxField(${rowId},'project_ref',this.value)">`;
   }
   const opts = _txRefOptions(category);
@@ -25869,9 +25861,9 @@ function _txUpdateBulkRefOptions() {
     sel.disabled = true;
     return;
   }
-  // Internal Purchase ref is free-text per row, not a lookup. Disable bulk ref.
-  if (cat === 'Internal Purchase') {
-    sel.innerHTML = `<option value="">— Internal Purchase: isi ref per row —</option>`;
+  // Manual Purchase ref is free-text per row, not a lookup. Disable bulk ref.
+  if (cat === 'Manual Purchase') {
+    sel.innerHTML = `<option value="">— Manual Purchase: isi ref per row —</option>`;
     sel.disabled = true;
     return;
   }
@@ -26211,142 +26203,6 @@ async function clearTxBulkClear() {
   } catch(e) { alert('Gagal: '+(e.message||e)); }
 }
 
-// ── INTERNAL PURCHASE ────────────────────────────────────────────────────────
-// Shows only transactions mapped to category 'Internal Purchase' from the
-// Transaction Mapping module. Each row exposes a bukti-transfer URL input
-// stored on transaction_mappings.transfer_proof_url so finance can verify
-// the staff payment matches the Jubelio order amount.
-
-let _ipRows = []; // {salesorder_id, salesorder_no, ..., _mapping}
-
-async function loadInternalPurchase() {
-  const tbody = document.getElementById('ipTableBody');
-  if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="9">Memuat...</td></tr>`;
-  const from = document.getElementById('ip-from')?.value || '';
-  const to   = document.getElementById('ip-to')?.value || '';
-  const proofFil = document.getElementById('ip-fil-proof')?.value || '';
-  const search = (document.getElementById('ip-search')?.value || '').trim().toLowerCase();
-  try {
-    // 1. Mappings tagged Internal Purchase
-    let mq = sb.from('transaction_mappings').select('*').eq('category', 'Internal Purchase');
-    const {data: maps, error: mErr} = await mq;
-    if (mErr) throw mErr;
-    if (!maps || !maps.length) {
-      tbody.innerHTML = `<tr><td class="empty-td" colspan="9">Belum ada transaksi yang di-map ke Internal Purchase. Map di modul Transaction Mapping dulu.</td></tr>`;
-      _ipRows = [];
-      _renderIPStats();
-      const tc=document.getElementById('ip-tcount'); if(tc) tc.textContent = '0 entri';
-      return;
-    }
-    const orderIds = maps.map(m => m.salesorder_id);
-    // 2. Fetch the matching sales orders (chunked)
-    const ordRows = [];
-    for (let i = 0; i < orderIds.length; i += 500) {
-      const chunk = orderIds.slice(i, i+500);
-      let q = sb.from('jubelio_sales_orders').select(
-        'salesorder_id,salesorder_no,transaction_date,customer_name,shipping_full_name,wms_status,sub_total,is_canceled,note,location_name'
-      ).in('salesorder_id', chunk);
-      if (from) q = q.gte('transaction_date', from);
-      if (to)   q = q.lte('transaction_date', to + 'T23:59:59');
-      const {data} = await q;
-      ordRows.push(...(data||[]));
-    }
-    const ordById = new Map(ordRows.map(o => [o.salesorder_id, o]));
-    // 3. Merge: only keep rows whose order survived the date filter
-    let merged = maps
-      .filter(m => ordById.has(m.salesorder_id))
-      .map(m => ({ ...ordById.get(m.salesorder_id), _mapping: m }))
-      .sort((a, b) => (b.transaction_date||'').localeCompare(a.transaction_date||''));
-    // 4. Apply proof filter + search
-    if (proofFil === 'missing') merged = merged.filter(r => !r._mapping?.transfer_proof_url);
-    else if (proofFil === 'filled') merged = merged.filter(r => !!r._mapping?.transfer_proof_url);
-    if (search) {
-      merged = merged.filter(r =>
-        (r.salesorder_no||'').toLowerCase().includes(search) ||
-        (r._mapping?.project_ref||'').toLowerCase().includes(search) ||
-        (r.customer_name||'').toLowerCase().includes(search) ||
-        (r.shipping_full_name||'').toLowerCase().includes(search)
-      );
-    }
-    _ipRows = merged;
-    _renderIPTable();
-    _renderIPStats();
-  } catch (e) {
-    console.error('loadInternalPurchase:', e);
-    if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="9">Gagal: ${e.message||e}</td></tr>`;
-  }
-}
-
-function _renderIPStats() {
-  const total = _ipRows.length;
-  const pending = _ipRows.filter(r => !r._mapping?.transfer_proof_url).length;
-  const done = total - pending;
-  const sum = _ipRows.reduce((s, r) => s + Number(r.sub_total || 0), 0);
-  const tEl = document.getElementById('ip-s-total');   if (tEl) tEl.textContent = total;
-  const pEl = document.getElementById('ip-s-pending'); if (pEl) pEl.textContent = pending;
-  const dEl = document.getElementById('ip-s-done');    if (dEl) dEl.textContent = done;
-  const aEl = document.getElementById('ip-s-amount');  if (aEl) aEl.textContent = _txRp(sum);
-}
-
-function _renderIPTable() {
-  const tbody = document.getElementById('ipTableBody');
-  if (!tbody) return;
-  const tc = document.getElementById('ip-tcount');
-  if (!_ipRows.length) {
-    tbody.innerHTML = `<tr><td class="empty-td" colspan="9">Tidak ada data sesuai filter.</td></tr>`;
-    if (tc) tc.textContent = '0 entri';
-    return;
-  }
-  if (tc) tc.textContent = `${_ipRows.length} entri`;
-  tbody.innerHTML = _ipRows.map(r => {
-    const m = r._mapping || {};
-    const proof = m.transfer_proof_url || '';
-    const isCanceled = r.is_canceled || (r.wms_status === 'CANCELED');
-    const jubNote = (r.note || '').replace(/\s+/g, ' ').trim();
-    const mappedAt = m.mapped_at ? new Date(m.mapped_at).toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'2-digit'}) : '—';
-    const proofLink = proof
-      ? `<a href="${_txEsc(proof)}" target="_blank" style="font-size:10px;color:#3C3489;text-decoration:underline">↗ Lihat</a>`
-      : `<span style="font-size:10px;color:#c0392b">⚠ Belum ada</span>`;
-    return `<tr>
-      <td class="mono" style="font-size:11px;font-weight:600">${_txEsc(r.salesorder_no || ('#'+r.salesorder_id))}</td>
-      <td class="mono" style="font-size:11px;white-space:nowrap">${_txDate(r.transaction_date)}</td>
-      <td style="font-size:12px;font-weight:600">${_txEsc(m.project_ref || '—')}</td>
-      <td style="font-size:11px;color:var(--g600)">${_txEsc(r.customer_name || r.shipping_full_name || '—')}</td>
-      <td class="mono" style="text-align:right;font-size:11px;white-space:nowrap">${_txRp(r.sub_total)}</td>
-      <td><span class="pill ${isCanceled ? 'p-expired' : 'p-info'}" style="font-size:10px">${_txEsc(r.wms_status || '—')}</span></td>
-      <td>
-        <div style="display:flex;gap:6px;align-items:center">
-          <input type="url" value="${_txEsc(proof)}" placeholder="https:// (paste Drive / WhatsApp / photo link)" style="flex:1;padding:4px 6px;font-size:11px;border:1px solid var(--g100);border-radius:3px;background:var(--white)" onblur="saveIPProof(${r.salesorder_id}, this.value)">
-          ${proofLink}
-        </div>
-      </td>
-      <td style="font-size:11px;color:var(--g600);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_txEsc(jubNote)}">${jubNote || '<span style="color:var(--g400)">—</span>'}</td>
-      <td style="font-size:10px;color:var(--g400);white-space:nowrap">${mappedAt}</td>
-    </tr>`;
-  }).join('');
-}
-
-async function saveIPProof(salesorderId, url) {
-  const val = (url || '').trim() || null;
-  try {
-    const {error} = await sb.from('transaction_mappings').update({
-      transfer_proof_url: val,
-      last_updated: new Date().toISOString(),
-      last_updated_by: currentUser,
-    }).eq('salesorder_id', salesorderId);
-    if (error) throw error;
-    const row = _ipRows.find(r => r.salesorder_id === salesorderId);
-    if (row) row._mapping = { ...(row._mapping||{}), transfer_proof_url: val };
-    _renderIPTable();
-    _renderIPStats();
-  } catch (e) { alert('Gagal save bukti: ' + (e.message||e)); }
-}
-
-function clearInternalPurchaseFilters() {
-  ['ip-from','ip-to','ip-search'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
-  const pf = document.getElementById('ip-fil-proof'); if (pf) pf.value = '';
-  loadInternalPurchase();
-}
 
 // ── 8. INVENTORY TRANSFER ──
 // Lists jubelio_transfer_outs (TRFO) with item count + total qty derived from
@@ -35620,6 +35476,307 @@ async function deleteWholesale(id) {
   const { error } = await sb.from('wholesale_customer_orders').delete().eq('id', id);
   if (error) { alert('Gagal: '+error.message); return; }
   loadWholesale();
+}
+
+// ── MANUAL PURCHASE ─────────────────────────────────────────────────────
+// Module pembelian manual ke customer/reseller. Mirip wholesale tapi tanpa
+// production allocation (stock dari Bintaro + Penerimaan Barang saja),
+// invoice + surat jalan, payment tracker = received payments log (free-form
+// partial payments), connect ke Account Receivable.
+const MP_STOCK_LOCATIONS = ['Gudang Bintaro','Gudang Penerimaan Barang'];
+const MP_INVOICE_CATEGORIES = [
+  'Penjualan Merchandise Retail','Reseller','Project Merchandise',
+  'Event & Activation','Production & Service Fee','Royalty / Revenue Share','Lainnya'
+];
+let _mpurcRows = [];
+let _mpurcCurrent = null;
+let _mpurcStockCache = null;  // jubelio_inventory_by_location di 2 lokasi tsb
+
+function mapMP(r) {
+  return {
+    id: r.id, invoiceNo: r.invoice_no||'',
+    lineBrand: r.line_brand||'SDY',
+    requestorName: r.requestor_name||'',
+    invoiceCategory: r.invoice_category||'',
+    billedToName: r.billed_to_name||'', billedToAddress: r.billed_to_address||'',
+    clientRepName: r.client_rep_name||'', clientRepEmail: r.client_rep_email||'',
+    notes: r.notes||'', paymentTerm: r.payment_term||'',
+    orderDate: r.order_date, invoiceDate: r.invoice_date, dueDate: r.due_date,
+    status: r.status||'draft',
+    grandTotal: parseFloat(r.grand_total)||0,
+    totalReceived: parseFloat(r.total_received)||0,
+    paymentDue: parseFloat(r.payment_due)||0,
+    jubelioSoNo: r.jubelio_so_no||'',
+    pic: r.pic||'',
+    createdBy: r.created_by||'', createdAt: r.created_at,
+  };
+}
+
+function _mpurcGenId() {
+  const d = new Date().toISOString().slice(0,10).replace(/-/g,'');
+  return `MP-${d}-${String(Math.floor(Math.random()*9000)+1000)}`;
+}
+function _mpurcAutoInvoiceNo(id) {
+  if (!id || id === 'new') return 'INV-MP-AUTO (assigned setelah save)';
+  const short = (id||'').replace(/^MP-/,'').replace(/-/g,'');
+  return `INV-MP-${short}`;
+}
+
+async function loadManualPurchase() {
+  const tbody = document.getElementById('mp-tbody');
+  if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="10">Memuat...</td></tr>`;
+  try {
+    const { data, error } = await sb.from('manual_purchase_orders').select('*').order('order_date',{ascending:false}).order('created_at',{ascending:false});
+    if (error) throw error;
+    _mpurcRows = (data||[]).map(mapMP);
+    computeMPStats(_mpurcRows);
+    applyMPFilter();
+  } catch(e) {
+    if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="10">Gagal: ${e.message}</td></tr>`;
+  }
+}
+
+function computeMPStats(rows) {
+  const fmtRp = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
+  const outstanding = rows.filter(r => !['paid','done','canceled'].includes(r.status));
+  document.getElementById('mp-s-total').textContent = rows.length;
+  document.getElementById('mp-s-outstanding').textContent = outstanding.length;
+  document.getElementById('mp-s-due').textContent = fmtRp(outstanding.reduce((s,r) => s+r.paymentDue, 0));
+  document.getElementById('mp-s-received').textContent = fmtRp(rows.reduce((s,r) => s+r.totalReceived, 0));
+}
+
+function applyMPFilter() {
+  const fBrand = document.getElementById('mp-f-brand')?.value || '';
+  const fStatus = document.getElementById('mp-f-status')?.value || '';
+  const fCat = document.getElementById('mp-f-category')?.value || '';
+  const q = (document.getElementById('mp-f-q')?.value||'').toLowerCase();
+  let rows = _mpurcRows.filter(r => {
+    if (fBrand && r.lineBrand !== fBrand) return false;
+    if (fStatus && r.status !== fStatus) return false;
+    if (fCat && r.invoiceCategory !== fCat) return false;
+    if (q && !(`${r.id} ${r.billedToName} ${r.requestorName}`.toLowerCase().includes(q))) return false;
+    return true;
+  });
+  renderMPTable(rows);
+}
+
+function renderMPTable(rows) {
+  const fmtRp = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
+  const fmtTgl = d => d ? new Date(d+'T00:00:00').toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'}) : '—';
+  document.getElementById('mp-tcount').textContent = rows.length + ' entri';
+  const tb = document.getElementById('mp-tbody');
+  if (!rows.length) { tb.innerHTML = '<tr><td class="empty-td" colspan="10">Belum ada manual purchase order. Klik <b>+ Tambah Order</b>.</td></tr>'; return; }
+  const STATUS_CLS = { draft:'p-draft', sent:'p-signings', partial:'p-review', paid:'p-active', shipped:'p-signings', done:'p-active', canceled:'p-expired' };
+  tb.innerHTML = rows.map(r => `<tr>
+    <td><span style="font-family:var(--mono);font-size:11px;font-weight:600">${(r.id||'').replace(/</g,'&lt;')}</span></td>
+    <td><span class="pill p-draft" style="font-size:10px">${r.lineBrand}</span></td>
+    <td style="font-size:12px;font-weight:500">${(r.billedToName||'—').replace(/</g,'&lt;')}${r.requestorName?`<div style="font-size:10px;color:var(--g400)">req: ${r.requestorName.replace(/</g,'&lt;')}</div>`:''}</td>
+    <td style="font-size:11px;color:var(--g600)">${(r.invoiceCategory||'—').replace(/</g,'&lt;')}</td>
+    <td style="font-size:11px;font-family:var(--mono);color:var(--g600)">${fmtTgl(r.orderDate)}</td>
+    <td style="text-align:right;font-family:var(--mono);font-size:11px">—</td>
+    <td style="text-align:right;font-family:var(--mono);font-size:12px;font-weight:700">${fmtRp(r.grandTotal)}</td>
+    <td style="text-align:right;font-family:var(--mono);font-size:12px;font-weight:600;color:${r.paymentDue>0?'#c0392b':'#0a7d3a'}">${fmtRp(r.paymentDue)}</td>
+    <td><span class="pill ${STATUS_CLS[r.status]||'p-draft'}" style="font-size:10px">${r.status}</span></td>
+    <td style="white-space:nowrap"><button class="btn-icon" onclick="openManualPurchaseDetail('${r.id}')">Open</button> <button class="btn-icon" style="color:#c0392b" onclick="deleteManualPurchase('${r.id}')">Del</button></td>
+  </tr>`).join('');
+}
+
+async function openManualPurchaseDetail(id) {
+  const listV = document.getElementById('mp-list-view');
+  const detV  = document.getElementById('mp-detail-view');
+  if (!listV || !detV) return;
+  listV.style.display = 'none';
+  detV.style.display = '';
+  detV.innerHTML = `<div style="padding:30px;text-align:center;color:var(--g400)">Memuat detail...</div>`;
+  if (id === 'new') {
+    _mpurcCurrent = {
+      header: { id:'new', lineBrand:'SDY', requestorName:'', invoiceCategory:'',
+        billedToName:'', billedToAddress:'', clientRepName:'', clientRepEmail:'',
+        notes:'', paymentTerm:'', orderDate:new Date().toISOString().slice(0,10),
+        invoiceDate:null, dueDate:null, status:'draft',
+        grandTotal:0, totalReceived:0, paymentDue:0,
+        jubelioSoNo:'', pic:currentUser||'' },
+      items: [], payments: [], shipments: [], shipItems: []
+    };
+  } else {
+    const [hRes, iRes, pRes, sRes] = await Promise.all([
+      sb.from('manual_purchase_orders').select('*').eq('id',id).maybeSingle(),
+      sb.from('manual_purchase_items').select('*').eq('order_id',id).order('id'),
+      sb.from('manual_purchase_received_payments').select('*').eq('order_id',id).order('received_date',{ascending:true,nullsFirst:true}),
+      sb.from('manual_purchase_shipments').select('*').eq('order_id',id).order('ship_date',{ascending:true,nullsFirst:true}),
+    ]);
+    if (!hRes.data) { closeManualPurchaseDetail(); return; }
+    const items = iRes.data || [];
+    const itemIds = items.map(i => i.id);
+    let shipItems = [];
+    if (itemIds.length) {
+      const { data } = await sb.from('manual_purchase_shipment_items').select('*').in('order_item_id', itemIds);
+      shipItems = data || [];
+    }
+    _mpurcCurrent = { header: mapMP(hRes.data), items, payments: pRes.data||[], shipments: sRes.data||[], shipItems };
+  }
+  // Pre-load stock cache (Bintaro + Penerimaan Barang)
+  if (!_mpurcStockCache) {
+    try {
+      _mpurcStockCache = await _fetchAllPages('jubelio_inventory_by_location','item_id,location_name,on_hand,available',
+        q => q.in('location_name', MP_STOCK_LOCATIONS));
+    } catch(_) { _mpurcStockCache = []; }
+  }
+  _mpurcRenderDetail();
+}
+
+function closeManualPurchaseDetail() {
+  _mpurcCurrent = null;
+  const listV = document.getElementById('mp-list-view');
+  const detV = document.getElementById('mp-detail-view');
+  if (listV) listV.style.display = '';
+  if (detV) { detV.style.display = 'none'; detV.innerHTML = ''; }
+  loadManualPurchase();
+}
+
+function _mpurcRenderDetail() {
+  const detV = document.getElementById('mp-detail-view');
+  const o = _mpurcCurrent;
+  if (!detV || !o) return;
+  const h = o.header;
+  const isNew = h.id === 'new';
+  // Preserve active tab across re-renders
+  const activeBtn = detV.querySelector('.tab-btn.active');
+  const activeTab = activeBtn?.id?.replace('mp-tab-','') || 'order';
+  const fmtRp = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
+  // Compute totals from items
+  const items = o.items || [];
+  const subtotal = items.reduce((s,i) => s + (parseFloat(i.subtotal)||0), 0);
+  const totalReceived = (o.payments||[]).reduce((s,p) => s + (parseFloat(p.amount)||0), 0);
+  const paymentDue = subtotal - totalReceived;
+  detV.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+      <div>
+        <button class="btn-ghost" onclick="closeManualPurchaseDetail()" style="font-size:11px;padding:4px 10px;margin-bottom:6px">← Kembali</button>
+        <div style="font-size:22px;font-weight:700">${isNew ? 'Manual Purchase Baru' : (h.id||'').replace(/</g,'&lt;')}</div>
+        <div style="font-size:12px;color:var(--g600);margin-top:2px">${isNew ? 'Isi header + items, lalu Simpan untuk generate Invoice No.' : `Invoice: ${_mpurcAutoInvoiceNo(h.id)} · Status: ${h.status}`}</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button class="btn-primary" onclick="saveManualPurchase()" style="font-size:12px;padding:8px 18px">${isNew?'💾 Simpan':'💾 Update'}</button>
+      </div>
+    </div>
+    <div class="tab-bar" style="margin-bottom:14px">
+      <button class="tab-btn active" id="mp-tab-order" onclick="mpSwitchTab('order',this)">📝 Order & Items</button>
+      <button class="tab-btn" id="mp-tab-pay" onclick="mpSwitchTab('pay',this)">💰 Payments & Shipping</button>
+    </div>
+    <!-- Tab: Order & Items -->
+    <div id="mp-tab-content-order">
+      <div class="form-card" style="margin-bottom:14px">
+        <div class="form-sec">Header</div>
+        <div class="form-grid" style="grid-template-columns:repeat(3,1fr)">
+          <div class="fg"><label>Line Brand <span class="req">*</span></label><select id="mp-h-brand">
+            <option value="SDY" ${h.lineBrand==='SDY'?'selected':''}>SDY</option>
+            <option value="Lagaa" ${h.lineBrand==='Lagaa'?'selected':''}>Lagaa</option>
+            <option value="Marte" ${h.lineBrand==='Marte'?'selected':''}>Marte</option>
+          </select></div>
+          <div class="fg"><label>Requestor Name</label><input type="text" id="mp-h-requestor" value="${(h.requestorName||'').replace(/"/g,'&quot;')}"></div>
+          <div class="fg"><label>Invoice Category</label><select id="mp-h-category">
+            <option value="">— Pilih —</option>
+            ${MP_INVOICE_CATEGORIES.map(c => `<option ${h.invoiceCategory===c?'selected':''}>${c}</option>`).join('')}
+          </select></div>
+          <div class="fg"><label>Order Date</label><input type="date" id="mp-h-orderdate" value="${h.orderDate||''}"></div>
+          <div class="fg"><label>Invoice Date</label><input type="date" id="mp-h-invdate" value="${h.invoiceDate||''}"></div>
+          <div class="fg"><label>Due Date</label><input type="date" id="mp-h-duedate" value="${h.dueDate||''}"></div>
+          <div class="fg" style="position:relative"><label>PIC</label><input type="text" id="mp-h-pic" value="${(h.pic||'').replace(/"/g,'&quot;')}" autocomplete="off"><div class="ac-list" id="ac-mp-pic"></div></div>
+          <div class="fg" style="grid-column:span 2"><label>Payment Term</label><input type="text" id="mp-h-payterm" value="${(h.paymentTerm||'').replace(/"/g,'&quot;')}" placeholder="e.g. DP 50% + Pelunasan H+30, NET 14, dst"></div>
+        </div>
+      </div>
+      <div class="form-card" style="margin-bottom:14px">
+        <div class="form-sec">Billed To</div>
+        <div class="form-grid" style="grid-template-columns:repeat(2,1fr)">
+          <div class="fg full"><label>Legal Entity Name (PT/Yayasan/Perorangan) <span class="req">*</span></label><input type="text" id="mp-h-billedname" value="${(h.billedToName||'').replace(/"/g,'&quot;')}" placeholder="e.g. PT Sumber Jaya"></div>
+          <div class="fg full"><label>Alamat Penagihan</label><textarea id="mp-h-billedaddr" rows="2" placeholder="Alamat lengkap untuk invoice">${(h.billedToAddress||'').replace(/</g,'&lt;')}</textarea></div>
+          <div class="fg"><label>Nama Perwakilan Client</label><input type="text" id="mp-h-clientname" value="${(h.clientRepName||'').replace(/"/g,'&quot;')}"></div>
+          <div class="fg"><label>Email Perwakilan Client</label><input type="email" id="mp-h-clientemail" value="${(h.clientRepEmail||'').replace(/"/g,'&quot;')}" placeholder="Untuk kirim invoice"></div>
+          <div class="fg full"><label>Deskripsi Detail Penagihan (Notes)</label><textarea id="mp-h-notes" rows="3" placeholder="Detail apa yang ditagih, kondisi khusus, dll">${(h.notes||'').replace(/</g,'&lt;')}</textarea></div>
+        </div>
+      </div>
+      ${isNew ? `<div class="form-card" style="background:var(--off);border:1px dashed var(--g200)">
+        <div style="text-align:center;padding:14px;font-size:12px;color:var(--g600)">💾 Simpan order dulu, baru bisa tambah items.</div>
+      </div>` : `<div class="form-card">
+        <div class="form-sec" style="display:flex;justify-content:space-between;align-items:center">
+          <span>Items (${items.length})</span>
+          <span style="font-size:12px;color:var(--g600);font-family:var(--mono)">Grand Total: <b style="font-size:14px;color:var(--black)">${fmtRp(subtotal)}</b></span>
+        </div>
+        <div style="padding:30px;text-align:center;color:var(--g400);font-size:12px;background:var(--off);border-radius:6px">⓿ Items table — coming next phase (SKU picker filter Bintaro+Penerimaan Barang + per-item discount).</div>
+      </div>`}
+    </div>
+    <!-- Tab: Payments & Shipping -->
+    <div id="mp-tab-content-pay" style="display:none">
+      <div class="form-card">
+        <div style="padding:30px;text-align:center;color:var(--g400);font-size:12px">⓿ Payments + Shipments — coming next phase (received payments log + multi-shipments + Invoice/SJ generators).</div>
+      </div>
+    </div>
+  `;
+  setupAC('mp-h-pic','ac-mp-pic',()=>acPics);
+  if (activeTab && activeTab !== 'order') {
+    const btn = document.getElementById('mp-tab-'+activeTab);
+    if (btn) mpSwitchTab(activeTab, btn);
+  }
+}
+
+function mpSwitchTab(tab, btn) {
+  document.querySelectorAll('#mp-detail-view .tab-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  ['order','pay'].forEach(t => {
+    const el = document.getElementById('mp-tab-content-'+t);
+    if (el) el.style.display = t === tab ? '' : 'none';
+  });
+}
+
+async function saveManualPurchase() {
+  const o = _mpurcCurrent; if (!o) return;
+  const h = o.header;
+  const billedName = document.getElementById('mp-h-billedname')?.value.trim();
+  if (!billedName) { alert('Legal Entity Name wajib diisi.'); return; }
+  const orderDate = document.getElementById('mp-h-orderdate')?.value;
+  if (!orderDate) { alert('Order Date wajib diisi.'); return; }
+  const payload = {
+    line_brand: document.getElementById('mp-h-brand')?.value || 'SDY',
+    requestor_name: document.getElementById('mp-h-requestor')?.value.trim() || null,
+    invoice_category: document.getElementById('mp-h-category')?.value || null,
+    billed_to_name: billedName,
+    billed_to_address: document.getElementById('mp-h-billedaddr')?.value.trim() || null,
+    client_rep_name: document.getElementById('mp-h-clientname')?.value.trim() || null,
+    client_rep_email: document.getElementById('mp-h-clientemail')?.value.trim() || null,
+    notes: document.getElementById('mp-h-notes')?.value.trim() || null,
+    payment_term: document.getElementById('mp-h-payterm')?.value.trim() || null,
+    order_date: orderDate,
+    invoice_date: document.getElementById('mp-h-invdate')?.value || null,
+    due_date: document.getElementById('mp-h-duedate')?.value || null,
+    pic: document.getElementById('mp-h-pic')?.value.trim() || null,
+    last_updated: new Date().toISOString(),
+    last_updated_by: currentUser,
+  };
+  if (h.id === 'new') {
+    payload.id = _mpurcGenId();
+    payload.invoice_no = _mpurcAutoInvoiceNo(payload.id);
+    payload.created_by = currentUser;
+    payload.status = 'draft';
+    const { error } = await sb.from('manual_purchase_orders').insert(payload);
+    if (error) { alert('Gagal: '+error.message); return; }
+    setTimeout(() => openManualPurchaseDetail(payload.id), 300);
+  } else {
+    const { error } = await sb.from('manual_purchase_orders').update(payload).eq('id', h.id);
+    if (error) { alert('Gagal: '+error.message); return; }
+    Object.assign(o.header, mapMP({...payload, id: h.id, invoice_no: h.invoiceNo, status: h.status,
+      grand_total: h.grandTotal, total_received: h.totalReceived, payment_due: h.paymentDue,
+      jubelio_so_no: h.jubelioSoNo, created_by: h.createdBy, created_at: h.createdAt}));
+    alert('Tersimpan.');
+    _mpurcRenderDetail();
+  }
+}
+
+async function deleteManualPurchase(id) {
+  if (!confirm('Hapus order ini? Items, payments, shipments akan ikut terhapus.')) return;
+  const { error } = await sb.from('manual_purchase_orders').delete().eq('id', id);
+  if (error) { alert('Gagal: '+error.message); return; }
+  loadManualPurchase();
 }
 
 // ── ACCOUNT RECEIVABLES ─────────────────────────────────────────────────
