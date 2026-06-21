@@ -36389,12 +36389,382 @@ async function _mpurcSaveShipmentEdit(shipmentId) {
   _mpurcRenderDetail();
 }
 
-// ---- PDF generators (stub for now — wire next) ----
-function _mpurcGenInvoicePDF() {
-  alert('Invoice PDF generator — coming next iteration.');
+// ---- PDF generators ----
+function _mpurcInvoiceCSS() {
+  return `
+    *{box-sizing:border-box}
+    @page{size:A4;margin:0}
+    html,body{margin:0;padding:0;background:#fff;color:#111;font-family:'Inter',system-ui,sans-serif;font-size:12px;line-height:1.45;-webkit-font-smoothing:antialiased}
+    .page{width:210mm;min-height:297mm;margin:0 auto;padding:18mm;position:relative;page-break-after:always;display:flex;flex-direction:column}
+    .page:last-of-type{page-break-after:auto}
+    .top{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #111;padding-bottom:14px;margin-bottom:20px}
+    .issuer{max-width:420px}
+    .issuer h2{margin:0 0 4px;font-size:14px;font-weight:700}
+    .issuer p{margin:0;font-size:10.5px;color:#333;line-height:1.45}
+    .doc-meta{text-align:right}
+    .doc-meta h1{margin:0;font-family:'Space Mono',monospace;font-size:22px;letter-spacing:0.08em;color:#111;font-weight:700}
+    .doc-meta .label{font-family:'Space Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:#666;margin-top:6px}
+    .doc-meta .val{font-family:'Space Mono',monospace;font-size:12px;font-weight:700;color:#111;margin-top:2px}
+    .recipient{margin-bottom:18px;padding:12px 16px;background:#f7f6f0;border-radius:6px}
+    .recipient .lbl{font-family:'Space Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:#666;margin-bottom:3px}
+    .recipient .name{font-size:16px;font-weight:700;color:#111}
+    .recipient .sub{font-size:11px;color:#555;margin-top:2px}
+    table.line{width:100%;border-collapse:collapse;margin-bottom:14px}
+    table.line th{font-family:'Space Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:#666;font-weight:700;text-align:left;padding:8px 10px;border-bottom:2px solid #111}
+    table.line th.r{text-align:right}
+    table.line td{padding:10px;border-bottom:1px solid #e5e5e5;vertical-align:top;font-size:12px}
+    table.line td.r{text-align:right;font-family:'Space Mono',monospace}
+    .totals{margin-left:auto;width:50%;margin-bottom:10px}
+    .totals .row{display:flex;justify-content:space-between;padding:6px 0;font-size:12px}
+    .totals .row.lbl{color:#666}
+    .totals .row.total{border-top:2px solid #111;margin-top:4px;padding:10px 0 0;font-size:15px;font-weight:700}
+    .totals .row.total .v{font-family:'Space Mono',monospace}
+    .terbilang{margin:10px 0 12px;padding:9px 14px;background:#fbf9f0;border-left:4px solid #d4af37;font-size:11px;font-style:italic;color:#333}
+    .terbilang b{font-style:normal;color:#111}
+    .payment-info{margin:8px 0 16px;padding:12px 16px;background:#f7f6f0;border:1px solid #e3dfc8;border-radius:6px}
+    .payment-info .pi-title{font-family:'Space Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#666;font-weight:700;margin-bottom:8px}
+    .payment-info .pi-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 24px}
+    .payment-info .pi-grid > div{display:flex;flex-direction:column}
+    .payment-info .pi-lbl{font-family:'Space Mono',monospace;font-size:9px;color:#666;text-transform:uppercase;letter-spacing:0.05em}
+    .payment-info .pi-val{font-family:'Space Mono',monospace;font-size:12px;font-weight:700;color:#111;margin-top:1px}
+    .sig-row{display:flex;justify-content:flex-start;margin-top:auto;padding-top:20px;gap:32px}
+    .sig{width:42%;text-align:center}
+    .sig .company{font-weight:600;font-size:11.5px;margin-bottom:4px}
+    .sig .gap{height:72px}
+    .sig .name{border-top:1px solid #111;padding-top:5px;font-weight:600;font-size:11.5px}
+    .sig .role{font-size:10.5px;color:#555;margin-top:2px}
+    footer{margin-top:16px;padding-top:12px;border-top:1px solid #e5e5e5;font-size:9px;color:#999;text-align:center;font-family:'Space Mono',monospace;letter-spacing:0.05em}
+    table.lampiran{width:100%;border-collapse:collapse;font-size:12px}
+    table.lampiran thead th{font-family:'Space Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:#666;font-weight:700;text-align:left;padding:8px 10px;border-bottom:2px solid #111;background:#fafafa}
+    table.lampiran thead th.r{text-align:right}
+    table.lampiran tbody.parent-group{break-inside:avoid}
+    table.lampiran tr.parent-row td{background:#f7f6f0;padding:10px 12px;border-top:1px solid #ddd;border-bottom:1px solid #ddd}
+    table.lampiran td{padding:6px 10px;border-bottom:1px solid #eee;font-size:12px}
+    table.lampiran td.sz{font-family:'Space Mono',monospace;font-weight:700;width:50px}
+    table.lampiran td.sku{font-family:'Space Mono',monospace;font-size:10px;color:#666}
+    table.lampiran td.r{text-align:right;font-family:'Space Mono',monospace}
+  `;
 }
-function _mpurcGenSuratJalanPDF() {
-  alert('Surat Jalan PDF generator — coming next iteration.');
+
+async function _mpurcGenInvoicePDF() {
+  const o = _mpurcCurrent; if (!o) return;
+  const h = o.header;
+  const items = o.items || [];
+  if (!items.length) { alert('Order belum ada items.'); return; }
+  if (h.id === 'new') { alert('Simpan order dulu.'); return; }
+  if (!h.invoiceDate) { alert('Invoice Date belum di-set. Edit di header form, simpan, lalu generate.'); return; }
+  const fmtRp = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
+  const monthNames = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+  const fmtTgl = d => { if (!d) return '—'; const x = new Date(d+'T00:00:00'); return `${x.getDate()} ${monthNames[x.getMonth()]} ${x.getFullYear()}`; };
+  const subtotal = items.reduce((s,i) => s + (parseFloat(i.subtotal)||0), 0);
+  const totalReceived = (o.payments||[]).reduce((s,p) => s + (parseFloat(p.amount)||0), 0);
+  const paymentDue = subtotal - totalReceived;
+  const totalQty = items.reduce((s,i)=>s+(parseFloat(i.qty)||0),0);
+  const invoiceNo = h.invoiceNo || _mpurcAutoInvoiceNo(h.id);
+  // Group items by parent for lampiran
+  const itemsCache = window.__mpurcItemsCache || new Map();
+  const parents = new Map();
+  for (const it of items) {
+    const j = itemsCache.get(Number(it.jubelio_item_id));
+    const gid = j?.item_group_id ?? null;
+    const key = gid != null ? `g:${gid}` : `n:${(it.item_name||'').toLowerCase()}`;
+    if (!parents.has(key)) parents.set(key, { name: it.item_name||'—', variants: [], thumb: j?.thumbnail || (j?.image_urls && j.image_urls[0]) || null });
+    parents.get(key).variants.push(it);
+  }
+  for (const p of parents.values()) {
+    p.variants.sort((a,b) => _whSortSizes(_whSizeOf(a.item_name,a.item_code), _whSizeOf(b.item_name,b.item_code)));
+  }
+  const lampiranBody = [...parents.values()].map(p => {
+    const totalQtyP = p.variants.reduce((s,v) => s + (parseFloat(v.qty)||0), 0);
+    const totalSubP = p.variants.reduce((s,v) => s + (parseFloat(v.subtotal)||0), 0);
+    const thumbCell = p.thumb
+      ? `<img src="${p.thumb.replace(/"/g,'&quot;')}" style="width:56px;height:56px;object-fit:cover;border-radius:4px;border:1px solid #ddd;display:block">`
+      : `<div style="width:56px;height:56px;background:#f0f0f0;border:1px dashed #ccc;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#999;font-size:9px">no img</div>`;
+    const variantRows = p.variants.map(v => {
+      const size = _whSizeOf(v.item_name, v.item_code);
+      const qty = parseFloat(v.qty)||0;
+      const price = parseFloat(v.unit_price)||0;
+      const disc = parseFloat(v.discount_pct)||0;
+      const net = Math.round(price * (1 - disc/100));
+      const sub = parseFloat(v.subtotal)||0;
+      const priceCell = disc > 0
+        ? `<span style="text-decoration:line-through;color:#999">${fmtRp(price)}</span> <b>${fmtRp(net)}</b>`
+        : fmtRp(net);
+      return `<tr>
+        <td class="sz">${size}</td>
+        <td class="sku">${(v.item_code||'').replace(/</g,'&lt;')}</td>
+        <td class="r">${qty}</td>
+        <td class="r">${priceCell}</td>
+        <td class="r">${fmtRp(sub)}</td>
+      </tr>`;
+    }).join('');
+    return `<tbody class="parent-group">
+      <tr class="parent-row">
+        <td rowspan="${p.variants.length+1}" style="width:72px;vertical-align:top;padding:10px 8px">${thumbCell}</td>
+        <td colspan="5">
+          <div style="font-weight:700;font-size:13px">${p.name.replace(/</g,'&lt;')}</div>
+          <div style="font-size:11px;color:#666;margin-top:2px">${p.variants.length} variants · ${totalQtyP} pcs · Subtotal ${fmtRp(totalSubP)}</div>
+        </td>
+      </tr>
+      ${variantRows}
+    </tbody>`;
+  }).join('');
+  const terbilangStr = (_whTerbilang(Math.round(subtotal)) + ' rupiah').replace(/\b\w/g, c => c.toUpperCase());
+  const recName = h.billedToName || '—';
+  const recRef = h.clientRepName || '';
+  const recAddr = h.billedToAddress || '';
+  const recEmail = h.clientRepEmail || '';
+  const descLine = `Pesanan Manual Purchase ${h.invoiceCategory || h.lineBrand || ''}`.trim();
+  const w = window.open('', '_blank');
+  if (!w) { alert('Pop-up diblokir browser'); return; }
+  w.document.write(`<!doctype html><html lang="id"><head><meta charset="utf-8">
+    <title>INVOICE ${invoiceNo} · ${recName}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>${_mpurcInvoiceCSS()}</style></head>
+    <body>
+      <div class="page">
+        <div class="top">
+          <div class="issuer">
+            <h2>PT Sandang Dunia Yuwana</h2>
+            <p>Jl. Wahid Hasyim No. 10D RT.002 RW.007<br>Kebon Sirih, Menteng, Jakarta Pusat</p>
+          </div>
+          <div class="doc-meta">
+            <h1>INVOICE</h1>
+            <div class="label">No. Invoice</div>
+            <div class="val">${invoiceNo}</div>
+            <div class="label">Tanggal</div>
+            <div class="val">${fmtTgl(h.invoiceDate)}</div>
+            ${h.dueDate ? `<div class="label" style="color:#a14e3e">Jatuh Tempo</div><div class="val" style="color:#a14e3e">${fmtTgl(h.dueDate)}</div>` : ''}
+          </div>
+        </div>
+        <div class="recipient">
+          <div class="lbl">Ditagih kepada</div>
+          <div class="name">${recRef ? `${recRef.replace(/</g,'&lt;')} — ${recName.replace(/</g,'&lt;')}` : recName.replace(/</g,'&lt;')}</div>
+          ${recEmail?`<div class="sub">✉️ ${recEmail.replace(/</g,'&lt;')}</div>`:''}
+          ${recAddr?`<div class="sub">📍 ${recAddr.replace(/</g,'&lt;')}</div>`:''}
+        </div>
+        <table class="line">
+          <thead><tr>
+            <th>Deskripsi</th>
+            <th class="r">Total</th>
+          </tr></thead>
+          <tbody>
+            <tr>
+              <td>
+                <div style="font-weight:600">${descLine.replace(/</g,'&lt;')}</div>
+                <div style="font-size:11px;color:#666;margin-top:4px">${items.length} variants · ${totalQty} pcs · Lihat lampiran untuk detail</div>
+                ${h.notes?`<div style="font-size:11px;color:#555;margin-top:6px;font-style:italic">${h.notes.replace(/</g,'&lt;')}</div>`:''}
+              </td>
+              <td class="r" style="font-weight:700">${fmtRp(subtotal)}</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="totals">
+          <div class="row lbl"><span>Subtotal Order</span><span style="font-family:'Space Mono',monospace">${fmtRp(subtotal)}</span></div>
+          ${totalReceived > 0 ? `<div class="row lbl"><span>Sudah Dibayar</span><span style="font-family:'Space Mono',monospace">−${fmtRp(totalReceived)}</span></div>` : ''}
+          <div class="row total"><span>${totalReceived > 0 ? 'Sisa Tagihan' : 'Total Tagihan'}</span><span class="v">${fmtRp(paymentDue)}</span></div>
+        </div>
+        <div class="terbilang">Terbilang: <b>${terbilangStr}</b></div>
+        <div class="payment-info">
+          <div class="pi-title">Informasi Pembayaran</div>
+          <div class="pi-grid">
+            <div><span class="pi-lbl">Bank</span><span class="pi-val">Bank Central Asia (BCA)</span></div>
+            <div><span class="pi-lbl">No. Rekening</span><span class="pi-val">4780383289</span></div>
+            <div><span class="pi-lbl">Atas Nama</span><span class="pi-val">PT Sandang Dunia Yuwana</span></div>
+            <div><span class="pi-lbl">SWIFT Code</span><span class="pi-val">CENAIDJA</span></div>
+            <div style="grid-column:1/-1"><span class="pi-lbl">NPWP</span><span class="pi-val">63.875.985.0-021.000</span></div>
+          </div>
+        </div>
+        <div class="sig-row">
+          <div class="sig">
+            <div class="company">PT. Sandang Dunia Yuwana</div>
+            <div class="gap"></div>
+            <div class="name">Muhammad Luthfi Amri Nasution</div>
+            <div class="role">Chief Operating Officer</div>
+          </div>
+        </div>
+        <footer>Pembayaran ke rekening atas nama PT Sandang Dunia Yuwana · Mohon konfirmasi setelah transfer · Invoice berlaku 14 hari dari tanggal diterbitkan.</footer>
+      </div>
+      <div class="page">
+        <div class="top">
+          <div class="issuer">
+            <h2>PT Sandang Dunia Yuwana</h2>
+            <p>Lampiran Invoice<br>${invoiceNo}</p>
+          </div>
+          <div class="doc-meta">
+            <h1>LAMPIRAN</h1>
+            <div class="label">Pesanan</div>
+            <div class="val">${(h.id||'').replace(/</g,'&lt;')}</div>
+          </div>
+        </div>
+        <div style="font-family:'Space Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:0.1em;color:#666;margin-bottom:6px">Detail Barang Pesanan</div>
+        <div style="font-size:13px;color:#333;margin-bottom:24px">Pelanggan: <b>${recName.replace(/</g,'&lt;')}</b> · ${items.length} variants total, ${totalQty} pcs</div>
+        <table class="lampiran">
+          <thead><tr>
+            <th style="width:72px">Foto</th>
+            <th>Size</th>
+            <th>SKU</th>
+            <th class="r">Qty</th>
+            <th class="r">Harga</th>
+            <th class="r">Subtotal</th>
+          </tr></thead>
+          ${lampiranBody}
+          <tbody><tr>
+            <td style="padding:14px 10px;border-top:2px solid #111"></td>
+            <td colspan="2" style="padding:14px 10px;border-top:2px solid #111;font-weight:700">TOTAL</td>
+            <td class="r" style="padding:14px 10px;border-top:2px solid #111;font-weight:700">${totalQty}</td>
+            <td class="r" style="padding:14px 10px;border-top:2px solid #111"></td>
+            <td class="r" style="padding:14px 10px;border-top:2px solid #111;font-weight:700">${fmtRp(subtotal)}</td>
+          </tr></tbody>
+        </table>
+        <footer>Halaman 2 dari 2 · Invoice ${invoiceNo}</footer>
+      </div>
+      <script>setTimeout(()=>window.print(),500);<\/script>
+    </body></html>`);
+  w.document.close();
+}
+
+async function _mpurcGenSuratJalanPDF() {
+  const o = _mpurcCurrent; if (!o) return;
+  const h = o.header;
+  if (h.id === 'new') { alert('Simpan order dulu.'); return; }
+  const shipments = o.shipments || [];
+  if (!shipments.length) { alert('Belum ada shipment. Tambah shipment dulu di tab Payments & Shipping.'); return; }
+  // If multiple shipments, pick which
+  let shipmentId = shipments[0].id;
+  if (shipments.length > 1) {
+    const choices = shipments.map((s,i) => `${i+1}. ${s.shipment_no || `Shipment ${s.id}`} (${s.ship_date||'no date'})`).join('\n');
+    const pick = prompt(`Pilih shipment:\n${choices}\n\nMasukkan nomor (1-${shipments.length}):`);
+    const idx = parseInt(pick,10) - 1;
+    if (isNaN(idx) || idx < 0 || idx >= shipments.length) return;
+    shipmentId = shipments[idx].id;
+  }
+  const ship = shipments.find(s => s.id === shipmentId); if (!ship) return;
+  if (!ship.ship_date) { alert('Ship Date wajib di-set sebelum generate Surat Jalan.'); return; }
+  const sItems = (o.shipItems||[]).filter(si => si.shipment_id === shipmentId);
+  if (!sItems.length) { alert('Shipment ini belum ada items dialokasikan.'); return; }
+  const itemById = new Map((o.items||[]).map(i => [i.id, i]));
+  const sItemsResolved = sItems.map(si => ({ ...si, item: itemById.get(si.order_item_id) })).filter(x => x.item);
+  const totalQty = sItemsResolved.reduce((s,x) => s + (parseFloat(x.qty_shipped)||0), 0);
+  // Group by parent
+  const itemsCache = window.__mpurcItemsCache || new Map();
+  const parents = new Map();
+  for (const x of sItemsResolved) {
+    const j = itemsCache.get(Number(x.item.jubelio_item_id));
+    const gid = j?.item_group_id ?? null;
+    const key = gid != null ? `g:${gid}` : `n:${(x.item.item_name||'').toLowerCase()}`;
+    if (!parents.has(key)) parents.set(key, { name: x.item.item_name||'—', rows: [], thumb: j?.thumbnail || (j?.image_urls && j.image_urls[0]) || null });
+    parents.get(key).rows.push(x);
+  }
+  for (const p of parents.values()) {
+    p.rows.sort((a,b) => _whSortSizes(_whSizeOf(a.item.item_name,a.item.item_code), _whSizeOf(b.item.item_name,b.item.item_code)));
+  }
+  const monthNames = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+  const fmtTgl = d => { if (!d) return '—'; const x = new Date(d+'T00:00:00'); return `${x.getDate()} ${monthNames[x.getMonth()]} ${x.getFullYear()}`; };
+  const itemsBody = [...parents.values()].map(p => {
+    const totalP = p.rows.reduce((s,x) => s + (parseFloat(x.qty_shipped)||0), 0);
+    const thumbCell = p.thumb
+      ? `<img src="${p.thumb.replace(/"/g,'&quot;')}" style="width:56px;height:56px;object-fit:cover;border-radius:4px;border:1px solid #ddd;display:block">`
+      : `<div style="width:56px;height:56px;background:#f0f0f0;border:1px dashed #ccc;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#999;font-size:9px">no img</div>`;
+    const variantRows = p.rows.map(x => {
+      const size = _whSizeOf(x.item.item_name, x.item.item_code);
+      return `<tr>
+        <td class="sz">${size}</td>
+        <td class="sku">${(x.item.item_code||'').replace(/</g,'&lt;')}</td>
+        <td class="r">${parseFloat(x.qty_shipped)||0}</td>
+      </tr>`;
+    }).join('');
+    return `<tbody class="parent-group">
+      <tr class="parent-row">
+        <td rowspan="${p.rows.length+1}" style="width:72px;vertical-align:top;padding:10px 8px">${thumbCell}</td>
+        <td colspan="3">
+          <div style="font-weight:700;font-size:13px">${p.name.replace(/</g,'&lt;')}</div>
+          <div style="font-size:11px;color:#666;margin-top:2px">${p.rows.length} variants · ${totalP} pcs</div>
+        </td>
+      </tr>
+      ${variantRows}
+    </tbody>`;
+  }).join('');
+  // Recipient — pakai header ship_to defaults
+  const recName = h.shipToRecipient || h.billedToName || '—';
+  const recAddr = h.shipToAddress || h.billedToAddress || '';
+  const recPhone = h.shipToPhone || '';
+  const sjNo = ship.shipment_no || `SJ-${shipmentId}`;
+  const w = window.open('', '_blank');
+  if (!w) { alert('Pop-up diblokir browser'); return; }
+  w.document.write(`<!doctype html><html lang="id"><head><meta charset="utf-8">
+    <title>SURAT JALAN ${sjNo} · ${recName}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>${_mpurcInvoiceCSS()}
+      .courier-info{margin-bottom:14px;padding:10px 14px;background:#eef0f8;border:1px solid #c9bdf0;border-radius:6px;display:flex;gap:24px;font-size:11px;flex-wrap:wrap}
+      .courier-info .ci-lbl{font-family:'Space Mono',monospace;font-size:9px;color:#666;text-transform:uppercase;letter-spacing:0.1em}
+      .courier-info .ci-val{font-family:'Space Mono',monospace;font-size:12px;font-weight:700;color:#111;margin-left:6px}
+      .sig-row-sj{display:flex;justify-content:space-between;margin-top:auto;padding-top:30px;gap:40px}
+      .sig-row-sj .sig{flex:1;text-align:center}
+    </style></head>
+    <body>
+      <div class="page">
+        <div class="top">
+          <div class="issuer">
+            <h2>PT Sandang Dunia Yuwana</h2>
+            <p>Jl. Wahid Hasyim No. 10D RT.002 RW.007<br>Kebon Sirih, Menteng, Jakarta Pusat</p>
+          </div>
+          <div class="doc-meta">
+            <h1>SURAT JALAN</h1>
+            <div class="label">No. SJ</div>
+            <div class="val">${sjNo.replace(/</g,'&lt;')}</div>
+            <div class="label">Tanggal Kirim</div>
+            <div class="val">${fmtTgl(ship.ship_date)}</div>
+          </div>
+        </div>
+        <div class="recipient">
+          <div class="lbl">Dikirim kepada</div>
+          <div class="name">${recName.replace(/</g,'&lt;')}</div>
+          ${recPhone?`<div class="sub">📞 ${recPhone.replace(/</g,'&lt;')}</div>`:''}
+          ${recAddr?`<div class="sub">📍 ${recAddr.replace(/</g,'&lt;')}</div>`:''}
+        </div>
+        ${(ship.awb_no || ship.courier) ? `<div class="courier-info">
+          ${ship.courier?`<div><span class="ci-lbl">Courier</span><span class="ci-val">${ship.courier.replace(/</g,'&lt;')}</span></div>`:''}
+          ${ship.awb_no?`<div><span class="ci-lbl">AWB / Resi</span><span class="ci-val">${ship.awb_no.replace(/</g,'&lt;')}</span></div>`:''}
+        </div>` : ''}
+        <table class="lampiran">
+          <thead><tr>
+            <th style="width:72px">Foto</th>
+            <th>Size</th>
+            <th>SKU</th>
+            <th class="r">Qty</th>
+          </tr></thead>
+          ${itemsBody}
+          <tbody><tr>
+            <td style="padding:14px 10px;border-top:2px solid #111"></td>
+            <td colspan="2" style="padding:14px 10px;border-top:2px solid #111;font-weight:700">TOTAL</td>
+            <td class="r" style="padding:14px 10px;border-top:2px solid #111;font-weight:700">${totalQty} pcs</td>
+          </tr></tbody>
+        </table>
+        ${ship.notes?`<div style="margin-top:14px;padding:10px 14px;background:#fbf9f0;border-left:4px solid #d4af37;font-size:11px;font-style:italic;color:#333">Catatan: ${ship.notes.replace(/</g,'&lt;')}</div>`:''}
+        <div class="sig-row-sj">
+          <div class="sig">
+            <div class="company">Pengirim</div>
+            <div class="gap"></div>
+            <div class="name">PT Sandang Dunia Yuwana</div>
+            <div class="role">Tanda tangan & cap</div>
+          </div>
+          <div class="sig">
+            <div class="company">Penerima</div>
+            <div class="gap"></div>
+            <div class="name">${recName.replace(/</g,'&lt;')}</div>
+            <div class="role">Tanda tangan & cap</div>
+          </div>
+        </div>
+        <footer>Surat Jalan ini menjadi bukti serah-terima barang · Mohon ditandatangani penerima dan dikembalikan satu rangkap</footer>
+      </div>
+      <script>setTimeout(()=>window.print(),500);<\/script>
+    </body></html>`);
+  w.document.close();
 }
 
 async function saveManualPurchase() {
@@ -36465,19 +36835,36 @@ async function loadAR() {
   const tb = document.getElementById('ar-tbody');
   if (tb) tb.innerHTML = '<tr><td class="empty-td" colspan="9">Memuat...</td></tr>';
   try {
-    const [ordersRes, paymentsRes, itemsRes] = await Promise.all([
+    const [ordersRes, paymentsRes, itemsRes, mpOrdersRes, mpPaysRes, mpItemsRes] = await Promise.all([
       sb.from('wholesale_customer_orders').select('id,customer_id,customer_name,order_date,status,payment_plan,dp_pct').order('order_date',{ascending:false}),
       sb.from('wholesale_payments').select('*'),
       sb.from('wholesale_customer_order_items').select('order_id,qty,unit_price'),
+      sb.from('manual_purchase_orders').select('id,billed_to_name,line_brand,invoice_no,invoice_date,due_date,grand_total,total_received,payment_due,status').order('invoice_date',{ascending:false,nullsFirst:false}),
+      sb.from('manual_purchase_received_payments').select('*'),
+      sb.from('manual_purchase_items').select('order_id,subtotal'),
     ]);
     const orders = ordersRes.data || [];
     const payments = paymentsRes.data || [];
     const items = itemsRes.data || [];
+    const mpOrders = mpOrdersRes.data || [];
+    const mpPays = mpPaysRes.data || [];
+    const mpItems = mpItemsRes.data || [];
     // Total value per order
     const totalByOrder = new Map();
     for (const i of items) {
       const v = (parseFloat(i.qty)||0) * (parseFloat(i.unit_price)||0);
       totalByOrder.set(i.order_id, (totalByOrder.get(i.order_id)||0) + v);
+    }
+    // MP totals per order (fallback if grand_total not set)
+    const mpTotalByOrder = new Map();
+    for (const i of mpItems) {
+      mpTotalByOrder.set(i.order_id, (mpTotalByOrder.get(i.order_id)||0) + (parseFloat(i.subtotal)||0));
+    }
+    // MP payments grouped
+    const mpPaysByOrder = new Map();
+    for (const p of mpPays) {
+      const arr = mpPaysByOrder.get(p.order_id) || [];
+      arr.push(p); mpPaysByOrder.set(p.order_id, arr);
     }
     // Payments grouped by order
     const paysByOrder = new Map();
@@ -36535,6 +36922,63 @@ async function loadAR() {
         });
       }
       _arAllCustomers.set(o.customer_id, o.customer_name || '');
+    }
+    // ── Manual Purchase rows (free-form payments — 1 AR row per order) ──
+    for (const mo of mpOrders) {
+      const invDate = mo.invoice_date;
+      if (!invDate) continue;  // skip if invoice not issued
+      const totalAmount = parseFloat(mo.grand_total) || mpTotalByOrder.get(mo.id) || 0;
+      if (totalAmount <= 0) continue;
+      const orderPays = mpPaysByOrder.get(mo.id) || [];
+      const totalReceived = orderPays.reduce((s,p) => s + (parseFloat(p.amount)||0), 0);
+      const paymentDue = totalAmount - totalReceived;
+      const dueDate = mo.due_date;
+      const isPaid = paymentDue <= 1; // tolerance for rounding
+      let daysOut = 0, daysOverdue = 0, isOverdue = false, status = '';
+      const todayDt = new Date(today+'T00:00:00');
+      const inv = new Date(invDate+'T00:00:00');
+      if (isPaid) {
+        status = 'paid';
+        // Last payment date
+        const lastPay = orderPays
+          .filter(p => p.received_date)
+          .sort((a,b) => (b.received_date||'').localeCompare(a.received_date||''))[0];
+        if (lastPay?.received_date) {
+          const pd = new Date(lastPay.received_date+'T00:00:00');
+          daysOut = Math.max(0, Math.round((pd-inv)/86400000));
+        }
+      } else {
+        daysOut = Math.max(0, Math.round((todayDt-inv)/86400000));
+        if (dueDate) {
+          const due = new Date(dueDate+'T00:00:00');
+          if (todayDt > due) { isOverdue = true; daysOverdue = Math.round((todayDt-due)/86400000); }
+        }
+        status = isOverdue ? 'overdue' : 'unpaid';
+      }
+      // Bukti: first bukti_url, or count if multiple
+      const buktis = orderPays.filter(p => p.bukti_url);
+      const buktiUrl = buktis[0]?.bukti_url || null;
+      const buktiCount = buktis.length;
+      rows.push({
+        type: 'manual_purchase',
+        orderId: mo.id,
+        customerId: null,
+        customerName: mo.billed_to_name || '—',
+        milestoneKey: 'total',
+        milestoneLabel: `Total · ${mo.line_brand||''}`.trim(),
+        amount: paymentDue > 0 ? paymentDue : totalAmount,
+        invoiceDate: invDate,
+        dueDate,
+        paidAt: isPaid ? (orderPays.find(p=>p.received_date)?.received_date || null) : null,
+        status,
+        daysOut,
+        daysOverdue,
+        bukti: buktiUrl,
+        buktiCount,
+        signedInvoice: null,  // MP doesn't track signed-invoice file
+        totalAmount,
+        totalReceived,
+      });
     }
     _arRows = rows;
     // Populate filter dropdowns
@@ -36619,13 +37063,14 @@ function renderARTable(rows) {
   const tb = document.getElementById('ar-tbody');
   if (!rows.length) { tb.innerHTML = '<tr><td class="empty-td" colspan="11">Gak ada data dengan filter ini.</td></tr>'; return; }
   // File chip helper — labeled + clickable, color-coded per kind
-  const fileChip = (url, kind) => {
+  const fileChip = (url, kind, count) => {
     if (!url) return '<span style="color:var(--g300);font-size:11px">— Belum upload</span>';
     const ext = (url.match(/\.(pdf|png|jpg|jpeg|webp)$/i)?.[0]?.slice(1).toUpperCase()) || 'File';
     const cfg = kind === 'signed'
       ? { bg:'#eef0f8', bd:'#c9bdf0', color:'#3C3489', icon:'📋' }
       : { bg:'#dff0d8', bd:'#b8d9b3', color:'#0a7d3a', icon:'💵' };
-    return `<a href="${url.replace(/"/g,'&quot;')}" target="_blank" style="display:inline-flex;align-items:center;gap:4px;font-size:10px;font-family:var(--mono);color:${cfg.color};text-decoration:none;border:1px solid ${cfg.bd};padding:3px 8px;border-radius:4px;background:${cfg.bg};font-weight:600" title="Buka file (new tab)">${cfg.icon} ${ext} ↗</a>`;
+    const label = (count && count > 1) ? `${ext} ×${count}` : ext;
+    return `<a href="${url.replace(/"/g,'&quot;')}" target="_blank" style="display:inline-flex;align-items:center;gap:4px;font-size:10px;font-family:var(--mono);color:${cfg.color};text-decoration:none;border:1px solid ${cfg.bd};padding:3px 8px;border-radius:4px;background:${cfg.bg};font-weight:600" title="Buka file (new tab)${count>1?' · '+count+' file total — buka detail order untuk lihat semua':''}">${cfg.icon} ${label} ↗</a>`;
   };
   tb.innerHTML = rows.map(r => {
     let statusPill, daysCol;
@@ -36649,16 +37094,21 @@ function renderARTable(rows) {
       <td style="text-align:right">${daysCol}</td>
       <td>${statusPill}</td>
       <td>${fileChip(r.signedInvoice, 'signed')}</td>
-      <td>${fileChip(r.bukti, 'bukti')}</td>
+      <td>${fileChip(r.bukti, 'bukti', r.buktiCount)}</td>
       <td><button onclick="_arViewOrder('${r.orderId}')" style="font-size:11px;padding:4px 10px;border:1px solid #3C3489;background:white;color:#3C3489;border-radius:4px;cursor:pointer;font-weight:600;white-space:nowrap" title="Buka detail order di module Wholesale">↗ View Order</button></td>
     </tr>`;
   }).join('');
 }
 
-// Navigate to wholesale module + open order detail
+// Navigate to source module + open order detail (dispatch by ID prefix)
 function _arViewOrder(orderId) {
-  showPage('wholesale', null);
-  setTimeout(() => { try { openWholesaleDetail(orderId); } catch(e) { console.warn(e); } }, 100);
+  if (orderId.startsWith('MP-')) {
+    showPage('manualpurchase', null);
+    setTimeout(() => { try { openManualPurchaseDetail(orderId); } catch(e) { console.warn(e); } }, 100);
+  } else {
+    showPage('wholesale', null);
+    setTimeout(() => { try { openWholesaleDetail(orderId); } catch(e) { console.warn(e); } }, 100);
+  }
 }
 
 function clearARFilters() {
