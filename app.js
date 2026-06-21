@@ -35961,7 +35961,16 @@ function renderARTable(rows) {
   const fmtTgl = d => d ? new Date(d+'T00:00:00').toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'}) : '—';
   document.getElementById('ar-tcount').textContent = rows.length + ' entri';
   const tb = document.getElementById('ar-tbody');
-  if (!rows.length) { tb.innerHTML = '<tr><td class="empty-td" colspan="9">Gak ada data dengan filter ini.</td></tr>'; return; }
+  if (!rows.length) { tb.innerHTML = '<tr><td class="empty-td" colspan="11">Gak ada data dengan filter ini.</td></tr>'; return; }
+  // File chip helper — labeled + clickable, color-coded per kind
+  const fileChip = (url, kind) => {
+    if (!url) return '<span style="color:var(--g300);font-size:11px">— Belum upload</span>';
+    const ext = (url.match(/\.(pdf|png|jpg|jpeg|webp)$/i)?.[0]?.slice(1).toUpperCase()) || 'File';
+    const cfg = kind === 'signed'
+      ? { bg:'#eef0f8', bd:'#c9bdf0', color:'#3C3489', icon:'📋' }
+      : { bg:'#dff0d8', bd:'#b8d9b3', color:'#0a7d3a', icon:'💵' };
+    return `<a href="${url.replace(/"/g,'&quot;')}" target="_blank" style="display:inline-flex;align-items:center;gap:4px;font-size:10px;font-family:var(--mono);color:${cfg.color};text-decoration:none;border:1px solid ${cfg.bd};padding:3px 8px;border-radius:4px;background:${cfg.bg};font-weight:600" title="Buka file (new tab)">${cfg.icon} ${ext} ↗</a>`;
+  };
   tb.innerHTML = rows.map(r => {
     let statusPill, daysCol;
     if (r.status === 'paid') {
@@ -35974,11 +35983,8 @@ function renderARTable(rows) {
       statusPill = `<span class="pill p-review" style="font-size:10px">⏳ Outstanding</span>`;
       daysCol = `<span style="font-size:11px;color:var(--g600);font-family:var(--mono)">${r.daysOut}d</span><div style="font-size:9px;color:var(--g400)">outstanding</div>`;
     }
-    const files = [];
-    if (r.signedInvoice) files.push(`<a href="${r.signedInvoice.replace(/"/g,'&quot;')}" target="_blank" title="Invoice Signed" style="font-size:10px;color:#3C3489;text-decoration:none">📋</a>`);
-    if (r.bukti) files.push(`<a href="${r.bukti.replace(/"/g,'&quot;')}" target="_blank" title="Bukti Bayar" style="font-size:10px;color:#0a7d3a;text-decoration:none">💵</a>`);
     return `<tr>
-      <td><a href="#" onclick="openWholesaleDetail('${r.orderId}');showPage('wholesale',null);return false" style="font-family:var(--mono);font-size:11px;color:#3C3489;text-decoration:none">${r.orderId}</a></td>
+      <td><span style="font-family:var(--mono);font-size:11px;color:var(--g600)">${r.orderId}</span></td>
       <td style="font-size:12px;font-weight:500">${(r.customerName||'—').replace(/</g,'&lt;')}</td>
       <td style="font-size:11px;font-family:var(--mono);color:var(--g600)">${r.milestoneLabel}</td>
       <td style="text-align:right;font-family:var(--mono);font-size:12px;font-weight:700">${fmtRp(r.amount)}</td>
@@ -35986,9 +35992,17 @@ function renderARTable(rows) {
       <td style="font-size:11px;font-family:var(--mono);color:${r.status==='overdue'?'#c0392b':'var(--g600)'}">${fmtTgl(r.dueDate)}</td>
       <td style="text-align:right">${daysCol}</td>
       <td>${statusPill}</td>
-      <td style="white-space:nowrap;font-size:14px">${files.join(' ')||'<span style="color:var(--g300)">—</span>'}</td>
+      <td>${fileChip(r.signedInvoice, 'signed')}</td>
+      <td>${fileChip(r.bukti, 'bukti')}</td>
+      <td><button onclick="_arViewOrder('${r.orderId}')" style="font-size:11px;padding:4px 10px;border:1px solid #3C3489;background:white;color:#3C3489;border-radius:4px;cursor:pointer;font-weight:600;white-space:nowrap" title="Buka detail order di module Wholesale">↗ View Order</button></td>
     </tr>`;
   }).join('');
+}
+
+// Navigate to wholesale module + open order detail
+function _arViewOrder(orderId) {
+  showPage('wholesale', null);
+  setTimeout(() => { try { openWholesaleDetail(orderId); } catch(e) { console.warn(e); } }, 100);
 }
 
 function clearARFilters() {
