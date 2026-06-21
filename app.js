@@ -21216,17 +21216,28 @@ async function loadRoyaltyReport() {
     // CANCELED. (Confirmed business policy: strict completed-only definition.)
     const orders = await _fetchAllPages(
       'jubelio_sales_orders',
-      'salesorder_id,transaction_date,wms_status,is_canceled,sub_total',
+      'salesorder_id,transaction_date,wms_status,is_canceled,sub_total,channel_name',
       q => q.gte('transaction_date', startISO).lt('transaction_date', endISO).eq('wms_status','COMPLETED')
     );
-    // Map each order → its WIB month (1..12)
+    // Map each order → its WIB month (1..12) + channel name
     const orderMonth = new Map();
+    const orderChannel = new Map();
     orders.forEach(o => {
       const d = new Date(o.transaction_date);
       if (isNaN(d)) return;
       const wib = new Date(d.getTime() + 7*3600000);   // shift to WIB, read in UTC
       orderMonth.set(o.salesorder_id, wib.getUTCMonth()+1);
+      orderChannel.set(o.salesorder_id, (o.channel_name||'').toUpperCase());
     });
+    // Marketplace channels: diskon voucher/flash sale gak ke-track per-line di Jubelio,
+    // jadi pakai qty × price (gross sebelum disc) supaya royalty IP gak under-stated.
+    // Channel lain (POS direct, Shopify direct, wholesale, popup, consignment) pakai
+    // `amount` (net after disc) karena disc trackingnya proper per-line.
+    const MP_PATTERNS = ['SHOPEE','TOKOPEDIA','TIKTOK','BLIBLI','LAZADA'];
+    const isMarketplace = (chan) => {
+      if (!chan) return false;
+      return MP_PATTERNS.some(p => chan.includes(p));
+    };
     const orderIds = orders.map(o => o.salesorder_id);
     fb.textContent = `${orders.length.toLocaleString('id-ID')} orders → mengambil items...`;
 
@@ -21277,7 +21288,15 @@ async function loadRoyaltyReport() {
       const ipName = info.ip;
       const parent = info.parent || it.item_name || '—';
       const qty   = parseFloat(it.qty || 0) || 0;
-      const gross = parseFloat(it.amount || 0) || (qty * (parseFloat(it.price||0)||0) - (parseFloat(it.disc_amount||0)||0));
+      const price = parseFloat(it.price||0)||0;
+      const discAmt = parseFloat(it.disc_amount||0)||0;
+      const amt = parseFloat(it.amount||0)||0;
+      // Marketplace → gross (qty × price), karena voucher MP gak masuk disc_amount per-line.
+      // Other channels → net via `amount` field (fallback qty×price − disc_amount).
+      const chan = orderChannel.get(it.salesorder_id) || '';
+      const gross = isMarketplace(chan)
+        ? (qty * price)
+        : (amt || (qty * price - discAmt));
       const mo = orderMonth.get(it.salesorder_id) || 0;
       if (!byIP.has(ipName)) byIP.set(ipName, { qty:0, gross:0, months:{}, parents:{} });
       const a = byIP.get(ipName);
