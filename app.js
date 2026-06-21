@@ -34575,8 +34575,10 @@ async function _whDownloadInvoice(milestone, invoiceType) {
       .sig-row{display:flex;justify-content:flex-start;margin-top:auto;padding-top:20px;gap:32px}
       .sig{width:42%;text-align:center}
       .sig .lbl{font-family:'Space Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#666}
-      .sig .gap{height:50px}
+      .sig .company{font-weight:600;font-size:11.5px;margin-bottom:4px}
+      .sig .gap{height:72px}
       .sig .name{border-top:1px solid #111;padding-top:5px;font-weight:600;font-size:11.5px}
+      .sig .role{font-size:10.5px;color:#555;margin-top:2px}
       footer{margin-top:16px;padding-top:12px;border-top:1px solid #e5e5e5;font-size:9px;color:#999;text-align:center;font-family:'Space Mono',monospace;letter-spacing:0.05em}
       /* Lampiran styling */
       .lampiran-title{font-family:'Space Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:0.1em;color:#666;margin-bottom:6px}
@@ -34655,9 +34657,10 @@ async function _whDownloadInvoice(milestone, invoiceType) {
         </div>
         <div class="sig-row">
           <div class="sig">
-            <div class="lbl">Hormat Kami</div>
+            <div class="company">PT. Sandang Dunia Yuwana</div>
             <div class="gap"></div>
-            <div class="name">PT Sandang Dunia Yuwana</div>
+            <div class="name">Muhammad Luthfi Amri Nasution</div>
+            <div class="role">Chief Operating Officer</div>
           </div>
         </div>
         <footer>Pembayaran ke rekening atas nama PT Sandang Dunia Yuwana · Mohon konfirmasi setelah transfer · ${docTitle} berlaku 14 hari dari tanggal diterbitkan.</footer>
