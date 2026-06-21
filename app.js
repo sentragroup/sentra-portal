@@ -35745,9 +35745,47 @@ function _mpurcRenderDetail() {
     </div>
     <!-- Tab: Payments & Shipping -->
     <div id="mp-tab-content-pay" style="display:none">
-      <div class="form-card">
-        <div style="padding:30px;text-align:center;color:var(--g400);font-size:12px">⓿ Payments + Shipments — coming next phase (received payments log + multi-shipments + Invoice/SJ generators).</div>
+      ${isNew ? `<div class="form-card" style="background:var(--off);border:1px dashed var(--g200)">
+        <div style="text-align:center;padding:14px;font-size:12px;color:var(--g600)">💾 Simpan order dulu, baru bisa input payments / shipments.</div>
+      </div>` : `
+      <div class="form-card" style="margin-bottom:14px">
+        <div class="form-sec" style="display:flex;justify-content:space-between;align-items:center">
+          <span>Received Payments (${(o.payments||[]).length})</span>
+          <span style="font-size:12px;color:var(--g600);font-family:var(--mono)">Total: <b style="font-size:14px;color:var(--black)">${fmtRp(totalReceived)}</b> / ${fmtRp(subtotal)} · Sisa: <b style="color:${paymentDue>0?'#c0392b':'#0a7d3a'}">${fmtRp(paymentDue)}</b></span>
+        </div>
+        ${_mpurcPaymentsHTML(o.payments)}
+        <div style="margin-top:12px;padding:10px 12px;background:var(--off);border-radius:6px">
+          <div style="font-size:11px;color:var(--g600);margin-bottom:8px;font-weight:600">+ Tambah Penerimaan</div>
+          <div style="display:grid;grid-template-columns:1.5fr 1fr 1fr 2fr;gap:8px;align-items:end">
+            <div><label style="font-size:10px;color:var(--g600)">Label</label><input type="text" id="mp-py-label" placeholder="DP / Pelunasan / Termin 1" style="width:100%;padding:6px 8px;border:1px solid var(--g200);border-radius:4px;font-size:11px"></div>
+            <div><label style="font-size:10px;color:var(--g600)">Jumlah</label><input type="number" id="mp-py-amount" min="0" step="1000" style="width:100%;padding:6px 8px;border:1px solid var(--g200);border-radius:4px;font-size:11px;font-family:var(--mono);text-align:right"></div>
+            <div><label style="font-size:10px;color:var(--g600)">Tanggal</label><input type="date" id="mp-py-date" value="${new Date().toISOString().slice(0,10)}" style="width:100%;padding:6px 8px;border:1px solid var(--g200);border-radius:4px;font-size:11px"></div>
+            <div style="display:flex;gap:6px;align-items:end">
+              <div style="flex:1"><label style="font-size:10px;color:var(--g600)">Bukti Bayar</label><input type="file" id="mp-py-file" accept="image/*,.pdf" style="width:100%;padding:5px 6px;border:1px solid var(--g200);border-radius:4px;font-size:10px"></div>
+              <button class="btn-primary" onclick="_mpurcAddPayment()" style="font-size:11px;padding:7px 14px">Simpan</button>
+            </div>
+          </div>
+          <input type="text" id="mp-py-notes" placeholder="Catatan opsional" style="width:100%;padding:6px 8px;border:1px solid var(--g200);border-radius:4px;font-size:11px;margin-top:8px">
+        </div>
       </div>
+      <div class="form-card" style="margin-bottom:14px">
+        <div class="form-sec" style="display:flex;justify-content:space-between;align-items:center">
+          <span>Shipments (${(o.shipments||[]).length})</span>
+          <span style="font-size:11px;color:var(--g400)">Tracking pengiriman aktual</span>
+        </div>
+        ${_mpurcShipmentsHTML(o.shipments, o.items)}
+        <div style="margin-top:12px">
+          <button class="btn-ghost" onclick="_mpurcAddShipment()" style="font-size:12px">＋ Tambah Shipment</button>
+        </div>
+      </div>
+      <div class="form-card">
+        <div class="form-sec">Dokumen</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <button class="btn-primary" onclick="_mpurcGenInvoicePDF()" style="font-size:12px">📄 Invoice PDF</button>
+          <button class="btn-ghost" onclick="_mpurcGenSuratJalanPDF()" style="font-size:12px">📋 Surat Jalan PDF</button>
+        </div>
+      </div>
+      `}
     </div>
   `;
   setupAC('mp-h-requestor','ac-mp-requestor',()=>acPics);
@@ -36110,6 +36148,253 @@ async function _mpurcAddItem(jubelioItemId) {
   await _mpurcRecalcHeader();
   _mpurcRenderDetail();
   _mpurcFilterStockPicker(document.getElementById('_mpurc-stock-search')?.value || '');
+}
+
+// ---- Payments ----
+function _mpurcPaymentsHTML(payments) {
+  if (!payments || payments.length === 0) {
+    return `<div style="padding:18px;text-align:center;color:var(--g400);font-size:12px;background:var(--off);border-radius:6px">Belum ada penerimaan tercatat.</div>`;
+  }
+  const fmtRp = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
+  const fmtD = d => d ? new Date(d).toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'numeric'}) : '—';
+  const rows = payments.map(p => `<tr>
+    <td style="font-size:11px;font-weight:600">${(p.label||'—').replace(/</g,'&lt;')}</td>
+    <td style="font-size:11px;font-family:var(--mono);text-align:right;font-weight:600">${fmtRp(p.amount)}</td>
+    <td style="font-size:11px;color:var(--g600)">${fmtD(p.received_date)}</td>
+    <td style="font-size:11px">${p.bukti_url ? `<a href="${p.bukti_url}" target="_blank" style="color:#0a7d3a;text-decoration:none">📎 Bukti</a>` : '<span style="color:var(--g300)">—</span>'}</td>
+    <td style="font-size:11px;color:var(--g600)">${(p.notes||'').replace(/</g,'&lt;') || '—'}</td>
+    <td style="text-align:center"><button class="btn-icon" onclick="_mpurcDelPayment(${p.id})" style="font-size:13px;color:#c0392b;padding:2px 6px">×</button></td>
+  </tr>`).join('');
+  return `<div class="table-wrap"><table style="font-size:11px;margin-top:6px">
+    <thead><tr><th>Label</th><th style="text-align:right">Jumlah</th><th>Tanggal</th><th>Bukti</th><th>Catatan</th><th></th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table></div>`;
+}
+
+async function _mpurcAddPayment() {
+  const o = _mpurcCurrent; if (!o) return;
+  const label = document.getElementById('mp-py-label')?.value.trim();
+  const amount = parseFloat(document.getElementById('mp-py-amount')?.value)||0;
+  const date = document.getElementById('mp-py-date')?.value;
+  const notes = document.getElementById('mp-py-notes')?.value.trim();
+  const fileEl = document.getElementById('mp-py-file');
+  const file = fileEl?.files?.[0];
+  if (!label) { alert('Label wajib diisi (mis. DP, Pelunasan, Termin 1)'); return; }
+  if (amount <= 0) { alert('Jumlah harus > 0'); return; }
+  let buktiUrl = null;
+  if (file) {
+    if (file.size > 5*1024*1024) { alert('File maks 5MB'); return; }
+    const ext = file.name.split('.').pop() || 'bin';
+    const path = `manual-purchase/${o.header.id}/payment-${Date.now()}.${ext}`;
+    const { error: upErr } = await sb.storage.from('wholesale-bukti').upload(path, file, { contentType: file.type, upsert: true });
+    if (upErr) { alert('Upload gagal: '+upErr.message); return; }
+    const { data: pub } = sb.storage.from('wholesale-bukti').getPublicUrl(path);
+    buktiUrl = pub.publicUrl;
+  }
+  const { data, error } = await sb.from('manual_purchase_received_payments').insert({
+    order_id: o.header.id, label, amount, received_date: date || null,
+    bukti_url: buktiUrl, notes: notes || null, created_by: currentUser,
+  }).select().single();
+  if (error) { alert('Gagal simpan: '+error.message); return; }
+  o.payments.push(data);
+  await _mpurcRecalcHeader();
+  _mpurcRenderDetail();
+}
+
+async function _mpurcDelPayment(id) {
+  if (!confirm('Hapus penerimaan ini?')) return;
+  const o = _mpurcCurrent; if (!o) return;
+  await sb.from('manual_purchase_received_payments').delete().eq('id', id);
+  o.payments = o.payments.filter(p => p.id !== id);
+  await _mpurcRecalcHeader();
+  _mpurcRenderDetail();
+}
+
+// ---- Shipments ----
+const MP_SHIP_COST_CATS = [
+  { v:'paid_customer', l:'Customer bayar langsung' },
+  { v:'paid_sentra',   l:'Sentra cover (no reimburse)' },
+  { v:'reimbursed',    l:'Sentra cover → reimburse' },
+];
+function _mpurcShipmentsHTML(shipments, items) {
+  if (!shipments || shipments.length === 0) {
+    return `<div style="padding:18px;text-align:center;color:var(--g400);font-size:12px;background:var(--off);border-radius:6px">Belum ada shipment tercatat.</div>`;
+  }
+  const fmtRp = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
+  const fmtD = d => d ? new Date(d).toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'numeric'}) : '—';
+  const itemById = new Map((items||[]).map(i => [i.id, i]));
+  return shipments.map(s => {
+    const shipItems = (_mpurcCurrent?.shipItems||[]).filter(si => si.shipment_id === s.id);
+    const itemRows = shipItems.length ? shipItems.map(si => {
+      const it = itemById.get(si.order_item_id);
+      return `<tr><td style="font-size:10px">${(it?.item_name||'—').replace(/</g,'&lt;')}</td><td style="font-size:10px;font-family:var(--mono);color:var(--g400)">${(it?.item_code||'—').replace(/</g,'&lt;')}</td><td style="text-align:right;font-size:10px;font-family:var(--mono);font-weight:600">${si.qty_shipped}</td></tr>`;
+    }).join('') : `<tr><td colspan="3" style="font-size:11px;color:var(--g400);padding:8px;text-align:center">Belum ada item dialokasikan ke shipment ini</td></tr>`;
+    const catLabel = MP_SHIP_COST_CATS.find(c => c.v === s.shipping_cost_category)?.l || '—';
+    return `<div style="border:1px solid var(--g100);border-radius:6px;padding:12px;margin-top:8px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+        <div>
+          <div style="font-size:13px;font-weight:700">${(s.shipment_no||'Shipment').replace(/</g,'&lt;')}</div>
+          <div style="font-size:11px;color:var(--g600);margin-top:2px">${fmtD(s.ship_date)} ${s.delivered_at?`· Delivered ${fmtD(s.delivered_at)}`:''}</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.3px">Ongkir</div>
+          <div style="font-size:12px;font-family:var(--mono);font-weight:600">${fmtRp(s.shipping_cost)} <span style="font-size:10px;color:var(--g600);font-weight:normal">(${catLabel})</span></div>
+        </div>
+      </div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:8px;font-size:11px">
+        <span><b>Kurir:</b> ${(s.courier||'—').replace(/</g,'&lt;')}</span>
+        <span><b>AWB:</b> <span style="font-family:var(--mono)">${(s.awb_no||'—').replace(/</g,'&lt;')}</span></span>
+      </div>
+      ${s.notes ? `<div style="font-size:11px;color:var(--g600);margin-bottom:8px;padding:6px 8px;background:var(--off);border-radius:4px">📝 ${s.notes.replace(/</g,'&lt;')}</div>` : ''}
+      <div style="margin-top:8px"><table style="font-size:10px;width:100%">
+        <thead><tr><th>Item</th><th>SKU</th><th style="text-align:right">Qty</th></tr></thead>
+        <tbody>${itemRows}</tbody>
+      </table></div>
+      <div style="margin-top:8px;display:flex;gap:6px;justify-content:flex-end">
+        <button class="btn-ghost" onclick="_mpurcEditShipmentItems(${s.id})" style="font-size:10px;padding:4px 9px">📦 Edit Items</button>
+        <button class="btn-ghost" onclick="_mpurcDelShipment(${s.id})" style="font-size:10px;padding:4px 9px;color:#c0392b">Hapus</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function _mpurcAddShipment() {
+  const o = _mpurcCurrent; if (!o) return;
+  const shipmentNo = `SJ-${(o.header.id||'').replace(/^MP-/,'').replace(/-/g,'')}-${(o.shipments.length+1).toString().padStart(2,'0')}`;
+  const { data, error } = await sb.from('manual_purchase_shipments').insert({
+    order_id: o.header.id, shipment_no: shipmentNo,
+    ship_date: new Date().toISOString().slice(0,10),
+    shipping_cost: 0, shipping_cost_category: 'paid_sentra',
+    courier: o.header.shipToCourier || '',
+    created_by: currentUser,
+  }).select().single();
+  if (error) { alert('Gagal: '+error.message); return; }
+  o.shipments.push(data);
+  _mpurcRenderDetail();
+  // Open the edit-items modal so user can allocate qty
+  setTimeout(() => _mpurcEditShipmentItems(data.id), 100);
+}
+
+async function _mpurcDelShipment(id) {
+  if (!confirm('Hapus shipment ini? Item allocation ikut terhapus.')) return;
+  const o = _mpurcCurrent; if (!o) return;
+  await sb.from('manual_purchase_shipment_items').delete().eq('shipment_id', id);
+  await sb.from('manual_purchase_shipments').delete().eq('id', id);
+  o.shipments = o.shipments.filter(s => s.id !== id);
+  o.shipItems = (o.shipItems||[]).filter(si => si.shipment_id !== id);
+  _mpurcRenderDetail();
+}
+
+async function _mpurcEditShipmentItems(shipmentId) {
+  const o = _mpurcCurrent; if (!o) return;
+  const ship = o.shipments.find(s => s.id === shipmentId); if (!ship) return;
+  // Compute remaining qty per item (qty ordered minus already-shipped across OTHER shipments)
+  const alreadyByItem = new Map();
+  for (const si of (o.shipItems||[])) {
+    if (si.shipment_id === shipmentId) continue;
+    alreadyByItem.set(si.order_item_id, (alreadyByItem.get(si.order_item_id)||0) + (parseFloat(si.qty_shipped)||0));
+  }
+  const currentByItem = new Map();
+  for (const si of (o.shipItems||[])) {
+    if (si.shipment_id !== shipmentId) continue;
+    currentByItem.set(si.order_item_id, parseFloat(si.qty_shipped)||0);
+  }
+  document.getElementById('_mpurc-ship-modal')?.remove();
+  const modal = document.createElement('div');
+  modal.id = '_mpurc-ship-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px';
+  const itemRows = (o.items||[]).map(it => {
+    const ordered = parseFloat(it.qty)||0;
+    const already = alreadyByItem.get(it.id)||0;
+    const remaining = ordered - already;
+    const curQty = currentByItem.get(it.id) || 0;
+    return `<tr>
+      <td style="font-size:11px">${(it.item_name||'—').replace(/</g,'&lt;')}</td>
+      <td style="font-size:10px;font-family:var(--mono);color:var(--g600)">${(it.item_code||'—').replace(/</g,'&lt;')}</td>
+      <td style="font-size:11px;text-align:right;font-family:var(--mono);color:var(--g600)">${ordered}</td>
+      <td style="font-size:11px;text-align:right;font-family:var(--mono);color:var(--g600)">${already}</td>
+      <td style="font-size:11px;text-align:right;font-family:var(--mono);color:${remaining>=0?'var(--g600)':'#c0392b'}">${remaining}</td>
+      <td style="text-align:right"><input type="number" min="0" max="${remaining+curQty}" step="1" value="${curQty}" data-item-id="${it.id}" class="_mp-ship-qty" style="width:64px;text-align:right;font-size:11px;font-family:var(--mono);padding:3px 6px;border:1px solid var(--g200);border-radius:3px"></td>
+    </tr>`;
+  }).join('');
+  modal.innerHTML = `
+    <div style="background:var(--white);border-radius:10px;width:min(820px,100%);max-height:88vh;display:flex;flex-direction:column;overflow:hidden">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--g100)">
+        <div style="font-size:16px;font-weight:700">Edit Shipment — ${ship.shipment_no}</div>
+        <div style="font-size:11px;color:var(--g600);margin-top:2px">Alokasi qty per item + detail kurir</div>
+      </div>
+      <div style="overflow:auto;flex:1;padding:14px 20px">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px">
+          <div><label style="font-size:10px;color:var(--g600)">No SJ</label><input type="text" id="_mp-s-no" value="${(ship.shipment_no||'').replace(/"/g,'&quot;')}" style="width:100%;padding:6px 8px;border:1px solid var(--g200);border-radius:4px;font-size:11px"></div>
+          <div><label style="font-size:10px;color:var(--g600)">Tanggal Kirim</label><input type="date" id="_mp-s-date" value="${ship.ship_date||''}" style="width:100%;padding:6px 8px;border:1px solid var(--g200);border-radius:4px;font-size:11px"></div>
+          <div><label style="font-size:10px;color:var(--g600)">Tanggal Sampai</label><input type="date" id="_mp-s-delivered" value="${ship.delivered_at||''}" style="width:100%;padding:6px 8px;border:1px solid var(--g200);border-radius:4px;font-size:11px"></div>
+          <div><label style="font-size:10px;color:var(--g600)">Kurir</label><input type="text" id="_mp-s-courier" value="${(ship.courier||'').replace(/"/g,'&quot;')}" placeholder="JNE / SiCepat / Internal" style="width:100%;padding:6px 8px;border:1px solid var(--g200);border-radius:4px;font-size:11px"></div>
+          <div><label style="font-size:10px;color:var(--g600)">AWB / Resi</label><input type="text" id="_mp-s-awb" value="${(ship.awb_no||'').replace(/"/g,'&quot;')}" style="width:100%;padding:6px 8px;border:1px solid var(--g200);border-radius:4px;font-size:11px;font-family:var(--mono)"></div>
+          <div><label style="font-size:10px;color:var(--g600)">Ongkir</label><input type="number" id="_mp-s-cost" min="0" step="500" value="${parseFloat(ship.shipping_cost)||0}" style="width:100%;padding:6px 8px;border:1px solid var(--g200);border-radius:4px;font-size:11px;text-align:right;font-family:var(--mono)"></div>
+          <div style="grid-column:span 2"><label style="font-size:10px;color:var(--g600)">Kategori Ongkir</label><select id="_mp-s-costcat" style="width:100%;padding:6px 8px;border:1px solid var(--g200);border-radius:4px;font-size:11px">
+            ${MP_SHIP_COST_CATS.map(c => `<option value="${c.v}" ${ship.shipping_cost_category===c.v?'selected':''}>${c.l}</option>`).join('')}
+          </select></div>
+          <div><label style="font-size:10px;color:var(--g600)">Catatan</label><input type="text" id="_mp-s-notes" value="${(ship.notes||'').replace(/"/g,'&quot;')}" style="width:100%;padding:6px 8px;border:1px solid var(--g200);border-radius:4px;font-size:11px"></div>
+        </div>
+        <div style="font-size:11px;font-weight:600;margin-bottom:6px;color:var(--g600)">Alokasi Item</div>
+        <table style="font-size:11px;width:100%">
+          <thead><tr><th>Item</th><th>SKU</th><th style="text-align:right">Ordered</th><th style="text-align:right">Shipped (lain)</th><th style="text-align:right">Sisa</th><th style="text-align:right">Ship Qty</th></tr></thead>
+          <tbody>${itemRows}</tbody>
+        </table>
+      </div>
+      <div style="padding:12px 20px;border-top:1px solid var(--g100);display:flex;justify-content:flex-end;gap:8px">
+        <button class="btn-ghost" onclick="document.getElementById('_mpurc-ship-modal')?.remove()" style="font-size:12px">Batal</button>
+        <button class="btn-primary" onclick="_mpurcSaveShipmentEdit(${shipmentId})" style="font-size:12px">Simpan</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+}
+
+async function _mpurcSaveShipmentEdit(shipmentId) {
+  const o = _mpurcCurrent; if (!o) return;
+  const ship = o.shipments.find(s => s.id === shipmentId); if (!ship) return;
+  const update = {
+    shipment_no: document.getElementById('_mp-s-no')?.value.trim() || null,
+    ship_date: document.getElementById('_mp-s-date')?.value || null,
+    delivered_at: document.getElementById('_mp-s-delivered')?.value || null,
+    courier: document.getElementById('_mp-s-courier')?.value.trim() || null,
+    awb_no: document.getElementById('_mp-s-awb')?.value.trim() || null,
+    shipping_cost: parseFloat(document.getElementById('_mp-s-cost')?.value)||0,
+    shipping_cost_category: document.getElementById('_mp-s-costcat')?.value || 'paid_sentra',
+    notes: document.getElementById('_mp-s-notes')?.value.trim() || null,
+  };
+  await sb.from('manual_purchase_shipments').update(update).eq('id', shipmentId);
+  Object.assign(ship, update);
+  // Allocations
+  const inputs = document.querySelectorAll('._mp-ship-qty');
+  await sb.from('manual_purchase_shipment_items').delete().eq('shipment_id', shipmentId);
+  const newAlloc = [];
+  for (const inp of inputs) {
+    const qty = parseFloat(inp.value) || 0;
+    if (qty > 0) {
+      newAlloc.push({
+        shipment_id: shipmentId,
+        order_item_id: parseInt(inp.dataset.itemId,10),
+        qty_shipped: qty,
+      });
+    }
+  }
+  if (newAlloc.length) {
+    const { data } = await sb.from('manual_purchase_shipment_items').insert(newAlloc).select();
+    o.shipItems = (o.shipItems||[]).filter(si => si.shipment_id !== shipmentId).concat(data||[]);
+  } else {
+    o.shipItems = (o.shipItems||[]).filter(si => si.shipment_id !== shipmentId);
+  }
+  document.getElementById('_mpurc-ship-modal')?.remove();
+  _mpurcRenderDetail();
+}
+
+// ---- PDF generators (stub for now — wire next) ----
+function _mpurcGenInvoicePDF() {
+  alert('Invoice PDF generator — coming next iteration.');
+}
+function _mpurcGenSuratJalanPDF() {
+  alert('Surat Jalan PDF generator — coming next iteration.');
 }
 
 async function saveManualPurchase() {
