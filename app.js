@@ -161,7 +161,7 @@ function enterApp(user, freshLogin) {
   // Restore page: prefer URL hash, fall back to sessionStorage
   let _pg = location.hash.slice(1).split('/')[0];
   if (!_pg) _pg = sessionStorage.getItem('snt_page') || '';
-  const _pages = ['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','vendormaster','rnd','popupbooth','activitylog','mesign','po','stockmovement','productmap','productdev','collections','designermaster','dsgworkflow','warehousekpi','stockadjmgmt','returnreason','tradorders','invcheck','salesperf','reminders','announcements','marte','royalty','income','contentplan','adsmgmt','mktactivation','publication','photoshoot','kolmgmt','txmap','sampling','arreceivables'];
+  const _pages = ['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','vendormaster','rnd','popupbooth','activitylog','mesign','po','stockmovement','productmap','productdev','collections','designermaster','dsgworkflow','warehousekpi','stockadjmgmt','returnreason','invcheck','salesperf','reminders','announcements','marte','royalty','income','contentplan','adsmgmt','mktactivation','publication','photoshoot','kolmgmt','txmap','sampling','arreceivables'];
   if (_pages.includes(_pg))
     showPage(_pg, document.getElementById('nav-'+_pg));
 }
@@ -201,7 +201,7 @@ const ACCESS_MODULES = [
   {key:'productdev',label:'Product Development'},{key:'restock',label:'Create PO Restock'},
   {key:'po',label:'Purchase Orders'},{key:'stockmovement',label:'Stock Reconcile'},
   {key:'warehousekpi',label:'Warehouse KPI'},{key:'stockadjmgmt',label:'Stock Adjustment'},
-  {key:'returnreason',label:'Return Reason'},{key:'tradorders',label:'Wholesale Orders'},
+  {key:'returnreason',label:'Return Reason'},
   {key:'invcheck',label:'Inventory Check'},{key:'marte',label:'Monthly Settlement'},
   {key:'martereport',label:'Consignment Report'},{key:'marteskucat',label:'SKU Categories'},
   {key:'reminders',label:'Reminders'},{key:'announcements',label:'Announcements'},
@@ -277,7 +277,7 @@ function showPage(name, el) {
   document.getElementById("page-"+_pageId).classList.add("active");
   if (el) el.classList.add("active");
   const _c = document.querySelector('.content'); if (_c) _c.scrollTop = 0;
-  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",sampling:"Sampling",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",tradorders:"Wholesale Orders",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",mktplan:"Marketing Planning",videoprod:"Video Production",txmap:"Transaction Mapping",intpurchase:"Internal Purchase",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)",vendormaster:"Vendor Master",rnd:"R&D Product",koldb:"KOL Database",outbound:"Outbond Request",meetingnotes:"Meeting Notes",ipreports:"IP Reports",cronlogs:"Cron Logs",wholesale:"Wholesale Orders",arreceivables:"Account Receivables"};
+  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",sampling:"Sampling",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",mktplan:"Marketing Planning",videoprod:"Video Production",txmap:"Transaction Mapping",intpurchase:"Internal Purchase",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)",vendormaster:"Vendor Master",rnd:"R&D Product",koldb:"KOL Database",outbound:"Outbond Request",meetingnotes:"Meeting Notes",ipreports:"IP Reports",cronlogs:"Cron Logs",wholesale:"Wholesale Orders",arreceivables:"Account Receivables"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -371,7 +371,6 @@ function showPage(name, el) {
   if (name==="warehousekpi" && !whBills.length) loadWHData();
   if (name==="stockadjmgmt" && !saAdjustments.length) loadSAData();
   if (name==="returnreason" && !retOrders.length) loadRetData();
-  if (name==="tradorders") loadTradeOrders();
   if (name==="invcheck") loadInvCheck();
   if (name==="restock") {
     // Default to project list view (builder loads when user picks/creates project)
@@ -11263,328 +11262,8 @@ async function syncAllJubelio() {
   if (trigBtn) trigBtn.disabled = false;
 }
 
-// ── TRADE ORDERS ──
-let allTrdOrders = [];
-let allTrdTracking = {};
-let trdContactCategories = {};
+// Global Rupiah formatter — dipake 161× di module lain.
 function fmtRp(n){return 'Rp '+Math.round(n||0).toLocaleString('id-ID');}
-
-async function loadTradeOrders(){
-  const tbody=document.getElementById('trdTableBody');
-  if(tbody)tbody.innerHTML=`<tr><td class="empty-td" colspan="9">Memuat...</td></tr>`;
-  try{
-    // 1. Get CNSGNE/WHLSR contact_ids
-    const {data:contacts,error:cErr}=await sb.from('jubelio_contacts').select('contact_id,contact_name,category_display').ilike('category_display','WHLSR%');
-    if(cErr)throw cErr;
-    trdContactCategories={};
-    const contactIds=(contacts||[]).map(c=>{
-      trdContactCategories[c.contact_id]=(c.category_display||'').startsWith('CNSGNE')?'CNSGNE':'WHLSR';
-      return c.contact_id;
-    });
-    if(!contactIds.length){allTrdOrders=[];renderTrdStats([]);applyTrdFilters();return;}
-    // 2. Get orders for those contacts
-    const orders=await _fetchAllPages('jubelio_sales_orders','salesorder_id,salesorder_no,invoice_no,transaction_date,customer_name,contact_id,channel_status,internal_status,is_paid,is_canceled,grand_total,buyer_shipping_cost',q=>q.in('contact_id',contactIds).order('transaction_date',{ascending:false}));
-    // 3. Get tracking — chunk salesorder_ids to keep the .in() URL within limits
-    const orderIds=(orders||[]).map(o=>o.salesorder_id);
-    let trackingMap={};
-    for(let i=0;i<orderIds.length;i+=500){
-      const chunk=orderIds.slice(i,i+500);
-      const {data:tracking}=await sb.from('trade_order_tracking').select('*').in('salesorder_id',chunk);
-      (tracking||[]).forEach(t=>{trackingMap[t.salesorder_id]=t;});
-    }
-    allTrdOrders=(orders||[]).map(o=>({...o,categoryDisplay:trdContactCategories[o.contact_id]||''}));
-    allTrdTracking=trackingMap;
-    renderTrdStats(allTrdOrders);
-    applyTrdFilters();
-  }catch(e){if(tbody)tbody.innerHTML=`<tr><td class="empty-td" colspan="9">Gagal: ${e.message||e}</td></tr>`;}
-}
-
-function renderTrdStats(orders){
-  const unpaid=orders.filter(o=>!o.is_paid&&!o.is_canceled).length;
-  const active=orders.filter(o=>!o.is_canceled&&(o.channel_status||'').toLowerCase()!=='done').length;
-  const total=orders.reduce((s,o)=>s+(parseFloat(o.grand_total)||0),0);
-  document.getElementById('trd-s-total').textContent=orders.length;
-  document.getElementById('trd-s-unpaid').textContent=unpaid;
-  document.getElementById('trd-s-active').textContent=active;
-  document.getElementById('trd-s-value').textContent=total?fmtRp(total):'—';
-}
-
-function applyTrdFilters(){
-  const status=document.getElementById('trd-fil-status')?.value||'';
-  const pay=document.getElementById('trd-fil-pay')?.value||'';
-  const q=(document.getElementById('trd-search')?.value||'').toLowerCase();
-  let rows=allTrdOrders;
-  if(status)rows=rows.filter(r=>(r.channel_status||r.internal_status||'').toLowerCase()===status);
-  if(pay==='paid')rows=rows.filter(r=>r.is_paid);
-  if(pay==='unpaid')rows=rows.filter(r=>!r.is_paid&&!r.is_canceled);
-  if(q)rows=rows.filter(r=>(r.customer_name||'').toLowerCase().includes(q)||(r.salesorder_no||'').toLowerCase().includes(q)||(r.invoice_no||'').toLowerCase().includes(q));
-  renderTrdTable(rows);
-  const el=document.getElementById('trd-tcount');
-  if(el)el.textContent=rows.length+' entri';
-}
-
-function trdProgress(t){
-  const steps=[
-    {l:'PO',done:!!(t&&t.customer_po_url)},
-    {l:'DP1',done:!!(t&&t.dp1_paid)},
-    {l:'DP2',done:!!(t&&t.dp2_amount&&t.dp2_paid)},
-    {l:'Kirim',done:!!(t&&t.shipped_date)},
-  ];
-  return steps.map(s=>`<span style="font-size:10px;padding:2px 5px;border-radius:3px;background:${s.done?'var(--black)':'var(--g100)'};color:${s.done?'var(--white)':'var(--g400)'};font-family:var(--mono)">${s.l}</span>`).join(' ');
-}
-
-function renderTrdTable(rows){
-  const tbody=document.getElementById('trdTableBody');
-  if(!tbody)return;
-  if(!rows.length){tbody.innerHTML=`<tr><td class="empty-td" colspan="9">Tidak ada data.</td></tr>`;return;}
-  tbody.innerHTML=rows.map(r=>{
-    const status=r.channel_status||r.internal_status||'—';
-    const stClr={open:'p-draft',confirmed:'p-signings',delivered:'p-signings',done:'p-active',cancelled:'p-inactive'}[status.toLowerCase()]||'p-draft';
-    const payPill=r.is_paid?'p-active':r.is_canceled?'p-inactive':'p-draft';
-    const payLabel=r.is_paid?'Lunas':r.is_canceled?'Dibatalkan':'Belum Lunas';
-    const trk=allTrdTracking[r.salesorder_id];
-    return `<tr style="cursor:pointer" onclick="openTrdDetail(${r.salesorder_id})">
-      <td style="white-space:nowrap"><strong>${r.salesorder_no||'—'}</strong>${r.invoice_no?`<div style="font-size:10px;color:var(--g400)">${r.invoice_no}</div>`:''}</td>
-      <td>${r.customer_name||'—'}</td>
-      <td style="white-space:nowrap">${fmtDate(r.transaction_date)||'—'}</td>
-      <td style="text-align:right;white-space:nowrap">${r.grand_total?fmtRp(r.grand_total):'—'}</td>
-      <td><span class="pill ${stClr}" style="font-size:10px">${status}</span></td>
-      <td><span class="pill ${payPill}" style="font-size:10px">${payLabel}</span></td>
-      <td style="white-space:nowrap">${trdProgress(trk)}</td>
-      <td><button class="btn-icon" onclick="event.stopPropagation();openTrdDetail(${r.salesorder_id})">Detail →</button></td>
-    </tr>`;
-  }).join('');
-}
-
-function openTrdDetail(salesorderId){
-  document.getElementById('trd-list-view').style.display='none';
-  document.getElementById('trd-detail-view').style.display='block';
-  document.getElementById('trd-detail-content').innerHTML=`<div style="padding:24px;color:var(--g400);font-family:var(--mono);font-size:12px">Memuat detail...</div>`;
-  loadTrdDetail(salesorderId);
-}
-
-function closeTrdDetail(){
-  document.getElementById('trd-detail-view').style.display='none';
-  document.getElementById('trd-list-view').style.display='block';
-}
-
-async function loadTrdDetail(salesorderId){
-  try{
-    const [ordRes,itmRes,trkRes,poRes]=await Promise.all([
-      sb.from('jubelio_sales_orders').select('*').eq('salesorder_id',salesorderId).single(),
-      sb.from('jubelio_sales_order_items').select('*').eq('salesorder_id',salesorderId),
-      sb.from('trade_order_tracking').select('*').eq('salesorder_id',salesorderId).maybeSingle(),
-      sb.from('jubelio_purchase_orders').select('purchaseorder_id,purchaseorder_no,supplier_name,transaction_date,status').order('transaction_date',{ascending:false}).limit(200)
-    ]);
-    if(ordRes.error)throw ordRes.error;
-    const tracking=trkRes.data||{};
-    allTrdTracking[salesorderId]=tracking;
-    // Fetch PO items if a PO has been linked
-    let poItems=[];
-    if(tracking.linked_po_id){
-      const {data:piData}=await sb.from('jubelio_purchase_order_items').select('item_code,item_name,qty,unit,price,amount').eq('purchaseorder_id',tracking.linked_po_id);
-      poItems=piData||[];
-    }
-    renderTrdDetail(ordRes.data,itmRes.data||[],tracking,poRes.data||[],poItems);
-  }catch(e){
-    document.getElementById('trd-detail-content').innerHTML=`<div style="padding:24px;color:#c0392b;font-family:var(--mono);font-size:12px">Gagal: ${e.message||e}</div>`;
-  }
-}
-
-function _trdLinkField(label,value,inputId){
-  const esc=(value||'').replace(/"/g,'&quot;');
-  return `<div class="fg"><label style="font-size:11px">${label}</label>
-    <div style="display:flex;gap:4px;align-items:center">
-      <input type="url" id="${inputId}" value="${esc}" placeholder="https://..." style="flex:1;min-width:0">
-      ${value?`<a href="${value}" target="_blank" style="font-size:11px;padding:4px 8px;border:1px solid var(--g200);border-radius:4px;text-decoration:none;white-space:nowrap;color:var(--black)">↗</a>`:''}
-    </div></div>`;
-}
-
-function _trdPayBlock(prefix,label,amount,proofUrl,paid){
-  const amtId=`trd-trk-${prefix}-amt`,proofId=`trd-trk-${prefix}-proof`,paidId=`trd-trk-${prefix}-paid`;
-  return `<div style="padding:12px;border:1px solid var(--g200);border-radius:6px;background:${paid?'rgba(39,174,96,0.06)':'var(--off)'}">
-    <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:8px;display:flex;align-items:center;gap:8px">
-      ${label}
-      <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;color:${paid?'#27ae60':'var(--g400)'};text-transform:none;font-family:var(--sans)">
-        <input type="checkbox" id="${paidId}" ${paid?'checked':''} style="margin:0"> Lunas
-      </label>
-    </div>
-    <div style="display:grid;grid-template-columns:1fr 2fr;gap:8px">
-      <div class="fg"><label style="font-size:11px">Nominal (Rp)</label>
-        <input type="number" id="${amtId}" value="${amount||''}" placeholder="0" min="0">
-      </div>
-      ${_trdLinkField('Bukti Bayar',proofUrl,proofId)}
-    </div></div>`;
-}
-
-function renderTrdDetail(order,items,tracking,poList,poItems){
-  const cat=trdContactCategories[order.contact_id]||'';
-  const catLabel=cat==='CNSGNE'?'Consignment':cat==='WHLSR'?'Wholesale':cat;
-  const catPill=cat==='CNSGNE'?'p-signings':'p-review';
-  const t=tracking||{};
-  const sid=order.salesorder_id;
-  const poOpts=poList.map(p=>`<option value="${p.purchaseorder_id}" ${t.linked_po_id==p.purchaseorder_id?'selected':''}>${p.purchaseorder_no} — ${p.supplier_name||''} (${fmtDate(p.transaction_date)||''})</option>`).join('');
-  const html=`<div style="padding:0 0 32px">
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
-      <button class="btn-ghost" style="padding:6px 12px;font-size:12px" onclick="closeTrdDetail()">← Kembali</button>
-      <div style="flex:1">
-        <div style="font-size:18px;font-weight:700;font-family:var(--heading)">${order.salesorder_no||'—'}</div>
-        <div style="font-size:12px;color:var(--g400);font-family:var(--mono)">${order.customer_name||''} · ${fmtDate(order.transaction_date)||''}</div>
-      </div>
-      <span class="pill ${catPill}" style="font-size:11px">${catLabel}</span>
-      <span class="pill ${order.is_paid?'p-active':'p-draft'}" style="font-size:11px">${order.is_paid?'Lunas':'Belum Lunas'}</span>
-    </div>
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:20px">
-      <div class="stat-card" style="padding:10px 14px"><div style="font-size:10px;color:var(--g400);font-family:var(--mono);text-transform:uppercase">Status</div><div style="font-weight:600;margin-top:2px">${order.channel_status||order.internal_status||'—'}</div></div>
-      <div class="stat-card" style="padding:10px 14px"><div style="font-size:10px;color:var(--g400);font-family:var(--mono);text-transform:uppercase">Invoice</div><div style="font-weight:600;margin-top:2px">${order.invoice_no||'—'}</div></div>
-      <div class="stat-card" style="padding:10px 14px"><div style="font-size:10px;color:var(--g400);font-family:var(--mono);text-transform:uppercase">Total</div><div style="font-weight:700;margin-top:2px">${order.grand_total?fmtRp(order.grand_total):'—'}</div></div>
-      <div class="stat-card" style="padding:10px 14px"><div style="font-size:10px;color:var(--g400);font-family:var(--mono);text-transform:uppercase">Ongkir Pembeli</div><div style="font-weight:600;margin-top:2px">${order.buyer_shipping_cost?fmtRp(order.buyer_shipping_cost):'—'}</div></div>
-    </div>
-    <!-- Line Items -->
-    <div class="form-card" style="margin-bottom:16px">
-      <div class="form-sec">Barang
-        ${poItems&&poItems.length?`<span style="font-size:10px;font-family:var(--mono);color:var(--g400);text-transform:none;letter-spacing:0;font-weight:400">dibandingkan dengan PO yang ditautkan</span>`:(t.linked_po_id?'':'<span style="font-size:10px;font-family:var(--mono);color:#c0392b;text-transform:none;letter-spacing:0;font-weight:400">— tautkan PO di bawah untuk lihat perbandingan</span>')}
-      </div>
-      ${items.length?`<div class="table-wrap" style="margin-top:8px"><table>
-        <thead><tr>
-          <th>Kode</th><th>Nama Produk</th>
-          <th style="text-align:right">Qty Order</th>
-          ${poItems&&poItems.length?`<th style="text-align:right">Qty PO</th><th style="text-align:center">Status</th>`:''}
-          <th style="text-align:right">Harga</th><th style="text-align:right">Subtotal</th>
-        </tr></thead>
-        <tbody>${items.map(i=>{
-          const pi=poItems?poItems.find(p=>p.item_code===i.item_code):null;
-          const qtyOrd=parseFloat(i.qty)||0;
-          const qtyPO=pi?parseFloat(pi.qty)||0:null;
-          const gap=qtyPO!==null?qtyOrd-qtyPO:null;
-          const gapBadge=gap===null?''
-            :gap===0?`<span style="color:#27ae60;font-weight:600;font-family:var(--mono);font-size:11px">✓ OK</span>`
-            :gap>0?`<span style="color:#c0392b;font-weight:600;font-family:var(--mono);font-size:11px">-${gap} kurang</span>`
-            :`<span style="color:#7a5000;font-weight:600;font-family:var(--mono);font-size:11px">+${Math.abs(gap)} lebih</span>`;
-          const rowBg=gap===null?'':gap===0?'':'background:rgba(192,57,43,0.04)';
-          return `<tr style="${rowBg}">
-            <td style="font-family:var(--mono);font-size:11px">${i.item_code||'—'}</td>
-            <td>${i.item_name||'—'}${i.variant?`<span style="font-size:10px;color:var(--g400);margin-left:4px">${i.variant}</span>`:''}</td>
-            <td style="text-align:right;font-weight:600">${qtyOrd} ${i.unit||''}</td>
-            ${poItems&&poItems.length?`
-            <td style="text-align:right">${qtyPO!==null?qtyPO+' '+(pi.unit||''):'<span style="color:var(--g400);font-size:11px">belum ada</span>'}</td>
-            <td style="text-align:center">${gapBadge}</td>`:''}
-            <td style="text-align:right;white-space:nowrap">${i.price?fmtRp(i.price):'—'}</td>
-            <td style="text-align:right;font-weight:600;white-space:nowrap">${i.amount?fmtRp(i.amount):'—'}</td>
-          </tr>`;
-        }).join('')}</tbody>
-        <tfoot><tr style="border-top:2px solid var(--g200)">
-          <td colspan="${poItems&&poItems.length?6:4}" style="text-align:right;font-weight:600;padding:6px 12px;font-family:var(--mono);font-size:11px">TOTAL</td>
-          <td style="text-align:right;font-weight:700;padding:6px 12px;white-space:nowrap">${fmtRp(items.reduce((s,i)=>s+(parseFloat(i.amount)||0),0))}</td>
-        </tr></tfoot>
-      </table></div>`:
-      `<div style="color:var(--g400);font-size:12px;padding:8px 0">Tidak ada data item — sync ulang untuk memuat.</div>`}
-    </div>
-    <!-- Tracking -->
-    <div class="form-card">
-      <div class="form-sec" style="margin-bottom:16px">Process Tracking</div>
-      <div style="margin-bottom:20px">
-        <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:8px">Customer PO</div>
-        ${_trdLinkField('Link Dokumen PO dari Mitra',t.customer_po_url,`trd-trk-${sid}-po-url`)}
-      </div>
-      <div style="margin-bottom:20px">
-        <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:8px">Pembayaran</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-          ${_trdPayBlock(`${sid}-dp1`,'DP 1',t.dp1_amount,t.dp1_proof_url,t.dp1_paid)}
-          ${_trdPayBlock(`${sid}-dp2`,'DP 2',t.dp2_amount,t.dp2_proof_url,t.dp2_paid)}
-        </div>
-      </div>
-      <div style="margin-bottom:20px">
-        <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:8px">Purchase Order & Penerimaan Gudang</div>
-        <div style="display:grid;grid-template-columns:2fr 1fr;gap:12px">
-          <div class="fg"><label style="font-size:11px">Link ke Purchase Order</label>
-            <select id="trd-trk-${sid}-po-id"><option value="">— Belum ditautkan —</option>${poOpts}</select>
-          </div>
-          <div class="fg"><label style="font-size:11px">Tanggal Terima Gudang</label>
-            <input type="date" id="trd-trk-${sid}-rcv-date" value="${t.warehouse_received_date||''}">
-          </div>
-        </div>
-      </div>
-      <div style="margin-bottom:20px">
-        <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:8px">Pengiriman</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-          <div class="fg"><label style="font-size:11px">Tanggal Kirim</label>
-            <input type="date" id="trd-trk-${sid}-ship-date" value="${t.shipped_date||''}">
-          </div>
-          ${_trdLinkField('Surat Jalan (Mekari Sign)',t.surat_jalan_url,`trd-trk-${sid}-sj-url`)}
-        </div>
-      </div>
-      <div style="margin-bottom:20px">
-        <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:8px">Ongkos Kirim</div>
-        <div style="display:grid;grid-template-columns:1fr 2fr;gap:12px">
-          <div class="fg"><label style="font-size:11px">Biaya Ongkir (Rp)</label>
-            <input type="number" id="trd-trk-${sid}-ship-cost" value="${t.shipping_cost||''}" placeholder="0" min="0">
-          </div>
-          <div style="padding:12px;border:1px solid var(--g200);border-radius:6px;background:${t.shipping_reimb_paid?'rgba(39,174,96,0.06)':'var(--off)'}">
-            <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:8px;display:flex;align-items:center;gap:8px">
-              Reimbursement Ongkir dari Mitra
-              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;color:${t.shipping_reimb_paid?'#27ae60':'var(--g400)'};text-transform:none;font-family:var(--sans)">
-                <input type="checkbox" id="trd-trk-${sid}-reimb-paid" ${t.shipping_reimb_paid?'checked':''} style="margin:0"> Sudah Dibayar
-              </label>
-            </div>
-            <div style="display:grid;grid-template-columns:1fr 2fr;gap:8px">
-              <div class="fg"><label style="font-size:11px">Nominal (Rp)</label>
-                <input type="number" id="trd-trk-${sid}-reimb-amt" value="${t.shipping_reimb_amount||''}" placeholder="0" min="0">
-              </div>
-              ${_trdLinkField('Bukti Pembayaran',t.shipping_reimb_proof_url,`trd-trk-${sid}-reimb-proof`)}
-            </div>
-          </div>
-        </div>
-      </div>
-      <div style="margin-bottom:20px">
-        <div class="fg"><label style="font-size:11px">Catatan</label>
-          <textarea id="trd-trk-${sid}-notes" rows="2" style="resize:vertical" placeholder="Catatan internal...">${(t.notes||'').replace(/</g,'&lt;')}</textarea>
-        </div>
-      </div>
-      <div style="display:flex;align-items:center;gap:12px">
-        <button class="btn-primary" onclick="saveTrdTracking(${sid})">Simpan Tracking</button>
-        <div id="trd-trk-fb-${sid}" style="font-size:12px"></div>
-      </div>
-    </div>
-  </div>`;
-  document.getElementById('trd-detail-content').innerHTML=html;
-}
-
-async function saveTrdTracking(sid){
-  const g=id=>document.getElementById(id);
-  const fb=document.getElementById(`trd-trk-fb-${sid}`);
-  if(fb)fb.innerHTML='';
-  try{
-    const row={
-      salesorder_id:sid,
-      customer_po_url:g(`trd-trk-${sid}-po-url`)?.value?.trim()||null,
-      dp1_amount:parseFloat(g(`trd-trk-${sid}-dp1-amt`)?.value)||null,
-      dp1_proof_url:g(`trd-trk-${sid}-dp1-proof`)?.value?.trim()||null,
-      dp1_paid:g(`trd-trk-${sid}-dp1-paid`)?.checked||false,
-      dp2_amount:parseFloat(g(`trd-trk-${sid}-dp2-amt`)?.value)||null,
-      dp2_proof_url:g(`trd-trk-${sid}-dp2-proof`)?.value?.trim()||null,
-      dp2_paid:g(`trd-trk-${sid}-dp2-paid`)?.checked||false,
-      linked_po_id:g(`trd-trk-${sid}-po-id`)?.value||null,
-      warehouse_received_date:g(`trd-trk-${sid}-rcv-date`)?.value||null,
-      shipped_date:g(`trd-trk-${sid}-ship-date`)?.value||null,
-      surat_jalan_url:g(`trd-trk-${sid}-sj-url`)?.value?.trim()||null,
-      shipping_cost:parseFloat(g(`trd-trk-${sid}-ship-cost`)?.value)||null,
-      shipping_reimb_amount:parseFloat(g(`trd-trk-${sid}-reimb-amt`)?.value)||null,
-      shipping_reimb_proof_url:g(`trd-trk-${sid}-reimb-proof`)?.value?.trim()||null,
-      shipping_reimb_paid:g(`trd-trk-${sid}-reimb-paid`)?.checked||false,
-      notes:g(`trd-trk-${sid}-notes`)?.value?.trim()||null,
-      last_updated:new Date().toISOString(),
-      last_updated_by:currentUser
-    };
-    const {error}=await sb.from('trade_order_tracking').upsert(row,{onConflict:'salesorder_id'});
-    if(error)throw error;
-    allTrdTracking[sid]=row;
-    logActivity('Wholesale Orders','update',String(sid),'Update tracking order');
-    if(fb)fb.innerHTML='<span class="fb-ok">✓ Tersimpan — memuat ulang perbandingan PO...</span>';
-    // Reload detail to refresh PO comparison with new linked_po_id
-    await loadTrdDetail(sid);
-  }catch(e){if(fb)fb.innerHTML=`<span class="fb-err">Gagal: ${e.message||e}</span>`;}
-}
 
 // ── INVENTORY CHECK ──
 let invLocations = [];   // [{location_id, location_name, category}]

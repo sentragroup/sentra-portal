@@ -238,7 +238,6 @@
         <div class="sb-label" style="margin-bottom:0.6rem">Sales Operation</div>
         <div class="home-grid" style="margin-bottom:1.5rem">
           <div class="tool-card" onclick="showPage('wholesale',null)"><span class="tc-icon">🤝</span><div class="tc-name">Wholesale Orders</div><div class="tc-desc">Manage flow 9-step wholesale: intake order, batch ke produksi, DP, kirim, sampai sync Jubelio.</div></div>
-          <div class="tool-card" onclick="showPage('tradorders',null)"><span class="tc-icon">📦</span><div class="tc-name">Wholesale Tracker (Jubelio)</div><div class="tc-desc">Post-Jubelio tracker — orders WHLSR yang udah masuk Jubelio. Track DP &amp; shipping.</div></div>
           <div class="tool-card" onclick="showPage('popupbooth',null)"><span class="tc-icon">🛍️</span><div class="tc-name">Pop Up Booth</div><div class="tc-desc">Track event pop-up booth — manpower, stok, penjualan, dan reinbound.</div></div>
           <div class="tool-card" onclick="showPage('txmap',null)"><span class="tc-icon">🗂️</span><div class="tc-name">Transaction Mapping</div><div class="tc-desc">Map transaksi non-Gudang Bintaro/Marte ke Wholesale, Consignment, Pop Up Booth, atau Internal Purchase. Bulk-edit.</div></div>
           <div class="tool-card" onclick="showPage('intpurchase',null)"><span class="tc-icon">💳</span><div class="tc-name">Internal Purchase</div><div class="tc-desc">Transaksi yang di-map ke Internal Purchase + bukti transfer dari staff. Lacak pelunasan pembelian internal.</div></div>
@@ -3760,50 +3759,6 @@
       <div id="wh-detail-view" style="display:none"></div>
     </div>
 
-<!-- WHOLESALE TRACKER (existing post-Jubelio module) -->
-    <div class="page" id="page-tradorders">
-      <!-- List View -->
-      <div id="trd-list-view">
-        <div class="page-header">
-          <div><div class="page-title">Wholesale Orders</div><div class="page-sub">Order wholesale dari Jubelio — kategori WHLSR.</div></div>
-        </div>
-        <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
-          <div class="stat-card"><div class="stat-num" id="trd-s-total">—</div><div class="stat-lbl">Total Orders</div></div>
-          <div class="stat-card"><div class="stat-num" id="trd-s-unpaid">—</div><div class="stat-lbl warn">Belum Lunas</div></div>
-          <div class="stat-card"><div class="stat-num" id="trd-s-active">—</div><div class="stat-lbl">Aktif</div></div>
-          <div class="stat-card"><div class="stat-num" id="trd-s-value">—</div><div class="stat-lbl">Total Nilai</div></div>
-        </div>
-        <div class="filter-panel">
-          <div class="filter-grid">
-            <div class="fg"><label>Status Jubelio</label>
-              <select id="trd-fil-status" onchange="applyTrdFilters()"><option value="">Semua</option><option>open</option><option>confirmed</option><option>delivered</option><option>done</option><option>cancelled</option></select>
-            </div>
-            <div class="fg"><label>Pembayaran</label>
-              <select id="trd-fil-pay" onchange="applyTrdFilters()"><option value="">Semua</option><option value="paid">Lunas</option><option value="unpaid">Belum Lunas</option></select>
-            </div>
-            <div class="fg"><label>Cari</label><input type="text" id="trd-search" placeholder="Nama mitra, no. order..." oninput="applyTrdFilters()"></div>
-          </div>
-        </div>
-        <div class="table-toolbar">
-          <button class="btn-refresh" onclick="loadTradeOrders()">↻ Refresh</button>
-          <div class="tcount" id="trd-tcount">— entri</div>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr>
-              <th>No. Order</th><th>Mitra</th><th>Tanggal</th>
-              <th>Total</th><th>Status</th><th>Pembayaran</th><th>Progress</th><th></th>
-            </tr></thead>
-            <tbody id="trdTableBody"><tr><td class="empty-td" colspan="8">Klik "↻ Refresh" untuk memuat data.</td></tr></tbody>
-          </table>
-        </div>
-      </div>
-      <!-- Detail View -->
-      <div id="trd-detail-view" style="display:none">
-        <div id="trd-detail-content"></div>
-      </div>
-    </div>
-
 <!-- INVENTORY CHECK -->
     <div class="page" id="page-invcheck">
       <div class="page-header">
@@ -5320,6 +5275,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260615bz"></script>
+<script src="app.js?v=20260615ca"></script>
 </body>
 </html>
