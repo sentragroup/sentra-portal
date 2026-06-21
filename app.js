@@ -35515,6 +35515,7 @@ function mapMpurc(r) {
     shipToPhone: r.ship_to_phone||'',
     shipToCourier: r.ship_to_courier||'',
     shipToNotes: r.ship_to_notes||'',
+    shippingCost: parseFloat(r.shipping_cost)||0,
     paymentPlan: r.payment_plan || null,
     createdBy: r.created_by||'', createdAt: r.created_at,
   };
@@ -35675,8 +35676,9 @@ function _mpurcRenderDetail() {
   // Compute totals from items
   const items = o.items || [];
   const subtotal = items.reduce((s,i) => s + (parseFloat(i.subtotal)||0), 0);
-  const totalReceived = (o.payments||[]).reduce((s,p) => s + (parseFloat(p.amount)||0), 0);
-  const paymentDue = subtotal - totalReceived;
+  const shippingCost = parseFloat(h.shippingCost)||0;
+  const totalReceived = (o.payments||[]).reduce((s,p) => p.paid_at ? s + (parseFloat(p.amount)||0) : s, 0);
+  const paymentDue = (subtotal + shippingCost) - totalReceived;
   detV.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:14px">
       <div>
@@ -35736,7 +35738,8 @@ function _mpurcRenderDetail() {
           <div class="fg"><label>Penerima</label><input type="text" id="mp-h-shiprecipient" value="${(h.shipToRecipient||'').replace(/"/g,'&quot;')}" placeholder="${h.shipToType==='kantor'?'PIC Kantor / Requestor':'Nama penerima'}"></div>
           <div class="fg"><label>No HP Penerima</label><input type="text" id="mp-h-shipphone" value="${(h.shipToPhone||'').replace(/"/g,'&quot;')}" placeholder="08..."></div>
           <div class="fg full"><label>Alamat Kirim</label><textarea id="mp-h-shipaddr" rows="2" placeholder="Alamat lengkap pengiriman">${(h.shipToAddress||'').replace(/</g,'&lt;')}</textarea></div>
-          <div class="fg full"><label>Catatan Pengiriman</label><input type="text" id="mp-h-shipnotes" value="${(h.shipToNotes||'').replace(/"/g,'&quot;')}" placeholder="Instruksi khusus untuk gudang"></div>
+          <div class="fg"><label>Ongkos Kirim ke Customer</label><input type="number" id="mp-h-shipcost" min="0" step="500" value="${parseFloat(h.shippingCost)||0}" placeholder="0" style="font-family:var(--mono);text-align:right"><div style="font-size:10px;color:var(--g400);margin-top:3px">Masuk ke Invoice (final milestone)</div></div>
+          <div class="fg" style="grid-column:span 2"><label>Catatan Pengiriman</label><input type="text" id="mp-h-shipnotes" value="${(h.shipToNotes||'').replace(/"/g,'&quot;')}" placeholder="Instruksi khusus untuk gudang"></div>
         </div>
       </div>
       ${_mpurcRenderPaymentPlanEditor(h)}
@@ -35762,7 +35765,7 @@ function _mpurcRenderDetail() {
       <div class="form-card" style="margin-bottom:14px">
         <div class="form-sec" style="display:flex;justify-content:space-between;align-items:center">
           <span>Payment Milestones</span>
-          <span style="font-size:12px;color:var(--g600);font-family:var(--mono)">Total: <b style="font-size:14px;color:var(--black)">${fmtRp(totalReceived)}</b> / ${fmtRp(subtotal)} · Sisa: <b style="color:${paymentDue>0?'#c0392b':'#0a7d3a'}">${fmtRp(paymentDue)}</b></span>
+          <span style="font-size:12px;color:var(--g600);font-family:var(--mono)">Paid: <b style="font-size:14px;color:var(--black)">${fmtRp(totalReceived)}</b> / ${fmtRp(subtotal + shippingCost)}${shippingCost>0?` <span style="font-size:10px;color:var(--g400)">(${fmtRp(subtotal)} + ${fmtRp(shippingCost)} ongkir)</span>`:''} · Sisa: <b style="color:${paymentDue>0?'#c0392b':'#0a7d3a'}">${fmtRp(paymentDue)}</b></span>
         </div>
         ${_mpurcMilestoneTableHTML(o, subtotal)}
       </div>
@@ -36038,9 +36041,10 @@ async function _mpurcItemDel(itemId) {
 async function _mpurcRecalcHeader() {
   const o = _mpurcCurrent; if (!o) return;
   const subtotal = o.items.reduce((s,i) => s + (parseFloat(i.subtotal)||0), 0);
+  const shippingCost = parseFloat(o.header.shippingCost)||0;
   // totalReceived = sum of amounts where paid_at is set (milestone-based)
   const totalReceived = (o.payments||[]).reduce((s,p) => p.paid_at ? s + (parseFloat(p.amount)||0) : s, 0);
-  const paymentDue = subtotal - totalReceived;
+  const paymentDue = (subtotal + shippingCost) - totalReceived;
   o.header.grandTotal = subtotal;
   o.header.totalReceived = totalReceived;
   o.header.paymentDue = paymentDue;
@@ -36647,6 +36651,9 @@ async function _mpurcGenInvoicePDFMs(milestoneKey) {
   // Rule: DP milestones → PROFORMA INVOICE, final/last → INVOICE
   const isFinal = milestoneKey === 'final' || msIdx === milestones.length - 1;
   const docTitle = isFinal ? 'INVOICE' : 'PROFORMA INVOICE';
+  // Shipping cost added only on the final invoice
+  const shippingCost = parseFloat(h.shippingCost)||0;
+  const shippingOnThisMs = isFinal ? shippingCost : 0;
   const descLine = `${pm.label} ${milestonePct}% — Pesanan Manual Purchase ${h.lineBrand || ''}`.trim();
   const paymentDue = subtotal - totalReceived;
   const totalQty = items.reduce((s,i)=>s+(parseFloat(i.qty)||0),0);
@@ -36699,7 +36706,8 @@ async function _mpurcGenInvoicePDFMs(milestoneKey) {
       ${variantRows}
     </tbody>`;
   }).join('');
-  const terbilangStr = (_whTerbilang(Math.round(amountDue)) + ' rupiah').replace(/\b\w/g, c => c.toUpperCase());
+  const totalDue = amountDue + shippingOnThisMs;
+  const terbilangStr = (_whTerbilang(Math.round(totalDue)) + ' rupiah').replace(/\b\w/g, c => c.toUpperCase());
   const recName = h.billedToName || '—';
   const recRef = h.clientRepName || '';
   const recAddr = h.billedToAddress || '';
@@ -36741,7 +36749,7 @@ async function _mpurcGenInvoicePDFMs(milestoneKey) {
           <thead><tr>
             <th>Deskripsi</th>
             <th class="r">Subtotal Order</th>
-            <th class="r">${pm.label} ${milestonePct}%</th>
+            <th class="r">${pm.label} ${milestonePct}%${shippingOnThisMs>0?' + Ongkir':''}</th>
           </tr></thead>
           <tbody>
             <tr>
@@ -36751,14 +36759,16 @@ async function _mpurcGenInvoicePDFMs(milestoneKey) {
                 ${h.notes?`<div style="font-size:11px;color:#555;margin-top:6px;font-style:italic">${h.notes.replace(/</g,'&lt;')}</div>`:''}
               </td>
               <td class="r">${fmtRp(subtotal)}</td>
-              <td class="r" style="font-weight:700">${fmtRp(amountDue)}</td>
+              <td class="r" style="font-weight:700">${fmtRp(totalDue)}</td>
             </tr>
           </tbody>
         </table>
         <div class="totals">
           <div class="row lbl"><span>Subtotal Order</span><span style="font-family:'Space Mono',monospace">${fmtRp(subtotal)}</span></div>
           ${priorPct > 0 ? `<div class="row lbl"><span>(${priorPct}% sudah ditagih sebelumnya)</span><span style="font-family:'Space Mono',monospace">−${fmtRp(priorAmount)}</span></div>` : ''}
-          <div class="row total"><span>${pm.label} ${milestonePct}%</span><span class="v">${fmtRp(amountDue)}</span></div>
+          <div class="row lbl"><span>${pm.label} ${milestonePct}%</span><span style="font-family:'Space Mono',monospace">${fmtRp(amountDue)}</span></div>
+          ${shippingOnThisMs > 0 ? `<div class="row lbl"><span>Ongkos Kirim</span><span style="font-family:'Space Mono',monospace">${fmtRp(shippingOnThisMs)}</span></div>` : ''}
+          <div class="row total"><span>Total Tagihan</span><span class="v">${fmtRp(totalDue)}</span></div>
         </div>
         <div class="terbilang">Terbilang: <b>${terbilangStr}</b></div>
         <div class="payment-info">
@@ -36963,6 +36973,7 @@ async function saveManualPurchase() {
     ship_to_recipient: document.getElementById('mp-h-shiprecipient')?.value.trim() || null,
     ship_to_phone: document.getElementById('mp-h-shipphone')?.value.trim() || null,
     ship_to_notes: document.getElementById('mp-h-shipnotes')?.value.trim() || null,
+    shipping_cost: parseFloat(document.getElementById('mp-h-shipcost')?.value) || 0,
     payment_plan: h.paymentPlan || null,
     last_updated: new Date().toISOString(),
     last_updated_by: currentUser,
@@ -37012,7 +37023,7 @@ async function loadAR() {
       sb.from('wholesale_customer_orders').select('id,customer_id,customer_name,order_date,status,payment_plan,dp_pct').order('order_date',{ascending:false}),
       sb.from('wholesale_payments').select('*'),
       sb.from('wholesale_customer_order_items').select('order_id,qty,unit_price'),
-      sb.from('manual_purchase_orders').select('id,billed_to_name,line_brand,invoice_no,invoice_date,due_date,grand_total,total_received,payment_due,status,payment_plan').order('invoice_date',{ascending:false,nullsFirst:false}),
+      sb.from('manual_purchase_orders').select('id,billed_to_name,line_brand,invoice_no,invoice_date,due_date,grand_total,total_received,payment_due,status,payment_plan,shipping_cost').order('invoice_date',{ascending:false,nullsFirst:false}),
       sb.from('manual_purchase_payments').select('*'),
       sb.from('manual_purchase_items').select('order_id,subtotal'),
     ]);
@@ -37101,14 +37112,18 @@ async function loadAR() {
       const plan = mo.payment_plan || _mpurcDefaultPaymentPlan();
       const milestones = plan.milestones || [];
       const totalValue = parseFloat(mo.grand_total) || mpTotalByOrder.get(mo.id) || 0;
+      const shippingCost = parseFloat(mo.shipping_cost)||0;
       if (totalValue <= 0) continue;
       const orderPays = mpPaysByOrder.get(mo.id) || [];
-      for (const m of milestones) {
+      for (let mi = 0; mi < milestones.length; mi++) {
+        const m = milestones[mi];
         const pay = orderPays.find(p => p.milestone === m.key);
         const invDate = pay?.invoice_date || null;
         if (!invDate) continue;  // skip if milestone invoice not issued
         const dueDate = pay?.due_date || null;
-        const amount = parseFloat(pay?.amount) || Math.round(totalValue * (parseFloat(m.pct)||0) / 100);
+        const isFinal = m.key === 'final' || mi === milestones.length - 1;
+        const msAmount = parseFloat(pay?.amount) || Math.round(totalValue * (parseFloat(m.pct)||0) / 100);
+        const amount = isFinal ? (msAmount + shippingCost) : msAmount;
         const paidAt = pay?.paid_at || null;
         let daysOut = 0, daysOverdue = 0, isOverdue = false, status = '';
         if (paidAt) {
