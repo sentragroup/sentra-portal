@@ -35525,8 +35525,7 @@ function _mpurcDefaultPaymentPlan() {
   return {
     type: 'CAD',
     milestones: [
-      { key: 'dp1',   label: 'DP',        pct: 30 },
-      { key: 'final', label: 'Pelunasan', pct: 70 },
+      { key: 'final', label: 'Pelunasan', pct: 100 },
     ]
   };
 }
@@ -35877,15 +35876,13 @@ function _mpPpChangeType(type) {
   plan.type = type;
   if (type === 'CBD') {
     plan.milestones = [
-      { key:'dp1',   label:'DP 1',      pct:25 },
-      { key:'dp2',   label:'DP 2',      pct:25 },
-      { key:'dp3',   label:'DP 3',      pct:25 },
-      { key:'final', label:'Pelunasan', pct:25 },
+      { key:'dp1',   label:'DP',        pct:50 },
+      { key:'final', label:'Pelunasan', pct:50 },
     ];
   } else {
+    // CAD default = langsung lunas (single payment)
     plan.milestones = [
-      { key:'dp1',   label:'DP',        pct:30 },
-      { key:'final', label:'Pelunasan', pct:70 },
+      { key:'final', label:'Pelunasan', pct:100 },
     ];
   }
   _mpurcRenderDetail();
@@ -35912,7 +35909,7 @@ function _mpPpAddRow() {
 }
 function _mpPpRemove(idx) {
   const plan = _mpPpEnsure(); if (!plan?.milestones[idx]) return;
-  if (plan.milestones.length <= 2) { alert('Minimal 2 milestones.'); return; }
+  if (plan.milestones.length <= 1) { alert('Minimal 1 milestone.'); return; }
   plan.milestones.splice(idx, 1);
   _mpurcRenderDetail();
 }
