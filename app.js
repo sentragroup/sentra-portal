@@ -2389,7 +2389,7 @@ async function loadPopupBooth() {
     setupACMulti("pb-manpower","ac-pb-manpower",()=>getManpowerOptions());
 
     // Compute per-event aggregates (Stock In/Out · Sales · COGS · Margin)
-    window._pbEventAggregates = await _pbComputeEventAggregates(allPBRows.map(r => r.eventName).filter(Boolean));
+    window._pbEventAggregates = await _pbComputeEventAggregates(allPBRows.map(r => ({id: r.rowIndex, name: r.eventName})).filter(e => e.id));
 
     populatePBIPFilter();
     applyPBFilters();
@@ -2398,27 +2398,35 @@ async function loadPopupBooth() {
   }
 }
 
-// Returns Map<event_name, {qty_in, qty_out, qty_sold, qty_adj, sales_rev, sales_cogs, margin, current_stock}>.
-// Same classification logic as the detail view's event zone.
-async function _pbComputeEventAggregates(eventNames) {
-  const out = new Map(eventNames.map(n => [n, {qty_in:0, qty_out:0, qty_sold:0, qty_adj:0, sales_rev:0, sales_cogs:0, margin:0, current_stock:0}]));
-  if (!eventNames.length) return out;
+// Returns Map<booth_id, {qty_in, qty_out, qty_sold, qty_adj, sales_rev, sales_cogs, margin, current_stock, eventName}>.
+// Adjustment join uses popup_booth_id (preferred) with event_ref fallback for legacy rows.
+// Note: Transfer + Transaction mappings still name-based — duplicate-name events share those.
+async function _pbComputeEventAggregates(events) {
+  const out = new Map(events.map(e => [e.id, {qty_in:0, qty_out:0, qty_sold:0, qty_adj:0, sales_rev:0, sales_cogs:0, margin:0, current_stock:0, eventName: e.name}]));
+  if (!events.length) return out;
+  const eventNames = events.map(e => e.name).filter(Boolean);
+  const eventIds = events.map(e => e.id);
+  const nameToId = new Map(); // For legacy fallback — first-match (ambiguous if dup names)
+  for (const e of events) if (e.name && !nameToId.has(e.name)) nameToId.set(e.name, e.id);
 
-  const [trfMapsRes, txMapsRes, adjMapsRes] = await Promise.all([
+  const [trfMapsRes, txMapsRes, adjByIdRes, adjByNameRes] = await Promise.all([
     sb.from('inventory_transfer_mappings').select('item_transfer_id,ref_label')
       .eq('category','Event').in('ref_label', eventNames),
     sb.from('transaction_mappings').select('salesorder_id,project_ref')
       .eq('category','Pop Up Booth').in('project_ref', eventNames),
+    sb.from('adjustment_categories').select('item_adj_id,popup_booth_id')
+      .in('popup_booth_id', eventIds),
     sb.from('adjustment_categories').select('item_adj_id,event_ref')
-      .in('event_ref', eventNames),
+      .is('popup_booth_id', null).in('event_ref', eventNames),
   ]);
   const trfMaps = trfMapsRes.data || [];
   const txMaps  = txMapsRes.data  || [];
-  const adjMaps = adjMapsRes.data || [];
+  const adjById   = adjByIdRes.data   || [];
+  const adjByName = adjByNameRes.data || [];
 
   const trfIds = trfMaps.map(m => m.item_transfer_id).filter(Boolean);
   const soIds  = txMaps.map(m => m.salesorder_id).filter(Boolean);
-  const adjIds = adjMaps.map(m => m.item_adj_id).filter(Boolean);
+  const adjIds = [...adjById.map(m => m.item_adj_id), ...adjByName.map(m => m.item_adj_id)].filter(Boolean);
 
   // Fetch headers + items in chunks. fkCol = the FK column to chunk on.
   const fetchChunked = async (ids, table, cols, fkCol) => {
@@ -2470,10 +2478,23 @@ async function _pbComputeEventAggregates(eventNames) {
     if (!eventSoIds.has(m.project_ref)) eventSoIds.set(m.project_ref, []);
     eventSoIds.get(m.project_ref).push(m.salesorder_id);
   });
-  const eventAdjIds = new Map();
-  adjMaps.forEach(m => {
-    if (!eventAdjIds.has(m.event_ref)) eventAdjIds.set(m.event_ref, []);
-    eventAdjIds.get(m.event_ref).push(m.item_adj_id);
+  const eventAdjIds = new Map();   // keyed by booth_id (NOT name)
+  adjById.forEach(m => {
+    if (!eventAdjIds.has(m.popup_booth_id)) eventAdjIds.set(m.popup_booth_id, []);
+    eventAdjIds.get(m.popup_booth_id).push(m.item_adj_id);
+  });
+  // Legacy fallback: route by name → first booth with that name (only if unique).
+  // Ambiguous (duplicate-name) legacy rows are skipped — user needs to re-pick in Stock Adjustment.
+  const ambiguousNames = new Set();
+  const nameCount = new Map();
+  events.forEach(e => { if (e.name) nameCount.set(e.name, (nameCount.get(e.name)||0)+1); });
+  nameCount.forEach((c,n) => { if (c > 1) ambiguousNames.add(n); });
+  adjByName.forEach(m => {
+    if (!m.event_ref || ambiguousNames.has(m.event_ref)) return;
+    const boothId = nameToId.get(m.event_ref);
+    if (!boothId) return;
+    if (!eventAdjIds.has(boothId)) eventAdjIds.set(boothId, []);
+    eventAdjIds.get(boothId).push(m.item_adj_id);
   });
   const adjItemsBy = new Map();
   adjItems.forEach(it => {
@@ -2496,10 +2517,11 @@ async function _pbComputeEventAggregates(eventNames) {
   const isSupply = (loc) => PB_SUPPLY_WAREHOUSES.includes(loc);
   const isCanceled = (h) => !!(h && (h.is_canceled || h.wms_status === 'CANCELED' || h.wms_status === 'CANCEL'));
 
-  for (const evName of eventNames) {
-    const r = out.get(evName);
+  for (const ev of events) {
+    const r = out.get(ev.id);
+    const evName = ev.name;
 
-    // Same event-zone classification as detail view
+    // Transfer + SO mappings: still name-based (shared by duplicate names)
     const ids = eventTrfIds.get(evName) || [];
     const headers = ids.map(id => trfHeaderMap.get(id)).filter(Boolean);
     const eventZone = new Set([
@@ -2511,12 +2533,11 @@ async function _pbComputeEventAggregates(eventNames) {
       const sIn = inZone(h.source), dIn = inZone(h.destination);
       const items = trfItemsBy.get(h.item_transfer_id) || [];
       const qty = items.reduce((a,it) => a + Number(it.qty_in_base||0), 0);
-      if (sIn && dIn) continue;         // internal — don't count
-      if (sIn && !dIn) r.qty_out += qty; // reinbound
-      else r.qty_in += qty;              // delivery
+      if (sIn && dIn) continue;
+      if (sIn && !dIn) r.qty_out += qty;
+      else r.qty_in += qty;
     }
 
-    // Sales (confirmed only)
     const sIds = eventSoIds.get(evName) || [];
     for (const soId of sIds) {
       const h = soHeaderMap.get(soId);
@@ -2531,14 +2552,13 @@ async function _pbComputeEventAggregates(eventNames) {
     }
     r.margin = r.sales_rev - r.sales_cogs;
 
-    // Adjustments — SIGNED net (negative = stock decrease, positive = stock increase).
-    const aIds = eventAdjIds.get(evName) || [];
+    // Adjustment routed by booth_id (no more dup-name merge)
+    const aIds = eventAdjIds.get(ev.id) || [];
     for (const aId of aIds) {
       const items = adjItemsBy.get(aId) || [];
       for (const it of items) r.qty_adj += Number(it.qty || 0);
     }
 
-    // Net adjustment is signed: + adds to stock, − subtracts.
     r.current_stock = r.qty_in - r.qty_sold - r.qty_out + r.qty_adj;
   }
   return out;
@@ -2573,11 +2593,11 @@ function renderPBStats(rows) {
   // table — same source of truth (computePBAutoStatus).
   const counts = { Planned: 0, Reconcile: 0, Done: 0, Cancelled: 0 };
   for (const r of rows) {
-    const aa = agg?.get(r.eventName);
+    const aa = agg?.get(r.rowIndex);
     const st = computePBAutoStatus(r.eventDate, aa?.current_stock, aa?.qty_sold, r.eventStatus);
     if (counts[st] != null) counts[st]++;
   }
-  const totalSales = agg ? rows.reduce((a,r) => a + (agg.get(r.eventName)?.sales_rev || 0), 0) : 0;
+  const totalSales = agg ? rows.reduce((a,r) => a + (agg.get(r.rowIndex)?.sales_rev || 0), 0) : 0;
   document.getElementById("pb-s-total").textContent     = rows.length;
   document.getElementById("pb-s-upcoming").textContent  = counts.Planned;
   document.getElementById("pb-s-reconcile").textContent = counts.Reconcile;
@@ -2594,7 +2614,7 @@ function applyPBFilters() {
   let rows = allPBRows;
   if (status) {
     rows = rows.filter(r => {
-      const aa = agg?.get(r.eventName);
+      const aa = agg?.get(r.rowIndex);
       return computePBAutoStatus(r.eventDate, aa?.current_stock, aa?.qty_sold, r.eventStatus) === status;
     });
   }
@@ -2679,7 +2699,7 @@ function renderPBCalendar(rows) {
       : '';
     const eventPills = events.map(e => {
       const safeName = String(e.eventName||'').replace(/'/g,"\\'").replace(/"/g,'&quot;');
-      const a = agg?.get(e.eventName);
+      const a = agg?.get(e.rowIndex);
       const totalSales = a ? Math.round(a.sales_rev) : 0;
       const stockWarn = a && a.current_stock !== 0 ? ' ⚠' : '';
       const autoSt = computePBAutoStatus(e.eventDate, a?.current_stock, a?.qty_sold, e.eventStatus);
@@ -2734,7 +2754,7 @@ function renderPBTable(rows) {
   const fmtQty = (n) => n ? Number(n).toLocaleString("id-ID") : "—";
   const statusPillCls = (s) => s==="Done"?"p-active":s==="Cancelled"?"p-expired":s==="Reconcile"?"p-near":"p-draft";
   tbody.innerHTML = rows.map(r => {
-    const a = agg?.get(r.eventName) || {qty_in:0, qty_out:0, qty_sold:0, qty_adj:0, sales_rev:0, sales_cogs:0, margin:0, current_stock:0};
+    const a = agg?.get(r.rowIndex) || {qty_in:0, qty_out:0, qty_sold:0, qty_adj:0, sales_rev:0, sales_cogs:0, margin:0, current_stock:0};
     const autoStatus = computePBAutoStatus(r.eventDate, a.current_stock, a.qty_sold, r.eventStatus);
     const esPill = `<span class="pill ${statusPillCls(autoStatus)}" style="font-size:11px">${autoStatus}</span>`;
     const pm = r.paymentMethod ? r.paymentMethod.split(",").map(p=>`<span class="pill p-signings" style="font-size:10px;margin-right:2px">${p.trim()}</span>`).join("") : "—";
@@ -2990,7 +3010,7 @@ async function openPBDetail(rowIndex) {
     const el = document.getElementById(id); if (el) el.textContent = '—';
   });
 
-  await _pbLoadDetailData(r.eventName || '');
+  await _pbLoadDetailData(r.eventName || '', r.rowIndex);
 }
 
 function closePBDetail() {
@@ -3003,7 +3023,7 @@ function closePBDetail() {
   });
 }
 
-async function _pbLoadDetailData(eventName) {
+async function _pbLoadDetailData(eventName, boothId) {
   try {
     // Fetch mappings + sales in parallel
     const [
@@ -3097,11 +3117,17 @@ async function _pbLoadDetailData(eventName) {
       for (const r of (data||[])) costMap.set(r.item_id, Number(r.average_cost) || 0);
     }
 
-    // Stock adjustments mapped to this event (via adjustment_categories.event_ref)
-    const {data: adjRows} = await sb.from('adjustment_categories')
-      .select('item_adj_id,category,event_ref')
-      .eq('event_ref', eventName);
-    const adjIds = (adjRows || []).map(r => r.item_adj_id).filter(Boolean);
+    // Stock adjustments mapped to THIS event by popup_booth_id (preferred)
+    // + legacy fallback by event_ref name where popup_booth_id IS NULL
+    const adjByIdQuery = boothId
+      ? sb.from('adjustment_categories').select('item_adj_id,category,event_ref').eq('popup_booth_id', boothId)
+      : Promise.resolve({data:[]});
+    const adjByNameQuery = eventName
+      ? sb.from('adjustment_categories').select('item_adj_id,category,event_ref').is('popup_booth_id', null).eq('event_ref', eventName)
+      : Promise.resolve({data:[]});
+    const [adjByIdR, adjByNameR] = await Promise.all([adjByIdQuery, adjByNameQuery]);
+    const adjRows = [...(adjByIdR.data||[]), ...(adjByNameR.data||[])];
+    const adjIds = adjRows.map(r => r.item_adj_id).filter(Boolean);
     let adjHeaders = [], adjItems = [];
     if (adjIds.length) {
       for (let i = 0; i < adjIds.length; i += 200) {
@@ -10804,7 +10830,7 @@ async function loadSAData() {
   try {
     [adjs, cats, events] = await Promise.all([
       _fetchAllPages("jubelio_inventory_adjustments","item_adj_id,item_adj_no,transaction_date,location_name,net_qty,item_count,note",q=>q.gte("transaction_date","2026-01-01").order("transaction_date",{ascending:false})),
-      _fetchAllPages("adjustment_categories","item_adj_id,category,categorized_by,event_ref,updated_at"),
+      _fetchAllPages("adjustment_categories","item_adj_id,category,categorized_by,event_ref,popup_booth_id,updated_at"),
       sb.from("popup_booths").select("id,event_name,event_date").order("event_date",{ascending:false}).then(r => r.data || []),
     ]);
   } catch (e) {
@@ -11036,12 +11062,14 @@ function saCancelNewCat(adjId, prev) {
 }
 
 async function saveSACategory(adjId, category) {
-  // Preserve any existing event_ref so changing category doesn't wipe the link.
+  // Preserve existing event_ref + popup_booth_id so changing category doesn't wipe the link.
   const existingRef = saCategories[adjId]?.event_ref ?? null;
+  const existingBooth = saCategories[adjId]?.popup_booth_id ?? null;
   const { error } = await sb.from("adjustment_categories").upsert({
     item_adj_id:     adjId,
     category,
     event_ref:       existingRef,
+    popup_booth_id:  existingBooth,
     categorized_by:  currentUser,
     updated_at:      new Date().toISOString(),
   }, { onConflict: "item_adj_id" });
@@ -11064,7 +11092,7 @@ async function saveSACategory(adjId, category) {
 
   // Event Ref cell depends on category presence — re-render so it un-disables.
   const refCell = document.getElementById(`sa-ref-cell-${adjId}`);
-  if (refCell) refCell.innerHTML = saEventRefSelectHTML(adjId, saCategories[adjId].event_ref || "");
+  if (refCell) refCell.innerHTML = saEventRefSelectHTML(adjId, saCategories[adjId].popup_booth_id || "", saCategories[adjId].event_ref || "");
 
   // Refresh stats (counts change) — pass current filtered set
   renderSAStats(saGetFiltered());
@@ -11102,6 +11130,7 @@ function renderSATable() {
     const adjLink = `<a href="https://v2.jubelio.com/inventory/stock_transaction/adjustment_qty/view/${a.item_adj_id}" target="_blank" style="color:inherit;text-decoration:underline dotted">${a.item_adj_no || a.item_adj_id}</a>`;
     const curCat  = saCategories[a.item_adj_id]?.category || "";
     const curRef  = saCategories[a.item_adj_id]?.event_ref || "";
+    const curBoothId = saCategories[a.item_adj_id]?.popup_booth_id || "";
     return `<tr>
       <td style="font-family:'DM Mono',monospace;font-size:11px">${adjLink}</td>
       <td>${tgl}</td>
@@ -11110,53 +11139,69 @@ function renderSATable() {
       <td style="text-align:right;font-family:'DM Mono',monospace">${qStr}</td>
       <td style="font-size:11px;color:var(--g600);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(a.note||"").replace(/"/g,"&quot;")}">${a.note || "—"}</td>
       <td id="sa-cat-cell-${a.item_adj_id}">${saCatSelectHTML(a.item_adj_id, curCat)}</td>
-      <td id="sa-ref-cell-${a.item_adj_id}">${saEventRefSelectHTML(a.item_adj_id, curRef)}</td>
+      <td id="sa-ref-cell-${a.item_adj_id}">${saEventRefSelectHTML(a.item_adj_id, curBoothId, curRef)}</td>
     </tr>`;
   }).join("");
 }
 
-function saEventRefSelectHTML(adjId, currentRef) {
+function saEventRefSelectHTML(adjId, currentBoothId, currentRef) {
   if (!saEvents.length) {
-    return `<select disabled style="font-size:12px;padding:3px 8px;border:1px solid var(--g100);border-radius:4px;width:100%;background:var(--off);color:var(--g400);max-width:200px"><option>— belum ada event —</option></select>`;
+    return `<select disabled style="font-size:12px;padding:3px 8px;border:1px solid var(--g100);border-radius:4px;width:100%;background:var(--off);color:var(--g400);max-width:240px"><option>— belum ada event —</option></select>`;
   }
-  // Block setting event ref without a category first (DB requires it).
   const hasCategory = !!saCategories[adjId]?.category;
-  if (!hasCategory && !currentRef) {
-    return `<select disabled title="Set Kategori dulu sebelum link ke event" style="font-size:12px;padding:3px 8px;border:1px solid var(--g100);border-radius:4px;width:100%;background:var(--off);color:var(--g400);max-width:200px"><option>— set kategori dulu —</option></select>`;
+  if (!hasCategory && !currentBoothId && !currentRef) {
+    return `<select disabled title="Set Kategori dulu sebelum link ke event" style="font-size:12px;padding:3px 8px;border:1px solid var(--g100);border-radius:4px;width:100%;background:var(--off);color:var(--g400);max-width:240px"><option>— set kategori dulu —</option></select>`;
   }
-  // Include legacy ref if it doesn't match any current event (e.g., event deleted)
-  const hasCurrent = !currentRef || saEvents.some(e => e.event_name === currentRef);
-  const extra = hasCurrent ? '' : `<option value="${currentRef.replace(/"/g,'&quot;')}" selected>${currentRef} (legacy)</option>`;
+  // Pre-selected check: prefer id match, else fallback to first event with matching name (legacy)
+  let resolvedId = currentBoothId;
+  let needsRepick = false;
+  if (!resolvedId && currentRef) {
+    const matches = saEvents.filter(e => e.event_name === currentRef);
+    if (matches.length === 1) resolvedId = matches[0].id;
+    else if (matches.length > 1) needsRepick = true;  // ambiguous
+  }
+  // Visual: highlight orange border when re-pick needed
+  const borderColor = needsRepick ? '#c0392b' : 'var(--g200)';
+  const bg = needsRepick ? '#fff8e1' : 'var(--white)';
+  // Extra: if legacy ref present but no event with that name → keep as plain string fallback
+  const noNameMatch = !resolvedId && currentRef && !saEvents.some(e => e.event_name === currentRef);
+  const extra = noNameMatch ? `<option value="" selected>⚠ ${currentRef.replace(/</g,'&lt;')} (legacy — event terhapus)</option>` : '';
   const opts = saEvents.map(e => {
-    const dt = e.event_date ? ` (${new Date(e.event_date).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"2-digit"})})` : '';
-    return `<option value="${e.event_name.replace(/"/g,'&quot;')}"${e.event_name===currentRef?" selected":""}>${e.event_name}${dt}</option>`;
+    const dt = e.event_date ? ` · ${new Date(e.event_date).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"2-digit"})}` : '';
+    return `<option value="${e.id}"${e.id===resolvedId?" selected":""}>${e.event_name}${dt}</option>`;
   }).join("");
-  return `<select onchange="saveSAEventRef(${adjId},this.value)" style="font-size:12px;padding:3px 8px;border:1px solid var(--g200);border-radius:4px;width:100%;background:var(--white);max-width:200px">
-    <option value="">— tidak terkait event —</option>
+  const title = needsRepick ? `Ambigu — ada ${saEvents.filter(e => e.event_name === currentRef).length} event nama "${currentRef}". Pilih ulang.` : '';
+  return `<select onchange="saveSAEventRef(${adjId},this.value)" title="${title}" style="font-size:12px;padding:3px 8px;border:1px solid ${borderColor};border-radius:4px;width:100%;background:${bg};max-width:240px">
+    <option value="">${needsRepick?'⚠ Pilih event yang benar':'— tidak terkait event —'}</option>
     ${extra}
     ${opts}
   </select>`;
 }
 
-async function saveSAEventRef(adjId, eventRef) {
-  const ref = (eventRef || '').trim() || null;
+async function saveSAEventRef(adjId, boothId) {
+  const id = (boothId || '').trim() || null;
   const existing = saCategories[adjId] || { item_adj_id: adjId };
+  // Look up event_name from chosen booth_id (denormalize for display + legacy compat)
+  const ev = id ? saEvents.find(e => e.id === id) : null;
+  const ref = ev?.event_name || null;
   const payload = {
-    item_adj_id:    adjId,
-    category:       existing.category || null,
-    event_ref:      ref,
-    categorized_by: existing.categorized_by || currentUser,
-    updated_at:     new Date().toISOString(),
+    item_adj_id:     adjId,
+    category:        existing.category || null,
+    event_ref:       ref,
+    popup_booth_id:  id,
+    categorized_by:  existing.categorized_by || currentUser,
+    updated_at:      new Date().toISOString(),
   };
   const { error } = await sb.from("adjustment_categories").upsert(payload, { onConflict: "item_adj_id" });
   if (error) {
     alert("Gagal simpan event ref: " + error.message);
     const cell = document.getElementById(`sa-ref-cell-${adjId}`);
-    if (cell) cell.innerHTML = saEventRefSelectHTML(adjId, existing.event_ref || "");
+    if (cell) cell.innerHTML = saEventRefSelectHTML(adjId, existing.popup_booth_id || "", existing.event_ref || "");
     return;
   }
   if (!saCategories[adjId]) saCategories[adjId] = { item_adj_id: adjId };
   saCategories[adjId].event_ref = ref;
+  saCategories[adjId].popup_booth_id = id;
 }
 
 // ── SYNC ALL JUBELIO ──
