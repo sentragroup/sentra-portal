@@ -35508,9 +35508,16 @@ function mapMpurc(r) {
     paymentDue: parseFloat(r.payment_due)||0,
     jubelioSoNo: r.jubelio_so_no||'',
     pic: r.pic||'',
+    shipToType: r.ship_to_type||'kantor',
+    shipToAddress: r.ship_to_address||'',
+    shipToRecipient: r.ship_to_recipient||'',
+    shipToPhone: r.ship_to_phone||'',
+    shipToCourier: r.ship_to_courier||'',
+    shipToNotes: r.ship_to_notes||'',
     createdBy: r.created_by||'', createdAt: r.created_at,
   };
 }
+const MP_OFFICE_ADDRESS = 'Jl. Wahid Hasyim No. 10D RT.002 RW.007, Kebon Sirih, Menteng, Jakarta Pusat';
 
 function _mpurcGenId() {
   const d = new Date().toISOString().slice(0,10).replace(/-/g,'');
@@ -35704,6 +35711,24 @@ function _mpurcRenderDetail() {
           <div class="fg full"><label>Deskripsi Detail Penagihan (Notes)</label><textarea id="mp-h-notes" rows="3" placeholder="Detail apa yang ditagih, kondisi khusus, dll">${(h.notes||'').replace(/</g,'&lt;')}</textarea></div>
         </div>
       </div>
+      <div class="form-card" style="margin-bottom:14px">
+        <div class="form-sec" style="display:flex;justify-content:space-between;align-items:center">
+          <span>Pengiriman</span>
+          <span style="font-size:11px;color:var(--g400);font-weight:normal">Default: dikirim ke Kantor, attn requestor</span>
+        </div>
+        <div class="form-grid" style="grid-template-columns:repeat(3,1fr)">
+          <div class="fg"><label>Tujuan</label><select id="mp-h-shiptype" onchange="_mpurcShipTypeChange(this.value)">
+            <option value="kantor" ${h.shipToType==='kantor'?'selected':''}>Kantor (Sentra)</option>
+            <option value="customer" ${h.shipToType==='customer'?'selected':''}>Alamat Customer</option>
+            <option value="lainnya" ${h.shipToType==='lainnya'?'selected':''}>Lainnya</option>
+          </select></div>
+          <div class="fg"><label>Penerima</label><input type="text" id="mp-h-shiprecipient" value="${(h.shipToRecipient||'').replace(/"/g,'&quot;')}" placeholder="${h.shipToType==='kantor'?'PIC Kantor / Requestor':'Nama penerima'}"></div>
+          <div class="fg"><label>No HP Penerima</label><input type="text" id="mp-h-shipphone" value="${(h.shipToPhone||'').replace(/"/g,'&quot;')}" placeholder="08..."></div>
+          <div class="fg full"><label>Alamat Kirim</label><textarea id="mp-h-shipaddr" rows="2" placeholder="Alamat lengkap pengiriman">${(h.shipToAddress||'').replace(/</g,'&lt;')}</textarea></div>
+          <div class="fg"><label>Ekspedisi / Kurir</label><input type="text" id="mp-h-shipcourier" value="${(h.shipToCourier||'').replace(/"/g,'&quot;')}" placeholder="e.g. JNE, Sicepat, Internal"></div>
+          <div class="fg" style="grid-column:span 2"><label>Catatan Pengiriman</label><input type="text" id="mp-h-shipnotes" value="${(h.shipToNotes||'').replace(/"/g,'&quot;')}" placeholder="Instruksi khusus untuk gudang/ekspedisi"></div>
+        </div>
+      </div>
       ${isNew ? `<div class="form-card" style="background:var(--off);border:1px dashed var(--g200)">
         <div style="text-align:center;padding:14px;font-size:12px;color:var(--g600)">💾 Simpan order dulu, baru bisa tambah items.</div>
       </div>` : `<div class="form-card">
@@ -35726,10 +35751,33 @@ function _mpurcRenderDetail() {
     </div>
   `;
   setupAC('mp-h-requestor','ac-mp-requestor',()=>acPics);
+  // Auto-fill shipping defaults if empty (new order or never set)
+  if (!h.shipToAddress && !h.shipToRecipient) {
+    _mpurcShipTypeChange(h.shipToType || 'kantor');
+  }
   if (activeTab && activeTab !== 'order') {
     const btn = document.getElementById('mp-tab-'+activeTab);
     if (btn) mpSwitchTab(activeTab, btn);
   }
+}
+
+function _mpurcShipTypeChange(val) {
+  const addrEl = document.getElementById('mp-h-shipaddr');
+  const recipEl = document.getElementById('mp-h-shiprecipient');
+  if (!addrEl || !recipEl) return;
+  if (val === 'kantor') {
+    if (!addrEl.value.trim()) addrEl.value = MP_OFFICE_ADDRESS;
+    if (!recipEl.value.trim()) {
+      const req = document.getElementById('mp-h-requestor')?.value.trim();
+      recipEl.value = req ? `${req} (PIC Kantor)` : 'PIC Kantor';
+    }
+  } else if (val === 'customer') {
+    const billAddr = document.getElementById('mp-h-billedaddr')?.value.trim() || '';
+    const billName = document.getElementById('mp-h-clientname')?.value.trim() || '';
+    if (billAddr && (addrEl.value === MP_OFFICE_ADDRESS || !addrEl.value.trim())) addrEl.value = billAddr;
+    if (billName && (!recipEl.value.trim() || /PIC Kantor/.test(recipEl.value))) recipEl.value = billName;
+  }
+  // lainnya = leave manual
 }
 
 function mpSwitchTab(tab, btn) {
@@ -36008,6 +36056,12 @@ async function saveManualPurchase() {
     order_date: orderDate,
     invoice_date: document.getElementById('mp-h-invdate')?.value || null,
     due_date: document.getElementById('mp-h-duedate')?.value || null,
+    ship_to_type: document.getElementById('mp-h-shiptype')?.value || 'kantor',
+    ship_to_address: document.getElementById('mp-h-shipaddr')?.value.trim() || null,
+    ship_to_recipient: document.getElementById('mp-h-shiprecipient')?.value.trim() || null,
+    ship_to_phone: document.getElementById('mp-h-shipphone')?.value.trim() || null,
+    ship_to_courier: document.getElementById('mp-h-shipcourier')?.value.trim() || null,
+    ship_to_notes: document.getElementById('mp-h-shipnotes')?.value.trim() || null,
     last_updated: new Date().toISOString(),
     last_updated_by: currentUser,
   };
