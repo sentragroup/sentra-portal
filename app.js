@@ -2409,23 +2409,26 @@ async function _pbComputeEventAggregates(events) {
   const nameToId = new Map(); // For legacy fallback — first-match (ambiguous if dup names)
   for (const e of events) if (e.name && !nameToId.has(e.name)) nameToId.set(e.name, e.id);
 
-  const [trfMapsRes, txMapsRes, adjByIdRes, adjByNameRes] = await Promise.all([
+  const [trfMapsRes, txByIdRes, txByNameRes, adjByIdRes, adjByNameRes] = await Promise.all([
     sb.from('inventory_transfer_mappings').select('item_transfer_id,ref_label')
       .eq('category','Event').in('ref_label', eventNames),
+    sb.from('transaction_mappings').select('salesorder_id,popup_booth_id')
+      .eq('category','Pop Up Booth').in('popup_booth_id', eventIds),
     sb.from('transaction_mappings').select('salesorder_id,project_ref')
-      .eq('category','Pop Up Booth').in('project_ref', eventNames),
+      .eq('category','Pop Up Booth').is('popup_booth_id', null).in('project_ref', eventNames),
     sb.from('adjustment_categories').select('item_adj_id,popup_booth_id')
       .in('popup_booth_id', eventIds),
     sb.from('adjustment_categories').select('item_adj_id,event_ref')
       .is('popup_booth_id', null).in('event_ref', eventNames),
   ]);
   const trfMaps = trfMapsRes.data || [];
-  const txMaps  = txMapsRes.data  || [];
+  const txById    = txByIdRes.data    || [];
+  const txByName  = txByNameRes.data  || [];
   const adjById   = adjByIdRes.data   || [];
   const adjByName = adjByNameRes.data || [];
 
   const trfIds = trfMaps.map(m => m.item_transfer_id).filter(Boolean);
-  const soIds  = txMaps.map(m => m.salesorder_id).filter(Boolean);
+  const soIds  = [...txById.map(m => m.salesorder_id), ...txByName.map(m => m.salesorder_id)].filter(Boolean);
   const adjIds = [...adjById.map(m => m.item_adj_id), ...adjByName.map(m => m.item_adj_id)].filter(Boolean);
 
   // Fetch headers + items in chunks. fkCol = the FK column to chunk on.
@@ -2473,10 +2476,18 @@ async function _pbComputeEventAggregates(events) {
     if (!eventTrfIds.has(m.ref_label)) eventTrfIds.set(m.ref_label, []);
     eventTrfIds.get(m.ref_label).push(m.item_transfer_id);
   });
-  const eventSoIds = new Map();
-  txMaps.forEach(m => {
-    if (!eventSoIds.has(m.project_ref)) eventSoIds.set(m.project_ref, []);
-    eventSoIds.get(m.project_ref).push(m.salesorder_id);
+  const eventSoIds = new Map();   // keyed by booth_id
+  txById.forEach(m => {
+    if (!eventSoIds.has(m.popup_booth_id)) eventSoIds.set(m.popup_booth_id, []);
+    eventSoIds.get(m.popup_booth_id).push(m.salesorder_id);
+  });
+  // Legacy fallback: route by name, skip ambiguous
+  txByName.forEach(m => {
+    if (!m.project_ref || ambiguousNames.has(m.project_ref)) return;
+    const boothId = nameToId.get(m.project_ref);
+    if (!boothId) return;
+    if (!eventSoIds.has(boothId)) eventSoIds.set(boothId, []);
+    eventSoIds.get(boothId).push(m.salesorder_id);
   });
   const eventAdjIds = new Map();   // keyed by booth_id (NOT name)
   adjById.forEach(m => {
@@ -2538,7 +2549,7 @@ async function _pbComputeEventAggregates(events) {
       else r.qty_in += qty;
     }
 
-    const sIds = eventSoIds.get(evName) || [];
+    const sIds = eventSoIds.get(ev.id) || [];
     for (const soId of sIds) {
       const h = soHeaderMap.get(soId);
       if (!h || isCanceled(h)) continue;
@@ -3025,18 +3036,26 @@ function closePBDetail() {
 
 async function _pbLoadDetailData(eventName, boothId) {
   try {
-    // Fetch mappings + sales in parallel
+    // Tx: prefer popup_booth_id, fallback to legacy name where booth id NULL
+    const txByIdQ = boothId
+      ? sb.from('transaction_mappings').select('salesorder_id').eq('category','Pop Up Booth').eq('popup_booth_id', boothId)
+      : Promise.resolve({data:[]});
+    const txByNameQ = eventName
+      ? sb.from('transaction_mappings').select('salesorder_id').eq('category','Pop Up Booth').is('popup_booth_id', null).eq('project_ref', eventName)
+      : Promise.resolve({data:[]});
     const [
-      {data: txMaps, error: txErr},
+      txByIdR,
+      txByNameR,
       {data: invMaps, error: invErr}
     ] = await Promise.all([
-      sb.from('transaction_mappings').select('salesorder_id').eq('category','Pop Up Booth').eq('project_ref', eventName),
+      txByIdQ,
+      txByNameQ,
       sb.from('inventory_transfer_mappings').select('item_transfer_id').eq('category','Event').eq('ref_label', eventName)
     ]);
-    if (txErr) throw txErr;
     if (invErr) throw invErr;
+    const txMaps = [...(txByIdR.data||[]), ...(txByNameR.data||[])];
 
-    const salesOrderIds = (txMaps||[]).map(m => m.salesorder_id).filter(Boolean);
+    const salesOrderIds = txMaps.map(m => m.salesorder_id).filter(Boolean);
     const xferIds       = (invMaps||[]).map(m => m.item_transfer_id).filter(Boolean);
 
     // Fetch xfer headers + items in chunks
@@ -22337,24 +22356,26 @@ async function _maLoadPopupCache() {
         // jubelio_sales_orders (same pattern as Pop Up Booth detail aggregation).
         // Excludes canceled orders. Avoids the manual entry requirement on
         // popup_booths.actual_sales — sales sync directly from Jubelio.
-        const needNames = rows.filter(p => p.actual_sales == null).map(p => p.event_name).filter(Boolean);
-        if (needNames.length) {
-          const totalByEvent = new Map();
+        const needRows = rows.filter(p => p.actual_sales == null);
+        const needIds = needRows.map(p => p.id).filter(Boolean);
+        const needNames = needRows.map(p => p.event_name).filter(Boolean);
+        if (needIds.length) {
+          const totalByBoothId = new Map();
           const MAP_CHUNK = 100;
-          // transaction_mappings + jubelio_sales_orders in parallel chunks
-          for (let i = 0; i < needNames.length; i += MAP_CHUNK) {
-            const chunk = needNames.slice(i, i + MAP_CHUNK);
+          // Preferred path: query by popup_booth_id (handles duplicate-name events)
+          for (let i = 0; i < needIds.length; i += MAP_CHUNK) {
+            const chunk = needIds.slice(i, i + MAP_CHUNK);
             const {data: maps} = await sb.from('transaction_mappings')
-              .select('salesorder_id,project_ref')
+              .select('salesorder_id,popup_booth_id')
               .eq('category', 'Pop Up Booth')
-              .in('project_ref', chunk);
+              .in('popup_booth_id', chunk);
             if (!maps || !maps.length) continue;
-            const soByEvent = new Map();
+            const soByBooth = new Map();
             for (const m of maps) {
-              if (!m.salesorder_id) continue;
-              if (!soByEvent.has(m.salesorder_id)) soByEvent.set(m.salesorder_id, m.project_ref);
+              if (!m.salesorder_id || !m.popup_booth_id) continue;
+              if (!soByBooth.has(m.salesorder_id)) soByBooth.set(m.salesorder_id, m.popup_booth_id);
             }
-            const soIds = [...soByEvent.keys()];
+            const soIds = [...soByBooth.keys()];
             const SO_CHUNK = 200;
             for (let j = 0; j < soIds.length; j += SO_CHUNK) {
               const soChunk = soIds.slice(j, j + SO_CHUNK);
@@ -22363,15 +22384,51 @@ async function _maLoadPopupCache() {
                 .in('salesorder_id', soChunk);
               for (const o of (orders||[])) {
                 if (o.is_canceled) continue;
-                const evName = soByEvent.get(o.salesorder_id);
-                if (!evName) continue;
-                totalByEvent.set(evName, (totalByEvent.get(evName)||0) + Number(o.grand_total||0));
+                const bid = soByBooth.get(o.salesorder_id);
+                if (!bid) continue;
+                totalByBoothId.set(bid, (totalByBoothId.get(bid)||0) + Number(o.grand_total||0));
+              }
+            }
+          }
+          // Legacy fallback: name-based for rows where popup_booth_id NULL (skip dup names)
+          if (needNames.length) {
+            const nameCount = new Map();
+            rows.forEach(p => { if (p.event_name) nameCount.set(p.event_name, (nameCount.get(p.event_name)||0)+1); });
+            const safeNames = needNames.filter(n => nameCount.get(n) === 1);
+            const nameToId = new Map(rows.filter(p => p.event_name).map(p => [p.event_name, p.id]));
+            for (let i = 0; i < safeNames.length; i += MAP_CHUNK) {
+              const chunk = safeNames.slice(i, i + MAP_CHUNK);
+              const {data: maps} = await sb.from('transaction_mappings')
+                .select('salesorder_id,project_ref')
+                .eq('category', 'Pop Up Booth')
+                .is('popup_booth_id', null)
+                .in('project_ref', chunk);
+              if (!maps || !maps.length) continue;
+              const soByName = new Map();
+              for (const m of maps) {
+                if (!m.salesorder_id || !m.project_ref) continue;
+                if (!soByName.has(m.salesorder_id)) soByName.set(m.salesorder_id, m.project_ref);
+              }
+              const soIds = [...soByName.keys()];
+              const SO_CHUNK = 200;
+              for (let j = 0; j < soIds.length; j += SO_CHUNK) {
+                const soChunk = soIds.slice(j, j + SO_CHUNK);
+                const {data: orders} = await sb.from('jubelio_sales_orders')
+                  .select('salesorder_id,grand_total,is_canceled')
+                  .in('salesorder_id', soChunk);
+                for (const o of (orders||[])) {
+                  if (o.is_canceled) continue;
+                  const name = soByName.get(o.salesorder_id);
+                  const bid = nameToId.get(name);
+                  if (!bid) continue;
+                  totalByBoothId.set(bid, (totalByBoothId.get(bid)||0) + Number(o.grand_total||0));
+                }
               }
             }
           }
           for (const r of _maPopupCache) {
-            if (r.actualSales == null && totalByEvent.has(r.name)) {
-              r.actualSales = totalByEvent.get(r.name);
+            if (r.actualSales == null && totalByBoothId.has(r.id)) {
+              r.actualSales = totalByBoothId.get(r.id);
             }
           }
         }
@@ -25866,35 +25923,77 @@ function _txRefOptions(category) {
     return _txDistPartners.map(p => ({value:p.name, label:p.name}));
   }
   if (category === 'Pop Up Booth') {
+    // Value = booth_id (was name) so duplicate-name events are routed correctly
     return _txPopupBooths.map(p => {
       const dateLbl = p.date ? ` (${new Date(p.date).toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'2-digit'})})` : '';
       const ipPrefix = p.ip ? `${p.ip} — ` : '';
-      return {value:p.name, label: ipPrefix + p.name + dateLbl};
+      return {value: p.id, label: ipPrefix + p.name + dateLbl};
     });
   }
   return [];
 }
 
-function _txRefSelectHTML(rowId, category, currentValue) {
+function _txRefSelectHTML(rowId, category, currentRef, currentBoothId) {
   if (!category) {
     return `<select disabled style="width:100%;padding:4px 6px;font-size:11px;border:1px solid var(--g100);border-radius:3px;background:var(--off);color:var(--g400)"><option>— pilih category dulu —</option></select>`;
   }
-  // Manual Purchase doesn't have a lookup table — free-text input (buyer name)
   if (category === 'Manual Purchase') {
-    return `<input type="text" value="${_txEsc(currentValue||'')}" placeholder="Nama pembeli / staff" style="width:100%;padding:4px 6px;font-size:11px;border:1px solid var(--g100);border-radius:3px;background:var(--white)" onblur="updateTxField(${rowId},'project_ref',this.value)">`;
+    return `<input type="text" value="${_txEsc(currentRef||'')}" placeholder="Nama pembeli / staff" style="width:100%;padding:4px 6px;font-size:11px;border:1px solid var(--g100);border-radius:3px;background:var(--white)" onblur="updateTxField(${rowId},'project_ref',this.value)">`;
   }
   const opts = _txRefOptions(category);
   if (!opts.length) {
     return `<select disabled style="width:100%;padding:4px 6px;font-size:11px;border:1px solid var(--g100);border-radius:3px;background:var(--off);color:var(--g400)"><option>${category==='Pop Up Booth'?'Tidak ada event di Pop Up Booth':'Tidak ada partner di Distribution Master'}</option></select>`;
   }
-  // Include current value as an extra option if it doesn't match any lookup (e.g., legacy free-text)
-  const hasCurrent = !currentValue || opts.some(o => o.value === currentValue);
-  const extra = hasCurrent ? '' : `<option value="${_txEsc(currentValue)}" selected>${_txEsc(currentValue)} (legacy)</option>`;
+  if (category === 'Pop Up Booth') {
+    // Resolve selected booth: prefer popup_booth_id, fallback to name (ambiguous if dup)
+    let resolvedId = currentBoothId || '';
+    let needsRepick = false;
+    if (!resolvedId && currentRef) {
+      const matches = _txPopupBooths.filter(p => p.name === currentRef);
+      if (matches.length === 1) resolvedId = matches[0].id;
+      else if (matches.length > 1) needsRepick = true;
+    }
+    const noNameMatch = !resolvedId && currentRef && !_txPopupBooths.some(p => p.name === currentRef);
+    const borderColor = needsRepick ? '#c0392b' : 'var(--g100)';
+    const bg = needsRepick ? '#fff8e1' : 'var(--white)';
+    const extra = noNameMatch ? `<option value="" selected>⚠ ${_txEsc(currentRef)} (legacy)</option>` : '';
+    const title = needsRepick ? `Ambigu — ada ${_txPopupBooths.filter(p => p.name === currentRef).length} event "${currentRef}". Pilih ulang.` : '';
+    return `<select onchange="updateTxPopupBooth(${rowId},this.value)" title="${title}" style="width:100%;padding:4px 6px;font-size:11px;border:1px solid ${borderColor};border-radius:3px;background:${bg}">
+      <option value="">${needsRepick?'⚠ Pilih event yang benar':'— pilih event —'}</option>
+      ${extra}
+      ${opts.map(o => `<option value="${_txEsc(o.value)}"${o.value===resolvedId?' selected':''}>${_txEsc(o.label)}</option>`).join('')}
+    </select>`;
+  }
+  // Wholesale / Consignment — opt.value is partner name (text)
+  const hasCurrent = !currentRef || opts.some(o => o.value === currentRef);
+  const extra = hasCurrent ? '' : `<option value="${_txEsc(currentRef)}" selected>${_txEsc(currentRef)} (legacy)</option>`;
   return `<select onchange="updateTxField(${rowId},'project_ref',this.value)" style="width:100%;padding:4px 6px;font-size:11px;border:1px solid var(--g100);border-radius:3px;background:var(--white)">
     <option value="">— pilih ref —</option>
     ${extra}
-    ${opts.map(o => `<option value="${_txEsc(o.value)}"${o.value===currentValue?' selected':''}>${_txEsc(o.label)}</option>`).join('')}
+    ${opts.map(o => `<option value="${_txEsc(o.value)}"${o.value===currentRef?' selected':''}>${_txEsc(o.label)}</option>`).join('')}
   </select>`;
+}
+
+// Dedicated handler for Pop Up Booth selection — stores both popup_booth_id + denormalizes project_ref to name
+async function updateTxPopupBooth(salesorderId, boothId) {
+  const booth = _txPopupBooths.find(p => p.id === boothId);
+  const row = _txRows.find(r => r.salesorder_id === salesorderId);
+  const existing = row?._mapping || {salesorder_id: salesorderId};
+  const next = {
+    ...existing,
+    popup_booth_id: boothId || null,
+    project_ref:    booth?.name || null,
+    last_updated:   new Date().toISOString(),
+    last_updated_by: currentUser,
+  };
+  if (!existing.mapped_by) { next.mapped_by = currentUser; next.mapped_at = new Date().toISOString(); }
+  try {
+    const {error} = await sb.from('transaction_mappings').upsert(next, {onConflict: 'salesorder_id'});
+    if (error) throw error;
+    if (row) row._mapping = next;
+    _renderTxTable();
+    _renderTxStats();
+  } catch(e) { alert('Gagal: '+(e.message||e)); }
 }
 
 // Triggered when bulk category dropdown changes — repopulate the bulk Ref select.
@@ -26078,6 +26177,7 @@ function _renderTxTable() {
   tbody.innerHTML = _txRows.map(r => {
     const cat = r._mapping?.category || '';
     const proj = r._mapping?.project_ref || '';
+    const boothId = r._mapping?.popup_booth_id || '';
     // Notes now come from Jubelio (read-only) — usually carries event /
     // location context like "Sarasvatifest - Bali March 1, 2026". Strip
     // tabs and trim so the cell renders cleanly.
@@ -26098,7 +26198,7 @@ function _renderTxTable() {
       <td class="mono" style="text-align:right;font-size:11px;white-space:nowrap;font-weight:600">${_txRp(r.grand_total)}</td>
       <td><span class="pill ${isCanceled ? 'p-expired' : 'p-info'}" style="font-size:10px">${_txEsc(r.wms_status || '—')}</span></td>
       <td><select onchange="updateTxField(${r.salesorder_id},'category',this.value)" class="pill ${isMapped ? 'p-active' : 'p-draft'}" style="font-size:10px;padding:2px 6px;border:1px solid;width:100%">${catOpts.map(o => `<option value="${o}"${o===cat?' selected':''}>${o || '— Unmapped —'}</option>`).join('')}</select></td>
-      <td>${_txRefSelectHTML(r.salesorder_id, cat, proj)}</td>
+      <td>${_txRefSelectHTML(r.salesorder_id, cat, proj, boothId)}</td>
       <td style="font-size:11px;color:var(--g600);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_txEsc(jubNote)}">${jubNote ? _txEsc(jubNote) : '<span style="color:var(--g400)">—</span>'}</td>
       <td style="text-align:center">${isMapped ? `<button class="btn-icon" style="font-size:10px;color:#c33" onclick="unmapTx(${r.salesorder_id})">✕</button>` : '—'}</td>
     </tr>`;
