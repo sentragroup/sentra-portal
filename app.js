@@ -33505,7 +33505,7 @@ function _whRenderDetail() {
     if (opt) _whCurrentOrder.header.customerName = opt.name;
   });
   setupAC('wh-h-pic','ac-wh-pic',()=>acPics);
-  if (!isNew) { _whWireItemPicker(); _whWireJubSoPicker(); }
+  if (!isNew) { _whWireItemPicker(); _whWireJubSoPicker(); _whLoadJubelioCompare(); }
   // Restore previously active tab (default to 'order' on first render)
   if (activeTab && activeTab !== 'order') {
     const btn = document.getElementById('wh-tab-'+activeTab);
@@ -34181,6 +34181,84 @@ function _whRenderPayTab(h, payments, totalValue, dpAmount) {
       </div>
     </div>
     <div style="font-size:11px;color:var(--g600);margin-top:8px">⓿ Setelah ada shipment dengan items → status <b>Shipped</b>. Setelah Jubelio SO No diisi → status <b>Done</b>.</div>
+    ${h.jubelioSoNo ? `<div id="wh-jubelio-compare" style="margin-top:14px"><div style="font-size:11px;color:var(--g400)">⟳ Memuat perbandingan Invoice (Jubelio SO) vs PO...</div></div>` : ''}
+  </div>`;
+}
+
+// Step 9: bandingin PO (wholesale items) vs Invoice (Jubelio SO items) — buat track fulfillment.
+async function _whLoadJubelioCompare() {
+  const o = _whCurrentOrder; if (!o) return;
+  const h = o.header;
+  const target = document.getElementById('wh-jubelio-compare');
+  if (!target || !h.jubelioSoNo) return;
+  // Lookup jubelio_sales_order via salesorder_no
+  const { data: soRows } = await sb.from('jubelio_sales_orders').select('salesorder_id,salesorder_no,sub_total').eq('salesorder_no', h.jubelioSoNo).limit(1);
+  const so = (soRows||[])[0];
+  if (!so) {
+    target.innerHTML = `<div style="padding:10px 12px;background:#fdf6f4;border:1px solid #f1c6bf;border-radius:5px;font-size:11px;color:#a14e3e">⚠ Jubelio SO <b>${(h.jubelioSoNo||'').replace(/</g,'&lt;')}</b> gak ketemu di jubelio_sales_orders. Pastikan sync Jubelio udah jalan.</div>`;
+    return;
+  }
+  // Fetch SO items
+  const { data: soItems } = await sb.from('jubelio_sales_order_items').select('item_id,item_code,item_name,qty_in_base,price').eq('salesorder_id', so.salesorder_id);
+  // Aggregate Jubelio SO qty per item_id (defensive — usually 1 row per SKU but bisa kembar)
+  const jubByItem = new Map();
+  (soItems||[]).forEach(r => {
+    const q = parseFloat(r.qty_in_base)||0;
+    jubByItem.set(r.item_id, (jubByItem.get(r.item_id)||0) + q);
+  });
+  // Build per-SKU comparison: PO qty (from o.items) vs Jubelio qty
+  const rows = o.items.map(it => {
+    const orderedQty = parseFloat(it.qty)||0;
+    const jubQty = jubByItem.get(it.jubelio_item_id)||0;
+    const diff = jubQty - orderedQty;
+    return { item: it, orderedQty, jubQty, diff };
+  });
+  // Items yang ADA di Jubelio SO tapi GAK ada di PO (extra)
+  const orderedItemIds = new Set(o.items.map(i => i.jubelio_item_id));
+  const extraInJubelio = (soItems||[]).filter(r => !orderedItemIds.has(r.item_id));
+  const totalOrdered = rows.reduce((s,r) => s + r.orderedQty, 0);
+  const totalJub = rows.reduce((s,r) => s + r.jubQty, 0) + extraInJubelio.reduce((s,r) => s + (parseFloat(r.qty_in_base)||0), 0);
+  const fulfillmentOk = totalJub === totalOrdered && rows.every(r => r.diff === 0) && extraInJubelio.length === 0;
+  const rowsHTML = rows.map(r => {
+    const size = _whSizeOf(r.item.item_name, r.item.item_code);
+    const ok = r.diff === 0;
+    const short = r.diff < 0; // Jubelio kurang dari PO
+    const over = r.diff > 0;  // Jubelio lebih dari PO
+    const color = ok ? '#0a7d3a' : short ? '#c0392b' : '#a66800';
+    const icon = ok ? '✓' : short ? '⚠ Short' : '⚠ Over';
+    return `<tr style="border-top:1px solid #e5e7eb">
+      <td style="padding:6px 8px"><span style="font-family:var(--mono);font-size:10px;padding:1px 6px;background:var(--black);color:var(--white);border-radius:3px">${size}</span></td>
+      <td style="padding:6px 8px;font-family:var(--mono);font-size:10px;color:var(--g600)">${(r.item.item_code||'').replace(/</g,'&lt;')}</td>
+      <td style="padding:6px 8px;text-align:right;font-family:var(--mono);font-size:12px;font-weight:700">${r.orderedQty}</td>
+      <td style="padding:6px 8px;text-align:right;font-family:var(--mono);font-size:12px;font-weight:700">${r.jubQty}</td>
+      <td style="padding:6px 8px;text-align:right;font-family:var(--mono);font-size:11px;color:${color};font-weight:600">${r.diff>0?'+':''}${r.diff} <span style="font-size:10px">${icon}</span></td>
+    </tr>`;
+  }).join('');
+  const extraHTML = extraInJubelio.map(r => `<tr style="border-top:1px solid #e5e7eb;background:#fef4d4">
+    <td style="padding:6px 8px;color:#a66800">— extra —</td>
+    <td style="padding:6px 8px;font-family:var(--mono);font-size:10px;color:#a66800">${(r.item_code||'').replace(/</g,'&lt;')}</td>
+    <td style="padding:6px 8px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--g400)">—</td>
+    <td style="padding:6px 8px;text-align:right;font-family:var(--mono);font-size:12px;font-weight:700;color:#a66800">${parseFloat(r.qty_in_base)||0}</td>
+    <td style="padding:6px 8px;text-align:right;font-family:var(--mono);font-size:11px;color:#a66800;font-weight:600">+${parseFloat(r.qty_in_base)||0} <span style="font-size:10px">⚠ Not in PO</span></td>
+  </tr>`).join('');
+  target.innerHTML = `<div style="background:white;border:1px solid var(--g100);border-radius:6px;overflow:hidden">
+    <div style="padding:10px 12px;background:${fulfillmentOk?'#dff0d8':'#fff8e8'};border-bottom:1px solid ${fulfillmentOk?'#b8d9b3':'#f0d896'};display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div style="font-size:12px;font-weight:700;color:${fulfillmentOk?'#0a7d3a':'#a66800'}">${fulfillmentOk?'✓ Fully Fulfilled':'⚠ Belum Match'}</div>
+        <div style="font-size:10px;color:var(--g600);font-family:var(--mono);margin-top:2px">PO ${totalOrdered} pcs · Jubelio SO ${totalJub} pcs · Diff ${totalJub-totalOrdered>=0?'+':''}${totalJub-totalOrdered}</div>
+      </div>
+      <div style="font-size:10px;color:var(--g400);font-family:var(--mono)">SO #${so.salesorder_id} · ${so.salesorder_no}</div>
+    </div>
+    <table style="width:100%;font-size:11px;border-collapse:collapse">
+      <thead><tr style="background:#fafafa">
+        <th style="padding:5px 8px;text-align:left;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Size</th>
+        <th style="padding:5px 8px;text-align:left;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">SKU</th>
+        <th style="padding:5px 8px;text-align:right;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">PO Qty</th>
+        <th style="padding:5px 8px;text-align:right;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Invoice Qty</th>
+        <th style="padding:5px 8px;text-align:right;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Diff</th>
+      </tr></thead>
+      <tbody>${rowsHTML}${extraHTML}</tbody>
+    </table>
   </div>`;
 }
 
@@ -34233,16 +34311,18 @@ function _whRenderShipmentCard(s, items, shipItems, globalShippedByItem) {
     const variantCols = p.variants.map(v => {
       const ordered = parseFloat(v.qty)||0;
       const thisQty = parseFloat(sItemsByOi.get(v.id)?.qty_shipped)||0;
-      // Already shipped in OTHER shipments (exclude current)
-      const shippedElsewhere = (globalShippedByItem.get(v.id)||0) - thisQty;
-      const remaining = ordered - shippedElsewhere;
-      const max = Math.max(0, remaining);
+      // Total shipped across ALL shipments (termasuk shipment ini)
+      const totalShipped = globalShippedByItem.get(v.id)||0;
+      // Available untuk shipment ini = ordered − shipped di shipments LAIN
+      const shippedElsewhere = totalShipped - thisQty;
+      const max = Math.max(0, ordered - shippedElsewhere);
       const size = _whSizeOf(v.item_name, v.item_code);
-      const color = thisQty > 0 ? '#0a7d3a' : 'var(--g400)';
+      const inputColor = thisQty > 0 ? '#0a7d3a' : 'var(--g400)';
+      const fulfillColor = totalShipped >= ordered ? '#0a7d3a' : totalShipped > 0 ? '#a66800' : 'var(--g400)';
       return `<td style="padding:5px;text-align:center;border-right:1px solid var(--g100)">
         <div style="font-family:var(--mono);font-size:10px;font-weight:600;padding:1px 6px;background:var(--black);color:var(--white);border-radius:3px;display:inline-block">${size}</div>
-        <div style="margin-top:4px"><input type="number" min="0" max="${max}" value="${thisQty||''}" onchange="_whSetShipItemQty(${s.id},${v.id},this.value,${max})" placeholder="0" style="width:54px;text-align:center;font-family:var(--mono);font-size:11px;padding:3px 4px;border:1px solid var(--g100);border-radius:3px;background:#f0f7ff;color:${color}"></div>
-        <div style="margin-top:2px;font-size:9px;color:var(--g400);font-family:var(--mono)">${ordered}/${max>=0?max:0}</div>
+        <div style="margin-top:4px"><input type="number" min="0" max="${max}" value="${thisQty||''}" onchange="_whSetShipItemQty(${s.id},${v.id},this.value,${max})" placeholder="0" style="width:54px;text-align:center;font-family:var(--mono);font-size:11px;padding:3px 4px;border:1px solid var(--g100);border-radius:3px;background:#f0f7ff;color:${inputColor}"></div>
+        <div style="margin-top:2px;font-size:9px;color:${fulfillColor};font-family:var(--mono)" title="Total shipped across all shipments / Total ordered">${totalShipped}/${ordered}</div>
       </td>`;
     }).join('');
     return `<table style="width:100%;border-collapse:collapse;margin-top:6px;background:white;border:1px solid var(--g100);border-radius:4px">
@@ -34268,10 +34348,35 @@ function _whRenderShipmentCard(s, items, shipItems, globalShippedByItem) {
       <div class="fg"><label style="font-size:10px">AWB / Resi</label><input type="text" id="wh-ship-awb-${s.id}" value="${(s.awb_no||'').replace(/"/g,'&quot;')}" onchange="_whUpdateShipmentField(${s.id},'awb_no',this.value)" style="font-size:11px"></div>
       <div class="fg"><label style="font-size:10px">Courier</label><input type="text" id="wh-ship-courier-${s.id}" value="${(s.courier||'').replace(/"/g,'&quot;')}" placeholder="JNE, Sicepat..." onchange="_whUpdateShipmentField(${s.id},'courier',this.value)" style="font-size:11px"></div>
     </div>
+    ${_whRenderShippingCostRow(s)}
     <div style="margin-top:10px">
       <div style="font-size:10px;color:var(--g600);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px;font-weight:600;margin-bottom:4px">Items pengiriman ini · ordered/sisa di bawah input</div>
       ${parentRows}
     </div>
+  </div>`;
+}
+
+// Ongkir cost block per shipment — category dropdown + amount, reimbursed toggle muncul kalau category='reimbursed'
+function _whRenderShippingCostRow(s) {
+  const cost = parseFloat(s.shipping_cost)||0;
+  const cat = s.shipping_cost_category || '';
+  const reimbursed = !!s.shipping_cost_reimbursed;
+  const CAT_OPTS = [
+    { v:'', icon:'—', lbl:'— Pilih kategori ongkir —' },
+    { v:'paid_customer', icon:'💳', lbl:'Paid by Customer (bayar langsung ke kurir)' },
+    { v:'paid_sentra',   icon:'🏢', lbl:'Paid by Sentra (di-cover)' },
+    { v:'reimbursed',    icon:'🔁', lbl:'Reimbursed by Customer (Sentra bayar dulu)' },
+  ];
+  const opts = CAT_OPTS.map(o => `<option value="${o.v}" ${cat===o.v?'selected':''}>${o.icon} ${o.lbl}</option>`).join('');
+  const reimbToggle = cat === 'reimbursed' ? `<label style="display:flex;gap:5px;align-items:center;font-size:11px;cursor:pointer;padding:5px 10px;background:${reimbursed?'#dff0d8':'#fdf6f4'};border:1px solid ${reimbursed?'#b8d9b3':'#f1c6bf'};border-radius:4px">
+      <input type="checkbox" ${reimbursed?'checked':''} onchange="_whUpdateShipmentField(${s.id},'shipping_cost_reimbursed',this.checked)">
+      <b style="color:${reimbursed?'#0a7d3a':'#a14e3e'}">${reimbursed?'✓ Sudah di-reimburse':'⏳ Belum di-reimburse'}</b>
+    </label>` : '';
+  return `<div style="margin-top:8px;padding:8px 10px;background:white;border:1px dashed var(--g100);border-radius:5px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <span style="font-size:10px;color:var(--g600);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Ongkir →</span>
+    <input type="number" min="0" step="500" value="${cost||''}" placeholder="0" onchange="_whUpdateShipmentField(${s.id},'shipping_cost',this.value)" style="width:110px;text-align:right;font-family:var(--mono);font-size:11px;padding:4px 8px;border:1px solid var(--g100);border-radius:4px">
+    <select onchange="_whUpdateShipmentField(${s.id},'shipping_cost_category',this.value)" style="flex:1;min-width:240px;font-size:11px;padding:4px 8px;border:1px solid var(--g200);border-radius:4px;background:white">${opts}</select>
+    ${reimbToggle}
   </div>`;
 }
 
@@ -34291,7 +34396,11 @@ async function _whAddShipment() {
 
 async function _whUpdateShipmentField(shipmentId, field, value) {
   const o = _whCurrentOrder; if (!o) return;
-  const v = (typeof value === 'string' ? value.trim() : value) || null;
+  // Normalize: string → trim, number → parseFloat, boolean → as-is
+  let v;
+  if (typeof value === 'boolean') v = value;
+  else if (field === 'shipping_cost') v = parseFloat(value)||0;
+  else v = (typeof value === 'string' ? value.trim() : value) || null;
   await sb.from('wholesale_shipments').update({[field]: v}).eq('id', shipmentId);
   const s = o.shipments.find(x => x.id === shipmentId);
   if (s) s[field] = v;
