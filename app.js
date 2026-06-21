@@ -85,7 +85,7 @@ function mapIP(r) { return {rowIndex:r.id,id:r.id,name:r.name||"",category:r.cat
 function mapRR(r) { return {rowIndex:r.id,id:r.id,name:r.nama||"",tipe:r.tipe||"",ip:r.related_ip||"",royaltyType:r.royalty_type||"",pct:r.percentage||"",fixed:r.fixed_amount||"",termin:r.termin||"",pks:r.pks||"",notes:r.notes||"",pic:r.pic||"",addedBy:r.added_by||""}; }
 function mapBM(r) { return {rowIndex:r.id,id:r.id,name:r.name||"",category:r.category||"",liveStatus:r.live_status||"Active",brandType:r.brand_type||"",vatStatus:r.vat_status||"",revenue:r.revenue_stream||"",agreements:r.related_agreement||"",apparel:r.apparel_rate!=null?r.apparel_rate:"",accessories:r.accessories_rate!=null?r.accessories_rate:"",collectible:r.collectible_rate!=null?r.collectible_rate:"",preloved:r.preloved_rate!=null?r.preloved_rate:"",wellness:r.wellness_rate!=null?r.wellness_rate:"",others:r.others_rate!=null?r.others_rate:"",notes:r.notes||"",email:r.email||"",pic:r.pic||"",addedBy:r.added_by||""}; }
 function mapLD(r) { return {rowIndex:r.id,id:r.id,name:r.lead_name||"",category:r.category||"",stage:r.stage||"",pic:r.pic||"",revenue:r.revenue_stream||"",contact:r.contact||"",notes:r.notes||"",priority:r.priority||"",followUpDate:r.follow_up_date||"",date:r.date_added?new Date(r.date_added).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"",by:r.added_by||"",lastUpdate:r.last_updated?new Date(r.last_updated).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"",lastBy:r.last_updated_by||"",addedBy:r.added_by||""}; }
-function mapDP(r) { return {rowIndex:r.id,id:r.id,name:r.partner_name||"",type:r.type||"",channel:r.channel||"",region:r.region||"",pic:r.pic||"",contactPerson:r.contact_person||"",contactInfo:r.contact_info||"",agreements:r.related_agreement||"",liveStatus:r.live_status||"Active",notes:r.notes||"",email:r.email||"",addedBy:r.added_by||""}; }
+function mapDP(r) { return {rowIndex:r.id,id:r.id,name:r.partner_name||"",type:r.type||"",channel:r.channel||"",region:r.region||"",pic:r.pic||"",contactPerson:r.contact_person||"",contactInfo:r.contact_info||"",agreements:r.related_agreement||"",liveStatus:r.live_status||"Active",notes:r.notes||"",email:r.email||"",addedBy:r.added_by||"",jubelioContactId:r.jubelio_contact_id||null}; }
 function mapPB(r) { return {rowIndex:r.id,id:r.id,eventDate:r.event_date||"",eventName:r.event_name||"",location:r.location||"",ipRelated:r.ip_related||"",manpower:r.manpower||"",suratJalanUrl:r.surat_jalan_url||"",deliveryStatus:r.delivery_status||"",eventStatus:r.event_status||"",reinboundStatus:r.reinbound_status||"",reinboundQty:r.reinbound_qty!=null?r.reinbound_qty:"",srDeadline:r.sr_deadline||"",actualSales:r.actual_sales!=null?r.actual_sales:"",paymentMethod:r.payment_method||"",idPesananJubelio:r.id_pesanan_jubelio||"",notes:r.notes||"",channelFees:r.channel_fees||{},dateAdded:r.date_added||"",addedBy:r.added_by||"",lastUpdated:r.last_updated||"",lastUpdatedBy:r.last_updated_by||""}; }
 
 let currentUser = "";
@@ -2067,6 +2067,8 @@ async function submitDP() {
   try {
     const id=genId("DP");
     const now=new Date().toISOString();
+    const jcRaw = document.getElementById("dp-jubelio-contact-id")?.value;
+    const jubelioContactId = jcRaw ? parseInt(jcRaw, 10) : null;
     const {error}=await sb.from("dist_partners").insert({
       id,
       partner_name:    name,
@@ -2080,6 +2082,7 @@ async function submitDP() {
       related_agreement:document.getElementById("dp-agreements").value.trim(),
       notes:           document.getElementById("dp-notes").value.trim(),
       email:           document.getElementById("dp-email").value.trim()||null,
+      jubelio_contact_id: jubelioContactId,
       added_by:        currentUser,
       date_added:      now,
       last_updated:    now,
@@ -2098,7 +2101,7 @@ async function submitDP() {
 }
 
 function clearDPForm() {
-  ["dp-name","dp-type","dp-channel","dp-region","dp-pic","dp-contact-person","dp-contact-info","dp-agreements","dp-notes","dp-email"].forEach(id=>document.getElementById(id).value="");
+  ["dp-name","dp-type","dp-channel","dp-region","dp-pic","dp-contact-person","dp-contact-info","dp-agreements","dp-notes","dp-email","dp-jubelio-contact","dp-jubelio-contact-id"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
   document.getElementById("dp-live-status").value="Active";
 }
 
@@ -2202,6 +2205,10 @@ function renderDPTable(rows) {
           <div class="fg"><label>Related Agreement</label><input type="text" id="dp-e-agr-${r.rowIndex}" value="${r.agreements||""}"></div>
           <div class="fg"><label>Notes</label><input type="text" id="dp-e-notes-${r.rowIndex}" value="${r.notes||""}"></div>
           <div class="fg"><label>Email</label><input type="text" id="dp-e-email-${r.rowIndex}" value="${r.email||""}" placeholder="email1@x.com, email2@x.com"></div>
+          <div class="fg" style="grid-column:1/-1"><label>🔗 Jubelio Contact (auto-fill alamat di invoice)</label>
+            <div class="ac-wrap"><input type="text" id="dp-e-jub-${r.rowIndex}" placeholder="Ketik nama contact / company di Jubelio..." autocomplete="off"><div class="ac-list" id="ac-dp-e-jub-${r.rowIndex}"></div></div>
+            <input type="hidden" id="dp-e-jubid-${r.rowIndex}" value="${r.jubelioContactId||''}">
+          </div>
         </div>
         <div class="edit-row-btns">
           <button class="btn-save" onclick="saveDPEdit('${r.rowIndex}')">Simpan</button>
@@ -2212,7 +2219,7 @@ function renderDPTable(rows) {
   }).join("");
 }
 
-function openDPEdit(rowIndex){document.querySelectorAll("[id^='dp-edit-row-']").forEach(el=>el.style.display="none");document.getElementById("dp-edit-row-"+rowIndex).style.display="table-row";}
+function openDPEdit(rowIndex){document.querySelectorAll("[id^='dp-edit-row-']").forEach(el=>el.style.display="none");document.getElementById("dp-edit-row-"+rowIndex).style.display="table-row";_setupJubelioContactAC(`dp-e-jub-${rowIndex}`,`dp-e-jubid-${rowIndex}`,`ac-dp-e-jub-${rowIndex}`);}
 function closeDPEdit(rowIndex){document.getElementById("dp-edit-row-"+rowIndex).style.display="none";}
 
 async function deleteDP(rowIndex) {
@@ -2252,6 +2259,7 @@ async function saveDPEdit(rowIndex) {
       related_agreement:document.getElementById("dp-e-agr-"+rowIndex).value.trim(),
       notes:            document.getElementById("dp-e-notes-"+rowIndex).value.trim(),
       email:            document.getElementById("dp-e-email-"+rowIndex).value.trim()||null,
+      jubelio_contact_id: (function(){const v=document.getElementById("dp-e-jubid-"+rowIndex)?.value; return v?parseInt(v,10):null;})(),
       last_updated:     new Date().toISOString(),
       last_updated_by:  currentUser
     }).eq("id",rowIndex);
@@ -2267,6 +2275,48 @@ setupACMulti("dp-type","ac-dp-type",()=>acDPTypes);
 setupACMulti("dp-channel","ac-dp-channel",()=>acDPChannels);
 setupAC("dp-pic","ac-dp-pic",()=>acPics);
 setupAC("dp-agreements","ac-dp-agr",()=>acAgrOptions.map(o=>o.id),()=>acAgrOptions);
+_setupJubelioContactAC("dp-jubelio-contact","dp-jubelio-contact-id","ac-dp-jubelio");
+
+// ── Jubelio Contact autocomplete (reusable across dist_partners + future modules)
+let _jubContactsCache = null;
+async function _setupJubelioContactAC(inputId, hiddenIdField, listId) {
+  const inp = document.getElementById(inputId);
+  const list = document.getElementById(listId);
+  const hidden = document.getElementById(hiddenIdField);
+  if (!inp || !list) return;
+  const ensureCache = async () => {
+    if (_jubContactsCache) return;
+    try {
+      _jubContactsCache = await _fetchAllPages('jubelio_contacts','contact_id,contact_name,primary_contact,phone,mobile,billing_address,billing_city,billing_province,billing_post_code,shipping_address');
+    } catch(_) { _jubContactsCache = []; }
+  };
+  const render = async () => {
+    const q = (inp.value||'').toLowerCase().trim();
+    if (q.length < 2) { list.style.display='none'; return; }
+    await ensureCache();
+    const hits = (_jubContactsCache||[]).filter(c => `${c.contact_name||''} ${c.primary_contact||''} ${c.phone||''}`.toLowerCase().includes(q)).slice(0, 20);
+    if (!hits.length) { list.style.display='none'; return; }
+    list.style.display='block';
+    list.innerHTML = hits.map(c => `<div onmousedown="event.preventDefault();_pickJubContact(${c.contact_id},'${(c.contact_name||'').replace(/'/g,"\\'").replace(/"/g,'&quot;')}','${inputId}','${hiddenIdField}','${listId}')" style="padding:7px 10px;cursor:pointer;border-bottom:1px solid var(--g100);font-size:12px">
+      <div><b>${(c.contact_name||'').replace(/</g,'&lt;')}</b></div>
+      <div style="font-size:10px;color:var(--g400);font-family:var(--mono)">#${c.contact_id} · ${c.primary_contact||'—'} · ${c.phone||c.mobile||'no phone'}</div>
+    </div>`).join('');
+  };
+  inp.addEventListener('input', render);
+  inp.addEventListener('focus', render);
+  inp.addEventListener('blur', () => setTimeout(()=>{ list.style.display='none'; }, 200));
+  // Restore label from hidden id kalau ada (edit mode)
+  if (hidden?.value && !inp.value) {
+    await ensureCache();
+    const c = (_jubContactsCache||[]).find(x => String(x.contact_id) === String(hidden.value));
+    if (c) inp.value = c.contact_name||'';
+  }
+}
+function _pickJubContact(id, name, inputId, hiddenIdField, listId) {
+  document.getElementById(inputId).value = name;
+  document.getElementById(hiddenIdField).value = id;
+  document.getElementById(listId).style.display='none';
+}
 
 // ── POP UP BOOTH ──
 let allPBRows = [];
@@ -34256,6 +34306,14 @@ async function _whDownloadInvoice(milestone, invoiceType) {
   const items = o.items || [];
   if (!items.length) { alert('Order belum ada items.'); return; }
   const customer = allDPRows.find(c => c.id === h.customerId);
+  // Fetch Jubelio contact kalau dist_partner ke-link
+  let jubContact = null;
+  if (customer?.jubelioContactId) {
+    try {
+      const { data } = await sb.from('jubelio_contacts').select('contact_name,primary_contact,phone,mobile,billing_address,billing_city,billing_province,billing_post_code,shipping_address').eq('contact_id', customer.jubelioContactId).maybeSingle();
+      jubContact = data;
+    } catch(_) {}
+  }
   // Totals
   const subtotal = items.reduce((s,i) => s + (parseFloat(i.qty)||0) * (parseFloat(i.unit_price)||0), 0);
   const dpPct = parseFloat(h.dpPct)||30;
@@ -34302,18 +34360,28 @@ async function _whDownloadInvoice(milestone, invoiceType) {
   }
   const terbilangStr = (_whTerbilang(amountDue) + ' rupiah').replace(/\b\w/g, c => c.toUpperCase());
 
-  // Build lampiran rows
+  // Build lampiran rows — dengan thumbnail di kolom pertama parent row
   const lampiranBody = [...parents.values()].map(p => {
     const totalQty = p.variants.reduce((s,v) => s + (parseFloat(v.qty)||0), 0);
     const totalSub = p.variants.reduce((s,v) => s + (parseFloat(v.qty)||0) * (parseFloat(v.unit_price)||0), 0);
     const list = parseFloat(p.variants[0]?.list_price)||0;
     const disc = parseFloat(p.variants[0]?.discount_pct)||0;
+    // Find thumbnail dari jubelio_items via first variant
+    let thumb = null;
+    for (const v of p.variants) {
+      const j = jByItemId.get(v.jubelio_item_id);
+      if (j?.thumbnail) { thumb = j.thumbnail; break; }
+    }
+    const thumbCell = thumb
+      ? `<img src="${thumb.replace(/"/g,'&quot;')}" style="width:56px;height:56px;object-fit:cover;border-radius:4px;border:1px solid #ddd;display:block">`
+      : `<div style="width:56px;height:56px;background:#f0f0f0;border:1px dashed #ccc;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#999;font-size:9px">no img</div>`;
     const variantRows = p.variants.map(v => {
       const size = _whSizeOf(v.item_name, v.item_code);
       const qty = parseFloat(v.qty)||0;
       const price = parseFloat(v.unit_price)||0;
       const sub = qty * price;
       return `<tr>
+        <td></td>
         <td class="sz">${size}</td>
         <td class="sku">${(v.item_code||'').replace(/</g,'&lt;')}</td>
         <td class="r">${qty}</td>
@@ -34324,6 +34392,7 @@ async function _whDownloadInvoice(milestone, invoiceType) {
     const priceInfo = list > 0 ? `<span style="font-size:10px;color:#777;font-family:'Space Mono',monospace">List ${fmtRp(list)}${disc>0?` − ${disc}%`:''}</span>` : '';
     return `<tbody class="parent-group">
       <tr class="parent-row">
+        <td rowspan="${p.variants.length+1}" style="width:72px;vertical-align:top;padding:10px 8px">${thumbCell}</td>
         <td colspan="5">
           <div style="font-weight:700;font-size:13px">${p.name.replace(/</g,'&lt;')}</div>
           <div style="font-size:11px;color:#666;margin-top:2px">${p.variants.length} variants · ${totalQty} pcs · Subtotal ${fmtRp(totalSub)} ${priceInfo}</div>
@@ -34332,6 +34401,18 @@ async function _whDownloadInvoice(milestone, invoiceType) {
       ${variantRows}
     </tbody>`;
   }).join('');
+
+  // Recipient block from Jubelio contact (fallback to dist_partners fields)
+  const recName = jubContact?.contact_name || h.customerName || '—';
+  const recRef  = jubContact?.primary_contact || customer?.contactPerson || '';
+  const recPhone = jubContact?.phone || jubContact?.mobile || customer?.contactInfo || '';
+  const recAddrParts = [
+    jubContact?.billing_address || jubContact?.shipping_address || '',
+    jubContact?.billing_city || '',
+    jubContact?.billing_province || '',
+    jubContact?.billing_post_code || ''
+  ].filter(Boolean);
+  const recAddr = recAddrParts.length ? recAddrParts.join(', ') : '';
 
   // Open print window
   const w = window.open('', '_blank');
@@ -34368,8 +34449,14 @@ async function _whDownloadInvoice(milestone, invoiceType) {
       .totals .row.lbl{color:#666}
       .totals .row.total{border-top:2px solid #111;margin-top:6px;padding:14px 0 0;font-size:16px;font-weight:700}
       .totals .row.total .v{font-family:'Space Mono',monospace}
-      .terbilang{margin:18px 0 32px;padding:12px 16px;background:#fbf9f0;border-left:4px solid #d4af37;font-size:12px;font-style:italic;color:#333}
+      .terbilang{margin:18px 0 20px;padding:12px 16px;background:#fbf9f0;border-left:4px solid #d4af37;font-size:12px;font-style:italic;color:#333}
       .terbilang b{font-style:normal;color:#111}
+      .payment-info{margin:20px 0 32px;padding:16px 20px;background:#f7f6f0;border:1px solid #e3dfc8;border-radius:8px}
+      .payment-info .pi-title{font-family:'Space Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:0.1em;color:#666;font-weight:700;margin-bottom:10px}
+      .payment-info .pi-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 24px}
+      .payment-info .pi-grid > div{display:flex;flex-direction:column}
+      .payment-info .pi-lbl{font-family:'Space Mono',monospace;font-size:10px;color:#666;text-transform:uppercase;letter-spacing:0.05em}
+      .payment-info .pi-val{font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:#111;margin-top:2px}
       .sig-row{display:flex;justify-content:space-between;margin-top:48px;gap:32px}
       .sig{flex:1;text-align:center}
       .sig .lbl{font-family:'Space Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#666}
@@ -34398,9 +34485,8 @@ async function _whDownloadInvoice(milestone, invoiceType) {
       <div class="page">
         <div class="top">
           <div class="issuer">
-            <h2>Sentra Group</h2>
-            <p>PT Sandang Dunia Yuwana<br>
-            Jakarta, Indonesia<br>
+            <h2>PT Sandang Dunia Yuwana</h2>
+            <p>Jakarta, Indonesia<br>
             finance@sentragroup.id</p>
           </div>
           <div class="doc-meta">
@@ -34413,9 +34499,10 @@ async function _whDownloadInvoice(milestone, invoiceType) {
         </div>
         <div class="recipient">
           <div class="lbl">Ditagih kepada</div>
-          <div class="name">${(h.customerName||'—').replace(/</g,'&lt;')}</div>
-          ${customer?.contactPerson?`<div class="sub">${customer.contactPerson.replace(/</g,'&lt;')}${customer.contactInfo?` · ${customer.contactInfo.replace(/</g,'&lt;')}`:''}</div>`:''}
-          ${h.customerPoNo?`<div class="sub">Customer PO: ${h.customerPoNo.replace(/</g,'&lt;')}</div>`:''}
+          <div class="name">${recRef ? `${recRef.replace(/</g,'&lt;')} — ${recName.replace(/</g,'&lt;')}` : recName.replace(/</g,'&lt;')}</div>
+          ${recPhone?`<div class="sub">📞 ${recPhone.replace(/</g,'&lt;')}</div>`:''}
+          ${recAddr?`<div class="sub">📍 ${recAddr.replace(/</g,'&lt;')}</div>`:''}
+          ${h.customerPoNo?`<div class="sub" style="margin-top:6px;font-family:'Space Mono',monospace;font-size:11px;color:#666">Customer PO: ${h.customerPoNo.replace(/</g,'&lt;')}</div>`:''}
         </div>
         <table class="line">
           <thead><tr>
@@ -34440,16 +34527,25 @@ async function _whDownloadInvoice(milestone, invoiceType) {
           <div class="row total"><span>Total Tagihan</span><span class="v">${fmtRp(amountDue)}</span></div>
         </div>
         <div class="terbilang">Terbilang: <b>${terbilangStr}</b></div>
+        <div class="payment-info">
+          <div class="pi-title">Informasi Pembayaran</div>
+          <div class="pi-grid">
+            <div><span class="pi-lbl">Bank</span><span class="pi-val">Bank Central Asia (BCA)</span></div>
+            <div><span class="pi-lbl">No. Rekening</span><span class="pi-val">4780383289</span></div>
+            <div><span class="pi-lbl">Atas Nama</span><span class="pi-val">PT Sandang Dunia Yuwana</span></div>
+            <div><span class="pi-lbl">SWIFT Code</span><span class="pi-val">CENAIDJA</span></div>
+          </div>
+        </div>
         <div class="sig-row">
           <div class="sig">
             <div class="lbl">Hormat Kami</div>
             <div class="gap"></div>
-            <div class="name">Sentra Group</div>
+            <div class="name">PT Sandang Dunia Yuwana</div>
           </div>
           <div class="sig">
             <div class="lbl">Diterima Oleh</div>
             <div class="gap"></div>
-            <div class="name">${(h.customerName||'—').replace(/</g,'&lt;')}</div>
+            <div class="name">${recName.replace(/</g,'&lt;')}</div>
           </div>
         </div>
         <footer>Pembayaran ke rekening atas nama PT Sandang Dunia Yuwana · Mohon konfirmasi setelah transfer · ${docTitle} berlaku 14 hari dari tanggal diterbitkan.</footer>
@@ -34459,7 +34555,7 @@ async function _whDownloadInvoice(milestone, invoiceType) {
       <div class="page">
         <div class="top">
           <div class="issuer">
-            <h2>Sentra Group</h2>
+            <h2>PT Sandang Dunia Yuwana</h2>
             <p>Lampiran ${docTitle}<br>${invoiceNo}</p>
           </div>
           <div class="doc-meta">
@@ -34469,9 +34565,10 @@ async function _whDownloadInvoice(milestone, invoiceType) {
           </div>
         </div>
         <div class="lampiran-title">Detail Barang Pesanan</div>
-        <div class="lampiran-sub">Pelanggan: <b>${(h.customerName||'—').replace(/</g,'&lt;')}</b> · ${items.length} variants total, ${items.reduce((s,i)=>s+(parseFloat(i.qty)||0),0)} pcs</div>
+        <div class="lampiran-sub">Pelanggan: <b>${recName.replace(/</g,'&lt;')}</b> · ${items.length} variants total, ${items.reduce((s,i)=>s+(parseFloat(i.qty)||0),0)} pcs</div>
         <table class="lampiran">
           <thead><tr>
+            <th style="width:72px">Foto</th>
             <th>Size</th>
             <th>SKU</th>
             <th class="r">Qty</th>
@@ -34479,7 +34576,9 @@ async function _whDownloadInvoice(milestone, invoiceType) {
             <th class="r">Subtotal</th>
           </tr></thead>
           ${lampiranBody}
-          <tbody><tr><td colspan="2" style="padding:14px 10px;border-top:2px solid #111;font-weight:700">TOTAL</td>
+          <tbody><tr>
+            <td style="padding:14px 10px;border-top:2px solid #111"></td>
+            <td colspan="2" style="padding:14px 10px;border-top:2px solid #111;font-weight:700">TOTAL</td>
             <td class="r" style="padding:14px 10px;border-top:2px solid #111;font-weight:700">${items.reduce((s,i)=>s+(parseFloat(i.qty)||0),0)}</td>
             <td class="r" style="padding:14px 10px;border-top:2px solid #111"></td>
             <td class="r" style="padding:14px 10px;border-top:2px solid #111;font-weight:700">${fmtRp(subtotal)}</td>

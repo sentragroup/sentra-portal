@@ -818,6 +818,11 @@
               <div class="fg"><label>Contact Person</label><input type="text" id="dp-contact-person" placeholder="Nama kontak di partner"></div>
               <div class="fg"><label>Contact Info</label><input type="text" id="dp-contact-info" placeholder="Email atau WhatsApp"></div>
               <div class="fg"><label>Live Status</label><select id="dp-live-status"><option value="Active" selected>Active</option><option>Inactive</option></select></div>
+              <div class="fg full"><label>🔗 Jubelio Contact (untuk auto-fill alamat & telpon di invoice)</label>
+                <div class="ac-wrap"><input type="text" id="dp-jubelio-contact" placeholder="Ketik nama contact / company di Jubelio..." autocomplete="off"><div class="ac-list" id="ac-dp-jubelio"></div></div>
+                <input type="hidden" id="dp-jubelio-contact-id">
+                <div style="font-size:11px;color:var(--g400);margin-top:3px;font-family:var(--mono)">Pilih contact dari Jubelio — invoice bakal pakai alamat & info dari sana.</div>
+              </div>
               <div class="fg full"><label>Related Agreement</label>
                 <div class="ac-wrap"><input type="text" id="dp-agreements" placeholder="Ketik ID atau pilih agreement..." autocomplete="off"><div class="ac-list" id="ac-dp-agr"></div></div>
                 <div style="font-size:11px;color:var(--g400);margin-top:3px;font-family:var(--mono)">Pilih dari dropdown atau ketik manual, pisah dengan koma</div>
@@ -5227,6 +5232,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260615bf"></script>
+<script src="app.js?v=20260615bg"></script>
 </body>
 </html>
