@@ -26032,6 +26032,10 @@ function _txDate(d) {
   return new Date(d).toLocaleDateString('id-ID', {day:'2-digit',month:'short',year:'2-digit'});
 }
 
+// Filter / apply / refresh entry point — resets pagination so user doesn't
+// land on an out-of-range page when the new filter has fewer results.
+function txReloadFiltered() { _txPage = 0; return loadTxMap(); }
+
 async function loadTxMap() {
   const tbody = document.getElementById('txTableBody');
   if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="14">Memuat...</td></tr>`;
@@ -26106,14 +26110,14 @@ async function loadTxMap() {
       const locs = [...new Set((locRows||[]).map(r=>r.location_name).filter(Boolean))].sort();
       lSel.innerHTML = `<option value="">Semua location</option>` +
         locs.map(l => `<option value="${_txEsc(l)}">${_txEsc(l)}</option>`).join('');
-      lSel.onchange = loadTxMap;
+      lSel.onchange = () => { _txPage = 0; loadTxMap(); };
     }
     const cSel = document.getElementById('tx-fil-channel');
     if (cSel && cSel.options.length <= 1) {
       const chans = [...new Set((chanRows||[]).map(r=>r.channel_name).filter(Boolean))].sort();
       cSel.innerHTML = `<option value="">Semua channel</option>` +
         chans.map(c => `<option value="${_txEsc(c)}">${_txEsc(c)}</option>`).join('');
-      cSel.onchange = loadTxMap;
+      cSel.onchange = () => { _txPage = 0; loadTxMap(); };
     }
 
     // Fetch mappings for these orders (chunked if many)
