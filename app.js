@@ -36771,14 +36771,6 @@ async function _mpurcGenInvoicePDFMs(milestoneKey) {
             <div style="grid-column:1/-1"><span class="pi-lbl">NPWP</span><span class="pi-val">63.875.985.0-021.000</span></div>
           </div>
         </div>
-        <div class="sig-row">
-          <div class="sig">
-            <div class="company">PT. Sandang Dunia Yuwana</div>
-            <div class="gap"></div>
-            <div class="name">Muhammad Luthfi Amri Nasution</div>
-            <div class="role">Chief Operating Officer</div>
-          </div>
-        </div>
         <footer>Pembayaran ke rekening atas nama PT Sandang Dunia Yuwana · Mohon konfirmasi setelah transfer · Invoice berlaku 14 hari dari tanggal diterbitkan.</footer>
       </div>
       <div class="page">
@@ -36940,21 +36932,7 @@ async function _mpurcGenSuratJalanPDF() {
           </tr></tbody>
         </table>
         ${ship.notes?`<div style="margin-top:14px;padding:10px 14px;background:#fbf9f0;border-left:4px solid #d4af37;font-size:11px;font-style:italic;color:#333">Catatan: ${ship.notes.replace(/</g,'&lt;')}</div>`:''}
-        <div class="sig-row-sj">
-          <div class="sig">
-            <div class="company">Pengirim</div>
-            <div class="gap"></div>
-            <div class="name">PT Sandang Dunia Yuwana</div>
-            <div class="role">Tanda tangan & cap</div>
-          </div>
-          <div class="sig">
-            <div class="company">Penerima</div>
-            <div class="gap"></div>
-            <div class="name">${recName.replace(/</g,'&lt;')}</div>
-            <div class="role">Tanda tangan & cap</div>
-          </div>
-        </div>
-        <footer>Surat Jalan ini menjadi bukti serah-terima barang · Mohon ditandatangani penerima dan dikembalikan satu rangkap</footer>
+        <footer>Surat Jalan ini menjadi bukti serah-terima barang</footer>
       </div>
       <script>setTimeout(()=>window.print(),500);<\/script>
     </body></html>`);
