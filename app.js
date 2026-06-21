@@ -33962,43 +33962,70 @@ async function _whItemSplit(id, kind, val) {
 
 function _whRenderPayTab(h, payments, totalValue, dpAmount) {
   const fmtRp = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
+  const fmtTgl = d => d ? new Date(d+'T00:00:00').toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'}) : '—';
   const findP = m => payments.find(p => p.milestone === m);
   const finalAmount = totalValue - dpAmount;
+  // Due date auto = order_date + 7 days
+  const dueDate = _whComputeDueDate(h.orderDate);
   const milestones = [
     { key:'dp1',   label:`DP1 (${h.dpPct||30}%)`,   suggestAmount: dpAmount,    invoiceType: 'proforma' },
     { key:'dp2',   label:'DP2 (opsional)',           suggestAmount: 0,           invoiceType: 'proforma' },
     { key:'final', label:'Final (Pelunasan)',        suggestAmount: finalAmount, invoiceType: 'invoice' },
   ];
+  const fileChip = (url, milestoneKey, kind) => {
+    const ext = url.match(/\.(pdf|png|jpg|jpeg|webp)$/i)?.[0]?.slice(1).toUpperCase()||'File';
+    return `<div style="display:flex;align-items:center;gap:6px">
+      <a href="${url.replace(/"/g,'&quot;')}" target="_blank" style="font-size:10px;font-family:var(--mono);color:#3C3489;text-decoration:none;border:1px solid #c9bdf0;padding:3px 7px;border-radius:3px;background:#eef0f8">📎 ${ext}</a>
+      <button onclick="_whFileClear('${milestoneKey}','${kind}')" title="Hapus" style="background:none;border:none;color:#c0392b;cursor:pointer;font-size:11px">✕</button>
+    </div>`;
+  };
   const payRows = milestones.map(m => {
     const p = findP(m.key);
     const amt = p?.amount || m.suggestAmount;
     const isPaid = !!p?.paid_at;
     const bukti = p?.bukti_url;
+    const signed = p?.signed_invoice_url;
     const buktiBlock = bukti
-      ? `<div style="display:flex;align-items:center;gap:6px">
-          <a href="${bukti.replace(/"/g,'&quot;')}" target="_blank" style="font-size:10px;font-family:var(--mono);color:#3C3489;text-decoration:none;border:1px solid #c9bdf0;padding:3px 7px;border-radius:3px;background:#eef0f8">📎 ${bukti.match(/\.(pdf|png|jpg|jpeg|webp)$/i)?.[0]?.slice(1).toUpperCase()||'File'}</a>
-          <button onclick="_whBuktiClear('${m.key}')" title="Hapus bukti" style="background:none;border:none;color:#c0392b;cursor:pointer;font-size:11px">✕</button>
-        </div>`
-      : `<input type="file" id="wh-pay-bukti-${m.key}" accept="image/jpeg,image/png,image/webp,application/pdf" onchange="_whBuktiUpload('${m.key}',this)" style="font-size:10px;max-width:170px">`;
-    const invoiceBtnLbl = m.invoiceType === 'proforma' ? '📄 Proforma Invoice' : '📄 Invoice';
+      ? fileChip(bukti, m.key, 'bukti')
+      : `<input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onchange="_whFileUpload('${m.key}','bukti',this)" style="font-size:10px;max-width:160px">`;
+    const signedBlock = signed
+      ? fileChip(signed, m.key, 'signed')
+      : `<input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onchange="_whFileUpload('${m.key}','signed',this)" style="font-size:10px;max-width:160px">`;
+    // Status badge: paid / overdue / pending
+    const today = new Date().toISOString().slice(0,10);
+    const isOverdue = !isPaid && dueDate && dueDate < today;
+    const dueColor = isPaid ? '#0a7d3a' : isOverdue ? '#c0392b' : '#666';
+    const dueIcon  = isPaid ? '✓ Paid' : isOverdue ? '⚠ Overdue' : '⏳ Due';
     return `<tr style="border-top:1px solid var(--g100)">
       <td style="padding:8px"><b>${m.label}</b></td>
       <td style="padding:8px"><input type="number" id="wh-pay-amt-${m.key}" value="${amt||''}" placeholder="${fmtRp(m.suggestAmount).replace('Rp ','')}" style="width:120px;font-family:var(--mono);font-size:11px;padding:3px 6px;border:1px solid var(--g100)"></td>
+      <td style="padding:8px;font-size:11px;font-family:var(--mono);color:${dueColor}">${fmtTgl(dueDate)}<br><span style="font-size:9px;text-transform:uppercase;letter-spacing:0.3px">${dueIcon}</span></td>
       <td style="padding:8px"><input type="date" id="wh-pay-date-${m.key}" value="${p?.paid_at||''}" style="font-size:11px;padding:3px 6px;border:1px solid var(--g100)"></td>
       <td style="padding:8px">${buktiBlock}</td>
+      <td style="padding:8px">${signedBlock}</td>
       <td style="padding:8px;text-align:right;white-space:nowrap">
         <button class="btn-icon" onclick="_whSavePayment('${m.key}')" style="font-size:11px;color:#0a7d3a" title="Save amount + tanggal">${isPaid?'↻ Save':'+ Save'}</button>
-        <button class="btn-icon" onclick="_whDownloadInvoice('${m.key}','${m.invoiceType}')" style="font-size:11px;color:#3C3489" title="Download ${invoiceBtnLbl}">${m.invoiceType==='proforma'?'📋':'📄'}</button>
+        <button class="btn-icon" onclick="_whDownloadInvoice('${m.key}','${m.invoiceType}')" style="font-size:11px;color:#3C3489" title="Download invoice">${m.invoiceType==='proforma'?'📋':'📄'}</button>
         ${p?`<button class="btn-icon" onclick="_whDeletePayment('${m.key}')" style="font-size:11px;color:#c0392b" title="Hapus payment">✕</button>`:''}
       </td>
     </tr>`;
   }).join('');
   return `<div class="form-card" style="margin-bottom:14px">
     <div class="form-sec">Payments Tracker</div>
-    <div style="font-size:11px;color:var(--g600);margin-bottom:8px">Total value: <b>${fmtRp(totalValue)}</b> · DP target: <b>${fmtRp(dpAmount)}</b> · Final target: <b>${fmtRp(finalAmount)}</b></div>
-    <table style="width:100%;font-size:12px"><thead><tr style="font-family:var(--mono);font-size:10px;color:var(--g400);text-transform:uppercase"><th style="padding:6px;text-align:left">Milestone</th><th style="padding:6px;text-align:left">Amount</th><th style="padding:6px;text-align:left">Paid Date</th><th style="padding:6px;text-align:left">Bukti (≤5MB)</th><th style="padding:6px"></th></tr></thead>
-    <tbody>${payRows}</tbody></table>
-    <div style="font-size:10px;color:var(--g400);margin-top:8px">📋 = Proforma Invoice (DP) · 📄 = Invoice Pelunasan · Bukti: JPG/PNG/WEBP/PDF max 5MB</div>
+    <div style="font-size:11px;color:var(--g600);margin-bottom:8px">Total value: <b>${fmtRp(totalValue)}</b> · DP target: <b>${fmtRp(dpAmount)}</b> · Final target: <b>${fmtRp(finalAmount)}</b> · Due date: <b>${fmtTgl(dueDate)}</b> <span style="color:var(--g400)">(order +7 hari)</span></div>
+    <table style="width:100%;font-size:12px">
+      <thead><tr style="font-family:var(--mono);font-size:10px;color:var(--g400);text-transform:uppercase">
+        <th style="padding:6px;text-align:left">Milestone</th>
+        <th style="padding:6px;text-align:left">Amount</th>
+        <th style="padding:6px;text-align:left">Due Date</th>
+        <th style="padding:6px;text-align:left">Paid Date</th>
+        <th style="padding:6px;text-align:left">Bukti Bayar</th>
+        <th style="padding:6px;text-align:left">Invoice Signed</th>
+        <th style="padding:6px"></th>
+      </tr></thead>
+      <tbody>${payRows}</tbody>
+    </table>
+    <div style="font-size:10px;color:var(--g400);margin-top:8px">📋 = Proforma Invoice (DP) · 📄 = Invoice Pelunasan · Due date auto: order date + 7 hari · File: JPG/PNG/WEBP/PDF max 5MB</div>
   </div>
   <div class="form-card">
     <div class="form-sec">Shipping & Jubelio Sync</div>
@@ -34249,8 +34276,21 @@ async function _whDeletePayment(milestone) {
   _whRenderDetail();
 }
 
-// ── Bukti file upload ──
-async function _whBuktiUpload(milestone, inputEl) {
+// Due date auto-computed: order_date + 7 days
+function _whComputeDueDate(orderDate) {
+  if (!orderDate) return null;
+  const d = new Date(orderDate+'T00:00:00');
+  if (isNaN(d.getTime())) return null;
+  d.setDate(d.getDate() + 7);
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,'0');
+  const day = String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+
+// ── File upload (bukti bayar / signed invoice) ──
+// kind: 'bukti' → bukti_url · 'signed' → signed_invoice_url
+async function _whFileUpload(milestone, kind, inputEl) {
   const file = inputEl.files?.[0];
   if (!file) return;
   if (file.size > 5 * 1024 * 1024) {
@@ -34261,18 +34301,20 @@ async function _whBuktiUpload(milestone, inputEl) {
   const o = _whCurrentOrder; if (!o) return;
   const ext = (file.name.split('.').pop()||'bin').toLowerCase();
   const ts = new Date().toISOString().replace(/[^0-9]/g,'').slice(0,14);
-  const path = `${o.header.id}/${milestone}-${ts}.${ext}`;
+  const prefix = kind === 'signed' ? 'signed' : milestone;
+  const path = `${o.header.id}/${prefix}-${milestone}-${ts}.${ext}`;
   const { error: upErr } = await sb.storage.from('wholesale-bukti').upload(path, file, { contentType: file.type, upsert: true });
   if (upErr) { alert('Upload gagal: '+upErr.message); return; }
   const { data: pub } = sb.storage.from('wholesale-bukti').getPublicUrl(path);
-  const buktiUrl = pub.publicUrl;
-  // Upsert payment row (preserve amount + paid_at kalau udah ada)
+  const url = pub.publicUrl;
+  const col = kind === 'signed' ? 'signed_invoice_url' : 'bukti_url';
   const existing = o.payments.find(p => p.milestone === milestone);
   const payload = {
     order_id: o.header.id, milestone,
     amount: existing?.amount || 0,
     paid_at: existing?.paid_at || null,
-    bukti_url: buktiUrl,
+    bukti_url: kind === 'bukti' ? url : (existing?.bukti_url || null),
+    signed_invoice_url: kind === 'signed' ? url : (existing?.signed_invoice_url || null),
     created_by: currentUser
   };
   const { data, error } = await sb.from('wholesale_payments').upsert(payload, { onConflict:'order_id,milestone' }).select().single();
@@ -34281,6 +34323,9 @@ async function _whBuktiUpload(milestone, inputEl) {
   if (idx >= 0) o.payments[idx] = data; else o.payments.push(data);
   _whRenderDetail();
 }
+
+// Legacy alias buat back-compat (kalau ada cache yang ngepanggil _whBuktiUpload)
+async function _whBuktiUpload(milestone, inputEl) { return _whFileUpload(milestone, 'bukti', inputEl); }
 
 // ── Proforma Invoice generator ──
 // Style mengikuti mrDownloadInvoice (Inter + Space Mono, swiss-grid).
@@ -34496,6 +34541,8 @@ async function _whDownloadInvoice(milestone, invoiceType) {
             <div class="val">${invoiceNo}</div>
             <div class="label">Tanggal</div>
             <div class="val">${fmtTglFull(orderDate)}</div>
+            <div class="label" style="color:#a14e3e">Jatuh Tempo</div>
+            <div class="val" style="color:#a14e3e">${fmtTglFull(_whComputeDueDate(orderDate))}</div>
           </div>
         </div>
         <div class="recipient">
@@ -34588,20 +34635,24 @@ async function _whDownloadInvoice(milestone, invoiceType) {
   w.document.close();
 }
 
-async function _whBuktiClear(milestone) {
-  if (!confirm('Hapus file bukti?')) return;
+async function _whFileClear(milestone, kind) {
+  const lbl = kind === 'signed' ? 'invoice signed' : 'bukti bayar';
+  if (!confirm(`Hapus file ${lbl}?`)) return;
   const o = _whCurrentOrder;
   const p = o.payments.find(p => p.milestone === milestone);
   if (!p) return;
-  // Best-effort delete dari storage (kalau gagal, gpp — public file)
-  if (p.bukti_url) {
-    const m = p.bukti_url.match(/wholesale-bukti\/(.+)$/);
+  const col = kind === 'signed' ? 'signed_invoice_url' : 'bukti_url';
+  const url = p[col];
+  if (url) {
+    const m = url.match(/wholesale-bukti\/(.+)$/);
     if (m) await sb.storage.from('wholesale-bukti').remove([m[1]]).catch(()=>{});
   }
-  await sb.from('wholesale_payments').update({bukti_url: null}).eq('order_id', o.header.id).eq('milestone', milestone);
-  p.bukti_url = null;
+  await sb.from('wholesale_payments').update({[col]: null}).eq('order_id', o.header.id).eq('milestone', milestone);
+  p[col] = null;
   _whRenderDetail();
 }
+// Legacy alias
+async function _whBuktiClear(milestone) { return _whFileClear(milestone, 'bukti'); }
 
 // ── Save header ──
 async function saveWholesale() {
