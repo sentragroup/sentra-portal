@@ -33093,11 +33093,132 @@ function mapWO(r) {
     id: r.id, customerId: r.customer_id, customerName: r.customer_name||'',
     orderDate: r.order_date, deliveryDate: r.delivery_date, status: r.status,
     paymentTerms: r.payment_terms||'', dpPct: parseFloat(r.dp_pct)||30,
+    paymentPlan: r.payment_plan || _whDefaultPaymentPlan(),
     customerPoUrl: r.customer_po_url||'', customerPoNo: r.customer_po_no||'',
     pic: r.pic||'', notes: r.notes||'',
     jubelioSoNo: r.jubelio_so_no||'', awbNo: r.awb_no||'', courier: r.courier||'',
     shippedDate: r.shipped_date, createdBy: r.created_by, createdAt: r.created_at,
   };
+}
+
+// Default payment plan kalau order belum di-config: CAD 30/70.
+function _whDefaultPaymentPlan() {
+  return {
+    type: 'CAD',
+    milestones: [
+      { key: 'dp1',   label: 'DP',        pct: 30 },
+      { key: 'final', label: 'Pelunasan', pct: 70 },
+    ]
+  };
+}
+
+// Payment Plan editor — rencana pembayaran configurable di Order header.
+// Default CAD (DP 30 + Pelunasan 70). User bisa pilih CBD untuk multi-DP.
+// Editable: type, per-milestone label + pct, +/- row. Validation: total = 100.
+function _whRenderPaymentPlanEditor(h) {
+  const plan = h.paymentPlan || _whDefaultPaymentPlan();
+  const type = plan.type || 'CAD';
+  const milestones = plan.milestones || [];
+  const totalPct = milestones.reduce((s,m) => s + (parseFloat(m.pct)||0), 0);
+  const totalOk = totalPct === 100;
+  const TYPE_DESC = {
+    CAD: 'Cash After Delivery — DP di awal, pelunasan setelah kirim',
+    CBD: 'Cash Before Delivery — split pembayaran bertahap sebelum produksi/kirim',
+  };
+  const rows = milestones.map((m, idx) => {
+    const isLast = idx === milestones.length - 1;
+    const isDP = !isLast;
+    return `<tr>
+      <td style="padding:6px;width:32px;font-family:var(--mono);font-size:11px;color:var(--g400)">${idx+1}.</td>
+      <td style="padding:6px"><input type="text" value="${(m.label||'').replace(/"/g,'&quot;')}" onchange="_whPpEditLabel(${idx},this.value)" placeholder="Label" style="width:100%;font-size:12px;padding:4px 8px;border:1px solid var(--g100);border-radius:4px"></td>
+      <td style="padding:6px;width:90px"><input type="number" min="0" max="100" step="5" value="${m.pct||0}" onchange="_whPpEditPct(${idx},this.value)" style="width:60px;text-align:right;font-family:var(--mono);font-size:11px;padding:4px 6px;border:1px solid var(--g100);border-radius:4px"> %</td>
+      <td style="padding:6px;width:32px;text-align:center">${milestones.length > 2 ? `<button class="btn-icon" onclick="_whPpRemove(${idx})" style="font-size:13px;color:#c0392b;padding:2px 6px" title="Hapus milestone">×</button>` : ''}</td>
+    </tr>`;
+  }).join('');
+  return `<div class="form-card" style="margin-bottom:14px">
+    <div class="form-sec" style="display:flex;justify-content:space-between;align-items:center">
+      <span>Payment Plan</span>
+      <span style="font-size:11px;color:${totalOk?'#0a7d3a':'#c0392b'};font-family:var(--mono);font-weight:600">Total ${totalPct}%${totalOk?' ✓':' ⚠ harus = 100'}</span>
+    </div>
+    <div style="display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap">
+      <div style="flex:0 0 auto">
+        <label style="font-size:10px;color:var(--g600);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px;margin-bottom:4px;display:block">Type</label>
+        <select onchange="_whPpChangeType(this.value)" style="font-size:12px;padding:6px 10px;border:1px solid var(--g200);border-radius:5px;background:white;min-width:80px">
+          <option value="CAD" ${type==='CAD'?'selected':''}>CAD</option>
+          <option value="CBD" ${type==='CBD'?'selected':''}>CBD</option>
+        </select>
+        <div style="font-size:10px;color:var(--g400);margin-top:4px;max-width:180px">${TYPE_DESC[type]||''}</div>
+      </div>
+      <div style="flex:1;min-width:320px">
+        <label style="font-size:10px;color:var(--g600);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px;margin-bottom:4px;display:block">Milestones</label>
+        <table style="width:100%">
+          <tbody>${rows}</tbody>
+        </table>
+        <div style="margin-top:6px">
+          <button class="btn-ghost" onclick="_whPpAddRow()" style="font-size:11px;padding:4px 10px">+ Milestone</button>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+// State helpers — patch _whCurrentOrder.header.paymentPlan + re-render
+function _whPpEnsure() {
+  const o = _whCurrentOrder; if (!o) return null;
+  if (!o.header.paymentPlan) o.header.paymentPlan = _whDefaultPaymentPlan();
+  if (!Array.isArray(o.header.paymentPlan.milestones)) o.header.paymentPlan.milestones = [];
+  return o.header.paymentPlan;
+}
+
+function _whPpChangeType(type) {
+  const plan = _whPpEnsure(); if (!plan) return;
+  plan.type = type;
+  // Auto-suggest milestones kalau switch antar type
+  if (type === 'CBD') {
+    plan.milestones = [
+      { key:'dp1',   label:'DP 1',      pct:25 },
+      { key:'dp2',   label:'DP 2',      pct:25 },
+      { key:'dp3',   label:'DP 3',      pct:25 },
+      { key:'final', label:'Pelunasan', pct:25 },
+    ];
+  } else {
+    plan.milestones = [
+      { key:'dp1',   label:'DP',        pct:30 },
+      { key:'final', label:'Pelunasan', pct:70 },
+    ];
+  }
+  _whRenderDetail();
+}
+
+function _whPpEditLabel(idx, val) {
+  const plan = _whPpEnsure(); if (!plan?.milestones[idx]) return;
+  plan.milestones[idx].label = val.trim();
+}
+
+function _whPpEditPct(idx, val) {
+  const plan = _whPpEnsure(); if (!plan?.milestones[idx]) return;
+  let v = parseFloat(val)||0;
+  if (v < 0) v = 0; if (v > 100) v = 100;
+  plan.milestones[idx].pct = v;
+  _whRenderDetail();
+}
+
+function _whPpAddRow() {
+  const plan = _whPpEnsure(); if (!plan) return;
+  // Insert sebelum 'final' kalau ada, else append
+  const finalIdx = plan.milestones.findIndex(m => m.key === 'final');
+  const newKey = `dp${plan.milestones.filter(m => m.key.startsWith('dp')).length + 1}`;
+  const newRow = { key: newKey, label: `DP ${plan.milestones.filter(m => m.key.startsWith('dp')).length + 1}`, pct: 0 };
+  if (finalIdx >= 0) plan.milestones.splice(finalIdx, 0, newRow);
+  else plan.milestones.push(newRow);
+  _whRenderDetail();
+}
+
+function _whPpRemove(idx) {
+  const plan = _whPpEnsure(); if (!plan?.milestones[idx]) return;
+  if (plan.milestones.length <= 2) { alert('Minimal 2 milestones.'); return; }
+  plan.milestones.splice(idx, 1);
+  _whRenderDetail();
 }
 
 async function loadWholesale() {
@@ -33206,7 +33327,7 @@ async function openWholesaleDetail(id) {
   detV.innerHTML = `<div style="padding:30px;text-align:center;color:var(--g400)">Memuat detail...</div>`;
   if (id === 'new') {
     _whCurrentOrder = {
-      header: { id:'new', customerId:'', customerName:'', orderDate: new Date().toISOString().slice(0,10), deliveryDate:'', status:'new', paymentTerms:'', dpPct:30, customerPoUrl:'', customerPoNo:'', pic:currentUser||'', notes:'', jubelioSoNo:'', awbNo:'', courier:'', shippedDate:'' },
+      header: { id:'new', customerId:'', customerName:'', orderDate: new Date().toISOString().slice(0,10), deliveryDate:'', status:'new', paymentTerms:'', dpPct:30, paymentPlan:_whDefaultPaymentPlan(), customerPoUrl:'', customerPoNo:'', pic:currentUser||'', notes:'', jubelioSoNo:'', awbNo:'', courier:'', shippedDate:'' },
       items: [], links: [], payments: []
     };
   } else {
@@ -33332,12 +33453,11 @@ function _whRenderDetail() {
           <div class="fg"><label>Delivery Date</label><input type="date" id="wh-h-deliverydate" value="${h.deliveryDate||''}"></div>
           <div class="fg"><label>Customer PO No</label><input type="text" id="wh-h-pono" value="${(h.customerPoNo||'').replace(/"/g,'&quot;')}" placeholder="PO-XXX-2026"></div>
           <div class="fg"><label>Customer PO URL</label><input type="url" id="wh-h-pourl" value="${(h.customerPoUrl||'').replace(/"/g,'&quot;')}" placeholder="https://drive.google.com/..."></div>
-          <div class="fg"><label>DP %</label><input type="number" id="wh-h-dppct" value="${h.dpPct||30}" min="0" max="100" step="5"></div>
-          <div class="fg"><label>Payment Terms</label><input type="text" id="wh-h-terms" value="${(h.paymentTerms||'').replace(/"/g,'&quot;')}" placeholder="30% DP, 70% sebelum kirim"></div>
           <div class="fg" style="position:relative"><label>PIC</label><input type="text" id="wh-h-pic" value="${(h.pic||'').replace(/"/g,'&quot;')}" autocomplete="off"><div class="ac-list" id="ac-wh-pic"></div></div>
           <div class="fg full"><label>Notes</label><textarea id="wh-h-notes" rows="2">${h.notes||''}</textarea></div>
         </div>
       </div>
+      ${_whRenderPaymentPlanEditor(h)}
       ${!isNew ? `<div class="form-card">
         <div class="form-sec" style="display:flex;justify-content:space-between;align-items:center">
           <span>Items (${items.length})</span>
@@ -33964,12 +34084,16 @@ function _whRenderPayTab(h, payments, totalValue, dpAmount) {
   const fmtRp = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
   const fmtTgl = d => d ? new Date(d+'T00:00:00').toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'}) : '—';
   const findP = m => payments.find(p => p.milestone === m);
-  const finalAmount = totalValue - dpAmount;
-  const milestones = [
-    { key:'dp1',   label:`DP1 (${h.dpPct||30}%)`,   suggestAmount: dpAmount,    invoiceType: 'proforma' },
-    { key:'dp2',   label:'DP2 (opsional)',           suggestAmount: 0,           invoiceType: 'proforma' },
-    { key:'final', label:'Final (Pelunasan)',        suggestAmount: finalAmount, invoiceType: 'invoice' },
-  ];
+  // Render dari payment_plan.milestones — last milestone = final invoice, others = proforma
+  const plan = h.paymentPlan || _whDefaultPaymentPlan();
+  const planMilestones = plan.milestones || [];
+  const milestones = planMilestones.map((pm, idx) => ({
+    key: pm.key,
+    label: `${pm.label} (${pm.pct}%)`,
+    suggestAmount: Math.round(totalValue * (parseFloat(pm.pct)||0) / 100),
+    invoiceType: (idx === planMilestones.length - 1) ? 'invoice' : 'proforma',
+  }));
+  const finalAmount = milestones[milestones.length-1]?.suggestAmount || 0;
   const fileChip = (url, milestoneKey, kind) => {
     const ext = url.match(/\.(pdf|png|jpg|jpeg|webp)$/i)?.[0]?.slice(1).toUpperCase()||'File';
     return `<div style="display:flex;align-items:center;gap:6px">
@@ -34013,7 +34137,7 @@ function _whRenderPayTab(h, payments, totalValue, dpAmount) {
   }).join('');
   return `<div class="form-card" style="margin-bottom:14px">
     <div class="form-sec">Payments Tracker</div>
-    <div style="font-size:11px;color:var(--g600);margin-bottom:8px">Total value: <b>${fmtRp(totalValue)}</b> · DP target: <b>${fmtRp(dpAmount)}</b> · Final target: <b>${fmtRp(finalAmount)}</b></div>
+    <div style="font-size:11px;color:var(--g600);margin-bottom:8px">Plan: <b>${plan.type||'CAD'}</b> · Total value: <b>${fmtRp(totalValue)}</b> · ${milestones.map(m => `${m.label.split(' (')[0]}: <b>${fmtRp(m.suggestAmount)}</b>`).join(' · ')}</div>
     <table style="width:100%;font-size:12px">
       <thead><tr style="font-family:var(--mono);font-size:10px;color:var(--g400);text-transform:uppercase">
         <th style="padding:6px;text-align:left">Milestone</th>
@@ -34424,20 +34548,24 @@ async function _whDownloadInvoice(milestone, invoiceType) {
       jubContact = data;
     } catch(_) {}
   }
-  // Totals
+  // Totals + milestone resolve from payment_plan
   const subtotal = items.reduce((s,i) => s + (parseFloat(i.qty)||0) * (parseFloat(i.unit_price)||0), 0);
-  const dpPct = parseFloat(h.dpPct)||30;
-  const dpAmount = Math.round(subtotal * dpPct / 100);
-  const finalAmount = subtotal - dpAmount;
-  let docTitle, amountDue, descLine;
+  const plan = h.paymentPlan || _whDefaultPaymentPlan();
+  const planMilestones = plan.milestones || [];
+  const pm = planMilestones.find(m => m.key === milestone);
+  const milestonePct = pm?.pct ?? 30;
+  const milestoneLabel = pm?.label || milestone.toUpperCase();
+  const amountDue = Math.round(subtotal * milestonePct / 100);
+  // Sum of milestones sebelum current (buat header "DP sudah dibayar")
+  const priorPct = planMilestones.slice(0, planMilestones.indexOf(pm)).reduce((s,m) => s + (parseFloat(m.pct)||0), 0);
+  const priorAmount = Math.round(subtotal * priorPct / 100);
+  let docTitle, descLine;
   if (invoiceType === 'proforma') {
     docTitle = 'PROFORMA INVOICE';
-    amountDue = milestone === 'dp1' ? dpAmount : dpAmount; // DP2 also uses dpAmount as guidance
-    descLine = `Down Payment ${dpPct}% — Pesanan Wholesale ${h.customerName||''}`;
+    descLine = `${milestoneLabel} ${milestonePct}% — Pesanan Wholesale ${h.customerName||''}`;
   } else {
     docTitle = 'INVOICE';
-    amountDue = finalAmount;
-    descLine = `Pelunasan — Pesanan Wholesale ${h.customerName||''}`;
+    descLine = `${milestoneLabel} — Pesanan Wholesale ${h.customerName||''}`;
   }
   // Invoice date: HARUS dari payment milestone (manual input di Payments tab).
   // Kalau belum di-set, block — invoice tanggalnya gak boleh ngarang.
@@ -34626,7 +34754,7 @@ async function _whDownloadInvoice(milestone, invoiceType) {
           <thead><tr>
             <th>Deskripsi</th>
             <th class="r">Subtotal Order</th>
-            <th class="r">${invoiceType==='proforma'?'DP '+dpPct+'%':'Total'}</th>
+            <th class="r">${invoiceType==='proforma'?milestoneLabel+' '+milestonePct+'%':'Total'}</th>
           </tr></thead>
           <tbody>
             <tr>
@@ -34641,7 +34769,11 @@ async function _whDownloadInvoice(milestone, invoiceType) {
         </table>
         <div class="totals">
           <div class="row lbl"><span>Subtotal Order</span><span style="font-family:'Space Mono',monospace">${fmtRp(subtotal)}</span></div>
-          ${invoiceType==='proforma' ? `<div class="row lbl"><span>DP ${dpPct}%</span><span style="font-family:'Space Mono',monospace">${fmtRp(dpAmount)}</span></div>` : `<div class="row lbl"><span>(${dpPct}% DP sudah dibayar)</span><span style="font-family:'Space Mono',monospace">−${fmtRp(dpAmount)}</span></div>`}
+          ${invoiceType==='proforma'
+            ? `<div class="row lbl"><span>${milestoneLabel} ${milestonePct}%</span><span style="font-family:'Space Mono',monospace">${fmtRp(amountDue)}</span></div>`
+            : (priorPct > 0
+                ? `<div class="row lbl"><span>(${priorPct}% sudah dibayar)</span><span style="font-family:'Space Mono',monospace">−${fmtRp(priorAmount)}</span></div>`
+                : '')}
           <div class="row total"><span>Total Tagihan</span><span class="v">${fmtRp(amountDue)}</span></div>
         </div>
         <div class="terbilang">Terbilang: <b>${terbilangStr}</b></div>
@@ -34733,6 +34865,10 @@ async function saveWholesale() {
   const customerId = custSel?.value;
   if (!customerId) { alert('Pilih customer dulu.'); return; }
   const customerObj = allDPRows.find(c => c.id === customerId);
+  // Validate payment plan total = 100
+  const plan = h.paymentPlan || _whDefaultPaymentPlan();
+  const totalPct = (plan.milestones||[]).reduce((s,m)=>s+(parseFloat(m.pct)||0),0);
+  if (totalPct !== 100) { alert(`Payment Plan total ${totalPct}% — harus exact 100% sebelum simpan.`); return; }
   const payload = {
     customer_id: customerId,
     customer_name: customerObj?.name || '',
@@ -34740,8 +34876,9 @@ async function saveWholesale() {
     delivery_date: document.getElementById('wh-h-deliverydate')?.value || null,
     customer_po_no: document.getElementById('wh-h-pono')?.value.trim() || null,
     customer_po_url: document.getElementById('wh-h-pourl')?.value.trim() || null,
-    dp_pct: parseFloat(document.getElementById('wh-h-dppct')?.value)||30,
-    payment_terms: document.getElementById('wh-h-terms')?.value.trim() || null,
+    payment_plan: plan,
+    // Legacy: dp_pct di-derive dari milestone pertama buat back-compat
+    dp_pct: (plan.milestones?.[0]?.pct) || 30,
     pic: document.getElementById('wh-h-pic')?.value.trim() || null,
     notes: document.getElementById('wh-h-notes')?.value.trim() || null,
     awb_no: document.getElementById('wh-ship-awb')?.value.trim() || null,
