@@ -36797,16 +36797,16 @@ async function _mpurcGenInvoicePDFMs(milestoneKey) {
             <div style="grid-column:1/-1"><span class="pi-lbl">NPWP</span><span class="pi-val">63.875.985.0-021.000</span></div>
           </div>
         </div>
-        <div style="margin-top:auto;padding-top:24px;display:flex;justify-content:flex-end">
-          <div style="text-align:center;min-width:240px">
+        <div style="margin-top:auto;padding-top:12px;display:flex;justify-content:flex-end;page-break-inside:avoid">
+          <div style="text-align:center;min-width:220px">
             <div style="font-size:11px;color:#555">Hormat kami,</div>
-            <div style="height:70px"></div>
-            <div style="font-size:13px;font-weight:700;border-top:1px solid #111;padding-top:5px">Muhammad Luthfi Amri Nasution</div>
-            <div style="font-size:11px;color:#555;margin-top:2px">Chief Operating Officer</div>
-            <div style="font-size:10.5px;color:#777">PT Sandang Dunia Yuwana</div>
+            <div style="height:54px"></div>
+            <div style="font-size:12.5px;font-weight:700;border-top:1px solid #111;padding-top:4px">Muhammad Luthfi Amri Nasution</div>
+            <div style="font-size:10.5px;color:#555;margin-top:1px">Chief Operating Officer</div>
+            <div style="font-size:10px;color:#777">PT Sandang Dunia Yuwana</div>
           </div>
         </div>
-        <footer>Pembayaran ke rekening atas nama PT Sandang Dunia Yuwana · Mohon konfirmasi setelah transfer · Invoice berlaku 14 hari dari tanggal diterbitkan.</footer>
+        <footer style="margin-top:10px">Pembayaran ke rekening atas nama PT Sandang Dunia Yuwana · Mohon konfirmasi setelah transfer · Invoice berlaku 14 hari dari tanggal diterbitkan.</footer>
       </div>
       <div class="page">
         <div class="top">
@@ -36967,16 +36967,16 @@ async function _mpurcGenSuratJalanPDF() {
           </tr></tbody>
         </table>
         ${ship.notes?`<div style="margin-top:14px;padding:10px 14px;background:#fbf9f0;border-left:4px solid #d4af37;font-size:11px;font-style:italic;color:#333">Catatan: ${ship.notes.replace(/</g,'&lt;')}</div>`:''}
-        <div style="margin-top:auto;padding-top:24px;display:flex;justify-content:flex-end">
-          <div style="text-align:center;min-width:240px">
+        <div style="margin-top:auto;padding-top:12px;display:flex;justify-content:flex-end;page-break-inside:avoid">
+          <div style="text-align:center;min-width:220px">
             <div style="font-size:11px;color:#555">Hormat kami,</div>
-            <div style="height:70px"></div>
-            <div style="font-size:13px;font-weight:700;border-top:1px solid #111;padding-top:5px">Muhammad Luthfi Amri Nasution</div>
-            <div style="font-size:11px;color:#555;margin-top:2px">Chief Operating Officer</div>
-            <div style="font-size:10.5px;color:#777">PT Sandang Dunia Yuwana</div>
+            <div style="height:54px"></div>
+            <div style="font-size:12.5px;font-weight:700;border-top:1px solid #111;padding-top:4px">Muhammad Luthfi Amri Nasution</div>
+            <div style="font-size:10.5px;color:#555;margin-top:1px">Chief Operating Officer</div>
+            <div style="font-size:10px;color:#777">PT Sandang Dunia Yuwana</div>
           </div>
         </div>
-        <footer>Surat Jalan ini menjadi bukti serah-terima barang</footer>
+        <footer style="margin-top:10px">Surat Jalan ini menjadi bukti serah-terima barang</footer>
       </div>
       <script>setTimeout(()=>window.print(),500);<\/script>
     </body></html>`);
