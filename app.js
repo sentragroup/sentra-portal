@@ -35651,6 +35651,10 @@ async function openManualPurchaseDetail(id) {
       for (const m of (metas||[])) window.__mpurcItemsCache.set(Number(m.item_id), m);
     } catch(_) {}
   }
+  // Auto-sync shipping cost from shipments (for orders touched before this refactor)
+  if (_mpurcCurrent?.header?.id && _mpurcCurrent.header.id !== 'new') {
+    await _mpurcRecalcHeader();
+  }
   _mpurcRenderDetail();
 }
 
@@ -35738,8 +35742,7 @@ function _mpurcRenderDetail() {
           <div class="fg"><label>Penerima</label><input type="text" id="mp-h-shiprecipient" value="${(h.shipToRecipient||'').replace(/"/g,'&quot;')}" placeholder="${h.shipToType==='kantor'?'PIC Kantor / Requestor':'Nama penerima'}"></div>
           <div class="fg"><label>No HP Penerima</label><input type="text" id="mp-h-shipphone" value="${(h.shipToPhone||'').replace(/"/g,'&quot;')}" placeholder="08..."></div>
           <div class="fg full"><label>Alamat Kirim</label><textarea id="mp-h-shipaddr" rows="2" placeholder="Alamat lengkap pengiriman">${(h.shipToAddress||'').replace(/</g,'&lt;')}</textarea></div>
-          <div class="fg"><label>Ongkos Kirim ke Customer</label><input type="number" id="mp-h-shipcost" min="0" step="500" value="${parseFloat(h.shippingCost)||0}" placeholder="0" style="font-family:var(--mono);text-align:right"><div style="font-size:10px;color:var(--g400);margin-top:3px">Masuk ke Invoice (final milestone)</div></div>
-          <div class="fg" style="grid-column:span 2"><label>Catatan Pengiriman</label><input type="text" id="mp-h-shipnotes" value="${(h.shipToNotes||'').replace(/"/g,'&quot;')}" placeholder="Instruksi khusus untuk gudang"></div>
+          <div class="fg full"><label>Catatan Pengiriman</label><input type="text" id="mp-h-shipnotes" value="${(h.shipToNotes||'').replace(/"/g,'&quot;')}" placeholder="Instruksi khusus untuk gudang"></div>
         </div>
       </div>
       ${_mpurcRenderPaymentPlanEditor(h)}
@@ -36038,10 +36041,20 @@ async function _mpurcItemDel(itemId) {
   await _mpurcRecalcHeader();
   _mpurcRenderDetail();
 }
+// Compute total billable shipping = sum dari shipments yang categorinya BUKAN paid_sentra
+function _mpurcComputeShipping(shipments) {
+  return (shipments||[]).reduce((s, sh) => {
+    return sh.shipping_cost_category !== 'paid_sentra'
+      ? s + (parseFloat(sh.shipping_cost)||0)
+      : s;
+  }, 0);
+}
+
 async function _mpurcRecalcHeader() {
   const o = _mpurcCurrent; if (!o) return;
   const subtotal = o.items.reduce((s,i) => s + (parseFloat(i.subtotal)||0), 0);
-  const shippingCost = parseFloat(o.header.shippingCost)||0;
+  const shippingCost = _mpurcComputeShipping(o.shipments);
+  o.header.shippingCost = shippingCost;
   // totalReceived = sum of amounts where paid_at is set (milestone-based)
   const totalReceived = (o.payments||[]).reduce((s,p) => p.paid_at ? s + (parseFloat(p.amount)||0) : s, 0);
   const paymentDue = (subtotal + shippingCost) - totalReceived;
@@ -36051,6 +36064,7 @@ async function _mpurcRecalcHeader() {
   if (o.header.id !== 'new') {
     await sb.from('manual_purchase_orders').update({
       grand_total: subtotal, total_received: totalReceived, payment_due: paymentDue,
+      shipping_cost: shippingCost,
     }).eq('id', o.header.id);
   }
 }
@@ -36442,6 +36456,7 @@ async function _mpurcDelShipment(id) {
   await sb.from('manual_purchase_shipments').delete().eq('id', id);
   o.shipments = o.shipments.filter(s => s.id !== id);
   o.shipItems = (o.shipItems||[]).filter(si => si.shipment_id !== id);
+  await _mpurcRecalcHeader();
   _mpurcRenderDetail();
 }
 
@@ -36546,6 +36561,7 @@ async function _mpurcSaveShipmentEdit(shipmentId) {
     o.shipItems = (o.shipItems||[]).filter(si => si.shipment_id !== shipmentId);
   }
   document.getElementById('_mpurc-ship-modal')?.remove();
+  await _mpurcRecalcHeader();
   _mpurcRenderDetail();
 }
 
@@ -36973,7 +36989,6 @@ async function saveManualPurchase() {
     ship_to_recipient: document.getElementById('mp-h-shiprecipient')?.value.trim() || null,
     ship_to_phone: document.getElementById('mp-h-shipphone')?.value.trim() || null,
     ship_to_notes: document.getElementById('mp-h-shipnotes')?.value.trim() || null,
-    shipping_cost: parseFloat(document.getElementById('mp-h-shipcost')?.value) || 0,
     payment_plan: h.paymentPlan || null,
     last_updated: new Date().toISOString(),
     last_updated_by: currentUser,
