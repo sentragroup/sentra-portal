@@ -2173,7 +2173,7 @@ function renderDPTable(rows) {
     const emails=(r.email||"").split(",").map(s=>s.trim()).filter(Boolean);
     return`<tr>
       <td class="td-id">${r.id||"—"}</td>
-      <td style="font-weight:500">${r.name||"—"}</td>
+      <td style="font-weight:500">${r.name||"—"}${r.jubelioContactId?` <span class="pill p-active" style="font-size:9px;margin-left:4px" title="Linked ke Jubelio contact #${r.jubelioContactId}">🔗 Jubelio</span>`:""}</td>
       <td>${types.map(t=>{const cls=t.toLowerCase().includes("consignment")?"p-signings":t.toLowerCase().includes("bulk")?"p-active":"p-draft";return`<span class="pill ${cls}" style="margin-right:3px">${t}</span>`;}).join("")||"—"}</td>
       <td>${channels.map(c=>`<span class="pill p-draft" style="margin-right:3px">${c}</span>`).join("")||"—"}</td>
       <td style="font-size:12px">${r.region||"—"}</td>
