@@ -36797,6 +36797,11 @@ async function _mpurcGenInvoicePDFMs(milestoneKey) {
             <div style="grid-column:1/-1"><span class="pi-lbl">NPWP</span><span class="pi-val">63.875.985.0-021.000</span></div>
           </div>
         </div>
+        <div style="margin-top:auto;padding-top:24px;text-align:right">
+          <div style="font-size:11px;color:#555">Hormat kami,</div>
+          <div style="font-size:13px;font-weight:700;margin-top:4px">Muhammad Luthfi Amri Nasution</div>
+          <div style="font-size:11px;color:#555">Chief Operating Officer · PT Sandang Dunia Yuwana</div>
+        </div>
         <footer>Pembayaran ke rekening atas nama PT Sandang Dunia Yuwana · Mohon konfirmasi setelah transfer · Invoice berlaku 14 hari dari tanggal diterbitkan.</footer>
       </div>
       <div class="page">
@@ -36958,6 +36963,11 @@ async function _mpurcGenSuratJalanPDF() {
           </tr></tbody>
         </table>
         ${ship.notes?`<div style="margin-top:14px;padding:10px 14px;background:#fbf9f0;border-left:4px solid #d4af37;font-size:11px;font-style:italic;color:#333">Catatan: ${ship.notes.replace(/</g,'&lt;')}</div>`:''}
+        <div style="margin-top:auto;padding-top:24px;text-align:right">
+          <div style="font-size:11px;color:#555">Hormat kami,</div>
+          <div style="font-size:13px;font-weight:700;margin-top:4px">Muhammad Luthfi Amri Nasution</div>
+          <div style="font-size:11px;color:#555">Chief Operating Officer · PT Sandang Dunia Yuwana</div>
+        </div>
         <footer>Surat Jalan ini menjadi bukti serah-terima barang</footer>
       </div>
       <script>setTimeout(()=>window.print(),500);<\/script>
