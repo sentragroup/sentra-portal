@@ -34896,12 +34896,20 @@ function _whRenderPayTab(h, payments, totalValue, dpAmount) {
       <button onclick="_whFileClear('${milestoneKey}','${kind}')" title="Hapus" style="background:none;border:none;color:#c0392b;cursor:pointer;font-size:11px">✕</button>
     </div>`;
   };
-  const payRows = milestones.map(m => {
+  const payRows = milestones.map((m, mIdx) => {
     const p = findP(m.key);
     const amt = p?.amount || m.suggestAmount;
     const isPaid = !!p?.paid_at;
     const bukti = p?.bukti_url;
     const signed = p?.signed_invoice_url;
+    // Overpay detection: actual paid vs milestone expected
+    const overpayAmount = (p?.amount && p.amount > m.suggestAmount) ? (p.amount - m.suggestAmount) : 0;
+    // Carry-over from previous milestone overpayments
+    const priorOverpay = milestones.slice(0, mIdx).reduce((s, pm) => {
+      const pp = findP(pm.key);
+      const ppAmt = parseFloat(pp?.amount) || 0;
+      return s + Math.max(0, ppAmt - pm.suggestAmount);
+    }, 0);
     // Invoice date default = order_date (kalau belum di-input); due = invoice_date + 7
     const invDate = p?.invoice_date || '';
     const dueDate = invDate ? _whComputeDueDate(invDate) : null;
@@ -34915,8 +34923,14 @@ function _whRenderPayTab(h, payments, totalValue, dpAmount) {
     const isOverdue = !isPaid && dueDate && dueDate < today;
     const dueColor = isPaid ? '#0a7d3a' : isOverdue ? '#c0392b' : (dueDate ? '#666' : '#aaa');
     const dueIcon  = isPaid ? '✓ Paid' : isOverdue ? '⚠ Overdue' : (dueDate ? '⏳ Due' : '— Set inv. date');
+    const overpayBadge = overpayAmount > 0
+      ? `<div style="font-size:9px;font-family:var(--mono);color:#a66200;background:#fff5e6;border:1px solid #f0c97a;border-radius:3px;padding:1px 5px;margin-top:3px;display:inline-block">+${fmtRp(overpayAmount).replace('Rp ','')} lebih bayar</div>`
+      : '';
+    const carryOverBadge = priorOverpay > 0
+      ? `<div style="font-size:9px;font-family:var(--mono);color:#0a7d3a;background:#eef9f0;border:1px solid #b8d9b3;border-radius:3px;padding:1px 5px;margin-top:3px;display:inline-block" title="Sisa lebih bayar dari milestone sebelumnya, akan otomatis dipotong di total tagihan">↳ Carry: ${fmtRp(priorOverpay).replace('Rp ','')}</div>`
+      : '';
     return `<tr style="border-top:1px solid var(--g100)">
-      <td style="padding:8px"><b>${m.label}</b></td>
+      <td style="padding:8px"><b>${m.label}</b>${overpayBadge}${carryOverBadge}</td>
       <td style="padding:8px"><input type="number" id="wh-pay-amt-${m.key}" value="${amt||''}" placeholder="${fmtRp(m.suggestAmount).replace('Rp ','')}" style="width:110px;font-family:var(--mono);font-size:11px;padding:3px 6px;border:1px solid var(--g100)"></td>
       <td style="padding:8px"><input type="date" id="wh-pay-invdate-${m.key}" value="${invDate}" style="font-size:11px;padding:3px 6px;border:1px solid var(--g100)" title="Tanggal invoice diterbitkan"></td>
       <td style="padding:8px;font-size:11px;font-family:var(--mono);color:${dueColor};white-space:nowrap">${fmtTgl(dueDate)}<br><span style="font-size:9px;text-transform:uppercase;letter-spacing:0.3px">${dueIcon}</span></td>
@@ -35866,10 +35880,22 @@ async function _whDownloadInvoice(milestone, invoiceType) {
   const pm = planMilestones.find(m => m.key === milestone);
   const milestonePct = pm?.pct ?? 30;
   const milestoneLabel = pm?.label || milestone.toUpperCase();
-  const amountDue = Math.round(subtotal * milestonePct / 100);
-  // Sum of milestones sebelum current (buat header "DP sudah dibayar")
-  const priorPct = planMilestones.slice(0, planMilestones.indexOf(pm)).reduce((s,m) => s + (parseFloat(m.pct)||0), 0);
-  const priorAmount = Math.round(subtotal * priorPct / 100);
+  const milestoneExpected = Math.round(subtotal * milestonePct / 100);
+  // Sum of milestones sebelum current — gunakan ACTUAL paid (bukan pct) supaya
+  // overpayment di milestone sebelumnya otomatis ke-carry-over ke milestone ini.
+  const priorMilestones = planMilestones.slice(0, planMilestones.indexOf(pm));
+  const priorPct = priorMilestones.reduce((s,m) => s + (parseFloat(m.pct)||0), 0);
+  const priorExpected = Math.round(subtotal * priorPct / 100);
+  const priorPaidActual = priorMilestones.reduce((s,m) => {
+    const p = (o.payments||[]).find(x => x.milestone === m.key);
+    return s + (parseFloat(p?.amount) || 0);
+  }, 0);
+  // Carry-over excess = berapa banyak lebih bayar dari milestone sebelumnya
+  const carryOverFromPrior = Math.max(0, priorPaidActual - priorExpected);
+  // Amount yang ditagih untuk milestone ini, di-net dengan carry-over
+  const amountDue = Math.max(0, milestoneExpected - carryOverFromPrior);
+  // Untuk backward-compat dengan template (yang nampilin "X% sudah dibayar")
+  const priorAmount = priorPaidActual;
   let docTitle, descLine;
   if (invoiceType === 'proforma') {
     docTitle = 'PROFORMA INVOICE';
@@ -36081,10 +36107,14 @@ async function _whDownloadInvoice(milestone, invoiceType) {
         <div class="totals">
           <div class="row lbl"><span>Subtotal Order</span><span style="font-family:'Space Mono',monospace">${fmtRp(subtotal)}</span></div>
           ${invoiceType==='proforma'
-            ? `<div class="row lbl"><span>${milestoneLabel} ${milestonePct}%</span><span style="font-family:'Space Mono',monospace">${fmtRp(amountDue)}</span></div>`
-            : (priorPct > 0
-                ? `<div class="row lbl"><span>(${priorPct}% sudah dibayar)</span><span style="font-family:'Space Mono',monospace">−${fmtRp(priorAmount)}</span></div>`
-                : '')}
+            ? `<div class="row lbl"><span>${milestoneLabel} ${milestonePct}% milestone</span><span style="font-family:'Space Mono',monospace">${fmtRp(milestoneExpected)}</span></div>`
+            : `<div class="row lbl"><span>${milestoneLabel} ${milestonePct}% milestone</span><span style="font-family:'Space Mono',monospace">${fmtRp(milestoneExpected)}</span></div>`}
+          ${priorPaidActual > 0
+            ? `<div class="row lbl"><span>Sudah dibayar (milestone sebelumnya)</span><span style="font-family:'Space Mono',monospace">${fmtRp(priorPaidActual)}</span></div>`
+            : ''}
+          ${carryOverFromPrior > 0
+            ? `<div class="row lbl" style="color:#0a7d3a"><span>↳ Termasuk lebih bayar ${fmtRp(carryOverFromPrior)} (di-carry-over)</span><span></span></div>`
+            : ''}
           <div class="row total"><span>Total Tagihan</span><span class="v">${fmtRp(amountDue)}</span></div>
         </div>
         <div class="terbilang">Terbilang: <b>${terbilangStr}</b></div>
@@ -38439,13 +38469,24 @@ async function loadAR() {
       const milestones = plan.milestones || [];
       const totalValue = totalByOrder.get(o.id)||0;
       const orderPayments = paysByOrder.get(o.id)||[];
-      for (const m of milestones) {
+      for (let mIdx = 0; mIdx < milestones.length; mIdx++) {
+        const m = milestones[mIdx];
         const pay = orderPayments.find(p => p.milestone === m.key);
         const invDate = pay?.invoice_date || null;
         // Skip kalau invoice belum di-set — gak boleh AR
         if (!invDate) continue;
         const dueDate = _whComputeDueDate(invDate);
-        const amount = parseFloat(pay?.amount) || Math.round(totalValue * (parseFloat(m.pct)||0) / 100);
+        // Carry-over: kalau milestone sebelumnya overpaid, kurangi amount due
+        const priorMilestones = milestones.slice(0, mIdx);
+        const priorExpected = priorMilestones.reduce((s,pm) => s + Math.round(totalValue * (parseFloat(pm.pct)||0) / 100), 0);
+        const priorPaidActual = priorMilestones.reduce((s,pm) => {
+          const pp = orderPayments.find(p => p.milestone === pm.key);
+          return s + (parseFloat(pp?.amount) || 0);
+        }, 0);
+        const carryOver = Math.max(0, priorPaidActual - priorExpected);
+        const expected = Math.round(totalValue * (parseFloat(m.pct)||0) / 100);
+        // Kalau pay.amount eksplisit di-set, pakai itu. Otherwise expected - carryOver.
+        const amount = parseFloat(pay?.amount) || Math.max(0, expected - carryOver);
         const paidAt = pay?.paid_at || null;
         // Days outstanding
         let daysOut = 0, daysOverdue = 0, isOverdue = false, status = '';
