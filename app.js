@@ -121,7 +121,7 @@ function mapRR(r) { return {rowIndex:r.id,id:r.id,name:r.nama||"",tipe:r.tipe||"
 function mapBM(r) { return {rowIndex:r.id,id:r.id,name:r.name||"",category:r.category||"",liveStatus:r.live_status||"Active",brandType:r.brand_type||"",vatStatus:r.vat_status||"",revenue:r.revenue_stream||"",agreements:r.related_agreement||"",apparel:r.apparel_rate!=null?r.apparel_rate:"",accessories:r.accessories_rate!=null?r.accessories_rate:"",collectible:r.collectible_rate!=null?r.collectible_rate:"",preloved:r.preloved_rate!=null?r.preloved_rate:"",wellness:r.wellness_rate!=null?r.wellness_rate:"",others:r.others_rate!=null?r.others_rate:"",notes:r.notes||"",email:r.email||"",pic:r.pic||"",addedBy:r.added_by||""}; }
 function mapLD(r) { return {rowIndex:r.id,id:r.id,name:r.lead_name||"",category:r.category||"",stage:r.stage||"",pic:r.pic||"",revenue:r.revenue_stream||"",contact:r.contact||"",notes:r.notes||"",priority:r.priority||"",followUpDate:r.follow_up_date||"",date:r.date_added?new Date(r.date_added).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"",by:r.added_by||"",lastUpdate:r.last_updated?new Date(r.last_updated).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"",lastBy:r.last_updated_by||"",addedBy:r.added_by||""}; }
 function mapDP(r) { return {rowIndex:r.id,id:r.id,name:r.partner_name||"",type:r.type||"",channel:r.channel||"",region:r.region||"",pic:r.pic||"",contactPerson:r.contact_person||"",contactInfo:r.contact_info||"",agreements:r.related_agreement||"",liveStatus:r.live_status||"Active",notes:r.notes||"",email:r.email||"",addedBy:r.added_by||"",jubelioContactId:r.jubelio_contact_id||null}; }
-function mapPB(r) { return {rowIndex:r.id,id:r.id,eventDate:r.event_date||"",eventName:r.event_name||"",location:r.location||"",ipRelated:r.ip_related||"",manpower:r.manpower||"",suratJalanUrl:r.surat_jalan_url||"",deliveryStatus:r.delivery_status||"",eventStatus:r.event_status||"",reinboundStatus:r.reinbound_status||"",reinboundQty:r.reinbound_qty!=null?r.reinbound_qty:"",srDeadline:r.sr_deadline||"",actualSales:r.actual_sales!=null?r.actual_sales:"",paymentMethod:r.payment_method||"",idPesananJubelio:r.id_pesanan_jubelio||"",notes:r.notes||"",channelFees:r.channel_fees||{},arExpectedDate:r.ar_expected_date||"",arPaidAt:r.ar_paid_at||"",arBuktiUrl:r.ar_bukti_url||"",arNotes:r.ar_notes||"",arReportedSales:r.ar_reported_sales!=null?r.ar_reported_sales:"",arSalesReportUrl:r.ar_sales_report_url||"",arPartnerFeePct:r.ar_partner_fee_pct!=null?r.ar_partner_fee_pct:"",dateAdded:r.date_added||"",addedBy:r.added_by||"",lastUpdated:r.last_updated||"",lastUpdatedBy:r.last_updated_by||""}; }
+function mapPB(r) { return {rowIndex:r.id,id:r.id,eventDate:r.event_date||"",eventName:r.event_name||"",location:r.location||"",ipRelated:r.ip_related||"",manpower:r.manpower||"",suratJalanUrl:r.surat_jalan_url||"",deliveryStatus:r.delivery_status||"",eventStatus:r.event_status||"",reinboundStatus:r.reinbound_status||"",reinboundQty:r.reinbound_qty!=null?r.reinbound_qty:"",srDeadline:r.sr_deadline||"",actualSales:r.actual_sales!=null?r.actual_sales:"",paymentMethod:r.payment_method||"",idPesananJubelio:r.id_pesanan_jubelio||"",notes:r.notes||"",channelFees:r.channel_fees||{},arExpectedDate:r.ar_expected_date||"",arPaidAt:r.ar_paid_at||"",arBuktiUrl:r.ar_bukti_url||"",arNotes:r.ar_notes||"",arReportedSales:r.ar_reported_sales!=null?r.ar_reported_sales:"",arSalesReportUrl:r.ar_sales_report_url||"",arPartnerFeePct:r.ar_partner_fee_pct!=null?r.ar_partner_fee_pct:"",signedSuratJalanUrl:r.signed_surat_jalan_url||"",signedInvoiceUrl:r.signed_invoice_url||"",dateAdded:r.date_added||"",addedBy:r.added_by||"",lastUpdated:r.last_updated||"",lastUpdatedBy:r.last_updated_by||""}; }
 
 let currentUser = "";
 let currentUserEmail = "";
@@ -3974,6 +3974,16 @@ function _pbRenderPaymentSection() {
         <label>Tanggal Pembayaran Diterima</label>
         <input type="date" id="pbd-pay-paid" value="${r.arPaidAt || ''}">
       </div>
+      <div class="fg">
+        <label>Surat Jalan (Signed)</label>
+        ${r.signedSuratJalanUrl ? `<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><a href="${r.signedSuratJalanUrl}" target="_blank" style="font-size:12px;color:var(--black);text-decoration:underline">📋 Lihat SJ signed</a><button type="button" onclick="_pbClearSignedSJ()" style="border:none;background:transparent;color:#c33;cursor:pointer;font-size:11px;padding:0">Hapus</button></div>` : ''}
+        <input type="file" id="pbd-pay-signed-sj" accept="image/*,application/pdf" style="font-size:12px">
+      </div>
+      <div class="fg">
+        <label>Invoice (Signed)</label>
+        ${r.signedInvoiceUrl ? `<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><a href="${r.signedInvoiceUrl}" target="_blank" style="font-size:12px;color:var(--black);text-decoration:underline">🧾 Lihat Invoice signed</a><button type="button" onclick="_pbClearSignedInvoice()" style="border:none;background:transparent;color:#c33;cursor:pointer;font-size:11px;padding:0">Hapus</button></div>` : ''}
+        <input type="file" id="pbd-pay-signed-inv" accept="image/*,application/pdf" style="font-size:12px">
+      </div>
       <div class="fg" style="grid-column:1 / -1">
         <label>Bukti Transfer</label>
         ${r.arBuktiUrl ? `<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><a href="${r.arBuktiUrl}" target="_blank" style="font-size:12px;color:var(--black);text-decoration:underline">💵 Lihat bukti</a><button type="button" onclick="_pbClearArBuktiInDetail()" style="border:none;background:transparent;color:#c33;cursor:pointer;font-size:11px;padding:0">Hapus</button></div>` : ''}
@@ -4552,6 +4562,26 @@ async function _pbClearArBuktiInDetail() {
     await loadPopupBooth();
   } catch(e) { alert('Gagal menghapus: '+(e.message||e)); }
 }
+async function _pbClearSignedSJ() {
+  if (!_pbCurrentDetail || !confirm('Hapus Surat Jalan signed?')) return;
+  try {
+    const {error} = await sb.from('popup_booths').update({signed_surat_jalan_url:null,last_updated:new Date().toISOString(),last_updated_by:currentUser}).eq('id', _pbCurrentDetail.rowIndex);
+    if (error) throw error;
+    _pbCurrentDetail.signedSuratJalanUrl = '';
+    _pbRenderPaymentSection();
+    await loadPopupBooth();
+  } catch(e) { alert('Gagal menghapus: '+(e.message||e)); }
+}
+async function _pbClearSignedInvoice() {
+  if (!_pbCurrentDetail || !confirm('Hapus Invoice signed?')) return;
+  try {
+    const {error} = await sb.from('popup_booths').update({signed_invoice_url:null,last_updated:new Date().toISOString(),last_updated_by:currentUser}).eq('id', _pbCurrentDetail.rowIndex);
+    if (error) throw error;
+    _pbCurrentDetail.signedInvoiceUrl = '';
+    _pbRenderPaymentSection();
+    await loadPopupBooth();
+  } catch(e) { alert('Gagal menghapus: '+(e.message||e)); }
+}
 async function _pbUploadPaymentFile(rowIdx, file, kind) {
   if (!file) return null;
   if (file.size > 5*1024*1024) throw new Error('File terlalu besar (max 5MB)');
@@ -4577,10 +4607,16 @@ async function _pbSavePaymentSection() {
     const notes = document.getElementById('pbd-pay-notes')?.value.trim() || null;
     const reportFile = document.getElementById('pbd-pay-report')?.files?.[0];
     const buktiFile = document.getElementById('pbd-pay-bukti')?.files?.[0];
+    const signedSjFile = document.getElementById('pbd-pay-signed-sj')?.files?.[0];
+    const signedInvFile = document.getElementById('pbd-pay-signed-inv')?.files?.[0];
     let arSalesReportUrl = r.arSalesReportUrl || null;
     let arBuktiUrl = r.arBuktiUrl || null;
+    let signedSuratJalanUrl = r.signedSuratJalanUrl || null;
+    let signedInvoiceUrl = r.signedInvoiceUrl || null;
     if (reportFile) arSalesReportUrl = await _pbUploadPaymentFile(r.rowIndex, reportFile, 'sales-report');
     if (buktiFile) arBuktiUrl = await _pbUploadPaymentFile(r.rowIndex, buktiFile, 'bukti');
+    if (signedSjFile) signedSuratJalanUrl = await _pbUploadPaymentFile(r.rowIndex, signedSjFile, 'signed-sj');
+    if (signedInvFile) signedInvoiceUrl = await _pbUploadPaymentFile(r.rowIndex, signedInvFile, 'signed-invoice');
     const {error} = await sb.from('popup_booths').update({
       ar_reported_sales: reported,
       ar_partner_fee_pct: feePct,
@@ -4589,12 +4625,14 @@ async function _pbSavePaymentSection() {
       ar_paid_at: paidAt,
       ar_bukti_url: arBuktiUrl,
       ar_notes: notes,
+      signed_surat_jalan_url: signedSuratJalanUrl,
+      signed_invoice_url: signedInvoiceUrl,
       last_updated: new Date().toISOString(),
       last_updated_by: currentUser
     }).eq('id', r.rowIndex);
     if (error) throw error;
     // Refresh in-memory detail + re-render
-    Object.assign(r, {arReportedSales: reported ?? '', arPartnerFeePct: feePct ?? '', arSalesReportUrl: arSalesReportUrl||'', arExpectedDate: expDate||'', arPaidAt: paidAt||'', arBuktiUrl: arBuktiUrl||'', arNotes: notes||''});
+    Object.assign(r, {arReportedSales: reported ?? '', arPartnerFeePct: feePct ?? '', arSalesReportUrl: arSalesReportUrl||'', arExpectedDate: expDate||'', arPaidAt: paidAt||'', arBuktiUrl: arBuktiUrl||'', arNotes: notes||'', signedSuratJalanUrl: signedSuratJalanUrl||'', signedInvoiceUrl: signedInvoiceUrl||''});
     _pbRenderPaymentSection();
     await loadPopupBooth();
     if (btn) { btn.disabled = false; btn.textContent = '✓ Tersimpan'; setTimeout(() => { btn.textContent = 'Simpan'; }, 1500); }
@@ -38484,7 +38522,7 @@ async function loadAR() {
       sb.from('manual_purchase_orders').select('id,billed_to_name,line_brand,invoice_no,invoice_date,due_date,grand_total,total_received,payment_due,status,payment_plan,shipping_cost').order('invoice_date',{ascending:false,nullsFirst:false}),
       sb.from('manual_purchase_payments').select('*'),
       sb.from('manual_purchase_items').select('order_id,subtotal'),
-      sb.from('popup_booths').select('id,event_name,event_date,location,ip_related,payment_method,actual_sales,ar_expected_date,ar_paid_at,ar_bukti_url,ar_notes,ar_reported_sales,ar_sales_report_url,ar_partner_fee_pct').or('payment_method.ilike.%Consignment%,payment_method.ilike.%3rd Party Providers%,payment_method.ilike.%Other%').order('event_date',{ascending:false,nullsFirst:false}),
+      sb.from('popup_booths').select('id,event_name,event_date,location,ip_related,payment_method,actual_sales,ar_expected_date,ar_paid_at,ar_bukti_url,ar_notes,ar_reported_sales,ar_sales_report_url,ar_partner_fee_pct,signed_invoice_url').or('payment_method.ilike.%Consignment%,payment_method.ilike.%3rd Party Providers%,payment_method.ilike.%Other%').order('event_date',{ascending:false,nullsFirst:false}),
     ]);
     const orders = ordersRes.data || [];
     const payments = paymentsRes.data || [];
@@ -38717,7 +38755,7 @@ async function loadAR() {
           daysOut,
           daysOverdue,
           bukti: pb.ar_bukti_url || null,
-          signedInvoice: null,
+          signedInvoice: pb.signed_invoice_url || null,
         });
       }
     }
