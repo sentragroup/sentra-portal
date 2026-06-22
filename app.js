@@ -4079,8 +4079,14 @@ async function _pbGenerateSuratJalanPDF(recipientName) {
   // Size sort (S→M→L→XL→XXL→OS last)
   const sizeOrder = (s) => ({XXS:0, XS:1, S:2, M:3, L:4, XL:5, XXL:6, XXXL:7, OS:99, 'FREE SIZE':99, FREESIZE:99}[String(s||'').toUpperCase().trim()] ?? 50);
   const sizeOf = (item) => {
-    const m = String(item.item_name||'').match(/\s*[-—]\s*(XXS|XS|S|M|L|XL|XXL|XXXL|OS|FREE\s*SIZE|FREESIZE)\s*$/i);
-    return m ? m[1].toUpperCase() : (item.variant || '');
+    // Cek SKU code dulu — pattern di akhir: -SIZE atau -SIZE-COLOR (misal -M-HITAM)
+    const code = String(item.item_code||'');
+    const codeMatch = code.match(/-(XXS|XS|S|M|L|XL|XXL|XXXL|OS|FREESIZE)(?:-[A-Z]+)?$/i);
+    if (codeMatch) return codeMatch[1].toUpperCase();
+    // Fallback ke item_name suffix
+    const nameMatch = String(item.item_name||'').match(/\s*[-—]\s*(XXS|XS|S|M|L|XL|XXL|XXXL|OS|FREE\s*SIZE|FREESIZE)\s*$/i);
+    if (nameMatch) return nameMatch[1].toUpperCase();
+    return item.variant || '';
   };
   for (const p of parents.values()) p.rows.sort((a,b) => sizeOrder(sizeOf(a)) - sizeOrder(sizeOf(b)));
 
