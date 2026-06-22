@@ -4011,7 +4011,13 @@ async function _pbGenerateSuratJalanPDF(recipientName) {
   if (!r) return;
   const cache = _pbExportCache || {};
   const inItems = (window._pbStockInCache?.inItems) || cache.inItems || [];
-  if (!inItems.length) { alert('Belum ada Stock In TRFO yang mapped ke event ini. Map TRFO dulu di Inventory Transfer.'); return; }
+  const adjItemsCheck = (window._pbStockInCache?.adjItems) || [];
+  // Allow SJ generation kalau ada Stock In ATAU ada adjustment positive (extra
+  // ditemuin / freebies ditambah). Empty check setelah aggregation di bawah.
+  if (!inItems.length && !adjItemsCheck.some(a => Number(a.qty||0) > 0)) {
+    alert('Belum ada Stock In TRFO atau Stock Adjustment positif yang mapped ke event ini. Map TRFO/adjustment dulu.');
+    return;
+  }
   // Fetch jubelio_items for thumbnails (reuse wholesale cache if available)
   if (!_whJubelioItemsCache || !_whJubelioItemsCache.length) {
     try { _whJubelioItemsCache = await _fetchAllPages('jubelio_items', 'item_id,item_code,item_name,item_group_id,thumbnail,total_on_hand'); }
@@ -4053,6 +4059,10 @@ async function _pbGenerateSuratJalanPDF(recipientName) {
   }
   // Drop items that net to ≤ 0 setelah adjustment (gak masuk SJ)
   for (const [k, v] of [...itemMap]) { if (v.qty <= 0) itemMap.delete(k); }
+  if (itemMap.size === 0) {
+    alert('Setelah dihitung Stock In + Adjustment, total net 0 — gak ada barang yang perlu dikirim.');
+    return;
+  }
   const adjNetSigned = totalAdjPos + totalAdjNeg;
   // Parent grouping by name (drop trailing size token: " - S", " - XL", " - OS")
   const parentName = (name) => String(name||'').replace(/\s*[-—]\s*(XXS|XS|S|M|L|XL|XXL|XXXL|OS|FREE\s*SIZE|FREESIZE)\s*$/i, '').trim();
