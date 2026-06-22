@@ -38476,6 +38476,9 @@ async function loadAR() {
           status = isOverdue ? 'overdue' : 'unpaid';
         }
         const channelLabel = (pb.payment_method||'').split(',').map(s=>s.trim()).find(s => s === 'Consignment' || s === '3rd Party Providers' || s === 'Other') || 'Pop Up Booth';
+        // Computed net (untuk show side-by-side kalau reported beda)
+        const computedNet = computedAmt * (1 - feePct/100);
+        const showComputedAlt = reportedAmt != null && Math.abs(reportedAmt - computedAmt) >= 1;
         rows.push({
           type: 'popup_booth',
           orderId: pb.id,
@@ -38484,6 +38487,8 @@ async function loadAR() {
           milestoneKey: 'event',
           milestoneLabel: `Event · ${channelLabel}`,
           amount,
+          amountAltLabel: showComputedAlt ? 'computed' : null,
+          amountAlt: showComputedAlt ? computedNet : null,
           invoiceDate: invDate,
           dueDate,
           paidAt,
@@ -38609,7 +38614,9 @@ function renderARTable(rows) {
         : `<span style="display:inline-block;font-size:9px;font-family:var(--mono);background:#eef0f8;color:#3C3489;border:1px solid #c9bdf0;border-radius:3px;padding:1px 6px;margin-top:3px;letter-spacing:.02em">Wholesale</span>`;
     const amountCell = (r.status === 'awaiting' && r.amount <= 0)
       ? `<span style="font-family:var(--mono);font-size:11px;color:#a66200;font-style:italic">— awaiting</span>`
-      : fmtRp(r.amount);
+      : (r.amountAlt != null
+          ? `<div>${fmtRp(r.amount)}</div><div style="font-size:9px;color:var(--g400);font-weight:400;margin-top:2px" title="Computed dari Jubelio sales — bandingin dengan angka partner di atas">${r.amountAltLabel}: ${fmtRp(r.amountAlt)}</div>`
+          : fmtRp(r.amount));
     return `<tr>
       <td><div style="display:flex;flex-direction:column;gap:1px"><span style="font-family:var(--mono);font-size:11px;color:var(--g600)">${r.orderId}</span>${typeBadge}</div></td>
       <td style="font-size:12px;font-weight:500">${(r.customerName||'—').replace(/</g,'&lt;')}</td>
