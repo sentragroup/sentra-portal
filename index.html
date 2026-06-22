@@ -1636,6 +1636,18 @@
             </div>
             <div id="pbd-remaining" style="margin-top:12px">Memuat…</div>
           </div>
+
+          <!-- Section 5: Payment & Reconciliation (only when payment method = Consignment / 3rd Party / Other) -->
+          <div class="form-card" id="pbd-payment-card" style="margin-bottom:1rem;padding:14px 18px;display:none">
+            <div onclick="togglePBSection('payment')" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px">
+              <span style="font-size:12px;font-weight:600;color:var(--black);font-family:var(--label);letter-spacing:0.04em;text-transform:uppercase">
+                <span id="pbd-chev-payment" style="display:inline-block;width:14px;color:var(--g400)">▾</span>
+                💵 Payment &amp; Reconciliation
+              </span>
+              <span style="font-size:12px;color:var(--g600);font-family:var(--mono);text-align:right" id="pbd-payment-summary">—</span>
+            </div>
+            <div id="pbd-payment" style="margin-top:12px">Memuat…</div>
+          </div>
         </div>
       </div>
 
@@ -5275,6 +5287,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260615ec"></script>
+<script src="app.js?v=20260615ed"></script>
 </body>
 </html>
