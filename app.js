@@ -12078,6 +12078,47 @@ async function syncAllJubelio() {
   if (trigBtn) trigBtn.disabled = false;
 }
 
+// Trigger sync-jubelio-inventory dari Product Mapping module. Update jubelio_items
+// master + stock per lokasi dalam 1 panggilan (~25-30s). Confirm dulu biar gak
+// ke-trigger gak sengaja, lalu tampilkan progress + result inline di button.
+let _pmSyncCooldownUntil = 0;
+async function syncJubelioMasterCatalog() {
+  const now = Date.now();
+  if (now < _pmSyncCooldownUntil) {
+    const remaining = Math.ceil((_pmSyncCooldownUntil - now) / 60000);
+    alert(`Sync baru saja dijalankan. Tunggu ${remaining} menit lagi biar gak overload Jubelio API.`);
+    return;
+  }
+  if (!confirm('Sync Master Catalog dari Jubelio?\n\nIni akan update:\n• jubelio_items (catalog master)\n• Stock per lokasi\n\nDurasi: ~30 detik. Refresh halaman setelah selesai untuk lihat data terbaru.')) return;
+  const btn = document.getElementById('pm-sync-btn');
+  const originalText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '⟳ Menyinkron...';
+  const t0 = Date.now();
+  try {
+    const result = await callEdgeFunction('sync-jubelio-inventory');
+    const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+    const items = result?.items || result?.itemsUpserted || 0;
+    const stocks = result?.stocks || result?.stocksUpserted || 0;
+    btn.textContent = `✓ ${items} items · ${stocks} stocks · ${elapsed}s`;
+    btn.style.background = '#2d7a2d';
+    _pmSyncCooldownUntil = Date.now() + 5 * 60 * 1000; // 5 menit cooldown
+    setTimeout(async () => {
+      btn.textContent = originalText;
+      btn.style.background = '';
+      btn.disabled = false;
+      // Auto-refresh PM table biar data baru langsung kelihat
+      if (typeof loadProductMap === 'function') loadProductMap(0, '');
+    }, 2500);
+  } catch (e) {
+    btn.textContent = '✗ Gagal — coba lagi';
+    btn.style.background = '#c0392b';
+    console.error('sync-jubelio-inventory failed:', e);
+    setTimeout(() => { btn.textContent = originalText; btn.style.background = ''; btn.disabled = false; }, 3000);
+    alert('Sync gagal: ' + (e.message || e));
+  }
+}
+
 // Global Rupiah formatter — dipake 161× di module lain.
 function fmtRp(n){return 'Rp '+Math.round(n||0).toLocaleString('id-ID');}
 
