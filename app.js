@@ -4093,12 +4093,11 @@ async function _pbGenerateSuratJalanPDF(recipientName) {
 
   const itemsBody = [...parents.values()].map(p => {
     const totalP = p.rows.reduce((s,x) => s + x.qty, 0);
-    // Thumbnail: lookup jubelio_items via first row's item_id
     let thumb = null;
     for (const x of p.rows) { const j = jByItemId.get(x.item_id); if (j?.thumbnail) { thumb = j.thumbnail; break; } }
-    const thumbCell = thumb
-      ? `<img src="${thumb.replace(/"/g,'&quot;')}" style="width:56px;height:56px;object-fit:cover;border-radius:4px;border:1px solid #ddd;display:block">`
-      : `<div style="width:56px;height:56px;background:#f0f0f0;border:1px dashed #ccc;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#999;font-size:9px">no img</div>`;
+    const thumbInline = thumb
+      ? `<img src="${thumb.replace(/"/g,'&quot;')}" style="width:42px;height:42px;object-fit:cover;border-radius:3px;border:1px solid #ddd;flex-shrink:0">`
+      : `<div style="width:42px;height:42px;background:#f0f0f0;border:1px dashed #ccc;border-radius:3px;flex-shrink:0"></div>`;
     const variantRows = p.rows.map(x => `<tr>
         <td class="sz">${sizeOf(x)}</td>
         <td class="sku">${(x.item_code||'').replace(/</g,'&lt;')}</td>
@@ -4106,8 +4105,7 @@ async function _pbGenerateSuratJalanPDF(recipientName) {
       </tr>`).join('');
     return `<tbody class="parent-group">
       <tr class="parent-row">
-        <td rowspan="${p.rows.length+1}" style="width:72px;vertical-align:top;padding:10px 8px">${thumbCell}</td>
-        <td colspan="3"><div style="font-weight:700;font-size:13px">${(p.name||'').replace(/</g,'&lt;')}</div><div style="font-size:11px;color:#666;margin-top:2px">${p.rows.length} variants · ${totalP} pcs</div></td>
+        <td colspan="3"><div style="display:flex;align-items:center;gap:10px">${thumbInline}<div><div style="font-weight:700;font-size:13px">${(p.name||'').replace(/</g,'&lt;')}</div><div style="font-size:11px;color:#666;margin-top:2px">${p.rows.length} variants · ${totalP} pcs</div></div></div></td>
       </tr>
       ${variantRows}
     </tbody>`;
@@ -4181,18 +4179,25 @@ async function _pbGenerateSuratJalanPDF(recipientName) {
         </div>
         <table class="lampiran">
           <thead><tr>
-            <th style="width:72px">Foto</th>
             <th>Size</th>
             <th>SKU</th>
             <th class="r">Qty</th>
           </tr></thead>
           ${itemsBody}
           <tbody><tr>
-            <td style="padding:14px 10px;border-top:2px solid #111"></td>
             <td colspan="2" style="padding:14px 10px;border-top:2px solid #111;font-weight:700">TOTAL</td>
             <td class="r" style="padding:14px 10px;border-top:2px solid #111;font-weight:700">${totalQty} pcs</td>
           </tr></tbody>
         </table>
+        <div class="tnc">
+          <div class="tnc-title">Syarat &amp; Ketentuan</div>
+          <ol class="tnc-list">
+            <li><strong>Tanggung Jawab Barang.</strong> Penerima bertanggung jawab penuh atas seluruh barang sejak serah-terima sampai dengan pengembalian kepada PT Sandang Dunia Yuwana. Segala bentuk kerusakan, kehilangan, atau penyusutan barang selama dalam penguasaan Penerima menjadi tanggung jawab Penerima dan akan ditagihkan sebesar harga retail (SRP) yang berlaku.</li>
+            <li><strong>Pengembalian Barang Sisa.</strong> Seluruh barang yang tidak terjual wajib dikembalikan kepada PT Sandang Dunia Yuwana selambat-lambatnya <strong>H+3 (tiga hari kalender) setelah tanggal berakhirnya event</strong>, dalam kondisi original beserta seluruh tag, label, dan kemasan dalam keadaan utuh. Keterlambatan atau ketidaksesuaian kondisi pengembalian dapat dikenakan biaya tambahan sesuai ketentuan yang berlaku.</li>
+            <li><strong>Penagihan.</strong> Penagihan atas barang terjual akan dilakukan oleh PT Sandang Dunia Yuwana kepada pihak ${channelLabel === 'Pop Up Booth' ? 'Penerima' : channelLabel} setelah selisih antara Stock In dan barang sisa yang dikembalikan diverifikasi dan disepakati kedua belah pihak.</li>
+            <li><strong>Pembayaran Jasa PIC.</strong> Pembayaran jasa kepada PIC (Person In Charge) hanya akan dilakukan setelah seluruh tugas, tanggung jawab pengembalian barang, dan rekonsiliasi penjualan telah diselesaikan secara tuntas oleh PIC bersangkutan.</li>
+          </ol>
+        </div>
         <div class="sig-row">
           <div class="sig">
             <div class="company">Pengirim</div>
@@ -4204,15 +4209,6 @@ async function _pbGenerateSuratJalanPDF(recipientName) {
             <div class="gap"></div>
             <div class="name">${recName.replace(/</g,'&lt;')}</div>
           </div>
-        </div>
-        <div class="tnc">
-          <div class="tnc-title">Syarat &amp; Ketentuan</div>
-          <ol class="tnc-list">
-            <li><strong>Tanggung Jawab Barang.</strong> Penerima bertanggung jawab penuh atas seluruh barang sejak serah-terima sampai dengan pengembalian kepada PT Sandang Dunia Yuwana. Segala bentuk kerusakan, kehilangan, atau penyusutan barang selama dalam penguasaan Penerima menjadi tanggung jawab Penerima dan akan ditagihkan sebesar harga retail (SRP) yang berlaku.</li>
-            <li><strong>Pengembalian Barang Sisa.</strong> Seluruh barang yang tidak terjual wajib dikembalikan kepada PT Sandang Dunia Yuwana selambat-lambatnya <strong>H+3 (tiga hari kalender) setelah tanggal berakhirnya event</strong>, dalam kondisi original beserta seluruh tag, label, dan kemasan dalam keadaan utuh. Keterlambatan atau ketidaksesuaian kondisi pengembalian dapat dikenakan biaya tambahan sesuai ketentuan yang berlaku.</li>
-            <li><strong>Penagihan.</strong> Penagihan atas barang terjual akan dilakukan oleh PT Sandang Dunia Yuwana kepada pihak ${channelLabel === 'Pop Up Booth' ? 'Penerima' : channelLabel} setelah selisih antara Stock In dan barang sisa yang dikembalikan diverifikasi dan disepakati kedua belah pihak.</li>
-            <li><strong>Pembayaran Jasa PIC.</strong> Pembayaran jasa kepada PIC (Person In Charge) hanya akan dilakukan setelah seluruh tugas, tanggung jawab pengembalian barang, dan rekonsiliasi penjualan telah diselesaikan secara tuntas oleh PIC bersangkutan.</li>
-          </ol>
         </div>
         <footer>Surat Jalan ini menjadi bukti serah-terima barang ke partner ${channelLabel}</footer>
       </div>
