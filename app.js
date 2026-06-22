@@ -4064,12 +4064,16 @@ async function _pbGenerateSuratJalanPDF(recipientName) {
     return;
   }
   const adjNetSigned = totalAdjPos + totalAdjNeg;
-  // Parent grouping by name (drop trailing size token: " - S", " - XL", " - OS")
+  // Parent grouping: prefer item_group_id (real sibling key from Jubelio), fallback ke
+  // stripped name. Display name diambil dari jubelio_items.item_name (lebih bersih,
+  // bukan item_name dari transfer record yang kadang concat sama SKU code).
   const parentName = (name) => String(name||'').replace(/\s*[-—]\s*(XXS|XS|S|M|L|XL|XXL|XXXL|OS|FREE\s*SIZE|FREESIZE)\s*$/i, '').trim();
   const parents = new Map();
   for (const x of itemMap.values()) {
-    const key = parentName(x.item_name) || x.item_name || x.item_code;
-    if (!parents.has(key)) parents.set(key, { name: key, rows: [] });
+    const j = jByItemId.get(x.item_id);
+    const cleanName = parentName(j?.item_name) || parentName(x.item_name) || x.item_name || x.item_code;
+    const key = j?.item_group_id != null ? `g:${j.item_group_id}` : `n:${cleanName}`;
+    if (!parents.has(key)) parents.set(key, { name: cleanName, rows: [] });
     parents.get(key).rows.push(x);
   }
   // Size sort (S→M→L→XL→XXL→OS last)
