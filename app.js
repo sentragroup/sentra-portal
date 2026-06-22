@@ -86,7 +86,7 @@ function mapRR(r) { return {rowIndex:r.id,id:r.id,name:r.nama||"",tipe:r.tipe||"
 function mapBM(r) { return {rowIndex:r.id,id:r.id,name:r.name||"",category:r.category||"",liveStatus:r.live_status||"Active",brandType:r.brand_type||"",vatStatus:r.vat_status||"",revenue:r.revenue_stream||"",agreements:r.related_agreement||"",apparel:r.apparel_rate!=null?r.apparel_rate:"",accessories:r.accessories_rate!=null?r.accessories_rate:"",collectible:r.collectible_rate!=null?r.collectible_rate:"",preloved:r.preloved_rate!=null?r.preloved_rate:"",wellness:r.wellness_rate!=null?r.wellness_rate:"",others:r.others_rate!=null?r.others_rate:"",notes:r.notes||"",email:r.email||"",pic:r.pic||"",addedBy:r.added_by||""}; }
 function mapLD(r) { return {rowIndex:r.id,id:r.id,name:r.lead_name||"",category:r.category||"",stage:r.stage||"",pic:r.pic||"",revenue:r.revenue_stream||"",contact:r.contact||"",notes:r.notes||"",priority:r.priority||"",followUpDate:r.follow_up_date||"",date:r.date_added?new Date(r.date_added).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"",by:r.added_by||"",lastUpdate:r.last_updated?new Date(r.last_updated).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"",lastBy:r.last_updated_by||"",addedBy:r.added_by||""}; }
 function mapDP(r) { return {rowIndex:r.id,id:r.id,name:r.partner_name||"",type:r.type||"",channel:r.channel||"",region:r.region||"",pic:r.pic||"",contactPerson:r.contact_person||"",contactInfo:r.contact_info||"",agreements:r.related_agreement||"",liveStatus:r.live_status||"Active",notes:r.notes||"",email:r.email||"",addedBy:r.added_by||"",jubelioContactId:r.jubelio_contact_id||null}; }
-function mapPB(r) { return {rowIndex:r.id,id:r.id,eventDate:r.event_date||"",eventName:r.event_name||"",location:r.location||"",ipRelated:r.ip_related||"",manpower:r.manpower||"",suratJalanUrl:r.surat_jalan_url||"",deliveryStatus:r.delivery_status||"",eventStatus:r.event_status||"",reinboundStatus:r.reinbound_status||"",reinboundQty:r.reinbound_qty!=null?r.reinbound_qty:"",srDeadline:r.sr_deadline||"",actualSales:r.actual_sales!=null?r.actual_sales:"",paymentMethod:r.payment_method||"",idPesananJubelio:r.id_pesanan_jubelio||"",notes:r.notes||"",channelFees:r.channel_fees||{},arExpectedDate:r.ar_expected_date||"",arPaidAt:r.ar_paid_at||"",arBuktiUrl:r.ar_bukti_url||"",arNotes:r.ar_notes||"",arReportedSales:r.ar_reported_sales!=null?r.ar_reported_sales:"",arSalesReportUrl:r.ar_sales_report_url||"",dateAdded:r.date_added||"",addedBy:r.added_by||"",lastUpdated:r.last_updated||"",lastUpdatedBy:r.last_updated_by||""}; }
+function mapPB(r) { return {rowIndex:r.id,id:r.id,eventDate:r.event_date||"",eventName:r.event_name||"",location:r.location||"",ipRelated:r.ip_related||"",manpower:r.manpower||"",suratJalanUrl:r.surat_jalan_url||"",deliveryStatus:r.delivery_status||"",eventStatus:r.event_status||"",reinboundStatus:r.reinbound_status||"",reinboundQty:r.reinbound_qty!=null?r.reinbound_qty:"",srDeadline:r.sr_deadline||"",actualSales:r.actual_sales!=null?r.actual_sales:"",paymentMethod:r.payment_method||"",idPesananJubelio:r.id_pesanan_jubelio||"",notes:r.notes||"",channelFees:r.channel_fees||{},arExpectedDate:r.ar_expected_date||"",arPaidAt:r.ar_paid_at||"",arBuktiUrl:r.ar_bukti_url||"",arNotes:r.ar_notes||"",arReportedSales:r.ar_reported_sales!=null?r.ar_reported_sales:"",arSalesReportUrl:r.ar_sales_report_url||"",arPartnerFeePct:r.ar_partner_fee_pct!=null?r.ar_partner_fee_pct:"",dateAdded:r.date_added||"",addedBy:r.added_by||"",lastUpdated:r.last_updated||"",lastUpdatedBy:r.last_updated_by||""}; }
 
 let currentUser = "";
 let currentUserEmail = "";
@@ -3860,49 +3860,70 @@ function _pbRenderPaymentSection() {
     if (sum) sum.textContent = '—';
     return;
   }
-  const computed = Number(_pbExportCache?.totalRev || 0);
+  const gross = Number(_pbExportCache?.totalRev || 0);
   const reportedRaw = r.arReportedSales;
-  const reported = (reportedRaw === '' || reportedRaw == null) ? null : Number(reportedRaw);
-  const delta = reported != null ? (reported - computed) : null;
-  const deltaPct = (computed > 0 && delta != null) ? (delta/computed*100) : null;
+  const reportedGross = (reportedRaw === '' || reportedRaw == null) ? null : Number(reportedRaw);
+  const feePctRaw = r.arPartnerFeePct;
+  const feePct = (feePctRaw === '' || feePctRaw == null) ? 0 : Number(feePctRaw);
+  // Use reported kalau ada (partner's number = source of truth setelah reconciled), fallback to computed
+  const grossBasis = reportedGross != null ? reportedGross : gross;
+  const feeAmount = grossBasis * (feePct / 100);
+  const netReceivable = grossBasis - feeAmount;
+  const delta = reportedGross != null ? (reportedGross - gross) : null;
+  const deltaPct = (gross > 0 && delta != null) ? (delta/gross*100) : null;
   const channelLabel = (r.paymentMethod||'').split(',').map(s=>s.trim()).find(s => s === 'Consignment' || s === '3rd Party Providers' || s === 'Other') || 'Pop Up Booth';
   // Status pill in summary
   let statusTxt;
   if (r.arPaidAt) statusTxt = `✓ Paid · ${r.arPaidAt}`;
-  else if (reported != null) statusTxt = `📋 Reported · ${_pbRpShort(reported)}`;
+  else if (reportedGross != null) statusTxt = `📋 Reported · ${_pbRpShort(netReceivable)} net`;
   else statusTxt = `⏳ Awaiting Report`;
   if (sum) sum.textContent = `${channelLabel} · ${statusTxt}`;
 
   const deltaBlock = delta != null ? `
     <div style="background:${Math.abs(delta) < 1 ? '#eef9f0' : (delta < 0 ? '#fff5e6' : '#fdecec')};border:1px solid ${Math.abs(delta) < 1 ? '#b8d9b3' : (delta < 0 ? '#f0c97a' : '#e8b4b4')};border-radius:6px;padding:10px 12px;margin-top:8px">
-      <div style="font-size:10px;font-family:var(--label);text-transform:uppercase;letter-spacing:0.05em;color:var(--g600);margin-bottom:4px">Selisih</div>
+      <div style="font-size:10px;font-family:var(--label);text-transform:uppercase;letter-spacing:0.05em;color:var(--g600);margin-bottom:4px">Selisih Gross (Reported vs Computed)</div>
       <div style="font-size:14px;font-weight:700;font-family:var(--mono);color:${Math.abs(delta) < 1 ? '#0a7d3a' : (delta < 0 ? '#a66200' : '#c0392b')}">
         ${delta >= 0 ? '+' : ''}${_pbRp(delta)} ${deltaPct != null ? `<span style="font-size:11px;color:var(--g600);font-weight:400">(${deltaPct >= 0 ? '+' : ''}${deltaPct.toFixed(1)}%)</span>` : ''}
       </div>
       <div style="font-size:11px;color:var(--g600);margin-top:4px">${Math.abs(delta) < 1 ? 'Cocok dengan perhitungan kita.' : (delta < 0 ? 'Partner lapor lebih rendah dari computed.' : 'Partner lapor lebih tinggi dari computed.')}</div>
     </div>` : '';
 
+  // Net receivable breakdown (gross - fee = net)
+  const netBlock = (feePct > 0 || reportedGross != null) ? `
+    <div style="background:#fafaf7;border:1px solid var(--g200);border-radius:6px;padding:12px 14px;margin-top:8px">
+      <div style="font-size:10px;font-family:var(--label);text-transform:uppercase;letter-spacing:0.05em;color:var(--g600);margin-bottom:8px">Net Receivable Breakdown</div>
+      <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:12px"><span>Gross Sales${reportedGross != null ? ' (Reported)' : ' (Computed)'}</span><span style="font-family:var(--mono)">${_pbRp(grossBasis)}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:12px;color:#a66200"><span>Partner Fee (${feePct}%)</span><span style="font-family:var(--mono)">−${_pbRp(feeAmount)}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:8px 0 0;font-size:14px;font-weight:700;border-top:1px solid var(--g200);margin-top:4px"><span>Net Receivable</span><span style="font-family:var(--mono);color:#0a7d3a">${_pbRp(netReceivable)}</span></div>
+    </div>` : '';
+
   cont.innerHTML = `
     <!-- Reconciliation: Computed vs Reported -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
       <div style="background:var(--off);border-radius:6px;padding:10px 12px">
-        <div style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.05em;font-family:var(--label)">Computed (Sales Performance)</div>
-        <div style="font-size:14px;font-weight:600;font-family:var(--mono);margin-top:2px">${_pbRp(computed)}</div>
+        <div style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.05em;font-family:var(--label)">Computed Gross (Sales Performance)</div>
+        <div style="font-size:14px;font-weight:600;font-family:var(--mono);margin-top:2px">${_pbRp(gross)}</div>
         <div style="font-size:10px;color:var(--g400);margin-top:2px">dari Jubelio sales mapped ke event ini</div>
       </div>
       <div style="background:var(--off);border-radius:6px;padding:10px 12px">
-        <div style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.05em;font-family:var(--label)">Reported by Partner</div>
-        <div style="font-size:14px;font-weight:600;font-family:var(--mono);margin-top:2px">${reported != null ? _pbRp(reported) : '<span style="color:var(--g300);font-style:italic">Belum diisi</span>'}</div>
+        <div style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.05em;font-family:var(--label)">Reported Gross by Partner</div>
+        <div style="font-size:14px;font-weight:600;font-family:var(--mono);margin-top:2px">${reportedGross != null ? _pbRp(reportedGross) : '<span style="color:var(--g300);font-style:italic">Belum diisi</span>'}</div>
         <div style="font-size:10px;color:var(--g400);margin-top:2px">manual entry dari laporan partner</div>
       </div>
     </div>
     ${deltaBlock}
+    ${netBlock}
 
     <!-- Form: Sales Report + Payment Tracking -->
     <div class="edit-row-grid" style="margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:12px">
       <div class="fg">
-        <label>Reported Sales Amount (Rp)</label>
-        <input type="number" id="pbd-pay-reported" min="0" step="any" value="${reported != null ? reported : ''}" placeholder="Masukin angka dari laporan partner">
+        <label>Reported Gross Sales (Rp)</label>
+        <input type="number" id="pbd-pay-reported" min="0" step="any" value="${reportedGross != null ? reportedGross : ''}" placeholder="Total penjualan menurut laporan partner">
+      </div>
+      <div class="fg">
+        <label>Partner Fee / Potongan (%)</label>
+        <input type="number" id="pbd-pay-feepct" min="0" max="100" step="any" value="${feePctRaw !== '' && feePctRaw != null ? feePctRaw : ''}" placeholder="Misal: 30 (untuk 30% commission)">
+        <div style="font-size:10px;color:var(--g400);margin-top:2px">potongan partner dari gross → net = gross × (100% − fee%)</div>
       </div>
       <div class="fg">
         <label>Sales Report File</label>
@@ -4166,6 +4187,11 @@ async function _pbDownloadInvoice() {
   const totalQty = rows.reduce((s,x)=>s+(Number(x.qty)||0), 0);
   const totalRev = rows.reduce((s,x)=>s+(Number(x.revenue)||0), 0);
   const reported = r.arReportedSales !== '' && r.arReportedSales != null ? Number(r.arReportedSales) : null;
+  const feePct = r.arPartnerFeePct !== '' && r.arPartnerFeePct != null ? Number(r.arPartnerFeePct) : 0;
+  // Gross basis: reported (kalau ada) lebih authoritative dari computed
+  const grossBasis = reported != null ? reported : totalRev;
+  const feeAmount = grossBasis * (feePct / 100);
+  const netReceivable = grossBasis - feeAmount;
   const channelLabel = (r.paymentMethod||'').split(',').map(s=>s.trim()).find(s => s === 'Consignment' || s === '3rd Party Providers' || s === 'Other') || 'Pop Up Booth';
   const monthNames = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
   const today = new Date();
@@ -4179,7 +4205,7 @@ async function _pbDownloadInvoice() {
   const invoiceNo = `SDY-PB-${periodYY}${periodMM}-${String(seq).padStart(2,'0')}`;
   const fmtRp = n => 'Rp ' + Math.round(Number(n)||0).toLocaleString('id-ID');
   const fmtTglFull = d => { if (!d) return '—'; const x = new Date(d+'T00:00:00'); return `${x.getDate()} ${monthNames[x.getMonth()]} ${x.getFullYear()}`; };
-  const terbilangStr = (_whTerbilang(totalRev) + ' rupiah').replace(/\b\w/g, c => c.toUpperCase());
+  const terbilangStr = (_whTerbilang(netReceivable) + ' rupiah').replace(/\b\w/g, c => c.toUpperCase());
 
   // Group lampiran by parent (item_group_id or parent name)
   const parentNm = (name) => String(name||'').replace(/\s*[-—]\s*(XXS|XS|S|M|L|XL|XXL|XXXL|OS|FREE\s*SIZE|FREESIZE)\s*$/i, '').trim();
@@ -4322,7 +4348,7 @@ async function _pbDownloadInvoice() {
         <table class="line">
           <thead><tr>
             <th>Deskripsi</th>
-            <th class="r">Total</th>
+            <th class="r">Subtotal</th>
           </tr></thead>
           <tbody>
             <tr>
@@ -4330,13 +4356,14 @@ async function _pbDownloadInvoice() {
                 <div style="font-weight:600">${descLine.replace(/</g,'&lt;')}</div>
                 <div style="font-size:11px;color:#666;margin-top:4px">${rows.length} SKU · ${totalQty} pcs · Lihat lampiran untuk detail barang</div>
               </td>
-              <td class="r" style="font-weight:700">${fmtRp(totalRev)}</td>
+              <td class="r" style="font-weight:700">${fmtRp(grossBasis)}</td>
             </tr>
           </tbody>
         </table>
         <div class="totals">
-          <div class="row lbl"><span>Subtotal</span><span style="font-family:'Space Mono',monospace">${fmtRp(totalRev)}</span></div>
-          <div class="row total"><span>Total Tagihan</span><span class="v">${fmtRp(totalRev)}</span></div>
+          <div class="row lbl"><span>Gross Sales${reported != null ? ' (Reported)' : ''}</span><span style="font-family:'Space Mono',monospace">${fmtRp(grossBasis)}</span></div>
+          ${feePct > 0 ? `<div class="row lbl" style="color:#a14e3e"><span>Partner Fee (${feePct}%)</span><span style="font-family:'Space Mono',monospace">−${fmtRp(feeAmount)}</span></div>` : ''}
+          <div class="row total"><span>${feePct > 0 ? 'Net Tagihan' : 'Total Tagihan'}</span><span class="v">${fmtRp(netReceivable)}</span></div>
         </div>
         <div class="terbilang">Terbilang: <b>${terbilangStr}</b></div>
         ${deltaNote}
@@ -4439,6 +4466,8 @@ async function _pbSavePaymentSection() {
   try {
     const reportedRaw = document.getElementById('pbd-pay-reported')?.value;
     const reported = reportedRaw === '' || reportedRaw == null ? null : Number(reportedRaw);
+    const feePctRaw = document.getElementById('pbd-pay-feepct')?.value;
+    const feePct = feePctRaw === '' || feePctRaw == null ? null : Number(feePctRaw);
     const expDate = document.getElementById('pbd-pay-exp')?.value || null;
     const paidAt = document.getElementById('pbd-pay-paid')?.value || null;
     const notes = document.getElementById('pbd-pay-notes')?.value.trim() || null;
@@ -4450,6 +4479,7 @@ async function _pbSavePaymentSection() {
     if (buktiFile) arBuktiUrl = await _pbUploadPaymentFile(r.rowIndex, buktiFile, 'bukti');
     const {error} = await sb.from('popup_booths').update({
       ar_reported_sales: reported,
+      ar_partner_fee_pct: feePct,
       ar_sales_report_url: arSalesReportUrl,
       ar_expected_date: expDate,
       ar_paid_at: paidAt,
@@ -4460,7 +4490,7 @@ async function _pbSavePaymentSection() {
     }).eq('id', r.rowIndex);
     if (error) throw error;
     // Refresh in-memory detail + re-render
-    Object.assign(r, {arReportedSales: reported ?? '', arSalesReportUrl: arSalesReportUrl||'', arExpectedDate: expDate||'', arPaidAt: paidAt||'', arBuktiUrl: arBuktiUrl||'', arNotes: notes||''});
+    Object.assign(r, {arReportedSales: reported ?? '', arPartnerFeePct: feePct ?? '', arSalesReportUrl: arSalesReportUrl||'', arExpectedDate: expDate||'', arPaidAt: paidAt||'', arBuktiUrl: arBuktiUrl||'', arNotes: notes||''});
     _pbRenderPaymentSection();
     await loadPopupBooth();
     if (btn) { btn.disabled = false; btn.textContent = '✓ Tersimpan'; setTimeout(() => { btn.textContent = 'Simpan'; }, 1500); }
@@ -38246,7 +38276,7 @@ async function loadAR() {
       sb.from('manual_purchase_orders').select('id,billed_to_name,line_brand,invoice_no,invoice_date,due_date,grand_total,total_received,payment_due,status,payment_plan,shipping_cost').order('invoice_date',{ascending:false,nullsFirst:false}),
       sb.from('manual_purchase_payments').select('*'),
       sb.from('manual_purchase_items').select('order_id,subtotal'),
-      sb.from('popup_booths').select('id,event_name,event_date,location,ip_related,payment_method,actual_sales,ar_expected_date,ar_paid_at,ar_bukti_url,ar_notes,ar_reported_sales,ar_sales_report_url').or('payment_method.ilike.%Consignment%,payment_method.ilike.%3rd Party Providers%,payment_method.ilike.%Other%').order('event_date',{ascending:false,nullsFirst:false}),
+      sb.from('popup_booths').select('id,event_name,event_date,location,ip_related,payment_method,actual_sales,ar_expected_date,ar_paid_at,ar_bukti_url,ar_notes,ar_reported_sales,ar_sales_report_url,ar_partner_fee_pct').or('payment_method.ilike.%Consignment%,payment_method.ilike.%3rd Party Providers%,payment_method.ilike.%Other%').order('event_date',{ascending:false,nullsFirst:false}),
     ]);
     const orders = ordersRes.data || [];
     const payments = paymentsRes.data || [];
@@ -38415,10 +38445,13 @@ async function loadAR() {
         const invDate = pb.event_date || null;
         if (!invDate) continue;
         const eventPast = invDate < today;
-        // Amount priority: reported by partner → computed (Jubelio mapped) → actual_sales manual
+        // Gross priority: reported by partner → computed (Jubelio mapped) → actual_sales manual
         const reportedAmt = pb.ar_reported_sales != null ? Number(pb.ar_reported_sales) : null;
         const computedAmt = pbComputedSales.has(pb.id) ? pbComputedSales.get(pb.id) : (pb.actual_sales != null ? Number(pb.actual_sales) : 0);
-        const amount = reportedAmt != null ? reportedAmt : computedAmt;
+        const grossBasis = reportedAmt != null ? reportedAmt : computedAmt;
+        const feePct = pb.ar_partner_fee_pct != null ? Number(pb.ar_partner_fee_pct) : 0;
+        // AR amount = net receivable (gross - partner fee)
+        const amount = grossBasis * (1 - feePct/100);
         if (amount <= 0 && !eventPast) continue;
         const awaitingReport = reportedAmt == null && eventPast;
         const dueDate = pb.ar_expected_date || _pbAddDays(invDate, 7);
