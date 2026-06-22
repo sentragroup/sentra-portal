@@ -27003,6 +27003,39 @@ function _txDate(d) {
 // land on an out-of-range page when the new filter has fewer results.
 function txReloadFiltered() { _txPage = 0; return loadTxMap(); }
 
+// Manual Jubelio sync — fetch sales orders dari Jubelio biar tx baru muncul
+// tanpa nunggu cron daily. 60s cooldown supaya gak hammering API. Pattern
+// mirror Stock Adjustment sync button.
+let _txSyncCooldownUntil = 0;
+async function syncAndReloadTxMap() {
+  const btn    = document.getElementById('tx-sync-btn');
+  const status = document.getElementById('tx-sync-status');
+  const now = Date.now();
+  if (now < _txSyncCooldownUntil) {
+    const remaining = Math.ceil((_txSyncCooldownUntil - now) / 1000);
+    if (status) status.textContent = `Tunggu ${remaining}s untuk sync ulang`;
+    await loadTxMap();
+    return;
+  }
+  if (btn) { btn.disabled = true; btn.textContent = '⟳ Syncing...'; }
+  if (status) status.textContent = 'syncing sales orders dari Jubelio (60d lookback)...';
+  const t0 = Date.now();
+  try {
+    const j = await callEdgeFunction('sync-jubelio-orders', {});
+    const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+    const fetched = j?.fetched || j?.headers || 0;
+    const items   = j?.items || 0;
+    const note = `synced · ${fetched} headers + ${items} items · ${elapsed}s${j?.next_from?` (next: ${j.next_from})`:''}`;
+    if (status) status.textContent = note;
+    _txSyncCooldownUntil = Date.now() + 60_000;
+  } catch (e) {
+    if (status) status.textContent = `gagal: ${e.message||e}`;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '↻ Sync Jubelio'; }
+  }
+  await loadTxMap();
+}
+
 async function loadTxMap() {
   const tbody = document.getElementById('txTableBody');
   if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="14">Memuat...</td></tr>`;
