@@ -5274,32 +5274,6 @@
 <div id="proj-overlay" class="proj-panel-overlay" style="display:none" onclick="if(event.target===this)closeProjectDetail()"></div>
 <div id="proj-panel" class="proj-panel" style="display:none"></div>
 
-<!-- CHAT POPUP -->
-<div id="chat-fab" onclick="toggleChatPanel()" title="Chat tim" style="display:none">
-  <svg width="22" height="22" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H2a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h3l3 2 3-2h3a1 1 0 0 0 1-1V3a1 1 0 0 0-1-1z"/><line x1="5" y1="6" x2="11" y2="6"/><line x1="5" y1="9" x2="9" y2="9"/></svg>
-  <span id="chat-unread-badge" class="chat-unread-badge" style="display:none;position:absolute;top:-2px;right:-2px">0</span>
-</div>
-<div id="chat-popup" style="display:none">
-  <div id="chat-popup-header">
-    <div style="display:flex;align-items:center;gap:8px">
-      <span style="font-family:var(--head);font-weight:700;font-size:14px">Chat</span>
-      <span style="font-size:11px;color:var(--g400);font-family:var(--mono)">General Channel</span>
-    </div>
-    <button onclick="closeChatPanel()" style="background:none;border:none;cursor:pointer;color:var(--g400);font-size:18px;line-height:1;padding:2px 6px;border-radius:4px">✕</button>
-  </div>
-  <div id="chat-msgs"></div>
-  <div id="chat-compose">
-    <div id="chat-thread-label" style="display:none;font-size:11px;color:var(--g600);font-family:var(--mono);padding:0 0 5px;border-bottom:1px solid var(--g100);margin-bottom:6px">💬 Membalas di thread</div>
-    <div style="display:flex;gap:6px;align-items:flex-end;position:relative">
-      <div id="chat-ac"></div>
-      <textarea id="chat-input" placeholder="Tulis pesan… Ketik @ untuk mention" rows="1"></textarea>
-      <input type="file" id="chat-img-input" accept="image/*" style="display:none" onchange="_chatUploadImage(this.files[0])">
-      <button id="chat-img-btn" onclick="_chatPickImage()" title="Kirim gambar" style="flex-shrink:0;height:38px;width:38px;border:1px solid var(--g100);border-radius:9px;background:var(--off);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center">🖼</button>
-      <button class="btn-primary" id="chat-send-btn" onclick="sendChatMessage()" style="flex-shrink:0;height:38px;padding:0 14px;font-size:13px">Kirim</button>
-    </div>
-  </div>
-</div>
-
-<script src="app.js?v=20260615ez"></script>
+<script src="app.js?v=20260615fa"></script>
 </body>
 </html>
