@@ -3229,6 +3229,7 @@ async function _pbLoadDetailData(eventName, boothId) {
       return !(h && (h.is_canceled || h.wms_status === 'CANCELED' || h.wms_status === 'CANCEL'));
     });
 
+    window._pbStockInCache = { inHeaders, inItems };
     _pbRenderStockSection('pbd-stock-in', 'pbd-in-summary', inHeaders, inItems, 'Belum ada Transfer IN — map TRFO ke event ini di modul Inventory Transfer.', costMap);
     _pbRenderStockSection('pbd-reinbound', 'pbd-reinbound-summary', outHeaders, outItems, 'Belum ada reinbound TRFO ke event ini.', costMap);
     _pbRenderStockSection('pbd-internal', 'pbd-internal-summary', internalHeaders, internalItems, 'Tidak ada perpindahan antar lokasi event.', costMap);
@@ -3388,7 +3389,13 @@ function _pbRenderSalesSection(salesItems, orderHeaderMap, costMap) {
     channelMap, channelFees,
     totalRev, totalCOGS, totalProfit, totalQty,
     confirmedOrdersCount: confirmedOrders.size,
+    salesByItem: rows, // per-SKU aggregate for Invoice
   };
+  // Preserve inItems/inHeaders kalau Stock In sudah di-stash sebelumnya
+  if (window._pbStockInCache) {
+    _pbExportCache.inItems = window._pbStockInCache.inItems;
+    _pbExportCache.inHeaders = window._pbStockInCache.inHeaders;
+  }
 
   // Pills for channel + status (compact, scannable)
   const channelRows = [...channelMap.entries()].sort((a,b) => b[1].revenue - a[1].revenue);
@@ -3921,10 +3928,312 @@ function _pbRenderPaymentSection() {
         <textarea id="pbd-pay-notes" rows="2" style="resize:vertical">${_pbEsc(r.arNotes||'')}</textarea>
       </div>
     </div>
-    <div style="display:flex;justify-content:flex-end;margin-top:12px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:12px;flex-wrap:wrap">
+      <div style="display:flex;gap:8px">
+        <button class="btn-ghost" onclick="_pbDownloadSuratJalan()" style="padding:8px 14px;background:white;color:var(--black);border:1px solid var(--g200);border-radius:6px;font-size:12px;cursor:pointer;font-family:var(--body)">📋 Surat Jalan</button>
+        <button class="btn-ghost" onclick="_pbDownloadInvoice()" style="padding:8px 14px;background:white;color:var(--black);border:1px solid var(--g200);border-radius:6px;font-size:12px;cursor:pointer;font-family:var(--body)">🧾 Invoice</button>
+      </div>
       <button class="btn-primary" onclick="_pbSavePaymentSection()" style="padding:8px 18px;background:var(--black);color:var(--white);border:none;border-radius:6px;font-size:12px;cursor:pointer;font-family:var(--body);font-weight:500">Simpan</button>
     </div>
   `;
+}
+
+// ── PB Surat Jalan PDF Generator ──
+// Sources items from inItems (Stock In TRFOs mapped to event). PT SDY = issuer,
+// partner (event name + location) = recipient. Items grouped by parent (item_group_id
+// or item_name parent) — mirrors wholesale SJ format.
+function _pbDownloadSuratJalan() {
+  const r = _pbCurrentDetail;
+  if (!r) return;
+  const cache = _pbExportCache || {};
+  const inItems = (window._pbStockInCache?.inItems) || cache.inItems || [];
+  if (!inItems.length) { alert('Belum ada Stock In TRFO yang mapped ke event ini. Map TRFO dulu di Inventory Transfer.'); return; }
+  // Aggregate qty per (item_id || item_code)
+  const itemMap = new Map();
+  for (const it of inItems) {
+    const key = it.item_id || it.item_code;
+    if (!key) continue;
+    const cur = itemMap.get(key) || { item_id: it.item_id, item_code: it.item_code, item_name: it.item_name, variant: it.variant, qty: 0 };
+    cur.qty += Number(it.qty_in_base || 0);
+    itemMap.set(key, cur);
+  }
+  // Parent grouping by name (drop trailing size token: " - S", " - XL", " - OS")
+  const parentName = (name) => String(name||'').replace(/\s*[-—]\s*(XXS|XS|S|M|L|XL|XXL|XXXL|OS|FREE\s*SIZE|FREESIZE)\s*$/i, '').trim();
+  const parents = new Map();
+  for (const x of itemMap.values()) {
+    const key = parentName(x.item_name) || x.item_name || x.item_code;
+    if (!parents.has(key)) parents.set(key, { name: key, rows: [] });
+    parents.get(key).rows.push(x);
+  }
+  // Size sort (S→M→L→XL→XXL→OS last)
+  const sizeOrder = (s) => ({XXS:0, XS:1, S:2, M:3, L:4, XL:5, XXL:6, XXXL:7, OS:99, 'FREE SIZE':99, FREESIZE:99}[String(s||'').toUpperCase().trim()] ?? 50);
+  const sizeOf = (item) => {
+    const m = String(item.item_name||'').match(/\s*[-—]\s*(XXS|XS|S|M|L|XL|XXL|XXXL|OS|FREE\s*SIZE|FREESIZE)\s*$/i);
+    return m ? m[1].toUpperCase() : (item.variant || '');
+  };
+  for (const p of parents.values()) p.rows.sort((a,b) => sizeOrder(sizeOf(a)) - sizeOrder(sizeOf(b)));
+
+  const totalQty = [...itemMap.values()].reduce((s,x) => s + x.qty, 0);
+  const monthNames = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+  const fmtTglFull = d => { if (!d) return '—'; const x = new Date(d+'T00:00:00'); return `${x.getDate()} ${monthNames[x.getMonth()]} ${x.getFullYear()}`; };
+  const channelLabel = (r.paymentMethod||'').split(',').map(s=>s.trim()).find(s => s === 'Consignment' || s === '3rd Party Providers' || s === 'Other') || 'Pop Up Booth';
+  const recName = r.eventName || '(no name)';
+  const recAddr = r.location || '';
+  const recIP = r.ipRelated || '';
+  const sjNo = `SJ-${r.rowIndex}`;
+
+  const itemsBody = [...parents.values()].map(p => {
+    const totalP = p.rows.reduce((s,x) => s + x.qty, 0);
+    const variantRows = p.rows.map(x => `<tr>
+        <td class="sz">${sizeOf(x)}</td>
+        <td class="sku">${(x.item_code||'').replace(/</g,'&lt;')}</td>
+        <td class="r">${x.qty}</td>
+      </tr>`).join('');
+    return `<tbody class="parent-group">
+      <tr class="parent-row">
+        <td colspan="3"><div style="font-weight:700;font-size:13px">${(p.name||'').replace(/</g,'&lt;')}</div><div style="font-size:11px;color:#666;margin-top:2px">${p.rows.length} variants · ${totalP} pcs</div></td>
+      </tr>
+      ${variantRows}
+    </tbody>`;
+  }).join('');
+
+  const w = window.open('', '_blank');
+  if (!w) { alert('Pop-up diblokir browser'); return; }
+  w.document.write(`<!doctype html><html lang="id"><head><meta charset="utf-8">
+    <title>SURAT JALAN ${sjNo} · ${recName}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+      *{box-sizing:border-box}
+      @page{size:A4;margin:0}
+      html,body{margin:0;padding:0;background:#fff;color:#111;font-family:'Inter',system-ui,sans-serif;font-size:12px;line-height:1.45}
+      .page{width:210mm;min-height:297mm;margin:0 auto;padding:18mm;display:flex;flex-direction:column}
+      .top{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #111;padding-bottom:14px;margin-bottom:20px}
+      .issuer h2{margin:0 0 4px;font-size:14px;font-weight:700}
+      .issuer p{margin:0;font-size:10.5px;color:#333}
+      .doc-meta{text-align:right}
+      .doc-meta h1{margin:0;font-family:'Space Mono',monospace;font-size:22px;letter-spacing:0.08em;font-weight:700}
+      .doc-meta .label{font-family:'Space Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:#666;margin-top:6px}
+      .doc-meta .val{font-family:'Space Mono',monospace;font-size:12px;font-weight:700;margin-top:2px}
+      .recipient{margin-bottom:14px;padding:12px 16px;background:#f7f6f0;border-radius:6px}
+      .recipient .lbl{font-family:'Space Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:#666;margin-bottom:3px}
+      .recipient .name{font-size:16px;font-weight:700}
+      .recipient .sub{font-size:11px;color:#555;margin-top:2px}
+      table.lampiran{width:100%;border-collapse:collapse;font-size:12px}
+      table.lampiran thead th{font-family:'Space Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:#666;font-weight:700;text-align:left;padding:8px 10px;border-bottom:2px solid #111;background:#fafafa}
+      table.lampiran thead th.r{text-align:right}
+      table.lampiran tbody.parent-group{break-inside:avoid}
+      table.lampiran tr.parent-row td{background:#f7f6f0;padding:10px 12px;border-top:1px solid #ddd;border-bottom:1px solid #ddd}
+      table.lampiran td{padding:6px 10px;border-bottom:1px solid #eee}
+      table.lampiran td.sz{font-family:'Space Mono',monospace;font-weight:700;width:60px}
+      table.lampiran td.sku{font-family:'Space Mono',monospace;font-size:10px;color:#666}
+      table.lampiran td.r{text-align:right;font-family:'Space Mono',monospace}
+      .sig-row{display:flex;justify-content:space-between;margin-top:auto;padding-top:30px;gap:40px}
+      .sig{flex:1;text-align:center}
+      .sig .company{font-weight:600;font-size:11.5px;margin-bottom:4px}
+      .sig .gap{height:72px}
+      .sig .name{border-top:1px solid #111;padding-top:5px;font-weight:600;font-size:11.5px}
+      .sig .role{font-size:10.5px;color:#555;margin-top:2px}
+      footer{margin-top:18px;padding-top:12px;border-top:1px solid #e5e5e5;font-size:9px;color:#999;text-align:center;font-family:'Space Mono',monospace;letter-spacing:0.05em}
+    </style></head>
+    <body>
+      <div class="page">
+        <div class="top">
+          <div class="issuer">
+            <h2>PT Sandang Dunia Yuwana</h2>
+            <p>Jl. Wahid Hasyim No. 10D RT.002 RW.007<br>Kebon Sirih, Menteng, Jakarta Pusat</p>
+          </div>
+          <div class="doc-meta">
+            <h1>SURAT JALAN</h1>
+            <div class="label">No. SJ</div>
+            <div class="val">${sjNo}</div>
+            <div class="label">Tanggal Event</div>
+            <div class="val">${fmtTglFull(r.eventDate)}</div>
+          </div>
+        </div>
+        <div class="recipient">
+          <div class="lbl">Dititipkan kepada (${channelLabel})</div>
+          <div class="name">${recName.replace(/</g,'&lt;')}</div>
+          ${recIP?`<div class="sub">IP: ${recIP.replace(/</g,'&lt;')}</div>`:''}
+          ${recAddr?`<div class="sub">📍 ${recAddr.replace(/</g,'&lt;')}</div>`:''}
+        </div>
+        <table class="lampiran">
+          <thead><tr>
+            <th>Size</th>
+            <th>SKU</th>
+            <th class="r">Qty</th>
+          </tr></thead>
+          ${itemsBody}
+          <tbody><tr>
+            <td colspan="2" style="padding:14px 10px;border-top:2px solid #111;font-weight:700">TOTAL</td>
+            <td class="r" style="padding:14px 10px;border-top:2px solid #111;font-weight:700">${totalQty} pcs</td>
+          </tr></tbody>
+        </table>
+        <div class="sig-row">
+          <div class="sig">
+            <div class="company">Pengirim</div>
+            <div class="gap"></div>
+            <div class="name">PT Sandang Dunia Yuwana</div>
+            <div class="role">Tanda tangan &amp; cap</div>
+          </div>
+          <div class="sig">
+            <div class="company">Penerima</div>
+            <div class="gap"></div>
+            <div class="name">${recName.replace(/</g,'&lt;')}</div>
+            <div class="role">Tanda tangan &amp; cap</div>
+          </div>
+        </div>
+        <footer>Surat Jalan ini menjadi bukti serah-terima barang ke partner ${channelLabel} · Mohon ditandatangani penerima</footer>
+      </div>
+      <script>setTimeout(()=>window.print(),500);<\/script>
+    </body></html>`);
+  w.document.close();
+}
+
+// ── PB Invoice PDF Generator ──
+// Per-SKU breakdown (Marte Consignment style). Items pulled from confirmed sales
+// aggregate stashed in _pbExportCache.salesByItem. Uses computed total; if Reported
+// amount diisi, render itu sebagai catatan tambahan.
+function _pbDownloadInvoice() {
+  const r = _pbCurrentDetail;
+  if (!r) return;
+  const cache = _pbExportCache || {};
+  const rows = cache.salesByItem || [];
+  if (!rows.length) { alert('Belum ada confirmed sales mapped ke event ini. Map transaction dulu di Transaction Mapping → category Pop Up Booth.'); return; }
+  const totalQty = rows.reduce((s,r)=>s+(Number(r.qty)||0), 0);
+  const totalRev = rows.reduce((s,r)=>s+(Number(r.revenue)||0), 0);
+  const reported = r.arReportedSales !== '' && r.arReportedSales != null ? Number(r.arReportedSales) : null;
+  const channelLabel = (r.paymentMethod||'').split(',').map(s=>s.trim()).find(s => s === 'Consignment' || s === '3rd Party Providers' || s === 'Other') || 'Pop Up Booth';
+  const monthNames = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+  const today = new Date();
+  const dd = String(today.getDate()).padStart(2,'0');
+  const mm = String(today.getMonth()+1).padStart(2,'0');
+  const yyyy = today.getFullYear();
+  const eventMonthYM = r.eventDate ? r.eventDate.slice(0,7) : `${yyyy}-${mm}`;
+  const periodYY = eventMonthYM.slice(2,4);
+  const periodMM = eventMonthYM.slice(5,7);
+  const seq = String(r.rowIndex||'').split('').reduce((a,c)=>a+c.charCodeAt(0),0) % 100;
+  const invoiceNo = `SDY-PB-${periodYY}${periodMM}-${String(seq).padStart(2,'0')}`;
+  const fmtRp = n => 'Rp ' + Math.round(Number(n)||0).toLocaleString('id-ID');
+  const sortedRows = [...rows].sort((a,b) => (a.item_code||'').localeCompare(b.item_code||''));
+  const rowsHtml = sortedRows.map(x => `<tr>
+    <td class="sku-code">${(x.item_code||'').replace(/</g,'&lt;')}</td>
+    <td>${(x.item_name||'').replace(/</g,'&lt;')}</td>
+    <td class="sku-num">${x.qty}</td>
+    <td class="sku-num">${fmtRp(x.revenue)}</td>
+  </tr>`).join('')
+  + `<tr class="total"><td colspan="2">TOTAL</td><td class="sku-num">${totalQty}</td><td class="sku-num">${fmtRp(totalRev)}</td></tr>`;
+
+  // Terbilang
+  const terbilang = (n) => {
+    const a = ['','satu','dua','tiga','empat','lima','enam','tujuh','delapan','sembilan','sepuluh','sebelas'];
+    n = Math.round(Math.abs(n));
+    if (n < 12) return a[n];
+    if (n < 20) return a[n-10] + ' belas';
+    if (n < 100) return a[Math.floor(n/10)] + ' puluh' + (n % 10 ? ' ' + a[n%10] : '');
+    if (n < 200) return 'seratus' + (n-100 ? ' '+terbilang(n-100) : '');
+    if (n < 1000) return a[Math.floor(n/100)] + ' ratus' + (n%100 ? ' '+terbilang(n%100) : '');
+    if (n < 2000) return 'seribu' + (n-1000 ? ' '+terbilang(n-1000) : '');
+    if (n < 1000000) return terbilang(Math.floor(n/1000)) + ' ribu' + (n%1000 ? ' '+terbilang(n%1000) : '');
+    if (n < 1000000000) return terbilang(Math.floor(n/1000000)) + ' juta' + (n%1000000 ? ' '+terbilang(n%1000000) : '');
+    return terbilang(Math.floor(n/1000000000)) + ' milyar' + (n%1000000000 ? ' '+terbilang(n%1000000000) : '');
+  };
+  const terbilangStr = (terbilang(totalRev) + ' rupiah').replace(/\b\w/g, c => c.toUpperCase());
+
+  const isPaid = !!r.arPaidAt;
+  const paidStamp = isPaid ? `<div class="stamp">PAID<span class="meta">${r.arPaidAt}</span></div>` : '';
+  const deltaNote = (reported != null && Math.abs(reported - totalRev) >= 1) ? `<div style="margin-top:8px;padding:10px 14px;background:#fff5e6;border:1px solid #f0c97a;border-radius:6px;font-size:11px"><strong>Note:</strong> Partner melaporkan ${fmtRp(reported)} (selisih ${(reported-totalRev) >= 0 ? '+' : ''}${fmtRp(reported-totalRev)} dari computed).</div>` : '';
+
+  const w = window.open('', '_blank');
+  if (!w) { alert('Pop-up diblokir browser'); return; }
+  w.document.write(`<!doctype html><html lang="id"><head><meta charset="utf-8">
+    <title>Invoice ${invoiceNo} · ${r.eventName}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+      *{box-sizing:border-box}
+      html,body{margin:0;padding:0;background:#fff;color:#111;font-family:'Inter',system-ui,sans-serif;font-size:13px;line-height:1.5}
+      .page{max-width:780px;margin:0 auto;padding:48px 56px;position:relative}
+      .top{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #111;padding-bottom:20px;margin-bottom:32px}
+      .issuer h2{margin:0 0 4px;font-size:15px;font-weight:700}
+      .issuer p{margin:0;font-size:11px;color:#333}
+      .doc-meta{text-align:right}
+      .doc-meta h1{margin:0;font-family:'Space Mono',monospace;font-size:28px;letter-spacing:0.1em;font-weight:700}
+      .doc-meta .label{font-family:'Space Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#666;margin-top:8px}
+      .doc-meta .val{font-family:'Space Mono',monospace;font-size:13px;font-weight:700;margin-top:2px}
+      .recipient{margin-bottom:32px;padding:14px 18px;background:#f7f6f0;border-radius:8px}
+      .recipient .lbl{font-family:'Space Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#666;margin-bottom:4px}
+      .recipient .name{font-size:18px;font-weight:700}
+      .recipient .sub{font-size:12px;color:#555;margin-top:2px}
+      table.line{width:100%;border-collapse:collapse;margin-bottom:24px}
+      table.line th{font-family:'Space Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#666;font-weight:700;text-align:left;padding:10px 12px;border-bottom:2px solid #111}
+      table.line th.r{text-align:right}
+      table.line td{padding:10px 12px;border-bottom:1px solid #e5e5e5;font-size:12px;vertical-align:top}
+      table.line td.sku-code{font-family:'Space Mono',monospace;font-weight:700;color:#3C3489;font-size:10px;white-space:nowrap;width:120px}
+      table.line td.sku-num{text-align:right;font-family:'Space Mono',monospace;font-weight:700;width:90px}
+      table.line tr.total td{background:#f7f6f0;border-top:2px solid #111;border-bottom:0;font-weight:700;font-size:13px;padding:14px 12px}
+      .totals{display:flex;justify-content:flex-end;margin-bottom:24px}
+      .totals table{border-collapse:collapse;min-width:280px}
+      .totals td{padding:8px 14px;font-size:13px}
+      .totals td.k{color:#555}
+      .totals td.v{font-family:'Space Mono',monospace;text-align:right;font-weight:700}
+      .totals tr.grand td{border-top:2px solid #111;font-size:16px;padding-top:14px}
+      .totals tr.grand td.k{font-weight:700}
+      .terbilang{padding:14px 18px;background:#f7f6f0;border-radius:8px;font-size:12px;margin-bottom:32px}
+      .sign-row{display:grid;grid-template-columns:1fr;justify-items:end;margin-top:48px}
+      .sign{position:relative;text-align:center;min-height:140px;max-width:320px;width:100%}
+      .sign .role{font-family:'Space Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#666;margin-bottom:74px}
+      .sign .line{border-top:1px solid #111;padding-top:6px;font-size:12px;font-weight:600}
+      .stamp{position:absolute;top:14px;left:50%;transform:translateX(-50%) rotate(-12deg);border:4px double #c0392b;color:#c0392b;font-family:'Space Mono',monospace;font-weight:700;font-size:36px;letter-spacing:0.08em;padding:8px 24px;border-radius:8px;opacity:0.92;background:rgba(255,255,255,0.4);pointer-events:none}
+      .stamp .meta{display:block;font-size:9px;letter-spacing:0.18em;font-weight:700;margin-top:2px}
+      .footer{margin-top:48px;padding-top:16px;border-top:1px solid #e5e5e5;display:flex;justify-content:space-between;font-size:11px;color:#666;font-family:'Space Mono',monospace;letter-spacing:0.06em}
+      @page{margin:0;size:A4}
+      @media print{.page{padding:36px 48px}}
+    </style></head><body>
+    <div class="page">
+      <div class="top">
+        <div class="issuer">
+          <h2>PT Sandang Dunia Yuwana</h2>
+          <p>Jl. Wahid Hasyim No. 10D RT.002 RW.007<br>Kebon Sirih, Menteng, Jakarta Pusat</p>
+        </div>
+        <div class="doc-meta">
+          <h1>INVOICE</h1>
+          <div class="label">No. Invoice</div>
+          <div class="val">${invoiceNo}</div>
+          <div class="label">Tanggal</div>
+          <div class="val">${dd} ${monthNames[parseInt(mm,10)-1]} ${yyyy}</div>
+        </div>
+      </div>
+      <div class="recipient">
+        <div class="lbl">Tagihan untuk · ${channelLabel}</div>
+        <div class="name">${(r.eventName||'').replace(/</g,'&lt;')}</div>
+        ${r.location?`<div class="sub">📍 ${r.location.replace(/</g,'&lt;')}</div>`:''}
+        ${r.ipRelated?`<div class="sub">IP: ${r.ipRelated.replace(/</g,'&lt;')}</div>`:''}
+        <div class="sub">Tanggal Event: ${r.eventDate ? `${parseInt(r.eventDate.slice(8,10),10)} ${monthNames[parseInt(r.eventDate.slice(5,7),10)-1]} ${r.eventDate.slice(0,4)}` : '—'}</div>
+      </div>
+      <table class="line">
+        <thead><tr><th>SKU</th><th>Nama Item</th><th class="r">Qty</th><th class="r">Subtotal</th></tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+      <div class="totals"><table>
+        <tr><td class="k">Subtotal</td><td class="v">${fmtRp(totalRev)}</td></tr>
+        <tr class="grand"><td class="k">Total Tagihan</td><td class="v">${fmtRp(totalRev)}</td></tr>
+      </table></div>
+      <div class="terbilang"><strong>Terbilang:</strong> ${terbilangStr}</div>
+      ${deltaNote}
+      <div class="sign-row">
+        <div class="sign">
+          <div class="role">Hormat Kami</div>
+          ${paidStamp}
+          <div class="line">PT Sandang Dunia Yuwana</div>
+        </div>
+      </div>
+      <div class="footer">
+        <span>Pop Up Booth Invoice · Sentra</span>
+        <span>Generated ${new Date().toLocaleString('id-ID')}</span>
+      </div>
+    </div>
+    <script>window.onload=()=>setTimeout(()=>window.print(),500)<\/script>
+    </body></html>`);
+  w.document.close();
 }
 
 async function _pbClearArReport() {
