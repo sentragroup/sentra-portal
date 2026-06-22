@@ -27018,9 +27018,11 @@ async function syncAndReloadTxMap() {
     return;
   }
   if (btn) { btn.disabled = true; btn.textContent = '⟳ Syncing...'; }
-  if (status) status.textContent = 'syncing sales orders dari Jubelio (14d lookback)...';
+  if (status) status.textContent = 'syncing sales orders Jubelio (60d lookback, ~90s)...';
   const t0 = Date.now();
-  const fromDate = new Date(Date.now() - 14 * 24 * 3600_000).toISOString().slice(0,10);
+  // 60d default catches backdated INTERNAL transactions yg sering di-input belakangan.
+  // Gateway drop di 60s — polling fallback verify dari synced_at.
+  const fromDate = new Date(Date.now() - 60 * 24 * 3600_000).toISOString().slice(0,10);
   const beforeSync = new Date().toISOString();
   try {
     const j = await callEdgeFunction('sync-jubelio-orders', { from: fromDate });
