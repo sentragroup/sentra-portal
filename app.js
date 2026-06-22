@@ -3934,11 +3934,58 @@ function _pbRenderPaymentSection() {
   `;
 }
 
+// Mini modal: pick recipient before generating Surat Jalan. Options =
+// event name (default — for Event Organizer flow) + each manpower entry
+// (for PIC direct delivery) + custom text input.
+function _pbDownloadSuratJalan() {
+  const r = _pbCurrentDetail;
+  if (!r) return;
+  // Remove previous modal kalau ada
+  document.getElementById('_pb-sj-recipient-modal')?.remove();
+  const manpowerOpts = (r.manpower||'').split(',').map(s => s.trim()).filter(Boolean);
+  const overlay = document.createElement('div');
+  overlay.id = '_pb-sj-recipient-modal';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:9999';
+  overlay.innerHTML = `
+    <div style="background:white;border-radius:12px;padding:24px;max-width:480px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.2)">
+      <div style="font-size:14px;font-weight:600;margin-bottom:4px">📋 Surat Jalan — Pilih Penerima</div>
+      <div style="font-size:11px;color:var(--g600);margin-bottom:16px">Barang dititipkan ke event organizer atau langsung ke PIC?</div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px" id="_pb-sj-presets">
+        <label style="display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid var(--g200);border-radius:6px;cursor:pointer;font-size:12px">
+          <input type="radio" name="_pb-sj-pick" value="${(r.eventName||'').replace(/"/g,'&quot;')}" checked>
+          <span><strong>Event Organizer:</strong> ${(r.eventName||'(no name)').replace(/</g,'&lt;')}</span>
+        </label>
+        ${manpowerOpts.map(p => `<label style="display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid var(--g200);border-radius:6px;cursor:pointer;font-size:12px">
+          <input type="radio" name="_pb-sj-pick" value="${p.replace(/"/g,'&quot;')}">
+          <span><strong>PIC:</strong> ${p.replace(/</g,'&lt;')}</span>
+        </label>`).join('')}
+        <label style="display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid var(--g200);border-radius:6px;cursor:pointer;font-size:12px">
+          <input type="radio" name="_pb-sj-pick" value="__custom__">
+          <span><strong>Custom:</strong> ketik manual di bawah</span>
+        </label>
+      </div>
+      <input type="text" id="_pb-sj-custom" placeholder="Nama penerima (kalau pilih Custom)" style="width:100%;padding:8px 12px;border:1px solid var(--g200);border-radius:6px;font-size:12px;margin-bottom:14px">
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button type="button" onclick="document.getElementById('_pb-sj-recipient-modal').remove()" style="padding:8px 14px;background:white;color:var(--g600);border:1px solid var(--g200);border-radius:6px;font-size:12px;cursor:pointer">Batal</button>
+        <button type="button" id="_pb-sj-generate" style="padding:8px 18px;background:var(--black);color:var(--white);border:none;border-radius:6px;font-size:12px;cursor:pointer;font-weight:500">Generate PDF</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  document.getElementById('_pb-sj-generate').onclick = () => {
+    const picked = document.querySelector('input[name="_pb-sj-pick"]:checked')?.value || '';
+    const custom = document.getElementById('_pb-sj-custom')?.value.trim();
+    const recipient = picked === '__custom__' ? (custom || r.eventName) : (picked || r.eventName);
+    overlay.remove();
+    _pbGenerateSuratJalanPDF(recipient);
+  };
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+}
+
 // ── PB Surat Jalan PDF Generator ──
 // Sources items from inItems (Stock In TRFOs mapped to event). PT SDY = issuer,
-// partner (event name + location) = recipient. Items grouped by parent (item_group_id
-// or item_name parent) — mirrors wholesale SJ format.
-function _pbDownloadSuratJalan() {
+// recipient = parameter (event organizer OR PIC). Items grouped by parent
+// (item_group_id or item_name parent) — mirrors wholesale SJ format.
+function _pbGenerateSuratJalanPDF(recipientName) {
   const r = _pbCurrentDetail;
   if (!r) return;
   const cache = _pbExportCache || {};
@@ -3973,7 +4020,9 @@ function _pbDownloadSuratJalan() {
   const monthNames = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
   const fmtTglFull = d => { if (!d) return '—'; const x = new Date(d+'T00:00:00'); return `${x.getDate()} ${monthNames[x.getMonth()]} ${x.getFullYear()}`; };
   const channelLabel = (r.paymentMethod||'').split(',').map(s=>s.trim()).find(s => s === 'Consignment' || s === '3rd Party Providers' || s === 'Other') || 'Pop Up Booth';
-  const recName = r.eventName || '(no name)';
+  const recName = (recipientName && recipientName.trim()) || r.eventName || '(no name)';
+  // Show event name as sub-context kalau recipient bukan event name itu sendiri
+  const recEventSub = recName !== r.eventName ? `Event: ${r.eventName || '—'}` : '';
   const recAddr = r.location || '';
   const recIP = r.ipRelated || '';
   const sjNo = `SJ-${r.rowIndex}`;
@@ -4049,6 +4098,7 @@ function _pbDownloadSuratJalan() {
         <div class="recipient">
           <div class="lbl">Dititipkan kepada (${channelLabel})</div>
           <div class="name">${recName.replace(/</g,'&lt;')}</div>
+          ${recEventSub?`<div class="sub">${recEventSub.replace(/</g,'&lt;')}</div>`:''}
           ${recIP?`<div class="sub">IP: ${recIP.replace(/</g,'&lt;')}</div>`:''}
           ${recAddr?`<div class="sub">📍 ${recAddr.replace(/</g,'&lt;')}</div>`:''}
         </div>
