@@ -34131,13 +34131,42 @@ async function loadWholesale() {
       const { data } = await sb.from('dist_partners').select('*');
       allDPRows = (data||[]).map(mapDP);
     }
-    const [orderRes, itemRes, payRes] = await Promise.all([
+    const [orderRes, itemRes, payRes, shipRes] = await Promise.all([
       sb.from('wholesale_customer_orders').select('*').order('order_date',{ascending:false}).limit(500),
-      sb.from('wholesale_customer_order_items').select('order_id,qty,unit_price'),
+      sb.from('wholesale_customer_order_items').select('id,order_id,qty,unit_price'),
       sb.from('wholesale_payments').select('order_id,milestone,amount,paid_at,invoice_date,due_date'),
+      sb.from('wholesale_shipments').select('order_id,ship_date'),
     ]);
     if (orderRes.error) throw orderRes.error;
     allWholesaleOrders = (orderRes.data||[]).map(mapWO);
+    // Map order_item_id → order_id buat resolve links → order
+    const itemToOrder = new Map();
+    (itemRes.data||[]).forEach(it => itemToOrder.set(it.id, it.order_id));
+    // Fetch batch links via order_item_id
+    const allItemIds = (itemRes.data||[]).map(i => i.id);
+    let linksByOrder = new Map();
+    if (allItemIds.length) {
+      // Chunk to avoid URL length limit
+      const CHUNK = 200;
+      const linkRows = [];
+      for (let i = 0; i < allItemIds.length; i += CHUNK) {
+        const slice = allItemIds.slice(i, i+CHUNK);
+        const { data } = await sb.from('wholesale_batch_links').select('order_item_id,restock_project_id').in('order_item_id', slice);
+        linkRows.push(...(data||[]));
+      }
+      linkRows.forEach(l => {
+        const oid = itemToOrder.get(l.order_item_id);
+        if (!oid) return;
+        const arr = linksByOrder.get(oid) || [];
+        arr.push(l); linksByOrder.set(oid, arr);
+      });
+    }
+    // Shipments per order
+    const shipsByOrder = new Map();
+    (shipRes.data||[]).forEach(s => {
+      const arr = shipsByOrder.get(s.order_id) || [];
+      arr.push(s); shipsByOrder.set(s.order_id, arr);
+    });
     // Aggregate item totals per order
     const itemAgg = new Map();
     (itemRes.data||[]).forEach(it => {
@@ -34161,6 +34190,26 @@ async function loadWholesale() {
       const pays = payByOrder.get(o.id) || [];
       o.paidTotal = pays.reduce((s,p) => s + (parseFloat(p.amount)||0), 0);
       o.outstanding = Math.max(0, (o.totalValue||0) - o.paidTotal);
+      // Derive status from actual data (bukan h.status manual yang sering misleading)
+      // Skip kalau status sudah final: canceled / done
+      if (o.status !== 'canceled' && o.status !== 'done') {
+        const hasItems   = a.count > 0;
+        const hasCustPO  = !!(o.customerPoUrl || o.customerPoNo);
+        const hasBatch   = (linksByOrder.get(o.id)||[]).length > 0;
+        const dpPaid     = pays.some(p => p.milestone === 'dp1' && p.paid_at);
+        const shipped    = (shipsByOrder.get(o.id)||[]).some(s => s.ship_date);
+        const finalPaid  = pays.some(p => p.milestone === 'final' && p.paid_at);
+        const hasJubelio = !!o.jubelioSoNo;
+        let derived = 'new';
+        if (hasItems)    derived = 'new';
+        if (hasCustPO)   derived = 'confirmed';
+        if (hasBatch)    derived = 'allocated';
+        if (dpPaid)      derived = 'producing';
+        if (shipped)     derived = 'shipped';
+        if (finalPaid)   derived = 'invoiced';
+        if (hasJubelio && finalPaid) derived = 'done';
+        o.status = derived;
+      }
       // Overdue: untuk setiap milestone yang invoice-nya udah issued (invoice_date)
       // dan due-date-nya udah lewat tapi belum paid (paid_at null OR amount kurang dari expected).
       const plan = o.paymentPlan || { milestones: [] };
