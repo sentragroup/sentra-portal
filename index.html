@@ -2795,6 +2795,10 @@
     <div class="page" id="page-txmap">
       <div class="page-header">
         <div><div class="page-title">Transaction Mapping</div><div class="page-sub">Kategorikan transaksi di luar Gudang Bintaro &amp; Gudang Marte. Bulk-edit ratusan tx sekaligus.</div></div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+          <button id="tx-sync-btn" class="btn-refresh" onclick="syncAndReloadTxMap()">↻ Sync Jubelio</button>
+          <div id="tx-sync-status" style="font-family:var(--mono);font-size:10px;color:var(--g400)">—</div>
+        </div>
       </div>
 
       <div class="stats-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:1.25rem">
@@ -5277,6 +5281,6 @@
 <div id="proj-overlay" class="proj-panel-overlay" style="display:none" onclick="if(event.target===this)closeProjectDetail()"></div>
 <div id="proj-panel" class="proj-panel" style="display:none"></div>
 
-<script src="app.js?v=20260622ad"></script>
+<script src="app.js?v=20260622ae"></script>
 </body>
 </html>
