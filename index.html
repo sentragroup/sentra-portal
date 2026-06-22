@@ -1562,12 +1562,9 @@
 
         <!-- POP UP BOOTH — DETAIL VIEW (per-event) -->
         <div id="pbtab-detail" style="display:none">
-          <div style="margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+          <div style="margin-bottom:1rem;display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
             <button class="btn-ghost" onclick="closePBDetail()" style="padding:6px 14px;font-size:12px">← Kembali ke list</button>
-            <div style="display:flex;gap:8px">
-              <button class="btn-ghost" onclick="_pbDownloadSuratJalan()" style="padding:6px 14px;font-size:12px;background:white;color:var(--black);border:1px solid var(--g200);border-radius:6px;cursor:pointer" title="Generate Surat Jalan dari Stock In TRFOs">📋 Surat Jalan</button>
-              <button class="btn-ghost" onclick="_pbDownloadInvoice()" style="padding:6px 14px;font-size:12px;background:white;color:var(--black);border:1px solid var(--g200);border-radius:6px;cursor:pointer" title="Generate Invoice per-SKU dari confirmed sales">🧾 Invoice</button>
-            </div>
+            <div id="pbd-doc-actions" style="display:flex;gap:18px;flex-wrap:wrap"></div>
           </div>
           <div class="form-card" style="margin-bottom:1.25rem;padding:18px 22px">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
@@ -5277,6 +5274,6 @@
 <div id="proj-overlay" class="proj-panel-overlay" style="display:none" onclick="if(event.target===this)closeProjectDetail()"></div>
 <div id="proj-panel" class="proj-panel" style="display:none"></div>
 
-<script src="app.js?v=20260615fc"></script>
+<script src="app.js?v=20260615fd"></script>
 </body>
 </html>

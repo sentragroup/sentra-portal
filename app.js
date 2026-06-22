@@ -3109,6 +3109,7 @@ async function openPBDetail(rowIndex) {
   // Payment card visibility — only show when payment_method is AR-eligible
   const payCard = document.getElementById('pbd-payment-card');
   if (payCard) payCard.style.display = _pbIsAREligible(r.paymentMethod) ? 'block' : 'none';
+  _pbRenderDocActions();
 
   await _pbLoadDetailData(r.eventName || '', r.rowIndex);
 }
@@ -3974,16 +3975,6 @@ function _pbRenderPaymentSection() {
         <label>Tanggal Pembayaran Diterima</label>
         <input type="date" id="pbd-pay-paid" value="${r.arPaidAt || ''}">
       </div>
-      <div class="fg">
-        <label>Surat Jalan (Signed)</label>
-        ${r.signedSuratJalanUrl ? `<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><a href="${r.signedSuratJalanUrl}" target="_blank" style="font-size:12px;color:var(--black);text-decoration:underline">📋 Lihat SJ signed</a><button type="button" onclick="_pbClearSignedSJ()" style="border:none;background:transparent;color:#c33;cursor:pointer;font-size:11px;padding:0">Hapus</button></div>` : ''}
-        <input type="file" id="pbd-pay-signed-sj" accept="image/*,application/pdf" style="font-size:12px">
-      </div>
-      <div class="fg">
-        <label>Invoice (Signed)</label>
-        ${r.signedInvoiceUrl ? `<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><a href="${r.signedInvoiceUrl}" target="_blank" style="font-size:12px;color:var(--black);text-decoration:underline">🧾 Lihat Invoice signed</a><button type="button" onclick="_pbClearSignedInvoice()" style="border:none;background:transparent;color:#c33;cursor:pointer;font-size:11px;padding:0">Hapus</button></div>` : ''}
-        <input type="file" id="pbd-pay-signed-inv" accept="image/*,application/pdf" style="font-size:12px">
-      </div>
       <div class="fg" style="grid-column:1 / -1">
         <label>Bukti Transfer</label>
         ${r.arBuktiUrl ? `<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><a href="${r.arBuktiUrl}" target="_blank" style="font-size:12px;color:var(--black);text-decoration:underline">💵 Lihat bukti</a><button type="button" onclick="_pbClearArBuktiInDetail()" style="border:none;background:transparent;color:#c33;cursor:pointer;font-size:11px;padding:0">Hapus</button></div>` : ''}
@@ -3998,6 +3989,52 @@ function _pbRenderPaymentSection() {
       <button class="btn-primary" onclick="_pbSavePaymentSection()" style="padding:8px 18px;background:var(--black);color:var(--white);border:none;border-radius:6px;font-size:12px;cursor:pointer;font-family:var(--body);font-weight:500">Simpan</button>
     </div>
   `;
+}
+
+// Render the doc actions group (2 generate buttons + signed file affordances)
+// di top bar detail PB. Dipanggil dari openPBDetail.
+function _pbRenderDocActions() {
+  const cont = document.getElementById('pbd-doc-actions');
+  if (!cont) return;
+  const r = _pbCurrentDetail;
+  if (!r) { cont.innerHTML = ''; return; }
+  const group = (label, genHandler, signedUrl, fileInputId, clearHandler) => {
+    const signedBlock = signedUrl
+      ? `<a href="${signedUrl.replace(/"/g,'&quot;')}" target="_blank" style="font-size:10px;font-family:var(--mono);color:#0a7d3a;text-decoration:none;display:inline-flex;align-items:center;gap:4px" title="Lihat file signed">📎 signed</a><button type="button" onclick="${clearHandler}" style="border:none;background:transparent;color:#c33;cursor:pointer;font-size:10px;padding:0" title="Hapus">✕</button>`
+      : `<label for="${fileInputId}" style="font-size:10px;font-family:var(--mono);color:var(--g600);cursor:pointer;text-decoration:underline" title="Upload signed file">↑ upload signed</label>`;
+    return `<div style="display:flex;flex-direction:column;gap:4px">
+      <button class="btn-ghost" onclick="${genHandler}" style="padding:6px 14px;font-size:12px;background:white;color:var(--black);border:1px solid var(--g200);border-radius:6px;cursor:pointer">${label}</button>
+      <div style="display:flex;gap:6px;align-items:center;justify-content:center;font-size:10px">${signedBlock}</div>
+      <input type="file" id="${fileInputId}" accept="image/*,application/pdf" style="display:none">
+    </div>`;
+  };
+  cont.innerHTML = group('📋 Surat Jalan', '_pbDownloadSuratJalan()', r.signedSuratJalanUrl, 'pbd-upload-signed-sj', "_pbClearSignedSJ()")
+    + group('🧾 Invoice', '_pbDownloadInvoice()', r.signedInvoiceUrl, 'pbd-upload-signed-inv', "_pbClearSignedInvoice()");
+  // Wire up file inputs
+  const sj = document.getElementById('pbd-upload-signed-sj');
+  if (sj) sj.onchange = (e) => _pbUploadSignedDoc(e.target.files[0], 'signed-sj', 'signed_surat_jalan_url', 'signedSuratJalanUrl');
+  const inv = document.getElementById('pbd-upload-signed-inv');
+  if (inv) inv.onchange = (e) => _pbUploadSignedDoc(e.target.files[0], 'signed-invoice', 'signed_invoice_url', 'signedInvoiceUrl');
+}
+
+async function _pbUploadSignedDoc(file, kind, dbCol, jsKey) {
+  if (!file || !_pbCurrentDetail) return;
+  const r = _pbCurrentDetail;
+  try {
+    const url = await _pbUploadPaymentFile(r.rowIndex, file, kind);
+    if (!url) throw new Error('Upload gagal');
+    const {error} = await sb.from('popup_booths').update({
+      [dbCol]: url,
+      last_updated: new Date().toISOString(),
+      last_updated_by: currentUser
+    }).eq('id', r.rowIndex);
+    if (error) throw error;
+    r[jsKey] = url;
+    _pbRenderDocActions();
+    await loadPopupBooth();
+  } catch(e) {
+    alert('Gagal upload: ' + (e.message || e));
+  }
 }
 
 // Mini modal: pick recipient before generating Surat Jalan. Options =
@@ -4607,16 +4644,10 @@ async function _pbSavePaymentSection() {
     const notes = document.getElementById('pbd-pay-notes')?.value.trim() || null;
     const reportFile = document.getElementById('pbd-pay-report')?.files?.[0];
     const buktiFile = document.getElementById('pbd-pay-bukti')?.files?.[0];
-    const signedSjFile = document.getElementById('pbd-pay-signed-sj')?.files?.[0];
-    const signedInvFile = document.getElementById('pbd-pay-signed-inv')?.files?.[0];
     let arSalesReportUrl = r.arSalesReportUrl || null;
     let arBuktiUrl = r.arBuktiUrl || null;
-    let signedSuratJalanUrl = r.signedSuratJalanUrl || null;
-    let signedInvoiceUrl = r.signedInvoiceUrl || null;
     if (reportFile) arSalesReportUrl = await _pbUploadPaymentFile(r.rowIndex, reportFile, 'sales-report');
     if (buktiFile) arBuktiUrl = await _pbUploadPaymentFile(r.rowIndex, buktiFile, 'bukti');
-    if (signedSjFile) signedSuratJalanUrl = await _pbUploadPaymentFile(r.rowIndex, signedSjFile, 'signed-sj');
-    if (signedInvFile) signedInvoiceUrl = await _pbUploadPaymentFile(r.rowIndex, signedInvFile, 'signed-invoice');
     const {error} = await sb.from('popup_booths').update({
       ar_reported_sales: reported,
       ar_partner_fee_pct: feePct,
@@ -4625,14 +4656,12 @@ async function _pbSavePaymentSection() {
       ar_paid_at: paidAt,
       ar_bukti_url: arBuktiUrl,
       ar_notes: notes,
-      signed_surat_jalan_url: signedSuratJalanUrl,
-      signed_invoice_url: signedInvoiceUrl,
       last_updated: new Date().toISOString(),
       last_updated_by: currentUser
     }).eq('id', r.rowIndex);
     if (error) throw error;
     // Refresh in-memory detail + re-render
-    Object.assign(r, {arReportedSales: reported ?? '', arPartnerFeePct: feePct ?? '', arSalesReportUrl: arSalesReportUrl||'', arExpectedDate: expDate||'', arPaidAt: paidAt||'', arBuktiUrl: arBuktiUrl||'', arNotes: notes||'', signedSuratJalanUrl: signedSuratJalanUrl||'', signedInvoiceUrl: signedInvoiceUrl||''});
+    Object.assign(r, {arReportedSales: reported ?? '', arPartnerFeePct: feePct ?? '', arSalesReportUrl: arSalesReportUrl||'', arExpectedDate: expDate||'', arPaidAt: paidAt||'', arBuktiUrl: arBuktiUrl||'', arNotes: notes||''});
     _pbRenderPaymentSection();
     await loadPopupBooth();
     if (btn) { btn.disabled = false; btn.textContent = '✓ Tersimpan'; setTimeout(() => { btn.textContent = 'Simpan'; }, 1500); }
