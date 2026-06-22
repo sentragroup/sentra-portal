@@ -3928,11 +3928,7 @@ function _pbRenderPaymentSection() {
         <textarea id="pbd-pay-notes" rows="2" style="resize:vertical">${_pbEsc(r.arNotes||'')}</textarea>
       </div>
     </div>
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:12px;flex-wrap:wrap">
-      <div style="display:flex;gap:8px">
-        <button class="btn-ghost" onclick="_pbDownloadSuratJalan()" style="padding:8px 14px;background:white;color:var(--black);border:1px solid var(--g200);border-radius:6px;font-size:12px;cursor:pointer;font-family:var(--body)">📋 Surat Jalan</button>
-        <button class="btn-ghost" onclick="_pbDownloadInvoice()" style="padding:8px 14px;background:white;color:var(--black);border:1px solid var(--g200);border-radius:6px;font-size:12px;cursor:pointer;font-family:var(--body)">🧾 Invoice</button>
-      </div>
+    <div style="display:flex;justify-content:flex-end;margin-top:12px">
       <button class="btn-primary" onclick="_pbSavePaymentSection()" style="padding:8px 18px;background:var(--black);color:var(--white);border:none;border-radius:6px;font-size:12px;cursor:pointer;font-family:var(--body);font-weight:500">Simpan</button>
     </div>
   `;
