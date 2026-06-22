@@ -27091,6 +27091,24 @@ async function loadTxMap() {
       categoryIdsFilter = (catMaps||[]).map(m => m.salesorder_id).filter(Boolean);
       if (!categoryIdsFilter.length) categoryIdsFilter = [-1]; // ensure 0 results
     }
+    // Mapping-status SQL-side: pre-fetch mapped SO ids supaya pagination + total
+    // count akurat (dulu post-fetch — page bisa kosong padahal ada yang unmapped).
+    let mappedIds = null;     // null = don't filter, [] = empty set
+    if (mapStatus === 'mapped' || mapStatus === 'unmapped') {
+      const allMapped = [];
+      let mPage = 0;
+      while (true) {
+        const { data } = await sb.from('transaction_mappings')
+          .select('salesorder_id')
+          .or('category.not.is.null,project_ref.not.is.null')
+          .range(mPage * 1000, mPage * 1000 + 999);
+        if (!data || !data.length) break;
+        allMapped.push(...data.map(m => m.salesorder_id).filter(Boolean));
+        if (data.length < 1000) break;
+        mPage++;
+      }
+      mappedIds = allMapped;
+    }
     // Base sales orders query (excluding Bintaro & Marte)
     const baseFilter = q => {
       let qq = q
@@ -27100,6 +27118,11 @@ async function loadTxMap() {
       if (loc)  qq = qq.eq('location_name', loc);
       if (chan) qq = qq.eq('channel_name', chan);
       if (categoryIdsFilter) qq = qq.in('salesorder_id', categoryIdsFilter);
+      if (mapStatus === 'mapped' && mappedIds) {
+        qq = mappedIds.length ? qq.in('salesorder_id', mappedIds) : qq.eq('salesorder_id', -1);
+      } else if (mapStatus === 'unmapped' && mappedIds && mappedIds.length) {
+        qq = qq.not('salesorder_id', 'in', `(${mappedIds.join(',')})`);
+      }
       if (search) {
         // OR across SO no, customer name, ref
         qq = qq.or(`salesorder_no.ilike.%${search}%,customer_name.ilike.%${search}%,shipping_full_name.ilike.%${search}%`);
