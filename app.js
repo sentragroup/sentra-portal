@@ -38740,32 +38740,175 @@ function computeARStats(rows) {
   document.getElementById('ar-bucket-90plus').textContent = fmtRp(b90p);
 }
 
+let _arView = 'order'; // 'order' | 'invoice'
+function setARView(v) {
+  _arView = v === 'invoice' ? 'invoice' : 'order';
+  const btnO = document.getElementById('ar-view-order-btn');
+  const btnI = document.getElementById('ar-view-invoice-btn');
+  if (btnO && btnI) {
+    const active = 'background:var(--black);color:var(--white)';
+    const inactive = 'background:white;color:var(--g600)';
+    btnO.style.cssText = `padding:6px 14px;border:none;font-size:11px;cursor:pointer;font-family:var(--body);font-weight:500;${_arView==='order'?active:inactive}`;
+    btnI.style.cssText = `padding:6px 14px;border:none;font-size:11px;cursor:pointer;font-family:var(--body);font-weight:${_arView==='invoice'?'500':'400'};${_arView==='invoice'?active:inactive}`;
+  }
+  // Milestone filter only relevant for invoice view
+  const msFilter = document.getElementById('ar-fil-milestone');
+  if (msFilter) msFilter.parentElement && (msFilter.style.display = _arView==='invoice' ? '' : 'none');
+  applyARFilters();
+}
+
+function _arRowType(orderId) {
+  if (orderId.startsWith('MP-')) return 'manual_purchase';
+  if (orderId.startsWith('PB-')) return 'popup_booth';
+  return 'wholesale';
+}
+
+// Aggregate per-invoice rows into per-order summary
+function _arAggregateByOrder(invoiceRows) {
+  const byOrder = new Map();
+  const statusOrder = { overdue: 0, unpaid: 1, awaiting: 2, paid: 3 };
+  for (const r of invoiceRows) {
+    const cur = byOrder.get(r.orderId) || {
+      orderId: r.orderId,
+      type: _arRowType(r.orderId),
+      customerName: r.customerName,
+      totalAmount: 0,
+      paidAmount: 0,
+      outstanding: 0,
+      milestoneCount: 0,
+      milestonesPaid: 0,
+      milestonesOverdue: 0,
+      milestonesAwaiting: 0,
+      milestonesUnpaid: 0,
+      earliestInvoice: r.invoiceDate,
+      latestDue: r.dueDate,
+      maxDaysOverdue: 0,
+      maxDaysOut: 0,
+      worstStatus: 'paid',
+      bukti: r.bukti,
+      buktiCount: 0,
+      signedInvoice: r.signedInvoice,
+    };
+    cur.totalAmount += r.amount || 0;
+    if (r.status === 'paid') { cur.paidAmount += r.amount || 0; cur.milestonesPaid++; }
+    else if (r.status === 'overdue') cur.milestonesOverdue++;
+    else if (r.status === 'awaiting') cur.milestonesAwaiting++;
+    else cur.milestonesUnpaid++;
+    cur.milestoneCount++;
+    if (r.invoiceDate && (!cur.earliestInvoice || r.invoiceDate < cur.earliestInvoice)) cur.earliestInvoice = r.invoiceDate;
+    if (r.dueDate && (!cur.latestDue || r.dueDate > cur.latestDue)) cur.latestDue = r.dueDate;
+    if (r.daysOverdue > cur.maxDaysOverdue) cur.maxDaysOverdue = r.daysOverdue;
+    if (r.daysOut > cur.maxDaysOut) cur.maxDaysOut = r.daysOut;
+    if ((statusOrder[r.status]??9) < (statusOrder[cur.worstStatus]??9)) cur.worstStatus = r.status;
+    if (r.bukti && !cur.bukti) cur.bukti = r.bukti;
+    if (r.bukti) cur.buktiCount++;
+    if (r.signedInvoice && !cur.signedInvoice) cur.signedInvoice = r.signedInvoice;
+    byOrder.set(r.orderId, cur);
+  }
+  for (const o of byOrder.values()) {
+    o.outstanding = Math.max(0, o.totalAmount - o.paidAmount);
+  }
+  return [...byOrder.values()];
+}
+
 function applyARFilters() {
+  const fType = document.getElementById('ar-fil-type')?.value || '';
   const fStat = document.getElementById('ar-fil-status')?.value || '';
   const fCust = document.getElementById('ar-fil-customer')?.value || '';
   const fMs   = document.getElementById('ar-fil-milestone')?.value || '';
   const q = (document.getElementById('arSearch')?.value||'').toLowerCase();
-  let rows = _arRows.filter(r => {
-    if (fStat && r.status !== fStat) return false;
+  // First filter invoice rows by all common fields
+  let invoiceRows = _arRows.filter(r => {
+    if (fType && _arRowType(r.orderId) !== fType) return false;
     if (fCust && r.customerName !== fCust) return false;
-    if (fMs && r.milestoneLabel !== fMs) return false;
     if (q && !(`${r.orderId} ${r.customerName}`.toLowerCase().includes(q))) return false;
     return true;
   });
-  // Default sort: overdue dulu (descending days), unpaid, awaiting, paid
-  const statusOrder = { overdue: 0, unpaid: 1, awaiting: 2, paid: 3 };
-  rows.sort((a,b) => {
-    const s = (statusOrder[a.status]??9) - (statusOrder[b.status]??9);
-    if (s !== 0) return s;
-    return (b.daysOverdue||0) - (a.daysOverdue||0);
-  });
-  renderARTable(rows);
+  if (_arView === 'order') {
+    // Aggregate first, then apply status filter to worstStatus
+    let orderRows = _arAggregateByOrder(invoiceRows);
+    if (fStat) orderRows = orderRows.filter(o => o.worstStatus === fStat);
+    const statusOrder = { overdue: 0, unpaid: 1, awaiting: 2, paid: 3 };
+    orderRows.sort((a,b) => {
+      const s = (statusOrder[a.worstStatus]??9) - (statusOrder[b.worstStatus]??9);
+      if (s !== 0) return s;
+      return (b.maxDaysOverdue||0) - (a.maxDaysOverdue||0);
+    });
+    renderARTableOrder(orderRows);
+  } else {
+    // Invoice view — apply per-row filters
+    invoiceRows = invoiceRows.filter(r => {
+      if (fStat && r.status !== fStat) return false;
+      if (fMs && r.milestoneLabel !== fMs) return false;
+      return true;
+    });
+    const statusOrder = { overdue: 0, unpaid: 1, awaiting: 2, paid: 3 };
+    invoiceRows.sort((a,b) => {
+      const s = (statusOrder[a.status]??9) - (statusOrder[b.status]??9);
+      if (s !== 0) return s;
+      return (b.daysOverdue||0) - (a.daysOverdue||0);
+    });
+    renderARTable(invoiceRows);
+  }
+}
+
+function _arStatusPill(status, daysOut, daysOverdue) {
+  if (status === 'paid') return `<span class="pill p-active" style="font-size:10px">✓ Paid</span>`;
+  if (status === 'overdue') return `<span class="pill p-expired" style="font-size:10px">⚠ Overdue</span>`;
+  if (status === 'awaiting') return `<span class="pill p-near" style="font-size:10px" title="Event sudah lewat tapi sales report belum masuk">📋 Awaiting</span>`;
+  return `<span class="pill p-review" style="font-size:10px">⏳ Outstanding</span>`;
+}
+
+function _arTypeBadge(orderId) {
+  const type = _arRowType(orderId);
+  if (type === 'manual_purchase') return `<span style="display:inline-block;font-size:9px;font-family:var(--mono);background:#fff5e6;color:#a66200;border:1px solid #f0c97a;border-radius:3px;padding:1px 6px;margin-top:3px;letter-spacing:.02em">Manual Purchase</span>`;
+  if (type === 'popup_booth') return `<span style="display:inline-block;font-size:9px;font-family:var(--mono);background:#eef9f0;color:#0a7d3a;border:1px solid #b8d9b3;border-radius:3px;padding:1px 6px;margin-top:3px;letter-spacing:.02em">Pop Up Booth</span>`;
+  return `<span style="display:inline-block;font-size:9px;font-family:var(--mono);background:#eef0f8;color:#3C3489;border:1px solid #c9bdf0;border-radius:3px;padding:1px 6px;margin-top:3px;letter-spacing:.02em">Wholesale</span>`;
+}
+
+function renderARTableOrder(rows) {
+  const fmtRp = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
+  const fmtTgl = d => d ? new Date(d+'T00:00:00').toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'}) : '—';
+  document.getElementById('ar-tcount').textContent = rows.length + ' order';
+  const head = document.getElementById('ar-thead');
+  if (head) head.innerHTML = `<tr>
+    <th>Order</th><th>Customer</th><th>Milestones</th>
+    <th style="text-align:right">Total</th>
+    <th style="text-align:right">Sudah Dibayar</th>
+    <th style="text-align:right">Outstanding</th>
+    <th>Latest Due</th><th>Status</th><th></th>
+  </tr>`;
+  const tb = document.getElementById('ar-tbody');
+  if (!rows.length) { tb.innerHTML = '<tr><td class="empty-td" colspan="9">Gak ada data dengan filter ini.</td></tr>'; return; }
+  tb.innerHTML = rows.map(o => {
+    const msSummary = [];
+    if (o.milestonesPaid) msSummary.push(`<span style="color:#0a7d3a">✓ ${o.milestonesPaid}</span>`);
+    if (o.milestonesOverdue) msSummary.push(`<span style="color:#c0392b">⚠ ${o.milestonesOverdue}</span>`);
+    if (o.milestonesUnpaid) msSummary.push(`<span style="color:var(--g600)">⏳ ${o.milestonesUnpaid}</span>`);
+    if (o.milestonesAwaiting) msSummary.push(`<span style="color:#a66200">📋 ${o.milestonesAwaiting}</span>`);
+    const isOverdue = o.worstStatus === 'overdue';
+    return `<tr>
+      <td><div style="display:flex;flex-direction:column;gap:1px"><span style="font-family:var(--mono);font-size:11px;color:var(--g600)">${o.orderId}</span>${_arTypeBadge(o.orderId)}</div></td>
+      <td style="font-size:12px;font-weight:500">${(o.customerName||'—').replace(/</g,'&lt;')}</td>
+      <td style="font-size:11px;font-family:var(--mono)"><span style="color:var(--g600)">${o.milestoneCount} total</span>${msSummary.length?' · '+msSummary.join(' · '):''}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:12px;font-weight:700">${fmtRp(o.totalAmount)}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:12px;color:#0a7d3a">${fmtRp(o.paidAmount)}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:12px;font-weight:700;color:${o.outstanding>0?(isOverdue?'#c0392b':'var(--black)'):'var(--g400)'}">${o.outstanding>0?fmtRp(o.outstanding):'—'}</td>
+      <td style="font-size:11px;font-family:var(--mono);color:${isOverdue?'#c0392b':'var(--g600)'}">${fmtTgl(o.latestDue)}${isOverdue?`<div style="font-size:9px;color:#c0392b">+${o.maxDaysOverdue}d overdue</div>`:''}</td>
+      <td>${_arStatusPill(o.worstStatus, o.maxDaysOut, o.maxDaysOverdue)}</td>
+      <td><button onclick="_arViewOrder('${o.orderId}')" style="font-size:11px;padding:4px 10px;border:1px solid #3C3489;background:white;color:#3C3489;border-radius:4px;cursor:pointer;font-weight:600;white-space:nowrap">↗ View</button></td>
+    </tr>`;
+  }).join('');
 }
 
 function renderARTable(rows) {
   const fmtRp = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
   const fmtTgl = d => d ? new Date(d+'T00:00:00').toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'}) : '—';
   document.getElementById('ar-tcount').textContent = rows.length + ' entri';
+  const head = document.getElementById('ar-thead');
+  if (head) head.innerHTML = `<tr>
+    <th>Order</th><th>Customer</th><th>Milestone</th><th style="text-align:right">Amount</th><th>Invoice Date</th><th>Due Date</th><th style="text-align:right">Days</th><th>Status</th><th>Invoice Signed</th><th>Bukti Bayar</th><th></th>
+  </tr>`;
   const tb = document.getElementById('ar-tbody');
   if (!rows.length) { tb.innerHTML = '<tr><td class="empty-td" colspan="11">Gak ada data dengan filter ini.</td></tr>'; return; }
   // File chip helper — labeled + clickable, color-coded per kind
@@ -38842,6 +38985,7 @@ function _arViewOrder(orderId) {
 }
 
 function clearARFilters() {
+  const t = document.getElementById('ar-fil-type'); if (t) t.value = '';
   document.getElementById('ar-fil-status').value = '';
   document.getElementById('ar-fil-customer').value = '';
   document.getElementById('ar-fil-milestone').value = '';
