@@ -27032,16 +27032,17 @@ async function syncAndReloadTxMap() {
     _txSyncCooldownUntil = Date.now() + 60_000;
   } catch (e) {
     // Supabase gateway sering drop di 60s, padahal edge function masih jalan
-    // di belakang. Polling last_modified > beforeSync buat verifikasi.
+    // di belakang (log nunjukin proses sampai 90-100s tetep sukses).
+    // Polling synced_at > beforeSync — field yang di-stamp tiap kali kita upsert.
     if (status) status.textContent = '⟳ koneksi putus, verifikasi server-side...';
     let verified = false;
     let verifiedCount = 0;
-    for (let i = 0; i < 18; i++) {  // ~90s total (18 × 5s)
+    for (let i = 0; i < 24; i++) {  // ~120s total (24 × 5s)
       await new Promise(res => setTimeout(res, 5000));
       try {
         const { count } = await sb.from('jubelio_sales_orders')
           .select('salesorder_id', { count:'exact', head:true })
-          .gt('last_modified', beforeSync);
+          .gt('synced_at', beforeSync);
         if ((count||0) > 0) { verified = true; verifiedCount = count; break; }
       } catch(_) {}
     }
