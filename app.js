@@ -35047,14 +35047,18 @@ function _whRenderPayTab(h, payments, totalValue, dpAmount) {
     const isPaid = !!p?.paid_at;
     const bukti = p?.bukti_url;
     const signed = p?.signed_invoice_url;
-    // Overpay detection: actual paid vs milestone expected
-    const overpayAmount = (p?.amount && p.amount > m.suggestAmount) ? (p.amount - m.suggestAmount) : 0;
-    // Carry-over from previous milestone overpayments
-    const priorOverpay = milestones.slice(0, mIdx).reduce((s, pm) => {
+    // Over/underpay detection: actual paid vs milestone expected (hanya kalau sudah paid/punya amount)
+    const paidAmt = parseFloat(p?.amount) || 0;
+    const overpayAmount  = (paidAmt > 0 && paidAmt > m.suggestAmount) ? (paidAmt - m.suggestAmount) : 0;
+    const underpayAmount = (paidAmt > 0 && paidAmt < m.suggestAmount) ? (m.suggestAmount - paidAmt) : 0;
+    // Net balance dari milestone sebelumnya — bisa overpay (+) atau underpay (−)
+    const priorBalance = milestones.slice(0, mIdx).reduce((s, pm) => {
       const pp = findP(pm.key);
       const ppAmt = parseFloat(pp?.amount) || 0;
-      return s + Math.max(0, ppAmt - pm.suggestAmount);
+      return s + (ppAmt - pm.suggestAmount);
     }, 0);
+    const priorOverpay  = Math.max(0,  priorBalance);
+    const priorUnderpay = Math.max(0, -priorBalance);
     // Invoice date default = order_date (kalau belum di-input); due = invoice_date + 7
     const invDate = p?.invoice_date || '';
     const dueDate = invDate ? _whComputeDueDate(invDate) : null;
@@ -35071,11 +35075,17 @@ function _whRenderPayTab(h, payments, totalValue, dpAmount) {
     const overpayBadge = overpayAmount > 0
       ? `<div style="font-size:9px;font-family:var(--mono);color:#a66200;background:#fff5e6;border:1px solid #f0c97a;border-radius:3px;padding:1px 5px;margin-top:3px;display:inline-block">+${fmtRp(overpayAmount).replace('Rp ','')} lebih bayar</div>`
       : '';
+    const underpayBadge = underpayAmount > 0
+      ? `<div style="font-size:9px;font-family:var(--mono);color:#a14e3e;background:#fdf6f4;border:1px solid #f1c6bf;border-radius:3px;padding:1px 5px;margin-top:3px;display:inline-block" title="Kurang dari nilai milestone — selisihnya akan otomatis ditambahkan ke tagihan milestone berikutnya">−${fmtRp(underpayAmount).replace('Rp ','')} kurang bayar</div>`
+      : '';
     const carryOverBadge = priorOverpay > 0
-      ? `<div style="font-size:9px;font-family:var(--mono);color:#0a7d3a;background:#eef9f0;border:1px solid #b8d9b3;border-radius:3px;padding:1px 5px;margin-top:3px;display:inline-block" title="Sisa lebih bayar dari milestone sebelumnya, akan otomatis dipotong di total tagihan">↳ Carry: ${fmtRp(priorOverpay).replace('Rp ','')}</div>`
+      ? `<div style="font-size:9px;font-family:var(--mono);color:#0a7d3a;background:#eef9f0;border:1px solid #b8d9b3;border-radius:3px;padding:1px 5px;margin-top:3px;display:inline-block" title="Sisa lebih bayar dari milestone sebelumnya, akan otomatis dipotong di total tagihan">↳ Carry credit: ${fmtRp(priorOverpay).replace('Rp ','')}</div>`
+      : '';
+    const carryDebtBadge = priorUnderpay > 0
+      ? `<div style="font-size:9px;font-family:var(--mono);color:#a14e3e;background:#fdf6f4;border:1px solid #f1c6bf;border-radius:3px;padding:1px 5px;margin-top:3px;display:inline-block" title="Sisa kurang bayar dari milestone sebelumnya, akan otomatis ditambahkan ke total tagihan">↳ Carry debt: ${fmtRp(priorUnderpay).replace('Rp ','')}</div>`
       : '';
     return `<tr style="border-top:1px solid var(--g100)">
-      <td style="padding:8px"><b>${m.label}</b>${overpayBadge}${carryOverBadge}</td>
+      <td style="padding:8px"><b>${m.label}</b>${overpayBadge}${underpayBadge}${carryOverBadge}${carryDebtBadge}</td>
       <td style="padding:8px"><input type="number" id="wh-pay-amt-${m.key}" value="${amt||''}" placeholder="${fmtRp(m.suggestAmount).replace('Rp ','')}" style="width:110px;font-family:var(--mono);font-size:11px;padding:3px 6px;border:1px solid var(--g100)"></td>
       <td style="padding:8px"><input type="date" id="wh-pay-invdate-${m.key}" value="${invDate}" style="font-size:11px;padding:3px 6px;border:1px solid var(--g100)" title="Tanggal invoice diterbitkan"></td>
       <td style="padding:8px;font-size:11px;font-family:var(--mono);color:${dueColor};white-space:nowrap">${fmtTgl(dueDate)}<br><span style="font-size:9px;text-transform:uppercase;letter-spacing:0.3px">${dueIcon}</span></td>
@@ -36026,8 +36036,8 @@ async function _whDownloadInvoice(milestone, invoiceType) {
   const milestonePct = pm?.pct ?? 30;
   const milestoneLabel = pm?.label || milestone.toUpperCase();
   const milestoneExpected = Math.round(subtotal * milestonePct / 100);
-  // Sum of milestones sebelum current — gunakan ACTUAL paid (bukan pct) supaya
-  // overpayment di milestone sebelumnya otomatis ke-carry-over ke milestone ini.
+  // Sum milestones sebelumnya — gunakan ACTUAL paid (bukan pct expected) supaya
+  // over/underpayment otomatis ter-balance di milestone berikutnya.
   const priorMilestones = planMilestones.slice(0, planMilestones.indexOf(pm));
   const priorPct = priorMilestones.reduce((s,m) => s + (parseFloat(m.pct)||0), 0);
   const priorExpected = Math.round(subtotal * priorPct / 100);
@@ -36035,10 +36045,11 @@ async function _whDownloadInvoice(milestone, invoiceType) {
     const p = (o.payments||[]).find(x => x.milestone === m.key);
     return s + (parseFloat(p?.amount) || 0);
   }, 0);
-  // Carry-over excess = berapa banyak lebih bayar dari milestone sebelumnya
-  const carryOverFromPrior = Math.max(0, priorPaidActual - priorExpected);
-  // Amount yang ditagih untuk milestone ini, di-net dengan carry-over
-  const amountDue = Math.max(0, milestoneExpected - carryOverFromPrior);
+  // Balance = priorExpected - priorPaidActual.
+  // Positif (underpay sebelumnya) → tambah ke amountDue milestone ini.
+  // Negatif (overpay sebelumnya) → kurangi dari amountDue.
+  // Formula: amountDue = milestoneExpected + priorExpected - priorPaidActual
+  const amountDue = Math.max(0, milestoneExpected + priorExpected - priorPaidActual);
   // Untuk backward-compat dengan template (yang nampilin "X% sudah dibayar")
   const priorAmount = priorPaidActual;
   let docTitle, descLine;
@@ -38615,17 +38626,17 @@ async function loadAR() {
         // Skip kalau invoice belum di-set — gak boleh AR
         if (!invDate) continue;
         const dueDate = _whComputeDueDate(invDate);
-        // Carry-over: kalau milestone sebelumnya overpaid, kurangi amount due
+        // Balance dari milestone sebelumnya — positif = overpay (kurangi tagihan),
+        // negatif = underpay (tambah tagihan).
         const priorMilestones = milestones.slice(0, mIdx);
         const priorExpected = priorMilestones.reduce((s,pm) => s + Math.round(totalValue * (parseFloat(pm.pct)||0) / 100), 0);
         const priorPaidActual = priorMilestones.reduce((s,pm) => {
           const pp = orderPayments.find(p => p.milestone === pm.key);
           return s + (parseFloat(pp?.amount) || 0);
         }, 0);
-        const carryOver = Math.max(0, priorPaidActual - priorExpected);
         const expected = Math.round(totalValue * (parseFloat(m.pct)||0) / 100);
-        // Kalau pay.amount eksplisit di-set, pakai itu. Otherwise expected - carryOver.
-        const amount = parseFloat(pay?.amount) || Math.max(0, expected - carryOver);
+        // Kalau pay.amount eksplisit, pakai itu. Otherwise expected + (priorExpected - priorPaidActual).
+        const amount = parseFloat(pay?.amount) || Math.max(0, expected + priorExpected - priorPaidActual);
         const paidAt = pay?.paid_at || null;
         // Days outstanding
         let daysOut = 0, daysOverdue = 0, isOverdue = false, status = '';
