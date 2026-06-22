@@ -26211,6 +26211,20 @@ function _renderTxTable() {
 }
 
 const _txItemsCache = new Map(); // salesorder_id → items array
+
+// Re-fetch a specific SO from Jubelio (status, items, totals) — for orders that
+// drifted because the daily sync window doesn't cover their transaction_date.
+async function _txRefreshSO(salesorderId) {
+  if (!confirm(`Re-fetch SO ${salesorderId} dari Jubelio? Status + items + totals akan ke-update.`)) return;
+  try {
+    const j = await callEdgeFunction('sync-jubelio-orders', { refresh_ids: [salesorderId] });
+    _txItemsCache.delete(salesorderId);  // bust cache
+    alert(`✓ Refreshed. ${j.fetched||0} headers, ${j.items||0} items updated.`);
+    loadTxMap();
+  } catch(e) {
+    alert('Gagal refresh: ' + (e.message||e));
+  }
+}
 async function _txToggleItems(salesorderId) {
   const tbody = document.getElementById('txTableBody'); if (!tbody) return;
   const toggleBtn = document.getElementById(`tx-toggle-${salesorderId}`);
@@ -26268,7 +26282,10 @@ async function _txToggleItems(salesorderId) {
   }).join('');
   loadingRow.innerHTML = `<td colspan="14" style="background:#fafafa;padding:0">
     <div style="padding:10px 20px;border-left:3px solid var(--g200)">
-      <div style="font-size:10px;color:var(--g600);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Items (${items.length})</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <div style="font-size:10px;color:var(--g600);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.5px">Items (${items.length})</div>
+        <button onclick="_txRefreshSO(${salesorderId})" style="font-size:10px;padding:3px 9px;border:1px solid var(--g200);background:var(--white);border-radius:4px;cursor:pointer;color:var(--g600)" title="Re-fetch dari Jubelio (untuk update wms_status, items, dst)">🔄 Refresh from Jubelio</button>
+      </div>
       <table style="width:100%;border-collapse:collapse">
         <thead><tr style="font-size:9px;color:var(--g400);text-transform:uppercase;letter-spacing:0.5px;font-family:var(--mono)">
           <th style="text-align:left;padding:3px 10px;width:140px">SKU</th>
