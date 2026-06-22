@@ -4079,13 +4079,20 @@ async function _pbGenerateSuratJalanPDF(recipientName) {
   // Size sort (S→M→L→XL→XXL→OS last)
   const sizeOrder = (s) => ({XXS:0, XS:1, S:2, M:3, L:4, XL:5, XXL:6, XXXL:7, OS:99, 'FREE SIZE':99, FREESIZE:99}[String(s||'').toUpperCase().trim()] ?? 50);
   const sizeOf = (item) => {
-    // Cek SKU code dulu — pattern di akhir: -SIZE atau -SIZE-COLOR (misal -M-HITAM)
-    const code = String(item.item_code||'');
-    const codeMatch = code.match(/-(XXS|XS|S|M|L|XL|XXL|XXXL|OS|FREESIZE)(?:-[A-Z]+)?$/i);
-    if (codeMatch) return codeMatch[1].toUpperCase();
-    // Fallback ke item_name suffix
-    const nameMatch = String(item.item_name||'').match(/\s*[-—]\s*(XXS|XS|S|M|L|XL|XXL|XXXL|OS|FREE\s*SIZE|FREESIZE)\s*$/i);
-    if (nameMatch) return nameMatch[1].toUpperCase();
+    const j = jByItemId.get(item.item_id);
+    // Cek SKU code (dari item record + jubelio_items cache) — pattern di akhir:
+    // -SIZE atau -SIZE-COLOR (misal -M-HITAM)
+    const codes = [item.item_code, j?.item_code].filter(Boolean);
+    for (const code of codes) {
+      const m = String(code).match(/-(XXS|XS|S|M|L|XL|XXL|XXXL|OS|FREESIZE)(?:-[A-Z]+)?$/i);
+      if (m) return m[1].toUpperCase();
+    }
+    // Fallback ke item_name suffix (item record + jubelio_items)
+    const names = [item.item_name, j?.item_name].filter(Boolean);
+    for (const name of names) {
+      const m = String(name).match(/\s*[-—]\s*(XXS|XS|S|M|L|XL|XXL|XXXL|OS|FREE\s*SIZE|FREESIZE)\s*$/i);
+      if (m) return m[1].toUpperCase();
+    }
     return item.variant || '';
   };
   for (const p of parents.values()) p.rows.sort((a,b) => sizeOrder(sizeOf(a)) - sizeOrder(sizeOf(b)));
@@ -4108,11 +4115,15 @@ async function _pbGenerateSuratJalanPDF(recipientName) {
     const thumbInline = thumb
       ? `<img src="${thumb.replace(/"/g,'&quot;')}" style="width:42px;height:42px;object-fit:cover;border-radius:3px;border:1px solid #ddd;flex-shrink:0">`
       : `<div style="width:42px;height:42px;background:#f0f0f0;border:1px dashed #ccc;border-radius:3px;flex-shrink:0"></div>`;
-    const variantRows = p.rows.map(x => `<tr>
+    const variantRows = p.rows.map(x => {
+      const j = jByItemId.get(x.item_id);
+      const code = x.item_code || j?.item_code || '';
+      return `<tr>
         <td class="sz">${sizeOf(x)}</td>
-        <td class="sku">${(x.item_code||'').replace(/</g,'&lt;')}</td>
+        <td class="sku">${String(code).replace(/</g,'&lt;')}</td>
         <td class="r">${x.qty}</td>
-      </tr>`).join('');
+      </tr>`;
+    }).join('');
     return `<tbody class="parent-group">
       <tr class="parent-row">
         <td colspan="3"><div style="display:flex;align-items:center;gap:10px">${thumbInline}<div><div style="font-weight:700;font-size:13px">${(p.name||'').replace(/</g,'&lt;')}</div><div style="font-size:11px;color:#666;margin-top:2px">${p.rows.length} variants · ${totalP} pcs</div></div></div></td>
