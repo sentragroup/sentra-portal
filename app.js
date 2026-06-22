@@ -34251,13 +34251,29 @@ async function openWholesaleDetail(id) {
       links = linksData.data || [];
       shipItems = shipItemsData.data || [];
     }
+    // Compute actual receive status dari linked restock_projects → bills putaway.
+    // Step 6 ('Receive') tadinya berdasarkan h.status manual — sering misleading.
+    // Sekarang based on apakah semua jubelio_purchase_bills untuk linked PO-nya
+    // sudah is_putaway = true.
+    const projectIds = [...new Set(links.map(l => l.restock_project_id).filter(Boolean))];
+    let billStats = { total: 0, putaway: 0 };
+    if (projectIds.length) {
+      const {data: projects} = await sb.from('restock_projects').select('id,linked_po_ids').in('id', projectIds);
+      const allPoIds = [...new Set((projects||[]).flatMap(p => (p.linked_po_ids||[]).map(x => parseInt(x,10)).filter(n => !isNaN(n))))];
+      if (allPoIds.length) {
+        const {data: bills} = await sb.from('jubelio_purchase_bills').select('is_putaway').in('purchaseorder_id', allPoIds);
+        billStats.total = (bills||[]).length;
+        billStats.putaway = (bills||[]).filter(b => b.is_putaway).length;
+      }
+    }
     _whCurrentOrder = {
       header: mapWO(headerRes.data),
       items: itemsRes.data || [],
       shipments: shipmentsRes.data || [],
       shipItems,
       links,
-      payments: paysRes.data || []
+      payments: paysRes.data || [],
+      billStats
     };
   }
   // Pre-load restock_projects + jubelio_items cache parallel (thumbnail
@@ -34306,7 +34322,9 @@ function _whRenderDetail() {
     batched: links.length > 0,
     dpPaid: payments.some(p => p.milestone === 'dp1' && p.paid_at),
     supplierPO: links.some(l => l.restock_project_id), // (also batched fact)
-    received: ['ready','shipped','invoiced','done'].includes(h.status),
+    // Step 6 'Receive' = semua linked PO bills udah putaway di Jubelio
+    // (bukan h.status manual yang gampang misleading)
+    received: (o.billStats?.total||0) > 0 && o.billStats.putaway === o.billStats.total,
     shipped: (_whCurrentOrder?.shipments||[]).some(s => s.ship_date),
     finalPaid: payments.some(p => p.milestone === 'final' && p.paid_at),
     jubelio: !!h.jubelioSoNo,
