@@ -3720,11 +3720,14 @@
 
         <!-- TAB: Active Orders -->
         <div id="wh-listcontent-active">
-          <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
+          <div class="stats-row" style="grid-template-columns:repeat(7,1fr);margin-bottom:1.25rem">
             <div class="stat-card"><div class="stat-num" id="wh-s-total">—</div><div class="stat-lbl">Total Order</div></div>
-            <div class="stat-card warn"><div class="stat-num" id="wh-s-active">—</div><div class="stat-lbl">Active (belum done)</div></div>
+            <div class="stat-card warn"><div class="stat-num" id="wh-s-active">—</div><div class="stat-lbl">Active</div></div>
             <div class="stat-card info"><div class="stat-num" id="wh-s-batched">—</div><div class="stat-lbl">In Production</div></div>
-            <div class="stat-card success"><div class="stat-num" id="wh-s-value">—</div><div class="stat-lbl">Total Value Active</div></div>
+            <div class="stat-card"><div class="stat-num" id="wh-s-value">—</div><div class="stat-lbl">Total Value Active</div></div>
+            <div class="stat-card success"><div class="stat-num" id="wh-s-paid">—</div><div class="stat-lbl">Paid Active</div></div>
+            <div class="stat-card warn"><div class="stat-num" id="wh-s-outstanding">—</div><div class="stat-lbl">Outstanding</div></div>
+            <div class="stat-card" style="border-color:#f1c6bf;background:#fdf6f4"><div class="stat-num" id="wh-s-overdue" style="color:#c0392b">—</div><div class="stat-lbl">Overdue</div></div>
           </div>
           <div class="filter-panel" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:1rem">
             <div class="fg"><label>Customer</label><select id="wh-f-customer" onchange="applyWholesaleFilter()"><option value="">Semua</option></select></div>
@@ -5274,6 +5277,6 @@
 <div id="proj-overlay" class="proj-panel-overlay" style="display:none" onclick="if(event.target===this)closeProjectDetail()"></div>
 <div id="proj-panel" class="proj-panel" style="display:none"></div>
 
-<script src="app.js?v=20260622aa"></script>
+<script src="app.js?v=20260622ab"></script>
 </body>
 </html>
