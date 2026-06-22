@@ -36246,10 +36246,10 @@ function _mpurcRenderDetail() {
         </div>
         ${_mpurcItemsHTML(items)}
         <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <button class="btn-ghost" onclick="_mpurcOpenStockPicker()" style="font-size:12px">＋ Tambah Item dari Stock</button>
+          <button class="btn-ghost" onclick="_mpurcOpenStockPicker()" style="font-size:12px">＋ Tambah Item</button>
           <label class="btn-ghost" style="font-size:12px;cursor:pointer" title="Import CSV: item_code, qty, list_price, discount_pct">📥 Import CSV<input type="file" accept=".csv" onchange="_mpurcImportCsv(this)" style="display:none"></label>
           <button class="btn-ghost" onclick="_mpurcDownloadCsvTemplate()" style="font-size:12px" title="Download template CSV pre-filled dengan active SKUs">📋 Template</button>
-          <span style="font-size:11px;color:var(--g400);margin-left:4px">Hanya stock di Gudang Bintaro + Gudang Penerimaan Barang.</span>
+          <span style="font-size:11px;color:var(--g400);margin-left:4px">Semua item ditampilkan. Stock di Bintaro + Penerimaan Barang sebagai referensi.</span>
         </div>
       </div>`}
     </div>
@@ -36567,39 +36567,27 @@ async function _mpurcOpenStockPicker() {
   const o = _mpurcCurrent; if (!o) return;
   // Guard against double-click stacking
   document.getElementById('_mpurc-stock-modal')?.remove();
-  // Always refetch to dodge stale cache from previous deploys
+  // Fetch ALL items metadata + stock reference (Bintaro + Penerimaan) in parallel
+  let metaRows = [];
   try {
-    _mpurcStockCache = await _fetchAllPages('jubelio_inventory_by_location','item_id,location_name,qty_on_hand,qty_available',
-      q => q.in('location_name', MP_STOCK_LOCATIONS));
+    const [metaRes, stockRes] = await Promise.all([
+      _fetchAllPages('jubelio_items','item_id,item_code,item_name,item_group_id,thumbnail,image_urls',
+        q => q.not('item_code','is',null).order('item_name')),
+      _fetchAllPages('jubelio_inventory_by_location','item_id,location_name,qty_on_hand,qty_available',
+        q => q.in('location_name', MP_STOCK_LOCATIONS)),
+    ]);
+    metaRows = metaRes || [];
+    _mpurcStockCache = stockRes || [];
   } catch(e) {
-    alert('Gagal load stock: '+e.message);
+    alert('Gagal load items: '+e.message);
     return;
   }
-  if (!_mpurcStockCache || _mpurcStockCache.length === 0) {
-    alert('Stock cache kosong di Jubelio inventory table.');
-    return;
-  }
-  // Aggregate stock by item_id (across the 2 locations)
+  if (!metaRows.length) { alert('Item catalog kosong.'); return; }
+  // Aggregate stock by item_id (reference only — Bintaro + Penerimaan)
   const agg = new Map();
   for (const r of _mpurcStockCache) {
     const id = Number(r.item_id);
-    if (!agg.has(id)) agg.set(id, 0);
-    agg.set(id, agg.get(id) + (parseFloat(r.qty_available)||0));
-  }
-  // Only items with stock > 0
-  const itemIds = Array.from(agg.entries()).filter(([_,v]) => v > 0).map(([k]) => k);
-  if (itemIds.length === 0) {
-    alert('Tidak ada stock tersedia di Gudang Bintaro / Gudang Penerimaan Barang.');
-    return;
-  }
-  // Fetch items metadata (name, code, thumbnail, image_urls, item_group_id)
-  let metaRows = [];
-  try {
-    metaRows = await _fetchAllPagesIn('jubelio_items','item_id,item_code,item_name,item_group_id,thumbnail,image_urls',
-      'item_id', itemIds);
-  } catch(e) {
-    alert('Gagal load metadata items: '+e.message);
-    return;
+    agg.set(id, (agg.get(id)||0) + (parseFloat(r.qty_available)||0));
   }
   // Pre-load SRP catalog from product_dev parents (master price)
   if (!_mpurcSrpCache) {
@@ -36613,12 +36601,16 @@ async function _mpurcOpenStockPicker() {
     } catch(_) { _mpurcSrpCache = new Map(); }
   }
   window.__mpurcItemsCache = new Map(metaRows.map(r => [Number(r.item_id), r]));
-  // Build picker
+  // Build picker — ALL items, stock as reference (could be 0)
   const existingIds = new Set((o.items||[]).map(i => Number(i.jubelio_item_id)));
   const rows = metaRows
     .map(r => ({ ...r, _stock: agg.get(Number(r.item_id)) || 0 }))
-    .filter(r => r._stock > 0)
-    .sort((a,b) => (a.item_name||'').localeCompare(b.item_name||''));
+    .sort((a,b) => {
+      // Items dengan stock di-up; sisanya alphabetical
+      if ((a._stock > 0) !== (b._stock > 0)) return (b._stock > 0) - (a._stock > 0);
+      return (a.item_name||'').localeCompare(b.item_name||'');
+    });
+  const withStock = rows.filter(r => r._stock > 0).length;
   const modal = document.createElement('div');
   modal.id = '_mpurc-stock-modal';
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px';
@@ -36626,8 +36618,8 @@ async function _mpurcOpenStockPicker() {
     <div style="background:var(--white);border-radius:10px;width:min(900px,100%);max-height:88vh;display:flex;flex-direction:column;overflow:hidden">
       <div style="padding:16px 20px;border-bottom:1px solid var(--g100);display:flex;justify-content:space-between;align-items:center;gap:12px">
         <div>
-          <div style="font-size:16px;font-weight:700">Pilih Item dari Stock</div>
-          <div style="font-size:11px;color:var(--g600);margin-top:2px">Gudang Bintaro + Gudang Penerimaan Barang · ${rows.length} item tersedia</div>
+          <div style="font-size:16px;font-weight:700">Pilih Item</div>
+          <div style="font-size:11px;color:var(--g600);margin-top:2px">${rows.length} item · ${withStock} ada stock di Bintaro/Penerimaan (sebagai referensi)</div>
         </div>
         <button class="btn-ghost" onclick="document.getElementById('_mpurc-stock-modal')?.remove()" style="font-size:12px">✕ Tutup</button>
       </div>
