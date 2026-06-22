@@ -27004,8 +27004,8 @@ function _txDate(d) {
 function txReloadFiltered() { _txPage = 0; return loadTxMap(); }
 
 // Manual Jubelio sync — fetch sales orders dari Jubelio biar tx baru muncul
-// tanpa nunggu cron daily. 60s cooldown supaya gak hammering API. Pattern
-// mirror Stock Adjustment sync button.
+// tanpa nunggu cron daily. 60s cooldown supaya gak hammering API. Default
+// 14-hari lookback (cukup buat manual fix; full 60d kemungkinan timeout).
 let _txSyncCooldownUntil = 0;
 async function syncAndReloadTxMap() {
   const btn    = document.getElementById('tx-sync-btn');
@@ -27018,18 +27018,40 @@ async function syncAndReloadTxMap() {
     return;
   }
   if (btn) { btn.disabled = true; btn.textContent = '⟳ Syncing...'; }
-  if (status) status.textContent = 'syncing sales orders dari Jubelio (60d lookback)...';
+  if (status) status.textContent = 'syncing sales orders dari Jubelio (14d lookback)...';
   const t0 = Date.now();
+  const fromDate = new Date(Date.now() - 14 * 24 * 3600_000).toISOString().slice(0,10);
+  const beforeSync = new Date().toISOString();
   try {
-    const j = await callEdgeFunction('sync-jubelio-orders', {});
+    const j = await callEdgeFunction('sync-jubelio-orders', { from: fromDate });
     const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
     const fetched = j?.fetched || j?.headers || 0;
     const items   = j?.items || 0;
-    const note = `synced · ${fetched} headers + ${items} items · ${elapsed}s${j?.next_from?` (next: ${j.next_from})`:''}`;
+    const note = `synced · ${fetched} headers + ${items} items · ${elapsed}s${j?.next_from?` (lanjut dari ${j.next_from} di sync berikutnya)`:''}`;
     if (status) status.textContent = note;
     _txSyncCooldownUntil = Date.now() + 60_000;
   } catch (e) {
-    if (status) status.textContent = `gagal: ${e.message||e}`;
+    // Supabase gateway sering drop di 60s, padahal edge function masih jalan
+    // di belakang. Polling last_modified > beforeSync buat verifikasi.
+    if (status) status.textContent = '⟳ koneksi putus, verifikasi server-side...';
+    let verified = false;
+    let verifiedCount = 0;
+    for (let i = 0; i < 18; i++) {  // ~90s total (18 × 5s)
+      await new Promise(res => setTimeout(res, 5000));
+      try {
+        const { count } = await sb.from('jubelio_sales_orders')
+          .select('salesorder_id', { count:'exact', head:true })
+          .gt('last_modified', beforeSync);
+        if ((count||0) > 0) { verified = true; verifiedCount = count; break; }
+      } catch(_) {}
+    }
+    const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+    if (verified) {
+      if (status) status.textContent = `✓ server-side selesai · ${verifiedCount} headers updated · ${elapsed}s`;
+      _txSyncCooldownUntil = Date.now() + 60_000;
+    } else {
+      if (status) status.textContent = `gagal: ${e.message||e} · ${elapsed}s`;
+    }
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = '↻ Sync Jubelio'; }
   }
