@@ -33397,6 +33397,8 @@ function _whRenderDetail() {
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
             <button onclick="_whDownloadCustomerPO()" style="font-size:11px;padding:5px 12px;border:1px solid #3C3489;background:#3C3489;color:white;border-radius:5px;cursor:pointer;font-weight:600" title="Generate PDF Purchase Order — customer kirim ke PT SDY, customer yang sign">📋 Generate Customer PO</button>
             <button onclick="_whGenerateJubelioInvoiceCSV()" style="font-size:11px;padding:5px 12px;border:1px solid #0a7d3a;background:#0a7d3a;color:white;border-radius:5px;cursor:pointer;font-weight:600" title="Export CSV format Jubelio Import Faktur — siap upload ke Jubelio">📄 Jubelio Invoice CSV</button>
+            <label class="btn-ghost" style="font-size:11px;padding:5px 12px;cursor:pointer" title="Import CSV: item_code, qty, list_price, discount_pct">📥 Import CSV<input type="file" accept=".csv" onchange="_whImportCsv(this)" style="display:none"></label>
+            <button class="btn-ghost" onclick="_whDownloadCsvTemplate()" style="font-size:11px;padding:5px 12px" title="Download template CSV pre-filled dengan active SKUs">📋 Template</button>
             <div style="display:flex;gap:6px;align-items:center;position:relative">
               <input type="text" id="wh-item-picker" placeholder="Cari SKU dari Jubelio..." autocomplete="off" style="font-size:12px;padding:5px 10px;border:1px solid var(--g100);border-radius:5px;width:280px">
               <div id="wh-item-drop" style="display:none;position:absolute;top:32px;left:0;right:0;max-height:280px;overflow-y:auto;background:var(--white);border:1px solid var(--g200);border-radius:6px;box-shadow:0 6px 18px rgba(0,0,0,.1);z-index:100"></div>
@@ -34516,6 +34518,262 @@ async function _whAddItem(itemId, code, name, stock) {
   document.getElementById('wh-item-picker').value = '';
   document.getElementById('wh-item-drop').style.display = 'none';
   _whRenderDetail();
+}
+
+// ── Shared CSV import utilities (used by Wholesale + Manual Purchase) ──
+function _csvParse(text) {
+  // RFC 4180-ish: handle quoted fields with commas + escaped quotes
+  const rows = [];
+  let cur = [], field = '', inQuote = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuote) {
+      if (c === '"') {
+        if (text[i+1] === '"') { field += '"'; i++; }
+        else inQuote = false;
+      } else field += c;
+    } else {
+      if (c === '"') inQuote = true;
+      else if (c === ',') { cur.push(field); field = ''; }
+      else if (c === '\n' || c === '\r') {
+        if (field || cur.length) { cur.push(field); rows.push(cur); }
+        cur = []; field = '';
+        if (c === '\r' && text[i+1] === '\n') i++;
+      } else field += c;
+    }
+  }
+  if (field || cur.length) { cur.push(field); rows.push(cur); }
+  return rows.filter(r => r.some(c => String(c).trim()));
+}
+
+// Parses CSV file, returns { rows, header } where rows is array of {item_code, qty, list_price, discount_pct}
+async function _csvImportParse(file) {
+  if (!file) return null;
+  if (file.size > 5*1024*1024) throw new Error('File maks 5MB');
+  const text = await file.text();
+  const parsed = _csvParse(text);
+  if (parsed.length < 2) throw new Error('CSV kosong atau cuma header');
+  const header = parsed[0].map(h => String(h).toLowerCase().trim());
+  const codeIdx = header.findIndex(h => ['item_code','sku','code'].includes(h));
+  const qtyIdx = header.findIndex(h => ['qty','quantity'].includes(h));
+  const priceIdx = header.findIndex(h => ['list_price','price','harga'].includes(h));
+  const discIdx = header.findIndex(h => ['discount_pct','disc','diskon','discount'].includes(h));
+  if (codeIdx < 0) throw new Error('Kolom item_code/sku gak ketemu di header CSV');
+  if (qtyIdx < 0) throw new Error('Kolom qty gak ketemu di header CSV');
+  const rows = parsed.slice(1).map((r, i) => ({
+    rowNum: i + 2,
+    item_code: String(r[codeIdx]||'').trim(),
+    qty: parseFloat(r[qtyIdx])||0,
+    list_price: priceIdx >= 0 ? (parseFloat(r[priceIdx])||0) : 0,
+    discount_pct: discIdx >= 0 ? (parseFloat(r[discIdx])||0) : 0,
+  })).filter(r => r.item_code);
+  return rows;
+}
+
+// Lookup item_code → jubelio_items metadata (chunked .in())
+async function _csvLookupSkus(codes) {
+  const unique = [...new Set(codes.map(c => c.toUpperCase()))];
+  const out = new Map(); // upper_code → {item_id, item_code, item_name}
+  for (let i = 0; i < unique.length; i += 200) {
+    const chunk = unique.slice(i, i + 200);
+    const { data } = await sb.from('jubelio_items').select('item_id,item_code,item_name').in('item_code', chunk);
+    for (const it of (data||[])) out.set(String(it.item_code).toUpperCase(), it);
+  }
+  return out;
+}
+
+// Generic preview modal — accepts onConfirm callback that gets matched rows
+function _csvShowPreview({title, rows, lookupMap, onConfirm}) {
+  document.getElementById('_csv-import-modal')?.remove();
+  const matched = rows.filter(r => lookupMap.has(r.item_code.toUpperCase()));
+  const missing = rows.filter(r => !lookupMap.has(r.item_code.toUpperCase()));
+  const fmtRp = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
+  const modal = document.createElement('div');
+  modal.id = '_csv-import-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px';
+  modal.innerHTML = `
+    <div style="background:var(--white);border-radius:10px;width:min(900px,100%);max-height:88vh;display:flex;flex-direction:column;overflow:hidden">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--g100);display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-size:16px;font-weight:700">${title}</div>
+          <div style="font-size:11px;color:var(--g600);margin-top:2px">
+            <b style="color:#0a7d3a">${matched.length} matched</b>
+            ${missing.length?` · <b style="color:#c0392b">${missing.length} not found</b>`:''}
+            · Total qty: <b>${matched.reduce((s,r)=>s+r.qty,0).toLocaleString('id-ID')}</b>
+          </div>
+        </div>
+        <button class="btn-ghost" onclick="document.getElementById('_csv-import-modal')?.remove()" style="font-size:12px">✕ Batal</button>
+      </div>
+      <div style="overflow:auto;flex:1;padding:0 20px">
+        ${missing.length ? `<div style="margin:14px 0;padding:10px 14px;background:#fff8e1;border:1px solid #f5c842;border-radius:6px;font-size:11px;color:#7a5d00">
+          <b>⚠ ${missing.length} SKU gak ketemu</b> dan akan di-skip:
+          <div style="margin-top:6px;font-family:var(--mono);font-size:10px;color:#5a4500">${missing.map(r => `row ${r.rowNum}: ${(r.item_code||'').replace(/</g,'&lt;')}`).join(' · ')}</div>
+        </div>` : ''}
+        <table style="width:100%;font-size:11px;margin:10px 0">
+          <thead><tr style="font-size:9px;color:var(--g400);text-transform:uppercase;letter-spacing:0.3px">
+            <th style="text-align:left;padding:6px 8px">SKU</th>
+            <th style="text-align:left;padding:6px 8px">Item Name</th>
+            <th style="text-align:right;padding:6px 8px">Qty</th>
+            <th style="text-align:right;padding:6px 8px">List Price</th>
+            <th style="text-align:right;padding:6px 8px">Disc %</th>
+            <th style="text-align:right;padding:6px 8px">Net</th>
+          </tr></thead>
+          <tbody>
+            ${matched.map(r => {
+              const meta = lookupMap.get(r.item_code.toUpperCase());
+              const net = Math.round((r.list_price||0) * (1 - (r.discount_pct||0)/100));
+              return `<tr>
+                <td style="padding:5px 8px;font-family:var(--mono);font-size:10px">${(meta.item_code||'').replace(/</g,'&lt;')}</td>
+                <td style="padding:5px 8px;font-size:11px">${(meta.item_name||'').replace(/</g,'&lt;')}</td>
+                <td style="text-align:right;padding:5px 8px;font-family:var(--mono)">${r.qty}</td>
+                <td style="text-align:right;padding:5px 8px;font-family:var(--mono)">${r.list_price?fmtRp(r.list_price):'—'}</td>
+                <td style="text-align:right;padding:5px 8px;font-family:var(--mono)">${r.discount_pct?r.discount_pct+'%':'—'}</td>
+                <td style="text-align:right;padding:5px 8px;font-family:var(--mono);font-weight:600">${net?fmtRp(net):'—'}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+      <div style="padding:14px 20px;border-top:1px solid var(--g100);display:flex;justify-content:flex-end;gap:10px">
+        <button class="btn-ghost" onclick="document.getElementById('_csv-import-modal')?.remove()" style="font-size:12px">Batal</button>
+        <button class="btn-primary" id="_csv-import-confirm" ${matched.length===0?'disabled':''} style="font-size:12px;padding:8px 18px${matched.length===0?';opacity:0.5;cursor:not-allowed':''}">Import ${matched.length} items</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  document.getElementById('_csv-import-confirm').onclick = async () => {
+    const btn = document.getElementById('_csv-import-confirm');
+    btn.disabled = true; btn.textContent = 'Importing...';
+    try {
+      await onConfirm(matched, lookupMap);
+      document.getElementById('_csv-import-modal')?.remove();
+    } catch(e) {
+      alert('Gagal import: ' + (e.message||e));
+      btn.disabled = false; btn.textContent = `Import ${matched.length} items`;
+    }
+  };
+}
+
+// ── Wholesale CSV import ──
+async function _whImportCsv(inputEl) {
+  const file = inputEl?.files?.[0];
+  const o = _whCurrentOrder; if (!o || o.header.id === 'new') { alert('Simpan order dulu.'); return; }
+  inputEl.value = '';  // reset so user can re-upload same file
+  try {
+    const rows = await _csvImportParse(file);
+    if (!rows || !rows.length) { alert('CSV kosong'); return; }
+    const lookupMap = await _csvLookupSkus(rows.map(r => r.item_code));
+    _csvShowPreview({
+      title: `Import Items dari CSV — Wholesale Order ${o.header.id}`,
+      rows, lookupMap,
+      onConfirm: async (matched, lookup) => {
+        const inserts = matched.map(r => {
+          const meta = lookup.get(r.item_code.toUpperCase());
+          const list = r.list_price || 0;
+          const disc = r.discount_pct || 0;
+          const net = Math.round(list * (1 - disc/100));
+          return {
+            order_id: o.header.id,
+            jubelio_item_id: meta.item_id,
+            item_code: meta.item_code,
+            item_name: meta.item_name,
+            qty: r.qty,
+            list_price: list,
+            discount_pct: disc,
+            unit_price: net,
+            source_type: 'stock',
+          };
+        });
+        const { data, error } = await sb.from('wholesale_customer_order_items').insert(inserts).select();
+        if (error) throw error;
+        o.items.push(...(data||[]));
+        _whRenderDetail();
+      }
+    });
+  } catch(e) { alert('Gagal parse CSV: ' + (e.message||e)); }
+}
+
+async function _whDownloadCsvTemplate() {
+  const { data } = await sb.from('jubelio_items')
+    .select('item_code,item_name')
+    .not('item_code','is',null)
+    .order('item_name')
+    .limit(5000);
+  const rows = data || [];
+  const header = 'item_code,qty,list_price,discount_pct,item_name (reference only)';
+  const body = rows.map(r => {
+    const code = String(r.item_code||'').replace(/"/g,'""');
+    const name = String(r.item_name||'').replace(/"/g,'""');
+    return `"${code}",,,,"${name}"`;
+  }).join('\n');
+  const csv = header + '\n' + body;
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `wholesale-import-template.csv`;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+}
+
+// ── Manual Purchase CSV import ──
+async function _mpurcImportCsv(inputEl) {
+  const file = inputEl?.files?.[0];
+  const o = _mpurcCurrent; if (!o || o.header.id === 'new') { alert('Simpan order dulu.'); return; }
+  inputEl.value = '';
+  try {
+    const rows = await _csvImportParse(file);
+    if (!rows || !rows.length) { alert('CSV kosong'); return; }
+    const lookupMap = await _csvLookupSkus(rows.map(r => r.item_code));
+    _csvShowPreview({
+      title: `Import Items dari CSV — Manual Purchase ${o.header.id}`,
+      rows, lookupMap,
+      onConfirm: async (matched, lookup) => {
+        const inserts = matched.map(r => {
+          const meta = lookup.get(r.item_code.toUpperCase());
+          const list = r.list_price || 0;
+          const disc = r.discount_pct || 0;
+          const net = Math.round(list * (1 - disc/100));
+          return {
+            order_id: o.header.id,
+            jubelio_item_id: meta.item_id,
+            item_code: meta.item_code,
+            item_name: meta.item_name,
+            qty: r.qty,
+            unit_price: list,
+            discount_pct: disc,
+            discount_amount: Math.round(list * disc/100),
+            subtotal: r.qty * net,
+          };
+        });
+        const { data, error } = await sb.from('manual_purchase_items').insert(inserts).select();
+        if (error) throw error;
+        o.items.push(...(data||[]));
+        await _mpurcRecalcHeader();
+        _mpurcRenderDetail();
+      }
+    });
+  } catch(e) { alert('Gagal parse CSV: ' + (e.message||e)); }
+}
+
+async function _mpurcDownloadCsvTemplate() {
+  const { data } = await sb.from('jubelio_items')
+    .select('item_code,item_name')
+    .not('item_code','is',null)
+    .order('item_name')
+    .limit(5000);
+  const rows = data || [];
+  const header = 'item_code,qty,list_price,discount_pct,item_name (reference only)';
+  const body = rows.map(r => {
+    const code = String(r.item_code||'').replace(/"/g,'""');
+    const name = String(r.item_name||'').replace(/"/g,'""');
+    return `"${code}",,,,"${name}"`;
+  }).join('\n');
+  const csv = header + '\n' + body;
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `manual-purchase-import-template.csv`;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
 }
 
 async function _whItemQty(id, val) {
@@ -35987,9 +36245,11 @@ function _mpurcRenderDetail() {
           <span style="font-size:12px;color:var(--g600);font-family:var(--mono)">Grand Total: <b style="font-size:14px;color:var(--black)">${fmtRp(subtotal)}</b></span>
         </div>
         ${_mpurcItemsHTML(items)}
-        <div style="margin-top:10px">
+        <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <button class="btn-ghost" onclick="_mpurcOpenStockPicker()" style="font-size:12px">＋ Tambah Item dari Stock</button>
-          <span style="font-size:11px;color:var(--g400);margin-left:8px">Hanya stock di Gudang Bintaro + Gudang Penerimaan Barang.</span>
+          <label class="btn-ghost" style="font-size:12px;cursor:pointer" title="Import CSV: item_code, qty, list_price, discount_pct">📥 Import CSV<input type="file" accept=".csv" onchange="_mpurcImportCsv(this)" style="display:none"></label>
+          <button class="btn-ghost" onclick="_mpurcDownloadCsvTemplate()" style="font-size:12px" title="Download template CSV pre-filled dengan active SKUs">📋 Template</button>
+          <span style="font-size:11px;color:var(--g400);margin-left:4px">Hanya stock di Gudang Bintaro + Gudang Penerimaan Barang.</span>
         </div>
       </div>`}
     </div>
