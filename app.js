@@ -86,7 +86,7 @@ function mapRR(r) { return {rowIndex:r.id,id:r.id,name:r.nama||"",tipe:r.tipe||"
 function mapBM(r) { return {rowIndex:r.id,id:r.id,name:r.name||"",category:r.category||"",liveStatus:r.live_status||"Active",brandType:r.brand_type||"",vatStatus:r.vat_status||"",revenue:r.revenue_stream||"",agreements:r.related_agreement||"",apparel:r.apparel_rate!=null?r.apparel_rate:"",accessories:r.accessories_rate!=null?r.accessories_rate:"",collectible:r.collectible_rate!=null?r.collectible_rate:"",preloved:r.preloved_rate!=null?r.preloved_rate:"",wellness:r.wellness_rate!=null?r.wellness_rate:"",others:r.others_rate!=null?r.others_rate:"",notes:r.notes||"",email:r.email||"",pic:r.pic||"",addedBy:r.added_by||""}; }
 function mapLD(r) { return {rowIndex:r.id,id:r.id,name:r.lead_name||"",category:r.category||"",stage:r.stage||"",pic:r.pic||"",revenue:r.revenue_stream||"",contact:r.contact||"",notes:r.notes||"",priority:r.priority||"",followUpDate:r.follow_up_date||"",date:r.date_added?new Date(r.date_added).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"",by:r.added_by||"",lastUpdate:r.last_updated?new Date(r.last_updated).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"",lastBy:r.last_updated_by||"",addedBy:r.added_by||""}; }
 function mapDP(r) { return {rowIndex:r.id,id:r.id,name:r.partner_name||"",type:r.type||"",channel:r.channel||"",region:r.region||"",pic:r.pic||"",contactPerson:r.contact_person||"",contactInfo:r.contact_info||"",agreements:r.related_agreement||"",liveStatus:r.live_status||"Active",notes:r.notes||"",email:r.email||"",addedBy:r.added_by||"",jubelioContactId:r.jubelio_contact_id||null}; }
-function mapPB(r) { return {rowIndex:r.id,id:r.id,eventDate:r.event_date||"",eventName:r.event_name||"",location:r.location||"",ipRelated:r.ip_related||"",manpower:r.manpower||"",suratJalanUrl:r.surat_jalan_url||"",deliveryStatus:r.delivery_status||"",eventStatus:r.event_status||"",reinboundStatus:r.reinbound_status||"",reinboundQty:r.reinbound_qty!=null?r.reinbound_qty:"",srDeadline:r.sr_deadline||"",actualSales:r.actual_sales!=null?r.actual_sales:"",paymentMethod:r.payment_method||"",idPesananJubelio:r.id_pesanan_jubelio||"",notes:r.notes||"",channelFees:r.channel_fees||{},arExpectedDate:r.ar_expected_date||"",arPaidAt:r.ar_paid_at||"",arBuktiUrl:r.ar_bukti_url||"",arNotes:r.ar_notes||"",dateAdded:r.date_added||"",addedBy:r.added_by||"",lastUpdated:r.last_updated||"",lastUpdatedBy:r.last_updated_by||""}; }
+function mapPB(r) { return {rowIndex:r.id,id:r.id,eventDate:r.event_date||"",eventName:r.event_name||"",location:r.location||"",ipRelated:r.ip_related||"",manpower:r.manpower||"",suratJalanUrl:r.surat_jalan_url||"",deliveryStatus:r.delivery_status||"",eventStatus:r.event_status||"",reinboundStatus:r.reinbound_status||"",reinboundQty:r.reinbound_qty!=null?r.reinbound_qty:"",srDeadline:r.sr_deadline||"",actualSales:r.actual_sales!=null?r.actual_sales:"",paymentMethod:r.payment_method||"",idPesananJubelio:r.id_pesanan_jubelio||"",notes:r.notes||"",channelFees:r.channel_fees||{},arExpectedDate:r.ar_expected_date||"",arPaidAt:r.ar_paid_at||"",arBuktiUrl:r.ar_bukti_url||"",arNotes:r.ar_notes||"",arReportedSales:r.ar_reported_sales!=null?r.ar_reported_sales:"",arSalesReportUrl:r.ar_sales_report_url||"",dateAdded:r.date_added||"",addedBy:r.added_by||"",lastUpdated:r.last_updated||"",lastUpdatedBy:r.last_updated_by||""}; }
 
 let currentUser = "";
 let currentUserEmail = "";
@@ -2797,18 +2797,9 @@ function renderPBTable(rows) {
             <div class="fg"><label>Lokasi</label><input type="text" id="pbe-location-${r.rowIndex}" value="${(r.location||'').replace(/"/g,'&quot;')}"></div>
             <div class="fg"><label>IP Related</label><input type="text" id="pbe-iprelated-${r.rowIndex}" value="${(r.ipRelated||'').replace(/"/g,'&quot;')}" placeholder="Pisahkan dengan koma"></div>
             <div class="fg"><label>Event Status <span style="font-size:10px;color:var(--g400);font-weight:400">(auto kecuali override)</span></label><select id="pbe-eventstatus-${r.rowIndex}"><option value="" ${(r.eventStatus!=="Cancelled"&&r.eventStatus!=="No Sales")?"selected":""}>Auto (derived dari tanggal + stock + sales)</option><option value="No Sales" ${r.eventStatus==="No Sales"?"selected":""}>No Sales (auto Done jika stock 0)</option><option value="Cancelled" ${r.eventStatus==="Cancelled"?"selected":""}>Cancelled</option></select></div>
-            <div class="fg full"><label>Payment Method</label><div style="display:flex;gap:16px;flex-wrap:wrap;padding:8px 0"><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-jpos-${r.rowIndex}" onchange="_pbTogglePmAR('${r.rowIndex}')" ${(r.paymentMethod||"").includes("Jubelio POS")?"checked":""}> Jubelio POS</label><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-qris-${r.rowIndex}" onchange="_pbTogglePmAR('${r.rowIndex}')" ${(r.paymentMethod||"").includes("QRIS Xendit")?"checked":""}> QRIS Xendit</label><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-cons-${r.rowIndex}" onchange="_pbTogglePmAR('${r.rowIndex}')" ${(r.paymentMethod||"").includes("Consignment")?"checked":""}> Consignment</label><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-pickup-${r.rowIndex}" onchange="_pbTogglePmAR('${r.rowIndex}')" ${(r.paymentMethod||"").includes("Pick Up in Location")?"checked":""}> Pick Up in Location</label><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-3rd-${r.rowIndex}" onchange="_pbTogglePmAR('${r.rowIndex}')" ${(r.paymentMethod||"").includes("3rd Party Providers")?"checked":""}> 3rd Party Providers</label><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-other-${r.rowIndex}" onchange="_pbTogglePmAR('${r.rowIndex}')" ${(r.paymentMethod||"").includes("Other")?"checked":""}> Other</label></div></div>
+            <div class="fg full"><label>Payment Method</label><div style="display:flex;gap:16px;flex-wrap:wrap;padding:8px 0"><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-jpos-${r.rowIndex}" ${(r.paymentMethod||"").includes("Jubelio POS")?"checked":""}> Jubelio POS</label><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-qris-${r.rowIndex}" ${(r.paymentMethod||"").includes("QRIS Xendit")?"checked":""}> QRIS Xendit</label><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-cons-${r.rowIndex}" ${(r.paymentMethod||"").includes("Consignment")?"checked":""}> Consignment</label><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-pickup-${r.rowIndex}" ${(r.paymentMethod||"").includes("Pick Up in Location")?"checked":""}> Pick Up in Location</label><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-3rd-${r.rowIndex}" ${(r.paymentMethod||"").includes("3rd Party Providers")?"checked":""}> 3rd Party Providers</label><label style="display:flex;align-items:center;gap:6px;font-weight:400"><input type="checkbox" id="pbe-pm-other-${r.rowIndex}" ${(r.paymentMethod||"").includes("Other")?"checked":""}> Other</label></div></div>
             <div class="fg" style="position:relative"><label>Manpower</label><input type="text" id="pbe-manpower-${r.rowIndex}" value="${(r.manpower||'').replace(/"/g,'&quot;')}" placeholder="Ketik nama, pisahkan dengan koma" autocomplete="off"><div class="ac-list" id="ac-pbe-manpower-${r.rowIndex}"></div></div>
             <div class="fg full"><label>Notes</label><textarea id="pbe-notes-${r.rowIndex}" rows="2" style="resize:vertical">${(r.notes||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea></div>
-          </div>
-          <div id="pbe-ar-sec-${r.rowIndex}" data-event-date="${r.eventDate||''}" data-ar-exp-touched="${r.arExpectedDate?'1':'0'}" style="display:${_pbIsAREligible(r.paymentMethod)?'block':'none'};margin-top:18px;padding:14px 16px;border:1px solid var(--g200);border-radius:10px;background:#fafaf7">
-            <div style="font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--g600);margin-bottom:10px">Payment Tracking (Account Receivables)</div>
-            <div class="edit-row-grid">
-              <div class="fg"><label>Expected Payment Date <span style="font-size:10px;color:var(--g400);font-weight:400">(auto +7 hari dari event)</span></label><input type="date" id="pbe-ar-exp-${r.rowIndex}" value="${r.arExpectedDate||''}"></div>
-              <div class="fg"><label>Tanggal Pembayaran Diterima</label><input type="date" id="pbe-ar-paid-${r.rowIndex}" value="${r.arPaidAt||''}"></div>
-              <div class="fg"><label>Bukti Transfer</label>${r.arBuktiUrl?`<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><a href="${r.arBuktiUrl}" target="_blank" style="font-size:12px;color:var(--black);text-decoration:underline">Lihat bukti</a><button type="button" onclick="_pbClearArBukti('${r.rowIndex}')" style="border:none;background:transparent;color:#c33;cursor:pointer;font-size:11px;padding:0">Hapus</button></div>`:''}<input type="file" id="pbe-ar-bukti-${r.rowIndex}" accept="image/*,application/pdf" style="font-size:12px"></div>
-              <div class="fg full"><label>Catatan Pembayaran</label><textarea id="pbe-ar-notes-${r.rowIndex}" rows="2" style="resize:vertical">${(r.arNotes||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea></div>
-            </div>
           </div>
           <div class="edit-row-btns">
             <button class="btn-save" onclick="savePBEdit('${r.rowIndex}')">Simpan</button>
@@ -2902,21 +2893,9 @@ async function savePBEdit(rowIdx) {
     const srDeadline = calcPBSRDeadline(eventDate);
     const nm = document.getElementById(`pbe-eventname-${rowIdx}`).value.trim();
     if (!nm) { if(btn){btn.disabled=false;btn.textContent="Simpan";} alert("Nama Event wajib diisi."); return; }
+    // Clear AR fields kalau payment method gak lagi AR-eligible
     const arEligible = _pbIsAREligible(pm);
-    let arExpected = null, arPaid = null, arNotes = null, arBuktiUrl = orig?.arBuktiUrl || null;
-    if (arEligible) {
-      arExpected = document.getElementById(`pbe-ar-exp-${rowIdx}`)?.value || null;
-      arPaid = document.getElementById(`pbe-ar-paid-${rowIdx}`)?.value || null;
-      arNotes = document.getElementById(`pbe-ar-notes-${rowIdx}`)?.value.trim() || null;
-      const fileEl = document.getElementById(`pbe-ar-bukti-${rowIdx}`);
-      const f = fileEl?.files?.[0];
-      if (f) {
-        try { arBuktiUrl = await _pbUploadArBukti(rowIdx, f); }
-        catch(e) { if(btn){btn.disabled=false;btn.textContent="Simpan";} alert("Gagal upload bukti: "+(e.message||e)); return; }
-      }
-    } else {
-      arBuktiUrl = null;
-    }
+    const arClear = !arEligible ? {ar_expected_date:null, ar_paid_at:null, ar_bukti_url:null, ar_notes:null, ar_reported_sales:null, ar_sales_report_url:null} : {};
     const {error} = await sb.from("popup_booths").update({
       event_name:nm, event_date:eventDate||null,
       location:document.getElementById(`pbe-location-${rowIdx}`).value.trim()||null,
@@ -2926,10 +2905,7 @@ async function savePBEdit(rowIdx) {
       sr_deadline:srDeadline||null,
       payment_method:pm||null,
       notes:document.getElementById(`pbe-notes-${rowIdx}`).value.trim()||null,
-      ar_expected_date:arEligible?arExpected:null,
-      ar_paid_at:arEligible?arPaid:null,
-      ar_bukti_url:arBuktiUrl,
-      ar_notes:arEligible?arNotes:null,
+      ...arClear,
       last_updated:new Date().toISOString(), last_updated_by:currentUser
     }).eq("id",rowIdx);
     if (error) throw error;
@@ -3036,7 +3012,7 @@ function _pbRpShort(n) {
 }
 
 // Per-event toggle state — sections start collapsed except `remaining`.
-const _pbSectionState = { 'stock-in':false, 'sales':false, 'reinbound':false, 'internal':false, 'adjustment':false, 'remaining':true };
+const _pbSectionState = { 'stock-in':false, 'sales':false, 'reinbound':false, 'internal':false, 'adjustment':false, 'remaining':true, 'payment':true };
 function togglePBSection(key) {
   const open = !_pbSectionState[key];
   _pbSectionState[key] = open;
@@ -3088,12 +3064,16 @@ async function openPBDetail(rowIndex) {
   if (r.notes) { tagEl.style.display='block'; tagEl.textContent = r.notes; } else { tagEl.style.display='none'; }
 
   // Reset section placeholders
-  ['pbd-stock-in','pbd-sales','pbd-reinbound','pbd-internal','pbd-adjustment','pbd-remaining'].forEach(id => {
+  ['pbd-stock-in','pbd-sales','pbd-reinbound','pbd-internal','pbd-adjustment','pbd-remaining','pbd-payment'].forEach(id => {
     const el = document.getElementById(id); if (el) el.innerHTML = '<div style="font-size:11px;color:var(--g400)">Memuat…</div>';
   });
-  ['pbd-in-summary','pbd-sales-summary','pbd-reinbound-summary','pbd-internal-summary','pbd-adjustment-summary','pbd-remaining-summary'].forEach(id => {
+  ['pbd-in-summary','pbd-sales-summary','pbd-reinbound-summary','pbd-internal-summary','pbd-adjustment-summary','pbd-remaining-summary','pbd-payment-summary'].forEach(id => {
     const el = document.getElementById(id); if (el) el.textContent = '—';
   });
+
+  // Payment card visibility — only show when payment_method is AR-eligible
+  const payCard = document.getElementById('pbd-payment-card');
+  if (payCard) payCard.style.display = _pbIsAREligible(r.paymentMethod) ? 'block' : 'none';
 
   await _pbLoadDetailData(r.eventName || '', r.rowIndex);
 }
@@ -3109,6 +3089,7 @@ function closePBDetail() {
 }
 
 async function _pbLoadDetailData(eventName, boothId) {
+  _pbExportCache = null;
   try {
     // Tx: prefer popup_booth_id, fallback to legacy name where booth id NULL
     const txByIdQ = boothId
@@ -3254,6 +3235,7 @@ async function _pbLoadDetailData(eventName, boothId) {
     _pbRenderSalesSection(salesItems, orderHeaderMap, costMap);
     _pbRenderAdjustmentSection(adjHeaders, adjItems, costMap);
     _pbRenderRemainingSection(inItems, confirmedSalesItems, outItems, adjItems, costMap);
+    _pbRenderPaymentSection();
     _pbApplyCollapsedState();
   } catch (e) {
     console.error('_pbLoadDetailData:', e);
@@ -3856,6 +3838,162 @@ async function loadNotifications() {
     if (badge) { badge.textContent = unreadCount > 9 ? "9+" : unreadCount; badge.style.display = unreadCount ? "flex" : "none"; }
     renderNotifDropdown(all);
   } catch(e) { /* silent */ }
+}
+
+// ── PB Payment & Reconciliation Section ──
+// Renders inside detail card. Computed sales from _pbExportCache (set by sales render).
+// Partner reported sales + sales report file = reconciliation reference.
+function _pbRenderPaymentSection() {
+  const cont = document.getElementById('pbd-payment');
+  const sum  = document.getElementById('pbd-payment-summary');
+  if (!cont) return;
+  const r = _pbCurrentDetail;
+  if (!r || !_pbIsAREligible(r.paymentMethod)) {
+    cont.innerHTML = '';
+    if (sum) sum.textContent = '—';
+    return;
+  }
+  const computed = Number(_pbExportCache?.totalRev || 0);
+  const reportedRaw = r.arReportedSales;
+  const reported = (reportedRaw === '' || reportedRaw == null) ? null : Number(reportedRaw);
+  const delta = reported != null ? (reported - computed) : null;
+  const deltaPct = (computed > 0 && delta != null) ? (delta/computed*100) : null;
+  const channelLabel = (r.paymentMethod||'').split(',').map(s=>s.trim()).find(s => s === 'Consignment' || s === '3rd Party Providers' || s === 'Other') || 'Pop Up Booth';
+  // Status pill in summary
+  let statusTxt;
+  if (r.arPaidAt) statusTxt = `✓ Paid · ${r.arPaidAt}`;
+  else if (reported != null) statusTxt = `📋 Reported · ${_pbRpShort(reported)}`;
+  else statusTxt = `⏳ Awaiting Report`;
+  if (sum) sum.textContent = `${channelLabel} · ${statusTxt}`;
+
+  const deltaBlock = delta != null ? `
+    <div style="background:${Math.abs(delta) < 1 ? '#eef9f0' : (delta < 0 ? '#fff5e6' : '#fdecec')};border:1px solid ${Math.abs(delta) < 1 ? '#b8d9b3' : (delta < 0 ? '#f0c97a' : '#e8b4b4')};border-radius:6px;padding:10px 12px;margin-top:8px">
+      <div style="font-size:10px;font-family:var(--label);text-transform:uppercase;letter-spacing:0.05em;color:var(--g600);margin-bottom:4px">Selisih</div>
+      <div style="font-size:14px;font-weight:700;font-family:var(--mono);color:${Math.abs(delta) < 1 ? '#0a7d3a' : (delta < 0 ? '#a66200' : '#c0392b')}">
+        ${delta >= 0 ? '+' : ''}${_pbRp(delta)} ${deltaPct != null ? `<span style="font-size:11px;color:var(--g600);font-weight:400">(${deltaPct >= 0 ? '+' : ''}${deltaPct.toFixed(1)}%)</span>` : ''}
+      </div>
+      <div style="font-size:11px;color:var(--g600);margin-top:4px">${Math.abs(delta) < 1 ? 'Cocok dengan perhitungan kita.' : (delta < 0 ? 'Partner lapor lebih rendah dari computed.' : 'Partner lapor lebih tinggi dari computed.')}</div>
+    </div>` : '';
+
+  cont.innerHTML = `
+    <!-- Reconciliation: Computed vs Reported -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+      <div style="background:var(--off);border-radius:6px;padding:10px 12px">
+        <div style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.05em;font-family:var(--label)">Computed (Sales Performance)</div>
+        <div style="font-size:14px;font-weight:600;font-family:var(--mono);margin-top:2px">${_pbRp(computed)}</div>
+        <div style="font-size:10px;color:var(--g400);margin-top:2px">dari Jubelio sales mapped ke event ini</div>
+      </div>
+      <div style="background:var(--off);border-radius:6px;padding:10px 12px">
+        <div style="font-size:10px;color:var(--g400);text-transform:uppercase;letter-spacing:0.05em;font-family:var(--label)">Reported by Partner</div>
+        <div style="font-size:14px;font-weight:600;font-family:var(--mono);margin-top:2px">${reported != null ? _pbRp(reported) : '<span style="color:var(--g300);font-style:italic">Belum diisi</span>'}</div>
+        <div style="font-size:10px;color:var(--g400);margin-top:2px">manual entry dari laporan partner</div>
+      </div>
+    </div>
+    ${deltaBlock}
+
+    <!-- Form: Sales Report + Payment Tracking -->
+    <div class="edit-row-grid" style="margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="fg">
+        <label>Reported Sales Amount (Rp)</label>
+        <input type="number" id="pbd-pay-reported" min="0" step="any" value="${reported != null ? reported : ''}" placeholder="Masukin angka dari laporan partner">
+      </div>
+      <div class="fg">
+        <label>Sales Report File</label>
+        ${r.arSalesReportUrl ? `<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><a href="${r.arSalesReportUrl}" target="_blank" style="font-size:12px;color:var(--black);text-decoration:underline">📄 Lihat laporan</a><button type="button" onclick="_pbClearArReport()" style="border:none;background:transparent;color:#c33;cursor:pointer;font-size:11px;padding:0">Hapus</button></div>` : ''}
+        <input type="file" id="pbd-pay-report" accept="image/*,application/pdf,.csv,.xlsx,.xls" style="font-size:12px">
+      </div>
+      <div class="fg">
+        <label>Expected Payment Date</label>
+        <input type="date" id="pbd-pay-exp" value="${r.arExpectedDate || ''}">
+        <div style="font-size:10px;color:var(--g400);margin-top:2px">auto +7 hari dari event date</div>
+      </div>
+      <div class="fg">
+        <label>Tanggal Pembayaran Diterima</label>
+        <input type="date" id="pbd-pay-paid" value="${r.arPaidAt || ''}">
+      </div>
+      <div class="fg" style="grid-column:1 / -1">
+        <label>Bukti Transfer</label>
+        ${r.arBuktiUrl ? `<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><a href="${r.arBuktiUrl}" target="_blank" style="font-size:12px;color:var(--black);text-decoration:underline">💵 Lihat bukti</a><button type="button" onclick="_pbClearArBuktiInDetail()" style="border:none;background:transparent;color:#c33;cursor:pointer;font-size:11px;padding:0">Hapus</button></div>` : ''}
+        <input type="file" id="pbd-pay-bukti" accept="image/*,application/pdf" style="font-size:12px">
+      </div>
+      <div class="fg" style="grid-column:1 / -1">
+        <label>Catatan Pembayaran</label>
+        <textarea id="pbd-pay-notes" rows="2" style="resize:vertical">${_pbEsc(r.arNotes||'')}</textarea>
+      </div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;margin-top:12px">
+      <button class="btn-primary" onclick="_pbSavePaymentSection()" style="padding:8px 18px;background:var(--black);color:var(--white);border:none;border-radius:6px;font-size:12px;cursor:pointer;font-family:var(--body);font-weight:500">Simpan</button>
+    </div>
+  `;
+}
+
+async function _pbClearArReport() {
+  if (!_pbCurrentDetail || !confirm('Hapus file laporan sales yang sudah di-upload?')) return;
+  try {
+    const {error} = await sb.from('popup_booths').update({ar_sales_report_url:null,last_updated:new Date().toISOString(),last_updated_by:currentUser}).eq('id', _pbCurrentDetail.rowIndex);
+    if (error) throw error;
+    _pbCurrentDetail.arSalesReportUrl = '';
+    _pbRenderPaymentSection();
+    await loadPopupBooth();
+  } catch(e) { alert('Gagal menghapus: '+(e.message||e)); }
+}
+async function _pbClearArBuktiInDetail() {
+  if (!_pbCurrentDetail || !confirm('Hapus bukti transfer?')) return;
+  try {
+    const {error} = await sb.from('popup_booths').update({ar_bukti_url:null,last_updated:new Date().toISOString(),last_updated_by:currentUser}).eq('id', _pbCurrentDetail.rowIndex);
+    if (error) throw error;
+    _pbCurrentDetail.arBuktiUrl = '';
+    _pbRenderPaymentSection();
+    await loadPopupBooth();
+  } catch(e) { alert('Gagal menghapus: '+(e.message||e)); }
+}
+async function _pbUploadPaymentFile(rowIdx, file, kind) {
+  if (!file) return null;
+  if (file.size > 5*1024*1024) throw new Error('File terlalu besar (max 5MB)');
+  const ext = (file.name.split('.').pop()||'bin').toLowerCase();
+  const path = `popup-booth/${rowIdx}/${kind}-${Date.now()}.${ext}`;
+  const {error} = await sb.storage.from('wholesale-bukti').upload(path, file, {upsert:true, contentType:file.type||'application/octet-stream'});
+  if (error) throw error;
+  const {data} = sb.storage.from('wholesale-bukti').getPublicUrl(path);
+  return data?.publicUrl || null;
+}
+async function _pbSavePaymentSection() {
+  const r = _pbCurrentDetail;
+  if (!r) return;
+  const btn = document.querySelector('#pbd-payment .btn-primary');
+  if (btn) { btn.disabled = true; btn.textContent = 'Menyimpan…'; }
+  try {
+    const reportedRaw = document.getElementById('pbd-pay-reported')?.value;
+    const reported = reportedRaw === '' || reportedRaw == null ? null : Number(reportedRaw);
+    const expDate = document.getElementById('pbd-pay-exp')?.value || null;
+    const paidAt = document.getElementById('pbd-pay-paid')?.value || null;
+    const notes = document.getElementById('pbd-pay-notes')?.value.trim() || null;
+    const reportFile = document.getElementById('pbd-pay-report')?.files?.[0];
+    const buktiFile = document.getElementById('pbd-pay-bukti')?.files?.[0];
+    let arSalesReportUrl = r.arSalesReportUrl || null;
+    let arBuktiUrl = r.arBuktiUrl || null;
+    if (reportFile) arSalesReportUrl = await _pbUploadPaymentFile(r.rowIndex, reportFile, 'sales-report');
+    if (buktiFile) arBuktiUrl = await _pbUploadPaymentFile(r.rowIndex, buktiFile, 'bukti');
+    const {error} = await sb.from('popup_booths').update({
+      ar_reported_sales: reported,
+      ar_sales_report_url: arSalesReportUrl,
+      ar_expected_date: expDate,
+      ar_paid_at: paidAt,
+      ar_bukti_url: arBuktiUrl,
+      ar_notes: notes,
+      last_updated: new Date().toISOString(),
+      last_updated_by: currentUser
+    }).eq('id', r.rowIndex);
+    if (error) throw error;
+    // Refresh in-memory detail + re-render
+    Object.assign(r, {arReportedSales: reported ?? '', arSalesReportUrl: arSalesReportUrl||'', arExpectedDate: expDate||'', arPaidAt: paidAt||'', arBuktiUrl: arBuktiUrl||'', arNotes: notes||''});
+    _pbRenderPaymentSection();
+    await loadPopupBooth();
+    if (btn) { btn.disabled = false; btn.textContent = '✓ Tersimpan'; setTimeout(() => { btn.textContent = 'Simpan'; }, 1500); }
+  } catch(e) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Simpan'; }
+    alert('Gagal menyimpan: '+(e.message||e));
+  }
 }
 
 function renderNotifDropdown(items) {
@@ -37634,7 +37772,7 @@ async function loadAR() {
       sb.from('manual_purchase_orders').select('id,billed_to_name,line_brand,invoice_no,invoice_date,due_date,grand_total,total_received,payment_due,status,payment_plan,shipping_cost').order('invoice_date',{ascending:false,nullsFirst:false}),
       sb.from('manual_purchase_payments').select('*'),
       sb.from('manual_purchase_items').select('order_id,subtotal'),
-      sb.from('popup_booths').select('id,event_name,event_date,location,ip_related,payment_method,actual_sales,ar_expected_date,ar_paid_at,ar_bukti_url,ar_notes').or('payment_method.ilike.%Consignment%,payment_method.ilike.%3rd Party Providers%,payment_method.ilike.%Other%').order('event_date',{ascending:false,nullsFirst:false}),
+      sb.from('popup_booths').select('id,event_name,event_date,location,ip_related,payment_method,actual_sales,ar_expected_date,ar_paid_at,ar_bukti_url,ar_notes,ar_reported_sales,ar_sales_report_url').or('payment_method.ilike.%Consignment%,payment_method.ilike.%3rd Party Providers%,payment_method.ilike.%Other%').order('event_date',{ascending:false,nullsFirst:false}),
     ]);
     const orders = ordersRes.data || [];
     const payments = paymentsRes.data || [];
@@ -37803,10 +37941,12 @@ async function loadAR() {
         const invDate = pb.event_date || null;
         if (!invDate) continue;
         const eventPast = invDate < today;
-        const amount = (pb.actual_sales != null) ? Number(pb.actual_sales) : (pbComputedSales.get(pb.id) || 0);
-        // Drop hanya event yang belum lewat tapi belum ada sales — gak relevan dulu
+        // Amount priority: reported by partner → computed (Jubelio mapped) → actual_sales manual
+        const reportedAmt = pb.ar_reported_sales != null ? Number(pb.ar_reported_sales) : null;
+        const computedAmt = pbComputedSales.has(pb.id) ? pbComputedSales.get(pb.id) : (pb.actual_sales != null ? Number(pb.actual_sales) : 0);
+        const amount = reportedAmt != null ? reportedAmt : computedAmt;
         if (amount <= 0 && !eventPast) continue;
-        const awaitingReport = amount <= 0 && eventPast;
+        const awaitingReport = reportedAmt == null && eventPast;
         const dueDate = pb.ar_expected_date || _pbAddDays(invDate, 7);
         const paidAt = pb.ar_paid_at || null;
         let daysOut = 0, daysOverdue = 0, isOverdue = false, status = '';
