@@ -38445,15 +38445,17 @@ async function loadAR() {
         const invDate = pb.event_date || null;
         if (!invDate) continue;
         const eventPast = invDate < today;
-        // Gross priority: reported by partner → computed (Jubelio mapped) → actual_sales manual
+        // Computed (Jubelio mapped) = our source of truth → dipakai sebagai AR amount.
+        // Reported (partner's claim) ditampilkan sebagai reference comparison.
         const reportedAmt = pb.ar_reported_sales != null ? Number(pb.ar_reported_sales) : null;
         const computedAmt = pbComputedSales.has(pb.id) ? pbComputedSales.get(pb.id) : (pb.actual_sales != null ? Number(pb.actual_sales) : 0);
-        const grossBasis = reportedAmt != null ? reportedAmt : computedAmt;
         const feePct = pb.ar_partner_fee_pct != null ? Number(pb.ar_partner_fee_pct) : 0;
-        // AR amount = net receivable (gross - partner fee)
-        const amount = grossBasis * (1 - feePct/100);
-        if (amount <= 0 && !eventPast) continue;
-        const awaitingReport = reportedAmt == null && eventPast;
+        // AR amount = computed × (1 − fee%) (net receivable per perhitungan kita)
+        const amount = computedAmt * (1 - feePct/100);
+        // Skip event yang belum lewat & computed kosong (gak relevan dulu)
+        if (amount <= 0 && reportedAmt == null && !eventPast) continue;
+        // Awaiting kalau computed masih 0 (belum ada sales sync) DAN partner belum lapor
+        const awaitingReport = computedAmt <= 0 && reportedAmt == null && eventPast;
         const dueDate = pb.ar_expected_date || _pbAddDays(invDate, 7);
         const paidAt = pb.ar_paid_at || null;
         let daysOut = 0, daysOverdue = 0, isOverdue = false, status = '';
@@ -38476,9 +38478,9 @@ async function loadAR() {
           status = isOverdue ? 'overdue' : 'unpaid';
         }
         const channelLabel = (pb.payment_method||'').split(',').map(s=>s.trim()).find(s => s === 'Consignment' || s === '3rd Party Providers' || s === 'Other') || 'Pop Up Booth';
-        // Computed net (untuk show side-by-side kalau reported beda)
-        const computedNet = computedAmt * (1 - feePct/100);
-        const showComputedAlt = reportedAmt != null && Math.abs(reportedAmt - computedAmt) >= 1;
+        // Reported net (untuk show side-by-side kalau partner kasih angka beda)
+        const reportedNet = reportedAmt != null ? reportedAmt * (1 - feePct/100) : null;
+        const showReportedAlt = reportedAmt != null && Math.abs(reportedAmt - computedAmt) >= 1;
         rows.push({
           type: 'popup_booth',
           orderId: pb.id,
@@ -38487,8 +38489,8 @@ async function loadAR() {
           milestoneKey: 'event',
           milestoneLabel: `Event · ${channelLabel}`,
           amount,
-          amountAltLabel: showComputedAlt ? 'computed' : null,
-          amountAlt: showComputedAlt ? computedNet : null,
+          amountAltLabel: showReportedAlt ? 'partner' : null,
+          amountAlt: showReportedAlt ? reportedNet : null,
           invoiceDate: invDate,
           dueDate,
           paidAt,
