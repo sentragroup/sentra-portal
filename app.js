@@ -4143,7 +4143,7 @@ async function _pbGenerateSuratJalanPDF(recipientName) {
       table.lampiran td.sz{font-family:'Space Mono',monospace;font-weight:700;width:60px}
       table.lampiran td.sku{font-family:'Space Mono',monospace;font-size:10px;color:#666}
       table.lampiran td.r{text-align:right;font-family:'Space Mono',monospace}
-      .sig-row{display:flex;justify-content:space-between;margin-top:auto;padding-top:20px;gap:40px}
+      .sig-row{display:flex;justify-content:space-between;padding-top:24px;gap:40px}
       .sig{flex:1;text-align:center}
       .sig .company{font-weight:600;font-size:11.5px;margin-bottom:4px}
       .sig .gap{height:60px}
@@ -4205,8 +4205,6 @@ async function _pbGenerateSuratJalanPDF(recipientName) {
             <div class="name">${recName.replace(/</g,'&lt;')}</div>
           </div>
         </div>
-        ${adjNetSigned !== 0 ? `<div style="margin-top:14px;padding:10px 14px;background:#fbf9f0;border-left:4px solid #d4af37;font-size:10.5px;color:#555">Qty di atas sudah mempertimbangkan stock adjustment di event ini: ${totalAdjPos > 0 ? `+${totalAdjPos} pcs` : ''}${totalAdjPos > 0 && totalAdjNeg < 0 ? ' · ' : ''}${totalAdjNeg < 0 ? `${totalAdjNeg} pcs` : ''} (net ${adjNetSigned > 0 ? '+' : ''}${adjNetSigned})</div>` : ''}
-
         <div class="tnc">
           <div class="tnc-title">Syarat &amp; Ketentuan</div>
           <ol class="tnc-list">
@@ -4216,7 +4214,7 @@ async function _pbGenerateSuratJalanPDF(recipientName) {
             <li><strong>Pembayaran Jasa PIC.</strong> Pembayaran jasa kepada PIC (Person In Charge) hanya akan dilakukan setelah seluruh tugas, tanggung jawab pengembalian barang, dan rekonsiliasi penjualan telah diselesaikan secara tuntas oleh PIC bersangkutan.</li>
           </ol>
         </div>
-        <footer>Surat Jalan ini menjadi bukti serah-terima barang ke partner ${channelLabel} · Penerima menyetujui Syarat &amp; Ketentuan di atas dengan menandatangani dokumen ini</footer>
+        <footer>Surat Jalan ini menjadi bukti serah-terima barang ke partner ${channelLabel}</footer>
       </div>
       <script>setTimeout(()=>window.print(),500);<\/script>
     </body></html>`);
