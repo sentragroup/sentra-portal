@@ -12095,6 +12095,7 @@ async function syncJubelioMasterCatalog() {
   btn.disabled = true;
   btn.textContent = '⟳ Menyinkron...';
   const t0 = Date.now();
+  const beforeSync = new Date().toISOString();
   try {
     const result = await callEdgeFunction('sync-jubelio-inventory');
     const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
@@ -12102,20 +12103,45 @@ async function syncJubelioMasterCatalog() {
     const stocks = result?.stocks || result?.stocksUpserted || 0;
     btn.textContent = `✓ ${items} items · ${stocks} stocks · ${elapsed}s`;
     btn.style.background = '#2d7a2d';
-    _pmSyncCooldownUntil = Date.now() + 5 * 60 * 1000; // 5 menit cooldown
+    _pmSyncCooldownUntil = Date.now() + 5 * 60 * 1000;
     setTimeout(async () => {
       btn.textContent = originalText;
       btn.style.background = '';
       btn.disabled = false;
-      // Auto-refresh PM table biar data baru langsung kelihat
       if (typeof loadProductMap === 'function') loadProductMap(0, '');
     }, 2500);
   } catch (e) {
-    btn.textContent = '✗ Gagal — coba lagi';
-    btn.style.background = '#c0392b';
-    console.error('sync-jubelio-inventory failed:', e);
-    setTimeout(() => { btn.textContent = originalText; btn.style.background = ''; btn.disabled = false; }, 3000);
-    alert('Sync gagal: ' + (e.message || e));
+    // Network/timeout error doesn't mean sync failed — Supabase gateway often
+    // drops the connection at 60s tapi edge function tetep selesai di belakang.
+    // Poll jubelio_items.synced_at sampe ada yang fresh (> beforeSync).
+    console.warn('Fetch dropped, polling synced_at to verify:', e.message);
+    btn.textContent = '⟳ Verifikasi server...';
+    let verified = false;
+    for (let i = 0; i < 18; i++) {  // poll up to ~90s total (18 × 5s)
+      await new Promise(res => setTimeout(res, 5000));
+      try {
+        const { data } = await sb.from('jubelio_items').select('synced_at').gt('synced_at', beforeSync).limit(1);
+        if (data && data.length > 0) { verified = true; break; }
+      } catch(_) {}
+    }
+    if (verified) {
+      const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+      btn.textContent = `✓ Selesai · ${elapsed}s (server-side)`;
+      btn.style.background = '#2d7a2d';
+      _pmSyncCooldownUntil = Date.now() + 5 * 60 * 1000;
+      setTimeout(() => {
+        btn.textContent = originalText;
+        btn.style.background = '';
+        btn.disabled = false;
+        if (typeof loadProductMap === 'function') loadProductMap(0, '');
+      }, 2500);
+    } else {
+      btn.textContent = '✗ Gagal — coba lagi';
+      btn.style.background = '#c0392b';
+      console.error('sync-jubelio-inventory failed (no server verification):', e);
+      setTimeout(() => { btn.textContent = originalText; btn.style.background = ''; btn.disabled = false; }, 3000);
+      alert('Sync gagal: ' + (e.message || e));
+    }
   }
 }
 
