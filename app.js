@@ -11737,7 +11737,7 @@ async function loadSAData() {
     [adjs, cats, events] = await Promise.all([
       _fetchAllPages("jubelio_inventory_adjustments","item_adj_id,item_adj_no,transaction_date,location_name,net_qty,item_count,note",q=>q.gte("transaction_date","2026-01-01").order("transaction_date",{ascending:false})),
       _fetchAllPages("adjustment_categories","item_adj_id,category,categorized_by,event_ref,popup_booth_id,updated_at"),
-      sb.from("popup_booths").select("id,event_name,event_date").order("event_date",{ascending:false}).then(r => r.data || []),
+      sb.from("popup_booths").select("id,event_name,event_date,ip_related").order("event_date",{ascending:false}).then(r => r.data || []),
     ]);
   } catch (e) {
     if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="8">Error: ${e.message||e}</td></tr>`;
@@ -12073,8 +12073,9 @@ function saEventRefSelectHTML(adjId, currentBoothId, currentRef) {
   const noNameMatch = !resolvedId && currentRef && !saEvents.some(e => e.event_name === currentRef);
   const extra = noNameMatch ? `<option value="" selected>⚠ ${currentRef.replace(/</g,'&lt;')} (legacy — event terhapus)</option>` : '';
   const opts = saEvents.map(e => {
-    const dt = e.event_date ? ` · ${new Date(e.event_date).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"2-digit"})}` : '';
-    return `<option value="${e.id}"${e.id===resolvedId?" selected":""}>${e.event_name}${dt}</option>`;
+    const dt = e.event_date ? ` (${new Date(e.event_date).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"2-digit"})})` : '';
+    const ipPrefix = e.ip_related ? `${e.ip_related} — ` : '';
+    return `<option value="${e.id}"${e.id===resolvedId?" selected":""}>${ipPrefix}${e.event_name}${dt}</option>`;
   }).join("");
   const title = needsRepick ? `Ambigu — ada ${saEvents.filter(e => e.event_name === currentRef).length} event nama "${currentRef}". Pilih ulang.` : '';
   return `<select onchange="saveSAEventRef(${adjId},this.value)" title="${title}" style="font-size:12px;padding:3px 8px;border:1px solid ${borderColor};border-radius:4px;width:100%;background:${bg};max-width:240px">
