@@ -37800,10 +37800,13 @@ async function loadAR() {
         }
       }
       for (const pb of pbOrders) {
-        const amount = (pb.actual_sales != null) ? Number(pb.actual_sales) : (pbComputedSales.get(pb.id) || 0);
-        if (amount <= 0) continue;
         const invDate = pb.event_date || null;
         if (!invDate) continue;
+        const eventPast = invDate < today;
+        const amount = (pb.actual_sales != null) ? Number(pb.actual_sales) : (pbComputedSales.get(pb.id) || 0);
+        // Drop hanya event yang belum lewat tapi belum ada sales — gak relevan dulu
+        if (amount <= 0 && !eventPast) continue;
+        const awaitingReport = amount <= 0 && eventPast;
         const dueDate = pb.ar_expected_date || _pbAddDays(invDate, 7);
         const paidAt = pb.ar_paid_at || null;
         let daysOut = 0, daysOverdue = 0, isOverdue = false, status = '';
@@ -37812,6 +37815,11 @@ async function loadAR() {
           const inv = new Date(invDate+'T00:00:00');
           const pd = new Date(paidAt+'T00:00:00');
           daysOut = Math.max(0, Math.round((pd-inv)/86400000));
+        } else if (awaitingReport) {
+          status = 'awaiting';
+          const inv = new Date(invDate+'T00:00:00');
+          const todayDt = new Date(today+'T00:00:00');
+          daysOut = Math.max(0, Math.round((todayDt-inv)/86400000));
         } else {
           const inv = new Date(invDate+'T00:00:00');
           const due = dueDate ? new Date(dueDate+'T00:00:00') : null;
@@ -37906,10 +37914,10 @@ function applyARFilters() {
     if (q && !(`${r.orderId} ${r.customerName}`.toLowerCase().includes(q))) return false;
     return true;
   });
-  // Default sort: overdue dulu (descending days), unpaid, paid
-  const statusOrder = { overdue: 0, unpaid: 1, paid: 2 };
+  // Default sort: overdue dulu (descending days), unpaid, awaiting, paid
+  const statusOrder = { overdue: 0, unpaid: 1, awaiting: 2, paid: 3 };
   rows.sort((a,b) => {
-    const s = (statusOrder[a.status]||9) - (statusOrder[b.status]||9);
+    const s = (statusOrder[a.status]??9) - (statusOrder[b.status]??9);
     if (s !== 0) return s;
     return (b.daysOverdue||0) - (a.daysOverdue||0);
   });
@@ -37940,20 +37948,26 @@ function renderARTable(rows) {
     } else if (r.status === 'overdue') {
       statusPill = `<span class="pill p-expired" style="font-size:10px">⚠ Overdue</span>`;
       daysCol = `<span style="font-size:11px;color:#c0392b;font-family:var(--mono);font-weight:700">+${r.daysOverdue}d</span><div style="font-size:9px;color:#c0392b">overdue</div>`;
+    } else if (r.status === 'awaiting') {
+      statusPill = `<span class="pill p-near" style="font-size:10px" title="Event sudah lewat tapi sales report / sync Jubelio belum masuk">📋 Awaiting Report</span>`;
+      daysCol = `<span style="font-size:11px;color:#a66200;font-family:var(--mono)">${r.daysOut}d</span><div style="font-size:9px;color:#a66200">since event</div>`;
     } else {
       statusPill = `<span class="pill p-review" style="font-size:10px">⏳ Outstanding</span>`;
       daysCol = `<span style="font-size:11px;color:var(--g600);font-family:var(--mono)">${r.daysOut}d</span><div style="font-size:9px;color:var(--g400)">outstanding</div>`;
     }
     const typeBadge = r.orderId.startsWith('MP-')
-      ? `<span style="display:inline-block;font-size:9px;font-family:var(--mono);background:#fff5e6;color:#a66200;border:1px solid #f0c97a;border-radius:3px;padding:1px 5px;margin-top:3px">MP</span>`
+      ? `<span style="display:inline-block;font-size:9px;font-family:var(--mono);background:#fff5e6;color:#a66200;border:1px solid #f0c97a;border-radius:3px;padding:1px 6px;margin-top:3px;letter-spacing:.02em">Manual Purchase</span>`
       : r.orderId.startsWith('PB-')
-        ? `<span style="display:inline-block;font-size:9px;font-family:var(--mono);background:#eef9f0;color:#0a7d3a;border:1px solid #b8d9b3;border-radius:3px;padding:1px 5px;margin-top:3px">PB</span>`
-        : `<span style="display:inline-block;font-size:9px;font-family:var(--mono);background:#eef0f8;color:#3C3489;border:1px solid #c9bdf0;border-radius:3px;padding:1px 5px;margin-top:3px">WS</span>`;
+        ? `<span style="display:inline-block;font-size:9px;font-family:var(--mono);background:#eef9f0;color:#0a7d3a;border:1px solid #b8d9b3;border-radius:3px;padding:1px 6px;margin-top:3px;letter-spacing:.02em">Pop Up Booth</span>`
+        : `<span style="display:inline-block;font-size:9px;font-family:var(--mono);background:#eef0f8;color:#3C3489;border:1px solid #c9bdf0;border-radius:3px;padding:1px 6px;margin-top:3px;letter-spacing:.02em">Wholesale</span>`;
+    const amountCell = (r.status === 'awaiting' && r.amount <= 0)
+      ? `<span style="font-family:var(--mono);font-size:11px;color:#a66200;font-style:italic">— awaiting</span>`
+      : fmtRp(r.amount);
     return `<tr>
       <td><div style="display:flex;flex-direction:column;gap:1px"><span style="font-family:var(--mono);font-size:11px;color:var(--g600)">${r.orderId}</span>${typeBadge}</div></td>
       <td style="font-size:12px;font-weight:500">${(r.customerName||'—').replace(/</g,'&lt;')}</td>
       <td style="font-size:11px;font-family:var(--mono);color:var(--g600)">${r.milestoneLabel}</td>
-      <td style="text-align:right;font-family:var(--mono);font-size:12px;font-weight:700">${fmtRp(r.amount)}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:12px;font-weight:700">${amountCell}</td>
       <td style="font-size:11px;font-family:var(--mono);color:var(--g600)">${fmtTgl(r.invoiceDate)}</td>
       <td style="font-size:11px;font-family:var(--mono);color:${r.status==='overdue'?'#c0392b':'var(--g600)'}">${fmtTgl(r.dueDate)}</td>
       <td style="text-align:right">${daysCol}</td>
