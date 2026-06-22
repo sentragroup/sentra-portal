@@ -34131,9 +34131,10 @@ async function loadWholesale() {
       const { data } = await sb.from('dist_partners').select('*');
       allDPRows = (data||[]).map(mapDP);
     }
-    const [orderRes, itemRes] = await Promise.all([
+    const [orderRes, itemRes, payRes] = await Promise.all([
       sb.from('wholesale_customer_orders').select('*').order('order_date',{ascending:false}).limit(500),
       sb.from('wholesale_customer_order_items').select('order_id,qty,unit_price'),
+      sb.from('wholesale_payments').select('order_id,milestone,amount,paid_at,invoice_date,due_date'),
     ]);
     if (orderRes.error) throw orderRes.error;
     allWholesaleOrders = (orderRes.data||[]).map(mapWO);
@@ -34146,9 +34147,35 @@ async function loadWholesale() {
       cur.value += (parseFloat(it.qty)||0) * (parseFloat(it.unit_price)||0);
       itemAgg.set(it.order_id, cur);
     });
+    // Aggregate payments per order → paid total + overdue total
+    const payByOrder = new Map();
+    (payRes.data||[]).forEach(p => {
+      const arr = payByOrder.get(p.order_id) || [];
+      arr.push(p); payByOrder.set(p.order_id, arr);
+    });
+    const today = new Date().toISOString().slice(0,10);
     allWholesaleOrders.forEach(o => {
       const a = itemAgg.get(o.id) || { count:0, value:0, qty:0 };
       o.itemCount = a.count; o.totalQty = a.qty; o.totalValue = a.value;
+      // Payment aggregation
+      const pays = payByOrder.get(o.id) || [];
+      o.paidTotal = pays.reduce((s,p) => s + (parseFloat(p.amount)||0), 0);
+      o.outstanding = Math.max(0, (o.totalValue||0) - o.paidTotal);
+      // Overdue: untuk setiap milestone yang invoice-nya udah issued (invoice_date)
+      // dan due-date-nya udah lewat tapi belum paid (paid_at null OR amount kurang dari expected).
+      const plan = o.paymentPlan || { milestones: [] };
+      const milestones = plan.milestones || [];
+      let overdueAmt = 0;
+      milestones.forEach(m => {
+        const p = pays.find(x => x.milestone === m.key);
+        if (!p || !p.invoice_date) return;
+        const dueDate = p.due_date || _whComputeDueDate(p.invoice_date);
+        if (!dueDate || dueDate >= today) return;
+        if (p.paid_at) return; // sudah paid → bukan overdue
+        const expected = Math.round((o.totalValue||0) * (parseFloat(m.pct)||0) / 100);
+        overdueAmt += expected;
+      });
+      o.overdueAmount = overdueAmt;
     });
     // Populate customer filter from wholesale partners
     const sel = document.getElementById('wh-f-customer');
@@ -34168,11 +34195,18 @@ function _whRefreshStats() {
   const setN = (id,v) => { const e=document.getElementById(id); if(e) e.textContent = v; };
   const active = allWholesaleOrders.filter(r => r.status !== 'done' && r.status !== 'canceled');
   const batched = allWholesaleOrders.filter(r => ['allocated','producing','ready'].includes(r.status));
-  const totalValue = active.reduce((s,r) => s + (r.totalValue||0), 0);
+  const totalValue   = active.reduce((s,r) => s + (r.totalValue||0), 0);
+  const paidActive   = active.reduce((s,r) => s + (r.paidTotal||0), 0);
+  const outstandActive = active.reduce((s,r) => s + (r.outstanding||0), 0);
+  const overdueActive  = active.reduce((s,r) => s + (r.overdueAmount||0), 0);
+  const fmtRpShort = v => v ? 'Rp ' + Math.round(v).toLocaleString('id-ID') : '—';
   setN('wh-s-total', allWholesaleOrders.length);
   setN('wh-s-active', active.length);
   setN('wh-s-batched', batched.length);
-  setN('wh-s-value', totalValue ? 'Rp ' + Math.round(totalValue).toLocaleString('id-ID') : '—');
+  setN('wh-s-value', fmtRpShort(totalValue));
+  setN('wh-s-paid', fmtRpShort(paidActive));
+  setN('wh-s-outstanding', fmtRpShort(outstandActive));
+  setN('wh-s-overdue', fmtRpShort(overdueActive));
 }
 
 function applyWholesaleFilter() {
@@ -34205,17 +34239,29 @@ function applyWholesaleFilter() {
     const pct = idx < 0 ? 0 : Math.round((idx+1) / WH_STATUS_FLOW.length * 100);
     return `<div style="width:60px;height:6px;background:var(--g100);border-radius:3px;overflow:hidden;display:inline-block;vertical-align:middle"><div style="width:${pct}%;height:100%;background:#0a7d3a"></div></div> <span style="font-size:10px;font-family:var(--mono);color:var(--g600)">${pct}%</span>`;
   };
-  tbody.innerHTML = rows.map(r => `<tr style="cursor:pointer" onclick="openWholesaleDetail('${r.id}')">
+  const fmtRpVal = v => v ? 'Rp '+Math.round(v).toLocaleString('id-ID') : '—';
+  tbody.innerHTML = rows.map(r => {
+    const paid = r.paidTotal || 0;
+    const out  = r.outstanding || 0;
+    const over = r.overdueAmount || 0;
+    const paidLine = paid > 0
+      ? `<div style="font-size:10px;font-family:var(--mono);color:#0a7d3a;margin-top:2px">✓ Paid: ${fmtRpVal(paid)}</div>`
+      : '';
+    const outLine = out > 0 && r.status !== 'done' && r.status !== 'canceled'
+      ? `<div style="font-size:10px;font-family:var(--mono);color:${over>0?'#c0392b':'var(--g600)'};margin-top:1px">${over>0?'⚠':'•'} Sisa: ${fmtRpVal(out)}${over>0?` <span style="background:#fdecea;color:#c0392b;padding:0 4px;border-radius:2px;font-weight:600">${fmtRpVal(over)} overdue</span>`:''}</div>`
+      : '';
+    return `<tr style="cursor:pointer" onclick="openWholesaleDetail('${r.id}')">
     <td><strong style="font-family:var(--mono);font-size:11px">${r.id}</strong>${r.customerPoNo?`<div style="font-size:10px;color:var(--g400)">Cust PO: ${r.customerPoNo.replace(/</g,'&lt;')}</div>`:''}</td>
     <td><strong>${(r.customerName||'—').replace(/</g,'&lt;')}</strong></td>
     <td style="font-family:var(--mono);font-size:11px;white-space:nowrap">${fmtD(r.orderDate)}</td>
     <td style="font-family:var(--mono);font-size:11px;white-space:nowrap">${fmtD(r.deliveryDate)}</td>
     <td style="font-size:11px">${r.itemCount||0} SKU · ${r.totalQty||0} pcs</td>
-    <td style="font-family:var(--mono);font-size:12px;font-weight:600">${r.totalValue ? 'Rp '+Math.round(r.totalValue).toLocaleString('id-ID') : '—'}</td>
+    <td style="font-family:var(--mono);font-size:12px;font-weight:600;white-space:nowrap">${fmtRpVal(r.totalValue)}${paidLine}${outLine}</td>
     <td>${stPill(r.status)}</td>
     <td>${progBar(r.status)}</td>
     <td style="text-align:right;white-space:nowrap"><button class="btn-icon" style="color:#c0392b;font-size:11px" onclick="event.stopPropagation();deleteWholesale('${r.id}')">Del</button></td>
-  </tr>`).join('');
+  </tr>`;
+  }).join('');
 }
 
 // ── Detail view ──
