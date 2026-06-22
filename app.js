@@ -1,6 +1,41 @@
 ﻿const SUPABASE_URL  = "https://qyxdjdwgvwtrpnvfndnu.supabase.co";
 const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF5eGRqZHdndnd0cnBudmZuZG51Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg1MDQyMTksImV4cCI6MjA5NDA4MDIxOX0.nNEp-TRiLySqsJ4gWbA4trIBLt5msRV5Upc21DsNlIg";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+
+// ── Auto-update banner ──
+// Tab yang udah lama dibuka kadang masih jalanin app.js versi lama setelah deploy.
+// Polling index.html tiap 3 menit, kalau version string di tag <script src="app.js?v=...">
+// beda dari yang loaded sekarang, tampilkan banner hijau di atas dengan tombol Refresh.
+const _APP_VERSION = (function() {
+  const s = Array.from(document.querySelectorAll('script[src]')).find(x => /app\.js\?v=/.test(x.src));
+  const m = s && s.src.match(/app\.js\?v=([^&"'\s]+)/);
+  return m ? m[1] : '';
+})();
+async function _checkForAppUpdate() {
+  if (!_APP_VERSION) return;
+  if (document.getElementById('_update-banner')) return;
+  try {
+    const r = await fetch('index.html?_=' + Date.now(), { cache: 'no-store' });
+    if (!r.ok) return;
+    const html = await r.text();
+    const m = html.match(/app\.js\?v=([^&"'\s]+)/);
+    if (!m) return;
+    const latest = m[1];
+    if (latest && latest !== _APP_VERSION) _showUpdateBanner(latest);
+  } catch(_) { /* offline / network blip — silent */ }
+}
+function _showUpdateBanner(latest) {
+  if (document.getElementById('_update-banner')) return;
+  const b = document.createElement('div');
+  b.id = '_update-banner';
+  b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#0a7d3a;color:white;padding:10px 16px;display:flex;justify-content:center;align-items:center;gap:14px;font-family:system-ui,sans-serif;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,0.2)';
+  b.innerHTML = '<span>✨ Update tersedia — refresh untuk pakai versi terbaru</span>'
+    + '<button onclick="location.reload()" style="background:white;color:#0a7d3a;border:none;padding:6px 16px;border-radius:5px;font-size:12px;cursor:pointer;font-weight:600;font-family:inherit">Refresh sekarang</button>'
+    + '<button onclick="document.getElementById(\'_update-banner\').remove()" style="background:transparent;color:white;border:1px solid rgba(255,255,255,0.5);padding:5px 12px;border-radius:5px;font-size:11px;cursor:pointer;font-family:inherit">Nanti</button>';
+  document.body.appendChild(b);
+}
+setTimeout(_checkForAppUpdate, 30 * 1000);          // first check 30s after load
+setInterval(_checkForAppUpdate, 3 * 60 * 1000);     // then every 3 min
 const MANUAL_STATUSES = ["Draft","Under Review","Signings","Signed"];
 
 function genId(prefix) {
