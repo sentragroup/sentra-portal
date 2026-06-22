@@ -926,6 +926,12 @@
         <div class="filter-panel">
           <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="clearARFilters()">✕ Reset</button></div>
           <div class="filter-grid">
+            <select class="f-select" id="ar-fil-type" onchange="applyARFilters()">
+              <option value="">Semua Tipe</option>
+              <option value="wholesale">Wholesale</option>
+              <option value="manual_purchase">Manual Purchase</option>
+              <option value="popup_booth">Pop Up Booth</option>
+            </select>
             <select class="f-select" id="ar-fil-status" onchange="applyARFilters()">
               <option value="">Semua Status</option>
               <option value="overdue">⚠ Overdue</option>
@@ -938,13 +944,15 @@
             <input class="search-box" type="text" id="arSearch" placeholder="Cari order ID atau customer..." oninput="applyARFilters()" style="width:100%">
           </div>
         </div>
-        <div class="table-toolbar">
+        <div class="table-toolbar" style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+          <div style="display:flex;gap:0;border:1px solid var(--g200);border-radius:6px;overflow:hidden">
+            <button id="ar-view-order-btn" onclick="setARView('order')" style="padding:6px 14px;background:var(--black);color:var(--white);border:none;font-size:11px;cursor:pointer;font-family:var(--body);font-weight:500">Per Order</button>
+            <button id="ar-view-invoice-btn" onclick="setARView('invoice')" style="padding:6px 14px;background:white;color:var(--g600);border:none;font-size:11px;cursor:pointer;font-family:var(--body)">Per Invoice</button>
+          </div>
           <div class="tcount" id="ar-tcount">— entri</div>
         </div>
         <div class="table-wrap"><table>
-          <thead><tr>
-            <th>Order</th><th>Customer</th><th>Milestone</th><th style="text-align:right">Amount</th><th>Invoice Date</th><th>Due Date</th><th style="text-align:right">Days</th><th>Status</th><th>Invoice Signed</th><th>Bukti Bayar</th><th></th>
-          </tr></thead>
+          <thead id="ar-thead"></thead>
           <tbody id="ar-tbody"><tr><td class="empty-td" colspan="11">Klik Refresh untuk memuat data.</td></tr></tbody>
         </table></div>
       </div><!-- /.page#page-arreceivables -->
@@ -5292,6 +5300,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20260615ey"></script>
+<script src="app.js?v=20260615ez"></script>
 </body>
 </html>
