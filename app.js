@@ -36090,8 +36090,8 @@ async function _whDownloadInvoice(milestone, invoiceType) {
         <table class="line">
           <thead><tr>
             <th>Deskripsi</th>
-            <th class="r">Subtotal Order</th>
-            <th class="r">${invoiceType==='proforma'?milestoneLabel+' '+milestonePct+'%':'Total'}</th>
+            <th class="r">Total Pesanan</th>
+            <th class="r">Tagihan</th>
           </tr></thead>
           <tbody>
             <tr>
@@ -36105,15 +36105,9 @@ async function _whDownloadInvoice(milestone, invoiceType) {
           </tbody>
         </table>
         <div class="totals">
-          <div class="row lbl"><span>Subtotal Order</span><span style="font-family:'Space Mono',monospace">${fmtRp(subtotal)}</span></div>
-          ${invoiceType==='proforma'
-            ? `<div class="row lbl"><span>${milestoneLabel} ${milestonePct}% milestone</span><span style="font-family:'Space Mono',monospace">${fmtRp(milestoneExpected)}</span></div>`
-            : `<div class="row lbl"><span>${milestoneLabel} ${milestonePct}% milestone</span><span style="font-family:'Space Mono',monospace">${fmtRp(milestoneExpected)}</span></div>`}
+          <div class="row lbl"><span>Total Pesanan</span><span style="font-family:'Space Mono',monospace">${fmtRp(subtotal)}</span></div>
           ${priorPaidActual > 0
-            ? `<div class="row lbl"><span>Sudah dibayar (milestone sebelumnya)</span><span style="font-family:'Space Mono',monospace">${fmtRp(priorPaidActual)}</span></div>`
-            : ''}
-          ${carryOverFromPrior > 0
-            ? `<div class="row lbl" style="color:#0a7d3a"><span>↳ Termasuk lebih bayar ${fmtRp(carryOverFromPrior)} (di-carry-over)</span><span></span></div>`
+            ? `<div class="row lbl"><span>Sudah Dibayar</span><span style="font-family:'Space Mono',monospace">${fmtRp(priorPaidActual)}</span></div>`
             : ''}
           <div class="row total"><span>Total Tagihan</span><span class="v">${fmtRp(amountDue)}</span></div>
         </div>
