@@ -4199,19 +4199,27 @@ async function _pbDownloadInvoice() {
 
   const lampiranBody = [...parents.values()].map(p => {
     const totalP = p.variants.reduce((s,x) => s + (Number(x.qty)||0), 0);
+    const totalSub = p.variants.reduce((s,x) => s + (Number(x.revenue)||0), 0);
     let thumb = null;
     for (const v of p.variants) { const j = jByItemId.get(v.item_id); if (j?.thumbnail) { thumb = j.thumbnail; break; } }
     const thumbCell = thumb
       ? `<img src="${thumb.replace(/"/g,'&quot;')}" style="width:56px;height:56px;object-fit:cover;border-radius:4px;border:1px solid #ddd;display:block">`
       : `<div style="width:56px;height:56px;background:#f0f0f0;border:1px dashed #ccc;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#999;font-size:9px">no img</div>`;
-    const variantRows = p.variants.map(v => `<tr>
-      <td class="sz">${sizeOf(v)}</td>
-      <td class="r">${Number(v.qty)||0}</td>
-    </tr>`).join('');
+    const variantRows = p.variants.map(v => {
+      const q = Number(v.qty)||0;
+      const sub = Number(v.revenue)||0;
+      const unit = q > 0 ? sub / q : 0;
+      return `<tr>
+        <td class="sz">${sizeOf(v)}</td>
+        <td class="r">${q}</td>
+        <td class="r">${fmtRp(unit)}</td>
+        <td class="r">${fmtRp(sub)}</td>
+      </tr>`;
+    }).join('');
     return `<tbody class="parent-group">
       <tr class="parent-row">
         <td rowspan="${p.variants.length+1}" style="width:72px;vertical-align:top;padding:10px 8px">${thumbCell}</td>
-        <td colspan="2"><div style="font-weight:700;font-size:13px">${(p.name||'').replace(/</g,'&lt;')}</div><div style="font-size:11px;color:#666;margin-top:2px">${p.variants.length} variants · ${totalP} pcs</div></td>
+        <td colspan="4"><div style="font-weight:700;font-size:13px">${(p.name||'').replace(/</g,'&lt;')}</div><div style="font-size:11px;color:#666;margin-top:2px">${p.variants.length} variants · ${totalP} pcs · Subtotal ${fmtRp(totalSub)}</div></td>
       </tr>
       ${variantRows}
     </tbody>`;
@@ -4374,12 +4382,16 @@ async function _pbDownloadInvoice() {
             <th style="width:72px">Foto</th>
             <th>Size</th>
             <th class="r">Qty</th>
+            <th class="r">Unit Price</th>
+            <th class="r">Subtotal</th>
           </tr></thead>
           ${lampiranBody}
           <tbody><tr>
             <td style="padding:14px 10px;border-top:2px solid #111"></td>
             <td style="padding:14px 10px;border-top:2px solid #111;font-weight:700">TOTAL</td>
             <td class="r" style="padding:14px 10px;border-top:2px solid #111;font-weight:700">${totalQty} pcs</td>
+            <td class="r" style="padding:14px 10px;border-top:2px solid #111"></td>
+            <td class="r" style="padding:14px 10px;border-top:2px solid #111;font-weight:700">${fmtRp(totalRev)}</td>
           </tr></tbody>
         </table>
         <footer>Halaman 2 dari 2 · Invoice ${invoiceNo}</footer>
