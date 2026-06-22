@@ -2759,8 +2759,7 @@ function renderPBTable(rows) {
   updateSortTh("pb-thead", pbSort.col, pbSort.dir);
   const tbody = document.getElementById("pbTableBody");
   document.getElementById("pb-tcount").textContent = rows.length+" entri";
-  if (!rows.length) { tbody.innerHTML=`<tr><td class="empty-td" colspan="16">Tidak ada data.</td></tr>`; return; }
-  const _today = new Date(); _today.setHours(0,0,0,0);
+  if (!rows.length) { tbody.innerHTML=`<tr><td class="empty-td" colspan="13">Tidak ada data.</td></tr>`; return; }
   const agg = window._pbEventAggregates;
   const fmtRp = (n) => n ? "Rp "+Math.round(n).toLocaleString("id-ID") : "—";
   const fmtQty = (n) => n ? Number(n).toLocaleString("id-ID") : "—";
@@ -2770,13 +2769,9 @@ function renderPBTable(rows) {
     const autoStatus = computePBAutoStatus(r.eventDate, a.current_stock, a.qty_sold, r.eventStatus);
     const esPill = `<span class="pill ${statusPillCls(autoStatus)}" style="font-size:11px">${autoStatus}</span>`;
     const pm = r.paymentMethod ? r.paymentMethod.split(",").map(p=>`<span class="pill p-signings" style="font-size:10px;margin-right:2px">${p.trim()}</span>`).join("") : "—";
-    const isOverdue = r.srDeadline && autoStatus!=="Done" && autoStatus!=="Cancelled" && new Date(r.srDeadline+"T00:00:00") < _today;
-    const marginColor = a.margin > 0 ? '#1c7a3b' : a.margin < 0 ? '#c33' : 'var(--g600)';
     const cs = a.current_stock || 0;
-    // Highlight Current Stock red if non-zero (reconcile incomplete).
     const csColor = cs !== 0 ? '#c33' : 'var(--g600)';
     const csBg    = cs !== 0 ? '#fdecea' : 'transparent';
-    // Net adjustment color: negative = red, positive = blue, zero = gray
     const naColor = a.qty_adj < 0 ? '#c33' : a.qty_adj > 0 ? '#0077b6' : 'var(--g600)';
     return `<tr>
       <td style="white-space:nowrap;font-size:12px">${fmtDate(r.eventDate)}</td>
@@ -2790,14 +2785,11 @@ function renderPBTable(rows) {
       <td class="mono" style="text-align:right;font-size:12px;color:${naColor}">${a.qty_adj===0?'—':(a.qty_adj>0?'+':'')+a.qty_adj.toLocaleString("id-ID")}</td>
       <td class="mono" style="text-align:right;font-size:12px;font-weight:600;color:${csColor};background:${csBg}">${cs.toLocaleString("id-ID")}</td>
       <td class="mono" style="text-align:right;font-size:12px;white-space:nowrap">${fmtRp(a.sales_rev)}</td>
-      <td class="mono" style="text-align:right;font-size:12px;color:var(--g600);white-space:nowrap">${fmtRp(a.sales_cogs)}</td>
-      <td class="mono" style="text-align:right;font-size:12px;white-space:nowrap;color:${marginColor};font-weight:600">${fmtRp(a.margin)}</td>
-      <td style="white-space:nowrap;font-size:12px${isOverdue?";background:#fdecea;color:#c0392b;font-weight:500":""}">${r.srDeadline?fmtDate(r.srDeadline):"—"}</td>
       <td style="font-size:11px">${pm}</td>
       <td><button class="btn-icon" onclick="openPBEdit('${r.rowIndex}')">Edit</button> <button class="btn-icon" style="color:#c0392b" onclick="deletePB('${r.rowIndex}')">Del</button></td>
     </tr>
     <tr id="pb-edit-row-${r.rowIndex}" style="display:none">
-      <td colspan="16" style="padding:0 12px 12px">
+      <td colspan="13" style="padding:0 12px 12px">
         <div class="edit-row-form">
           <div class="edit-row-grid">
             <div class="fg"><label>Tanggal Event</label><input type="date" id="pbe-eventdate-${r.rowIndex}" value="${r.eventDate}"></div>
