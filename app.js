@@ -3229,7 +3229,7 @@ async function _pbLoadDetailData(eventName, boothId) {
       return !(h && (h.is_canceled || h.wms_status === 'CANCELED' || h.wms_status === 'CANCEL'));
     });
 
-    window._pbStockInCache = { inHeaders, inItems };
+    window._pbStockInCache = { inHeaders, inItems, adjItems };
     _pbRenderStockSection('pbd-stock-in', 'pbd-in-summary', inHeaders, inItems, 'Belum ada Transfer IN — map TRFO ke event ini di modul Inventory Transfer.', costMap);
     _pbRenderStockSection('pbd-reinbound', 'pbd-reinbound-summary', outHeaders, outItems, 'Belum ada reinbound TRFO ke event ini.', costMap);
     _pbRenderStockSection('pbd-internal', 'pbd-internal-summary', internalHeaders, internalItems, 'Tidak ada perpindahan antar lokasi event.', costMap);
@@ -4027,6 +4027,33 @@ async function _pbGenerateSuratJalanPDF(recipientName) {
     cur.qty += Number(it.qty_in_base || 0);
     itemMap.set(key, cur);
   }
+  // Apply stock adjustments (signed qty: − = stock decrease, + = stock increase).
+  // Net qty = Stock In + adjustments — biar SJ refleksiin stock fisik yang ada
+  // di partner setelah opname/defect/freebie/etc.
+  const adjItemsArr = (window._pbStockInCache?.adjItems) || [];
+  let totalAdjPos = 0, totalAdjNeg = 0;
+  for (const ai of adjItemsArr) {
+    if (ai.item_id == null) continue;
+    const q = Number(ai.qty || 0);
+    if (q === 0) continue;
+    if (q > 0) totalAdjPos += q; else totalAdjNeg += q;
+    const cur = itemMap.get(ai.item_id);
+    if (cur) {
+      cur.qty += q;
+    } else if (q > 0) {
+      // Adj-only entry (no Stock In match) — only add kalau positif (extra ditemuin)
+      itemMap.set(ai.item_id, {
+        item_id: ai.item_id,
+        item_code: null,
+        item_name: ai.item_full_name || '(adjustment-only)',
+        variant: null,
+        qty: q,
+      });
+    }
+  }
+  // Drop items that net to ≤ 0 setelah adjustment (gak masuk SJ)
+  for (const [k, v] of [...itemMap]) { if (v.qty <= 0) itemMap.delete(k); }
+  const adjNetSigned = totalAdjPos + totalAdjNeg;
   // Parent grouping by name (drop trailing size token: " - S", " - XL", " - OS")
   const parentName = (name) => String(name||'').replace(/\s*[-—]\s*(XXS|XS|S|M|L|XL|XXL|XXXL|OS|FREE\s*SIZE|FREESIZE)\s*$/i, '').trim();
   const parents = new Map();
@@ -4162,6 +4189,7 @@ async function _pbGenerateSuratJalanPDF(recipientName) {
             <div class="name">${recName.replace(/</g,'&lt;')}</div>
           </div>
         </div>
+        ${adjNetSigned !== 0 ? `<div style="margin-top:14px;padding:10px 14px;background:#fbf9f0;border-left:4px solid #d4af37;font-size:10.5px;color:#555">Qty di atas sudah mempertimbangkan stock adjustment di event ini: ${totalAdjPos > 0 ? `+${totalAdjPos} pcs` : ''}${totalAdjPos > 0 && totalAdjNeg < 0 ? ' · ' : ''}${totalAdjNeg < 0 ? `${totalAdjNeg} pcs` : ''} (net ${adjNetSigned > 0 ? '+' : ''}${adjNetSigned})</div>` : ''}
         <footer>Surat Jalan ini menjadi bukti serah-terima barang ke partner ${channelLabel} · Mohon ditandatangani penerima</footer>
       </div>
       <script>setTimeout(()=>window.print(),500);<\/script>
