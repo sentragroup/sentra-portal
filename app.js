@@ -4133,13 +4133,19 @@ async function _pbGenerateSuratJalanPDF(recipientName) {
       table.lampiran td.sz{font-family:'Space Mono',monospace;font-weight:700;width:60px}
       table.lampiran td.sku{font-family:'Space Mono',monospace;font-size:10px;color:#666}
       table.lampiran td.r{text-align:right;font-family:'Space Mono',monospace}
-      .sig-row{display:flex;justify-content:space-between;margin-top:auto;padding-top:30px;gap:40px}
+      .sig-row{display:flex;justify-content:space-between;margin-top:auto;padding-top:20px;gap:40px}
       .sig{flex:1;text-align:center}
       .sig .company{font-weight:600;font-size:11.5px;margin-bottom:4px}
-      .sig .gap{height:72px}
+      .sig .gap{height:60px}
       .sig .name{border-top:1px solid #111;padding-top:5px;font-weight:600;font-size:11.5px}
       .sig .role{font-size:10.5px;color:#555;margin-top:2px}
-      footer{margin-top:18px;padding-top:12px;border-top:1px solid #e5e5e5;font-size:9px;color:#999;text-align:center;font-family:'Space Mono',monospace;letter-spacing:0.05em}
+      .tnc{margin-top:18px;padding:11px 14px;border:1px solid #d4d4d4;border-radius:4px;background:#fafafa;break-inside:avoid}
+      .tnc-title{font-family:'Space Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#111;font-weight:700;margin-bottom:7px}
+      .tnc-list{margin:0;padding-left:18px;font-size:9.5px;line-height:1.55;color:#333}
+      .tnc-list li{margin-bottom:4px;text-align:justify}
+      .tnc-list li:last-child{margin-bottom:0}
+      .tnc-list strong{font-weight:700;color:#111}
+      footer{margin-top:14px;padding-top:10px;border-top:1px solid #e5e5e5;font-size:9px;color:#999;text-align:center;font-family:'Space Mono',monospace;letter-spacing:0.05em}
     </style></head>
     <body>
       <div class="page">
@@ -4190,7 +4196,17 @@ async function _pbGenerateSuratJalanPDF(recipientName) {
           </div>
         </div>
         ${adjNetSigned !== 0 ? `<div style="margin-top:14px;padding:10px 14px;background:#fbf9f0;border-left:4px solid #d4af37;font-size:10.5px;color:#555">Qty di atas sudah mempertimbangkan stock adjustment di event ini: ${totalAdjPos > 0 ? `+${totalAdjPos} pcs` : ''}${totalAdjPos > 0 && totalAdjNeg < 0 ? ' · ' : ''}${totalAdjNeg < 0 ? `${totalAdjNeg} pcs` : ''} (net ${adjNetSigned > 0 ? '+' : ''}${adjNetSigned})</div>` : ''}
-        <footer>Surat Jalan ini menjadi bukti serah-terima barang ke partner ${channelLabel} · Mohon ditandatangani penerima</footer>
+
+        <div class="tnc">
+          <div class="tnc-title">Syarat &amp; Ketentuan</div>
+          <ol class="tnc-list">
+            <li><strong>Tanggung Jawab Barang.</strong> Penerima bertanggung jawab penuh atas seluruh barang sejak serah-terima sampai dengan pengembalian kepada PT Sandang Dunia Yuwana. Segala bentuk kerusakan, kehilangan, atau penyusutan barang selama dalam penguasaan Penerima menjadi tanggung jawab Penerima dan akan ditagihkan sebesar harga retail (SRP) yang berlaku.</li>
+            <li><strong>Pengembalian Barang Sisa.</strong> Seluruh barang yang tidak terjual wajib dikembalikan kepada PT Sandang Dunia Yuwana selambat-lambatnya <strong>H+3 (tiga hari kalender) setelah tanggal berakhirnya event</strong>, dalam kondisi original beserta seluruh tag, label, dan kemasan dalam keadaan utuh. Keterlambatan atau ketidaksesuaian kondisi pengembalian dapat dikenakan biaya tambahan sesuai ketentuan yang berlaku.</li>
+            <li><strong>Penagihan.</strong> Penagihan atas barang terjual akan dilakukan oleh PT Sandang Dunia Yuwana kepada pihak ${channelLabel === 'Pop Up Booth' ? 'Penerima' : channelLabel} setelah selisih antara Stock In dan barang sisa yang dikembalikan diverifikasi dan disepakati kedua belah pihak.</li>
+            <li><strong>Pembayaran Jasa PIC.</strong> Pembayaran jasa kepada PIC (Person In Charge) hanya akan dilakukan setelah seluruh tugas, tanggung jawab pengembalian barang, dan rekonsiliasi penjualan telah diselesaikan secara tuntas oleh PIC bersangkutan.</li>
+          </ol>
+        </div>
+        <footer>Surat Jalan ini menjadi bukti serah-terima barang ke partner ${channelLabel} · Penerima menyetujui Syarat &amp; Ketentuan di atas dengan menandatangani dokumen ini</footer>
       </div>
       <script>setTimeout(()=>window.print(),500);<\/script>
     </body></html>`);
