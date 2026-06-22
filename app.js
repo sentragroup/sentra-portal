@@ -12098,10 +12098,17 @@ async function syncJubelioMasterCatalog() {
   const beforeSync = new Date().toISOString();
   try {
     const result = await callEdgeFunction('sync-jubelio-inventory');
-    const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
     const items = result?.items || result?.itemsUpserted || 0;
     const stocks = result?.stocks || result?.stocksUpserted || 0;
-    btn.textContent = `✓ ${items} items · ${stocks} stocks · ${elapsed}s`;
+    // Chain: backfill PM rows for newly-synced items so user gak perlu nunggu cron 19:40 UTC
+    btn.textContent = `⟳ Backfill PM...`;
+    let backfilled = 0;
+    try {
+      const { data } = await sb.rpc('backfill_product_mappings');
+      backfilled = Number(data) || 0;
+    } catch(bfErr) { console.warn('backfill_product_mappings failed:', bfErr); }
+    const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+    btn.textContent = backfilled > 0 ? `✓ ${items} items · +${backfilled} PM · ${elapsed}s` : `✓ ${items} items · ${stocks} stocks · ${elapsed}s`;
     btn.style.background = '#2d7a2d';
     _pmSyncCooldownUntil = Date.now() + 5 * 60 * 1000;
     setTimeout(async () => {
@@ -12125,8 +12132,14 @@ async function syncJubelioMasterCatalog() {
       } catch(_) {}
     }
     if (verified) {
+      btn.textContent = `⟳ Backfill PM...`;
+      let backfilled = 0;
+      try {
+        const { data } = await sb.rpc('backfill_product_mappings');
+        backfilled = Number(data) || 0;
+      } catch(_) {}
       const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
-      btn.textContent = `✓ Selesai · ${elapsed}s (server-side)`;
+      btn.textContent = backfilled > 0 ? `✓ Selesai · +${backfilled} PM · ${elapsed}s` : `✓ Selesai · ${elapsed}s (server-side)`;
       btn.style.background = '#2d7a2d';
       _pmSyncCooldownUntil = Date.now() + 5 * 60 * 1000;
       setTimeout(() => {
