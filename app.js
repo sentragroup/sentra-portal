@@ -32361,6 +32361,7 @@ function mapIPReport(r) {
     sentTo: Array.isArray(r.sent_to) ? r.sent_to : [],
     sentAt: r.sent_at,
     sentBy: r.sent_by,
+    sentProofUrl: r.sent_proof_url||'',
     note: r.note||'',
     createdBy: r.created_by,
     createdAt: r.created_at,
@@ -32585,7 +32586,7 @@ function applyIPRFilters() {
     <td style="font-size:11px;font-family:var(--mono);white-space:nowrap">${fmtD(r.periodStart)} → ${fmtD(r.periodEnd)}</td>
     <td><span class="pill ${r.status==='sent'?'p-active':'p-draft'}" style="font-size:10px">${r.status}</span></td>
     <td style="font-size:11px;color:var(--g600)">${(r.sentTo||[]).slice(0,2).join(', ')||'—'}${(r.sentTo||[]).length>2?` +${r.sentTo.length-2}`:''}</td>
-    <td style="font-size:11px;color:var(--g600);white-space:nowrap">${r.sentAt?relTime(r.sentAt):'—'}</td>
+    <td style="font-size:11px;color:var(--g600);white-space:nowrap">${r.sentAt?relTime(r.sentAt):'—'}${r.sentProofUrl?` <a href="${r.sentProofUrl.replace(/"/g,'&quot;')}" target="_blank" onclick="event.stopPropagation()" title="Bukti pengiriman" style="display:inline-block;margin-left:4px;font-size:10px;padding:1px 6px;background:#eef9f0;color:#0a7d3a;border:1px solid #b8d9b3;border-radius:3px;text-decoration:none;font-family:var(--mono)">📎 Bukti</a>`:''}</td>
     <td style="text-align:right;white-space:nowrap">
       <button class="btn-icon" style="color:#c0392b;font-size:11px" onclick="event.stopPropagation();iprDelete('${r.id}')">Del</button>
     </td>
@@ -32613,7 +32614,8 @@ async function iprOpenBuilder(id) {
     _iprCurrentBuilder = {
       id: rep.id, ipId: rep.ipId, ipName: rep.ipName, revStream: rep.revenueStream,
       periodType: rep.periodType, periodStart: rep.periodStart, periodEnd: rep.periodEnd,
-      snapshot: rep.snapshot, status: rep.status, sentTo: rep.sentTo||[], note: rep.note||''
+      snapshot: rep.snapshot, status: rep.status, sentTo: rep.sentTo||[],
+      sentAt: rep.sentAt, sentProofUrl: rep.sentProofUrl||'', note: rep.note||''
     };
   }
   _iprRenderBuilder();
@@ -33842,27 +33844,107 @@ async function iprSaveDraft() {
 function iprOpenSendModal() {
   const b = _iprCurrentBuilder;
   if (!b?.snapshot) { alert('Generate data dulu.'); return; }
-  // Save draft first if not saved yet
-  const proceed = async () => {
-    const ip = allIPRows.find(r => r.id === b.ipId);
-    const presetEmail = ip?.email || '';
-    const presetContacts = (ip?.contacts||[]).map(c => c.email).filter(Boolean);
-    const allEmails = [...new Set([presetEmail, ...presetContacts, ...(b.sentTo||[])].filter(Boolean))];
-    const input = prompt('Recipient emails (comma-separated):', allEmails.join(', '));
-    if (input == null) return;
-    const recipients = input.split(',').map(s => s.trim()).filter(Boolean);
-    if (!recipients.length) { alert('Minimal 1 email.'); return; }
-    const note = prompt('Note (opsional, akan ke-store di audit trail):', b.note||'');
+  const ip = allIPRows.find(r => r.id === b.ipId);
+  const presetEmail = ip?.email || '';
+  const presetContacts = (ip?.contacts||[]).map(c => c.email).filter(Boolean);
+  const allEmails = [...new Set([presetEmail, ...presetContacts, ...(b.sentTo||[])].filter(Boolean))];
+  const todayISO = new Date().toISOString().slice(0,10);
+  const existingProof = b.sentProofUrl || '';
+  const proofChip = existingProof
+    ? `<div style="display:flex;align-items:center;gap:6px;font-size:11px;padding:6px 10px;background:#eef9f0;border:1px solid #b8d9b3;border-radius:4px;margin-top:6px">
+         <a href="${existingProof.replace(/"/g,'&quot;')}" target="_blank" style="color:#0a7d3a;text-decoration:underline">📎 ${existingProof.split('/').pop()||'Bukti existing'}</a>
+         <button type="button" onclick="document.getElementById('ipr-send-proof-existing').value='';this.parentElement.style.display='none'" style="background:none;border:none;color:#c0392b;cursor:pointer;font-size:11px">✕ Ganti</button>
+       </div>`
+    : '';
+  // Modal HTML
+  const overlay = document.createElement('div');
+  overlay.id = 'ipr-send-modal-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+  overlay.innerHTML = `<div style="background:var(--white);border-radius:10px;max-width:520px;width:100%;max-height:90vh;overflow:auto;box-shadow:0 8px 30px rgba(0,0,0,0.2)">
+    <div style="padding:18px 22px;border-bottom:1px solid var(--g100);display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div style="font-family:var(--head);font-size:16px;font-weight:600">✉ Mark as Sent</div>
+        <div style="font-size:11px;color:var(--g600);margin-top:2px">${(b.ipName||'').replace(/</g,'&lt;')}</div>
+      </div>
+      <button onclick="iprCloseSendModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--g400)">×</button>
+    </div>
+    <div style="padding:18px 22px">
+      <div class="fg" style="margin-bottom:14px">
+        <label style="font-size:11px;display:block;margin-bottom:4px">Recipient Emails <span style="color:#c0392b">*</span></label>
+        <textarea id="ipr-send-emails" placeholder="email1@x.com, email2@y.com" rows="2" style="width:100%;padding:8px 10px;font-size:12px;border:1px solid var(--g100);border-radius:4px;font-family:var(--mono);resize:vertical">${allEmails.join(', ')}</textarea>
+        <div style="font-size:10px;color:var(--g400);margin-top:2px">Pisahkan dengan koma. Default dari IP contacts.</div>
+      </div>
+      <div class="fg" style="margin-bottom:14px">
+        <label style="font-size:11px;display:block;margin-bottom:4px">Tanggal Kirim</label>
+        <input type="date" id="ipr-send-date" value="${b.sentAt ? b.sentAt.slice(0,10) : todayISO}" style="padding:6px 10px;font-size:12px;border:1px solid var(--g100);border-radius:4px">
+      </div>
+      <div class="fg" style="margin-bottom:14px">
+        <label style="font-size:11px;display:block;margin-bottom:4px">Bukti Pengiriman</label>
+        ${proofChip}
+        <input type="file" id="ipr-send-proof" accept="image/jpeg,image/png,image/webp,application/pdf" style="font-size:11px;display:block;margin-top:6px">
+        <input type="hidden" id="ipr-send-proof-existing" value="${existingProof.replace(/"/g,'&quot;')}">
+        <div style="font-size:10px;color:var(--g400);margin-top:2px">Screenshot email atau PDF — opsional, max 5MB.</div>
+      </div>
+      <div class="fg" style="margin-bottom:14px">
+        <label style="font-size:11px;display:block;margin-bottom:4px">Note</label>
+        <textarea id="ipr-send-note" placeholder="Opsional, audit trail" rows="2" style="width:100%;padding:8px 10px;font-size:12px;border:1px solid var(--g100);border-radius:4px;resize:vertical">${(b.note||'').replace(/</g,'&lt;')}</textarea>
+      </div>
+      <div id="ipr-send-feedback" style="font-size:11px;color:var(--g600);margin-bottom:10px;min-height:14px"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button onclick="iprCloseSendModal()" class="btn-ghost" style="padding:8px 14px;font-size:12px">Batal</button>
+        <button id="ipr-send-submit" onclick="iprSubmitSent()" class="btn-primary" style="padding:8px 14px;font-size:12px">✓ Tandai Sudah Kirim</button>
+      </div>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+}
+
+function iprCloseSendModal() {
+  const o = document.getElementById('ipr-send-modal-overlay');
+  if (o) o.remove();
+}
+
+async function iprSubmitSent() {
+  const b = _iprCurrentBuilder; if (!b?.snapshot) return;
+  const fb = document.getElementById('ipr-send-feedback');
+  const btn = document.getElementById('ipr-send-submit');
+  const emailsStr = document.getElementById('ipr-send-emails').value || '';
+  const recipients = emailsStr.split(',').map(s => s.trim()).filter(Boolean);
+  if (!recipients.length) { if (fb) { fb.textContent='⚠ Minimal 1 email'; fb.style.color='#c0392b'; } return; }
+  const sentDate = document.getElementById('ipr-send-date').value;
+  const note = document.getElementById('ipr-send-note').value || null;
+  const fileInput = document.getElementById('ipr-send-proof');
+  const existing  = document.getElementById('ipr-send-proof-existing').value;
+  const file = fileInput?.files?.[0] || null;
+  if (file && file.size > 5 * 1024 * 1024) { if (fb) { fb.textContent='⚠ File > 5MB'; fb.style.color='#c0392b'; } return; }
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Saving...'; }
+  if (fb) { fb.textContent='⟳ Saving...'; fb.style.color='var(--g600)'; }
+  try {
     if (!b.id) { await iprSaveDraft(); }
+    // Upload bukti kalau ada file baru
+    let proofUrl = existing || null;
+    if (file) {
+      if (fb) fb.textContent = '⟳ Uploading bukti...';
+      const ext = (file.name.split('.').pop()||'bin').toLowerCase();
+      const path = `ip-reports/${b.id}/sent-proof-${Date.now()}.${ext}`;
+      const { error: upErr } = await sb.storage.from('wholesale-bukti').upload(path, file, { upsert: true, contentType: file.type });
+      if (upErr) throw upErr;
+      const { data: { publicUrl } } = sb.storage.from('wholesale-bukti').getPublicUrl(path);
+      proofUrl = publicUrl;
+    }
+    const sentAtTs = sentDate ? new Date(sentDate + 'T00:00:00').toISOString() : new Date().toISOString();
     const { error } = await sb.from('ip_reports').update({
-      status:'sent', sent_to:recipients, sent_at:new Date().toISOString(),
-      sent_by:currentUser, note: note||null, updated_at:new Date().toISOString()
+      status:'sent', sent_to:recipients, sent_at:sentAtTs,
+      sent_by:currentUser, sent_proof_url:proofUrl, note,
+      updated_at:new Date().toISOString()
     }).eq('id', b.id);
-    if (error) { alert('Gagal: '+error.message); return; }
-    alert('✓ Marked as sent. Tip: download PDF + attach manual ke email Gmail.');
+    if (error) throw error;
+    iprCloseSendModal();
     iprCloseBuilder();
-  };
-  proceed();
+  } catch(e) {
+    if (fb) { fb.textContent = 'Gagal: '+(e.message||e); fb.style.color='#c0392b'; }
+    if (btn) { btn.disabled = false; btn.textContent = '✓ Tandai Sudah Kirim'; }
+  }
 }
 
 async function iprDelete(id) {
