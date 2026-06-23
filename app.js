@@ -32750,16 +32750,39 @@ async function iprGenerate() {
   if (!b.ipId)    { if(fb){fb.textContent='Pilih IP dulu.';fb.style.color='#c0392b';} return; }
   if (!b.periodStart || !b.periodEnd) { if(fb){fb.textContent='Tanggal periode wajib diisi.';fb.style.color='#c0392b';} return; }
   if (b.periodEnd < b.periodStart) { if(fb){fb.textContent='Tanggal akhir gak boleh sebelum tanggal mulai.';fb.style.color='#c0392b';} return; }
+  // Loading UX — button disable + spinning text, plus big loading panel di preview area
+  // supaya jelas progress lagi jalan (30-60s buat all-time).
+  const btn = document.querySelector('.btn-row .btn-primary[onclick="iprGenerate()"]');
+  const originalBtnHTML = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Generating...'; btn.style.opacity = '0.7'; }
   if (fb){fb.textContent='⏳ Aggregating data (bisa 30-60 detik untuk all-time)...';fb.style.color='var(--g600)';}
+  const previewHost = document.getElementById('ipr-preview-host');
+  if (previewHost) {
+    previewHost.innerHTML = `<style>@keyframes ipr-spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}</style>
+    <div style="padding:60px 30px;text-align:center;background:var(--off);border:1px dashed var(--g200);border-radius:8px">
+      <div style="display:inline-block;width:40px;height:40px;border:4px solid var(--g200);border-top-color:var(--black);border-radius:50%;animation:ipr-spin 0.8s linear infinite;margin-bottom:18px"></div>
+      <div style="font-family:var(--head);font-size:16px;font-weight:600;margin-bottom:6px">Compiling ${b.ipName||'data'}...</div>
+      <div style="font-size:12px;color:var(--g600)" id="ipr-loading-step">⟳ Fetching sales orders, item details, royalty calc</div>
+      <div style="font-size:11px;color:var(--g400);margin-top:14px;font-family:var(--mono)" id="ipr-loading-elapsed">0s</div>
+    </div>`;
+  }
   const startTime = Date.now();
+  const tick = setInterval(() => {
+    const el = document.getElementById('ipr-loading-elapsed');
+    if (el) el.textContent = `${((Date.now()-startTime)/1000).toFixed(1)}s`;
+  }, 100);
   try {
     b.snapshot = await _iprAggregatePerformance(b.ipId, b.ipName, b.periodStart, b.periodEnd);
+    clearInterval(tick);
     const elapsed = ((Date.now() - startTime)/1000).toFixed(1);
     if (fb){fb.textContent=`✓ Compiled in ${elapsed}s. Review preview di bawah → Download PDF atau Save Draft.`;fb.style.color='#0a7d3a';}
     _iprRenderBuilder();
   } catch (e) {
+    clearInterval(tick);
     console.error('IPR generate error', e);
     if (fb){fb.textContent='Gagal compile: '+(e.message||e)+'. Cek browser console untuk detail.';fb.style.color='#c0392b';}
+    if (btn) { btn.disabled = false; btn.innerHTML = originalBtnHTML; btn.style.opacity = ''; }
+    if (previewHost) previewHost.innerHTML = `<div style="padding:40px;text-align:center;color:#c0392b;font-size:13px;background:#fdf6f4;border:1px solid #f1c6bf;border-radius:8px">⚠ Generate gagal. Cek feedback di atas atau browser console.</div>`;
   }
 }
 
