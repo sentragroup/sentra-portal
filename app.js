@@ -32427,20 +32427,29 @@ function iprRenderGrid() {
   if (q) ips = ips.filter(ip => (ip.name||'').toLowerCase().includes(q));
   ips = [...ips].sort((a,b) => (a.name||'').localeCompare(b.name||''));
 
-  // Index ip_reports by ipId × month (monthly type only, period_start in target year)
-  const byIpMonth = new Map(); // `${ipId}:${monthIdx}` → {status, id}
+  // Index ip_reports by ipId × month. Report monthly → tag single bulan.
+  // Report custom/quarter/all_time → tag SEMUA bulan dalam range yang fall di
+  // target year (biar user yang generate "All Time" / "1 Jan → 23 Jun" gak
+  // misleading muncul "Missing" di Jan-Jun).
+  const byIpMonth = new Map(); // `${ipId}:${monthIdx}` → report row
   for (const r of allIPReports) {
-    if (r.periodType !== 'month' && r.periodType !== 'monthly') continue;
     if (!r.periodStart) continue;
-    const ps = r.periodStart;
-    const py = parseInt(ps.slice(0,4));
-    const pm = parseInt(ps.slice(5,7)) - 1;
-    if (py !== year) continue;
-    const key = `${r.ipId}:${pm}`;
-    // Latest report wins (sent > draft)
-    const cur = byIpMonth.get(key);
-    if (!cur || (r.status === 'sent' && cur.status !== 'sent') || (r.createdAt > cur.createdAt)) {
-      byIpMonth.set(key, r);
+    const startD = new Date(r.periodStart + 'T00:00:00');
+    const endD   = r.periodEnd ? new Date(r.periodEnd + 'T00:00:00') : startD;
+    if (isNaN(startD) || isNaN(endD)) continue;
+    // Bound iteration to displayed year
+    const yearStart = new Date(`${year}-01-01T00:00:00`);
+    const yearEnd   = new Date(`${year}-12-31T00:00:00`);
+    if (endD < yearStart || startD > yearEnd) continue;
+    const iterStart = startD < yearStart ? yearStart : startD;
+    const iterEnd   = endD   > yearEnd   ? yearEnd   : endD;
+    for (let m = iterStart.getMonth(); m <= iterEnd.getMonth(); m++) {
+      const key = `${r.ipId}:${m}`;
+      const cur = byIpMonth.get(key);
+      // Sent > draft; tie-break by createdAt
+      if (!cur || (r.status === 'sent' && cur.status !== 'sent') || (r.createdAt > cur.createdAt)) {
+        byIpMonth.set(key, r);
+      }
     }
   }
 
