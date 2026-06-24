@@ -38092,8 +38092,22 @@ function renderMPTable(rows) {
   const tb = document.getElementById('mp-tbody');
   if (!rows.length) { tb.innerHTML = '<tr><td class="empty-td" colspan="10">Belum ada manual purchase order. Klik <b>+ Tambah Order</b>.</td></tr>'; return; }
   const STATUS_CLS = { draft:'p-draft', sent:'p-signings', partial:'p-review', paid:'p-active', shipped:'p-signings', done:'p-active', canceled:'p-expired' };
-  tb.innerHTML = rows.map(r => `<tr>
-    <td><span style="font-family:var(--mono);font-size:11px;font-weight:600">${(r.id||'').replace(/</g,'&lt;')}</span></td>
+  // Derived status — overrides DB value (yang masih 'draft' setelah save).
+  // Aturan: canceled (manual) → done (paid + Jubelio linked) → paid → partial →
+  // sent (ada nilai, belum bayar) → draft (kosong).
+  const deriveStatus = r => {
+    if (r.status === 'canceled') return 'canceled';
+    if (!r.grandTotal || r.grandTotal === 0) return 'draft';
+    if (r.totalReceived === 0) return 'sent';
+    if (r.paymentDue > 0.5) return 'partial';
+    if (r.jubelioSoNo) return 'done';
+    return 'paid';
+  };
+  tb.innerHTML = rows.map(r => {
+    const st = deriveStatus(r);
+    const linked = !!r.jubelioSoNo;
+    return `<tr>
+    <td><div style="font-family:var(--mono);font-size:11px;font-weight:600">${(r.id||'').replace(/</g,'&lt;')}</div>${linked?`<div style="font-size:10px;color:#0a7d3a;font-family:var(--mono);margin-top:2px" title="Linked ke Jubelio SO ${r.jubelioSoNo.replace(/"/g,'&quot;')}">🔗 ${r.jubelioSoNo.replace(/</g,'&lt;')}</div>`:''}</td>
     <td><span class="pill p-draft" style="font-size:10px">${r.lineBrand}</span></td>
     <td style="font-size:12px;font-weight:500">${(r.billedToName||'—').replace(/</g,'&lt;')}${r.requestorName?`<div style="font-size:10px;color:var(--g400)">req: ${r.requestorName.replace(/</g,'&lt;')}</div>`:''}</td>
     <td style="font-size:11px;color:var(--g600)">${(r.invoiceCategory||'—').replace(/</g,'&lt;')}</td>
@@ -38101,9 +38115,10 @@ function renderMPTable(rows) {
     <td style="text-align:right;font-family:var(--mono);font-size:11px">—</td>
     <td style="text-align:right;font-family:var(--mono);font-size:12px;font-weight:700">${fmtRp(r.grandTotal)}</td>
     <td style="text-align:right;font-family:var(--mono);font-size:12px;font-weight:600;color:${r.paymentDue>0?'#c0392b':'#0a7d3a'}">${fmtRp(r.paymentDue)}</td>
-    <td><span class="pill ${STATUS_CLS[r.status]||'p-draft'}" style="font-size:10px">${r.status}</span></td>
+    <td><span class="pill ${STATUS_CLS[st]||'p-draft'}" style="font-size:10px">${st}</span></td>
     <td style="white-space:nowrap"><button class="btn-icon" onclick="openManualPurchaseDetail('${r.id}')">Open</button> <button class="btn-icon" style="color:#c0392b" onclick="deleteManualPurchase('${r.id}')">Del</button></td>
-  </tr>`).join('');
+  </tr>`;
+  }).join('');
 }
 
 async function openManualPurchaseDetail(id) {
@@ -38558,13 +38573,17 @@ function _mpurcRenderDetail() {
             <div style="font-size:10px;color:var(--g400);margin-top:2px;font-family:var(--mono)">Source: Transaction Mapping (category=Manual Purchase)</div>
           </div>
         </div>
-        ${h.jubelioSoNo ? `<div style="margin-top:10px;padding:8px 12px;background:#dff0d8;border:1px solid #b8d9b3;border-radius:5px;font-size:11px;color:#04342C">✓ Routed ke Jubelio SO <b>${(h.jubelioSoNo||'').replace(/</g,'&lt;')}</b> · MP order tertaut ke transaksi aktual di Jubelio.</div>` : `<div style="margin-top:10px;padding:8px 12px;background:#fef5e0;border:1px solid #fac775;border-radius:5px;font-size:11px;color:#a66800">⓿ MP belum tertaut ke SO Jubelio. Pastiin tx sudah di-tag <b>Manual Purchase</b> di Transaction Mapping, lalu pilih di sini.</div>`}
+        ${h.jubelioSoNo ? `<div style="margin-top:10px;padding:8px 12px;background:#dff0d8;border:1px solid #b8d9b3;border-radius:5px;font-size:11px;color:#04342C">✓ Routed ke Jubelio SO <b>${(h.jubelioSoNo||'').replace(/</g,'&lt;')}</b> · MP order tertaut ke transaksi aktual di Jubelio.</div>
+        <div id="mp-jubelio-compare" style="margin-top:14px"><div style="font-size:11px;color:var(--g400)">⟳ Memuat reconcile MP vs Jubelio SO...</div></div>` : `<div style="margin-top:10px;padding:8px 12px;background:#fef5e0;border:1px solid #fac775;border-radius:5px;font-size:11px;color:#a66800">⓿ MP belum tertaut ke SO Jubelio. Pastiin tx sudah di-tag <b>Manual Purchase</b> di Transaction Mapping, lalu pilih di sini.</div>`}
       </div>
       `}
     </div>
   `;
   setupAC('mp-h-requestor','ac-mp-requestor',()=>acPics);
-  if (!isNew) _mpurcWireJubSoPicker();
+  if (!isNew) {
+    _mpurcWireJubSoPicker();
+    if (h.jubelioSoNo) _mpurcLoadJubelioCompare();
+  }
   // Auto-fill shipping defaults if empty (new order or never set)
   if (!h.shipToAddress && !h.shipToRecipient) {
     _mpurcShipTypeChange(h.shipToType || 'kantor');
@@ -38630,6 +38649,101 @@ function _mpurcPickJubSo(soNo) {
   const inp = document.getElementById('mp-h-jubelio-so');
   if (inp) inp.value = soNo;
   document.getElementById('ac-mp-jubelio-so').style.display = 'none';
+}
+
+// Reconcile MP items + total vs Jubelio SO items + total. Mirror Wholesale
+// Step 9 compare pattern — per-SKU qty diff plus grand total comparison.
+async function _mpurcLoadJubelioCompare() {
+  const o = _mpurcCurrent; if (!o) return;
+  const h = o.header;
+  const target = document.getElementById('mp-jubelio-compare');
+  if (!target || !h.jubelioSoNo) return;
+  const fmtRp = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
+  // Lookup SO by salesorder_no
+  const { data: soRows } = await sb.from('jubelio_sales_orders')
+    .select('salesorder_id,salesorder_no,sub_total,grand_total,total_amount_mp,customer_name,transaction_date,wms_status')
+    .eq('salesorder_no', h.jubelioSoNo).limit(1);
+  const so = (soRows||[])[0];
+  if (!so) {
+    target.innerHTML = `<div style="padding:10px 12px;background:#fdf6f4;border:1px solid #f1c6bf;border-radius:5px;font-size:11px;color:#a14e3e">⚠ Jubelio SO <b>${(h.jubelioSoNo||'').replace(/</g,'&lt;')}</b> gak ketemu di jubelio_sales_orders. Pastikan sync Jubelio udah jalan.</div>`;
+    return;
+  }
+  // Fetch SO items
+  const { data: soItems } = await sb.from('jubelio_sales_order_items').select('item_id,item_code,item_name,qty_in_base,price').eq('salesorder_id', so.salesorder_id);
+  // Aggregate Jubelio SO qty per item_id
+  const jubByItem = new Map();
+  (soItems||[]).forEach(r => {
+    const q = parseFloat(r.qty_in_base)||0;
+    jubByItem.set(r.item_id, (jubByItem.get(r.item_id)||0) + q);
+  });
+  // Per-SKU rows: MP qty vs Jubelio qty
+  const rows = (o.items||[]).map(it => {
+    const orderedQty = parseFloat(it.qty)||0;
+    const jubQty = jubByItem.get(it.jubelio_item_id)||0;
+    const diff = jubQty - orderedQty;
+    return { item: it, orderedQty, jubQty, diff };
+  });
+  // Items di Jubelio tapi GAK di MP
+  const mpItemIds = new Set((o.items||[]).map(i => i.jubelio_item_id));
+  const extraInJubelio = (soItems||[]).filter(r => !mpItemIds.has(r.item_id));
+  const totalOrderedQty = rows.reduce((s,r) => s + r.orderedQty, 0);
+  const totalJubQty = rows.reduce((s,r) => s + r.jubQty, 0) + extraInJubelio.reduce((s,r) => s + (parseFloat(r.qty_in_base)||0), 0);
+  const qtyMatch = totalJubQty === totalOrderedQty && rows.every(r => r.diff === 0) && extraInJubelio.length === 0;
+  // Nilai: bandingin MP grandTotal (items + ongkir) vs Jubelio grand_total
+  const mpSubtotal = (o.items||[]).reduce((s,i) => s + (parseFloat(i.subtotal)||0), 0);
+  const obShippingSum = (o.linkedOutbounds||[]).reduce((s,ob) => s + (parseFloat(ob.shipping_cost)||0), 0);
+  const mpTotal = mpSubtotal + obShippingSum;
+  const jubTotal = parseFloat(so.grand_total) || parseFloat(so.total_amount_mp) || parseFloat(so.sub_total) || 0;
+  const totalDiff = jubTotal - mpTotal;
+  const valueMatch = Math.abs(totalDiff) < 1; // tolerate sub-rupiah rounding
+  const allOk = qtyMatch && valueMatch;
+  // Rows HTML
+  const rowsHTML = rows.map(r => {
+    const ok = r.diff === 0;
+    const short = r.diff < 0, over = r.diff > 0;
+    const color = ok ? '#0a7d3a' : short ? '#c0392b' : '#a66800';
+    const icon = ok ? '✓' : short ? '⚠ Short' : '⚠ Over';
+    return `<tr style="border-top:1px solid #e5e7eb">
+      <td style="padding:6px 8px;font-size:11px">${(r.item.item_name||'').replace(/</g,'&lt;')}${r.item.size?` <span style="color:var(--g400)">· ${r.item.size}</span>`:''}</td>
+      <td style="padding:6px 8px;font-family:var(--mono);font-size:10px;color:var(--g600)">${(r.item.item_code||'').replace(/</g,'&lt;')}</td>
+      <td style="padding:6px 8px;text-align:right;font-family:var(--mono);font-size:12px;font-weight:700">${r.orderedQty}</td>
+      <td style="padding:6px 8px;text-align:right;font-family:var(--mono);font-size:12px;font-weight:700">${r.jubQty}</td>
+      <td style="padding:6px 8px;text-align:right;font-family:var(--mono);font-size:11px;color:${color};font-weight:600">${r.diff>0?'+':''}${r.diff} <span style="font-size:10px">${icon}</span></td>
+    </tr>`;
+  }).join('');
+  const extraHTML = extraInJubelio.map(r => `<tr style="border-top:1px solid #e5e7eb;background:#fef4d4">
+    <td style="padding:6px 8px;font-size:11px;color:#a66800">— extra di Jubelio — ${(r.item_name||'').replace(/</g,'&lt;')}</td>
+    <td style="padding:6px 8px;font-family:var(--mono);font-size:10px;color:#a66800">${(r.item_code||'').replace(/</g,'&lt;')}</td>
+    <td style="padding:6px 8px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--g400)">—</td>
+    <td style="padding:6px 8px;text-align:right;font-family:var(--mono);font-size:12px;font-weight:700;color:#a66800">${parseFloat(r.qty_in_base)||0}</td>
+    <td style="padding:6px 8px;text-align:right;font-family:var(--mono);font-size:11px;color:#a66800;font-weight:600">+${parseFloat(r.qty_in_base)||0} <span style="font-size:10px">⚠ Not in MP</span></td>
+  </tr>`).join('');
+  const valueColor = valueMatch ? '#0a7d3a' : (totalDiff > 0 ? '#a66800' : '#c0392b');
+  const valueIcon  = valueMatch ? '✓ Match' : (totalDiff > 0 ? '⚠ Jubelio lebih' : '⚠ Jubelio kurang');
+  target.innerHTML = `<div style="background:white;border:1px solid var(--g100);border-radius:6px;overflow:hidden">
+    <div style="padding:10px 12px;background:${allOk?'#dff0d8':'#fff8e8'};border-bottom:1px solid ${allOk?'#b8d9b3':'#f0d896'};display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div style="font-size:12px;font-weight:700;color:${allOk?'#0a7d3a':'#a66800'}">${allOk?'✓ Reconciled':'⚠ Belum Reconciled'}</div>
+        <div style="font-size:10px;color:var(--g600);font-family:var(--mono);margin-top:2px">MP ${totalOrderedQty} pcs · Jubelio ${totalJubQty} pcs · Diff ${totalJubQty-totalOrderedQty>=0?'+':''}${totalJubQty-totalOrderedQty}</div>
+      </div>
+      <div style="font-size:10px;color:var(--g400);font-family:var(--mono);text-align:right">SO #${so.salesorder_id} · ${so.salesorder_no}<br>${so.wms_status||'—'} · ${(so.transaction_date||'').slice(0,10)}</div>
+    </div>
+    <div style="padding:8px 12px;background:#fafafa;border-bottom:1px solid var(--g100);display:flex;gap:14px;font-size:11px;font-family:var(--mono)">
+      <span style="color:var(--g600)">MP Total: <b style="color:var(--black)">${fmtRp(mpTotal)}</b></span>
+      <span style="color:var(--g600)">Jubelio: <b style="color:var(--black)">${fmtRp(jubTotal)}</b></span>
+      <span style="color:${valueColor};font-weight:600">Diff ${totalDiff>=0?'+':''}${fmtRp(totalDiff)} · ${valueIcon}</span>
+    </div>
+    ${rows.length || extraInJubelio.length ? `<table style="width:100%;font-size:11px;border-collapse:collapse">
+      <thead><tr style="background:#fafafa">
+        <th style="padding:5px 8px;text-align:left;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Item</th>
+        <th style="padding:5px 8px;text-align:left;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">SKU</th>
+        <th style="padding:5px 8px;text-align:right;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">MP Qty</th>
+        <th style="padding:5px 8px;text-align:right;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Jubelio Qty</th>
+        <th style="padding:5px 8px;text-align:right;font-size:9px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;font-weight:600">Diff</th>
+      </tr></thead>
+      <tbody>${rowsHTML}${extraHTML}</tbody>
+    </table>` : `<div style="padding:12px;text-align:center;font-size:11px;color:var(--g400)">Tidak ada items di MP buat dibandingkan.</div>`}
+  </div>`;
 }
 
 function _mpurcShipTypeChange(val) {
