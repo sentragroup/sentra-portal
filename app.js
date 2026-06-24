@@ -38183,6 +38183,43 @@ function closeManualPurchaseDetail() {
 // (paid order, beda dari freebies/sample). Items + recipient di-prefill dari MP
 // header. Link disimpan di manual_purchase_orders.outbound_request_id supaya
 // gak bikin duplicate request.
+// Edit items dari OB chip — navigate ke Outbound page + auto-expand inline
+// items editor untuk OB itu. Pakai existing openObItemsEdit dari OB module.
+async function _mpurcOpenObItemsEdit(obId) {
+  showPage('outbound', null);
+  // Tunggu loadOutbound + render selesai sebelum expand editor
+  setTimeout(async () => {
+    // Wait for allOutboundRows populated
+    for (let i = 0; i < 30; i++) {
+      if (window.allOutboundRows && allOutboundRows.some(r => r.id === obId)) break;
+      await new Promise(r => setTimeout(r, 100));
+    }
+    if (typeof openObItemsEdit === 'function') openObItemsEdit(obId);
+    // Scroll ke row
+    const row = document.getElementById(`ob-row-${obId}`);
+    if (row) row.scrollIntoView({ behavior:'smooth', block:'center' });
+  }, 300);
+}
+
+// Cancel/delete OB ticket dari MP detail — only kalau status Pending
+// (warehouse belum proses). Re-sync linkedOutbounds setelahnya.
+async function _mpurcDeleteOb(obId) {
+  if (!confirm(`Batalkan Outbound Request ${obId}?\n\nItems-nya akan available lagi untuk batch berikutnya. Hanya OB Pending yang bisa dibatalin.`)) return;
+  const o = _mpurcCurrent; if (!o) return;
+  try {
+    const { error } = await sb.from('outbound_requests').delete().eq('id', obId).eq('status', 'Pending');
+    if (error) throw error;
+    // Drop from in-memory + clear legacy FK kalau matching
+    o.linkedOutbounds = (o.linkedOutbounds||[]).filter(ob => ob.id !== obId);
+    if (o.header.outboundRequestId === obId) {
+      o.header.outboundRequestId = '';
+      await sb.from('manual_purchase_orders').update({ outbound_request_id: null, last_updated: new Date().toISOString() }).eq('id', o.header.id);
+    }
+    logActivity('ManualPurchase','delete_outbound',o.header.id,`Cancelled OB ${obId}`);
+    _mpurcRenderDetail();
+  } catch(e) { alert('Gagal hapus: ' + (e.message||e)); }
+}
+
 // Open modal picker — pilih items + qty per batch. Track remaining = ordered −
 // already-shipped (sum dari linked OB sebelumnya) supaya gak bisa over-commit.
 function _mpurcCreateOutbound() {
@@ -38482,12 +38519,17 @@ function _mpurcRenderDetail() {
           ${obs.map((ob, i) => {
             const ongkirLbl = ob.shipping_cost != null ? `Rp ${Math.round(parseFloat(ob.shipping_cost)||0).toLocaleString('id-ID')}` : '<i style="color:var(--g400)">belum diisi warehouse</i>';
             const stTone = ob.status === 'Delivered' ? {bg:'#dff0d8',fg:'#04342C'} : ob.status === 'Sent' ? {bg:'#cce5ff',fg:'#054d8c'} : {bg:'#fef5e0',fg:'#a66800'};
-            return `<a href="#" onclick="event.preventDefault();showPage('outbound',null);setTimeout(()=>{const el=document.getElementById('ob-fil-search');if(el){el.value='${ob.id}';applyOutboundFilters();}},300)" style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--off);border:1px solid var(--g100);border-radius:5px;text-decoration:none;color:inherit">
-              <span style="font-family:var(--mono);font-size:11px;font-weight:600">📦 ${(ob.id||'').replace(/</g,'&lt;')}</span>
-              <span style="font-size:10px;padding:2px 8px;border-radius:99px;background:${stTone.bg};color:${stTone.fg};font-weight:600">${ob.status||'Pending'}</span>
-              <span style="font-size:11px;color:var(--g600);flex:1">${(ob.items||[]).length} items · ${(ob.items||[]).reduce((s,it)=>s+(parseFloat(it.qty)||0),0)} pcs</span>
-              <span style="font-size:11px;font-family:var(--mono);color:var(--g600)">Ongkir: <b style="color:var(--black)">${ongkirLbl}</b></span>
-            </a>`;
+            const canDelete = ob.status === 'Pending';
+            return `<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--off);border:1px solid var(--g100);border-radius:5px">
+              <a href="#" onclick="event.preventDefault();showPage('outbound',null);setTimeout(()=>{const el=document.getElementById('ob-fil-search');if(el){el.value='${ob.id}';applyOutboundFilters();}},300)" style="display:flex;align-items:center;gap:10px;flex:1;text-decoration:none;color:inherit;min-width:0">
+                <span style="font-family:var(--mono);font-size:11px;font-weight:600">📦 ${(ob.id||'').replace(/</g,'&lt;')}</span>
+                <span style="font-size:10px;padding:2px 8px;border-radius:99px;background:${stTone.bg};color:${stTone.fg};font-weight:600">${ob.status||'Pending'}</span>
+                <span style="font-size:11px;color:var(--g600);flex:1">${(ob.items||[]).length} items · ${(ob.items||[]).reduce((s,it)=>s+(parseFloat(it.qty)||0),0)} pcs</span>
+                <span style="font-size:11px;font-family:var(--mono);color:var(--g600)">Ongkir: <b style="color:var(--black)">${ongkirLbl}</b></span>
+              </a>
+              <button onclick="_mpurcOpenObItemsEdit('${ob.id}')" title="Edit items batch ini" style="background:none;border:1px solid var(--g200);padding:4px 8px;border-radius:4px;cursor:pointer;color:var(--g600);font-size:11px">✎ Edit</button>
+              ${canDelete ? `<button onclick="_mpurcDeleteOb('${ob.id}')" title="Batalkan OB ini (cuma kalau Pending)" style="background:none;border:1px solid #f1c6bf;padding:4px 8px;border-radius:4px;cursor:pointer;color:#c0392b;font-size:11px">🗑</button>` : ''}
+            </div>`;
           }).join('')}
           </div>
           <div style="font-size:10px;color:var(--g400);margin-top:8px;font-family:var(--mono)">Total ongkir: <b style="color:var(--black)">${fmtRp(obShippingTotal)}</b> · auto-masuk ke invoice</div>
