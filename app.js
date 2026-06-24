@@ -31349,7 +31349,17 @@ async function loadOutbound() {
   const tbody = document.getElementById('obTableBody');
   if (tbody) tbody.innerHTML = '<tr><td class="empty-td" colspan="10">Memuat...</td></tr>';
   try {
-    const {data, error} = await sb.from('outbound_requests').select('*').order('date_added', {ascending:false}).order('id', {ascending:false});
+    // Pre-load jubelio_items cache untuk thumbnails fallback — items yang dibuat
+    // dari MP/KOL kadang ngak punya thumbnail field di payload, jadi resolve via cache.
+    const cachePromise = (!window._whJubelioItemsCache || !window._whJubelioItemsCache.length)
+      ? _fetchAllPages('jubelio_items','item_id,item_code,item_name,item_group_id,thumbnail')
+          .then(d => { window._whJubelioItemsCache = d||[]; })
+          .catch(() => { window._whJubelioItemsCache = []; })
+      : Promise.resolve();
+    const [{data, error}] = await Promise.all([
+      sb.from('outbound_requests').select('*').order('date_added', {ascending:false}).order('id', {ascending:false}),
+      cachePromise,
+    ]);
     if (error) throw error;
     allOutboundRows = (data||[]).map(mapOutbound);
     _renderOutboundStats();
@@ -31401,10 +31411,20 @@ function _renderOutboundRows(rows) {
       const q = it.qty?` ×${it.qty}`:'';
       return `${name}${sz}${q}`;
     }).join(', ');
-    const itemThumbs = (r.items||[]).slice(0,5).map(it => it.thumbnail
-      ? `<img src="${esc(it.thumbnail)}" alt="" loading="lazy" style="width:24px;height:24px;border-radius:3px;object-fit:cover;border:1px solid var(--g100)" title="${esc(it.item_name||it.sku)}">`
-      : `<div style="width:24px;height:24px;border-radius:3px;background:var(--g100);display:inline-flex;align-items:center;justify-content:center;color:var(--g400);font-size:11px;border:1px solid var(--g100)" title="${esc(it.item_name||it.sku||'?')}">📦</div>`
-    ).join('');
+    // Thumbnail resolution: prefer item.thumbnail, fallback ke jubelio_items cache by item_id
+    const jCache = (window._whJubelioItemsCache||[]);
+    const jByItemId = new Map(jCache.map(j => [j.item_id, j]));
+    const resolveThumb = it => {
+      if (it.thumbnail) return it.thumbnail;
+      const j = jByItemId.get(it.item_id || it.jubelio_item_id);
+      return j?.thumbnail || null;
+    };
+    const itemThumbs = (r.items||[]).slice(0,5).map(it => {
+      const t = resolveThumb(it);
+      return t
+        ? `<img src="${esc(t)}" alt="" loading="lazy" style="width:24px;height:24px;border-radius:3px;object-fit:cover;border:1px solid var(--g100)" title="${esc(it.item_name||it.sku)}">`
+        : `<div style="width:24px;height:24px;border-radius:3px;background:var(--g100);display:inline-flex;align-items:center;justify-content:center;color:var(--g400);font-size:11px;border:1px solid var(--g100)" title="${esc(it.item_name||it.sku||'?')}">📦</div>`;
+    }).join('');
     const itemMoreCount = (r.items||[]).length - 5;
     const shipCost = (typeof r.shippingCost === 'number' && r.shippingCost >= 0)
       ? `Rp ${Math.round(r.shippingCost).toLocaleString('id-ID')}`
@@ -31415,19 +31435,27 @@ function _renderOutboundRows(rows) {
     const sourceShortName = r.sourceModule === 'KolManagement' ? 'KOL'
       : r.sourceModule === 'MarketingActivation' ? 'MA'
       : r.sourceModule === 'PhotoshootPlanning' ? 'PS'
+      : r.sourceModule === 'ManualPurchase' ? 'MP'
       : r.sourceModule;
     const sourcePage = r.sourceModule === 'KolManagement' ? 'kolmgmt'
       : r.sourceModule === 'MarketingActivation' ? 'mktactivation'
       : r.sourceModule === 'PhotoshootPlanning' ? 'photoshoot'
+      : r.sourceModule === 'ManualPurchase' ? 'manualpurchase'
       : '';
-    const sourceLabel = (sourcePage && r.sourceId)
+    // ManualPurchase source — deep link langsung ke MP detail
+    const sourceLabel = (r.sourceModule === 'ManualPurchase' && r.sourceId)
+      ? `<a href="#" onclick="event.preventDefault();showPage('manualpurchase',null);setTimeout(()=>openManualPurchaseDetail('${esc(r.sourceId)}'),200)" style="font-size:10px;color:#3C3489;text-decoration:underline" title="Buka ${esc(r.sourceId)}">${esc(sourceShortName)} · ${esc(r.sourceId)}</a>`
+      : (sourcePage && r.sourceId)
       ? `<a href="#" onclick="event.preventDefault();showPage('${sourcePage}',null)" style="font-size:10px;color:#3C3489;text-decoration:underline" title="${esc(r.sourceId)}">${esc(sourceShortName)} · ${esc(r.sourceId)}</a>`
       : `<span style="font-size:10px;color:var(--g600)">${esc(r.sourceModule)}</span>`;
-    // Total COGS preview from current items (HPP × qty)
+    // Total COGS preview from current items (HPP × qty). Sales = paid order
+    // → HPP gak relevan untuk MER/budget, skip warning-nya.
     const cogsTotal = _kolItemsCOGS(r.items);
     const cogsLine = cogsTotal > 0
       ? `<div style="font-size:9px;color:var(--g600);font-family:var(--mono);margin-top:2px">💰 Total HPP ${_kolFmtRp(cogsTotal)}</div>`
-      : `<div style="font-size:9px;color:#c0392b;font-family:var(--mono);margin-top:2px">⚠ HPP belum di-set — klik ✎ buat isi</div>`;
+      : (r.purpose === 'Sales'
+          ? ''
+          : `<div style="font-size:9px;color:#c0392b;font-family:var(--mono);margin-top:2px">⚠ HPP belum di-set — klik ✎ buat isi</div>`);
     const pTone = _OB_PURPOSE_TONE[r.purpose] || _OB_PURPOSE_TONE.Other;
     const purposePill = `<span style="display:inline-block;font-size:10px;font-family:var(--mono);font-weight:600;padding:2px 8px;border-radius:99px;background:${pTone.bg};color:${pTone.fg};border:1px solid ${pTone.border};white-space:nowrap">${esc(r.purpose)}</span>`;
     return `<tr id="ob-row-${r.rowIndex}">
