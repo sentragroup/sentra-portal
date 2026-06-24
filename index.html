@@ -5152,7 +5152,7 @@
         </div>
 
         <div class="filter-panel">
-          <div class="filter-grid" style="grid-template-columns:repeat(4,1fr)">
+          <div class="filter-grid" style="grid-template-columns:repeat(5,1fr)">
             <div class="fg"><label>Cari</label><input type="text" id="ob-fil-search" placeholder="Recipient, tracking, source ID..." oninput="applyOutboundFilters()"></div>
             <div class="fg"><label>Status</label><select id="ob-fil-status" onchange="applyOutboundFilters()">
               <option value="">Semua</option>
@@ -5166,7 +5166,16 @@
               <option value="KolManagement">KOL Management</option>
               <option value="MarketingActivation">Marketing Activation</option>
               <option value="PhotoshootPlanning">Photoshoot Planning</option>
+              <option value="ManualPurchase">Manual Purchase</option>
               <option value="Manual">Manual</option>
+            </select></div>
+            <div class="fg"><label>Purpose</label><select id="ob-fil-purpose" onchange="applyOutboundFilters()">
+              <option value="">Semua</option>
+              <option value="Sales">🟢 Sales</option>
+              <option value="Freebies">🟣 Freebies</option>
+              <option value="Sample">🟣 Sample</option>
+              <option value="Internal">⚪ Internal</option>
+              <option value="Other">⚪ Other</option>
             </select></div>
             <div class="fg"><label>Urutkan</label><select id="ob-fil-sort" onchange="applyOutboundFilters()">
               <option value="newest">Terbaru</option>
@@ -5181,8 +5190,8 @@
           <div class="tcount" id="ob-tcount">— ticket</div>
         </div>
         <div class="table-wrap"><table>
-          <thead><tr><th>ID</th><th>Recipient</th><th>Items</th><th>Tgl Kirim</th><th>Shipping Cost</th><th>Tracking</th><th>Source</th><th>Status</th><th>Actions</th></tr></thead>
-          <tbody id="obTableBody"><tr><td class="empty-td" colspan="9">Klik Refresh.</td></tr></tbody>
+          <thead><tr><th>ID</th><th>Purpose</th><th>Recipient</th><th>Items</th><th>Tgl Kirim</th><th>Shipping Cost</th><th>Tracking</th><th>Source</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody id="obTableBody"><tr><td class="empty-td" colspan="10">Klik Refresh.</td></tr></tbody>
         </table></div>
       </div><!-- /.page#page-outbound -->
 
@@ -5297,6 +5306,6 @@
 <div id="proj-overlay" class="proj-panel-overlay" style="display:none" onclick="if(event.target===this)closeProjectDetail()"></div>
 <div id="proj-panel" class="proj-panel" style="display:none"></div>
 
-<script src="app.js?v=20260623af"></script>
+<script src="app.js?v=20260623ag"></script>
 </body>
 </html>
