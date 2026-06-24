@@ -31388,7 +31388,7 @@ function applyOutboundFilters() {
     if (src && r.sourceModule !== src) return false;
     if (purpose && r.purpose !== purpose) return false;
     if (q) {
-      const hay = `${r.recipientName} ${r.trackingNumber} ${r.sourceId} ${r.recipientAddress}`.toLowerCase();
+      const hay = `${r.id} ${r.recipientName} ${r.trackingNumber} ${r.sourceId} ${r.recipientAddress}`.toLowerCase();
       if (!hay.includes(q)) return false;
     }
     return true;
