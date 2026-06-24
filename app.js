@@ -38547,10 +38547,24 @@ function _mpurcRenderDetail() {
           <div style="font-size:10px;color:var(--g400);margin-top:8px;font-family:var(--mono)">Total ongkir: <b style="color:var(--black)">${fmtRp(obShippingTotal)}</b> · auto-masuk ke invoice</div>
         </div>` : `<div style="border-top:1px solid var(--g100);padding-top:10px"><span style="font-size:11px;color:var(--g600);padding:8px 12px;background:var(--off);border:1px dashed var(--g200);border-radius:5px;display:inline-block">📋 Surat Jalan + ongkir diisi warehouse via Outbound Request — klik <b>📦 Request ke Warehouse</b> di atas</span></div>`}
       </div>
+      <div class="form-card" style="margin-top:14px">
+        <div class="form-sec" style="display:flex;justify-content:space-between;align-items:center">
+          <span>Routing Jubelio SO (Step Akhir)</span>
+          <span style="font-size:11px;color:var(--g400);font-weight:normal">Link MP ini ke Sales Order Jubelio yang udah di-tag "Manual Purchase"</span>
+        </div>
+        <div class="form-grid" style="grid-template-columns:1fr">
+          <div class="fg"><label>Jubelio SO No</label>
+            <div class="ac-wrap"><input type="text" id="mp-h-jubelio-so" value="${(h.jubelioSoNo||'').replace(/"/g,'&quot;')}" placeholder="Ketik SO no atau pilih dari list..." autocomplete="off"><div class="ac-list" id="ac-mp-jubelio-so"></div></div>
+            <div style="font-size:10px;color:var(--g400);margin-top:2px;font-family:var(--mono)">Source: Transaction Mapping (category=Manual Purchase)</div>
+          </div>
+        </div>
+        ${h.jubelioSoNo ? `<div style="margin-top:10px;padding:8px 12px;background:#dff0d8;border:1px solid #b8d9b3;border-radius:5px;font-size:11px;color:#04342C">✓ Routed ke Jubelio SO <b>${(h.jubelioSoNo||'').replace(/</g,'&lt;')}</b> · MP order tertaut ke transaksi aktual di Jubelio.</div>` : `<div style="margin-top:10px;padding:8px 12px;background:#fef5e0;border:1px solid #fac775;border-radius:5px;font-size:11px;color:#a66800">⓿ MP belum tertaut ke SO Jubelio. Pastiin tx sudah di-tag <b>Manual Purchase</b> di Transaction Mapping, lalu pilih di sini.</div>`}
+      </div>
       `}
     </div>
   `;
   setupAC('mp-h-requestor','ac-mp-requestor',()=>acPics);
+  if (!isNew) _mpurcWireJubSoPicker();
   // Auto-fill shipping defaults if empty (new order or never set)
   if (!h.shipToAddress && !h.shipToRecipient) {
     _mpurcShipTypeChange(h.shipToType || 'kantor');
@@ -38559,6 +38573,63 @@ function _mpurcRenderDetail() {
     const btn = document.getElementById('mp-tab-'+activeTab);
     if (btn) mpSwitchTab(activeTab, btn);
   }
+}
+
+// MP Jubelio SO picker — autocomplete dari transaction_mappings yang di-tag
+// 'Manual Purchase', join ke jubelio_sales_orders buat dapet salesorder_no
+// + customer_name + sub_total. Mirror pattern Wholesale.
+let _mpurcJubSoCache = null;
+async function _mpurcWireJubSoPicker() {
+  const inp = document.getElementById('mp-h-jubelio-so');
+  const list = document.getElementById('ac-mp-jubelio-so');
+  if (!inp || !list) return;
+  const ensureCache = async () => {
+    if (_mpurcJubSoCache) return;
+    try {
+      const { data: txMaps } = await sb.from('transaction_mappings').select('salesorder_id,notes').eq('category','Manual Purchase');
+      const ids = (txMaps||[]).map(m => m.salesorder_id).filter(Boolean);
+      if (!ids.length) { _mpurcJubSoCache = []; return; }
+      const orders = await _fetchAllPagesIn('jubelio_sales_orders','salesorder_id,salesorder_no,customer_name,sub_total,transaction_date','salesorder_id', ids);
+      const orderById = new Map((orders||[]).map(o => [o.salesorder_id, o]));
+      _mpurcJubSoCache = (txMaps||[]).map(m => {
+        const o = orderById.get(m.salesorder_id) || {};
+        return {
+          salesorder_id: m.salesorder_id,
+          salesorder_no: o.salesorder_no || `#${m.salesorder_id}`,
+          customer_name: o.customer_name || '',
+          sub_total:     o.sub_total || 0,
+          tx_date:       o.transaction_date || '',
+          notes:         m.notes || ''
+        };
+      }).sort((a,b) => (b.tx_date||'').localeCompare(a.tx_date||''));
+    } catch(_) { _mpurcJubSoCache = []; }
+  };
+  const render = async () => {
+    const q = (inp.value||'').toLowerCase().trim();
+    await ensureCache();
+    const all = _mpurcJubSoCache || [];
+    const hits = q.length === 0
+      ? all.slice(0, 15)
+      : all.filter(s => `${s.salesorder_no||''} ${s.customer_name||''}`.toLowerCase().includes(q)).slice(0, 15);
+    if (!hits.length) {
+      list.style.display = 'block';
+      list.innerHTML = `<div style="padding:10px 12px;font-size:11px;color:var(--g400)">Tidak ada SO ke-tag "Manual Purchase". Cek di Transaction Mapping.</div>`;
+      return;
+    }
+    list.style.display='block';
+    list.innerHTML = hits.map(s => `<div onmousedown="event.preventDefault();_mpurcPickJubSo('${(s.salesorder_no||'').replace(/'/g,"\\'")}')" style="padding:7px 10px;cursor:pointer;border-bottom:1px solid var(--g100);font-size:12px" onmouseenter="this.style.background='var(--off)'" onmouseleave="this.style.background=''">
+      <div><b>${(s.salesorder_no||'').replace(/</g,'&lt;')}</b> <span style="font-size:10px;color:var(--g400)">#${s.salesorder_id}</span></div>
+      <div style="font-size:10px;color:var(--g600);margin-top:2px">${(s.customer_name||'—').replace(/</g,'&lt;')} · Rp ${Math.round(s.sub_total||0).toLocaleString('id-ID')}${s.tx_date?` · ${s.tx_date.slice(0,10)}`:''}</div>
+    </div>`).join('');
+  };
+  inp.addEventListener('input', render);
+  inp.addEventListener('focus', render);
+  inp.addEventListener('blur', () => setTimeout(()=>{ list.style.display='none'; }, 200));
+}
+function _mpurcPickJubSo(soNo) {
+  const inp = document.getElementById('mp-h-jubelio-so');
+  if (inp) inp.value = soNo;
+  document.getElementById('ac-mp-jubelio-so').style.display = 'none';
 }
 
 function _mpurcShipTypeChange(val) {
@@ -39763,6 +39834,7 @@ async function saveManualPurchase() {
     ship_to_notes: document.getElementById('mp-h-shipnotes')?.value.trim() || null,
     shipping_scheme: document.getElementById('mp-h-shipscheme')?.value || null,
     shipping_cost_category: document.getElementById('mp-h-shipcostcat')?.value || null,
+    jubelio_so_no: document.getElementById('mp-h-jubelio-so')?.value.trim() || null,
     payment_plan: h.paymentPlan || null,
     last_updated: new Date().toISOString(),
     last_updated_by: currentUser,
