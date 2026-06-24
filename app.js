@@ -31458,6 +31458,31 @@ function _renderOutboundRows(rows) {
           : `<div style="font-size:9px;color:#c0392b;font-family:var(--mono);margin-top:2px">⚠ HPP belum di-set — klik ✎ buat isi</div>`);
     const pTone = _OB_PURPOSE_TONE[r.purpose] || _OB_PURPOSE_TONE.Other;
     const purposePill = `<span style="display:inline-block;font-size:10px;font-family:var(--mono);font-weight:600;padding:2px 8px;border-radius:99px;background:${pTone.bg};color:${pTone.fg};border:1px solid ${pTone.border};white-space:nowrap">${esc(r.purpose)}</span>`;
+    // Instructions extracted from notes — chips supaya warehouse cepet baca
+    // critical info (skema kurir, kategori ongkir). Notes biasanya multi-line.
+    const notesLines = (r.notes||'').split(/[·\n]/).map(s=>s.trim()).filter(Boolean);
+    const skemaMatch = notesLines.find(l => /🚚\s*Skema:/i.test(l));
+    const ongkirMatch = notesLines.find(l => /💰\s*Ongkir:/i.test(l));
+    const catatanMatch = notesLines.find(l => /📝\s*Catatan:/i.test(l));
+    const otherNotes = notesLines.filter(l => !/(🚚|💰|📝|📦)/.test(l)).join(' · ');
+    const instructionChips = [];
+    if (skemaMatch) {
+      const isWarn = /belum di-set/i.test(skemaMatch);
+      const txt = skemaMatch.replace(/🚚\s*/, '').trim();
+      instructionChips.push(`<span style="font-size:10px;padding:2px 7px;border-radius:3px;background:${isWarn?'#fdecea':'#FAEEDA'};color:${isWarn?'#c0392b':'#854F0B'};border:1px solid ${isWarn?'#f5c2c0':'#FAC775'};white-space:nowrap" title="Skema instruksi dari sales">🚚 ${esc(txt.replace(/^Skema:\s*/,''))}</span>`);
+    }
+    if (ongkirMatch) {
+      const isWarn = /belum di-set/i.test(ongkirMatch);
+      const txt = ongkirMatch.replace(/💰\s*/, '').trim();
+      instructionChips.push(`<span style="font-size:10px;padding:2px 7px;border-radius:3px;background:${isWarn?'#fdecea':'#E1F5EE'};color:${isWarn?'#c0392b':'#085041'};border:1px solid ${isWarn?'#f5c2c0':'#9FE1CB'};white-space:nowrap" title="Kategori ongkir dari sales">💰 ${esc(txt.replace(/^Ongkir:\s*/,''))}</span>`);
+    }
+    if (catatanMatch) {
+      const txt = catatanMatch.replace(/📝\s*Catatan:\s*/, '').trim();
+      instructionChips.push(`<span style="font-size:10px;padding:2px 7px;border-radius:3px;background:#EEEDFE;color:#3C3489;border:1px solid #CECBF6" title="Catatan dari sales">📝 ${esc(txt.length>40?txt.slice(0,40)+'…':txt)}</span>`);
+    }
+    const instructionRow = instructionChips.length
+      ? `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px">${instructionChips.join('')}</div>`
+      : (r.notes ? `<div style="font-size:10px;color:var(--g600);margin-top:3px;max-width:300px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(r.notes)}">📝 ${esc(r.notes)}</div>` : '');
     return `<tr id="ob-row-${r.rowIndex}">
       <td style="font-family:var(--mono);font-size:10px">${esc(r.id)}</td>
       <td>${purposePill}</td>
@@ -31465,6 +31490,7 @@ function _renderOutboundRows(rows) {
         <div style="font-weight:600">${esc(r.recipientName)||'—'}</div>
         ${r.recipientAddress?`<div style="font-size:10px;color:var(--g600);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:240px" title="${esc(r.recipientAddress)}">${esc(r.recipientAddress)}</div>`:''}
         ${r.recipientPhone?`<div style="font-size:10px;color:var(--g600);font-family:var(--mono)">${esc(r.recipientPhone)}</div>`:''}
+        ${instructionRow}
       </td>
       <td style="font-size:11px;max-width:260px">
         <div style="display:flex;align-items:flex-start;gap:6px">
@@ -38185,13 +38211,14 @@ async function _mpurcCreateOutbound() {
     const obId = `OB-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${String(Math.floor(Math.random()*9000)+1000)}`;
     const recipient = h.shipToRecipient || h.clientRepName || h.requestorName || '—';
     const address = h.shipToType === 'kantor' ? MP_OFFICE_ADDRESS : (h.shipToAddress || '');
-    // Notes include shipping_scheme instruction supaya warehouse follow
+    // Notes structured — warehouse harus jelas liat skema + kategori ongkir
+    // supaya gak salah kirim (mis. customer pickup tapi malah dikirim).
+    const catLabel = (MP_SHIPPING_COST_CATEGORIES.find(c => c.value === h.shippingCostCategory) || {}).label || '';
     const noteParts = [
-      `Manual Purchase ${h.id}`,
-      isPartial ? `Batch ke-${batchNo}` : null,
-      h.billedToName,
-      h.shippingScheme ? `Skema: ${h.shippingScheme}` : null,
-      h.shipToNotes,
+      `📦 MP ${h.id}${isPartial?` · Batch #${batchNo}`:''}${h.billedToName?` · ${h.billedToName}`:''}`,
+      h.shippingScheme ? `🚚 Skema: ${h.shippingScheme}` : '⚠ Skema belum di-set di MP',
+      catLabel ? `💰 Ongkir: ${catLabel}` : '⚠ Kategori ongkir belum di-set di MP',
+      h.shipToNotes ? `📝 Catatan: ${h.shipToNotes}` : null,
     ].filter(Boolean);
     const payload = {
       id: obId,
