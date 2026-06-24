@@ -37967,12 +37967,31 @@ function mapMpurc(r) {
     shipToPhone: r.ship_to_phone||'',
     shipToCourier: r.ship_to_courier||'',
     shipToNotes: r.ship_to_notes||'',
-    shippingCost: parseFloat(r.shipping_cost)||0,
+    shippingCost: parseFloat(r.shipping_cost)||0,  // Legacy — superseded by SUM(linked OBs.shipping_cost)
+    shippingScheme: r.shipping_scheme || '',
     paymentPlan: r.payment_plan || null,
-    outboundRequestId: r.outbound_request_id||'',
+    outboundRequestId: r.outbound_request_id||'',  // Legacy single FK — kept for backward compat, multi-OB via reverse lookup
     createdBy: r.created_by||'', createdAt: r.created_at,
   };
 }
+
+// Shipping scheme options — instruction to warehouse, NOT the cost.
+// Actual cost diisi warehouse di OB ticket setelah kirim.
+const MP_SHIPPING_SCHEMES = [
+  'Regular JNE',
+  'JNE YES',
+  'JNT Express',
+  'SiCepat',
+  'Gosend Same-day',
+  'Grab Same-day',
+  'Anteraja',
+  'Lalamove',
+  'Kurir Internal',
+  'Customer Pickup',
+  'Sales Bawa Sendiri',
+  'Free Ongkir (Sentra absorb)',
+  'Charged to Customer',
+];
 const MP_OFFICE_ADDRESS = 'Jl. Wahid Hasyim No. 10D RT.002 RW.007, Kebon Sirih, Menteng, Jakarta Pusat';
 
 function _mpurcDefaultPaymentPlan() {
@@ -38068,7 +38087,7 @@ async function openManualPurchaseDetail(id) {
         invoiceDate:null, dueDate:null, status:'draft',
         grandTotal:0, totalReceived:0, paymentDue:0,
         jubelioSoNo:'', pic:currentUser||'' },
-      items: [], payments: [], shipments: [], shipItems: []
+      items: [], payments: [], shipments: [], shipItems: [], linkedOutbounds: []
     };
   } else {
     const [hRes, iRes, pRes, sRes] = await Promise.all([
@@ -38085,7 +38104,13 @@ async function openManualPurchaseDetail(id) {
       const { data } = await sb.from('manual_purchase_shipment_items').select('*').in('order_item_id', itemIds);
       shipItems = data || [];
     }
-    _mpurcCurrent = { header: mapMpurc(hRes.data), items, payments: pRes.data||[], shipments: sRes.data||[], shipItems };
+    // Reverse-lookup all linked Outbound Requests (multi-shipment support).
+    // Source of truth untuk ongkir aktual — invoice sum dari sini.
+    const { data: linkedObs } = await sb.from('outbound_requests')
+      .select('id,recipient_name,status,items,shipping_cost,tracking_number,requested_ship_date,date_added,purpose')
+      .eq('source_module','ManualPurchase').eq('source_id', id)
+      .order('date_added', { ascending:true });
+    _mpurcCurrent = { header: mapMpurc(hRes.data), items, payments: pRes.data||[], shipments: sRes.data||[], shipItems, linkedOutbounds: linkedObs || [] };
   }
   // Pre-load stock cache (Bintaro + Penerimaan Barang)
   if (!_mpurcStockCache) {
@@ -38128,11 +38153,15 @@ async function _mpurcCreateOutbound() {
   const o = _mpurcCurrent; if (!o) return;
   const h = o.header;
   if (!h.id || h.id === 'new') { alert('Save Manual Purchase dulu sebelum request ke warehouse.'); return; }
-  if (h.outboundRequestId) { alert('Sudah ada outbound request: ' + h.outboundRequestId); return; }
   if (!(o.items||[]).length) { alert('Belum ada items di order ini.'); return; }
-  if (!confirm(`Buat Outbound Request untuk ${o.items.length} items?\n\nTim warehouse akan dapat ticket baru dengan label "Sales" — beda dari freebies/sample.`)) return;
+  const obs = o.linkedOutbounds || [];
+  const batchNo = obs.length + 1;
+  const isPartial = obs.length > 0;
+  const promptMsg = isPartial
+    ? `Sudah ada ${obs.length} OB ticket. Buat batch ke-${batchNo} untuk shipment tambahan?\n\nItems batch ini diisi dengan semua ${o.items.length} items dari MP — edit di Outbound Request kalau hanya ship sebagian.`
+    : `Buat Outbound Request untuk ${o.items.length} items?\n\nTim warehouse akan dapat ticket dengan label "Sales".`;
+  if (!confirm(promptMsg)) return;
   try {
-    // Build outbound items dari MP items
     const obItems = (o.items||[]).map(it => ({
       jubelio_item_id: it.jubelio_item_id || null,
       item_id:   it.jubelio_item_id || null,
@@ -38147,6 +38176,14 @@ async function _mpurcCreateOutbound() {
     const obId = `OB-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${String(Math.floor(Math.random()*9000)+1000)}`;
     const recipient = h.shipToRecipient || h.clientRepName || h.requestorName || '—';
     const address = h.shipToType === 'kantor' ? MP_OFFICE_ADDRESS : (h.shipToAddress || '');
+    // Notes include shipping_scheme instruction supaya warehouse follow
+    const noteParts = [
+      `Manual Purchase ${h.id}`,
+      isPartial ? `Batch ke-${batchNo}` : null,
+      h.billedToName,
+      h.shippingScheme ? `Skema: ${h.shippingScheme}` : null,
+      h.shipToNotes,
+    ].filter(Boolean);
     const payload = {
       id: obId,
       source_module: 'ManualPurchase',
@@ -38156,20 +38193,23 @@ async function _mpurcCreateOutbound() {
       recipient_address: address,
       recipient_phone: h.shipToPhone || '',
       items: obItems,
-      notes: `Manual Purchase ${h.id}${h.billedToName?` · ${h.billedToName}`:''}${h.shipToNotes?` · ${h.shipToNotes}`:''}`,
+      notes: noteParts.join(' · '),
       status: 'Pending',
       added_by: currentUser,
       date_added: new Date().toISOString(),
     };
     const { error: obErr } = await sb.from('outbound_requests').insert(payload);
     if (obErr) throw obErr;
-    // Link back to MP
-    const { error: linkErr } = await sb.from('manual_purchase_orders').update({ outbound_request_id: obId, last_updated: new Date().toISOString() }).eq('id', h.id);
-    if (linkErr) throw linkErr;
-    h.outboundRequestId = obId;
-    logActivity('ManualPurchase','create_outbound',h.id,`Outbound request ${obId} (Sales) created`);
+    // Add to in-memory cache + first batch maintains legacy outbound_request_id link
+    if (!o.linkedOutbounds) o.linkedOutbounds = [];
+    o.linkedOutbounds.push({ ...payload, shipping_cost: null, tracking_number: null, requested_ship_date: null });
+    if (!h.outboundRequestId) {
+      await sb.from('manual_purchase_orders').update({ outbound_request_id: obId, last_updated: new Date().toISOString() }).eq('id', h.id);
+      h.outboundRequestId = obId;
+    }
+    logActivity('ManualPurchase','create_outbound',h.id,`Outbound request ${obId} (Sales batch #${batchNo}) created`);
     _mpurcRenderDetail();
-    alert(`✓ Outbound Request ${obId} created — tim warehouse akan proses.`);
+    alert(`✓ Outbound Request ${obId} created${isPartial?` (batch #${batchNo})`:''} — tim warehouse akan proses.`);
   } catch(e) {
     alert('Gagal create outbound: ' + (e.message||e));
   }
@@ -38188,7 +38228,11 @@ function _mpurcRenderDetail() {
   // Compute totals from items
   const items = o.items || [];
   const subtotal = items.reduce((s,i) => s + (parseFloat(i.subtotal)||0), 0);
-  const shippingCost = parseFloat(h.shippingCost)||0;
+  // Ongkir: SUM dari linked OB shipping_costs (warehouse fills setelah ship).
+  // Fallback ke h.shippingCost untuk legacy orders yang belum punya linked OB.
+  const obs = o.linkedOutbounds || [];
+  const obShippingTotal = obs.reduce((s,ob) => s + (parseFloat(ob.shipping_cost)||0), 0);
+  const shippingCost = obs.length ? obShippingTotal : (parseFloat(h.shippingCost)||0);
   const totalReceived = (o.payments||[]).reduce((s,p) => p.paid_at ? s + (parseFloat(p.amount)||0) : s, 0);
   const paymentDue = (subtotal + shippingCost) - totalReceived;
   detV.innerHTML = `
@@ -38199,9 +38243,7 @@ function _mpurcRenderDetail() {
         <div style="font-size:12px;color:var(--g600);margin-top:2px">${isNew ? 'Isi header + items, lalu Simpan untuk generate Invoice No.' : `Invoice: ${_mpurcAutoInvoiceNo(h.id)} · Status: ${h.status}`}</div>
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        ${!isNew && items.length ? (h.outboundRequestId
-          ? `<a href="#" onclick="event.preventDefault();showPage('outbound',null);setTimeout(()=>{const el=document.getElementById('ob-fil-search');if(el){el.value='${h.outboundRequestId}';applyOutboundFilters();}},300)" style="font-size:11px;padding:6px 12px;background:#dff0d8;color:#04342C;border:1px solid #b8d9b3;border-radius:5px;text-decoration:none;font-weight:500" title="Buka outbound request">📦 ${h.outboundRequestId}</a>`
-          : `<button class="btn-ghost" onclick="_mpurcCreateOutbound()" style="font-size:12px;padding:8px 16px" title="Buat outbound request ke tim warehouse">📦 Request ke Warehouse</button>`) : ''}
+        ${!isNew && items.length ? `<button class="btn-ghost" onclick="_mpurcCreateOutbound()" style="font-size:12px;padding:8px 16px" title="Buat outbound request batch ke tim warehouse">📦 Request ke Warehouse${obs.length?` (+ batch ke-${obs.length+1})`:''}</button>` : ''}
         <button class="btn-primary" onclick="saveManualPurchase()" style="font-size:12px;padding:8px 18px">${isNew?'💾 Simpan':'💾 Update'}</button>
       </div>
     </div>
@@ -38253,6 +38295,13 @@ function _mpurcRenderDetail() {
           <div class="fg"><label>Penerima</label><input type="text" id="mp-h-shiprecipient" value="${(h.shipToRecipient||'').replace(/"/g,'&quot;')}" placeholder="${h.shipToType==='kantor'?'PIC Kantor / Requestor':'Nama penerima'}"></div>
           <div class="fg"><label>No HP Penerima</label><input type="text" id="mp-h-shipphone" value="${(h.shipToPhone||'').replace(/"/g,'&quot;')}" placeholder="08..."></div>
           <div class="fg full"><label>Alamat Kirim</label><textarea id="mp-h-shipaddr" rows="2" placeholder="Alamat lengkap pengiriman">${(h.shipToAddress||'').replace(/</g,'&lt;')}</textarea></div>
+          <div class="fg"><label>Skema Pengiriman <span style="font-size:10px;color:var(--g400);font-weight:normal">(instruksi ke warehouse)</span></label>
+            <select id="mp-h-shipscheme">
+              <option value="">— Pilih skema —</option>
+              ${MP_SHIPPING_SCHEMES.map(s => `<option ${h.shippingScheme===s?'selected':''}>${s}</option>`).join('')}
+            </select>
+            <div style="font-size:10px;color:var(--g400);margin-top:2px">Ongkir aktual diisi warehouse di Outbound Request, lalu auto-loop ke invoice.</div>
+          </div>
           <div class="fg full"><label>Catatan Pengiriman</label><input type="text" id="mp-h-shipnotes" value="${(h.shipToNotes||'').replace(/"/g,'&quot;')}" placeholder="Instruksi khusus untuk gudang"></div>
         </div>
       </div>
@@ -38296,13 +38345,26 @@ function _mpurcRenderDetail() {
         </div>
       </div>
       <div class="form-card">
-        <div class="form-sec">Dokumen</div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <div class="form-sec">Dokumen & Pengiriman</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
           <button class="btn-primary" onclick="_mpurcGenInvoicePDF()" style="font-size:12px">📄 Invoice PDF</button>
-          ${h.outboundRequestId
-            ? `<a href="#" onclick="event.preventDefault();showPage('outbound',null);setTimeout(()=>{const el=document.getElementById('ob-fil-search');if(el){el.value='${h.outboundRequestId}';applyOutboundFilters();}},300)" style="font-size:12px;padding:8px 14px;background:#dff0d8;color:#04342C;border:1px solid #b8d9b3;border-radius:5px;text-decoration:none;font-weight:500">📋 Surat Jalan — buka ${h.outboundRequestId} di Outbound</a>`
-            : `<span style="font-size:11px;color:var(--g600);padding:8px 12px;background:var(--off);border:1px dashed var(--g200);border-radius:5px">📋 Surat Jalan diterbitkan tim warehouse via Outbound Request — klik "📦 Request ke Warehouse" di atas dulu</span>`}
         </div>
+        ${obs.length ? `<div style="border-top:1px solid var(--g100);padding-top:10px">
+          <div style="font-size:11px;color:var(--g600);margin-bottom:8px">Outbound Requests (Surat Jalan + ongkir actual):</div>
+          <div style="display:flex;flex-direction:column;gap:6px">
+          ${obs.map((ob, i) => {
+            const ongkirLbl = ob.shipping_cost != null ? `Rp ${Math.round(parseFloat(ob.shipping_cost)||0).toLocaleString('id-ID')}` : '<i style="color:var(--g400)">belum diisi warehouse</i>';
+            const stTone = ob.status === 'Delivered' ? {bg:'#dff0d8',fg:'#04342C'} : ob.status === 'Sent' ? {bg:'#cce5ff',fg:'#054d8c'} : {bg:'#fef5e0',fg:'#a66800'};
+            return `<a href="#" onclick="event.preventDefault();showPage('outbound',null);setTimeout(()=>{const el=document.getElementById('ob-fil-search');if(el){el.value='${ob.id}';applyOutboundFilters();}},300)" style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--off);border:1px solid var(--g100);border-radius:5px;text-decoration:none;color:inherit">
+              <span style="font-family:var(--mono);font-size:11px;font-weight:600">📦 ${(ob.id||'').replace(/</g,'&lt;')}</span>
+              <span style="font-size:10px;padding:2px 8px;border-radius:99px;background:${stTone.bg};color:${stTone.fg};font-weight:600">${ob.status||'Pending'}</span>
+              <span style="font-size:11px;color:var(--g600);flex:1">${(ob.items||[]).length} items · ${(ob.items||[]).reduce((s,it)=>s+(parseFloat(it.qty)||0),0)} pcs</span>
+              <span style="font-size:11px;font-family:var(--mono);color:var(--g600)">Ongkir: <b style="color:var(--black)">${ongkirLbl}</b></span>
+            </a>`;
+          }).join('')}
+          </div>
+          <div style="font-size:10px;color:var(--g400);margin-top:8px;font-family:var(--mono)">Total ongkir: <b style="color:var(--black)">${fmtRp(obShippingTotal)}</b> · auto-masuk ke invoice</div>
+        </div>` : `<div style="border-top:1px solid var(--g100);padding-top:10px"><span style="font-size:11px;color:var(--g600);padding:8px 12px;background:var(--off);border:1px dashed var(--g200);border-radius:5px;display:inline-block">📋 Surat Jalan + ongkir diisi warehouse via Outbound Request — klik <b>📦 Request ke Warehouse</b> di atas</span></div>`}
       </div>
       `}
     </div>
@@ -39174,8 +39236,12 @@ async function _mpurcGenInvoicePDFMs(milestoneKey) {
   // Rule: DP milestones → PROFORMA INVOICE, final/last → INVOICE
   const isFinal = milestoneKey === 'final' || msIdx === milestones.length - 1;
   const docTitle = isFinal ? 'INVOICE' : 'PROFORMA INVOICE';
-  // Shipping cost added only on the final invoice
-  const shippingCost = parseFloat(h.shippingCost)||0;
+  // Shipping cost added only on the final invoice. Source of truth: SUM dari
+  // linked Outbound Requests (warehouse fills actual cost). Fallback ke
+  // legacy h.shippingCost untuk orders yang belum ada linked OB.
+  const obList = o.linkedOutbounds || [];
+  const obShippingSum = obList.reduce((s,ob) => s + (parseFloat(ob.shipping_cost)||0), 0);
+  const shippingCost = obList.length ? obShippingSum : (parseFloat(h.shippingCost)||0);
   const shippingOnThisMs = isFinal ? shippingCost : 0;
   const descLine = [h.invoiceCategory || 'Pesanan Manual Purchase', h.lineBrand].filter(Boolean).join(' — ');
   const paymentDue = subtotal - totalReceived;
@@ -39514,6 +39580,7 @@ async function saveManualPurchase() {
     ship_to_recipient: document.getElementById('mp-h-shiprecipient')?.value.trim() || null,
     ship_to_phone: document.getElementById('mp-h-shipphone')?.value.trim() || null,
     ship_to_notes: document.getElementById('mp-h-shipnotes')?.value.trim() || null,
+    shipping_scheme: document.getElementById('mp-h-shipscheme')?.value || null,
     payment_plan: h.paymentPlan || null,
     last_updated: new Date().toISOString(),
     last_updated_by: currentUser,
