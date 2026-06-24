@@ -37969,6 +37969,7 @@ function mapMpurc(r) {
     shipToNotes: r.ship_to_notes||'',
     shippingCost: parseFloat(r.shipping_cost)||0,  // Legacy — superseded by SUM(linked OBs.shipping_cost)
     shippingScheme: r.shipping_scheme || '',
+    shippingCostCategory: r.shipping_cost_category || '',
     paymentPlan: r.payment_plan || null,
     outboundRequestId: r.outbound_request_id||'',  // Legacy single FK — kept for backward compat, multi-OB via reverse lookup
     createdBy: r.created_by||'', createdAt: r.created_at,
@@ -37989,8 +37990,15 @@ const MP_SHIPPING_SCHEMES = [
   'Kurir Internal',
   'Customer Pickup',
   'Sales Bawa Sendiri',
-  'Free Ongkir (Sentra absorb)',
-  'Charged to Customer',
+];
+
+// Kategori siapa yang nanggung ongkir — instruksi ke finance/warehouse.
+// Actual angka tetep dari warehouse via OB.shipping_cost.
+const MP_SHIPPING_COST_CATEGORIES = [
+  { value: 'paid_sentra',         label: '🏢 Ditanggung Sentra' },
+  { value: 'reimbursed',          label: '💸 Reimburse (talangan)' },
+  { value: 'charged_to_customer', label: '🧾 Ditagihkan ke Customer' },
+  { value: 'free_ongkir',         label: '🎁 Free Ongkir (absorb, gak ditagih)' },
 ];
 const MP_OFFICE_ADDRESS = 'Jl. Wahid Hasyim No. 10D RT.002 RW.007, Kebon Sirih, Menteng, Jakarta Pusat';
 
@@ -38296,14 +38304,22 @@ function _mpurcRenderDetail() {
           <div class="fg"><label>Penerima</label><input type="text" id="mp-h-shiprecipient" value="${(h.shipToRecipient||'').replace(/"/g,'&quot;')}" placeholder="${h.shipToType==='kantor'?'PIC Kantor / Requestor':'Nama penerima'}"></div>
           <div class="fg"><label>No HP Penerima</label><input type="text" id="mp-h-shipphone" value="${(h.shipToPhone||'').replace(/"/g,'&quot;')}" placeholder="08..."></div>
           <div class="fg full"><label>Alamat Kirim</label><textarea id="mp-h-shipaddr" rows="2" placeholder="Alamat lengkap pengiriman">${(h.shipToAddress||'').replace(/</g,'&lt;')}</textarea></div>
-          <div class="fg"><label>Skema Pengiriman <span style="font-size:10px;color:var(--g400);font-weight:normal">(instruksi ke warehouse)</span></label>
+          <div class="fg"><label>Skema Pengiriman <span style="font-size:10px;color:var(--g400);font-weight:normal">(instruksi)</span></label>
             <select id="mp-h-shipscheme">
               <option value="">— Pilih skema —</option>
               ${MP_SHIPPING_SCHEMES.map(s => `<option ${h.shippingScheme===s?'selected':''}>${s}</option>`).join('')}
             </select>
-            <div style="font-size:10px;color:var(--g400);margin-top:2px">Ongkir aktual diisi warehouse di Outbound Request, lalu auto-loop ke invoice.</div>
+          </div>
+          <div class="fg"><label>Kategori Ongkir <span style="font-size:10px;color:var(--g400);font-weight:normal">(siapa nanggung)</span></label>
+            <select id="mp-h-shipcostcat">
+              <option value="">— Pilih kategori —</option>
+              ${MP_SHIPPING_COST_CATEGORIES.map(c => `<option value="${c.value}" ${h.shippingCostCategory===c.value?'selected':''}>${c.label}</option>`).join('')}
+            </select>
           </div>
           <div class="fg full"><label>Catatan Pengiriman</label><input type="text" id="mp-h-shipnotes" value="${(h.shipToNotes||'').replace(/"/g,'&quot;')}" placeholder="Instruksi khusus untuk gudang"></div>
+          <div class="fg full" style="font-size:10px;color:var(--g400);font-family:var(--mono);padding:6px 0">
+            ℹ️ Tanggal sampai · AWB/Resi · Ongkir aktual → diisi tim warehouse di Outbound Request, otomatis loop ke invoice.
+          </div>
         </div>
       </div>
       ${_mpurcRenderPaymentPlanEditor(h)}
@@ -38334,16 +38350,6 @@ function _mpurcRenderDetail() {
           <span style="font-size:12px;color:var(--g600);font-family:var(--mono)">Paid: <b style="font-size:14px;color:var(--black)">${fmtRp(totalReceived)}</b> / ${fmtRp(subtotal + shippingCost)}${shippingCost>0?` <span style="font-size:10px;color:var(--g400)">(${fmtRp(subtotal)} + ${fmtRp(shippingCost)} ongkir)</span>`:''} · Sisa: <b style="color:${paymentDue>0?'#c0392b':'#0a7d3a'}">${fmtRp(paymentDue)}</b></span>
         </div>
         ${_mpurcMilestoneTableHTML(o, subtotal)}
-      </div>
-      <div class="form-card" style="margin-bottom:14px">
-        <div class="form-sec" style="display:flex;justify-content:space-between;align-items:center">
-          <span>Shipments (${(o.shipments||[]).length})</span>
-          <span style="font-size:11px;color:var(--g400)">Tracking pengiriman aktual</span>
-        </div>
-        ${_mpurcShipmentsHTML(o.shipments, o.items)}
-        <div style="margin-top:12px">
-          <button class="btn-ghost" onclick="_mpurcAddShipment()" style="font-size:12px">＋ Tambah Shipment</button>
-        </div>
       </div>
       <div class="form-card">
         <div class="form-sec">Dokumen & Pengiriman</div>
@@ -39582,6 +39588,7 @@ async function saveManualPurchase() {
     ship_to_phone: document.getElementById('mp-h-shipphone')?.value.trim() || null,
     ship_to_notes: document.getElementById('mp-h-shipnotes')?.value.trim() || null,
     shipping_scheme: document.getElementById('mp-h-shipscheme')?.value || null,
+    shipping_cost_category: document.getElementById('mp-h-shipcostcat')?.value || null,
     payment_plan: h.paymentPlan || null,
     last_updated: new Date().toISOString(),
     last_updated_by: currentUser,
