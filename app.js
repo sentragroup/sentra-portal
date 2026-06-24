@@ -31662,141 +31662,208 @@ async function deleteOutbound(id) {
   } catch(e) { alert('Gagal: ' + (e.message||e)); }
 }
 
-// Generate Surat Jalan PDF untuk Outbound Request. Window-based — pakai
-// print dialog browser ke Save as PDF. Format: header (SJ no + Sentra info),
-// recipient block, items table, T&C, signature blocks.
-function _obGenerateSuratJalan(id) {
+// Generate Surat Jalan PDF untuk Outbound Request. Pattern mirror Pop Up Booth
+// SJ — issuer PT SDY, doc meta, recipient card, items grouped by parent w/
+// thumbnails, T&C (purpose-dependent), 2 sig blocks. Tim warehouse pakai ini
+// sebagai canonical SJ — Manual Purchase/KOL/etc. tidak perlu SJ terpisah.
+async function _obGenerateSuratJalan(id) {
   const r = allOutboundRows.find(x => x.rowIndex === id);
   if (!r) { alert('Ticket gak ditemukan'); return; }
   if (!(r.items||[]).length) { alert('Belum ada items di ticket ini'); return; }
-  const esc = s => (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  // Fetch jubelio_items cache untuk thumbnails + item_group_id (parent grouping)
+  if (!_whJubelioItemsCache || !_whJubelioItemsCache.length) {
+    try { _whJubelioItemsCache = await _fetchAllPages('jubelio_items', 'item_id,item_code,item_name,item_group_id,thumbnail'); }
+    catch(_) { _whJubelioItemsCache = []; }
+  }
+  const jByItemId = new Map((_whJubelioItemsCache||[]).map(j => [j.item_id, j]));
   const monthNames = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
   const fmtTglFull = d => { if (!d) return '—'; const x = new Date(d+'T00:00:00'); return `${x.getDate()} ${monthNames[x.getMonth()]} ${x.getFullYear()}`; };
   const today = new Date();
-  const todayLabel = `${today.getDate()} ${monthNames[today.getMonth()]} ${today.getFullYear()}`;
-  const sjNo = `SJ/${r.id.replace(/^OB-/,'')}/${String(today.getFullYear()).slice(-2)}`;
-  const totalQty = (r.items||[]).reduce((s,it) => s + (parseFloat(it.qty)||0), 0);
-  // Items grouped by parent name (strip size suffix)
+  // SJ number: SJ-{YYYYMMDD}{4-digit random from id}-{OB seq if applicable}
+  const idDigits = String(r.id||'').replace(/\D/g,'').slice(-4) || '0000';
+  const dateStr = `${today.getFullYear()}${String(today.getMonth()+1).padStart(2,'0')}${String(today.getDate()).padStart(2,'0')}`;
+  const sjNo = `SJ-${dateStr}${idDigits}-01`;
+  // Parent grouping with size sort
   const parentName = name => String(name||'').replace(/\s*[-—]\s*(XXS|XS|S|M|L|XL|XXL|XXXL|OS|FREE\s*SIZE|FREESIZE)\s*$/i,'').trim();
   const sizeOrder = s => ({XXS:0,XS:1,S:2,M:3,L:4,XL:5,XXL:6,XXXL:7,OS:99,'FREE SIZE':99,FREESIZE:99}[String(s||'').toUpperCase().trim()] ?? 50);
   const sizeOf = it => {
-    const codes = [it.sku, it.item_code].filter(Boolean);
+    const j = jByItemId.get(it.item_id || it.jubelio_item_id);
+    const codes = [it.sku, it.item_code, j?.item_code].filter(Boolean);
     for (const c of codes) {
       const m = String(c).match(/-(XXS|XS|S|M|L|XL|XXL|XXXL|OS|FREESIZE)(?:-[A-Z]+)?$/i);
       if (m) return m[1].toUpperCase();
     }
     if (it.size) return String(it.size).toUpperCase();
-    const m2 = String(it.item_name||'').match(/\s*[-—]\s*(XXS|XS|S|M|L|XL|XXL|XXXL|OS|FREE\s*SIZE|FREESIZE)\s*$/i);
-    return m2 ? m2[1].toUpperCase() : '';
+    const names = [it.item_name, j?.item_name].filter(Boolean);
+    for (const n of names) {
+      const m2 = String(n).match(/\s*[-—]\s*(XXS|XS|S|M|L|XL|XXL|XXXL|OS|FREE\s*SIZE|FREESIZE)\s*$/i);
+      if (m2) return m2[1].toUpperCase();
+    }
+    return '';
   };
   const parents = new Map();
   (r.items||[]).forEach(it => {
-    const pName = parentName(it.item_name) || it.item_name || it.sku || '(item)';
-    if (!parents.has(pName)) parents.set(pName, []);
-    parents.get(pName).push(it);
+    const itemId = it.item_id || it.jubelio_item_id;
+    const j = jByItemId.get(itemId);
+    const cleanName = parentName(j?.item_name) || parentName(it.item_name) || it.item_name || it.sku || '(item)';
+    const key = j?.item_group_id != null ? `g:${j.item_group_id}` : `n:${cleanName}`;
+    if (!parents.has(key)) parents.set(key, { name: cleanName, rows: [] });
+    parents.get(key).rows.push({ ...it, _item_id: itemId });
   });
-  parents.forEach(arr => arr.sort((a,b) => sizeOrder(sizeOf(a)) - sizeOrder(sizeOf(b))));
-  let rowNum = 0;
-  const itemRows = [];
-  for (const [pName, vars] of parents) {
-    vars.forEach(it => {
-      rowNum++;
-      itemRows.push(`<tr>
-        <td style="text-align:center">${rowNum}</td>
-        <td>${esc(pName)}</td>
-        <td style="text-align:center">${esc(sizeOf(it)||'—')}</td>
-        <td style="font-family:monospace;font-size:10px">${esc(it.sku||it.item_code||'')}</td>
-        <td style="text-align:right">${parseFloat(it.qty)||0}</td>
-        <td style="text-align:center">pcs</td>
-      </tr>`);
-    });
-  }
-  const purposeBadge = `<span style="background:#f0efe9;border:1px solid #d4d3cb;border-radius:99px;padding:2px 10px;font-size:11px;font-weight:600">${esc(r.purpose||'Freebies')}</span>`;
-  const html = `<!DOCTYPE html><html><head><title>Surat Jalan ${esc(sjNo)}</title>
-<style>
-  @page { size: A4; margin: 18mm 16mm; }
-  body { font-family: 'Helvetica Neue', Arial, sans-serif; color: #0c0c0c; font-size: 11px; line-height: 1.45; }
-  .h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; margin: 0; }
-  .h2 { font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }
-  .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #0c0c0c; padding-bottom: 14px; margin-bottom: 18px; }
-  .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 18px; }
-  .block { border: 0.5px solid #d4d3cb; padding: 10px 12px; border-radius: 4px; }
-  table.items { width: 100%; border-collapse: collapse; margin: 8px 0 16px; font-size: 11px; }
-  table.items th { background: #f0efe9; padding: 8px 6px; text-align: left; font-weight: 600; border-bottom: 1px solid #888; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; }
-  table.items td { padding: 6px; border-bottom: 0.5px solid #e8e7e0; }
-  .totals { display: flex; justify-content: flex-end; font-size: 11px; font-weight: 600; margin-bottom: 18px; }
-  .tnc { font-size: 9.5px; line-height: 1.55; color: #444; border-top: 1px dashed #d4d3cb; border-bottom: 1px dashed #d4d3cb; padding: 10px 0; margin: 14px 0; }
-  .tnc strong { color: #0c0c0c; }
-  .sig-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px; margin-top: 32px; }
-  .sig-box { text-align: center; }
-  .sig-label { font-size: 10px; color: #666; margin-bottom: 50px; }
-  .sig-line { border-top: 1px solid #0c0c0c; padding-top: 4px; font-size: 10px; }
-  @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
-</style></head><body>
-<div class="header">
-  <div>
-    <p class="h1">SURAT JALAN</p>
-    <div style="font-size:10px;color:#666;margin-top:4px;font-family:monospace">${esc(sjNo)} · ${todayLabel}</div>
-    <div style="margin-top:6px">${purposeBadge}</div>
-  </div>
-  <div style="text-align:right">
-    <div style="font-size:14px;font-weight:600">SENTRA GROUP</div>
-    <div style="font-size:10px;color:#666;margin-top:2px">Gudang Bintaro · Jakarta Selatan</div>
-    <div style="font-size:10px;color:#666">hello@sentragroup.id</div>
-  </div>
-</div>
-<div class="meta-grid">
-  <div class="block">
-    <div class="h2">Penerima</div>
-    <div style="font-weight:600;font-size:13px">${esc(r.recipientName)||'—'}</div>
-    ${r.recipientAddress?`<div style="font-size:10px;margin-top:4px">${esc(r.recipientAddress)}</div>`:''}
-    ${r.recipientPhone?`<div style="font-size:10px;margin-top:2px;font-family:monospace">${esc(r.recipientPhone)}</div>`:''}
-  </div>
-  <div class="block">
-    <div class="h2">Detail Pengiriman</div>
-    <div style="font-size:10px"><b>Tanggal Kirim:</b> ${fmtTglFull(r.requestedShipDate)}</div>
-    ${r.trackingNumber?`<div style="font-size:10px"><b>No. Resi:</b> <span style="font-family:monospace">${esc(r.trackingNumber)}</span></div>`:''}
-    <div style="font-size:10px"><b>Source:</b> ${esc(r.sourceModule)}${r.sourceId?` · ${esc(r.sourceId)}`:''}</div>
-  </div>
-</div>
-<table class="items">
-  <thead><tr>
-    <th style="width:30px">No</th>
-    <th>Item</th>
-    <th style="width:60px;text-align:center">Size</th>
-    <th style="width:120px">SKU</th>
-    <th style="width:60px;text-align:right">Qty</th>
-    <th style="width:50px;text-align:center">UoM</th>
-  </tr></thead>
-  <tbody>${itemRows.join('')}</tbody>
-  <tfoot><tr style="background:#f0efe9;font-weight:600"><td colspan="4" style="padding:8px 6px;text-align:right">Total</td><td style="text-align:right;padding:8px 6px">${totalQty}</td><td style="text-align:center;padding:8px 6px">pcs</td></tr></tfoot>
-</table>
-<div class="tnc">
-  <strong>Syarat &amp; Ketentuan:</strong><br>
-  1. Penerima wajib memeriksa kondisi dan jumlah barang sesuai dengan Surat Jalan ini sebelum menandatangani.<br>
-  2. Tanda tangan penerima merupakan bukti bahwa barang sudah diterima dalam kondisi baik dan jumlah sesuai.<br>
-  3. Klaim atas kerusakan/kekurangan barang harus disampaikan maksimal 3×24 jam setelah barang diterima dengan disertai bukti foto.<br>
-  4. Surat Jalan ini berfungsi sebagai bukti pengiriman; bukan invoice/tagihan.
-</div>
-<div class="sig-row">
-  <div class="sig-box">
-    <div class="sig-label">Pengirim (Sentra)</div>
-    <div class="sig-line">Nama &amp; Tanda Tangan</div>
-  </div>
-  <div class="sig-box">
-    <div class="sig-label">Kurir / Ekspedisi</div>
-    <div class="sig-line">Nama &amp; Tanda Tangan</div>
-  </div>
-  <div class="sig-box">
-    <div class="sig-label">Penerima</div>
-    <div class="sig-line">Nama &amp; Tanda Tangan</div>
-  </div>
-</div>
-<script>window.addEventListener('load',()=>setTimeout(()=>window.print(),300));</script>
-</body></html>`;
+  for (const p of parents.values()) p.rows.sort((a,b) => sizeOrder(sizeOf(a)) - sizeOrder(sizeOf(b)));
+  const totalQty = (r.items||[]).reduce((s,it) => s + (parseFloat(it.qty)||0), 0);
+  const recName = r.recipientName || '—';
+  const recAddr = r.recipientAddress || '';
+  const recPhone = r.recipientPhone || '';
+  const purposeLbl = r.purpose || 'Freebies';
+  // T&C disesuaikan dengan purpose — Sales (paid order) lebih simple, Freebies/Sample
+  // ada ketentuan extra soal pemakaian.
+  const tncSales = `<ol class="tnc-list">
+    <li><strong>Pemeriksaan Barang.</strong> Penerima wajib memeriksa kondisi dan jumlah barang sesuai dengan Surat Jalan ini sebelum menandatangani sebagai tanda barang diterima dalam kondisi baik dan jumlah sesuai.</li>
+    <li><strong>Klaim Kerusakan.</strong> Klaim atas kerusakan atau kekurangan barang harus disampaikan kepada PT Sandang Dunia Yuwana maksimal <strong>3×24 jam setelah barang diterima</strong>, disertai bukti foto/video kondisi barang sebagai dasar tindak lanjut.</li>
+    <li><strong>Status Dokumen.</strong> Surat Jalan ini berfungsi sebagai bukti serah-terima barang. Tagihan / invoice atas barang ini diterbitkan secara terpisah sesuai kesepakatan komersial.</li>
+  </ol>`;
+  const tncFreebies = `<ol class="tnc-list">
+    <li><strong>Pemeriksaan Barang.</strong> Penerima wajib memeriksa kondisi dan jumlah barang sesuai Surat Jalan ini sebelum menandatangani. Tanda tangan penerima menjadi bukti penerimaan barang dalam kondisi baik.</li>
+    <li><strong>Klaim Kerusakan.</strong> Klaim atas kerusakan/kekurangan barang disampaikan maksimal <strong>3×24 jam setelah barang diterima</strong>, disertai bukti foto.</li>
+    <li><strong>Peruntukan.</strong> Barang ini ditujukan sebagai <strong>${purposeLbl}</strong> dan tidak untuk diperjualbelikan. Pemakaian di luar peruntukan menjadi tanggung jawab Penerima.</li>
+    <li><strong>Status Dokumen.</strong> Surat Jalan ini bukan invoice / tagihan, melainkan bukti pengiriman barang dari PT Sandang Dunia Yuwana.</li>
+  </ol>`;
+  const tncBlock = (purposeLbl === 'Sales') ? tncSales : tncFreebies;
+  const itemsBody = [...parents.values()].map(p => {
+    const totalP = p.rows.reduce((s,x) => s + (parseFloat(x.qty)||0), 0);
+    let thumb = null;
+    for (const x of p.rows) {
+      const j = jByItemId.get(x._item_id);
+      if (j?.thumbnail) { thumb = j.thumbnail; break; }
+      if (x.thumbnail) { thumb = x.thumbnail; break; }
+    }
+    const thumbInline = thumb
+      ? `<img src="${thumb.replace(/"/g,'&quot;')}" style="width:42px;height:42px;object-fit:cover;border-radius:3px;border:1px solid #ddd;flex-shrink:0">`
+      : `<div style="width:42px;height:42px;background:#f0f0f0;border:1px dashed #ccc;border-radius:3px;flex-shrink:0"></div>`;
+    const variantRows = p.rows.map(x => {
+      const j = jByItemId.get(x._item_id);
+      const code = x.sku || x.item_code || j?.item_code || '';
+      return `<tr>
+        <td class="sz">${sizeOf(x)||'—'}</td>
+        <td class="sku">${String(code).replace(/</g,'&lt;')}</td>
+        <td class="r">${parseFloat(x.qty)||0}</td>
+      </tr>`;
+    }).join('');
+    return `<tbody class="parent-group">
+      <tr class="parent-row">
+        <td colspan="3"><div style="display:flex;align-items:center;gap:10px">${thumbInline}<div><div style="font-weight:700;font-size:13px">${(p.name||'').replace(/</g,'&lt;')}</div><div style="font-size:11px;color:#666;margin-top:2px">${p.rows.length} variants · ${totalP} pcs</div></div></div></td>
+      </tr>
+      ${variantRows}
+    </tbody>`;
+  }).join('');
+  // Purpose pill — color sesuai _OB_PURPOSE_TONE
+  const pTone = _OB_PURPOSE_TONE[purposeLbl] || _OB_PURPOSE_TONE.Other;
+  const purposePill = `<span style="background:${pTone.bg};color:${pTone.fg};border:1px solid ${pTone.border};padding:3px 12px;border-radius:99px;font-size:10px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase">${purposeLbl}</span>`;
   const w = window.open('', '_blank');
-  if (!w) { alert('Pop-up diblokir. Allow pop-up untuk situs ini.'); return; }
-  w.document.write(html); w.document.close();
+  if (!w) { alert('Pop-up diblokir browser. Allow pop-up untuk site ini.'); return; }
+  w.document.write(`<!doctype html><html lang="id"><head><meta charset="utf-8">
+    <title>SURAT JALAN ${sjNo.replace(/</g,'&lt;')} · ${recName.replace(/</g,'&lt;')}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+      *{box-sizing:border-box}
+      @page{size:A4;margin:0}
+      html,body{margin:0;padding:0;background:#fff;color:#111;font-family:'Inter',system-ui,sans-serif;font-size:12px;line-height:1.45}
+      .page{width:210mm;min-height:297mm;margin:0 auto;padding:18mm;display:flex;flex-direction:column}
+      .top{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #111;padding-bottom:14px;margin-bottom:20px}
+      .issuer h2{margin:0 0 4px;font-size:14px;font-weight:700}
+      .issuer p{margin:0;font-size:10.5px;color:#333}
+      .doc-meta{text-align:right}
+      .doc-meta h1{margin:0;font-family:'Space Mono',monospace;font-size:22px;letter-spacing:0.08em;font-weight:700}
+      .doc-meta .label{font-family:'Space Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:#666;margin-top:6px}
+      .doc-meta .val{font-family:'Space Mono',monospace;font-size:12px;font-weight:700;margin-top:2px}
+      .recipient{margin-bottom:14px;padding:12px 16px;background:#f7f6f0;border-radius:6px;display:flex;justify-content:space-between;align-items:flex-start;gap:14px}
+      .recipient .lbl{font-family:'Space Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:#666;margin-bottom:3px}
+      .recipient .name{font-size:16px;font-weight:700}
+      .recipient .sub{font-size:11px;color:#555;margin-top:2px}
+      table.lampiran{width:100%;border-collapse:collapse;font-size:12px}
+      table.lampiran thead th{font-family:'Space Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:#666;font-weight:700;text-align:left;padding:8px 10px;border-bottom:2px solid #111;background:#fafafa}
+      table.lampiran thead th.r{text-align:right}
+      table.lampiran tbody.parent-group{break-inside:avoid}
+      table.lampiran tr.parent-row td{background:#f7f6f0;padding:10px 12px;border-top:1px solid #ddd;border-bottom:1px solid #ddd}
+      table.lampiran td{padding:6px 10px;border-bottom:1px solid #eee}
+      table.lampiran td.sz{font-family:'Space Mono',monospace;font-weight:700;width:60px}
+      table.lampiran td.sku{font-family:'Space Mono',monospace;font-size:10px;color:#666}
+      table.lampiran td.r{text-align:right;font-family:'Space Mono',monospace}
+      .sig-row{display:flex;justify-content:space-between;padding-top:24px;gap:40px}
+      .sig{flex:1;text-align:center}
+      .sig .company{font-weight:600;font-size:11.5px;margin-bottom:4px}
+      .sig .gap{height:60px}
+      .sig .name{border-top:1px solid #111;padding-top:5px;font-weight:600;font-size:11.5px}
+      .sig .role{font-size:10.5px;color:#555;margin-top:2px}
+      .tnc{margin-top:18px;padding:11px 14px;border:1px solid #d4d4d4;border-radius:4px;background:#fafafa;break-inside:avoid}
+      .tnc-title{font-family:'Space Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#111;font-weight:700;margin-bottom:7px}
+      .tnc-list{margin:0;padding-left:18px;font-size:9.5px;line-height:1.55;color:#333}
+      .tnc-list li{margin-bottom:4px;text-align:justify}
+      .tnc-list li:last-child{margin-bottom:0}
+      .tnc-list strong{font-weight:700;color:#111}
+      footer{margin-top:14px;padding-top:10px;border-top:1px solid #e5e5e5;font-size:9px;color:#999;text-align:center;font-family:'Space Mono',monospace;letter-spacing:0.05em}
+    </style></head>
+    <body>
+      <div class="page">
+        <div class="top">
+          <div class="issuer">
+            <h2>PT Sandang Dunia Yuwana</h2>
+            <p>Jl. Wahid Hasyim No. 10D RT.002 RW.007<br>Kebon Sirih, Menteng, Jakarta Pusat</p>
+          </div>
+          <div class="doc-meta">
+            <h1>SURAT JALAN</h1>
+            <div class="label">No. SJ</div>
+            <div class="val">${sjNo}</div>
+            <div class="label">Tanggal Kirim</div>
+            <div class="val">${fmtTglFull(r.requestedShipDate || today.toISOString().slice(0,10))}</div>
+          </div>
+        </div>
+        <div class="recipient">
+          <div>
+            <div class="lbl">Dikirim Kepada</div>
+            <div class="name">${recName.replace(/</g,'&lt;')}</div>
+            ${recAddr?`<div class="sub">📍 ${recAddr.replace(/</g,'&lt;')}</div>`:''}
+            ${recPhone?`<div class="sub">📞 ${recPhone.replace(/</g,'&lt;')}</div>`:''}
+            ${r.sourceId?`<div class="sub" style="font-family:'Space Mono',monospace;font-size:10px">Ref: ${r.sourceModule}${r.sourceId?` · ${String(r.sourceId).replace(/</g,'&lt;')}`:''}</div>`:''}
+          </div>
+          <div style="text-align:right">${purposePill}</div>
+        </div>
+        <table class="lampiran">
+          <thead><tr>
+            <th>Size</th>
+            <th>SKU</th>
+            <th class="r">Qty</th>
+          </tr></thead>
+          ${itemsBody}
+          <tbody><tr>
+            <td colspan="2" style="padding:14px 10px;border-top:2px solid #111;font-weight:700">TOTAL</td>
+            <td class="r" style="padding:14px 10px;border-top:2px solid #111;font-weight:700">${totalQty} pcs</td>
+          </tr></tbody>
+        </table>
+        <div class="tnc">
+          <div class="tnc-title">Syarat &amp; Ketentuan</div>
+          ${tncBlock}
+        </div>
+        <div class="sig-row">
+          <div class="sig">
+            <div class="company">Pengirim</div>
+            <div class="gap"></div>
+            <div class="name">PT Sandang Dunia Yuwana</div>
+            <div class="role">Tim Warehouse</div>
+          </div>
+          <div class="sig">
+            <div class="company">Penerima</div>
+            <div class="gap"></div>
+            <div class="name">${recName.replace(/</g,'&lt;')}</div>
+            <div class="role">Nama Lengkap &amp; Tanda Tangan</div>
+          </div>
+        </div>
+        <footer>Outbound Request ${(r.id||'').replace(/</g,'&lt;')} · Surat Jalan ini menjadi bukti serah-terima barang</footer>
+      </div>
+      <script>setTimeout(()=>window.print(),500);<\/script>
+    </body></html>`);
+  w.document.close();
 }
 
 // ── KOL DATABASE ──
@@ -38202,9 +38269,11 @@ function _mpurcRenderDetail() {
       </div>
       <div class="form-card">
         <div class="form-sec">Dokumen</div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
           <button class="btn-primary" onclick="_mpurcGenInvoicePDF()" style="font-size:12px">📄 Invoice PDF</button>
-          <button class="btn-ghost" onclick="_mpurcGenSuratJalanPDF()" style="font-size:12px">📋 Surat Jalan PDF</button>
+          ${h.outboundRequestId
+            ? `<a href="#" onclick="event.preventDefault();showPage('outbound',null);setTimeout(()=>{const el=document.getElementById('ob-fil-search');if(el){el.value='${h.outboundRequestId}';applyOutboundFilters();}},300)" style="font-size:12px;padding:8px 14px;background:#dff0d8;color:#04342C;border:1px solid #b8d9b3;border-radius:5px;text-decoration:none;font-weight:500">📋 Surat Jalan — buka ${h.outboundRequestId} di Outbound</a>`
+            : `<span style="font-size:11px;color:var(--g600);padding:8px 12px;background:var(--off);border:1px dashed var(--g200);border-radius:5px">📋 Surat Jalan diterbitkan tim warehouse via Outbound Request — klik "📦 Request ke Warehouse" di atas dulu</span>`}
         </div>
       </div>
       `}
