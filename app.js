@@ -38183,36 +38183,129 @@ function closeManualPurchaseDetail() {
 // (paid order, beda dari freebies/sample). Items + recipient di-prefill dari MP
 // header. Link disimpan di manual_purchase_orders.outbound_request_id supaya
 // gak bikin duplicate request.
-async function _mpurcCreateOutbound() {
+// Open modal picker — pilih items + qty per batch. Track remaining = ordered −
+// already-shipped (sum dari linked OB sebelumnya) supaya gak bisa over-commit.
+function _mpurcCreateOutbound() {
   const o = _mpurcCurrent; if (!o) return;
   const h = o.header;
   if (!h.id || h.id === 'new') { alert('Save Manual Purchase dulu sebelum request ke warehouse.'); return; }
   if (!(o.items||[]).length) { alert('Belum ada items di order ini.'); return; }
   const obs = o.linkedOutbounds || [];
+  const shippedByItem = new Map();
+  obs.forEach(ob => {
+    (ob.items||[]).forEach(it => {
+      const key = it.item_id || it.jubelio_item_id || `name:${it.item_name}`;
+      shippedByItem.set(key, (shippedByItem.get(key)||0) + (parseFloat(it.qty)||0));
+    });
+  });
+  const itemsWithRemaining = (o.items||[]).map(it => {
+    const key = it.jubelio_item_id || `name:${it.item_name}`;
+    const ordered = parseFloat(it.qty) || 0;
+    const shipped = shippedByItem.get(key) || 0;
+    return { ...it, _ordered: ordered, _shipped: shipped, _remaining: Math.max(0, ordered - shipped) };
+  });
+  const totalRemaining = itemsWithRemaining.reduce((s,i) => s + i._remaining, 0);
+  if (totalRemaining === 0) { alert('Semua items udah ke-request di OB sebelumnya.'); return; }
   const batchNo = obs.length + 1;
   const isPartial = obs.length > 0;
-  const promptMsg = isPartial
-    ? `Sudah ada ${obs.length} OB ticket. Buat batch ke-${batchNo} untuk shipment tambahan?\n\nItems batch ini diisi dengan semua ${o.items.length} items dari MP — edit di Outbound Request kalau hanya ship sebagian.`
-    : `Buat Outbound Request untuk ${o.items.length} items?\n\nTim warehouse akan dapat ticket dengan label "Sales".`;
-  if (!confirm(promptMsg)) return;
-  try {
-    // Items untuk warehouse — drop unit_price (harga jual customer) supaya tim
-    // warehouse gak misleading. Mereka cuma perlu tau apa & berapa banyak.
-    const obItems = (o.items||[]).map(it => ({
+  const overlay = document.createElement('div');
+  overlay.id = 'mp-ob-modal-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+  const rowsHTML = itemsWithRemaining.map((it, idx) => {
+    const disabled = it._remaining === 0;
+    return `<tr style="border-top:1px solid var(--g100);${disabled?'opacity:0.5':''}">
+      <td style="padding:6px 8px"><input type="checkbox" id="mp-ob-pick-${idx}" ${disabled?'disabled':'checked'} onchange="_mpurcObUpdateTotal()"></td>
+      <td style="padding:6px 8px;font-size:11px">${it.thumbnail?`<img src="${it.thumbnail.replace(/"/g,'&quot;')}" style="width:28px;height:28px;border-radius:3px;object-fit:cover;border:1px solid var(--g100);vertical-align:middle;margin-right:6px">`:''}${(it.item_name||'').replace(/</g,'&lt;')}${it.size?` <span style="color:var(--g400)">· ${it.size}</span>`:''}</td>
+      <td style="padding:6px 8px;font-size:10px;color:var(--g600);font-family:var(--mono)">${it._ordered}</td>
+      <td style="padding:6px 8px;font-size:10px;color:var(--g600);font-family:var(--mono)">${it._shipped}</td>
+      <td style="padding:6px 8px"><input type="number" id="mp-ob-qty-${idx}" min="0" max="${it._remaining}" value="${it._remaining}" ${disabled?'disabled':''} oninput="_mpurcObUpdateTotal()" style="width:70px;padding:4px 6px;font-size:11px;border:1px solid var(--g100);border-radius:4px;font-family:var(--mono);text-align:right"></td>
+      <td style="padding:6px 8px;font-size:10px;color:#c0392b;font-family:var(--mono)">${it._remaining}</td>
+    </tr>`;
+  }).join('');
+  overlay.innerHTML = `<div style="background:var(--white);border-radius:10px;max-width:760px;width:100%;max-height:90vh;overflow:auto;box-shadow:0 8px 30px rgba(0,0,0,0.2)">
+    <div style="padding:18px 22px;border-bottom:1px solid var(--g100);display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div style="font-family:var(--head);font-size:16px;font-weight:600">📦 Request ke Warehouse${isPartial?` — Batch #${batchNo}`:''}</div>
+        <div style="font-size:11px;color:var(--g600);margin-top:2px">${o.items.length} items total · ${totalRemaining} pcs masih bisa di-request${isPartial?` (sisa setelah batch sebelumnya)`:''}</div>
+      </div>
+      <button onclick="_mpurcObCloseModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--g400)">×</button>
+    </div>
+    <div style="padding:14px 22px">
+      <div style="font-size:11px;color:var(--g600);margin-bottom:8px">Pilih items + qty buat batch ini. Items yang udah ship penuh di-disable.</div>
+      <table style="width:100%;font-size:11px;border-collapse:collapse">
+        <thead><tr style="background:var(--off)">
+          <th style="text-align:left;padding:8px;font-size:10px;color:var(--g600);text-transform:uppercase;width:30px">Pilih</th>
+          <th style="text-align:left;padding:8px;font-size:10px;color:var(--g600);text-transform:uppercase">Item</th>
+          <th style="text-align:left;padding:8px;font-size:10px;color:var(--g600);text-transform:uppercase">Order</th>
+          <th style="text-align:left;padding:8px;font-size:10px;color:var(--g600);text-transform:uppercase">Shipped</th>
+          <th style="text-align:left;padding:8px;font-size:10px;color:var(--g600);text-transform:uppercase">Qty Batch</th>
+          <th style="text-align:left;padding:8px;font-size:10px;color:var(--g600);text-transform:uppercase">Max</th>
+        </tr></thead>
+        <tbody id="mp-ob-pick-tbody">${rowsHTML}</tbody>
+      </table>
+      <div id="mp-ob-pick-total" style="font-size:11px;color:var(--g600);margin-top:10px;padding:8px 12px;background:var(--off);border-radius:5px;font-family:var(--mono)">Total batch: <b>0 pcs</b></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+        <button onclick="_mpurcObCloseModal()" class="btn-ghost" style="padding:8px 14px;font-size:12px">Batal</button>
+        <button id="mp-ob-pick-submit" onclick="_mpurcObSubmit()" class="btn-primary" style="padding:8px 14px;font-size:12px">📦 Create Outbound Request</button>
+      </div>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+  overlay._mpItems = itemsWithRemaining;
+  overlay._batchNo = batchNo;
+  overlay._isPartial = isPartial;
+  _mpurcObUpdateTotal();
+}
+
+function _mpurcObCloseModal() {
+  const o = document.getElementById('mp-ob-modal-overlay'); if (o) o.remove();
+}
+
+function _mpurcObUpdateTotal() {
+  const overlay = document.getElementById('mp-ob-modal-overlay'); if (!overlay) return;
+  const items = overlay._mpItems || [];
+  let total = 0, count = 0;
+  items.forEach((it, idx) => {
+    const check = document.getElementById(`mp-ob-pick-${idx}`);
+    if (!check?.checked) return;
+    const qty = parseFloat(document.getElementById(`mp-ob-qty-${idx}`)?.value) || 0;
+    if (qty > 0) { total += qty; count++; }
+  });
+  const el = document.getElementById('mp-ob-pick-total');
+  if (el) el.innerHTML = `Total batch: <b>${total} pcs</b> · ${count} items dipilih`;
+}
+
+async function _mpurcObSubmit() {
+  const overlay = document.getElementById('mp-ob-modal-overlay'); if (!overlay) return;
+  const o = _mpurcCurrent; if (!o) return;
+  const h = o.header;
+  const itemsWithRemaining = overlay._mpItems || [];
+  const batchNo = overlay._batchNo;
+  const isPartial = overlay._isPartial;
+  const obItems = [];
+  itemsWithRemaining.forEach((it, idx) => {
+    const checked = document.getElementById(`mp-ob-pick-${idx}`)?.checked;
+    if (!checked) return;
+    const qty = parseFloat(document.getElementById(`mp-ob-qty-${idx}`)?.value) || 0;
+    if (qty <= 0) return;
+    obItems.push({
       jubelio_item_id: it.jubelio_item_id || null,
-      item_id:   it.jubelio_item_id || null,
-      sku:       it.item_code || '',
+      item_id: it.jubelio_item_id || null,
+      sku: it.item_code || '',
       item_code: it.item_code || '',
       item_name: it.item_name || '',
-      size:      it.size || '',
-      qty:       parseFloat(it.qty) || 0,
+      size: it.size || '',
+      qty,
       thumbnail: it.thumbnail || null,
-    }));
+    });
+  });
+  if (!obItems.length) { alert('Pilih minimal 1 item dengan qty > 0'); return; }
+  const btn = document.getElementById('mp-ob-pick-submit');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Creating...'; }
+  try {
     const obId = `OB-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${String(Math.floor(Math.random()*9000)+1000)}`;
     const recipient = h.shipToRecipient || h.clientRepName || h.requestorName || '—';
     const address = h.shipToType === 'kantor' ? MP_OFFICE_ADDRESS : (h.shipToAddress || '');
-    // Notes structured — warehouse harus jelas liat skema + kategori ongkir
-    // supaya gak salah kirim (mis. customer pickup tapi malah dikirim).
     const catLabel = (MP_SHIPPING_COST_CATEGORIES.find(c => c.value === h.shippingCostCategory) || {}).label || '';
     const noteParts = [
       `📦 MP ${h.id}${isPartial?` · Batch #${batchNo}`:''}${h.billedToName?` · ${h.billedToName}`:''}`,
@@ -38236,18 +38329,18 @@ async function _mpurcCreateOutbound() {
     };
     const { error: obErr } = await sb.from('outbound_requests').insert(payload);
     if (obErr) throw obErr;
-    // Add to in-memory cache + first batch maintains legacy outbound_request_id link
     if (!o.linkedOutbounds) o.linkedOutbounds = [];
     o.linkedOutbounds.push({ ...payload, shipping_cost: null, tracking_number: null, requested_ship_date: null });
     if (!h.outboundRequestId) {
       await sb.from('manual_purchase_orders').update({ outbound_request_id: obId, last_updated: new Date().toISOString() }).eq('id', h.id);
       h.outboundRequestId = obId;
     }
-    logActivity('ManualPurchase','create_outbound',h.id,`Outbound request ${obId} (Sales batch #${batchNo}) created`);
+    logActivity('ManualPurchase','create_outbound',h.id,`Outbound request ${obId} (batch #${batchNo}, ${obItems.length} items)`);
+    _mpurcObCloseModal();
     _mpurcRenderDetail();
-    alert(`✓ Outbound Request ${obId} created${isPartial?` (batch #${batchNo})`:''} — tim warehouse akan proses.`);
   } catch(e) {
     alert('Gagal create outbound: ' + (e.message||e));
+    if (btn) { btn.disabled = false; btn.textContent = '📦 Create Outbound Request'; }
   }
 }
 
