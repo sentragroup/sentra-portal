@@ -32922,7 +32922,7 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
   if (needHistory) {
     const histTo = (endD < SP_CUTOFF) ? endD : '2025-12-31';
     const histRows = await _fetchAllPages('jubelio_sales_history',
-      'salesorder_no,transaction_date,channel_name,store_name,status,item_id,item_name,qty,amount,ip',
+      'salesorder_no,transaction_date,channel_name,store_name,status,item_id,item_name,qty,amount,ip,customer_name,note',
       q => q.gte('transaction_date', fetchStart).lte('transaction_date', histTo).eq('ip', ipName));
     // Status filter — convert to upper, check membership
     histItems = histRows.filter(r => SP_COMPLETED.includes((r.status||'').toUpperCase()));
@@ -32974,7 +32974,8 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
     channelMap.set(ch, c);
   }
 
-  // Pre-2026 aggregation (history rows don't have note/customer_name — use channel only)
+  // Pre-2026 aggregation — passing customer_name + note ke channel normalizer
+  // biar Offline Booth / Reseller Platform / dll. ke-detect bener untuk history.
   for (const r of histItems) {
     const dtISO = (r.transaction_date||'').length === 10 ? `${r.transaction_date}T00:00:00+07:00` : r.transaction_date;
     const qty   = parseFloat(r.qty||0) || 0;
@@ -33006,7 +33007,7 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
     };
     cur.units += qty; cur.revenue += gross;
     parentMap.set(grpKey, cur);
-    const ch = _iprNormalizeChannel(r.channel_name, r.store_name, null, null, r.salesorder_no);
+    const ch = _iprNormalizeChannel(r.channel_name, r.store_name, r.note, r.customer_name, r.salesorder_no);
     const c = channelMap.get(ch) || { units:0, revenue:0 };
     c.units += qty; c.revenue += gross;
     channelMap.set(ch, c);
