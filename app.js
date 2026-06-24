@@ -31314,6 +31314,7 @@ function mapOutbound(r) {
     rowIndex: r.id, id: r.id,
     sourceModule: r.source_module || 'Manual',
     sourceId: r.source_id || '',
+    purpose: r.purpose || 'Freebies',
     recipientName: r.recipient_name || '',
     recipientAddress: r.recipient_address || '',
     recipientPhone: r.recipient_phone || '',
@@ -31327,6 +31328,14 @@ function mapOutbound(r) {
     lastUpdated: r.last_updated, lastUpdatedBy: r.last_updated_by || '',
   };
 }
+
+const _OB_PURPOSE_TONE = {
+  Sales:    { bg:'#dff0d8', fg:'#04342C', border:'#b8d9b3' },
+  Freebies: { bg:'#EEEDFE', fg:'#3C3489', border:'#CECBF6' },
+  Sample:   { bg:'#FAEEDA', fg:'#633806', border:'#FAC775' },
+  Internal: { bg:'#E6F1FB', fg:'#0C447C', border:'#B5D4F4' },
+  Other:    { bg:'#F1EFE8', fg:'#444441', border:'#D3D1C7' },
+};
 
 const _OB_STATUS_TONE = {
   Pending:   'p-draft',
@@ -31346,7 +31355,7 @@ async function loadOutbound() {
     _renderOutboundStats();
     applyOutboundFilters();
   } catch(e) {
-    if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="9">Gagal: ${e.message||e}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="10">Gagal: ${e.message||e}</td></tr>`;
   }
 }
 
@@ -31362,10 +31371,12 @@ function applyOutboundFilters() {
   const q = (document.getElementById('ob-fil-search')?.value || '').toLowerCase().trim();
   const stat = document.getElementById('ob-fil-status')?.value || '';
   const src = document.getElementById('ob-fil-source')?.value || '';
+  const purpose = document.getElementById('ob-fil-purpose')?.value || '';
   const sort = document.getElementById('ob-fil-sort')?.value || 'newest';
   const filt = allOutboundRows.filter(r => {
     if (stat && r.status !== stat) return false;
     if (src && r.sourceModule !== src) return false;
+    if (purpose && r.purpose !== purpose) return false;
     if (q) {
       const hay = `${r.recipientName} ${r.trackingNumber} ${r.sourceId} ${r.recipientAddress}`.toLowerCase();
       if (!hay.includes(q)) return false;
@@ -31381,7 +31392,7 @@ function applyOutboundFilters() {
 function _renderOutboundRows(rows) {
   const tbody = document.getElementById('obTableBody');
   document.getElementById('ob-tcount').textContent = `${rows.length} ticket`;
-  if (!rows.length) { tbody.innerHTML = '<tr><td class="empty-td" colspan="9">Tidak ada ticket.</td></tr>'; return; }
+  if (!rows.length) { tbody.innerHTML = '<tr><td class="empty-td" colspan="10">Tidak ada ticket.</td></tr>'; return; }
   const esc = s => (s==null?'':String(s)).replace(/</g,'&lt;').replace(/"/g,'&quot;');
   tbody.innerHTML = rows.map(r => {
     const itemsBrief = (r.items||[]).map(it => {
@@ -31417,8 +31428,11 @@ function _renderOutboundRows(rows) {
     const cogsLine = cogsTotal > 0
       ? `<div style="font-size:9px;color:var(--g600);font-family:var(--mono);margin-top:2px">💰 Total HPP ${_kolFmtRp(cogsTotal)}</div>`
       : `<div style="font-size:9px;color:#c0392b;font-family:var(--mono);margin-top:2px">⚠ HPP belum di-set — klik ✎ buat isi</div>`;
+    const pTone = _OB_PURPOSE_TONE[r.purpose] || _OB_PURPOSE_TONE.Other;
+    const purposePill = `<span style="display:inline-block;font-size:10px;font-family:var(--mono);font-weight:600;padding:2px 8px;border-radius:99px;background:${pTone.bg};color:${pTone.fg};border:1px solid ${pTone.border};white-space:nowrap">${esc(r.purpose)}</span>`;
     return `<tr id="ob-row-${r.rowIndex}">
       <td style="font-family:var(--mono);font-size:10px">${esc(r.id)}</td>
+      <td>${purposePill}</td>
       <td>
         <div style="font-weight:600">${esc(r.recipientName)||'—'}</div>
         ${r.recipientAddress?`<div style="font-size:10px;color:var(--g600);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:240px" title="${esc(r.recipientAddress)}">${esc(r.recipientAddress)}</div>`:''}
@@ -31444,11 +31458,12 @@ function _renderOutboundRows(rows) {
         </select>
       </td>
       <td style="white-space:nowrap">
+        <button class="btn-icon" onclick="_obGenerateSuratJalan('${r.rowIndex}')" title="Generate Surat Jalan PDF" style="color:#3C3489;font-size:13px">🚚</button>
         <button class="btn-icon" onclick="deleteOutbound('${r.rowIndex}')" title="Hapus ticket" style="color:#c0392b">🗑</button>
       </td>
     </tr>
     <tr id="ob-items-row-${r.rowIndex}" style="display:none">
-      <td colspan="9" style="background:var(--off);padding:12px"><div id="ob-items-body-${r.rowIndex}"></div></td>
+      <td colspan="10" style="background:var(--off);padding:12px"><div id="ob-items-body-${r.rowIndex}"></div></td>
     </tr>`;
   }).join('');
 }
@@ -31645,6 +31660,143 @@ async function deleteOutbound(id) {
     logActivity('OutboundRequest','delete',id,`Hapus ticket: ${r.recipientName}`);
     await loadOutbound();
   } catch(e) { alert('Gagal: ' + (e.message||e)); }
+}
+
+// Generate Surat Jalan PDF untuk Outbound Request. Window-based — pakai
+// print dialog browser ke Save as PDF. Format: header (SJ no + Sentra info),
+// recipient block, items table, T&C, signature blocks.
+function _obGenerateSuratJalan(id) {
+  const r = allOutboundRows.find(x => x.rowIndex === id);
+  if (!r) { alert('Ticket gak ditemukan'); return; }
+  if (!(r.items||[]).length) { alert('Belum ada items di ticket ini'); return; }
+  const esc = s => (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const monthNames = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+  const fmtTglFull = d => { if (!d) return '—'; const x = new Date(d+'T00:00:00'); return `${x.getDate()} ${monthNames[x.getMonth()]} ${x.getFullYear()}`; };
+  const today = new Date();
+  const todayLabel = `${today.getDate()} ${monthNames[today.getMonth()]} ${today.getFullYear()}`;
+  const sjNo = `SJ/${r.id.replace(/^OB-/,'')}/${String(today.getFullYear()).slice(-2)}`;
+  const totalQty = (r.items||[]).reduce((s,it) => s + (parseFloat(it.qty)||0), 0);
+  // Items grouped by parent name (strip size suffix)
+  const parentName = name => String(name||'').replace(/\s*[-—]\s*(XXS|XS|S|M|L|XL|XXL|XXXL|OS|FREE\s*SIZE|FREESIZE)\s*$/i,'').trim();
+  const sizeOrder = s => ({XXS:0,XS:1,S:2,M:3,L:4,XL:5,XXL:6,XXXL:7,OS:99,'FREE SIZE':99,FREESIZE:99}[String(s||'').toUpperCase().trim()] ?? 50);
+  const sizeOf = it => {
+    const codes = [it.sku, it.item_code].filter(Boolean);
+    for (const c of codes) {
+      const m = String(c).match(/-(XXS|XS|S|M|L|XL|XXL|XXXL|OS|FREESIZE)(?:-[A-Z]+)?$/i);
+      if (m) return m[1].toUpperCase();
+    }
+    if (it.size) return String(it.size).toUpperCase();
+    const m2 = String(it.item_name||'').match(/\s*[-—]\s*(XXS|XS|S|M|L|XL|XXL|XXXL|OS|FREE\s*SIZE|FREESIZE)\s*$/i);
+    return m2 ? m2[1].toUpperCase() : '';
+  };
+  const parents = new Map();
+  (r.items||[]).forEach(it => {
+    const pName = parentName(it.item_name) || it.item_name || it.sku || '(item)';
+    if (!parents.has(pName)) parents.set(pName, []);
+    parents.get(pName).push(it);
+  });
+  parents.forEach(arr => arr.sort((a,b) => sizeOrder(sizeOf(a)) - sizeOrder(sizeOf(b))));
+  let rowNum = 0;
+  const itemRows = [];
+  for (const [pName, vars] of parents) {
+    vars.forEach(it => {
+      rowNum++;
+      itemRows.push(`<tr>
+        <td style="text-align:center">${rowNum}</td>
+        <td>${esc(pName)}</td>
+        <td style="text-align:center">${esc(sizeOf(it)||'—')}</td>
+        <td style="font-family:monospace;font-size:10px">${esc(it.sku||it.item_code||'')}</td>
+        <td style="text-align:right">${parseFloat(it.qty)||0}</td>
+        <td style="text-align:center">pcs</td>
+      </tr>`);
+    });
+  }
+  const purposeBadge = `<span style="background:#f0efe9;border:1px solid #d4d3cb;border-radius:99px;padding:2px 10px;font-size:11px;font-weight:600">${esc(r.purpose||'Freebies')}</span>`;
+  const html = `<!DOCTYPE html><html><head><title>Surat Jalan ${esc(sjNo)}</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  body { font-family: 'Helvetica Neue', Arial, sans-serif; color: #0c0c0c; font-size: 11px; line-height: 1.45; }
+  .h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; margin: 0; }
+  .h2 { font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #0c0c0c; padding-bottom: 14px; margin-bottom: 18px; }
+  .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 18px; }
+  .block { border: 0.5px solid #d4d3cb; padding: 10px 12px; border-radius: 4px; }
+  table.items { width: 100%; border-collapse: collapse; margin: 8px 0 16px; font-size: 11px; }
+  table.items th { background: #f0efe9; padding: 8px 6px; text-align: left; font-weight: 600; border-bottom: 1px solid #888; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; }
+  table.items td { padding: 6px; border-bottom: 0.5px solid #e8e7e0; }
+  .totals { display: flex; justify-content: flex-end; font-size: 11px; font-weight: 600; margin-bottom: 18px; }
+  .tnc { font-size: 9.5px; line-height: 1.55; color: #444; border-top: 1px dashed #d4d3cb; border-bottom: 1px dashed #d4d3cb; padding: 10px 0; margin: 14px 0; }
+  .tnc strong { color: #0c0c0c; }
+  .sig-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px; margin-top: 32px; }
+  .sig-box { text-align: center; }
+  .sig-label { font-size: 10px; color: #666; margin-bottom: 50px; }
+  .sig-line { border-top: 1px solid #0c0c0c; padding-top: 4px; font-size: 10px; }
+  @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+</style></head><body>
+<div class="header">
+  <div>
+    <p class="h1">SURAT JALAN</p>
+    <div style="font-size:10px;color:#666;margin-top:4px;font-family:monospace">${esc(sjNo)} · ${todayLabel}</div>
+    <div style="margin-top:6px">${purposeBadge}</div>
+  </div>
+  <div style="text-align:right">
+    <div style="font-size:14px;font-weight:600">SENTRA GROUP</div>
+    <div style="font-size:10px;color:#666;margin-top:2px">Gudang Bintaro · Jakarta Selatan</div>
+    <div style="font-size:10px;color:#666">hello@sentragroup.id</div>
+  </div>
+</div>
+<div class="meta-grid">
+  <div class="block">
+    <div class="h2">Penerima</div>
+    <div style="font-weight:600;font-size:13px">${esc(r.recipientName)||'—'}</div>
+    ${r.recipientAddress?`<div style="font-size:10px;margin-top:4px">${esc(r.recipientAddress)}</div>`:''}
+    ${r.recipientPhone?`<div style="font-size:10px;margin-top:2px;font-family:monospace">${esc(r.recipientPhone)}</div>`:''}
+  </div>
+  <div class="block">
+    <div class="h2">Detail Pengiriman</div>
+    <div style="font-size:10px"><b>Tanggal Kirim:</b> ${fmtTglFull(r.requestedShipDate)}</div>
+    ${r.trackingNumber?`<div style="font-size:10px"><b>No. Resi:</b> <span style="font-family:monospace">${esc(r.trackingNumber)}</span></div>`:''}
+    <div style="font-size:10px"><b>Source:</b> ${esc(r.sourceModule)}${r.sourceId?` · ${esc(r.sourceId)}`:''}</div>
+  </div>
+</div>
+<table class="items">
+  <thead><tr>
+    <th style="width:30px">No</th>
+    <th>Item</th>
+    <th style="width:60px;text-align:center">Size</th>
+    <th style="width:120px">SKU</th>
+    <th style="width:60px;text-align:right">Qty</th>
+    <th style="width:50px;text-align:center">UoM</th>
+  </tr></thead>
+  <tbody>${itemRows.join('')}</tbody>
+  <tfoot><tr style="background:#f0efe9;font-weight:600"><td colspan="4" style="padding:8px 6px;text-align:right">Total</td><td style="text-align:right;padding:8px 6px">${totalQty}</td><td style="text-align:center;padding:8px 6px">pcs</td></tr></tfoot>
+</table>
+<div class="tnc">
+  <strong>Syarat &amp; Ketentuan:</strong><br>
+  1. Penerima wajib memeriksa kondisi dan jumlah barang sesuai dengan Surat Jalan ini sebelum menandatangani.<br>
+  2. Tanda tangan penerima merupakan bukti bahwa barang sudah diterima dalam kondisi baik dan jumlah sesuai.<br>
+  3. Klaim atas kerusakan/kekurangan barang harus disampaikan maksimal 3×24 jam setelah barang diterima dengan disertai bukti foto.<br>
+  4. Surat Jalan ini berfungsi sebagai bukti pengiriman; bukan invoice/tagihan.
+</div>
+<div class="sig-row">
+  <div class="sig-box">
+    <div class="sig-label">Pengirim (Sentra)</div>
+    <div class="sig-line">Nama &amp; Tanda Tangan</div>
+  </div>
+  <div class="sig-box">
+    <div class="sig-label">Kurir / Ekspedisi</div>
+    <div class="sig-line">Nama &amp; Tanda Tangan</div>
+  </div>
+  <div class="sig-box">
+    <div class="sig-label">Penerima</div>
+    <div class="sig-line">Nama &amp; Tanda Tangan</div>
+  </div>
+</div>
+<script>window.addEventListener('load',()=>setTimeout(()=>window.print(),300));</script>
+</body></html>`;
+  const w = window.open('', '_blank');
+  if (!w) { alert('Pop-up diblokir. Allow pop-up untuk situs ini.'); return; }
+  w.document.write(html); w.document.close();
 }
 
 // ── KOL DATABASE ──
@@ -37722,6 +37874,7 @@ function mapMpurc(r) {
     shipToNotes: r.ship_to_notes||'',
     shippingCost: parseFloat(r.shipping_cost)||0,
     paymentPlan: r.payment_plan || null,
+    outboundRequestId: r.outbound_request_id||'',
     createdBy: r.created_by||'', createdAt: r.created_at,
   };
 }
@@ -37872,6 +38025,61 @@ function closeManualPurchaseDetail() {
   loadManualPurchase();
 }
 
+// Create an outbound_requests ticket dari Manual Purchase order. Purpose='Sales'
+// (paid order, beda dari freebies/sample). Items + recipient di-prefill dari MP
+// header. Link disimpan di manual_purchase_orders.outbound_request_id supaya
+// gak bikin duplicate request.
+async function _mpurcCreateOutbound() {
+  const o = _mpurcCurrent; if (!o) return;
+  const h = o.header;
+  if (!h.id || h.id === 'new') { alert('Save Manual Purchase dulu sebelum request ke warehouse.'); return; }
+  if (h.outboundRequestId) { alert('Sudah ada outbound request: ' + h.outboundRequestId); return; }
+  if (!(o.items||[]).length) { alert('Belum ada items di order ini.'); return; }
+  if (!confirm(`Buat Outbound Request untuk ${o.items.length} items?\n\nTim warehouse akan dapat ticket baru dengan label "Sales" — beda dari freebies/sample.`)) return;
+  try {
+    // Build outbound items dari MP items
+    const obItems = (o.items||[]).map(it => ({
+      jubelio_item_id: it.jubelio_item_id || null,
+      item_id:   it.jubelio_item_id || null,
+      sku:       it.item_code || '',
+      item_code: it.item_code || '',
+      item_name: it.item_name || '',
+      size:      it.size || '',
+      qty:       parseFloat(it.qty) || 0,
+      thumbnail: it.thumbnail || null,
+      unit_price: parseFloat(it.unit_price) || 0,
+    }));
+    const obId = `OB-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${String(Math.floor(Math.random()*9000)+1000)}`;
+    const recipient = h.shipToRecipient || h.clientRepName || h.requestorName || '—';
+    const address = h.shipToType === 'kantor' ? MP_OFFICE_ADDRESS : (h.shipToAddress || '');
+    const payload = {
+      id: obId,
+      source_module: 'ManualPurchase',
+      source_id: h.id,
+      purpose: 'Sales',
+      recipient_name: recipient,
+      recipient_address: address,
+      recipient_phone: h.shipToPhone || '',
+      items: obItems,
+      notes: `Manual Purchase ${h.id}${h.billedToName?` · ${h.billedToName}`:''}${h.shipToNotes?` · ${h.shipToNotes}`:''}`,
+      status: 'Pending',
+      added_by: currentUser,
+      date_added: new Date().toISOString(),
+    };
+    const { error: obErr } = await sb.from('outbound_requests').insert(payload);
+    if (obErr) throw obErr;
+    // Link back to MP
+    const { error: linkErr } = await sb.from('manual_purchase_orders').update({ outbound_request_id: obId, last_updated: new Date().toISOString() }).eq('id', h.id);
+    if (linkErr) throw linkErr;
+    h.outboundRequestId = obId;
+    logActivity('ManualPurchase','create_outbound',h.id,`Outbound request ${obId} (Sales) created`);
+    _mpurcRenderDetail();
+    alert(`✓ Outbound Request ${obId} created — tim warehouse akan proses.`);
+  } catch(e) {
+    alert('Gagal create outbound: ' + (e.message||e));
+  }
+}
+
 function _mpurcRenderDetail() {
   const detV = document.getElementById('mp-detail-view');
   const o = _mpurcCurrent;
@@ -37896,6 +38104,9 @@ function _mpurcRenderDetail() {
         <div style="font-size:12px;color:var(--g600);margin-top:2px">${isNew ? 'Isi header + items, lalu Simpan untuk generate Invoice No.' : `Invoice: ${_mpurcAutoInvoiceNo(h.id)} · Status: ${h.status}`}</div>
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        ${!isNew && items.length ? (h.outboundRequestId
+          ? `<a href="#" onclick="event.preventDefault();showPage('outbound',null);setTimeout(()=>{const el=document.getElementById('ob-fil-search');if(el){el.value='${h.outboundRequestId}';applyOutboundFilters();}},300)" style="font-size:11px;padding:6px 12px;background:#dff0d8;color:#04342C;border:1px solid #b8d9b3;border-radius:5px;text-decoration:none;font-weight:500" title="Buka outbound request">📦 ${h.outboundRequestId}</a>`
+          : `<button class="btn-ghost" onclick="_mpurcCreateOutbound()" style="font-size:12px;padding:8px 16px" title="Buat outbound request ke tim warehouse">📦 Request ke Warehouse</button>`) : ''}
         <button class="btn-primary" onclick="saveManualPurchase()" style="font-size:12px;padding:8px 18px">${isNew?'💾 Simpan':'💾 Update'}</button>
       </div>
     </div>
