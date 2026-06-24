@@ -38162,6 +38162,8 @@ async function _mpurcCreateOutbound() {
     : `Buat Outbound Request untuk ${o.items.length} items?\n\nTim warehouse akan dapat ticket dengan label "Sales".`;
   if (!confirm(promptMsg)) return;
   try {
+    // Items untuk warehouse — drop unit_price (harga jual customer) supaya tim
+    // warehouse gak misleading. Mereka cuma perlu tau apa & berapa banyak.
     const obItems = (o.items||[]).map(it => ({
       jubelio_item_id: it.jubelio_item_id || null,
       item_id:   it.jubelio_item_id || null,
@@ -38171,7 +38173,6 @@ async function _mpurcCreateOutbound() {
       size:      it.size || '',
       qty:       parseFloat(it.qty) || 0,
       thumbnail: it.thumbnail || null,
-      unit_price: parseFloat(it.unit_price) || 0,
     }));
     const obId = `OB-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${String(Math.floor(Math.random()*9000)+1000)}`;
     const recipient = h.shipToRecipient || h.clientRepName || h.requestorName || '—';
