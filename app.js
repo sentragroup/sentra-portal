@@ -21860,12 +21860,18 @@ function rySwitchTab(mode, el) {
   _ryMode = mode;
   document.querySelectorAll('#ry-tabs .tab-btn').forEach(b => b.classList.remove('active'));
   if (el) el.classList.add('active');
-  document.getElementById('ry-sel-month').style.display = mode === 'month' ? 'flex' : 'none';
-  document.getElementById('ry-sel-year').style.display  = mode === 'year'  ? 'flex' : 'none';
+  document.getElementById('ry-sel-month').style.display  = mode === 'month'  ? 'flex' : 'none';
+  document.getElementById('ry-sel-year').style.display   = mode === 'year'   ? 'flex' : 'none';
+  document.getElementById('ry-sel-ledger').style.display = mode === 'ledger' ? 'flex' : 'none';
+  // Ganti label tombol Load supaya jelas konteksnya
+  const loadBtn = document.getElementById('ry-load-btn');
+  if (loadBtn) loadBtn.textContent = mode === 'ledger' ? 'Load Ledger' : 'Load Data';
   // Hide previous results — data shape differs per mode, force a fresh Load
   document.getElementById('ry-stats').style.display = 'none';
   document.getElementById('ry-result-wrap').style.display = 'none';
   document.getElementById('ry-result-ip').style.display = 'none';
+  const ledger = document.getElementById('ry-ledger-content');
+  if (ledger) ledger.style.display = 'none';
   const fb = document.getElementById('ry-feedback');
   if (fb) { fb.textContent = ''; fb.className = 'feedback'; }
 }
@@ -21890,6 +21896,8 @@ function _ryEsc(s) {
 }
 
 async function loadRoyaltyReport() {
+  // Route ke ledger loader kalau tab Payment Ledger lagi aktif
+  if (_ryMode === 'ledger') { return loadRoyaltyLedger(); }
   const fb  = document.getElementById('ry-feedback');
   const btn = document.getElementById('ry-load-btn');
 
@@ -22055,6 +22063,384 @@ async function loadRoyaltyReport() {
 
 // Per-IP detail: month + parent-item breakdown
 let _ryDetail = {};
+
+// ── Payment Ledger (Finance view) ─────────────────────────────────────────
+// Per-IP × per-month royalty payment tracking.
+// Cells: computed owed (gross→royalty→PPh→net) + actual paid status dari
+// royalty_payments table. Klik cell → modal mark-paid + upload bukti.
+let _ryLedger = null;  // { year, ipsAgg: Map(ipId → {ipName, pct, pphRate, royaltyType, monthGross: {1..12: gross}}), payments: Map("ipId:YYYY-MM" → row) }
+const _RY_MONTH_LBL = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+async function loadRoyaltyLedger() {
+  const fb  = document.getElementById('ry-feedback');
+  const btn = document.getElementById('ry-load-btn');
+  const year = parseInt(document.getElementById('ry-ledger-year').value, 10);
+  if (!year) { fb.textContent='Pilih tahun dulu.'; fb.className='feedback err'; return; }
+  fb.textContent = ''; fb.className = 'feedback'; btn.textContent = 'Loading...'; btn.disabled = true;
+  const startISO = `${year}-01-01T00:00:00+07:00`;
+  const endISO   = `${year+1}-01-01T00:00:00+07:00`;
+  try {
+    fb.textContent = '⟳ Fetching sales orders...';
+    const orders = await _fetchAllPages('jubelio_sales_orders',
+      'salesorder_id,transaction_date,wms_status,sub_total,channel_name',
+      q => q.gte('transaction_date', startISO).lt('transaction_date', endISO).eq('wms_status','COMPLETED'));
+    const orderMonth = new Map();
+    const orderChannel = new Map();
+    orders.forEach(o => {
+      const d = new Date(o.transaction_date); if (isNaN(d)) return;
+      const wib = new Date(d.getTime() + 7*3600000);
+      orderMonth.set(o.salesorder_id, wib.getUTCMonth()+1);
+      orderChannel.set(o.salesorder_id, (o.channel_name||'').toUpperCase());
+    });
+    const MP = ['SHOPEE','TOKOPEDIA','TIKTOK','BLIBLI','LAZADA'];
+    const isMP = c => !!c && MP.some(p => c.includes(p));
+    const orderIds = orders.map(o => o.salesorder_id);
+    fb.textContent = `⟳ ${orders.length.toLocaleString('id-ID')} orders → items...`;
+    const items = [];
+    for (let i = 0; i < orderIds.length; i += 500) {
+      const chunk = orderIds.slice(i, i+500);
+      const rows = await _fetchAllPages('jubelio_sales_order_items',
+        'salesorder_id,item_id,item_name,qty,price,disc_amount,amount,is_canceled_item',
+        q => q.in('salesorder_id', chunk));
+      items.push(...rows);
+    }
+    fb.textContent = `⟳ ${items.length.toLocaleString('id-ID')} items → mapping...`;
+    const [pmRes, ipRes, payRes] = await Promise.all([
+      _fetchAllPages('product_mappings','jubelio_item_id,item_name,ip', q => q.not('ip','is',null)),
+      sb.from('ip_master').select('id,name,category,royalty_type,percentage,fixed_amount,pph_tax_rate,live_status'),
+      sb.from('royalty_payments').select('*').gte('period', `${year}-01`).lte('period', `${year}-12`),
+    ]);
+    if (ipRes.error) throw ipRes.error;
+    const itemIdMap = new Map(), nameMap = new Map();
+    pmRes.forEach(m => {
+      if (!m.ip) return;
+      if (m.jubelio_item_id != null) itemIdMap.set(String(m.jubelio_item_id), m.ip);
+      if (m.item_name) nameMap.set(m.item_name, m.ip);
+    });
+    const ipByName = new Map();
+    (ipRes.data||[]).forEach(r => ipByName.set((r.name||'').trim(), r));
+
+    // Aggregate gross per (ipName, month)
+    const ipMonthGross = new Map();   // ipName → {1..12: gross}
+    items.forEach(it => {
+      if (it.is_canceled_item) return;
+      const ipName = (it.item_id != null && itemIdMap.get(String(it.item_id))) || nameMap.get(it.item_name);
+      if (!ipName) return;
+      const qty = parseFloat(it.qty||0)||0;
+      const price = parseFloat(it.price||0)||0;
+      const discAmt = parseFloat(it.disc_amount||0)||0;
+      const amt = parseFloat(it.amount||0)||0;
+      const chan = orderChannel.get(it.salesorder_id) || '';
+      const gross = isMP(chan) ? qty*price : (amt || (qty*price - discAmt));
+      const mo = orderMonth.get(it.salesorder_id);
+      if (!mo) return;
+      if (!ipMonthGross.has(ipName)) ipMonthGross.set(ipName, {});
+      const m = ipMonthGross.get(ipName);
+      m[mo] = (m[mo]||0) + gross;
+    });
+
+    // Build ledger structure — only include IPs that exist in ip_master (need royalty config)
+    const ipsAgg = new Map();
+    ipMonthGross.forEach((months, ipName) => {
+      const ip = ipByName.get(ipName);
+      if (!ip || !ip.id) return;
+      const pct = parseFloat(ip.percentage||0) || 0;
+      const fixedAmt = parseFloat(ip.fixed_amount||0) || 0;
+      const royaltyType = (ip.royalty_type||'').trim() || (pct?'Post-Sales':(fixedAmt?'Advance':'—'));
+      const pphRate = parseFloat(ip.pph_tax_rate||0) || 0;
+      if (royaltyType === 'Advance' || !pct) return;  // Skip kalau Advance/no-pct (gak ada royalty post-sales)
+      ipsAgg.set(ip.id, { ipName, ipId: ip.id, pct, pphRate, royaltyType, category: ip.category||'', monthGross: months });
+    });
+
+    const payments = new Map();
+    (payRes.data||[]).forEach(p => payments.set(`${p.ip_id}:${p.period}`, p));
+
+    _ryLedger = { year, ipsAgg, payments };
+    fb.textContent = '';
+    renderRoyaltyLedger();
+  } catch(e) {
+    console.error('loadRoyaltyLedger:', e);
+    fb.textContent = 'Error: ' + (e.message||e); fb.className = 'feedback err';
+  } finally {
+    btn.textContent = 'Load Ledger'; btn.disabled = false;
+  }
+}
+
+function renderRoyaltyLedger() {
+  const host = document.getElementById('ry-ledger-content');
+  if (!host || !_ryLedger) return;
+  const { year, ipsAgg, payments } = _ryLedger;
+  // Compute totals per IP + grand totals
+  const ipRows = [];
+  let totGross = 0, totRoyalty = 0, totPph = 0, totNet = 0, totPaid = 0, totPaidPph = 0, totOutstanding = 0, totOutPph = 0;
+  const monthSums = { gross: Array(13).fill(0), royalty: Array(13).fill(0), pph: Array(13).fill(0), net: Array(13).fill(0) };
+  ipsAgg.forEach((agg, ipId) => {
+    const row = { ipId, ipName: agg.ipName, pct: agg.pct, pphRate: agg.pphRate, category: agg.category, months: {}, totalGross:0, totalRoyalty:0, totalPph:0, totalNet:0, totalPaid:0, totalPaidPph:0, totalOut:0 };
+    for (let m=1; m<=12; m++) {
+      const gross = agg.monthGross[m] || 0;
+      if (!gross) continue;
+      const royalty = gross * agg.pct / 100;
+      const pph = royalty * agg.pphRate / 100;
+      const net = royalty - pph;
+      const period = `${year}-${String(m).padStart(2,'0')}`;
+      const pay = payments.get(`${ipId}:${period}`);
+      const paidNet = pay && pay.paid_at ? (parseFloat(pay.paid_amount)||net) : 0;
+      const paidPph = pay && pay.pph_disetor_at ? (parseFloat(pay.pph_amount)||pph) : 0;
+      const status = pay && pay.paid_at && (agg.pphRate === 0 || pay.pph_disetor_at) ? 'paid'
+                   : pay && pay.paid_at ? 'partial'
+                   : isPastDue(year, m) ? 'overdue' : 'pending';
+      row.months[m] = { gross, royalty, pph, net, period, pay, paidNet, paidPph, status };
+      row.totalGross += gross; row.totalRoyalty += royalty; row.totalPph += pph; row.totalNet += net;
+      row.totalPaid += paidNet; row.totalPaidPph += paidPph;
+      row.totalOut += (net - paidNet) + (pph - paidPph);
+      monthSums.gross[m] += gross; monthSums.royalty[m] += royalty; monthSums.pph[m] += pph; monthSums.net[m] += net;
+    }
+    ipRows.push(row);
+    totGross += row.totalGross; totRoyalty += row.totalRoyalty; totPph += row.totalPph; totNet += row.totalNet;
+    totPaid += row.totalPaid; totPaidPph += row.totalPaidPph; totOutstanding += row.totalOut;
+  });
+  ipRows.sort((a,b) => b.totalRoyalty - a.totalRoyalty);
+  const unrestricted = totGross - totRoyalty;
+  const rpC = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
+  const rpShort = n => {
+    const v = Math.round(n||0);
+    if (v >= 1_000_000_000) return (v/1_000_000_000).toFixed(1)+'M';
+    if (v >= 1_000_000) return (v/1_000_000).toFixed(1)+'jt';
+    if (v >= 1_000) return (v/1_000).toFixed(0)+'k';
+    return v.toString();
+  };
+  const totalOutstanding = (totRoyalty - totPaid) + (totPph - totPaidPph);
+  const outstandingCount = ipRows.reduce((s,r) => s + Object.values(r.months).filter(c => c.status !== 'paid').length, 0);
+
+  // Cards
+  const cards = `<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:18px">
+    <div style="background:var(--off);border-radius:8px;padding:14px"><div style="font-size:11px;color:var(--g600);margin-bottom:4px">Gross revenue ${year}</div><div style="font-size:18px;font-weight:600">${rpC(totGross)}</div></div>
+    <div style="background:#FAEEDA;border-radius:8px;padding:14px"><div style="font-size:11px;color:#633806;margin-bottom:4px">Royalty payable</div><div style="font-size:18px;font-weight:600;color:#412402">${rpC(totRoyalty)}</div><div style="font-size:10px;color:#854F0B">restricted</div></div>
+    <div style="background:#EEEDFE;border-radius:8px;padding:14px"><div style="font-size:11px;color:#3C3489;margin-bottom:4px">PPh 23 payable</div><div style="font-size:18px;font-weight:600;color:#26215C">${rpC(totPph)}</div><div style="font-size:10px;color:#534AB7">to gov</div></div>
+    <div style="background:#E1F5EE;border-radius:8px;padding:14px"><div style="font-size:11px;color:#085041;margin-bottom:4px">Paid to IPs (net)</div><div style="font-size:18px;font-weight:600;color:#04342C">${rpC(totPaid)}</div><div style="font-size:10px;color:#0F6E56">cleared</div></div>
+    <div style="background:#FCEBEB;border-radius:8px;padding:14px"><div style="font-size:11px;color:#791F1F;margin-bottom:4px">Outstanding</div><div style="font-size:18px;font-weight:600;color:#501313">${rpC(totalOutstanding)}</div><div style="font-size:10px;color:#A32D2D">${outstandingCount} cells</div></div>
+  </div>
+  <div style="display:flex;gap:12px;margin-bottom:18px">
+    <div style="flex:1;background:var(--white);border:1px solid var(--g100);border-radius:10px;padding:14px 16px">
+      <div style="font-size:12px;color:var(--g600);margin-bottom:6px">Unrestricted cash (Sentra's)</div>
+      <div style="font-size:20px;font-weight:600">${rpC(unrestricted)}</div>
+      <div style="font-size:11px;color:var(--g400);margin-top:4px">Revenue − Royalty payable</div>
+    </div>
+    <div style="flex:1;background:var(--white);border:1px solid var(--g100);border-radius:10px;padding:14px 16px">
+      <div style="font-size:12px;color:var(--g600);margin-bottom:6px">PPh status</div>
+      <div style="display:flex;gap:8px;font-size:12px">
+        <div style="flex:1"><div style="color:#04342C;font-weight:600">${rpC(totPaidPph)}</div><div style="color:var(--g400);font-size:11px">disetor</div></div>
+        <div style="flex:1"><div style="color:#501313;font-weight:600">${rpC(totPph - totPaidPph)}</div><div style="color:var(--g400);font-size:11px">pending</div></div>
+      </div>
+    </div>
+  </div>`;
+
+  // Determine which months to show: only past months + current month
+  const now = new Date();
+  const isCurrentYear = year === now.getFullYear();
+  const maxMonth = isCurrentYear ? now.getMonth() + 1 : 12;
+  const months = Array.from({length: maxMonth}, (_, i) => i+1);
+
+  // Matrix table
+  const statusIcon = s => s === 'paid' ? '<span style="color:#04342C">✓</span>'
+    : s === 'partial' ? '<span style="color:#633806">◐</span>'
+    : s === 'overdue' ? '<span style="color:#501313">⚠</span>'
+    : '<span style="color:var(--g400)">—</span>';
+
+  const headerCells = months.map(m => `<th style="text-align:right;padding:8px 6px;font-weight:500;font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g600);min-width:80px">${_RY_MONTH_LBL[m-1]}</th>`).join('');
+  const bodyRows = ipRows.map(r => {
+    const cellHTML = months.map(m => {
+      const c = r.months[m];
+      if (!c) return `<td style="padding:8px 6px;text-align:right;color:var(--g300);font-family:var(--mono);font-size:11px">—</td>`;
+      const icon = statusIcon(c.status);
+      const tone = c.status === 'paid' ? '#04342C' : c.status === 'partial' ? '#633806' : c.status === 'overdue' ? '#501313' : 'var(--g600)';
+      const tooltip = `Gross: ${rpC(c.gross)} • Royalty: ${rpC(c.royalty)} • PPh: ${rpC(c.pph)} • Net: ${rpC(c.net)}${c.pay?.paid_at?` • Paid: ${c.pay.paid_at}`:''}`;
+      return `<td style="padding:6px 6px;text-align:right;font-family:var(--mono);font-size:11px;cursor:pointer;color:${tone}" title="${tooltip.replace(/"/g,'&quot;')}" onclick="ryOpenLedgerCell('${r.ipId}',${m})">${rpShort(c.net)} ${icon}</td>`;
+    }).join('');
+    return `<tr style="border-top:1px solid var(--g100)">
+      <td style="padding:8px 12px;font-weight:500"><div>${(r.ipName||'').replace(/</g,'&lt;')}</div><div style="font-size:10px;color:var(--g400);font-family:var(--mono);margin-top:1px">${r.pct}% royalty${r.pphRate?` · ${r.pphRate}% PPh`:' · no PPh'}</div></td>
+      ${cellHTML}
+      <td style="padding:8px 12px;text-align:right;background:var(--off);font-weight:600;font-family:var(--mono);font-size:11px;color:${r.totalOut>0?'#501313':'#04342C'}">${rpC(r.totalOut)}</td>
+    </tr>`;
+  }).join('');
+
+  // Total row
+  const totalCells = months.map(m => `<td style="padding:8px 6px;text-align:right;font-family:var(--mono);font-size:11px;font-weight:600">${rpShort(monthSums.net[m]||0)}</td>`).join('');
+
+  const table = `<div style="background:var(--white);border:1px solid var(--g100);border-radius:10px;overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse;font-size:11px">
+      <thead><tr style="background:var(--off)">
+        <th style="text-align:left;padding:8px 12px;font-weight:500;min-width:160px">IP / Royalty</th>
+        ${headerCells}
+        <th style="text-align:right;padding:8px 12px;font-weight:500;background:var(--g100);min-width:110px">Outstanding</th>
+      </tr></thead>
+      <tbody>${bodyRows || `<tr><td colspan="${months.length+2}" style="padding:24px;text-align:center;color:var(--g400)">Tidak ada data royalty untuk tahun ini.</td></tr>`}</tbody>
+      <tfoot><tr style="background:var(--off);border-top:2px solid var(--g100)">
+        <td style="padding:8px 12px;font-weight:600">Total (Net)</td>
+        ${totalCells}
+        <td style="padding:8px 12px;text-align:right;font-weight:600;font-family:var(--mono);color:#501313">${rpC(totalOutstanding)}</td>
+      </tr></tfoot>
+    </table>
+  </div>
+  <div style="display:flex;gap:16px;font-size:11px;color:var(--g600);margin-top:10px;flex-wrap:wrap">
+    <div><span style="color:#04342C">✓ Paid (net + PPh disetor)</span></div>
+    <div><span style="color:#633806">◐ Partial — net paid, PPh pending</span></div>
+    <div><span style="color:#501313">⚠ Overdue</span></div>
+    <div style="margin-left:auto;color:var(--g400)">Klik cell → input pembayaran + upload bukti</div>
+  </div>`;
+
+  host.innerHTML = cards + table;
+  host.style.display = 'block';
+}
+
+// Check if (year, month) is past due (month already ended)
+function isPastDue(year, month) {
+  const now = new Date();
+  if (year < now.getFullYear()) return true;
+  if (year > now.getFullYear()) return false;
+  return month < now.getMonth() + 1;
+}
+
+// Modal: mark payment for (ip, month)
+async function ryOpenLedgerCell(ipId, monthIdx) {
+  if (!_ryLedger) return;
+  const agg = _ryLedger.ipsAgg.get(ipId);
+  if (!agg) return;
+  const year = _ryLedger.year;
+  const period = `${year}-${String(monthIdx).padStart(2,'0')}`;
+  const gross = agg.monthGross[monthIdx] || 0;
+  const royalty = gross * agg.pct / 100;
+  const pph = royalty * agg.pphRate / 100;
+  const net = royalty - pph;
+  const existing = _ryLedger.payments.get(`${ipId}:${period}`) || {};
+  const todayISO = new Date().toISOString().slice(0,10);
+  const overlay = document.createElement('div');
+  overlay.id = 'ry-pay-modal-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+  const rpC = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
+  const fileRow = (label, urlField, inputId, hidId) => {
+    const url = existing[urlField] || '';
+    return `<div class="fg" style="margin-bottom:12px">
+      <label style="font-size:11px;display:block;margin-bottom:4px">${label}</label>
+      ${url ? `<div style="display:flex;align-items:center;gap:6px;font-size:11px;padding:6px 10px;background:#eef9f0;border:1px solid #b8d9b3;border-radius:4px;margin-bottom:6px"><a href="${url.replace(/"/g,'&quot;')}" target="_blank" style="color:#0a7d3a;text-decoration:underline">📎 ${(url.split('/').pop()||'').slice(0,40)}</a><button type="button" onclick="document.getElementById('${hidId}').value='';this.parentElement.style.display='none'" style="background:none;border:none;color:#c0392b;cursor:pointer">✕ Ganti</button></div>` : ''}
+      <input type="file" id="${inputId}" accept="image/jpeg,image/png,image/webp,application/pdf" style="font-size:11px">
+      <input type="hidden" id="${hidId}" value="${url.replace(/"/g,'&quot;')}">
+    </div>`;
+  };
+  const pphSection = agg.pphRate > 0 ? `
+      <div style="border-top:1px solid var(--g100);padding-top:14px;margin-top:14px">
+        <div style="font-size:12px;font-weight:600;margin-bottom:10px;color:#534AB7">PPh 23 (${agg.pphRate}% · Rp ${Math.round(pph).toLocaleString('id-ID')})</div>
+        <div class="fg" style="margin-bottom:12px"><label style="font-size:11px;display:block;margin-bottom:4px">Tanggal setor PPh ke gov</label><input type="date" id="ry-pay-pph-date" value="${existing.pph_disetor_at||''}" style="padding:6px 10px;font-size:12px;border:1px solid var(--g100);border-radius:4px"></div>
+        ${fileRow('Bukti potong PPh (untuk IP)','bukti_potong_url','ry-pay-bukti-potong','ry-pay-bukti-potong-exist')}
+        ${fileRow('Bukti setor PPh (SSP)','pph_disetor_bukti_url','ry-pay-bukti-setor','ry-pay-bukti-setor-exist')}
+      </div>` : '';
+  overlay.innerHTML = `<div style="background:var(--white);border-radius:10px;max-width:560px;width:100%;max-height:90vh;overflow:auto;box-shadow:0 8px 30px rgba(0,0,0,.2)">
+    <div style="padding:18px 22px;border-bottom:1px solid var(--g100);display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div style="font-family:var(--head);font-size:16px;font-weight:600">💰 Royalty Payment</div>
+        <div style="font-size:11px;color:var(--g600);margin-top:2px">${(agg.ipName||'').replace(/</g,'&lt;')} · ${_RY_MONTH_LBL[monthIdx-1]} ${year}</div>
+      </div>
+      <button onclick="ryCloseLedgerModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--g400)">×</button>
+    </div>
+    <div style="padding:18px 22px">
+      <div style="background:var(--off);border-radius:6px;padding:10px 14px;margin-bottom:14px;font-family:var(--mono);font-size:11px;line-height:1.7">
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--g600)">Gross sales</span><span>${rpC(gross)}</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--g600)">Royalty (${agg.pct}%)</span><span>${rpC(royalty)}</span></div>
+        ${agg.pphRate>0?`<div style="display:flex;justify-content:space-between;color:#534AB7"><span>PPh (${agg.pphRate}%)</span><span>−${rpC(pph)}</span></div>`:''}
+        <div style="display:flex;justify-content:space-between;font-weight:600;padding-top:4px;border-top:1px dashed var(--g200);margin-top:4px"><span>Net to transfer</span><span>${rpC(net)}</span></div>
+      </div>
+      <div style="font-size:12px;font-weight:600;margin-bottom:10px">Transfer ke IP</div>
+      <div class="fg" style="margin-bottom:12px"><label style="font-size:11px;display:block;margin-bottom:4px">Tanggal transfer</label><input type="date" id="ry-pay-paid-date" value="${existing.paid_at||''}" style="padding:6px 10px;font-size:12px;border:1px solid var(--g100);border-radius:4px"></div>
+      <div class="fg" style="margin-bottom:12px"><label style="font-size:11px;display:block;margin-bottom:4px">Amount transfer (Rp)</label><input type="number" id="ry-pay-paid-amt" value="${existing.paid_amount||Math.round(net)}" style="padding:6px 10px;font-size:12px;border:1px solid var(--g100);border-radius:4px;font-family:var(--mono);width:200px"></div>
+      ${fileRow('Bukti transfer','bukti_transfer_url','ry-pay-bukti-transfer','ry-pay-bukti-transfer-exist')}
+      ${pphSection}
+      <div class="fg" style="margin-top:14px"><label style="font-size:11px;display:block;margin-bottom:4px">Notes</label><textarea id="ry-pay-notes" rows="2" style="width:100%;padding:6px 10px;font-size:12px;border:1px solid var(--g100);border-radius:4px;resize:vertical">${(existing.notes||'').replace(/</g,'&lt;')}</textarea></div>
+      <div id="ry-pay-feedback" style="font-size:11px;color:var(--g600);margin:10px 0;min-height:14px"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        ${existing.id?`<button onclick="ryDeleteLedgerCell('${existing.id}')" style="padding:8px 14px;font-size:12px;background:none;border:1px solid #c0392b;color:#c0392b;border-radius:5px;cursor:pointer;margin-right:auto">🗑 Hapus</button>`:''}
+        <button onclick="ryCloseLedgerModal()" class="btn-ghost" style="padding:8px 14px;font-size:12px">Batal</button>
+        <button id="ry-pay-submit" onclick="rySubmitLedgerCell('${ipId}',${monthIdx})" class="btn-primary" style="padding:8px 14px;font-size:12px">💾 Simpan</button>
+      </div>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+}
+
+function ryCloseLedgerModal() {
+  const o = document.getElementById('ry-pay-modal-overlay'); if (o) o.remove();
+}
+
+async function rySubmitLedgerCell(ipId, monthIdx) {
+  if (!_ryLedger) return;
+  const agg = _ryLedger.ipsAgg.get(ipId); if (!agg) return;
+  const year = _ryLedger.year;
+  const period = `${year}-${String(monthIdx).padStart(2,'0')}`;
+  const fb = document.getElementById('ry-pay-feedback');
+  const btn = document.getElementById('ry-pay-submit');
+  const existing = _ryLedger.payments.get(`${ipId}:${period}`) || {};
+  const gross = agg.monthGross[monthIdx] || 0;
+  const royalty = gross * agg.pct / 100;
+  const pph = royalty * agg.pphRate / 100;
+  const net = royalty - pph;
+  const paidDate = document.getElementById('ry-pay-paid-date').value || null;
+  const paidAmt  = parseFloat(document.getElementById('ry-pay-paid-amt').value) || null;
+  const pphDate  = agg.pphRate > 0 ? (document.getElementById('ry-pay-pph-date').value || null) : null;
+  const notes    = document.getElementById('ry-pay-notes').value || null;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Saving...'; }
+  if (fb) { fb.textContent = '⟳ Saving...'; fb.style.color = 'var(--g600)'; }
+  try {
+    // Upload files (if new)
+    const uploadField = async (inputId, hidId, kind) => {
+      const inp = document.getElementById(inputId);
+      const hid = document.getElementById(hidId);
+      const file = inp?.files?.[0];
+      if (!file) return hid?.value || null;
+      if (file.size > 5 * 1024 * 1024) throw new Error(`${kind} > 5MB`);
+      const ext = (file.name.split('.').pop()||'bin').toLowerCase();
+      const path = `royalty-payments/${ipId}/${period}-${kind}-${Date.now()}.${ext}`;
+      const { error } = await sb.storage.from('wholesale-bukti').upload(path, file, { upsert: true, contentType: file.type });
+      if (error) throw error;
+      const { data: { publicUrl } } = sb.storage.from('wholesale-bukti').getPublicUrl(path);
+      return publicUrl;
+    };
+    if (fb) fb.textContent = '⟳ Uploading bukti...';
+    const buktiTransferUrl = await uploadField('ry-pay-bukti-transfer','ry-pay-bukti-transfer-exist','transfer');
+    const buktiPotongUrl   = agg.pphRate > 0 ? await uploadField('ry-pay-bukti-potong','ry-pay-bukti-potong-exist','potong') : null;
+    const pphDisetorUrl    = agg.pphRate > 0 ? await uploadField('ry-pay-bukti-setor','ry-pay-bukti-setor-exist','setor') : null;
+    const id = existing.id || `RP-${period.replace('-','')}-${ipId.replace(/[^A-Z0-9]/gi,'').slice(-6)}`;
+    const payload = {
+      id, ip_id: ipId, ip_name: agg.ipName, period,
+      gross_amount: Math.round(gross), pph_rate: agg.pphRate,
+      pph_amount: Math.round(pph), net_amount: Math.round(net),
+      paid_at: paidDate, paid_amount: paidAmt, bukti_transfer_url: buktiTransferUrl,
+      bukti_potong_url: buktiPotongUrl, pph_disetor_at: pphDate, pph_disetor_bukti_url: pphDisetorUrl,
+      notes, created_by: existing.created_by || currentUser,
+      updated_at: new Date().toISOString(),
+    };
+    const { error } = await sb.from('royalty_payments').upsert(payload, { onConflict: 'id' });
+    if (error) throw error;
+    _ryLedger.payments.set(`${ipId}:${period}`, payload);
+    ryCloseLedgerModal();
+    renderRoyaltyLedger();
+  } catch(e) {
+    if (fb) { fb.textContent = 'Gagal: ' + (e.message||e); fb.style.color = '#c0392b'; }
+    if (btn) { btn.disabled = false; btn.textContent = '💾 Simpan'; }
+  }
+}
+
+async function ryDeleteLedgerCell(paymentId) {
+  if (!confirm('Hapus record pembayaran ini? File bukti tidak akan otomatis terhapus dari storage.')) return;
+  const { error } = await sb.from('royalty_payments').delete().eq('id', paymentId);
+  if (error) { alert('Gagal: '+error.message); return; }
+  // Drop from cache
+  if (_ryLedger) {
+    for (const [k,v] of _ryLedger.payments.entries()) {
+      if (v.id === paymentId) { _ryLedger.payments.delete(k); break; }
+    }
+  }
+  ryCloseLedgerModal();
+  renderRoyaltyLedger();
+}
 
 // Shared builder: returns {body, totQty, totGross, royalty, pphAmount, net, pct, pphRate, royaltyType}
 function ryBuildBreakdown(ipName, withMonths) {

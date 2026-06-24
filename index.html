@@ -4843,6 +4843,7 @@
           <div class="tab-bar" id="ry-tabs">
             <button class="tab-btn active" onclick="rySwitchTab('month',this)">Per Bulan</button>
             <button class="tab-btn" onclick="rySwitchTab('year',this)">Per IP</button>
+            <button class="tab-btn" onclick="rySwitchTab('ledger',this)">💰 Payment Ledger</button>
           </div>
         </div>
 
@@ -4859,6 +4860,18 @@
                 <button class="btn-ghost" style="font-size:12px;padding:6px 10px" onclick="ryNavPeriod(-1)">← Bulan Lalu</button>
                 <button class="btn-ghost" style="font-size:12px;padding:6px 10px" onclick="ryNavPeriod(0)">Bulan Ini</button>
                 <button class="btn-ghost" style="font-size:12px;padding:6px 10px" onclick="ryNavPeriod(1)">Bulan Depan →</button>
+              </div>
+            </div>
+            <!-- Ledger mode -->
+            <div id="ry-sel-ledger" style="display:none;align-items:flex-end;gap:12px;flex-wrap:wrap">
+              <div class="fg" style="min-width:120px">
+                <label>Tahun</label>
+                <select id="ry-ledger-year">
+                  <option value="2024">2024</option>
+                  <option value="2025">2025</option>
+                  <option value="2026" selected>2026</option>
+                  <option value="2027">2027</option>
+                </select>
               </div>
             </div>
             <!-- Per-IP mode -->
@@ -4928,6 +4941,9 @@
 
         <!-- Per-IP tab result: inline month + parent-item breakdown for the selected IP -->
         <div id="ry-result-ip" style="display:none"></div>
+
+        <!-- Payment Ledger tab — finance view: cash position cards + per-IP × per-month matrix -->
+        <div id="ry-ledger-content" style="display:none"></div>
 
         <!-- Drill-down detail modal: month + parent-item breakdown (Per Bulan tab) -->
         <div id="ry-detail-overlay" onclick="if(event.target===this)closeRyDetail()" style="display:none;position:fixed;inset:0;z-index:600;background:rgba(0,0,0,.45);align-items:center;justify-content:center;padding:20px">
@@ -5281,6 +5297,6 @@
 <div id="proj-overlay" class="proj-panel-overlay" style="display:none" onclick="if(event.target===this)closeProjectDetail()"></div>
 <div id="proj-panel" class="proj-panel" style="display:none"></div>
 
-<script src="app.js?v=20260623ae"></script>
+<script src="app.js?v=20260623af"></script>
 </body>
 </html>
