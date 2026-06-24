@@ -38185,20 +38185,32 @@ function closeManualPurchaseDetail() {
 // gak bikin duplicate request.
 // Edit items dari OB chip — navigate ke Outbound page + auto-expand inline
 // items editor untuk OB itu. Pakai existing openObItemsEdit dari OB module.
+// Clear all filters dulu supaya target row pasti ke-render di tabel.
 async function _mpurcOpenObItemsEdit(obId) {
   showPage('outbound', null);
-  // Tunggu loadOutbound + render selesai sebelum expand editor
-  setTimeout(async () => {
-    // Wait for allOutboundRows populated
-    for (let i = 0; i < 30; i++) {
-      if (window.allOutboundRows && allOutboundRows.some(r => r.id === obId)) break;
-      await new Promise(r => setTimeout(r, 100));
-    }
-    if (typeof openObItemsEdit === 'function') openObItemsEdit(obId);
-    // Scroll ke row
-    const row = document.getElementById(`ob-row-${obId}`);
-    if (row) row.scrollIntoView({ behavior:'smooth', block:'center' });
-  }, 300);
+  // Tunggu sampai page + initial data render
+  for (let i = 0; i < 50; i++) {
+    await new Promise(r => setTimeout(r, 100));
+    if (window.allOutboundRows && allOutboundRows.some(r => r.id === obId)) break;
+  }
+  // Clear all filters supaya target row pasti visible (filter source/status/
+  // purpose mungkin udah ke-set sebelumnya yang hide row ini)
+  const resetField = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+  resetField('ob-fil-search', obId);  // narrow ke OB id ini aja
+  resetField('ob-fil-status', '');
+  resetField('ob-fil-source', '');
+  resetField('ob-fil-purpose', '');
+  if (typeof applyOutboundFilters === 'function') applyOutboundFilters();
+  // Tunggu re-render selesai
+  for (let i = 0; i < 30; i++) {
+    if (document.getElementById(`ob-row-${obId}`)) break;
+    await new Promise(r => setTimeout(r, 80));
+  }
+  if (typeof openObItemsEdit === 'function') openObItemsEdit(obId);
+  // Scroll ke row biar user langsung liat
+  const row = document.getElementById(`ob-row-${obId}`);
+  if (row) row.scrollIntoView({ behavior:'smooth', block:'center' });
+  else alert(`OB ${obId} gak ketemu di list. Coba refresh halaman Outbound dulu.`);
 }
 
 // Cancel/delete OB ticket dari MP detail — only kalau status Pending
