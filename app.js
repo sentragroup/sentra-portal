@@ -24924,6 +24924,7 @@ function mapPs(r) {
     budget: r.budget, pic: r.pic || '',
     status: r.status || 'Planning', notes: r.notes || '',
     recipientAddress: r.recipient_address || '',
+    recipientEmail: r.recipient_email || '',
     budgetBreakdown: Array.isArray(r.budget_breakdown) ? r.budget_breakdown : [],
     links: Array.isArray(r.links) ? r.links : [],
     sampleItems: Array.isArray(r.sample_items) ? r.sample_items : [],
@@ -26142,6 +26143,7 @@ function _psDrawerFormHTML(r) {
     <div id="psdtab-sample-${id}" class="psdtab-${id}" style="display:none">
       <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.3px;color:var(--g600);margin-bottom:4px">🎁 Sample Request</div>
       <div class="fg" style="margin:0 0 8px"><label style="font-size:11px">Alamat pengiriman</label><textarea id="psed-address-${id}" rows="2" style="font-size:12px;padding:5px 8px;resize:vertical" placeholder="Jl, kota, kode pos...">${esc(r.recipientAddress)}</textarea></div>
+      <div class="fg" style="margin:0 0 8px"><label style="font-size:11px">Email penerima <span style="color:var(--g400);font-weight:400">(buat kirim Surat Jalan)</span></label><input type="email" id="psed-email-${id}" value="${esc(r.recipientEmail)}" placeholder="penerima@email.com" style="font-size:12px;padding:5px 8px"></div>
       <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.3px;color:var(--g600);margin-bottom:4px">Items</div>
       <div id="psed-sample-${id}" style="display:flex;flex-direction:column;gap:6px;margin-bottom:6px">${sampleRows}</div>
       <div style="display:flex;gap:6px;align-items:center;margin-bottom:12px">
@@ -26351,12 +26353,17 @@ async function requestPsSampleShipment(id) {
   const items = _kolReadFreebieFrom(`psed-sample-${id}`, `ps-sam-${id}`);
   if (!items.length) { alert('Belum ada item sample. Tambahkan dulu trus klik lagi.'); return; }
   const address = (document.getElementById(`psed-address-${id}`)?.value || '').trim();
+  const email = (document.getElementById(`psed-email-${id}`)?.value || '').trim();
   const pic = (document.getElementById(`psed-pic-${id}`)?.value || '').trim();
   const sd = document.getElementById(`psed-shoot-date-${id}`)?.value || '';
+  if (!email) {
+    if (!confirm('Email penerima kosong — Surat Jalan gak bisa dikirim via email nanti. Lanjut buat ticket tanpa email?')) return;
+  }
   if (!confirm(`Buat outbound ticket buat ${items.length} sample item ke "${address || r.location || '(no address)'}"?`)) return;
   try {
     await sb.from('photoshoots').update({
       sample_items: items, recipient_address: address || null,
+      recipient_email: email || null,
       last_updated: new Date().toISOString(), last_updated_by: currentUser||'',
     }).eq('id', id);
     const obId = genId('OB');
@@ -26367,6 +26374,7 @@ async function requestPsSampleShipment(id) {
       recipient_name: pic || r.name,
       recipient_address: address || r.location || null,
       recipient_phone: null,
+      recipient_email: email || null,
       requested_ship_date: sd || null,
       items, status: 'Pending',
       notes: `Auto-created from photoshoot ${id} (${r.name})`,
@@ -26424,6 +26432,7 @@ function mapKol(r) {
     outboundRequestId: r.outbound_request_id || '',
     recipientAddress: r.recipient_address || '',
     recipientPhone: r.recipient_phone || '',
+    recipientEmail: r.recipient_email || '',
     requestedShipDate: r.requested_ship_date,
     // legacy / kept fields
     fee: r.fee, postDate: r.post_date || '', pic: r.pic || '',
@@ -26775,7 +26784,7 @@ function toggleKolPaymentSections() {
 }
 
 function clearKolForm() {
-  ['kol-collection','kol-name','kol-fee','kol-rec-name','kol-rec-phone','kol-rec-address','kol-ship-date','kol-post-date','kol-pic','kol-notes'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  ['kol-collection','kol-name','kol-fee','kol-rec-name','kol-rec-phone','kol-rec-email','kol-rec-address','kol-ship-date','kol-post-date','kol-pic','kol-notes'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
   const cat = document.getElementById('kol-payment-category'); if (cat) cat.value = 'Barter';
   const stat = document.getElementById('kol-status'); if (stat) stat.value = 'Planning';
   document.getElementById('kol-deliverables-rows').innerHTML = '';
@@ -26811,6 +26820,7 @@ async function submitKol() {
       freebie_items: freebieItems,
       recipient_address: (document.getElementById('kol-rec-address').value || '').trim() || null,
       recipient_phone: (document.getElementById('kol-rec-phone').value || '').trim() || null,
+      recipient_email: (document.getElementById('kol-rec-email')?.value || '').trim() || null,
       requested_ship_date: document.getElementById('kol-ship-date').value || null,
       post_date: document.getElementById('kol-post-date').value || null,
       pic: (document.getElementById('kol-pic').value || '').trim() || null,
@@ -26999,6 +27009,7 @@ async function requestKolShipment(placementId) {
       recipient_name: r.name,
       recipient_address: r.recipientAddress || null,
       recipient_phone: r.recipientPhone || null,
+      recipient_email: r.recipientEmail || null,
       requested_ship_date: r.requestedShipDate || null,
       items: r.freebieItems || [],
       status: 'Pending',
@@ -27109,6 +27120,7 @@ function _kolEditFormHTML(r) {
         })()}</div>
       </div>
       <div class="fg" style="margin:0 0 8px"><label style="font-size:11px">Alamat lengkap</label><textarea id="kole-rec-address-${id}" rows="2" style="font-size:12px;padding:5px 8px;resize:vertical">${esc(r.recipientAddress)}</textarea></div>
+      <div class="fg" style="margin:0 0 8px"><label style="font-size:11px">Email Penerima <span style="color:var(--g400);font-weight:400">(buat kirim Surat Jalan via email)</span></label><input type="email" id="kole-rec-email-${id}" value="${esc(r.recipientEmail)}" placeholder="penerima@email.com" style="font-size:12px;padding:5px 8px"></div>
       <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.3px;color:var(--g600);margin-bottom:4px;display:flex;align-items:center;gap:8px">
         Items
         <span style="margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--g600);font-weight:400">💰 Total HPP <span id="kole-cogs-${id}">${_moRp(_kolItemsCOGS(r.freebieItems))}</span></span>
@@ -27217,6 +27229,7 @@ async function saveKolEdit(id) {
     freebie_items: freebieItems,
     recipient_address: (document.getElementById(`kole-rec-address-${id}`)?.value || '').trim() || null,
     recipient_phone: (document.getElementById(`kole-rec-phone-${id}`)?.value || '').trim() || null,
+    recipient_email: (document.getElementById(`kole-rec-email-${id}`)?.value || '').trim() || null,
     requested_ship_date: document.getElementById(`kole-ship-date-${id}`)?.value || null,
     status: document.getElementById(`kole-status-${id}`).value || 'Planning',
     post_date: document.getElementById(`kole-post-date-${id}`).value || null,
@@ -31318,10 +31331,12 @@ function mapOutbound(r) {
     recipientName: r.recipient_name || '',
     recipientAddress: r.recipient_address || '',
     recipientPhone: r.recipient_phone || '',
+    recipientEmail: r.recipient_email || '',
     requestedShipDate: r.requested_ship_date,
     items: Array.isArray(r.items) ? r.items : [],
     shippingCost: r.shipping_cost,
     trackingNumber: r.tracking_number || '',
+    signedSuratJalanUrl: r.signed_surat_jalan_url || '',
     status: r.status || 'Pending',
     notes: r.notes || '',
     dateAdded: r.date_added, addedBy: r.added_by || '',
@@ -31490,6 +31505,7 @@ function _renderOutboundRows(rows) {
         <div style="font-weight:600">${esc(r.recipientName)||'—'}</div>
         ${r.recipientAddress?`<div style="font-size:10px;color:var(--g600);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:240px" title="${esc(r.recipientAddress)}">${esc(r.recipientAddress)}</div>`:''}
         ${r.recipientPhone?`<div style="font-size:10px;color:var(--g600);font-family:var(--mono)">${esc(r.recipientPhone)}</div>`:''}
+        ${r.recipientEmail?`<div style="font-size:10px;color:#3C3489;font-family:var(--mono);display:flex;align-items:center;gap:4px"><span>✉️</span><span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px" title="${esc(r.recipientEmail)}">${esc(r.recipientEmail)}</span></div>`:`<div style="font-size:10px;color:#b08400;font-family:var(--mono)" title="Email belum diisi — surat jalan gak bisa dikirim via email">⚠ Email kosong</div>`}
         ${instructionRow}
       </td>
       <td style="font-size:11px;max-width:260px">
@@ -31513,6 +31529,11 @@ function _renderOutboundRows(rows) {
       </td>
       <td style="white-space:nowrap">
         <button class="btn-icon" onclick="_obGenerateSuratJalan('${r.rowIndex}')" title="Generate Surat Jalan PDF" style="color:#3C3489;font-size:13px">🚚</button>
+        <button class="btn-icon" onclick="_obSendSuratJalan('${r.rowIndex}')" title="${r.recipientEmail?('Kirim Surat Jalan ke '+r.recipientEmail):'Set email penerima dulu'}" style="font-size:13px;${r.recipientEmail?'color:#085041':'color:#b8b8b8;cursor:not-allowed'}">📧</button>
+        ${r.signedSuratJalanUrl
+          ? `<a href="${esc(r.signedSuratJalanUrl)}" target="_blank" class="btn-icon" title="Lihat surat jalan signed" style="color:#085041;font-size:13px;text-decoration:none">✅</a>`
+          : `<label class="btn-icon" title="Upload surat jalan signed (PDF/image, max 5MB)" style="color:#3C3489;font-size:13px;cursor:pointer;margin:0"><span>📎</span><input type="file" accept=".pdf,image/*" style="display:none" onchange="_obUploadSignedSuratJalan('${r.rowIndex}',this)"></label>`}
+        ${r.signedSuratJalanUrl?`<button class="btn-icon" onclick="_obClearSignedSuratJalan('${r.rowIndex}')" title="Hapus signed SJ" style="color:#c0392b;font-size:11px">×</button>`:''}
         <button class="btn-icon" onclick="deleteOutbound('${r.rowIndex}')" title="Hapus ticket" style="color:#c0392b">🗑</button>
       </td>
     </tr>
@@ -31714,6 +31735,53 @@ async function deleteOutbound(id) {
     logActivity('OutboundRequest','delete',id,`Hapus ticket: ${r.recipientName}`);
     await loadOutbound();
   } catch(e) { alert('Gagal: ' + (e.message||e)); }
+}
+
+async function _obUploadSignedSuratJalan(id, fileInput) {
+  const f = fileInput?.files?.[0]; if (!f) return;
+  if (f.size > 5*1024*1024) { alert('Max 5MB'); fileInput.value=''; return; }
+  try {
+    const ext = (f.name.split('.').pop()||'bin').toLowerCase();
+    const path = `signed-surat-jalan/${id}-${Date.now()}.${ext}`;
+    const {error: upErr} = await sb.storage.from('wholesale-bukti').upload(path, f, {upsert:true, contentType: f.type||undefined});
+    if (upErr) throw upErr;
+    const {data: pub} = sb.storage.from('wholesale-bukti').getPublicUrl(path);
+    const url = pub?.publicUrl; if (!url) throw new Error('Gagal ambil URL');
+    const {error: e2} = await sb.from('outbound_requests').update({
+      signed_surat_jalan_url: url,
+      last_updated: new Date().toISOString(), last_updated_by: currentUser||'',
+    }).eq('id', id);
+    if (e2) throw e2;
+    logActivity('OutboundRequest','upload_signed_sj',id,`Upload signed SJ`);
+    await loadOutbound();
+  } catch(e) { alert('Gagal upload: '+(e.message||e)); fileInput.value=''; }
+}
+
+async function _obClearSignedSuratJalan(id) {
+  if (!confirm('Hapus signed surat jalan?')) return;
+  try {
+    const {error} = await sb.from('outbound_requests').update({
+      signed_surat_jalan_url: null,
+      last_updated: new Date().toISOString(), last_updated_by: currentUser||'',
+    }).eq('id', id);
+    if (error) throw error;
+    logActivity('OutboundRequest','clear_signed_sj',id,`Hapus signed SJ`);
+    await loadOutbound();
+  } catch(e) { alert('Gagal: '+(e.message||e)); }
+}
+
+async function _obSendSuratJalan(id) {
+  const r = allOutboundRows.find(x => x.rowIndex === id);
+  if (!r) return;
+  if (!r.recipientEmail) { alert('Email penerima belum diisi — edit dulu di modul sumbernya (KOL/Photoshoot/Manual Purchase) atau ticket ini.'); return; }
+  const ok = confirm(`Kirim Surat Jalan ke ${r.recipientEmail}?\n\nIni akan generate PDF dulu, lalu buka draft email di app kamu. Lampirkan PDF yang barusan di-download.`);
+  if (!ok) return;
+  await _obGenerateSuratJalan(id);
+  const subject = `Surat Jalan ${id} — ${r.recipientName||''}`.trim();
+  const body = `Halo ${r.recipientName||''},\n\nTerlampir Surat Jalan ${id} untuk pengiriman barang.\nMohon ditandatangani lalu dikirim balik sebagai bukti penerimaan.\n\nTerima kasih.`;
+  const mailto = `mailto:${encodeURIComponent(r.recipientEmail)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  window.location.href = mailto;
+  logActivity('OutboundRequest','send_sj_email',id,`Kirim SJ ke ${r.recipientEmail}`);
 }
 
 // Generate Surat Jalan PDF untuk Outbound Request. Pattern mirror Pop Up Booth
@@ -37991,6 +38059,7 @@ function mapMpurc(r) {
     shipToAddress: r.ship_to_address||'',
     shipToRecipient: r.ship_to_recipient||'',
     shipToPhone: r.ship_to_phone||'',
+    shipToEmail: r.ship_to_email||'',
     shipToCourier: r.ship_to_courier||'',
     shipToNotes: r.ship_to_notes||'',
     shippingCost: parseFloat(r.shipping_cost)||0,  // Legacy — superseded by SUM(linked OBs.shipping_cost)
@@ -38385,6 +38454,7 @@ async function _mpurcObSubmit() {
       recipient_name: recipient,
       recipient_address: address,
       recipient_phone: h.shipToPhone || '',
+      recipient_email: h.shipToEmail || h.clientRepEmail || null,
       items: obItems,
       notes: noteParts.join(' · '),
       status: 'Pending',
@@ -38487,6 +38557,7 @@ function _mpurcRenderDetail() {
           </select></div>
           <div class="fg"><label>Penerima</label><input type="text" id="mp-h-shiprecipient" value="${(h.shipToRecipient||'').replace(/"/g,'&quot;')}" placeholder="${h.shipToType==='kantor'?'PIC Kantor / Requestor':'Nama penerima'}"></div>
           <div class="fg"><label>No HP Penerima</label><input type="text" id="mp-h-shipphone" value="${(h.shipToPhone||'').replace(/"/g,'&quot;')}" placeholder="08..."></div>
+          <div class="fg"><label>Email Penerima <span style="color:var(--g400);font-weight:400">(buat kirim Surat Jalan)</span></label><input type="email" id="mp-h-shipemail" value="${(h.shipToEmail||'').replace(/"/g,'&quot;')}" placeholder="penerima@email.com"></div>
           <div class="fg full"><label>Alamat Kirim</label><textarea id="mp-h-shipaddr" rows="2" placeholder="Alamat lengkap pengiriman">${(h.shipToAddress||'').replace(/</g,'&lt;')}</textarea></div>
           <div class="fg"><label>Skema Pengiriman <span style="font-size:10px;color:var(--g400);font-weight:normal">(instruksi)</span></label>
             <select id="mp-h-shipscheme">
@@ -39945,6 +40016,7 @@ async function saveManualPurchase() {
     ship_to_address: document.getElementById('mp-h-shipaddr')?.value.trim() || null,
     ship_to_recipient: document.getElementById('mp-h-shiprecipient')?.value.trim() || null,
     ship_to_phone: document.getElementById('mp-h-shipphone')?.value.trim() || null,
+    ship_to_email: document.getElementById('mp-h-shipemail')?.value.trim() || null,
     ship_to_notes: document.getElementById('mp-h-shipnotes')?.value.trim() || null,
     shipping_scheme: document.getElementById('mp-h-shipscheme')?.value || null,
     shipping_cost_category: document.getElementById('mp-h-shipcostcat')?.value || null,
