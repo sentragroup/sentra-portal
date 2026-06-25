@@ -31454,15 +31454,19 @@ function _renderOutboundRows(rows) {
       : r.sourceModule === 'MarketingActivation' ? 'MA'
       : r.sourceModule === 'PhotoshootPlanning' ? 'PS'
       : r.sourceModule === 'ManualPurchase' ? 'MP'
+      : r.sourceModule === 'WholesaleOrder' ? 'WO'
       : r.sourceModule;
     const sourcePage = r.sourceModule === 'KolManagement' ? 'kolmgmt'
       : r.sourceModule === 'MarketingActivation' ? 'mktactivation'
       : r.sourceModule === 'PhotoshootPlanning' ? 'photoshoot'
       : r.sourceModule === 'ManualPurchase' ? 'manualpurchase'
+      : r.sourceModule === 'WholesaleOrder' ? 'wholesale'
       : '';
-    // ManualPurchase source — deep link langsung ke MP detail
+    // Source modules with deep-link langsung ke detail row
     const sourceLabel = (r.sourceModule === 'ManualPurchase' && r.sourceId)
       ? `<a href="#" onclick="event.preventDefault();showPage('manualpurchase',null);setTimeout(()=>openManualPurchaseDetail('${esc(r.sourceId)}'),200)" style="font-size:10px;color:#3C3489;text-decoration:underline" title="Buka ${esc(r.sourceId)}">${esc(sourceShortName)} · ${esc(r.sourceId)}</a>`
+      : (r.sourceModule === 'WholesaleOrder' && r.sourceId)
+      ? `<a href="#" onclick="event.preventDefault();showPage('wholesale',null);setTimeout(()=>openWholesaleDetail('${esc(r.sourceId)}'),200)" style="font-size:10px;color:#3C3489;text-decoration:underline" title="Buka ${esc(r.sourceId)}">${esc(sourceShortName)} · ${esc(r.sourceId)}</a>`
       : (sourcePage && r.sourceId)
       ? `<a href="#" onclick="event.preventDefault();showPage('${sourcePage}',null)" style="font-size:10px;color:#3C3489;text-decoration:underline" title="${esc(r.sourceId)}">${esc(sourceShortName)} · ${esc(r.sourceId)}</a>`
       : `<span style="font-size:10px;color:var(--g600)">${esc(r.sourceModule)}</span>`;
@@ -35273,6 +35277,10 @@ async function openWholesaleDetail(id) {
         billStats.putaway = (bills||[]).filter(b => b.is_putaway).length;
       }
     }
+    // Fetch linked outbound requests (source_module='WholesaleOrder')
+    const obRes = await sb.from('outbound_requests').select('*')
+      .eq('source_module','WholesaleOrder').eq('source_id', id)
+      .order('date_added',{ascending:true}).order('id',{ascending:true});
     _whCurrentOrder = {
       header: mapWO(headerRes.data),
       items: itemsRes.data || [],
@@ -35280,6 +35288,7 @@ async function openWholesaleDetail(id) {
       shipItems,
       links,
       payments: paysRes.data || [],
+      linkedOutbounds: obRes.data || [],
       billStats
     };
   }
@@ -36216,30 +36225,76 @@ async function _whLoadJubelioCompare() {
 }
 
 // ── Shipments manager (di Payments & Shipping tab) ──
+// Setiap shipment = 1 OB ticket di outbound_requests (source_module='WholesaleOrder').
+// Tombol + Request ke Warehouse buka batch picker (mirror MP), submit → create OB
+// dengan purpose=Sales. Warehouse fill resi + ongkir di OB module.
 function _whRenderShipmentsCard(h, items, shipments, shipItems) {
-  const fmtTgl = d => d ? new Date(d+'T00:00:00').toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'}) : '—';
-  // Compute already-shipped per order item across ALL shipments
-  const shippedByItem = new Map();
-  shipItems.forEach(si => {
-    shippedByItem.set(si.order_item_id, (shippedByItem.get(si.order_item_id)||0) + (parseFloat(si.qty_shipped)||0));
+  const o = _whCurrentOrder;
+  const obs = (o?.linkedOutbounds) || [];
+  const fmtRp = n => 'Rp ' + Math.round(parseFloat(n)||0).toLocaleString('id-ID');
+  // Hitung sudah-di-OB-kan per item via item_id (jubelio_item_id)
+  const shippedByItemId = new Map();
+  obs.forEach(ob => {
+    (ob.items||[]).forEach(it => {
+      const key = it.item_id || it.jubelio_item_id;
+      if (key == null) return;
+      shippedByItemId.set(key, (shippedByItemId.get(key)||0) + (parseFloat(it.qty)||0));
+    });
   });
   const totalOrdered = items.reduce((s,i) => s + (parseFloat(i.qty)||0), 0);
-  const totalShipped = [...shippedByItem.values()].reduce((s,v) => s+v, 0);
+  const totalShipped = items.reduce((s,i) => s + (shippedByItemId.get(i.jubelio_item_id)||0), 0);
   const fulfillment = totalOrdered ? Math.round(totalShipped/totalOrdered*100) : 0;
   const isComplete = totalOrdered > 0 && totalShipped >= totalOrdered;
-  const shipmentCards = shipments.map(s => _whRenderShipmentCard(s, items, shipItems, shippedByItem)).join('');
+  const obShippingSum = obs.reduce((s,ob) => s + (parseFloat(ob.shipping_cost)||0), 0);
+  const obList = obs.map(ob => {
+    const stTone = ob.status === 'Delivered' ? {bg:'#dff0d8',fg:'#04342C'}
+                 : ob.status === 'Sent'      ? {bg:'#cce5ff',fg:'#054d8c'}
+                 :                              {bg:'#fef5e0',fg:'#a66800'};
+    const canDelete = ob.status === 'Pending';
+    const itemCount = (ob.items||[]).length;
+    const pcs = (ob.items||[]).reduce((s,it)=>s+(parseFloat(it.qty)||0),0);
+    const ongkir = ob.shipping_cost != null
+      ? fmtRp(ob.shipping_cost)
+      : '<i style="color:var(--g400)">belum diisi warehouse</i>';
+    return `<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--off);border:1px solid var(--g100);border-radius:5px">
+      <a href="#" onclick="event.preventDefault();showPage('outbound',null);setTimeout(()=>{const el=document.getElementById('ob-fil-search');if(el){el.value='${ob.id}';applyOutboundFilters();}},300)" style="display:flex;align-items:center;gap:10px;flex:1;text-decoration:none;color:inherit;min-width:0">
+        <span style="font-family:var(--mono);font-size:11px;font-weight:600">📦 ${(ob.id||'').replace(/</g,'&lt;')}</span>
+        <span style="font-size:10px;padding:2px 8px;border-radius:99px;background:${stTone.bg};color:${stTone.fg};font-weight:600">${ob.status||'Pending'}</span>
+        <span style="font-size:11px;color:var(--g600);flex:1">${itemCount} items · ${pcs} pcs</span>
+        ${ob.tracking_number?`<span style="font-size:10px;font-family:var(--mono);color:var(--g600)">🚚 ${(ob.tracking_number||'').replace(/</g,'&lt;')}</span>`:''}
+        <span style="font-size:11px;font-family:var(--mono);color:var(--g600)">Ongkir: <b style="color:var(--black)">${ongkir}</b></span>
+      </a>
+      ${canDelete ? `<button onclick="_whDeleteOb('${ob.id}')" title="Batalkan OB (cuma kalau Pending)" style="background:none;border:1px solid #f1c6bf;padding:4px 8px;border-radius:4px;cursor:pointer;color:#c0392b;font-size:11px">🗑</button>` : ''}
+    </div>`;
+  }).join('');
   return `<div class="form-card" style="margin-bottom:14px">
     <div class="form-sec" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-      <span>Shipments (${shipments.length})</span>
+      <span>Shipments via Outbound Request (${obs.length})</span>
       <div style="display:flex;gap:8px;align-items:center">
         <span style="font-size:11px;color:${isComplete?'#0a7d3a':'#a66800'};font-family:var(--mono);font-weight:600">
           ${totalShipped} / ${totalOrdered} pcs ${isComplete?'✓ Complete':`(${fulfillment}%)`}
         </span>
-        <button class="btn-primary" onclick="_whAddShipment()" style="font-size:11px;padding:5px 12px">+ Shipment</button>
+        <button class="btn-primary" onclick="_whRequestOutbound()" style="font-size:11px;padding:5px 12px" title="Buat OB ticket batch ke warehouse">📦 Request ke Warehouse${obs.length?` (batch ke-${obs.length+1})`:''}</button>
       </div>
     </div>
-    ${shipments.length ? shipmentCards : `<div style="padding:20px;text-align:center;color:var(--g400);font-size:12px;background:var(--off);border-radius:6px">Belum ada shipment. Klik <b>+ Shipment</b> untuk bikin pengiriman pertama.</div>`}
+    ${obs.length ? `<div style="display:flex;flex-direction:column;gap:6px">${obList}</div>
+    <div style="font-size:10px;color:var(--g400);margin-top:8px;font-family:var(--mono)">Total ongkir: <b style="color:var(--black)">${fmtRp(obShippingSum)}</b> · diisi warehouse via OB module · auto-masuk invoice</div>` : `<div style="padding:20px;text-align:center;color:var(--g400);font-size:12px;background:var(--off);border-radius:6px">Belum ada shipment. Klik <b>📦 Request ke Warehouse</b> buat batch pertama.</div>`}
+    ${_whLegacyShipmentsBlock(shipments, items, shipItems)}
   </div>`;
+}
+
+// Legacy wholesale_shipments rows (sebelum migrate ke OB) — display-only, biar
+// data historis gak hilang. Akan di-deprecate setelah backfill.
+function _whLegacyShipmentsBlock(shipments, items, shipItems) {
+  if (!shipments?.length) return '';
+  const shippedByItem = new Map();
+  shipItems.forEach(si => {
+    shippedByItem.set(si.order_item_id, (shippedByItem.get(si.order_item_id)||0) + (parseFloat(si.qty_shipped)||0));
+  });
+  return `<details style="margin-top:10px;border-top:1px dashed var(--g200);padding-top:10px">
+    <summary style="font-size:11px;color:var(--g600);cursor:pointer;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px">Legacy Shipments (${shipments.length}) — di-migrate ke OB</summary>
+    <div style="margin-top:8px">${shipments.map(s => _whRenderShipmentCard(s, items, shipItems, shippedByItem)).join('')}</div>
+  </details>`;
 }
 
 function _whRenderShipmentCard(s, items, shipItems, globalShippedByItem) {
@@ -36333,18 +36388,191 @@ function _whRenderShippingCostRow(s) {
   </div>`;
 }
 
-// ── Shipment CRUD ──
-async function _whAddShipment() {
+// ── Request ke Warehouse → buat OB ticket ──
+// Mirror MP's _mpurcCreateOutbound: hitung remaining per item (ordered − sudah-di-OB),
+// buka picker modal, submit → insert outbound_requests dengan purpose=Sales,
+// source_module=WholesaleOrder. Warehouse fill ongkir+resi di OB module.
+function _whRequestOutbound() {
   const o = _whCurrentOrder; if (!o || o.header.id === 'new') { alert('Simpan order dulu.'); return; }
-  const seq = (o.shipments||[]).length + 1;
-  const orderShort = (o.header.id||'').replace(/^WCO-/,'').replace(/-/g,'');
-  const shipmentNo = `SJ-WS-${orderShort}-${String(seq).padStart(2,'0')}`;
-  const { data, error } = await sb.from('wholesale_shipments').insert({
-    order_id: o.header.id, shipment_no: shipmentNo, created_by: currentUser
-  }).select().single();
-  if (error) { alert('Gagal: '+error.message); return; }
-  o.shipments.push(data);
-  _whRenderDetail();
+  if (!(o.items||[]).length) { alert('Belum ada items di order ini.'); return; }
+  const obs = o.linkedOutbounds || [];
+  const shippedByItem = new Map();
+  obs.forEach(ob => {
+    (ob.items||[]).forEach(it => {
+      const key = it.item_id || it.jubelio_item_id || `name:${it.item_name}`;
+      shippedByItem.set(key, (shippedByItem.get(key)||0) + (parseFloat(it.qty)||0));
+    });
+  });
+  const jByItemId = new Map((_whJubelioItemsCache||[]).map(j => [j.item_id, j]));
+  const itemsWithRemaining = (o.items||[]).map(it => {
+    const j = jByItemId.get(it.jubelio_item_id) || {};
+    const key = it.jubelio_item_id || `name:${it.item_name}`;
+    const ordered = parseFloat(it.qty) || 0;
+    const shipped = shippedByItem.get(key) || 0;
+    return {
+      jubelio_item_id: it.jubelio_item_id,
+      item_id: it.jubelio_item_id,
+      item_code: it.item_code || j.item_code || '',
+      sku: it.item_code || j.item_code || '',
+      item_name: it.item_name || j.item_name || '',
+      size: _whSizeOf(it.item_name, it.item_code),
+      thumbnail: j.thumbnail || null,
+      _ordered: ordered, _shipped: shipped, _remaining: Math.max(0, ordered - shipped),
+    };
+  });
+  const totalRemaining = itemsWithRemaining.reduce((s,i) => s + i._remaining, 0);
+  if (totalRemaining === 0) { alert('Semua items udah ke-request di OB sebelumnya.'); return; }
+  const batchNo = obs.length + 1;
+  const isPartial = obs.length > 0;
+  const overlay = document.createElement('div');
+  overlay.id = 'wh-ob-modal-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+  const rowsHTML = itemsWithRemaining.map((it, idx) => {
+    const disabled = it._remaining === 0;
+    return `<tr style="border-top:1px solid var(--g100);${disabled?'opacity:0.5':''}">
+      <td style="padding:6px 8px"><input type="checkbox" id="wh-ob-pick-${idx}" ${disabled?'disabled':'checked'} onchange="_whObUpdateTotal()"></td>
+      <td style="padding:6px 8px;font-size:11px">${it.thumbnail?`<img src="${it.thumbnail.replace(/"/g,'&quot;')}" style="width:28px;height:28px;border-radius:3px;object-fit:cover;border:1px solid var(--g100);vertical-align:middle;margin-right:6px">`:''}${(it.item_name||'').replace(/</g,'&lt;')}${it.size?` <span style="color:var(--g400)">· ${it.size}</span>`:''}</td>
+      <td style="padding:6px 8px;font-size:10px;color:var(--g600);font-family:var(--mono)">${it._ordered}</td>
+      <td style="padding:6px 8px;font-size:10px;color:var(--g600);font-family:var(--mono)">${it._shipped}</td>
+      <td style="padding:6px 8px"><input type="number" id="wh-ob-qty-${idx}" min="0" max="${it._remaining}" value="${it._remaining}" ${disabled?'disabled':''} oninput="_whObUpdateTotal()" style="width:70px;padding:4px 6px;font-size:11px;border:1px solid var(--g100);border-radius:4px;font-family:var(--mono);text-align:right"></td>
+      <td style="padding:6px 8px;font-size:10px;color:#c0392b;font-family:var(--mono)">${it._remaining}</td>
+    </tr>`;
+  }).join('');
+  overlay.innerHTML = `<div style="background:var(--white);border-radius:10px;max-width:760px;width:100%;max-height:90vh;overflow:auto;box-shadow:0 8px 30px rgba(0,0,0,0.2)">
+    <div style="padding:18px 22px;border-bottom:1px solid var(--g100);display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div style="font-size:16px;font-weight:600">📦 Batch #${batchNo} ${isPartial?'(Partial Shipment)':''}</div>
+        <div style="font-size:11px;color:var(--g600);margin-top:2px">${o.header.id} · ${o.header.customerName||''}</div>
+      </div>
+      <button onclick="_whObCloseModal()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--g600)">×</button>
+    </div>
+    <div style="padding:14px 22px">
+      <div style="font-size:11px;color:var(--g600);margin-bottom:10px">Centang item + atur qty. Default = remaining (sisa ordered − shipped).</div>
+      <table style="width:100%;border-collapse:collapse;font-size:11px">
+        <thead><tr style="background:var(--off)">
+          <th style="padding:6px 8px;text-align:left;font-size:10px;color:var(--g600)">✓</th>
+          <th style="padding:6px 8px;text-align:left;font-size:10px;color:var(--g600)">Item</th>
+          <th style="padding:6px 8px;text-align:left;font-size:10px;color:var(--g600)">Ordered</th>
+          <th style="padding:6px 8px;text-align:left;font-size:10px;color:var(--g600)">Shipped</th>
+          <th style="padding:6px 8px;text-align:left;font-size:10px;color:var(--g600)">Batch Qty</th>
+          <th style="padding:6px 8px;text-align:left;font-size:10px;color:var(--g600)">Sisa</th>
+        </tr></thead>
+        <tbody>${rowsHTML}</tbody>
+      </table>
+      <div id="wh-ob-pick-total" style="margin-top:10px;font-size:12px;color:var(--g600);text-align:right">Total batch: <b>0 pcs</b> · 0 items dipilih</div>
+    </div>
+    <div style="padding:14px 22px;border-top:1px solid var(--g100);display:flex;justify-content:flex-end;gap:8px">
+      <button onclick="_whObCloseModal()" class="btn-ghost" style="padding:8px 14px;font-size:12px">Batal</button>
+      <button id="wh-ob-pick-submit" onclick="_whObSubmit()" class="btn-primary" style="padding:8px 14px;font-size:12px">📦 Create Outbound Request</button>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+  overlay._whItems = itemsWithRemaining;
+  overlay._batchNo = batchNo;
+  overlay._isPartial = isPartial;
+  _whObUpdateTotal();
+}
+
+function _whObCloseModal() {
+  const o = document.getElementById('wh-ob-modal-overlay'); if (o) o.remove();
+}
+
+function _whObUpdateTotal() {
+  const overlay = document.getElementById('wh-ob-modal-overlay'); if (!overlay) return;
+  const items = overlay._whItems || [];
+  let total = 0, count = 0;
+  items.forEach((it, idx) => {
+    const check = document.getElementById(`wh-ob-pick-${idx}`);
+    if (!check?.checked) return;
+    const qty = parseFloat(document.getElementById(`wh-ob-qty-${idx}`)?.value) || 0;
+    if (qty > 0) { total += qty; count++; }
+  });
+  const el = document.getElementById('wh-ob-pick-total');
+  if (el) el.innerHTML = `Total batch: <b>${total} pcs</b> · ${count} items dipilih`;
+}
+
+async function _whObSubmit() {
+  const overlay = document.getElementById('wh-ob-modal-overlay'); if (!overlay) return;
+  const o = _whCurrentOrder; if (!o) return;
+  const h = o.header;
+  const itemsWithRemaining = overlay._whItems || [];
+  const batchNo = overlay._batchNo;
+  const isPartial = overlay._isPartial;
+  const obItems = [];
+  itemsWithRemaining.forEach((it, idx) => {
+    const checked = document.getElementById(`wh-ob-pick-${idx}`)?.checked;
+    if (!checked) return;
+    const qty = parseFloat(document.getElementById(`wh-ob-qty-${idx}`)?.value) || 0;
+    if (qty <= 0) return;
+    obItems.push({
+      jubelio_item_id: it.jubelio_item_id || null,
+      item_id: it.jubelio_item_id || null,
+      sku: it.item_code || '',
+      item_code: it.item_code || '',
+      item_name: it.item_name || '',
+      size: it.size || '',
+      qty,
+      thumbnail: it.thumbnail || null,
+    });
+  });
+  if (!obItems.length) { alert('Pilih minimal 1 item dengan qty > 0'); return; }
+  const btn = document.getElementById('wh-ob-pick-submit');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Creating...'; }
+  try {
+    const obId = `OB-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${String(Math.floor(Math.random()*9000)+1000)}`;
+    // Resolve recipient via allDPRows by customerId, fallback ke customerName
+    const partner = (allDPRows||[]).find(p => p.id === h.customerId) || {};
+    const recipient = partner.contactPerson || h.customerName || '—';
+    const address   = partner.contactInfo || '';
+    const phone     = '';
+    const email     = partner.email || '';
+    const noteParts = [
+      `📦 Wholesale ${h.id}${isPartial?` · Batch #${batchNo}`:''} · ${h.customerName||''}`,
+    ].filter(Boolean);
+    const payload = {
+      id: obId,
+      source_module: 'WholesaleOrder',
+      source_id: h.id,
+      purpose: 'Sales',
+      recipient_name: recipient,
+      recipient_address: address,
+      recipient_phone: phone,
+      recipient_email: email,
+      items: obItems,
+      notes: noteParts.join(' · '),
+      status: 'Pending',
+      added_by: currentUser,
+      date_added: new Date().toISOString(),
+    };
+    const { error: obErr } = await sb.from('outbound_requests').insert(payload);
+    if (obErr) throw obErr;
+    if (!o.linkedOutbounds) o.linkedOutbounds = [];
+    o.linkedOutbounds.push({ ...payload, shipping_cost: null, tracking_number: null, requested_ship_date: null });
+    logActivity('WholesaleOrder','create_outbound',h.id,`OB ${obId} (batch #${batchNo}, ${obItems.length} items)`);
+    _whObCloseModal();
+    _whRenderDetail();
+  } catch(e) {
+    alert('Gagal create outbound: ' + (e.message||e));
+    if (btn) { btn.disabled = false; btn.textContent = '📦 Create Outbound Request'; }
+  }
+}
+
+async function _whDeleteOb(obId) {
+  if (!confirm(`Batalkan OB ticket ${obId}? Cuma bisa kalau status masih Pending.`)) return;
+  try {
+    const { error } = await sb.from('outbound_requests').delete().eq('id', obId).eq('status','Pending');
+    if (error) throw error;
+    const o = _whCurrentOrder;
+    if (o) o.linkedOutbounds = (o.linkedOutbounds||[]).filter(ob => ob.id !== obId);
+    logActivity('WholesaleOrder','delete_outbound',o?.header?.id||'',`Cancelled OB ${obId}`);
+    _whRenderDetail();
+  } catch(e) { alert('Gagal: ' + (e.message||e)); }
+}
+
+// Legacy: kept buat ngebersihin sisa wholesale_shipments yg ada.
+async function _whAddShipment() {
+  // Redirect ke new flow biar gak ada manual entry shipment baru.
+  return _whRequestOutbound();
 }
 
 async function _whUpdateShipmentField(shipmentId, field, value) {
