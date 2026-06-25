@@ -31426,12 +31426,15 @@ function _renderOutboundRows(rows) {
       const q = it.qty?` ×${it.qty}`:'';
       return `${name}${sz}${q}`;
     }).join(', ');
-    // Thumbnail resolution: prefer item.thumbnail, fallback ke jubelio_items cache by item_id
+    // Thumbnail resolution: prefer item.thumbnail, fallback ke jubelio_items cache
+    // by item_id ATAU SKU/item_code (MP picker dulu ngga ngeset item_id).
     const jCache = (window._whJubelioItemsCache||[]);
-    const jByItemId = new Map(jCache.map(j => [j.item_id, j]));
+    const jByItemId = new Map(jCache.filter(j=>j.item_id).map(j => [j.item_id, j]));
+    const jByCode = new Map(jCache.filter(j=>j.item_code).map(j => [j.item_code, j]));
     const resolveThumb = it => {
       if (it.thumbnail) return it.thumbnail;
-      const j = jByItemId.get(it.item_id || it.jubelio_item_id);
+      const j = jByItemId.get(it.item_id || it.jubelio_item_id)
+            || jByCode.get(it.sku || it.item_code);
       return j?.thumbnail || null;
     };
     const itemThumbs = (r.items||[]).slice(0,5).map(it => {
