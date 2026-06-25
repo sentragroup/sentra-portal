@@ -42,6 +42,21 @@ function genId(prefix) {
   const d = new Date().toISOString().slice(0,10).replace(/-/g,"");
   return `${prefix}-${d}-${String(Math.floor(Math.random()*9000)+1000)}`;
 }
+
+// Parse rupiah input — locale-tolerant. User boleh ngetik "45000", "45.000",
+// "45,000", "Rp 45.000", spasi, dsb. Return number atau NaN kalau benar2 kosong/
+// invalid. Logic: strip non-digit kecuali titik/koma desimal terakhir.
+function _parseRupiah(raw) {
+  const s = (raw == null ? '' : String(raw)).trim();
+  if (!s) return NaN;
+  // Direct parse dulu (kalau user ngetik "45000" tanpa separator)
+  const direct = parseFloat(s);
+  if (!isNaN(direct) && direct > 0 && /^\d+(\.\d+)?$/.test(s.replace(/\s/g,''))) return direct;
+  // Strip semua non-digit (titik/koma sebagai thousand-sep)
+  const digitsOnly = s.replace(/[^\d]/g, '');
+  if (!digitsOnly) return NaN;
+  return parseFloat(digitsOnly);
+}
 async function logActivity(module, action, recordId, details) {
   try {
     await sb.from("activity_logs").insert({user_name:currentUser||"system",module,action,record_id:recordId||null,details:details||null});
@@ -7143,8 +7158,8 @@ function renderColTargetSection(col, items) {
       <div class="fg" style="margin:0"><label style="font-size:11px">Color</label><input type="text" id="ci-dp-color-${cid}" placeholder="Black, White, Navy..." oninput="updateCIDpPreview('${cid}')"></div>
       <div style="display:grid;grid-template-columns:1fr 1.4fr 1.4fr;gap:8px">
         <div class="fg" style="margin:0"><label style="font-size:11px">Qty</label><input type="number" id="ci-dp-qty-${cid}" min="0" step="1" placeholder="200" oninput="updateCIDpPreview('${cid}')"></div>
-        <div class="fg ci-nonfreebie-${cid}" style="margin:0"><label style="font-size:11px">SRP (Rp)</label><input type="number" id="ci-dp-srp-${cid}" min="0" step="1000" placeholder="120000" oninput="updateCIDpPreview('${cid}')"></div>
-        <div class="fg" style="margin:0"><label style="font-size:11px">Est. COGS (Rp) <span class="req">*</span></label><input type="number" id="ci-dp-cogs-${cid}" min="0" step="500" placeholder="45000"></div>
+        <div class="fg ci-nonfreebie-${cid}" style="margin:0"><label style="font-size:11px">SRP (Rp)</label><input type="text" inputmode="numeric" id="ci-dp-srp-${cid}" placeholder="120000" oninput="updateCIDpPreview('${cid}')"></div>
+        <div class="fg" style="margin:0"><label style="font-size:11px">Est. COGS (Rp) <span style="color:var(--g400);font-weight:400">(opsional)</span></label><input type="text" inputmode="numeric" id="ci-dp-cogs-${cid}" placeholder="45000"></div>
       </div>
     </div>
     <div style="background:var(--white);border:1px dashed var(--g200);border-radius:6px;padding:10px 12px;margin-bottom:10px">
@@ -7306,8 +7321,8 @@ function renderColTargetSection(col, items) {
                   <div class="fg"><label style="font-size:11px">Treatment</label><input type="text" id="cieb-treat-${i.id}" value="${(i.treatment||'').replace(/"/g,'&quot;')}"></div>
                   <div class="fg"><label style="font-size:11px">Color</label><input type="text" id="cieb-color-${i.id}" value="${(i.color||'').replace(/"/g,'&quot;')}"></div>
                   <div class="fg"><label style="font-size:11px">Qty</label><input type="number" id="cieb-qty-${i.id}" min="0" step="1" value="${i.qty!=null?i.qty:''}"></div>
-                  <div class="fg cieb-nonfreebie-${i.id}" style="${i.isFreebie?'display:none':''}"><label style="font-size:11px">SRP (Rp)</label><input type="number" id="cieb-srp-${i.id}" min="0" step="1000" value="${i.srp!=null?i.srp:''}"></div>
-                  <div class="fg"><label style="font-size:11px">Est. COGS (Rp) <span class="req">*</span></label><input type="number" id="cieb-cogs-${i.id}" min="0" step="500" value="${i.estimatedCogs!=null?i.estimatedCogs:''}"></div>
+                  <div class="fg cieb-nonfreebie-${i.id}" style="${i.isFreebie?'display:none':''}"><label style="font-size:11px">SRP (Rp)</label><input type="text" inputmode="numeric" id="cieb-srp-${i.id}" value="${i.srp!=null?i.srp:''}"></div>
+                  <div class="fg"><label style="font-size:11px">Est. COGS (Rp) <span style="color:var(--g400);font-weight:400">(opsional)</span></label><input type="text" inputmode="numeric" id="cieb-cogs-${i.id}" value="${i.estimatedCogs!=null?i.estimatedCogs:''}"></div>
                 </div>
                 <div style="margin-top:10px;background:var(--white);border:1px dashed var(--g200);border-radius:6px;padding:10px 12px">
                   <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
@@ -9195,9 +9210,9 @@ async function addCollectionItem(colId) {
   const clr  = document.getElementById(`ci-dp-color-${colId}`)?.value.trim() || '';
   const qty  = parseInt(document.getElementById(`ci-dp-qty-${colId}`)?.value, 10);
   // Freebie always has srp = NULL (trigger excludes is_freebie rows from target compute anyway)
-  const srp  = isFreebie ? NaN : parseFloat(document.getElementById(`ci-dp-srp-${colId}`)?.value);
-  const cogs = parseFloat(document.getElementById(`ci-dp-cogs-${colId}`)?.value);
-  if (isNaN(cogs) || cogs <= 0) { alert('Est. COGS wajib diisi untuk hitung target gross margin.'); return; }
+  const srp  = isFreebie ? NaN : _parseRupiah(document.getElementById(`ci-dp-srp-${colId}`)?.value);
+  // COGS opsional — kalau kosong/invalid, save as null.
+  const cogs = _parseRupiah(document.getElementById(`ci-dp-cogs-${colId}`)?.value);
   const col  = allColRows.find(r => r.id === colId);
   const ip   = col?.ipRelated || '';
   const baseName = composeSkuName(ip, prop, cat, sub, treat, clr);
@@ -9772,13 +9787,9 @@ async function saveSKUEditBiz(itemId, colId) {
     const treat = document.getElementById(`cieb-treat-${itemId}`)?.value.trim() || '';
     const clr   = document.getElementById(`cieb-color-${itemId}`)?.value.trim() || '';
     const qty   = parseInt(document.getElementById(`cieb-qty-${itemId}`)?.value, 10);
-    const srp   = isFreebie ? NaN : parseFloat(document.getElementById(`cieb-srp-${itemId}`)?.value);
-    const cogs  = parseFloat(document.getElementById(`cieb-cogs-${itemId}`)?.value);
-    if (isNaN(cogs) || cogs <= 0) {
-      if(btn){btn.disabled=false;btn.textContent="Simpan";}
-      alert('Est. COGS wajib diisi untuk hitung target gross margin.');
-      return;
-    }
+    const srp   = isFreebie ? NaN : _parseRupiah(document.getElementById(`cieb-srp-${itemId}`)?.value);
+    // COGS opsional — kalau kosong/invalid, save as null.
+    const cogs  = _parseRupiah(document.getElementById(`cieb-cogs-${itemId}`)?.value);
     const col   = allColRows.find(r => r.id === colId);
     const ip    = col?.ipRelated || '';
     const baseName = composeSkuName(ip, prop, cat, sub, treat, clr);
