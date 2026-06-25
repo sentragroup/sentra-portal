@@ -40936,6 +40936,8 @@ let _rpRows          = [];           // saved projects (from DB)
 let _rpCurrentId     = null;         // RP-id when editing existing, null when new
 let _rpCurrentStatus = 'Draft';      // current project's status when in builder
 let _rpDirty         = false;        // true when user changed something since last save
+let _rpUnlocked      = false;        // true kalau user explicitly Unlock project yg fully mapped
+let _rpFullyMapped   = false;        // computed di _rpUpdateProgressPanel; pakai buat guard save
 let _rstMode          = 'restock'; // 'restock' | 'catalog'
 
 function _rstParseSize(itemCode) {
@@ -40981,8 +40983,59 @@ function _rpResetBuilderState() {
   _rpCurrentId = null;
   _rpCurrentStatus = 'Draft';
   _rpDirty = false;
+  _rpUnlocked = false;
+  _rpFullyMapped = false;
   const nameEl = document.getElementById('rp-name'); if (nameEl) nameEl.value = '';
   const panel = document.getElementById('rp-progress-panel'); if (panel) panel.style.display = 'none';
+  _rpApplyLockUI();
+}
+
+// Lock UI: kalau project fully mapped (semua qty udah ter-PO) DAN user belum
+// klik Unlock, disable Save/Activate/Add buttons + show banner. Proteksi dari
+// accidental overwrite project yang udah finalized via PO Jubelio.
+function _rpApplyLockUI() {
+  const locked = _rpFullyMapped && !_rpUnlocked;
+  const banner = document.getElementById('rp-lock-banner');
+  if (banner) banner.style.display = locked ? 'flex' : 'none';
+  const unlockBtn = document.getElementById('rp-unlock-btn');
+  if (unlockBtn) unlockBtn.textContent = _rpUnlocked ? '🔒 Lock lagi' : '🔓 Unlock biar bisa edit';
+  const saveBtn = document.getElementById('rp-save-btn');
+  const actBtn  = document.getElementById('rp-activate-btn');
+  const addBtns = document.querySelectorAll('button[onclick="_rstOpenAddPicker()"]');
+  [saveBtn, actBtn, ...addBtns].forEach(b => {
+    if (!b) return;
+    if (locked) {
+      b.dataset._lockedDisabled = '1';
+      b.disabled = true;
+      b.style.opacity = '0.5';
+      b.style.cursor = 'not-allowed';
+      b.title = 'Project fully mapped — klik 🔓 Unlock di atas dulu';
+    } else if (b.dataset._lockedDisabled === '1') {
+      delete b.dataset._lockedDisabled;
+      b.disabled = false;
+      b.style.opacity = '';
+      b.style.cursor = '';
+      b.title = '';
+    }
+  });
+  // Banner kalau user udah Unlock — kasih warning
+  if (banner && _rpFullyMapped && _rpUnlocked) {
+    banner.style.display = 'flex';
+    banner.style.background = '#fef5e0';
+    banner.style.borderColor = '#fac775';
+    banner.style.color = '#a66800';
+    banner.firstElementChild.innerHTML = '⚠️ <b>Edit mode aktif</b> — project udah fully mapped tapi kamu unlock. Hati-hati overwrite data lama.';
+  } else if (banner) {
+    banner.style.background = '#fdf6f4';
+    banner.style.borderColor = '#f1c6bf';
+    banner.style.color = '#a14e3e';
+    banner.firstElementChild.innerHTML = '🔒 <b>Project fully mapped</b> — semua qty udah ter-PO. Save/Tambah/Activate di-lock supaya gak ke-overwrite.';
+  }
+}
+
+function _rpToggleUnlock() {
+  _rpUnlocked = !_rpUnlocked;
+  _rpApplyLockUI();
 }
 
 // Mark dirty on any builder change — wired to onchange/oninput of inputs and toggles.
@@ -41136,6 +41189,8 @@ async function _rpOpenProject(id) {
   if (!p) { alert('Project tidak ditemukan'); return; }
   _rpCurrentId = id;
   _rpCurrentStatus = p.status || 'Draft';
+  _rpUnlocked = false;        // reset unlock state per buka project
+  _rpFullyMapped = false;     // bakal di-recompute via _rpUpdateProgressPanel
   document.getElementById('rp-name').value = p.name || '';
   if (p.period_from) document.getElementById('rst-from').value = p.period_from;
   if (p.period_to)   document.getElementById('rst-to').value   = p.period_to;
@@ -41163,6 +41218,11 @@ async function _rpOpenProject(id) {
 
 // ── Save project (insert or update) ──
 async function _rpSaveProject(activate) {
+  // Lock guard — project fully mapped + user belum klik Unlock
+  if (_rpFullyMapped && !_rpUnlocked) {
+    alert('🔒 Project fully mapped — semua qty udah ter-PO. Klik 🔓 Unlock di banner atas dulu kalau memang mau edit ulang.');
+    return;
+  }
   const name = document.getElementById('rp-name').value.trim();
   if (!name) { alert('⚠️ Nama project wajib diisi dulu.'); return; }
   const lines = _rstCollectSelectedLines();
@@ -41334,6 +41394,9 @@ async function _rpUpdateProgressPanel() {
   // Show/hide Mark Complete button
   document.getElementById('rp-complete-btn').style.display =
     (_rpCurrentStatus === 'Active' && progress.pct >= 100) ? 'inline-block' : 'none';
+  // Auto-lock kalau fully mapped (pct >= 100 + minimal 1 PO linked).
+  _rpFullyMapped = progress.pct >= 100 && progress.linkedCount > 0;
+  _rpApplyLockUI();
 }
 
 // ── PO Link Picker modal ──
