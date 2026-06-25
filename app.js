@@ -41138,6 +41138,16 @@ async function _rpSaveProject(activate) {
     // For Draft save, warn but allow
     if (!confirm('Belum ada SKU dipilih (semua qty 0). Tetap save sebagai Draft kosong?')) return;
   }
+  // Safeguard: kalau item count baru drop > 50% dari yg di DB, warn dulu —
+  // proteksi dari catalog/render race yang bikin save jadi truncate items.
+  if (_rpCurrentId) {
+    const prev = _rpRows.find(r => r.id === _rpCurrentId);
+    const prevCount = Array.isArray(prev?.items) ? prev.items.length : 0;
+    if (prevCount >= 10 && lines.length < prevCount * 0.5) {
+      const ok = confirm(`⚠️ Bahaya: Project tersimpan punya ${prevCount} items, tapi sekarang mau di-save jadi cuma ${lines.length} items.\n\nKemungkinan data lama belum ke-load penuh — biasanya karena loadRestock masih async.\n\nTetap save? (data lama akan REPLACED)`);
+      if (!ok) return;
+    }
+  }
   const periodFrom = document.getElementById('rst-from').value || null;
   const periodTo   = document.getElementById('rst-to').value   || null;
   const itemsPayload = lines.map(l => ({
@@ -42153,31 +42163,57 @@ function _rstParentDefaultVendor(parentProduct) {
 }
 
 // ── Collect selected line items. Vendor + price live at parent level; qty per variant. ──
+// Source of truth = _rstSelectedItems (Set itemId) + _rstQtyMap (per itemId) +
+// _rstData.products catalog. DOM checkbox/input dipakai cuma sebagai LIVE override
+// kalau ada — kalau produk gak ke-render (race load, filter, scroll virt), data
+// tetap aman karena fallback ke state objects, bukan DOM.
+// Bug history: sebelumnya cuma baca DOM checkbox → produk yg gak visible hilang
+// pas save → data loss. Re-fix supaya state-driven.
 function _rstCollectSelectedLines() {
   const lines = [];
-  document.querySelectorAll('.rst-var-chk:checked').forEach(chk => {
-    // qty input now lives in a different cell — find by data-item-id rather than DOM walking
-    const itemId = Number(chk.dataset.itemId);
-    const qtyInput = document.querySelector(`.rst-qty-input[data-item-id="${itemId}"]`);
-    const qty = parseFloat(qtyInput?.value) || 0;
-    if (qty <= 0) return;
-    const sku = chk.dataset.itemCode || '';
-    const itemName = chk.dataset.itemName || '';
-    const parentName = chk.dataset.parentName || '';
-    const vmId = _rstParentVendorMap[parentName] || null;
-    const price = _rstParentPriceMap[parentName] || 0;
-    let brand = '', ip = '', collection = '', size = '?', thumbnail = null;
-    if (_rstData) {
-      const p = _rstData.products.find(pp => pp.name === parentName);
-      if (p) {
-        brand = p.brand; ip = p.ip||''; collection = p.collection||'';
-        thumbnail = p.thumbnail || null;
-        const v = p.variants.find(vv => vv.itemId === itemId);
-        if (v) size = v.size;
+  const ensureProductCatalog = _rstData?.products || [];
+  const productByName = new Map(ensureProductCatalog.map(p => [p.name, p]));
+  const variantByItemId = new Map();
+  ensureProductCatalog.forEach(p => {
+    (p.variants||[]).forEach(v => variantByItemId.set(v.itemId, { v, parent: p }));
+  });
+  for (const itemId of _rstSelectedItems) {
+    const idNum = Number(itemId);
+    // Live DOM override → qty terbaru kalau user lagi edit di builder
+    const qtyInput = document.querySelector(`.rst-qty-input[data-item-id="${idNum}"]`);
+    const qtyFromDom = qtyInput ? parseFloat(qtyInput.value) : NaN;
+    const qty = !isNaN(qtyFromDom) ? qtyFromDom
+              : (_rstQtyMap[idNum] != null ? Number(_rstQtyMap[idNum]) : 0);
+    if (qty <= 0) continue;
+    const entry = variantByItemId.get(idNum) || variantByItemId.get(itemId);
+    let parentName = '', sku = '', itemName = '', size = '?', brand = '', ip = '', collection = '', thumbnail = null;
+    if (entry) {
+      parentName = entry.parent.name; sku = entry.v.sku || entry.v.itemCode || '';
+      itemName = entry.v.itemName || ''; size = entry.v.size || '?';
+      brand = entry.parent.brand || ''; ip = entry.parent.ip || '';
+      collection = entry.parent.collection || ''; thumbnail = entry.parent.thumbnail || null;
+    } else {
+      // Catalog miss — recover dari DOM chk attrs kalau ke-render
+      const chk = document.querySelector(`.rst-var-chk[data-item-id="${idNum}"]`);
+      if (chk) {
+        parentName = chk.dataset.parentName || '';
+        sku = chk.dataset.itemCode || ''; itemName = chk.dataset.itemName || '';
+        const p = productByName.get(parentName);
+        if (p) {
+          brand = p.brand; ip = p.ip||''; collection = p.collection||''; thumbnail = p.thumbnail||null;
+          const v = p.variants.find(vv => vv.itemId === idNum); if (v) size = v.size;
+        }
+      } else {
+        // Catalog miss + DOM miss → SKIP entirely supaya gak nge-corrupt items
+        // dengan baris kosong. Logged ke console biar bisa di-debug.
+        console.warn('[Restock] Skipping itemId', idNum, '— gak ada di catalog & gak ke-render. Cek loadRestock async race.');
+        continue;
       }
     }
-    lines.push({ itemId, sku, itemName, qty, price, vmId, parentName, brand, ip, collection, size, thumbnail });
-  });
+    const vmId = _rstParentVendorMap[parentName] || null;
+    const price = _rstParentPriceMap[parentName] || 0;
+    lines.push({ itemId: idNum, sku, itemName, qty, price, vmId, parentName, brand, ip, collection, size, thumbnail });
+  }
   return lines;
 }
 
