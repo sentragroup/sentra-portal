@@ -31505,7 +31505,7 @@ function _renderOutboundRows(rows) {
         <div style="font-weight:600">${esc(r.recipientName)||'—'}</div>
         ${r.recipientAddress?`<div style="font-size:10px;color:var(--g600);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:240px" title="${esc(r.recipientAddress)}">${esc(r.recipientAddress)}</div>`:''}
         ${r.recipientPhone?`<div style="font-size:10px;color:var(--g600);font-family:var(--mono)">${esc(r.recipientPhone)}</div>`:''}
-        ${r.recipientEmail?`<div style="font-size:10px;color:#3C3489;font-family:var(--mono);display:flex;align-items:center;gap:4px"><span>✉️</span><span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px" title="${esc(r.recipientEmail)}">${esc(r.recipientEmail)}</span></div>`:`<div style="font-size:10px;color:#b08400;font-family:var(--mono)" title="Email belum diisi — surat jalan gak bisa dikirim via email">⚠ Email kosong</div>`}
+        ${r.recipientEmail?`<div style="font-size:10px;color:#3C3489;font-family:var(--mono);display:flex;align-items:center;gap:4px" title="Buat kirim Surat Jalan via Mekari"><span>✉️</span><span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px">${esc(r.recipientEmail)}</span></div>`:''}
         ${instructionRow}
       </td>
       <td style="font-size:11px;max-width:260px">
@@ -31528,11 +31528,10 @@ function _renderOutboundRows(rows) {
         </select>
       </td>
       <td style="white-space:nowrap">
-        <button class="btn-icon" onclick="_obGenerateSuratJalan('${r.rowIndex}')" title="Generate Surat Jalan PDF" style="color:#3C3489;font-size:13px">🚚</button>
-        <button class="btn-icon" onclick="_obSendSuratJalan('${r.rowIndex}')" title="${r.recipientEmail?('Kirim Surat Jalan ke '+r.recipientEmail):'Set email penerima dulu'}" style="font-size:13px;${r.recipientEmail?'color:#085041':'color:#b8b8b8;cursor:not-allowed'}">📧</button>
+        <button class="btn-icon" onclick="_obGenerateSuratJalan('${r.rowIndex}')" title="Generate Surat Jalan PDF (kirim ke Mekari buat di-sign)" style="color:#3C3489;font-size:13px">🚚</button>
         ${r.signedSuratJalanUrl
           ? `<a href="${esc(r.signedSuratJalanUrl)}" target="_blank" class="btn-icon" title="Lihat surat jalan signed" style="color:#085041;font-size:13px;text-decoration:none">✅</a>`
-          : `<label class="btn-icon" title="Upload surat jalan signed (PDF/image, max 5MB)" style="color:#3C3489;font-size:13px;cursor:pointer;margin:0"><span>📎</span><input type="file" accept=".pdf,image/*" style="display:none" onchange="_obUploadSignedSuratJalan('${r.rowIndex}',this)"></label>`}
+          : `<label class="btn-icon" title="Upload surat jalan signed dari Mekari (PDF/image, max 5MB)" style="color:#3C3489;font-size:13px;cursor:pointer;margin:0"><span>📎</span><input type="file" accept=".pdf,image/*" style="display:none" onchange="_obUploadSignedSuratJalan('${r.rowIndex}',this)"></label>`}
         ${r.signedSuratJalanUrl?`<button class="btn-icon" onclick="_obClearSignedSuratJalan('${r.rowIndex}')" title="Hapus signed SJ" style="color:#c0392b;font-size:11px">×</button>`:''}
         <button class="btn-icon" onclick="deleteOutbound('${r.rowIndex}')" title="Hapus ticket" style="color:#c0392b">🗑</button>
       </td>
@@ -31768,20 +31767,6 @@ async function _obClearSignedSuratJalan(id) {
     logActivity('OutboundRequest','clear_signed_sj',id,`Hapus signed SJ`);
     await loadOutbound();
   } catch(e) { alert('Gagal: '+(e.message||e)); }
-}
-
-async function _obSendSuratJalan(id) {
-  const r = allOutboundRows.find(x => x.rowIndex === id);
-  if (!r) return;
-  if (!r.recipientEmail) { alert('Email penerima belum diisi — edit dulu di modul sumbernya (KOL/Photoshoot/Manual Purchase) atau ticket ini.'); return; }
-  const ok = confirm(`Kirim Surat Jalan ke ${r.recipientEmail}?\n\nIni akan generate PDF dulu, lalu buka draft email di app kamu. Lampirkan PDF yang barusan di-download.`);
-  if (!ok) return;
-  await _obGenerateSuratJalan(id);
-  const subject = `Surat Jalan ${id} — ${r.recipientName||''}`.trim();
-  const body = `Halo ${r.recipientName||''},\n\nTerlampir Surat Jalan ${id} untuk pengiriman barang.\nMohon ditandatangani lalu dikirim balik sebagai bukti penerimaan.\n\nTerima kasih.`;
-  const mailto = `mailto:${encodeURIComponent(r.recipientEmail)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-  window.location.href = mailto;
-  logActivity('OutboundRequest','send_sj_email',id,`Kirim SJ ke ${r.recipientEmail}`);
 }
 
 // Generate Surat Jalan PDF untuk Outbound Request. Pattern mirror Pop Up Booth
