@@ -1745,7 +1745,9 @@
       </div>
       <div class="table-toolbar">
         <button class="btn-refresh" onclick="loadPO()">↻ Refresh</button>
-        <div class="tcount" id="po-tcount">— entri</div>
+        <button class="btn-refresh" id="po-sync-btn" onclick="poSyncJubelio()" title="Sync data PO + Bills + Payments dari Jubelio (manual trigger, biasa auto-cron harian)">⟳ Sync Jubelio</button>
+        <span id="po-sync-status" style="font-size:11px;color:var(--g600);font-family:var(--mono);margin-left:8px"></span>
+        <div class="tcount" id="po-tcount" style="margin-left:auto">— entri</div>
       </div>
       <div class="table-wrap">
         <table>
@@ -5307,6 +5309,6 @@
 <div id="proj-overlay" class="proj-panel-overlay" style="display:none" onclick="if(event.target===this)closeProjectDetail()"></div>
 <div id="proj-panel" class="proj-panel" style="display:none"></div>
 
-<script src="app.js?v=20260625ah"></script>
+<script src="app.js?v=20260625ai"></script>
 </body>
 </html>

@@ -4925,6 +4925,39 @@ async function fetchPOPages(filters={}){
   return all;
 }
 
+// Manual trigger 4 sync edge functions terkait PO: orders, bills, payments,
+// warehouse (putaway). Parallel + collect summary supaya tau tiap berapa rows.
+// Biasa auto-cron harian — tombol ini buat case data Jubelio baru tapi belum
+// nge-loop ke portal.
+async function poSyncJubelio() {
+  const btn = document.getElementById('po-sync-btn');
+  const se  = document.getElementById('po-sync-status');
+  if (btn) { btn.disabled = true; btn.textContent = '⟳ Syncing...'; }
+  if (se) se.textContent = 'Menjalankan 4 sync function…';
+  try {
+    const [poRes, billRes, payRes, whRes] = await Promise.allSettled([
+      callEdgeFunction('sync-jubelio-purchase-orders'),
+      callEdgeFunction('sync-jubelio-purchase-bills'),
+      callEdgeFunction('sync-jubelio-purchase-payments'),
+      callEdgeFunction('sync-jubelio-warehouse'),
+    ]);
+    const pick = (r, key) => r.status==='fulfilled' ? (r.value?.[key] ?? 0) : '✗';
+    const parts = [
+      `PO: ${pick(poRes,'headersUpserted')}`,
+      `Bills: ${pick(billRes,'upserted')}`,
+      `Pay: ${pick(payRes,'upserted')}`,
+      `WH: ${pick(whRes,'shipmentsUpserted')}`,
+    ];
+    const failed = [poRes, billRes, payRes, whRes].filter(r => r.status==='rejected');
+    if (se) se.innerHTML = `✓ ${parts.join(' · ')}${failed.length?` <span style="color:#c0392b">· ${failed.length} gagal</span>`:''}`;
+    if (failed.length) console.warn('PO sync errors:', failed.map(r => r.reason?.message||r.reason));
+  } catch (err) {
+    if (se) se.textContent = `✗ ${err.message||err}`;
+  }
+  if (btn) { btn.disabled = false; btn.textContent = '⟳ Sync Jubelio'; }
+  await loadPO();
+}
+
 async function loadPO(){
   const tbody=document.getElementById("poTableBody");
   if(tbody) tbody.innerHTML=`<tr><td class="empty-td" colspan="12">Memuat...</td></tr>`;
