@@ -38974,21 +38974,13 @@ function _mpurcGenerateJubelioCSV() {
   const items = o.items || [];
   if (!items.length) { alert('Order belum ada items.'); return; }
   if (!h.id || h.id === 'new') { alert('Save order dulu sebelum download CSV.'); return; }
-  // Pre-validate required fields — Jubelio import REQUIRE customer_email +
-  // customer_phone non-empty + valid format (Jubelio reject all-zero phone
-  // dan email tanpa TLD). Kalau missing, prompt user ngetik manual (one-time,
-  // gak ke-save ke DB). User bisa Cancel buat tutup + isi form-nya.
+  // Pre-validate — di Pesanan format: No. Telp Pelanggan Wajib, Email Pelanggan
+  // Tidak Wajib (beda dari Faktur). Cuma prompt phone kalau kosong.
   const cleanPhonePre = (s) => (s||'').toString().replace(/[^\d]/g,'');
   let overrideEmail = '', overridePhone = '';
-  const emailExists = !!(h.clientRepEmail || h.shipToEmail);
   const phoneExists = !!cleanPhonePre(h.shipToPhone);
-  if (!emailExists) {
-    overrideEmail = prompt(`📧 Email Penerima kosong.\n\nKetik email customer buat CSV ini (one-time, gak ke-save):\n\nContoh: nama@domain.com`, '');
-    if (!overrideEmail) { alert('Cancel — isi Email Perwakilan Client / Email Penerima di form dulu.'); return; }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(overrideEmail.trim())) { alert('Format email gak valid (harus ada @ dan TLD). Coba lagi.'); return; }
-  }
   if (!phoneExists) {
-    overridePhone = prompt(`📱 No HP Penerima kosong.\n\nKetik no HP customer buat CSV ini (one-time, gak ke-save):\n\nContoh: 081234567890 (angka aja, min 8 digit)`, '');
+    overridePhone = prompt(`📱 No HP Pelanggan kosong (Wajib di Jubelio).\n\nKetik no HP customer buat CSV ini (one-time, gak ke-save):\n\nContoh: 081234567890 (angka aja, min 8 digit)`, '');
     if (!overridePhone) { alert('Cancel — isi No HP Penerima di form dulu.'); return; }
     const cleaned = cleanPhonePre(overridePhone);
     if (cleaned.length < 8) { alert('No HP minimal 8 digit. Coba lagi.'); return; }
@@ -39027,7 +39019,8 @@ function _mpurcGenerateJubelioCSV() {
   const recipientName = h.shipToRecipient || h.clientRepName || h.billedToName || '';
   const recipientAddr = h.shipToAddress || h.billedToAddress || '';
   const recipientPhone = custPhone;
-  const noteText = [h.notes, h.requestorName?`Req: ${h.requestorName}`:'', h.invoiceCategory?`Cat: ${h.invoiceCategory}`:''].filter(Boolean).join(' · ');
+  // Keterangan = Wajib di Pesanan. Kalau semua field kosong, default ".".
+  const noteText = [h.notes, h.requestorName?`Req: ${h.requestorName}`:'', h.invoiceCategory?`Cat: ${h.invoiceCategory}`:''].filter(Boolean).join(' · ') || '.';
   // 36 kolom — header bahasa Indonesia sesuai template Import Pesanan Penjualan
   const HEADERS = [
     'No. Pesanan','No. Ref Pelanggan','Tanggal','Zona Waktu','Nama Pelanggan',
@@ -39082,9 +39075,9 @@ function _mpurcGenerateJubelioCSV() {
     ];
     return [...headerCols, ...itemCols].map(esc).join(',');
   });
-  // CRLF line endings + trailing newline — Jubelio Pesanan importer Windows-style.
-  // BOM omitted (Restock CSV experience: BOM bikin Jubelio reject).
-  const csv = [HEADERS.join(','), ...itemRows].join('\r\n') + '\r\n';
+  // CRLF line endings (Windows-style) — NO trailing newline supaya Jubelio
+  // gak parse line kosong sebagai empty row. BOM omitted.
+  const csv = [HEADERS.join(','), ...itemRows].join('\r\n');
   const orderShortName = (h.id||'').replace(/^MP-/,'').replace(/-/g,'');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
