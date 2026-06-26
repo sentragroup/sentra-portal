@@ -5185,18 +5185,13 @@
               <div class="fg"><label>Email <span style="color:var(--g400);font-weight:400">(buat kirim Surat Jalan via Mekari)</span></label><input type="email" id="lf-rec-email" placeholder="penerima@email.com"></div>
               <div class="fg"><label>Tanggal Pengiriman</label><input type="date" id="lf-ship-date"></div>
               <div class="fg full"><label>Alamat Lengkap</label><textarea id="lf-rec-address" rows="2" style="resize:vertical" placeholder="Jl, kota, kode pos..."></textarea></div>
+              <div class="fg" style="position:relative"><label>PIC</label><input type="text" id="lf-pic" autocomplete="off" placeholder="Nama PIC"><div class="ac-list" id="ac-lf-pic"></div></div>
+              <div class="fg full"><label>Notes</label><textarea id="lf-notes" rows="2" style="resize:vertical" placeholder="Catatan tambahan..."></textarea></div>
             </div>
             <div style="font-family:var(--mono);font-size:11px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;margin-top:14px;margin-bottom:6px">Items <span style="font-weight:400;text-transform:none;letter-spacing:0">(pilih dari product master)</span></div>
             <div id="lf-freebie-rows" style="display:flex;flex-direction:column;gap:8px;margin-bottom:6px"></div>
             <button class="btn-ghost" type="button" onclick="addLFFreebieRow()" style="padding:5px 12px;font-size:11px">+ Tambah Item</button>
-            <div class="form-sec" style="margin-top:1rem">Status &amp; Meta</div>
-            <div class="form-grid">
-              <div class="fg"><label>Status</label><select id="lf-status">
-                <option>Planning</option><option>Ready</option><option>Shipped</option><option>Delivered</option><option>Cancelled</option>
-              </select></div>
-              <div class="fg" style="position:relative"><label>PIC</label><input type="text" id="lf-pic" autocomplete="off" placeholder="Nama PIC"><div class="ac-list" id="ac-lf-pic"></div></div>
-              <div class="fg full"><label>Notes</label><textarea id="lf-notes" rows="2" style="resize:vertical" placeholder="Catatan tambahan..."></textarea></div>
-            </div>
+            <div style="font-size:11px;color:var(--g400);margin-top:8px;font-family:var(--mono)">ℹ️ Status auto-derive dari Outbound Request (Pending → Sent → Delivered). Kalau belum di-request, status = Draft.</div>
             <div class="btn-row">
               <button class="btn-primary" onclick="submitLF()">Simpan</button>
               <button class="btn-ghost" onclick="clearLFForm()">Bersihkan</button>
@@ -5210,7 +5205,7 @@
             <div class="filter-grid">
               <select class="f-select" id="lf-fil-status" onchange="renderLF()">
                 <option value="">Semua Status</option>
-                <option>Planning</option><option>Ready</option><option>Shipped</option><option>Delivered</option><option>Cancelled</option>
+                <option>Draft</option><option>Ready to Request</option><option>Pending</option><option>Sent</option><option>Delivered</option><option>Cancelled</option>
               </select>
               <select class="f-select" id="lf-fil-ip" onchange="renderLF()"><option value="">Semua IP</option></select>
               <select class="f-select" id="lf-fil-collection" onchange="renderLF()"><option value="">Semua Collection</option></select>
@@ -5396,6 +5391,6 @@
 <div id="proj-overlay" class="proj-panel-overlay" style="display:none" onclick="if(event.target===this)closeProjectDetail()"></div>
 <div id="proj-panel" class="proj-panel" style="display:none"></div>
 
-<script src="app.js?v=20260627f"></script>
+<script src="app.js?v=20260627g"></script>
 </body>
 </html>
