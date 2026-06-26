@@ -38998,8 +38998,8 @@ function _mpurcGenerateJubelioCSV() {
   }
   // Shipping cost = sum dari linked OB shipments (warehouse fill di OB)
   const shippingCost = (o.linkedOutbounds||[]).reduce((s,ob) => s + (parseFloat(ob.shipping_cost)||0), 0);
-  // Default Jubelio config (samain dengan Wholesale CSV)
-  const location = 'Pusat';
+  // Default Jubelio config — MP pakai Gudang Event 1 (beda dari Wholesale yang Pusat)
+  const location = 'Gudang Event 1';
   const source = 'INTERNAL';
   const store = 'Toko Internal Jubelio';
   const accountCode = '4-4000';
