@@ -8038,6 +8038,7 @@ function renderColDetail(col, items) {
               </div>`
             : `<div style="padding:14px;background:var(--off);border:1px dashed var(--g200);border-radius:6px;font-size:12px;color:var(--g400);text-align:center">Belum set target. Tambah SKU dengan qty + SRP di Business tab untuk activate monitoring.</div>`))}
         ${cdStageBox("📊","Product Performance","",`<div id="col-perf-${col.id}" style="color:var(--g400);font-size:12px">Memuat...</div>`)}
+        ${cdStageBox("💰","Financial Statement","Recoup status — P&L + Cash Flow gabungan biaya & revenue collection ini",`<div id="col-fin-${col.id}" style="color:var(--g400);font-size:12px">Memuat...</div>`)}
         ${cdStageBox("📦","Stock Rekonsiliasi","",`<div id="col-stock-${col.id}" style="color:var(--g400);font-size:12px">Memuat...</div>`)}
         </div><!-- /Performance tab -->
 
@@ -8128,6 +8129,7 @@ function renderColDetail(col, items) {
   setupAC(`col-ai-pic-${col.id}`,`ac-col-ai-pic-${col.id}`,()=>acPics);
   loadColProductPerf(col.id, col.collectionName, col.revenueStream||"", col.ipRelated||"");
   loadColStockRecon(col.id, col.collectionName);
+  loadColFinancial(col.id, col);
   // Business tab async loaders
   loadColMarginPanel(col, items);
   loadColAgreementPanel(col);
@@ -8892,6 +8894,310 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
   `;
   setTimeout(() => renderColPerfChart(colId, 'month'), 0);
 }
+
+// ── COLLECTION FINANCIAL STATEMENT (P&L + Cash Flow) ──
+const _colFinCache = {};
+const _colFinFmtRp = n => (n == null || isNaN(n)) ? '—' : 'Rp ' + Math.round(n).toLocaleString('id-ID');
+const _colFinFmtPct = n => (n == null || !isFinite(n)) ? '—' : (n*100).toFixed(1) + '%';
+
+async function loadColFinancial(colId, col) {
+  const el = document.getElementById(`col-fin-${colId}`);
+  if (!el) return;
+
+  // Wait for perf cache (P&L depends on revenue + itemIds from product perf)
+  let tries = 0;
+  while (!_colPerfCache[colId] && tries < 60) { // up to ~30s
+    await new Promise(r => setTimeout(r, 500));
+    tries++;
+  }
+  const perf = _colPerfCache[colId];
+  if (!perf) {
+    el.innerHTML = `<div style="color:var(--g400);font-size:12px;padding:4px 0">Belum ada data Product Performance. Tambahkan SKU & mapping dulu.</div>`;
+    return;
+  }
+
+  const colName = col.collectionName || perf.colName || '';
+  const ipName  = col.ipRelated || perf.ipRelated || '';
+  const itemIds = perf.itemIds || [];
+
+  // Parallel fetch all cost sources
+  const [meRes, psRes, rpRes, ipRes, rrRes, itRes] = await Promise.all([
+    sb.from('marketing_events').select('id,event_name,budget,budget_breakdown,event_date').eq('collection_id', colId),
+    sb.from('photoshoots').select('id,shoot_name,budget,budget_breakdown,shoot_date').eq('collection_id', colId),
+    sb.from('restock_projects').select('id,name,status,items,linked_po_ids,date_created'),
+    sb.from('ip_master').select('id,name,percentage,fixed_amount,pph_tax_rate,royalty_type').eq('name', ipName),
+    sb.from('royalty_recipients').select('id,nama,percentage,fixed_amount,royalty_type').eq('related_ip', ipName),
+    itemIds.length ? _fetchAllPages('jubelio_items', 'item_id,average_cost', q => q.in('item_id', itemIds)) : Promise.resolve([]),
+  ]);
+
+  // ── COGS = Σ (sold × average_cost)
+  const costMap = {};
+  for (const r of (itRes || [])) costMap[r.item_id] = parseFloat(r.average_cost || 0);
+  let cogs = 0;
+  for (const p of perf.products) {
+    for (const v of p.variants) {
+      cogs += (v.sold || 0) * (costMap[v.id] || 0);
+    }
+  }
+
+  // ── Production Cost = restock_projects items matching colName
+  // Use qty_planned × price_planned. linked_po_ids → for bills paid lookup later.
+  const matchedRPs = [];
+  let prodCostPlanned = 0;
+  for (const rp of (rpRes.data || [])) {
+    const items = Array.isArray(rp.items) ? rp.items : [];
+    const colItems = items.filter(it => (it.collection || '').trim() === colName.trim());
+    if (!colItems.length) continue;
+    const subtotal = colItems.reduce((s, it) => s + (parseFloat(it.qty_planned||0) * parseFloat(it.price_planned||0)), 0);
+    matchedRPs.push({ id: rp.id, name: rp.name, status: rp.status, linkedPos: rp.linked_po_ids || [], subtotal, dateCreated: rp.date_created });
+    prodCostPlanned += subtotal;
+  }
+
+  // Production Cost actual (cash out): from bills linked to these POs
+  const allLinkedPoIds = [...new Set(matchedRPs.flatMap(rp => rp.linkedPos))].filter(Boolean);
+  let prodCashOut = 0;
+  let billsCount = 0, billsPaidCount = 0;
+  if (allLinkedPoIds.length) {
+    const { data: bills } = await sb.from('jubelio_bills')
+      .select('bill_id, purchaseorder_id, total_amount, paid_amount, status')
+      .in('purchaseorder_id', allLinkedPoIds.map(String));
+    for (const b of (bills || [])) {
+      billsCount++;
+      const paid = parseFloat(b.paid_amount || 0);
+      prodCashOut += paid;
+      if (paid > 0 && paid >= parseFloat(b.total_amount||0) - 1) billsPaidCount++;
+    }
+  }
+
+  // ── Marketing Expense (P&L = budget total accrual)
+  const meRows = meRes.data || [];
+  let mktExp = 0;
+  for (const me of meRows) {
+    const bb = Array.isArray(me.budget_breakdown) ? me.budget_breakdown : [];
+    mktExp += bb.reduce((s, x) => s + parseFloat(x.amount || 0), 0);
+  }
+
+  // ── Photoshoot Expense
+  const psRows = psRes.data || [];
+  let psExp = 0;
+  for (const ps of psRows) {
+    const bb = Array.isArray(ps.budget_breakdown) ? ps.budget_breakdown : [];
+    psExp += bb.reduce((s, x) => s + parseFloat(x.amount || 0), 0);
+  }
+
+  // ── Royalty Expense
+  // Base: gross sales (grandRevenue). PPh tax withheld.
+  // Licensor (ip_master) + collaborators (royalty_recipients).
+  const grossRevenue = perf.grandRevenue || 0;
+  const netRevenue   = perf.grandSubtotal || 0; // after discount
+  const ipRow = (ipRes.data || [])[0];
+  const rrRows = rrRes.data || [];
+  let royaltyGross = 0, royaltyDetail = [];
+  const addRoyalty = (label, pct, fixed, pph) => {
+    pct = parseFloat(pct||0); fixed = parseFloat(fixed||0); pph = parseFloat(pph||0);
+    if (pct <= 0 && fixed <= 0) return;
+    const gross = pct > 0 ? grossRevenue * pct / 100 : fixed;
+    const pphAmt = gross * (pph/100);
+    const net = gross - pphAmt;
+    royaltyGross += gross;
+    royaltyDetail.push({ label, pct, fixed, pph, gross, pphAmt, net });
+  };
+  if (ipRow) addRoyalty(`${ipRow.name} (Licensor)`, ipRow.percentage, ipRow.fixed_amount, ipRow.pph_tax_rate);
+  for (const rr of rrRows) addRoyalty(`${rr.nama} (Collaborator)`, rr.percentage, rr.fixed_amount, 0);
+
+  // ── P&L computation
+  const grossProfit = netRevenue - cogs;
+  const grossMargin = netRevenue > 0 ? grossProfit / netRevenue : null;
+  const opex = mktExp + psExp + royaltyGross;
+  const netProfit = grossProfit - opex;
+  const netMargin = netRevenue > 0 ? netProfit / netRevenue : null;
+
+  // ── Cash flow (timing-based proxies)
+  // Cash IN ≈ net revenue (marketplace/popup/wholesale that have settled).
+  // Marte/wholesale CBD partial — approximation only.
+  const cashIn = netRevenue;
+  const cashOutMkt = mktExp;       // assumed paid (no paid flag yet)
+  const cashOutPS  = psExp;        // same
+  const cashOutProd = prodCashOut; // ACTUAL from jubelio_bills
+  const cashOutTotal = cashOutMkt + cashOutPS + cashOutProd;
+  const netCash = cashIn - cashOutTotal;
+
+  // ── Recoup status
+  const totalInvestment = prodCostPlanned + mktExp + psExp + royaltyGross;
+  const recoupPct = totalInvestment > 0 ? netRevenue / totalInvestment : null;
+  const recouped  = recoupPct != null && recoupPct >= 1.0;
+
+  _colFinCache[colId] = {
+    colName, ipName,
+    grossRevenue, netRevenue, discount: perf.grandDiscount || 0,
+    cogs, grossProfit, grossMargin,
+    mktExp, psExp, royaltyGross, royaltyDetail, opex, netProfit, netMargin,
+    prodCostPlanned, prodCashOut,
+    cashIn, cashOutMkt, cashOutPS, cashOutProd, cashOutTotal, netCash,
+    totalInvestment, recoupPct, recouped,
+    meRows, psRows, matchedRPs,
+    billsCount, billsPaidCount,
+  };
+
+  renderColFinancial(colId);
+}
+
+function renderColFinancial(colId) {
+  const el = document.getElementById(`col-fin-${colId}`);
+  const d = _colFinCache[colId];
+  if (!el || !d) return;
+
+  // ── Recoup banner
+  const recoupClr = d.recouped ? '#2d7a2d' : (d.recoupPct && d.recoupPct >= 0.5 ? '#e67e00' : '#c0392b');
+  const recoupLbl = d.recouped ? '✓ RECOUPED' : (d.recoupPct ? `⏳ ${(d.recoupPct*100).toFixed(0)}% to go` : 'Belum ada cost data');
+  const barPct = d.recoupPct == null ? 0 : Math.min(100, d.recoupPct * 100);
+  const banner = `
+    <div style="border:1px solid ${recoupClr};border-radius:8px;padding:14px 16px;margin-bottom:14px;background:${d.recouped?'#f0f8f0':'var(--off)'}">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+        <div>
+          <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">Recoup Status</div>
+          <div style="font-weight:700;font-size:16px;color:${recoupClr};margin-top:2px">${recoupLbl}</div>
+          <div style="font-size:11px;color:var(--g400);font-family:var(--mono);margin-top:4px">Net Revenue ${_colFinFmtRp(d.netRevenue)} ÷ Total Investment ${_colFinFmtRp(d.totalInvestment)}</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">Net Profit (Accrual)</div>
+          <div style="font-weight:700;font-size:18px;color:${d.netProfit>=0?'#2d7a2d':'#c0392b'};margin-top:2px">${_colFinFmtRp(d.netProfit)}</div>
+          <div style="font-size:11px;color:var(--g400);font-family:var(--mono);margin-top:4px">Net margin ${_colFinFmtPct(d.netMargin)}</div>
+        </div>
+      </div>
+      <div style="margin-top:10px;height:6px;background:var(--g100);border-radius:3px;overflow:hidden">
+        <div style="height:100%;width:${barPct}%;background:${recoupClr};transition:width .3s"></div>
+      </div>
+    </div>`;
+
+  // ── Sub-tabs
+  const tabs = `
+    <div style="display:flex;gap:6px;border-bottom:1px solid var(--g100);margin-bottom:10px">
+      <button class="cd-fin-tab active" data-tab="pnl" onclick="switchColFinTab('${colId}','pnl',this)" style="padding:8px 14px;background:none;border:none;border-bottom:2px solid var(--black);font-family:var(--mono);font-size:11px;font-weight:600;color:var(--black);cursor:pointer">P&amp;L Statement</button>
+      <button class="cd-fin-tab" data-tab="cashflow" onclick="switchColFinTab('${colId}','cashflow',this)" style="padding:8px 14px;background:none;border:none;border-bottom:2px solid transparent;font-family:var(--mono);font-size:11px;font-weight:600;color:var(--g400);cursor:pointer">Cash Flow</button>
+    </div>
+    <div id="col-fin-pnl-${colId}">${renderColPnL(colId)}</div>
+    <div id="col-fin-cashflow-${colId}" style="display:none">${renderColCashFlow(colId)}</div>`;
+
+  el.innerHTML = banner + tabs;
+}
+
+function switchColFinTab(colId, tab, btn) {
+  document.querySelectorAll(`#col-fin-${colId} .cd-fin-tab`).forEach(b => {
+    b.style.borderBottomColor = 'transparent';
+    b.style.color = 'var(--g400)';
+  });
+  if (btn) {
+    btn.style.borderBottomColor = 'var(--black)';
+    btn.style.color = 'var(--black)';
+  }
+  document.getElementById(`col-fin-pnl-${colId}`).style.display = (tab === 'pnl') ? '' : 'none';
+  document.getElementById(`col-fin-cashflow-${colId}`).style.display = (tab === 'cashflow') ? '' : 'none';
+}
+
+function _colFinRow(label, val, opts={}) {
+  const { bold=false, indent=0, color=null, divider=false, sub=null } = opts;
+  const padL = 12 + indent * 14;
+  const fw = bold ? '700' : '500';
+  const clr = color || (bold ? 'var(--black)' : 'var(--g600)');
+  const bdr = divider ? '2px solid var(--g200)' : '1px solid var(--g100)';
+  const subLine = sub ? `<div style="font-size:10px;color:var(--g400);font-family:var(--mono);margin-top:2px">${sub}</div>` : '';
+  return `<tr style="border-top:${bdr}">
+    <td style="padding:8px ${padL}px 8px ${padL}px;font-size:12px;font-weight:${fw};color:${clr}">${label}${subLine}</td>
+    <td style="padding:8px 12px;font-size:12px;font-weight:${fw};color:${clr};text-align:right;font-family:var(--mono);white-space:nowrap">${val}</td>
+  </tr>`;
+}
+
+function renderColPnL(colId) {
+  const d = _colFinCache[colId];
+  if (!d) return '';
+  const r = _colFinRow;
+  const rows = [
+    r('Gross Revenue (semua channel)', _colFinFmtRp(d.grossRevenue), { bold:true }),
+    d.discount > 0 ? r('Less: Diskon', '(' + _colFinFmtRp(d.discount) + ')', { color:'#c0392b' }) : '',
+    r('Net Revenue', _colFinFmtRp(d.netRevenue), { bold:true, divider:true }),
+    r('Less: COGS (units × avg_cost)', '(' + _colFinFmtRp(d.cogs) + ')', { color:'#c0392b' }),
+    r('Gross Profit', _colFinFmtRp(d.grossProfit), { bold:true, divider:true, color: d.grossProfit>=0?'#2d7a2d':'#c0392b', sub:`Gross margin ${_colFinFmtPct(d.grossMargin)}` }),
+    r('Operating Expenses:', '', { bold:true }),
+    r('Marketing (' + d.meRows.length + ' event)', '(' + _colFinFmtRp(d.mktExp) + ')', { indent:1, color:'#c0392b' }),
+    r('Photoshoot (' + d.psRows.length + ' shoot)', '(' + _colFinFmtRp(d.psExp) + ')', { indent:1, color:'#c0392b' }),
+    r('Royalty (' + d.royaltyDetail.length + ' recipient)', '(' + _colFinFmtRp(d.royaltyGross) + ')', { indent:1, color:'#c0392b' }),
+    r('Total Opex', '(' + _colFinFmtRp(d.opex) + ')', { bold:true, divider:true, color:'#c0392b' }),
+    r('Net Profit', _colFinFmtRp(d.netProfit), { bold:true, divider:true, color: d.netProfit>=0?'#2d7a2d':'#c0392b', sub:`Net margin ${_colFinFmtPct(d.netMargin)}` }),
+  ].filter(Boolean).join('');
+
+  const royaltyBreak = d.royaltyDetail.length ? `
+    <details style="margin-top:10px"><summary style="cursor:pointer;font-size:11px;color:var(--g400);font-family:var(--mono);text-transform:uppercase">Royalty breakdown</summary>
+      <table style="width:100%;margin-top:8px;font-size:11px;border-collapse:collapse">
+        <thead><tr style="border-bottom:1px solid var(--g100);color:var(--g400)">
+          <th style="text-align:left;padding:6px 8px">Recipient</th><th style="text-align:right;padding:6px 8px">%</th>
+          <th style="text-align:right;padding:6px 8px">Gross</th><th style="text-align:right;padding:6px 8px">PPh</th><th style="text-align:right;padding:6px 8px">Net to Pay</th></tr></thead>
+        <tbody>${d.royaltyDetail.map(x=>`
+          <tr style="border-top:1px solid var(--g100)">
+            <td style="padding:6px 8px">${x.label}</td>
+            <td style="text-align:right;padding:6px 8px;font-family:var(--mono)">${x.pct?x.pct+'%':'fixed'}</td>
+            <td style="text-align:right;padding:6px 8px;font-family:var(--mono)">${_colFinFmtRp(x.gross)}</td>
+            <td style="text-align:right;padding:6px 8px;font-family:var(--mono);color:#c0392b">${_colFinFmtRp(x.pphAmt)}</td>
+            <td style="text-align:right;padding:6px 8px;font-family:var(--mono);font-weight:600">${_colFinFmtRp(x.net)}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </details>` : '';
+
+  return `
+    <table style="width:100%;border-collapse:collapse">
+      <tbody>${rows}</tbody>
+    </table>
+    ${royaltyBreak}
+    <div style="margin-top:10px;padding:8px 12px;background:var(--off);border-radius:6px;font-size:10px;color:var(--g400);font-family:var(--mono);line-height:1.5">
+      ℹ️ P&amp;L = accrual basis (semua revenue + cost ke-alokasi penuh). COGS = units sold × jubelio_items.average_cost. Royalty = % × gross revenue net PPh.
+    </div>`;
+}
+
+function renderColCashFlow(colId) {
+  const d = _colFinCache[colId];
+  if (!d) return '';
+  const r = _colFinRow;
+  const billsLbl = d.billsCount ? ` (${d.billsPaidCount}/${d.billsCount} bills paid)` : '';
+  const rows = [
+    r('CASH IN', '', { bold:true }),
+    r('Net Revenue (settled orders)', _colFinFmtRp(d.cashIn), { indent:1, color:'#2d7a2d' }),
+    r('Total Cash In', _colFinFmtRp(d.cashIn), { bold:true, divider:true, color:'#2d7a2d' }),
+    r('CASH OUT', '', { bold:true }),
+    r('Production — PO bills paid' + billsLbl, '(' + _colFinFmtRp(d.cashOutProd) + ')', { indent:1, color:'#c0392b', sub: d.prodCostPlanned > 0 ? `Planned ${_colFinFmtRp(d.prodCostPlanned)} · paid ${(d.prodCostPlanned>0?(d.cashOutProd/d.prodCostPlanned*100):0).toFixed(0)}%` : null }),
+    r('Marketing budget (' + d.meRows.length + ' event)', '(' + _colFinFmtRp(d.cashOutMkt) + ')', { indent:1, color:'#c0392b', sub:'Asumsi paid penuh — belum ada flag bayar di Marketing Events' }),
+    r('Photoshoot budget (' + d.psRows.length + ' shoot)', '(' + _colFinFmtRp(d.cashOutPS) + ')', { indent:1, color:'#c0392b', sub:'Asumsi paid penuh — belum ada flag bayar di Photoshoot' }),
+    r('Total Cash Out', '(' + _colFinFmtRp(d.cashOutTotal) + ')', { bold:true, divider:true, color:'#c0392b' }),
+    r('Net Cash Position', _colFinFmtRp(d.netCash), { bold:true, divider:true, color: d.netCash>=0?'#2d7a2d':'#c0392b', sub: d.netCash>=0 ? '✓ Cash positif — duitnya udah balik' : '⏳ Cash negatif — belum balik modal' }),
+  ].filter(Boolean).join('');
+
+  const prodBreak = d.matchedRPs.length ? `
+    <details style="margin-top:10px"><summary style="cursor:pointer;font-size:11px;color:var(--g400);font-family:var(--mono);text-transform:uppercase">Production breakdown (${d.matchedRPs.length} restock project)</summary>
+      <table style="width:100%;margin-top:8px;font-size:11px;border-collapse:collapse">
+        <thead><tr style="border-bottom:1px solid var(--g100);color:var(--g400)">
+          <th style="text-align:left;padding:6px 8px">Project</th><th style="text-align:left;padding:6px 8px">Status</th>
+          <th style="text-align:right;padding:6px 8px">Linked PO</th><th style="text-align:right;padding:6px 8px">Planned</th></tr></thead>
+        <tbody>${d.matchedRPs.map(rp=>`
+          <tr style="border-top:1px solid var(--g100)">
+            <td style="padding:6px 8px">${rp.name||rp.id}</td>
+            <td style="padding:6px 8px"><span class="pill p-${(rp.status||'').toLowerCase()}">${rp.status||'—'}</span></td>
+            <td style="text-align:right;padding:6px 8px;font-family:var(--mono)">${rp.linkedPos.length}</td>
+            <td style="text-align:right;padding:6px 8px;font-family:var(--mono)">${_colFinFmtRp(rp.subtotal)}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </details>` : '';
+
+  return `
+    <table style="width:100%;border-collapse:collapse">
+      <tbody>${rows}</tbody>
+    </table>
+    ${prodBreak}
+    <div style="margin-top:10px;padding:8px 12px;background:var(--off);border-radius:6px;font-size:10px;color:var(--g400);font-family:var(--mono);line-height:1.5">
+      ℹ️ Cash Flow approximation: Cash In = settled net revenue. Cash Out Production = actual jubelio_bills.paid_amount. Marketing/Photoshoot diasumsiin paid penuh karena belum ada paid-flag di tabel. Royalty disisihkan (biasa di-pay quarterly).
+    </div>`;
+}
+// ── END FINANCIAL STATEMENT ──
 
 function renderColPOCards(colId) {
   const links=colToPos[colId]||[];
