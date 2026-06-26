@@ -39109,7 +39109,7 @@ async function _mpurcLoadMappingStatus() {
   if (!el) return;
   try {
     const { data: maps, error } = await sb.from('transaction_mappings')
-      .select('id,salesorder_id,notes,project_ref')
+      .select('salesorder_id,notes,project_ref,mapped_at')
       .eq('category','Manual Purchase')
       .eq('project_ref', h.id);
     if (error) throw error;
