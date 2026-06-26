@@ -24395,6 +24395,7 @@ async function requestMaSampleShipment(id) {
       id: obId,
       source_module: 'MarketingActivation',
       source_id: id,
+      purpose: 'Freebies - Event Samples',
       recipient_name: pic || r.name,
       recipient_address: venue || null,
       recipient_phone: null,
@@ -26417,6 +26418,7 @@ async function requestPsSampleShipment(id) {
       id: obId,
       source_module: 'PhotoshootPlanning',
       source_id: id,
+      purpose: 'Photoshoot Freebies',
       recipient_name: pic || r.name,
       recipient_address: address || r.location || null,
       recipient_phone: null,
@@ -27052,6 +27054,7 @@ async function requestKolShipment(placementId) {
       id: obId,
       source_module: 'KolManagement',
       source_id: placementId,
+      purpose: 'KOL Freebies',
       recipient_name: r.name,
       recipient_address: r.recipientAddress || null,
       recipient_phone: r.recipientPhone || null,
@@ -27650,7 +27653,7 @@ async function requestLFShipment(id) {
       id: obId,
       source_module: 'LicensorFreebies',
       source_id: id,
-      purpose: 'Freebies',
+      purpose: 'Licensor Freebies',
       recipient_name: r.recipientName,
       recipient_address: r.recipientAddress || null,
       recipient_phone: r.recipientPhone || null,
@@ -31761,7 +31764,7 @@ function mapOutbound(r) {
     rowIndex: r.id, id: r.id,
     sourceModule: r.source_module || 'Manual',
     sourceId: r.source_id || '',
-    purpose: r.purpose || 'Freebies',
+    purpose: r.purpose || 'Other',
     recipientName: r.recipient_name || '',
     recipientAddress: r.recipient_address || '',
     recipientPhone: r.recipient_phone || '',
@@ -31779,6 +31782,14 @@ function mapOutbound(r) {
 }
 
 const _OB_PURPOSE_TONE = {
+  // New module-specific purposes
+  'Licensor Freebies':         { bg:'#EEEDFE', fg:'#3C3489', border:'#CECBF6' },
+  'KOL Freebies':              { bg:'#FDE8F2', fg:'#7A1B49', border:'#F7C2DA' },
+  'Photoshoot Freebies':       { bg:'#FAEEDA', fg:'#633806', border:'#FAC775' },
+  'Freebies - Event Samples':  { bg:'#E8F5E3', fg:'#2B5318', border:'#C2DFB3' },
+  'Sales - Wholesale':         { bg:'#dff0d8', fg:'#04342C', border:'#b8d9b3' },
+  'Sales - Manual Purchase':   { bg:'#D4F0EC', fg:'#0B4A44', border:'#A7DCD3' },
+  // Legacy + manual catch-alls
   Sales:    { bg:'#dff0d8', fg:'#04342C', border:'#b8d9b3' },
   Freebies: { bg:'#EEEDFE', fg:'#3C3489', border:'#CECBF6' },
   Sample:   { bg:'#FAEEDA', fg:'#633806', border:'#FAC775' },
@@ -31911,7 +31922,7 @@ function _renderOutboundRows(rows) {
     const cogsTotal = _kolItemsCOGS(r.items);
     const cogsLine = cogsTotal > 0
       ? `<div style="font-size:9px;color:var(--g600);font-family:var(--mono);margin-top:2px">💰 Total HPP ${_kolFmtRp(cogsTotal)}</div>`
-      : (r.purpose === 'Sales'
+      : ((r.purpose||'').startsWith('Sales')
           ? ''
           : `<div style="font-size:9px;color:#c0392b;font-family:var(--mono);margin-top:2px">⚠ HPP belum di-set — klik ✎ buat isi</div>`);
     const pTone = _OB_PURPOSE_TONE[r.purpose] || _OB_PURPOSE_TONE.Other;
@@ -32279,7 +32290,7 @@ async function _obGenerateSuratJalan(id) {
     <li><strong>Peruntukan.</strong> Barang ini ditujukan sebagai <strong>${purposeLbl}</strong> dan tidak untuk diperjualbelikan. Pemakaian di luar peruntukan menjadi tanggung jawab Penerima.</li>
     <li><strong>Status Dokumen.</strong> Surat Jalan ini bukan invoice / tagihan, melainkan bukti pengiriman barang dari PT Sandang Dunia Yuwana.</li>
   </ol>`;
-  const tncBlock = (purposeLbl === 'Sales') ? tncSales : tncFreebies;
+  const tncBlock = purposeLbl.startsWith('Sales') ? tncSales : tncFreebies;
   const itemsBody = [...parents.values()].map(p => {
     const totalP = p.rows.reduce((s,x) => s + (parseFloat(x.qty)||0), 0);
     let thumb = null;
@@ -36969,7 +36980,7 @@ async function _whObSubmit() {
       id: obId,
       source_module: 'WholesaleOrder',
       source_id: h.id,
-      purpose: 'Sales',
+      purpose: 'Sales - Wholesale',
       recipient_name: recipient,
       recipient_address: address,
       recipient_phone: phone,
@@ -39136,7 +39147,7 @@ async function _mpurcObSubmit() {
       id: obId,
       source_module: 'ManualPurchase',
       source_id: h.id,
-      purpose: 'Sales',
+      purpose: 'Sales - Manual Purchase',
       recipient_name: recipient,
       recipient_address: address,
       recipient_phone: h.shipToPhone || '',
