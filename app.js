@@ -27316,16 +27316,22 @@ let _txPage = 0;
 let _txSelected = new Set();    // selected salesorder_ids
 let _txDistPartners = [];       // [{id, name}] — for Wholesale/Consignment ref
 let _txPopupBooths = [];        // [{id, name, date}] — for Pop Up Booth ref
+let _txManualPurchases = [];    // [{id, label}] — for Manual Purchase ref
 
 async function _txLoadLookups() {
-  if (_txDistPartners.length && _txPopupBooths.length) return;
+  if (_txDistPartners.length && _txPopupBooths.length && _txManualPurchases.length) return;
   try {
-    const [dpRes, pbRes] = await Promise.all([
+    const [dpRes, pbRes, mpRes] = await Promise.all([
       sb.from('dist_partners').select('id,partner_name').order('partner_name'),
-      sb.from('popup_booths').select('id,event_name,event_date,ip_related').order('event_date',{ascending:false})
+      sb.from('popup_booths').select('id,event_name,event_date,ip_related').order('event_date',{ascending:false}),
+      sb.from('manual_purchase_orders').select('id,billed_to_name,requestor_name,order_date').order('order_date',{ascending:false}).limit(500),
     ]);
     _txDistPartners = (dpRes.data||[]).filter(r=>r.partner_name).map(r => ({id:r.id, name:r.partner_name}));
     _txPopupBooths  = (pbRes.data||[]).filter(r=>r.event_name).map(r => ({id:r.id, name:r.event_name, date:r.event_date, ip:r.ip_related||''}));
+    _txManualPurchases = (mpRes.data||[]).map(r => ({
+      id: r.id,
+      label: `${r.id} — ${r.billed_to_name||r.requestor_name||'(no customer)'}`,
+    }));
   } catch(e) { console.error('_txLoadLookups:', e); }
 }
 
@@ -27350,7 +27356,18 @@ function _txRefSelectHTML(rowId, category, currentRef, currentBoothId) {
     return `<select disabled style="width:100%;padding:4px 6px;font-size:11px;border:1px solid var(--g100);border-radius:3px;background:var(--off);color:var(--g400)"><option>— pilih category dulu —</option></select>`;
   }
   if (category === 'Manual Purchase') {
-    return `<input type="text" value="${_txEsc(currentRef||'')}" placeholder="Nama pembeli / staff" style="width:100%;padding:4px 6px;font-size:11px;border:1px solid var(--g100);border-radius:3px;background:var(--white)" onblur="updateTxField(${rowId},'project_ref',this.value)">`;
+    if (!_txManualPurchases.length) {
+      return `<select disabled style="width:100%;padding:4px 6px;font-size:11px;border:1px solid var(--g100);border-radius:3px;background:var(--off);color:var(--g400)"><option>Tidak ada MP order di sistem</option></select>`;
+    }
+    // currentRef = MP id (e.g. "MP-20260623-1381"). Legacy data mungkin pakai
+    // nama staff — di-flag sebagai legacy biar user re-pick.
+    const isLegacy = currentRef && !_txManualPurchases.some(m => m.id === currentRef);
+    const opts = _txManualPurchases.map(m => `<option value="${_txEsc(m.id)}"${m.id===currentRef?' selected':''}>${_txEsc(m.label)}</option>`).join('');
+    return `<select onchange="updateTxField(${rowId},'project_ref',this.value)" style="width:100%;padding:4px 6px;font-size:11px;border:1px solid ${isLegacy?'#c0392b':'var(--g100)'};border-radius:3px;background:${isLegacy?'#fff8e1':'var(--white)'}" title="${isLegacy?'Legacy: "'+_txEsc(currentRef)+'" bukan MP id — re-pick':''}">
+      <option value="">— pilih MP order —</option>
+      ${isLegacy?`<option value="${_txEsc(currentRef)}" selected>⚠ ${_txEsc(currentRef)} (legacy)</option>`:''}
+      ${opts}
+    </select>`;
   }
   const opts = _txRefOptions(category);
   if (!opts.length) {
@@ -38931,28 +38948,21 @@ function _mpurcRenderDetail() {
       <div class="form-card" style="margin-top:14px">
         <div class="form-sec" style="display:flex;justify-content:space-between;align-items:center">
           <span>Routing Jubelio SO (Step Akhir)</span>
-          <span style="font-size:11px;color:var(--g400);font-weight:normal">Link MP ini ke Sales Order Jubelio yang udah di-tag "Manual Purchase"</span>
+          <span style="font-size:11px;color:var(--g400);font-weight:normal">Status mapping ke transaksi Jubelio</span>
         </div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
           <button class="btn-ghost" onclick="_mpurcGenerateJubelioCSV()" style="font-size:12px;padding:6px 14px" title="Download CSV format Import Pesanan Penjualan Jubelio">📥 Download CSV Pesanan Jubelio</button>
-          <span style="font-size:11px;color:var(--g400)">Format: Import Pesanan Penjualan Jubelio (36 kolom). Upload via tab Semua Pesanan, lalu paste SO No ke kolom di bawah.</span>
+          <span style="font-size:11px;color:var(--g400)">Format: Pesanan Penjualan (36 kolom). Upload via tab Semua Pesanan di Jubelio.</span>
         </div>
-        <div class="form-grid" style="grid-template-columns:1fr">
-          <div class="fg"><label>Jubelio SO No</label>
-            <div class="ac-wrap"><input type="text" id="mp-h-jubelio-so" value="${(h.jubelioSoNo||'').replace(/"/g,'&quot;')}" placeholder="Ketik SO no atau pilih dari list..." autocomplete="off"><div class="ac-list" id="ac-mp-jubelio-so"></div></div>
-            <div style="font-size:10px;color:var(--g400);margin-top:2px;font-family:var(--mono)">Source: Transaction Mapping (category=Manual Purchase)</div>
-          </div>
-        </div>
-        ${h.jubelioSoNo ? `<div style="margin-top:10px;padding:8px 12px;background:#dff0d8;border:1px solid #b8d9b3;border-radius:5px;font-size:11px;color:#04342C">✓ Routed ke Jubelio SO <b>${(h.jubelioSoNo||'').replace(/</g,'&lt;')}</b> · MP order tertaut ke transaksi aktual di Jubelio.</div>
-        <div id="mp-jubelio-compare" style="margin-top:14px"><div style="font-size:11px;color:var(--g400)">⟳ Memuat reconcile MP vs Jubelio SO...</div></div>` : `<div style="margin-top:10px;padding:8px 12px;background:#fef5e0;border:1px solid #fac775;border-radius:5px;font-size:11px;color:#a66800">⓿ MP belum tertaut ke SO Jubelio. Pastiin tx sudah di-tag <b>Manual Purchase</b> di Transaction Mapping, lalu pilih di sini.</div>`}
+        <div id="mp-jubelio-mapping-status" style="margin-top:10px"><div style="font-size:11px;color:var(--g400)">⟳ Cek mapping di Transaction Mapping...</div></div>
+        <div id="mp-jubelio-compare" style="margin-top:14px"></div>
       </div>
       `}
     </div>
   `;
   setupAC('mp-h-requestor','ac-mp-requestor',()=>acPics);
   if (!isNew) {
-    _mpurcWireJubSoPicker();
-    if (h.jubelioSoNo) _mpurcLoadJubelioCompare();
+    _mpurcLoadMappingStatus();
   }
   // Auto-fill shipping defaults if empty (new order or never set)
   if (!h.shipToAddress && !h.shipToRecipient) {
@@ -39087,6 +39097,62 @@ function _mpurcGenerateJubelioCSV() {
   a.click();
   URL.revokeObjectURL(url);
   logActivity('ManualPurchase','export_jubelio_csv',h.id,`Download Pesanan CSV (${items.length} items)`);
+}
+
+// Cek apakah MP ini udah di-mapping di Transaction Mapping. Source of truth:
+// transaction_mappings.project_ref = MP.id WHERE category='Manual Purchase'.
+// Display-only — user mapping-nya di Transaction Mapping page.
+async function _mpurcLoadMappingStatus() {
+  const o = _mpurcCurrent; if (!o) return;
+  const h = o.header;
+  const el = document.getElementById('mp-jubelio-mapping-status');
+  if (!el) return;
+  try {
+    const { data: maps, error } = await sb.from('transaction_mappings')
+      .select('id,salesorder_id,notes,project_ref')
+      .eq('category','Manual Purchase')
+      .eq('project_ref', h.id);
+    if (error) throw error;
+    if (!maps?.length) {
+      el.innerHTML = `<div style="padding:8px 12px;background:#fef5e0;border:1px solid #fac775;border-radius:5px;font-size:11px;color:#a66800">
+        ⓿ MP belum di-mapping ke transaksi Jubelio. Buka <a href="#" onclick="event.preventDefault();showPage('txmap',null)" style="color:#a66800;text-decoration:underline;font-weight:600">Transaction Mapping</a> → pilih category <b>Manual Purchase</b> + pilih MP <b>${h.id}</b> di kolom Project Ref.
+      </div>`;
+      return;
+    }
+    // Get salesorder_no buat tiap mapping
+    const soIds = maps.map(m => m.salesorder_id).filter(Boolean);
+    let soByid = new Map();
+    if (soIds.length) {
+      const { data: sos } = await sb.from('jubelio_sales_orders')
+        .select('salesorder_id,salesorder_no,customer_name,sub_total,transaction_date')
+        .in('salesorder_id', soIds);
+      soByid = new Map((sos||[]).map(s => [s.salesorder_id, s]));
+    }
+    const rows = maps.map(m => {
+      const so = soByid.get(m.salesorder_id);
+      const soNo = so?.salesorder_no || `#${m.salesorder_id}`;
+      const dateLbl = so?.transaction_date ? new Date(so.transaction_date).toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'2-digit'}) : '—';
+      const totalLbl = so?.sub_total ? 'Rp ' + Math.round(parseFloat(so.sub_total)).toLocaleString('id-ID') : '—';
+      return `<div style="display:flex;align-items:center;gap:10px;padding:6px 0;font-size:11px">
+        <span style="font-family:var(--mono);color:#0a7d3a;font-weight:600">🔗 ${soNo.replace(/</g,'&lt;')}</span>
+        <span style="color:var(--g600)">${(so?.customer_name||'—').replace(/</g,'&lt;')}</span>
+        <span style="font-family:var(--mono);color:var(--g400);margin-left:auto">${dateLbl}</span>
+        <span style="font-family:var(--mono);color:var(--g600);font-weight:600">${totalLbl}</span>
+      </div>`;
+    }).join('');
+    el.innerHTML = `<div style="padding:8px 12px;background:#dff0d8;border:1px solid #b8d9b3;border-radius:5px;font-size:11px;color:#04342C">
+      ✓ <b>Mapped</b> · ${maps.length} transaksi Jubelio ter-link via Transaction Mapping
+      <div style="margin-top:6px;display:flex;flex-direction:column;gap:0">${rows}</div>
+    </div>`;
+    // Sync jubelio_so_no di MP header (status derivation: 'done' kalau ada SO)
+    const primarySoNo = soByid.get(maps[0].salesorder_id)?.salesorder_no;
+    if (primarySoNo && primarySoNo !== h.jubelioSoNo) {
+      await sb.from('manual_purchase_orders').update({jubelio_so_no: primarySoNo, last_updated: new Date().toISOString()}).eq('id', h.id);
+      h.jubelioSoNo = primarySoNo;
+    }
+  } catch(e) {
+    el.innerHTML = `<div style="padding:8px 12px;background:#fdf6f4;border:1px solid #f1c6bf;border-radius:5px;font-size:11px;color:#a14e3e">⚠ Gagal cek mapping: ${(e.message||e).replace(/</g,'&lt;')}</div>`;
+  }
 }
 
 // MP Jubelio SO picker — autocomplete dari transaction_mappings yang di-tag
