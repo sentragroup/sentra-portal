@@ -38974,6 +38974,20 @@ function _mpurcGenerateJubelioCSV() {
   const items = o.items || [];
   if (!items.length) { alert('Order belum ada items.'); return; }
   if (!h.id || h.id === 'new') { alert('Save order dulu sebelum download CSV.'); return; }
+  // Pre-validate required fields — Jubelio import REQUIRE customer_email +
+  // customer_phone non-empty. Kalau missing, kasih user pilihan: cancel +
+  // edit form, atau lanjut pake placeholder (user nanti bisa edit di Jubelio).
+  const cleanPhonePre = (s) => (s||'').toString().replace(/[^\d]/g,'');
+  const emailExists = !!(h.clientRepEmail || h.shipToEmail);
+  const phoneExists = !!cleanPhonePre(h.shipToPhone);
+  if (!emailExists || !phoneExists) {
+    const missing = [];
+    if (!emailExists) missing.push('Email Penerima/Perwakilan Client');
+    if (!phoneExists) missing.push('No HP Penerima');
+    const msg = `⚠️ Field wajib Jubelio masih kosong:\n\n${missing.map(m=>'• '+m).join('\n')}\n\n`+
+      `Pilih:\n— OK = Lanjut download dengan placeholder ("0000000" / "noemail@local"). Edit nanti di Jubelio.\n— Cancel = Tutup, isi field-nya dulu di section Pengiriman/Billed To, baru download lagi.`;
+    if (!confirm(msg)) return;
+  }
   const esc = (v) => {
     if (v === null || v === undefined) return '';
     const s = String(v);
@@ -39009,9 +39023,11 @@ function _mpurcGenerateJubelioCSV() {
     const isFirst = idx === 0;
     const desc = (it.item_name||'').trim();
     // Fallback chains — email & phone bisa di clientRep ATAU shipTo (tergantung
-    // user input dimana). Jubelio import sering reject kalau field2 ini kosong.
-    const custEmail = h.clientRepEmail || h.shipToEmail || '';
-    const custPhone = cleanPhone(h.shipToPhone || '');
+    // user input dimana). Jubelio import REQUIRE customer_email + customer_phone
+    // non-empty — kalau benar2 kosong (user udah confirm via prompt), pake
+    // placeholder supaya import tetep bisa jalan (edit di Jubelio nanti).
+    const custEmail = h.clientRepEmail || h.shipToEmail || 'noemail@local';
+    const custPhone = cleanPhone(h.shipToPhone || '') || '0000000000';
     const headerCols = isFirst ? [
       invoiceNo,
       '', // customer_ref_no — MP gak punya customer PO
