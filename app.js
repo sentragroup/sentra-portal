@@ -205,6 +205,7 @@ function enterApp(user, freshLogin) {
   loadAnnTicker();
   if (freshLogin) logActivity("Auth","login",null,"Login berhasil");
   loadNotifications();
+  _mpurcRefreshOverdueBadge();
   const _chatFab = document.getElementById('chat-fab'); if (_chatFab) _chatFab.style.display='flex';
   if (notifPollTimer) clearInterval(notifPollTimer);
   notifPollTimer = setInterval(loadNotifications, 60000);
@@ -38385,9 +38386,33 @@ async function loadManualPurchase() {
     _mpurcRows = (data||[]).map(mapMpurc);
     computeMPStats(_mpurcRows);
     applyMPFilter();
+    _mpurcRefreshOverdueBadge();
   } catch(e) {
     if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="10">Gagal: ${e.message}</td></tr>`;
   }
+}
+
+// Hitung MP yang lewat due_date + masih ada outstanding payment. Update sidebar
+// badge "MP" + dot merah. Dipanggil pas login + tiap loadManualPurchase.
+async function _mpurcRefreshOverdueBadge() {
+  const badge = document.getElementById('nav-mp-badge');
+  if (!badge) return;
+  try {
+    const today = new Date().toISOString().slice(0,10);
+    const { data, error } = await sb.from('manual_purchase_orders')
+      .select('id,due_date,grand_total,total_received,status')
+      .lt('due_date', today)
+      .not('status','in','(paid,done,canceled)');
+    if (error) throw error;
+    const overdue = (data||[]).filter(r => (Number(r.grand_total)||0) - (Number(r.total_received)||0) > 0);
+    if (overdue.length > 0) {
+      badge.textContent = overdue.length;
+      badge.style.display = 'inline-block';
+      badge.title = `${overdue.length} MP lewat due date dengan outstanding payment`;
+    } else {
+      badge.style.display = 'none';
+    }
+  } catch(e) { console.warn('Overdue badge refresh failed:', e); }
 }
 
 function computeMPStats(rows) {
@@ -38432,19 +38457,29 @@ function renderMPTable(rows) {
     if (r.jubelioSoNo) return 'done';
     return 'paid';
   };
+  const today = new Date().toISOString().slice(0,10);
   tb.innerHTML = rows.map(r => {
     const st = deriveStatus(r);
     const linked = !!r.jubelioSoNo;
-    return `<tr>
+    // Overdue = due_date past AND outstanding amount > 0 AND status not closed
+    const isOverdue = r.dueDate && r.dueDate < today && r.paymentDue > 0.5 && !['paid','done','canceled'].includes(st);
+    const daysOverdue = isOverdue ? Math.floor((new Date(today) - new Date(r.dueDate))/86400000) : 0;
+    const overduePill = isOverdue
+      ? `<span class="pill p-expired" style="font-size:9px;margin-left:4px" title="Lewat due date ${daysOverdue} hari">🔴 ${daysOverdue}d overdue</span>`
+      : '';
+    const dueDateStr = r.dueDate
+      ? `<div style="font-size:10px;color:${isOverdue?'#c0392b':'var(--g400)'};font-family:var(--mono);margin-top:2px" title="Due date">due: ${fmtTgl(r.dueDate)}</div>`
+      : '';
+    return `<tr${isOverdue?' style="background:#fdf6f4"':''}>
     <td><div style="font-family:var(--mono);font-size:11px;font-weight:600">${(r.id||'').replace(/</g,'&lt;')}</div>${linked?`<div style="font-size:10px;color:#0a7d3a;font-family:var(--mono);margin-top:2px" title="Linked ke Jubelio SO ${r.jubelioSoNo.replace(/"/g,'&quot;')}">🔗 ${r.jubelioSoNo.replace(/</g,'&lt;')}</div>`:''}</td>
     <td><span class="pill p-draft" style="font-size:10px">${r.lineBrand}</span></td>
     <td style="font-size:12px;font-weight:500">${(r.billedToName||'—').replace(/</g,'&lt;')}${r.requestorName?`<div style="font-size:10px;color:var(--g400)">req: ${r.requestorName.replace(/</g,'&lt;')}</div>`:''}</td>
     <td style="font-size:11px;color:var(--g600)">${(r.invoiceCategory||'—').replace(/</g,'&lt;')}</td>
-    <td style="font-size:11px;font-family:var(--mono);color:var(--g600)">${fmtTgl(r.orderDate)}</td>
+    <td style="font-size:11px;font-family:var(--mono);color:var(--g600)">${fmtTgl(r.orderDate)}${dueDateStr}</td>
     <td style="text-align:right;font-family:var(--mono);font-size:11px">—</td>
     <td style="text-align:right;font-family:var(--mono);font-size:12px;font-weight:700">${fmtRp(r.grandTotal)}</td>
     <td style="text-align:right;font-family:var(--mono);font-size:12px;font-weight:600;color:${r.paymentDue>0?'#c0392b':'#0a7d3a'}">${fmtRp(r.paymentDue)}</td>
-    <td><span class="pill ${STATUS_CLS[st]||'p-draft'}" style="font-size:10px">${st}</span></td>
+    <td><span class="pill ${STATUS_CLS[st]||'p-draft'}" style="font-size:10px">${st}</span>${overduePill}</td>
     <td style="white-space:nowrap"><button class="btn-icon" onclick="openManualPurchaseDetail('${r.id}')">Open</button> <button class="btn-icon" style="color:#c0392b" onclick="deleteManualPurchase('${r.id}')">Del</button></td>
   </tr>`;
   }).join('');
