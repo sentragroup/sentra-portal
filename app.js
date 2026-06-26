@@ -7495,10 +7495,13 @@ async function loadColSalesMonitor(col) {
     const queryEnd = (today < windowEnd) ? today : windowEnd;
     const endISO   = new Date(queryEnd.getTime() + 86400000).toISOString();
 
-    // Find items mapped to this collection
-    const {data: mappings} = await sb.from('product_mappings').select('item_name')
+    // Find items mapped to this collection — via item_id (not item_name).
+    // item_name di sales bisa beda dari product_mappings karena ada size
+    // suffix (" - S"), treatment ("Washed"), dll. Match by jubelio_item_id
+    // langsung biar konsisten.
+    const {data: mappings} = await sb.from('product_mappings').select('jubelio_item_id,item_name')
       .ilike('collection', col.collectionName).limit(5000);
-    const matchedSet = new Set((mappings||[]).map(m => (m.item_name||'').toLowerCase()));
+    const matchedSet = new Set((mappings||[]).map(m => m.jubelio_item_id).filter(x => x != null));
     if (!matchedSet.size) {
       panel.innerHTML = `<div style="padding:14px;background:var(--off);border:1px dashed var(--g200);border-radius:6px;font-size:12px;color:var(--g600)">
         📊 Belum ada item di Product Mapping yang link ke collection "${(col.collectionName||'').replace(/</g,'&lt;')}".
@@ -7517,24 +7520,27 @@ async function loadColSalesMonitor(col) {
     const orderIds = orders.map(o=>o.salesorder_id);
     const orderDate = new Map(orders.map(o => [o.salesorder_id, o.transaction_date]));
 
-    // Fetch items for those orders, chunked
+    // Fetch items for those orders, chunked. Pakai item_id + qty + price +
+    // disc_amount — kolom 'amount' gak ada di schema, harus compute manual.
     const itemRows = [];
     for (let i = 0; i < orderIds.length; i += 500) {
       const chunk = orderIds.slice(i, i+500);
       const rows = await _fetchAllPages('jubelio_sales_order_items',
-        'salesorder_id,item_name,qty,amount,is_canceled_item',
+        'salesorder_id,item_id,qty,price,disc_amount,is_canceled_item',
         q => q.in('salesorder_id', chunk));
       itemRows.push(...rows);
     }
 
-    // Aggregate
+    // Aggregate — match by item_id (more reliable than item_name)
     let actualQty = 0, actualRev = 0;
     const dailyMap = {};
     itemRows.forEach(it => {
       if (it.is_canceled_item) return;
-      if (!matchedSet.has((it.item_name||'').toLowerCase())) return;
-      const qty = parseFloat(it.qty || 0) || 0;
-      const amt = parseFloat(it.amount || 0) || 0;
+      if (!matchedSet.has(it.item_id)) return;
+      const qty   = parseFloat(it.qty   || 0) || 0;
+      const price = parseFloat(it.price || 0) || 0;
+      const disc  = parseFloat(it.disc_amount || 0) || 0;
+      const amt   = qty * price - disc;
       actualQty += qty;
       actualRev += amt;
       const txd = orderDate.get(it.salesorder_id);
