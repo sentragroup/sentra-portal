@@ -39018,10 +39018,10 @@ function _mpurcGenerateJubelioCSV() {
   }
   // Shipping cost = sum dari linked OB shipments (warehouse fill di OB)
   const shippingCost = (o.linkedOutbounds||[]).reduce((s,ob) => s + (parseFloat(ob.shipping_cost)||0), 0);
-  // Default Jubelio config — MP pakai Gudang Event 1 (beda dari Wholesale yang Pusat)
+  // Default Jubelio config — MP pakai Gudang Event 1 + Toko Default
   const location = 'Gudang Event 1';
   const source = 'INTERNAL';
-  const store = 'Toko Internal Jubelio';
+  const store = 'Toko Default';
   const accountCode = '4-4000';
   const taxName = 'No Tax';
   const HEADERS = ['invoice_no','customer_ref_no','invoice_date','due_date','customer_name','customer_email','customer_phone','is_tax_included','location','source','store','salesmen_name','salesmen_email','salesmen_phone','add_disc','shipping_cost','insurance_cost','add_fee','service_fee','note','item_code','description','price','account_code','qty_in_base','disc','tax_name','Tipe Barang','serial_no','batch_no','bin_code'];
