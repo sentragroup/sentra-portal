@@ -27357,12 +27357,33 @@ function _lfIpName(ipId) {
 }
 function _lfColName(colId) {
   const c = allColRows.find(x => x.id === colId);
-  return c ? (c.name || colId) : colId;
+  return c ? (c.collectionName || colId) : colId;
+}
+
+// Status auto-derive dari outbound_requests linked. Kalau gak ada OB, status:
+//   - "Draft"          → belum ada items
+//   - "Ready to Request" → ada items, belum di-request
+// Kalau ada OB, map OB.status (Pending/Sent/Delivered/Cancelled).
+function _lfDeriveStatus(r) {
+  if (!r.outboundRequestId) {
+    if (!(r.freebieItems||[]).length) return 'Draft';
+    return 'Ready to Request';
+  }
+  const ob = (allOutboundRows||[]).find(x => x.id === r.outboundRequestId);
+  return ob?.status || 'Pending';
 }
 
 function _lfSetupAC() {
   setupAC('lf-ip', 'ac-lf-ip', () => allIPRows.map(r => r.name));
-  setupAC('lf-collection', 'ac-lf-collection', () => allColRows.map(r => r.name).filter(Boolean));
+  // Collection picker = Collection Development source. Filter by selected IP
+  // kalau ada — kalau IP kosong, tampilin semua collection.
+  setupAC('lf-collection', 'ac-lf-collection', () => {
+    const ipName = (document.getElementById('lf-ip')?.value || '').trim();
+    return allColRows
+      .filter(c => !ipName || c.ipRelated === ipName)
+      .map(c => c.collectionName)
+      .filter(Boolean);
+  });
   setupAC('lf-pic', 'ac-lf-pic', () => acPics || []);
 }
 
@@ -27383,9 +27404,13 @@ function _lfPopulateFilters() {
 
 function computeLFStats(rows) {
   document.getElementById('lf-s-total').textContent = rows.length;
-  document.getElementById('lf-s-planning').textContent = rows.filter(r => r.status==='Planning').length;
-  document.getElementById('lf-s-shipped').textContent = rows.filter(r => r.status==='Shipped' || r.status==='Delivered').length;
-  document.getElementById('lf-s-pending-ob').textContent = rows.filter(r => (r.freebieItems||[]).length && !r.outboundRequestId && r.status!=='Cancelled').length;
+  document.getElementById('lf-s-planning').textContent = rows.filter(r => {
+    const s = _lfDeriveStatus(r); return s === 'Draft' || s === 'Ready to Request' || s === 'Pending';
+  }).length;
+  document.getElementById('lf-s-shipped').textContent = rows.filter(r => {
+    const s = _lfDeriveStatus(r); return s === 'Sent' || s === 'Delivered';
+  }).length;
+  document.getElementById('lf-s-pending-ob').textContent = rows.filter(r => (r.freebieItems||[]).length && !r.outboundRequestId).length;
 }
 
 function renderLF() {
@@ -27396,7 +27421,7 @@ function renderLF() {
   const fCol    = document.getElementById('lf-fil-collection')?.value || '';
   const q       = (document.getElementById('lfSearch')?.value || '').toLowerCase();
   const rows = _lfRows.filter(r => {
-    if (fStatus && r.status !== fStatus) return false;
+    if (fStatus && _lfDeriveStatus(r) !== fStatus) return false;
     if (fIp && _lfIpName(r.ipId) !== fIp) return false;
     if (fCol && _lfColName(r.collectionId) !== fCol) return false;
     if (q) {
@@ -27408,15 +27433,21 @@ function renderLF() {
   document.getElementById('lf-tcount').textContent = `${rows.length} entri`;
   if (!rows.length) { tbody.innerHTML = '<tr><td class="empty-td" colspan="9">Belum ada freebie ticket.</td></tr>'; return; }
   const esc = s => (s==null?'':String(s)).replace(/</g,'&lt;');
-  const STATUS_CLS = {Planning:'p-draft', Ready:'p-signings', Shipped:'p-review', Delivered:'p-active', Cancelled:'p-expired'};
+  // Map derived status → pill class. OB statuses (Pending/Sent/Delivered/Cancelled)
+  // + our 2 pre-OB states (Draft, Ready to Request).
+  const STATUS_CLS = {
+    'Draft':'p-draft', 'Ready to Request':'p-review',
+    'Pending':'p-draft', 'Sent':'p-signings', 'Delivered':'p-active', 'Cancelled':'p-expired',
+  };
   tbody.innerHTML = rows.map(r => {
     const ipLbl = _lfIpName(r.ipId);
     const colLbl = r.collectionId ? _lfColName(r.collectionId) : '—';
     const itemCount = (r.freebieItems||[]).length;
     const itemsBrief = itemCount ? `${itemCount} item · ${(r.freebieItems||[]).reduce((s,it)=>s+(parseInt(it.qty,10)||0),0)} pcs` : '—';
+    const derivedStatus = _lfDeriveStatus(r);
     const obLink = r.outboundRequestId
       ? `<a href="#" onclick="event.preventDefault();showPage('outbound',null);setTimeout(()=>{const el=document.getElementById('ob-fil-search');if(el){el.value='${r.outboundRequestId}';applyOutboundFilters();}},300)" style="font-size:11px;color:#3C3489;text-decoration:underline">✓ ${esc(r.outboundRequestId)}</a>`
-      : (itemCount && r.status !== 'Cancelled'
+      : (itemCount
           ? `<button class="btn-icon" onclick="requestLFShipment('${r.id}')" title="Buat outbound request" style="font-size:11px;color:#3C3489">📦 Request</button>`
           : `<span style="font-size:10px;color:var(--g400)">—</span>`);
     return `<tr>
@@ -27425,7 +27456,7 @@ function renderLF() {
       <td style="font-size:12px">${esc(r.recipientName)||'—'}${r.recipientEmail?`<div style="font-size:10px;color:var(--g600);font-family:var(--mono)">${esc(r.recipientEmail)}</div>`:''}</td>
       <td style="font-size:11px;font-family:var(--mono)">${itemsBrief}</td>
       <td style="font-family:var(--mono);font-size:11px">${r.requestedShipDate||'—'}</td>
-      <td><span class="pill ${STATUS_CLS[r.status]||'p-draft'}" style="font-size:10px">${esc(r.status)}</span></td>
+      <td><span class="pill ${STATUS_CLS[derivedStatus]||'p-draft'}" style="font-size:10px">${esc(derivedStatus)}</span></td>
       <td>${obLink}</td>
       <td style="font-size:11px;color:var(--g600)">${esc(r.pic)||'—'}</td>
       <td style="white-space:nowrap">
@@ -27466,7 +27497,6 @@ function addLFFreebieRow(item) {
 
 function clearLFForm() {
   ['lf-ip','lf-collection','lf-rec-name','lf-rec-phone','lf-rec-email','lf-rec-address','lf-ship-date','lf-pic','lf-notes'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
-  const stat = document.getElementById('lf-status'); if (stat) stat.value = 'Planning';
   document.getElementById('lf-freebie-rows').innerHTML = '';
   const fb = document.getElementById('lf-feedback'); if (fb) fb.textContent = '';
 }
@@ -27504,7 +27534,6 @@ async function submitLF() {
       recipient_email: (document.getElementById('lf-rec-email')?.value || '').trim() || null,
       requested_ship_date: document.getElementById('lf-ship-date')?.value || null,
       freebie_items: freebieItems,
-      status: document.getElementById('lf-status')?.value || 'Planning',
       notes: (document.getElementById('lf-notes')?.value || '').trim() || null,
       pic: (document.getElementById('lf-pic')?.value || '').trim() || null,
       added_by: currentUser, date_added: new Date().toISOString().slice(0,10),
@@ -27535,7 +27564,6 @@ async function editLF(id) {
   document.getElementById('lf-rec-email').value = r.recipientEmail;
   document.getElementById('lf-rec-address').value = r.recipientAddress;
   document.getElementById('lf-ship-date').value = r.requestedShipDate || '';
-  document.getElementById('lf-status').value = r.status;
   document.getElementById('lf-pic').value = r.pic;
   document.getElementById('lf-notes').value = r.notes;
   document.getElementById('lf-freebie-rows').innerHTML = '';
@@ -27575,7 +27603,6 @@ async function saveLFEdit(id) {
       recipient_email: (document.getElementById('lf-rec-email')?.value || '').trim() || null,
       requested_ship_date: document.getElementById('lf-ship-date')?.value || null,
       freebie_items: freebieItems,
-      status: document.getElementById('lf-status')?.value || 'Planning',
       notes: (document.getElementById('lf-notes')?.value || '').trim() || null,
       pic: (document.getElementById('lf-pic')?.value || '').trim() || null,
       last_updated: new Date().toISOString(), last_updated_by: currentUser,
