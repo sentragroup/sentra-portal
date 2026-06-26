@@ -38933,6 +38933,10 @@ function _mpurcRenderDetail() {
           <span>Routing Jubelio SO (Step Akhir)</span>
           <span style="font-size:11px;color:var(--g400);font-weight:normal">Link MP ini ke Sales Order Jubelio yang udah di-tag "Manual Purchase"</span>
         </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+          <button class="btn-ghost" onclick="_mpurcGenerateJubelioCSV()" style="font-size:12px;padding:6px 14px" title="Download CSV format Import Transaksi Jubelio, upload manual ke Jubelio">📥 Download CSV Jubelio</button>
+          <span style="font-size:11px;color:var(--g400)">Format: Import Faktur Jubelio (31 kolom). Upload manual via Jubelio dashboard, lalu paste SO No ke kolom di bawah.</span>
+        </div>
         <div class="form-grid" style="grid-template-columns:1fr">
           <div class="fg"><label>Jubelio SO No</label>
             <div class="ac-wrap"><input type="text" id="mp-h-jubelio-so" value="${(h.jubelioSoNo||'').replace(/"/g,'&quot;')}" placeholder="Ketik SO no atau pilih dari list..." autocomplete="off"><div class="ac-list" id="ac-mp-jubelio-so"></div></div>
@@ -38958,6 +38962,95 @@ function _mpurcRenderDetail() {
     const btn = document.getElementById('mp-tab-'+activeTab);
     if (btn) mpSwitchTab(activeTab, btn);
   }
+}
+
+// MP Jubelio Invoice CSV — mirror Wholesale's _whGenerateJubelioInvoiceCSV.
+// Format Import Faktur Jubelio (31 kolom, comma-delimited, no BOM, LF endings).
+// 1 header row + N item rows (per item: header cols kosong, item cols diisi).
+// Shipping cost di-derive dari sum(linked OBs.shipping_cost).
+function _mpurcGenerateJubelioCSV() {
+  const o = _mpurcCurrent; if (!o) { alert('Detail order belum ke-load.'); return; }
+  const h = o.header;
+  const items = o.items || [];
+  if (!items.length) { alert('Order belum ada items.'); return; }
+  if (!h.id || h.id === 'new') { alert('Save order dulu sebelum download CSV.'); return; }
+  const esc = (v) => {
+    if (v === null || v === undefined) return '';
+    const s = String(v);
+    if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g,'""')}"`;
+    return s;
+  };
+  const fmtDate = (d) => {
+    if (!d) return '';
+    const x = new Date(d.length === 10 ? d+'T00:00:00' : d);
+    if (isNaN(x.getTime())) return '';
+    return `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`;
+  };
+  const cleanPhone = (s) => (s||'').toString().replace(/[^\d]/g,'');
+  // Invoice no — pakai pattern stabil dari MP id
+  const orderShort = (h.id||'').replace(/^MP-/,'').replace(/-/g,'');
+  const invoiceNo = `INV-MP-${orderShort}`;
+  const invoiceDate = fmtDate(h.invoiceDate) || fmtDate(h.orderDate) || fmtDate(new Date().toISOString().slice(0,10));
+  let dueDate = fmtDate(h.dueDate);
+  if (!dueDate && h.orderDate) {
+    const d = new Date(h.orderDate+'T00:00:00');
+    if (!isNaN(d.getTime())) { d.setDate(d.getDate()+14); dueDate = fmtDate(d.toISOString().slice(0,10)); }
+  }
+  // Shipping cost = sum dari linked OB shipments (warehouse fill di OB)
+  const shippingCost = (o.linkedOutbounds||[]).reduce((s,ob) => s + (parseFloat(ob.shipping_cost)||0), 0);
+  // Default Jubelio config (samain dengan Wholesale CSV)
+  const location = 'Pusat';
+  const source = 'INTERNAL';
+  const store = 'Toko Internal Jubelio';
+  const accountCode = '4-4000';
+  const taxName = 'No Tax';
+  const HEADERS = ['invoice_no','customer_ref_no','invoice_date','due_date','customer_name','customer_email','customer_phone','is_tax_included','location','source','store','salesmen_name','salesmen_email','salesmen_phone','add_disc','shipping_cost','insurance_cost','add_fee','service_fee','note','item_code','description','price','account_code','qty_in_base','disc','tax_name','Tipe Barang','serial_no','batch_no','bin_code'];
+  const itemRows = items.map((it, idx) => {
+    const isFirst = idx === 0;
+    const desc = (it.item_name||'').trim();
+    const headerCols = isFirst ? [
+      invoiceNo,
+      '', // customer_ref_no — MP gak punya customer PO
+      invoiceDate,
+      dueDate,
+      h.billedToName || '',
+      h.clientRepEmail || '',
+      cleanPhone(h.shipToPhone || ''),
+      'FALSE',
+      location,
+      source,
+      store,
+      h.pic || '',
+      '', // salesmen_email
+      '', // salesmen_phone
+      0,  // add_disc
+      shippingCost,
+      0,  // insurance_cost
+      0,  // add_fee
+      0,  // service_fee
+      [h.notes, h.requestorName?`Req: ${h.requestorName}`:'', h.invoiceCategory?`Cat: ${h.invoiceCategory}`:''].filter(Boolean).join(' · '),
+    ] : Array(20).fill('');
+    const itemCols = [
+      it.item_code || '',
+      desc,
+      parseFloat(it.unit_price)||0,
+      accountCode,
+      parseFloat(it.qty)||0,
+      0, // disc per-item (udah handle di unit_price)
+      taxName,
+      '', '', '', '',
+    ];
+    return [...headerCols, ...itemCols].map(esc).join(',');
+  });
+  const csv = [HEADERS.join(','), ...itemRows].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `jubelio-invoice-${invoiceNo}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  logActivity('ManualPurchase','export_jubelio_csv',h.id,`Download Jubelio CSV (${items.length} items)`);
 }
 
 // MP Jubelio SO picker — autocomplete dari transaction_mappings yang di-tag
