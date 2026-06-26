@@ -38934,8 +38934,8 @@ function _mpurcRenderDetail() {
           <span style="font-size:11px;color:var(--g400);font-weight:normal">Link MP ini ke Sales Order Jubelio yang udah di-tag "Manual Purchase"</span>
         </div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
-          <button class="btn-ghost" onclick="_mpurcGenerateJubelioCSV()" style="font-size:12px;padding:6px 14px" title="Download CSV format Import Transaksi Jubelio, upload manual ke Jubelio">📥 Download CSV Jubelio</button>
-          <span style="font-size:11px;color:var(--g400)">Format: Import Faktur Jubelio (31 kolom). Upload manual via Jubelio dashboard, lalu paste SO No ke kolom di bawah.</span>
+          <button class="btn-ghost" onclick="_mpurcGenerateJubelioCSV()" style="font-size:12px;padding:6px 14px" title="Download CSV format Import Pesanan Penjualan Jubelio">📥 Download CSV Pesanan Jubelio</button>
+          <span style="font-size:11px;color:var(--g400)">Format: Import Pesanan Penjualan Jubelio (36 kolom). Upload via tab Semua Pesanan, lalu paste SO No ke kolom di bawah.</span>
         </div>
         <div class="form-grid" style="grid-template-columns:1fr">
           <div class="fg"><label>Jubelio SO No</label>
@@ -38964,10 +38964,10 @@ function _mpurcRenderDetail() {
   }
 }
 
-// MP Jubelio Invoice CSV — mirror Wholesale's _whGenerateJubelioInvoiceCSV.
-// Format Import Faktur Jubelio (31 kolom, comma-delimited, no BOM, LF endings).
-// 1 header row + N item rows (per item: header cols kosong, item cols diisi).
-// Shipping cost di-derive dari sum(linked OBs.shipping_cost).
+// MP Jubelio Sales Order (Pesanan Penjualan) CSV — format Import Pesanan
+// Jubelio (36 kolom, header Indonesia). 1 header row + N item rows.
+// Beda dari Faktur: Nilai Diskon dalam Rupiah (bukan %), plus field
+// alamat lengkap (Nama Penerima/Alamat/Kecamatan/Kota/dll).
 function _mpurcGenerateJubelioCSV() {
   const o = _mpurcCurrent; if (!o) { alert('Detail order belum ke-load.'); return; }
   const h = o.header;
@@ -39007,79 +39007,93 @@ function _mpurcGenerateJubelioCSV() {
     return `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`;
   };
   const cleanPhone = (s) => (s||'').toString().replace(/[^\d]/g,'');
-  // Invoice no — pakai pattern stabil dari MP id
-  const orderShort = (h.id||'').replace(/^MP-/,'').replace(/-/g,'');
-  const invoiceNo = `INV-MP-${orderShort}`;
-  const invoiceDate = fmtDate(h.invoiceDate) || fmtDate(h.orderDate) || fmtDate(new Date().toISOString().slice(0,10));
-  let dueDate = fmtDate(h.dueDate);
-  if (!dueDate && h.orderDate) {
-    const d = new Date(h.orderDate+'T00:00:00');
-    if (!isNaN(d.getTime())) { d.setDate(d.getDate()+14); dueDate = fmtDate(d.toISOString().slice(0,10)); }
-  }
+  // Pesanan no — pakai [auto] supaya Jubelio auto-generate. Kalau mau stabil,
+  // ganti ke pattern. User bilang lebih bagus auto-generate.
+  const pesananNo = '[auto]';
+  const orderDate = fmtDate(h.orderDate) || fmtDate(new Date().toISOString().slice(0,10));
   // Shipping cost = sum dari linked OB shipments (warehouse fill di OB)
   const shippingCost = (o.linkedOutbounds||[]).reduce((s,ob) => s + (parseFloat(ob.shipping_cost)||0), 0);
   // Default Jubelio config — MP pakai Gudang Event 1 + Toko Default
   const location = 'Gudang Event 1';
   const source = 'INTERNAL';
   const store = 'Toko Default';
-  const accountCode = '4-4000';
   const taxName = 'No Tax';
-  const HEADERS = ['invoice_no','customer_ref_no','invoice_date','due_date','customer_name','customer_email','customer_phone','is_tax_included','location','source','store','salesmen_name','salesmen_email','salesmen_phone','add_disc','shipping_cost','insurance_cost','add_fee','service_fee','note','item_code','description','price','account_code','qty_in_base','disc','tax_name','Tipe Barang','serial_no','batch_no','bin_code'];
+  // Sudah Lunas — TRUE kalau payment due ≤ 0
+  const sudahLunas = (parseFloat(h.paymentDue)||0) <= 0 ? 'TRUE' : 'FALSE';
+  // Fallback chains: pakai override dari prompt kalau form kosong
+  const custEmail = overrideEmail.trim() || h.clientRepEmail || h.shipToEmail || '';
+  const custPhone = overridePhone || cleanPhone(h.shipToPhone || '');
+  // Recipient: kalau shipToRecipient kosong, fallback ke clientRepName / billedToName
+  const recipientName = h.shipToRecipient || h.clientRepName || h.billedToName || '';
+  const recipientAddr = h.shipToAddress || h.billedToAddress || '';
+  const recipientPhone = custPhone;
+  const noteText = [h.notes, h.requestorName?`Req: ${h.requestorName}`:'', h.invoiceCategory?`Cat: ${h.invoiceCategory}`:''].filter(Boolean).join(' · ');
+  // 36 kolom — header bahasa Indonesia sesuai template Import Pesanan Penjualan
+  const HEADERS = [
+    'No. Pesanan','No. Ref Pelanggan','Tanggal','Zona Waktu','Nama Pelanggan',
+    'Email Pelanggan','No. Telp Pelanggan','Harga Termasuk Pajak','Lokasi',
+    'Salesmen','Sumber','Toko','Sudah Lunas','Status COD','Nama Penerima',
+    'Alamat Lengkap','Kecamatan','Kota','Provinsi','Kode Pos','Negara',
+    'Nomer Telepon','Keterangan','Kurir','No. Resi','Diskon Lainnya',
+    'Ongkos Kirim','Asuransi','Biaya Lainnya','Potongan Biaya','SKU',
+    'Harga','Qty','Nilai Diskon','Tipe Barang','Pajak'
+  ];
   const itemRows = items.map((it, idx) => {
     const isFirst = idx === 0;
-    const desc = (it.item_name||'').trim();
-    // Fallback chains: pakai override dari prompt kalau form kosong, kalau
-    // engga pakai field form (clientRep ATAU shipTo).
-    const custEmail = overrideEmail.trim() || h.clientRepEmail || h.shipToEmail || '';
-    const custPhone = overridePhone || cleanPhone(h.shipToPhone || '');
+    const qty = parseFloat(it.qty)||0;
+    const price = parseFloat(it.unit_price)||0;
+    const discPct = parseFloat(it.discount_pct)||0;
+    // Nilai Diskon di Pesanan = Rupiah amount (qty × price × disc%/100), bukan persen
+    const discAmount = Math.round(qty * price * discPct / 100);
     const headerCols = isFirst ? [
-      invoiceNo,
-      '', // customer_ref_no — MP gak punya customer PO
-      invoiceDate,
-      dueDate,
-      h.billedToName || '',
-      custEmail,
-      custPhone,
-      'FALSE',
-      location,
-      source,
-      store,
-      h.pic || '',
-      '', // salesmen_email
-      '', // salesmen_phone
-      0,  // add_disc
-      shippingCost,
-      0,  // insurance_cost
-      0,  // add_fee
-      0,  // service_fee
-      [h.notes, h.requestorName?`Req: ${h.requestorName}`:'', h.invoiceCategory?`Cat: ${h.invoiceCategory}`:''].filter(Boolean).join(' · '),
-    ] : Array(20).fill('');
-    // MP simpan unit_price = LIST (gross), discount_pct terpisah → kolom Jubelio
-    // 'price' = list, 'disc' = percent (1-100). Beda dari Wholesale yang udah
-    // applies discount ke unit_price.
+      pesananNo,                    // No. Pesanan
+      '',                            // No. Ref Pelanggan
+      orderDate,                     // Tanggal
+      'WIB',                         // Zona Waktu
+      h.billedToName || '',          // Nama Pelanggan
+      custEmail,                     // Email Pelanggan
+      custPhone,                     // No. Telp Pelanggan
+      'FALSE',                       // Harga Termasuk Pajak
+      location,                      // Lokasi
+      h.pic || '',                   // Salesmen
+      source,                        // Sumber
+      store,                         // Toko
+      sudahLunas,                    // Sudah Lunas
+      'FALSE',                       // Status COD
+      recipientName,                 // Nama Penerima
+      recipientAddr,                 // Alamat Lengkap
+      '', '', '', '',                // Kecamatan, Kota, Provinsi, Kode Pos
+      'Indonesia',                   // Negara
+      recipientPhone,                // Nomer Telepon
+      noteText,                      // Keterangan
+      '',                            // Kurir
+      '',                            // No. Resi
+      0,                             // Diskon Lainnya
+      shippingCost,                  // Ongkos Kirim
+      0, 0, 0,                       // Asuransi, Biaya Lainnya, Potongan Biaya
+    ] : Array(30).fill('');
     const itemCols = [
-      it.item_code || '',
-      desc,
-      parseFloat(it.unit_price)||0,
-      accountCode,
-      parseFloat(it.qty)||0,
-      parseFloat(it.discount_pct)||0,
-      taxName,
-      '', '', '', '',
+      it.item_code || '',            // SKU
+      price,                          // Harga
+      qty,                            // Qty
+      discAmount,                     // Nilai Diskon (Rupiah)
+      '',                             // Tipe Barang (kosong utk normal item)
+      taxName,                        // Pajak
     ];
     return [...headerCols, ...itemCols].map(esc).join(',');
   });
-  // CRLF line endings + trailing newline — Jubelio Faktur importer Windows-style.
+  // CRLF line endings + trailing newline — Jubelio Pesanan importer Windows-style.
   // BOM omitted (Restock CSV experience: BOM bikin Jubelio reject).
   const csv = [HEADERS.join(','), ...itemRows].join('\r\n') + '\r\n';
+  const orderShortName = (h.id||'').replace(/^MP-/,'').replace(/-/g,'');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `jubelio-invoice-${invoiceNo}.csv`;
+  a.download = `jubelio-pesanan-MP-${orderShortName}.csv`;
   a.click();
   URL.revokeObjectURL(url);
-  logActivity('ManualPurchase','export_jubelio_csv',h.id,`Download Jubelio CSV (${items.length} items)`);
+  logActivity('ManualPurchase','export_jubelio_csv',h.id,`Download Pesanan CSV (${items.length} items)`);
 }
 
 // MP Jubelio SO picker — autocomplete dari transaction_mappings yang di-tag
