@@ -110,6 +110,9 @@
       </div>
       <div class="sb-sec">
         <div class="sb-label">General</div>
+        <div class="sb-item" onclick="showPage('licensorfreebies',this)" id="nav-licensorfreebies">
+          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 6h12v8H2zM1 4h14v2H1z"/><path d="M8 4v10M5 4c0-1.5 1-2 2-2s2 .5 2 1.5S8 5 8 5M11 4c0-1.5-1-2-2-2s-2 .5-2 1.5S8 5 8 5"/></svg>Licensor Freebies
+        </div>
         <div class="sb-item" onclick="showPage('manualpurchase',this)" id="nav-manualpurchase">
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="4" width="12" height="9" rx="1"/><path d="M2 7h12"/><path d="M5 10h2M9 10h2"/></svg>Manual Purchase<span id="nav-mp-badge" style="display:none;margin-left:auto;font-size:9px;background:#c0392b;color:white;padding:1px 6px;border-radius:99px;font-family:var(--mono);font-weight:700"></span>
         </div>
@@ -208,6 +211,7 @@
 
         <div class="sb-label" style="margin-bottom:0.6rem">Account Management</div>
         <div class="home-grid" style="margin-bottom:1.5rem">
+          <div class="tool-card" onclick="showPage('licensorfreebies',null)"><span class="tc-icon">🎁</span><div class="tc-name">Licensor Freebies</div><div class="tc-desc">Request freebies untuk licensor IP — pilih IP + collection (opsional), bikin ticket ke warehouse via Outbound Request.</div></div>
           <div class="tool-card" onclick="showPage('ipreports',null)"><span class="tc-icon">🗞️</span><div class="tc-name">IP Reports</div><div class="tc-desc">Generate performance report per IP — weekly, monthly, quarterly, all-time. PDF + audit trail siapa kirim apa kapan.</div></div>
           <div class="tool-card" onclick="showPage('leads',null)"><span class="tc-icon">🎯</span><div class="tc-name">Leads Management</div><div class="tc-desc">Track potential brand dan artist collaboration leads.</div></div>
         </div>
@@ -5148,6 +5152,82 @@
         </div>
       </div><!-- /.page#page-koldb -->
 
+      <!-- LICENSOR FREEBIES -->
+      <div class="page" id="page-licensorfreebies">
+        <div class="page-header">
+          <div><div class="page-title">Licensor Freebies</div><div class="page-sub">Request freebies untuk licensor IP. Pilih IP + collection (opsional), bikin ticket ke warehouse via Outbound Request.</div></div>
+          <div class="tab-bar">
+            <button class="tab-btn" onclick="switchLFTab('new',this)">Tambah</button>
+            <button class="tab-btn active" onclick="switchLFTab('list',this)">Semua</button>
+          </div>
+        </div>
+        <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
+          <div class="stat-card"><div class="stat-num" id="lf-s-total">—</div><div class="stat-lbl">Total Ticket</div></div>
+          <div class="stat-card"><div class="stat-num" id="lf-s-planning">—</div><div class="stat-lbl">Planning</div></div>
+          <div class="stat-card"><div class="stat-num" id="lf-s-shipped">—</div><div class="stat-lbl">Shipped/Delivered</div></div>
+          <div class="stat-card"><div class="stat-num" id="lf-s-pending-ob">—</div><div class="stat-lbl">Belum Request OB</div></div>
+        </div>
+        <div id="lftab-new" style="display:none">
+          <div class="form-card">
+            <div class="form-sec">IP & Collection</div>
+            <div class="form-grid">
+              <div class="fg"><label>IP <span class="req">*</span></label>
+                <div class="ac-wrap"><input type="text" id="lf-ip" placeholder="Pilih IP..." autocomplete="off"><div class="ac-list" id="ac-lf-ip"></div></div>
+              </div>
+              <div class="fg"><label>Collection <span style="color:var(--g400);font-weight:400">(opsional)</span></label>
+                <div class="ac-wrap"><input type="text" id="lf-collection" placeholder="Pilih collection (opsional)..." autocomplete="off"><div class="ac-list" id="ac-lf-collection"></div></div>
+              </div>
+            </div>
+            <div class="form-sec" style="margin-top:1rem">Pengiriman Freebie</div>
+            <div class="form-grid">
+              <div class="fg"><label>Recipient Name <span class="req">*</span></label><input type="text" id="lf-rec-name" placeholder="Nama penerima (licensor / staff)"></div>
+              <div class="fg"><label>Phone</label><input type="text" id="lf-rec-phone" placeholder="+62..."></div>
+              <div class="fg"><label>Email <span style="color:var(--g400);font-weight:400">(buat kirim Surat Jalan via Mekari)</span></label><input type="email" id="lf-rec-email" placeholder="penerima@email.com"></div>
+              <div class="fg"><label>Tanggal Pengiriman</label><input type="date" id="lf-ship-date"></div>
+              <div class="fg full"><label>Alamat Lengkap</label><textarea id="lf-rec-address" rows="2" style="resize:vertical" placeholder="Jl, kota, kode pos..."></textarea></div>
+            </div>
+            <div style="font-family:var(--mono);font-size:11px;color:var(--g600);text-transform:uppercase;letter-spacing:0.3px;margin-top:14px;margin-bottom:6px">Items <span style="font-weight:400;text-transform:none;letter-spacing:0">(pilih dari product master)</span></div>
+            <div id="lf-freebie-rows" style="display:flex;flex-direction:column;gap:8px;margin-bottom:6px"></div>
+            <button class="btn-ghost" type="button" onclick="addLFFreebieRow()" style="padding:5px 12px;font-size:11px">+ Tambah Item</button>
+            <div class="form-sec" style="margin-top:1rem">Status &amp; Meta</div>
+            <div class="form-grid">
+              <div class="fg"><label>Status</label><select id="lf-status">
+                <option>Planning</option><option>Ready</option><option>Shipped</option><option>Delivered</option><option>Cancelled</option>
+              </select></div>
+              <div class="fg" style="position:relative"><label>PIC</label><input type="text" id="lf-pic" autocomplete="off" placeholder="Nama PIC"><div class="ac-list" id="ac-lf-pic"></div></div>
+              <div class="fg full"><label>Notes</label><textarea id="lf-notes" rows="2" style="resize:vertical" placeholder="Catatan tambahan..."></textarea></div>
+            </div>
+            <div class="btn-row">
+              <button class="btn-primary" onclick="submitLF()">Simpan</button>
+              <button class="btn-ghost" onclick="clearLFForm()">Bersihkan</button>
+            </div>
+            <div class="feedback" id="lf-feedback"></div>
+          </div>
+        </div>
+        <div id="lftab-list">
+          <div class="filter-panel">
+            <div class="filter-panel-top"><span class="filter-panel-label">Filter</span><button class="btn-clear-filter" onclick="clearLFFilters()">✕ Reset</button></div>
+            <div class="filter-grid">
+              <select class="f-select" id="lf-fil-status" onchange="renderLF()">
+                <option value="">Semua Status</option>
+                <option>Planning</option><option>Ready</option><option>Shipped</option><option>Delivered</option><option>Cancelled</option>
+              </select>
+              <select class="f-select" id="lf-fil-ip" onchange="renderLF()"><option value="">Semua IP</option></select>
+              <select class="f-select" id="lf-fil-collection" onchange="renderLF()"><option value="">Semua Collection</option></select>
+              <input class="search-box" type="text" id="lfSearch" placeholder="Cari recipient, IP, notes..." oninput="renderLF()" style="width:100%">
+            </div>
+          </div>
+          <div class="table-toolbar">
+            <button class="btn-refresh" onclick="loadLicensorFreebies()">↻ Refresh</button>
+            <div class="tcount" id="lf-tcount" style="margin-left:auto">— entri</div>
+          </div>
+          <div class="table-wrap"><table>
+            <thead><tr><th>ID</th><th>IP / Collection</th><th>Recipient</th><th>Items</th><th>Ship Date</th><th>Status</th><th>Outbound</th><th>PIC</th><th>Actions</th></tr></thead>
+            <tbody id="lfTableBody"></tbody>
+          </table></div>
+        </div>
+      </div><!-- /.page#page-licensorfreebies -->
+
       <!-- OUTBOND REQUEST -->
       <div class="page" id="page-outbound">
         <div class="page-header">
@@ -5316,6 +5396,6 @@
 <div id="proj-overlay" class="proj-panel-overlay" style="display:none" onclick="if(event.target===this)closeProjectDetail()"></div>
 <div id="proj-panel" class="proj-panel" style="display:none"></div>
 
-<script src="app.js?v=20260627e"></script>
+<script src="app.js?v=20260627f"></script>
 </body>
 </html>

@@ -328,7 +328,7 @@ function showPage(name, el) {
   document.getElementById("page-"+_pageId).classList.add("active");
   if (el) el.classList.add("active");
   const _c = document.querySelector('.content'); if (_c) _c.scrollTop = 0;
-  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",sampling:"Sampling",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",mktplan:"Marketing Planning",videoprod:"Video Production",txmap:"Transaction Mapping",manualpurchase:"Manual Purchase",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)",vendormaster:"Vendor Master",rnd:"R&D Product",koldb:"KOL Database",outbound:"Outbond Request",meetingnotes:"Meeting Notes",ipreports:"IP Reports",cronlogs:"Cron Logs",wholesale:"Wholesale Orders",arreceivables:"Account Receivables"};
+  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",sampling:"Sampling",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",mktplan:"Marketing Planning",videoprod:"Video Production",txmap:"Transaction Mapping",manualpurchase:"Manual Purchase",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)",vendormaster:"Vendor Master",rnd:"R&D Product",koldb:"KOL Database",outbound:"Outbond Request",meetingnotes:"Meeting Notes",ipreports:"IP Reports",cronlogs:"Cron Logs",wholesale:"Wholesale Orders",arreceivables:"Account Receivables",licensorfreebies:"Licensor Freebies"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -367,6 +367,7 @@ function showPage(name, el) {
   if (name==="publication") loadPublication();
   if (name==="photoshoot") loadPhotoshoot();
   if (name==="kolmgmt") loadKolMgmt();
+  if (name==="licensorfreebies") loadLicensorFreebies();
   if (name==="mktplan") loadMarketingPlan();
   if (name==="koldb") loadKolDb();
   if (name==="outbound") loadOutbound();
@@ -27303,6 +27304,350 @@ async function saveKolEdit(id) {
   } catch(e) { setFB('Gagal: ' + (e.message||e), false); }
 }
 
+// ── LICENSOR FREEBIES ──
+// Account Management module: request freebies untuk licensor IP. Pick IP +
+// collection (opsional) + items dari product master, lalu push ke Outbound
+// Request buat warehouse fulfill. Mirror KOL Mgmt pattern minus
+// platform/follower/deliverables, plus IP/Collection-driven scope.
+let _lfRows = [];
+let _lfLfRows = [];
+
+async function loadLicensorFreebies() {
+  const tbody = document.getElementById('lfTableBody');
+  if (tbody) tbody.innerHTML = '<tr><td class="empty-td" colspan="9">Memuat...</td></tr>';
+  try {
+    await _kolMgmtEnsureRefData(); // loads outbound, collections, kol_database, product_mappings
+    // Make sure IP master is loaded buat picker + filter
+    if (!allIPRows.length) { try { await loadIPMaster(); } catch(_) {} }
+    const { data, error } = await sb.from('licensor_freebies').select('*').order('date_added',{ascending:false});
+    if (error) throw error;
+    _lfRows = (data||[]).map(mapLF);
+    _lfPopulateFilters();
+    _lfSetupAC();
+    computeLFStats(_lfRows);
+    renderLF();
+  } catch(e) {
+    if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="9">Gagal: ${e.message||e}</td></tr>`;
+  }
+}
+
+function mapLF(r) {
+  return {
+    rowIndex: r.id, id: r.id,
+    ipId: r.ip_id || '', collectionId: r.collection_id || '',
+    licensorName: r.licensor_name || '',
+    recipientName: r.recipient_name || '',
+    recipientAddress: r.recipient_address || '',
+    recipientPhone: r.recipient_phone || '',
+    recipientEmail: r.recipient_email || '',
+    requestedShipDate: r.requested_ship_date,
+    freebieItems: Array.isArray(r.freebie_items) ? r.freebie_items : [],
+    outboundRequestId: r.outbound_request_id || '',
+    status: r.status || 'Planning',
+    notes: r.notes || '',
+    pic: r.pic || '',
+    dateAdded: r.date_added, addedBy: r.added_by||'',
+    lastUpdated: r.last_updated, lastUpdatedBy: r.last_updated_by||'',
+  };
+}
+
+function _lfIpName(ipId) {
+  const ip = allIPRows.find(x => x.id === ipId);
+  return ip ? ip.name : ipId;
+}
+function _lfColName(colId) {
+  const c = allColRows.find(x => x.id === colId);
+  return c ? (c.name || colId) : colId;
+}
+
+function _lfSetupAC() {
+  setupAC('lf-ip', 'ac-lf-ip', () => allIPRows.map(r => r.name));
+  setupAC('lf-collection', 'ac-lf-collection', () => allColRows.map(r => r.name).filter(Boolean));
+  setupAC('lf-pic', 'ac-lf-pic', () => acPics || []);
+}
+
+function _lfPopulateFilters() {
+  const ipSel = document.getElementById('lf-fil-ip');
+  if (ipSel) {
+    const ipNames = [...new Set(_lfRows.map(r => _lfIpName(r.ipId)).filter(Boolean))].sort();
+    const curVal = ipSel.value;
+    ipSel.innerHTML = '<option value="">Semua IP</option>' + ipNames.map(n => `<option${n===curVal?' selected':''}>${n.replace(/</g,'&lt;')}</option>`).join('');
+  }
+  const colSel = document.getElementById('lf-fil-collection');
+  if (colSel) {
+    const colNames = [...new Set(_lfRows.map(r => _lfColName(r.collectionId)).filter(Boolean))].sort();
+    const curVal = colSel.value;
+    colSel.innerHTML = '<option value="">Semua Collection</option>' + colNames.map(n => `<option${n===curVal?' selected':''}>${n.replace(/</g,'&lt;')}</option>`).join('');
+  }
+}
+
+function computeLFStats(rows) {
+  document.getElementById('lf-s-total').textContent = rows.length;
+  document.getElementById('lf-s-planning').textContent = rows.filter(r => r.status==='Planning').length;
+  document.getElementById('lf-s-shipped').textContent = rows.filter(r => r.status==='Shipped' || r.status==='Delivered').length;
+  document.getElementById('lf-s-pending-ob').textContent = rows.filter(r => (r.freebieItems||[]).length && !r.outboundRequestId && r.status!=='Cancelled').length;
+}
+
+function renderLF() {
+  const tbody = document.getElementById('lfTableBody');
+  if (!tbody) return;
+  const fStatus = document.getElementById('lf-fil-status')?.value || '';
+  const fIp     = document.getElementById('lf-fil-ip')?.value || '';
+  const fCol    = document.getElementById('lf-fil-collection')?.value || '';
+  const q       = (document.getElementById('lfSearch')?.value || '').toLowerCase();
+  const rows = _lfRows.filter(r => {
+    if (fStatus && r.status !== fStatus) return false;
+    if (fIp && _lfIpName(r.ipId) !== fIp) return false;
+    if (fCol && _lfColName(r.collectionId) !== fCol) return false;
+    if (q) {
+      const hay = `${r.id} ${r.recipientName} ${_lfIpName(r.ipId)} ${_lfColName(r.collectionId)} ${r.notes}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+  document.getElementById('lf-tcount').textContent = `${rows.length} entri`;
+  if (!rows.length) { tbody.innerHTML = '<tr><td class="empty-td" colspan="9">Belum ada freebie ticket.</td></tr>'; return; }
+  const esc = s => (s==null?'':String(s)).replace(/</g,'&lt;');
+  const STATUS_CLS = {Planning:'p-draft', Ready:'p-signings', Shipped:'p-review', Delivered:'p-active', Cancelled:'p-expired'};
+  tbody.innerHTML = rows.map(r => {
+    const ipLbl = _lfIpName(r.ipId);
+    const colLbl = r.collectionId ? _lfColName(r.collectionId) : '—';
+    const itemCount = (r.freebieItems||[]).length;
+    const itemsBrief = itemCount ? `${itemCount} item · ${(r.freebieItems||[]).reduce((s,it)=>s+(parseInt(it.qty,10)||0),0)} pcs` : '—';
+    const obLink = r.outboundRequestId
+      ? `<a href="#" onclick="event.preventDefault();showPage('outbound',null);setTimeout(()=>{const el=document.getElementById('ob-fil-search');if(el){el.value='${r.outboundRequestId}';applyOutboundFilters();}},300)" style="font-size:11px;color:#3C3489;text-decoration:underline">✓ ${esc(r.outboundRequestId)}</a>`
+      : (itemCount && r.status !== 'Cancelled'
+          ? `<button class="btn-icon" onclick="requestLFShipment('${r.id}')" title="Buat outbound request" style="font-size:11px;color:#3C3489">📦 Request</button>`
+          : `<span style="font-size:10px;color:var(--g400)">—</span>`);
+    return `<tr>
+      <td style="font-family:var(--mono);font-size:10px">${esc(r.id)}</td>
+      <td><div style="font-size:12px;font-weight:600">${esc(ipLbl)}</div>${colLbl!=='—'?`<div style="font-size:10px;color:var(--g600);font-family:var(--mono)">${esc(colLbl)}</div>`:''}</td>
+      <td style="font-size:12px">${esc(r.recipientName)||'—'}${r.recipientEmail?`<div style="font-size:10px;color:var(--g600);font-family:var(--mono)">${esc(r.recipientEmail)}</div>`:''}</td>
+      <td style="font-size:11px;font-family:var(--mono)">${itemsBrief}</td>
+      <td style="font-family:var(--mono);font-size:11px">${r.requestedShipDate||'—'}</td>
+      <td><span class="pill ${STATUS_CLS[r.status]||'p-draft'}" style="font-size:10px">${esc(r.status)}</span></td>
+      <td>${obLink}</td>
+      <td style="font-size:11px;color:var(--g600)">${esc(r.pic)||'—'}</td>
+      <td style="white-space:nowrap">
+        <button class="btn-icon" onclick="editLF('${r.id}')" title="Edit">✎</button>
+        <button class="btn-icon" onclick="deleteLF('${r.id}')" title="Hapus" style="color:#c0392b">🗑</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function switchLFTab(tab, btn) {
+  document.querySelectorAll('#page-licensorfreebies .tab-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  document.getElementById('lftab-new').style.display = tab === 'new' ? '' : 'none';
+  document.getElementById('lftab-list').style.display = tab === 'list' ? '' : 'none';
+  if (tab === 'new') {
+    // Seed with at least 1 freebie row
+    const host = document.getElementById('lf-freebie-rows');
+    if (host && !host.children.length) addLFFreebieRow();
+  }
+}
+
+function addLFFreebieRow(item) {
+  const host = document.getElementById('lf-freebie-rows');
+  if (!host) return;
+  host.insertAdjacentHTML('beforeend', _kolFreebieRowHTML(item || null, 'lf-frb'));
+  const row = host.lastElementChild;
+  const display = row.querySelector('.lf-frb-display');
+  const ac = row.querySelector('.lf-frb-ac');
+  if (display && ac) {
+    display.addEventListener('input', () => _kolFrbRenderAC(display, ac));
+    display.addEventListener('focus', () => _kolFrbRenderAC(display, ac));
+    document.addEventListener('click', e => {
+      if (!display.contains(e.target) && !ac.contains(e.target)) ac.style.display = 'none';
+    });
+  }
+}
+
+function clearLFForm() {
+  ['lf-ip','lf-collection','lf-rec-name','lf-rec-phone','lf-rec-email','lf-rec-address','lf-ship-date','lf-pic','lf-notes'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  const stat = document.getElementById('lf-status'); if (stat) stat.value = 'Planning';
+  document.getElementById('lf-freebie-rows').innerHTML = '';
+  const fb = document.getElementById('lf-feedback'); if (fb) fb.textContent = '';
+}
+
+function clearLFFilters() {
+  ['lf-fil-status','lf-fil-ip','lf-fil-collection','lfSearch'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  renderLF();
+}
+
+async function submitLF() {
+  const fb = document.getElementById('lf-feedback');
+  const setFB = (msg, ok) => { if (fb) { fb.textContent = msg; fb.style.color = ok ? '#0a7d3a' : '#c0392b'; } };
+  setFB('', true);
+  const ipName = (document.getElementById('lf-ip')?.value || '').trim();
+  if (!ipName) { setFB('IP wajib diisi', false); return; }
+  const ip = allIPRows.find(r => r.name === ipName);
+  if (!ip) { setFB('IP gak ketemu di IP Master', false); return; }
+  const colName = (document.getElementById('lf-collection')?.value || '').trim();
+  let colId = null;
+  if (colName) {
+    const col = allColRows.find(c => c.name === colName);
+    if (col) colId = col.id;
+  }
+  const recName = (document.getElementById('lf-rec-name')?.value || '').trim();
+  if (!recName) { setFB('Recipient name wajib diisi', false); return; }
+  const freebieItems = _kolReadFreebieFrom('lf-freebie-rows', 'lf-frb');
+  try {
+    const id = genId('LF');
+    const payload = {
+      id, ip_id: ip.id, collection_id: colId,
+      licensor_name: ip.name,
+      recipient_name: recName,
+      recipient_address: (document.getElementById('lf-rec-address')?.value || '').trim() || null,
+      recipient_phone: (document.getElementById('lf-rec-phone')?.value || '').trim() || null,
+      recipient_email: (document.getElementById('lf-rec-email')?.value || '').trim() || null,
+      requested_ship_date: document.getElementById('lf-ship-date')?.value || null,
+      freebie_items: freebieItems,
+      status: document.getElementById('lf-status')?.value || 'Planning',
+      notes: (document.getElementById('lf-notes')?.value || '').trim() || null,
+      pic: (document.getElementById('lf-pic')?.value || '').trim() || null,
+      added_by: currentUser, date_added: new Date().toISOString().slice(0,10),
+      last_updated: new Date().toISOString(), last_updated_by: currentUser,
+    };
+    const { error } = await sb.from('licensor_freebies').insert(payload);
+    if (error) throw error;
+    logActivity('LicensorFreebies','create',id,`Freebie ${ip.name}${colName?` · ${colName}`:''} → ${recName}`);
+    setFB(`✓ Ticket ${id} dibuat`, true);
+    clearLFForm();
+    await loadLicensorFreebies();
+    // Switch ke list tab biar user lihat result
+    const listBtn = document.querySelector('#page-licensorfreebies .tab-btn:nth-of-type(2)');
+    if (listBtn) switchLFTab('list', listBtn);
+  } catch(e) { setFB('Gagal: ' + (e.message||e), false); }
+}
+
+async function editLF(id) {
+  const r = _lfRows.find(x => x.id === id);
+  if (!r) return;
+  // Switch to "Tambah" tab and pre-populate the form
+  const newBtn = document.querySelector('#page-licensorfreebies .tab-btn:nth-of-type(1)');
+  if (newBtn) switchLFTab('new', newBtn);
+  document.getElementById('lf-ip').value = _lfIpName(r.ipId);
+  document.getElementById('lf-collection').value = r.collectionId ? _lfColName(r.collectionId) : '';
+  document.getElementById('lf-rec-name').value = r.recipientName;
+  document.getElementById('lf-rec-phone').value = r.recipientPhone;
+  document.getElementById('lf-rec-email').value = r.recipientEmail;
+  document.getElementById('lf-rec-address').value = r.recipientAddress;
+  document.getElementById('lf-ship-date').value = r.requestedShipDate || '';
+  document.getElementById('lf-status').value = r.status;
+  document.getElementById('lf-pic').value = r.pic;
+  document.getElementById('lf-notes').value = r.notes;
+  document.getElementById('lf-freebie-rows').innerHTML = '';
+  (r.freebieItems||[]).forEach(it => addLFFreebieRow(it));
+  if (!(r.freebieItems||[]).length) addLFFreebieRow();
+  // Replace submitLF behavior temporarily — easier: just create new then delete old.
+  // Better: have separate save. For now, just delete old + re-submit creates a new id.
+  // Implement as: store editing id + change Simpan to call saveLFEdit instead.
+  window.__lfEditingId = id;
+  const submitBtn = document.querySelector('#lftab-new .btn-primary');
+  if (submitBtn) {
+    submitBtn.textContent = 'Update';
+    submitBtn.onclick = () => saveLFEdit(id);
+  }
+}
+
+async function saveLFEdit(id) {
+  const fb = document.getElementById('lf-feedback');
+  const setFB = (msg, ok) => { if (fb) { fb.textContent = msg; fb.style.color = ok ? '#0a7d3a' : '#c0392b'; } };
+  const ipName = (document.getElementById('lf-ip')?.value || '').trim();
+  if (!ipName) { setFB('IP wajib diisi', false); return; }
+  const ip = allIPRows.find(r => r.name === ipName);
+  if (!ip) { setFB('IP gak ketemu', false); return; }
+  const colName = (document.getElementById('lf-collection')?.value || '').trim();
+  let colId = null;
+  if (colName) {
+    const col = allColRows.find(c => c.name === colName);
+    if (col) colId = col.id;
+  }
+  const freebieItems = _kolReadFreebieFrom('lf-freebie-rows', 'lf-frb');
+  try {
+    const { error } = await sb.from('licensor_freebies').update({
+      ip_id: ip.id, collection_id: colId, licensor_name: ip.name,
+      recipient_name: (document.getElementById('lf-rec-name')?.value || '').trim(),
+      recipient_address: (document.getElementById('lf-rec-address')?.value || '').trim() || null,
+      recipient_phone: (document.getElementById('lf-rec-phone')?.value || '').trim() || null,
+      recipient_email: (document.getElementById('lf-rec-email')?.value || '').trim() || null,
+      requested_ship_date: document.getElementById('lf-ship-date')?.value || null,
+      freebie_items: freebieItems,
+      status: document.getElementById('lf-status')?.value || 'Planning',
+      notes: (document.getElementById('lf-notes')?.value || '').trim() || null,
+      pic: (document.getElementById('lf-pic')?.value || '').trim() || null,
+      last_updated: new Date().toISOString(), last_updated_by: currentUser,
+    }).eq('id', id);
+    if (error) throw error;
+    logActivity('LicensorFreebies','edit',id,`Edit ${ip.name}`);
+    setFB('✓ Updated', true);
+    // Reset submit button back
+    const submitBtn = document.querySelector('#lftab-new .btn-primary');
+    if (submitBtn) { submitBtn.textContent = 'Simpan'; submitBtn.onclick = () => submitLF(); }
+    window.__lfEditingId = null;
+    clearLFForm();
+    await loadLicensorFreebies();
+    const listBtn = document.querySelector('#page-licensorfreebies .tab-btn:nth-of-type(2)');
+    if (listBtn) switchLFTab('list', listBtn);
+  } catch(e) { setFB('Gagal: ' + (e.message||e), false); }
+}
+
+async function deleteLF(id) {
+  const r = _lfRows.find(x => x.id === id);
+  if (!r) return;
+  if (r.outboundRequestId) { alert('Sudah link ke Outbound Request ' + r.outboundRequestId + '. Cancel OB-nya dulu di modul Outbond Request, baru hapus di sini.'); return; }
+  if (!confirm(`Hapus freebie ticket ${id}?`)) return;
+  try {
+    const { error } = await sb.from('licensor_freebies').delete().eq('id', id);
+    if (error) throw error;
+    logActivity('LicensorFreebies','delete',id,`Hapus ${_lfIpName(r.ipId)}`);
+    await loadLicensorFreebies();
+  } catch(e) { alert('Gagal: ' + (e.message||e)); }
+}
+
+// Auto-create outbound_request dari freebie items + sync outbound_request_id
+// kembali ke licensor_freebies. Mirror requestKolShipment.
+async function requestLFShipment(id) {
+  const r = _lfRows.find(x => x.id === id);
+  if (!r) return;
+  if (r.outboundRequestId) { alert('Sudah ada outbound request: ' + r.outboundRequestId); return; }
+  if (!(r.freebieItems||[]).length) { alert('Belum ada item freebie. Edit dulu.'); return; }
+  if (!confirm(`Buat outbound ticket buat licensor "${_lfIpName(r.ipId)}" ke ${r.recipientName}?`)) return;
+  try {
+    const obId = genId('OB');
+    const ipLbl = _lfIpName(r.ipId);
+    const colLbl = r.collectionId ? _lfColName(r.collectionId) : '';
+    const payload = {
+      id: obId,
+      source_module: 'LicensorFreebies',
+      source_id: id,
+      purpose: 'Freebies',
+      recipient_name: r.recipientName,
+      recipient_address: r.recipientAddress || null,
+      recipient_phone: r.recipientPhone || null,
+      recipient_email: r.recipientEmail || null,
+      requested_ship_date: r.requestedShipDate || null,
+      items: r.freebieItems || [],
+      status: 'Pending',
+      notes: `Auto-created from licensor freebies ${id} (${ipLbl}${colLbl?` · ${colLbl}`:''})`,
+      added_by: currentUser, date_added: new Date().toISOString().slice(0,10),
+      last_updated: new Date().toISOString(), last_updated_by: currentUser,
+    };
+    const { error: e1 } = await sb.from('outbound_requests').insert(payload);
+    if (e1) throw e1;
+    const { error: e2 } = await sb.from('licensor_freebies').update({
+      outbound_request_id: obId,
+      last_updated: new Date().toISOString(), last_updated_by: currentUser,
+    }).eq('id', id);
+    if (e2) throw e2;
+    logActivity('LicensorFreebies','request_shipment',id,`→ ${obId}`);
+    alert(`✓ Ticket ${obId} dibuat. Buka modul Outbond Request buat track.`);
+    await loadLicensorFreebies();
+  } catch(e) { alert('Gagal: ' + (e.message||e)); }
+}
+
 // ── 7. TRANSACTION MAPPING ──
 // Maps jubelio_sales_orders rows (excluding Gudang Bintaro & Gudang Marte)
 // to categories + project refs via a separate transaction_mappings table.
@@ -31517,12 +31862,14 @@ function _renderOutboundRows(rows) {
       : r.sourceModule === 'PhotoshootPlanning' ? 'PS'
       : r.sourceModule === 'ManualPurchase' ? 'MP'
       : r.sourceModule === 'WholesaleOrder' ? 'WO'
+      : r.sourceModule === 'LicensorFreebies' ? 'LF'
       : r.sourceModule;
     const sourcePage = r.sourceModule === 'KolManagement' ? 'kolmgmt'
       : r.sourceModule === 'MarketingActivation' ? 'mktactivation'
       : r.sourceModule === 'PhotoshootPlanning' ? 'photoshoot'
       : r.sourceModule === 'ManualPurchase' ? 'manualpurchase'
       : r.sourceModule === 'WholesaleOrder' ? 'wholesale'
+      : r.sourceModule === 'LicensorFreebies' ? 'licensorfreebies'
       : '';
     // Source modules with deep-link langsung ke detail row
     const sourceLabel = (r.sourceModule === 'ManualPurchase' && r.sourceId)
