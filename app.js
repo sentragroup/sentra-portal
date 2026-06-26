@@ -39054,13 +39054,16 @@ function _mpurcGenerateJubelioCSV() {
       0,  // service_fee
       [h.notes, h.requestorName?`Req: ${h.requestorName}`:'', h.invoiceCategory?`Cat: ${h.invoiceCategory}`:''].filter(Boolean).join(' · '),
     ] : Array(20).fill('');
+    // MP simpan unit_price = LIST (gross), discount_pct terpisah → kolom Jubelio
+    // 'price' = list, 'disc' = percent (1-100). Beda dari Wholesale yang udah
+    // applies discount ke unit_price.
     const itemCols = [
       it.item_code || '',
       desc,
       parseFloat(it.unit_price)||0,
       accountCode,
       parseFloat(it.qty)||0,
-      0, // disc per-item (udah handle di unit_price)
+      parseFloat(it.discount_pct)||0,
       taxName,
       '', '', '', '',
     ];
