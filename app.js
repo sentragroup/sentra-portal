@@ -8766,12 +8766,17 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
     return;
   }
 
-  // product_mappings has one row per distinct item_name with a single
-  // representative jubelio_item_id. Expand to all SKU variants of those names
-  // so size variants (M / L / XL / ...) all show up.
-  const itemNames = [...new Set(mappings.map(m => m.item_name).filter(Boolean))];
-  const allVariantRows = await _fetchAllPages('jubelio_items','item_id, item_name, item_code, thumbnail',
-    q => q.in('item_name', itemNames));
+  // Use jubelio_item_id langsung dari product_mappings (post task #99,
+  // semua variants udah di-mapping). Hindari join by item_name yang fragile —
+  // product_mappings.item_name bisa stale dari rename di Jubelio (e.g.
+  // 'Negative - Black' → 'Negative - Washed - Black') → variants ke-skip.
+  const mappedItemIds = [...new Set(mappings.map(m => m.jubelio_item_id).filter(x => x != null))];
+  // Fetch fresh metadata dari jubelio_items by id (item_name di sini =
+  // current Jubelio state, dipake buat grouping + thumbnail).
+  const allVariantRows = mappedItemIds.length
+    ? await _fetchAllPages('jubelio_items','item_id, item_name, item_code, thumbnail',
+        q => q.in('item_id', mappedItemIds))
+    : [];
   const itemIds = [...new Set(allVariantRows.map(r => r.item_id))];
 
   // 2. Parallel fetch: sales items, stock, adjustments
