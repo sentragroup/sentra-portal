@@ -39008,14 +39008,18 @@ function _mpurcGenerateJubelioCSV() {
   const itemRows = items.map((it, idx) => {
     const isFirst = idx === 0;
     const desc = (it.item_name||'').trim();
+    // Fallback chains — email & phone bisa di clientRep ATAU shipTo (tergantung
+    // user input dimana). Jubelio import sering reject kalau field2 ini kosong.
+    const custEmail = h.clientRepEmail || h.shipToEmail || '';
+    const custPhone = cleanPhone(h.shipToPhone || '');
     const headerCols = isFirst ? [
       invoiceNo,
       '', // customer_ref_no — MP gak punya customer PO
       invoiceDate,
       dueDate,
       h.billedToName || '',
-      h.clientRepEmail || '',
-      cleanPhone(h.shipToPhone || ''),
+      custEmail,
+      custPhone,
       'FALSE',
       location,
       source,
