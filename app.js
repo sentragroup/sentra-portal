@@ -9048,10 +9048,38 @@ async function loadColFinancial(colId, col) {
   // linked_po_ids dari restock_projects disimpen as text array of numeric ids
   // (e.g. ["17","19"]), tapi jubelio_purchase_bills.purchaseorder_id bertipe
   // bigint. Cast ke Number biar .in() match.
-  const allLinkedPoIds = [...new Set(matchedRPs.flatMap(rp => rp.linkedPos))]
+  let allLinkedPoIds = [...new Set(matchedRPs.flatMap(rp => rp.linkedPos))]
     .filter(Boolean)
     .map(x => Number(x))
     .filter(n => !isNaN(n));
+
+  // Fallback: POs created via PD Purchase Order CSV export (bukan via Restock
+  // module) gak ter-link ke restock_project apapun. Tapi PO ref-nya
+  // deterministic — pattern 'PO-<col_id_suffix>-<vendor>'. Match by suffix
+  // (e.g. COL-20260611-9428 → PO-20260611-9428-%) lalu union ke linked POs.
+  // Tambahin juga sub_total ke planned cost (biar Planned gak undercount).
+  const colIdSuffix = (colId || '').replace(/^COL-/, '');
+  if (colIdSuffix && colIdSuffix.match(/^\d{8}-\d{4}$/)) {
+    const { data: derivedPOs } = await sb.from('jubelio_purchase_orders')
+      .select('purchaseorder_id, purchaseorder_no, supplier_name, sub_total, grand_total, status, transaction_date')
+      .like('purchaseorder_no', `PO-${colIdSuffix}-%`);
+    for (const po of (derivedPOs || [])) {
+      const pid = Number(po.purchaseorder_id);
+      if (!isNaN(pid) && !allLinkedPoIds.includes(pid)) allLinkedPoIds.push(pid);
+      // Add as synthetic restock-project row so it shows up in breakdown +
+      // contributes to prodCostPlanned (using sub_total = pre-tax planned).
+      const planned = parseFloat(po.sub_total || 0) || parseFloat(po.grand_total || 0) || 0;
+      matchedRPs.push({
+        id: po.purchaseorder_no,
+        name: `${po.purchaseorder_no} (${po.supplier_name||'—'}) · ex-PD CSV`,
+        status: po.status || '—',
+        linkedPos: [String(pid)],
+        subtotal: planned,
+        dateCreated: po.transaction_date,
+      });
+      prodCostPlanned += planned;
+    }
+  }
   let prodCashOut = 0;
   let prodBilled = 0;
   let billsCount = 0, billsPaidCount = 0;
