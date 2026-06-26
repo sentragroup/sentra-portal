@@ -9044,19 +9044,28 @@ async function loadColFinancial(colId, col) {
     prodCostPlanned += subtotal;
   }
 
-  // Production Cost actual (cash out): from bills linked to these POs
-  const allLinkedPoIds = [...new Set(matchedRPs.flatMap(rp => rp.linkedPos))].filter(Boolean);
+  // Production Cost actual (cash out): from bills linked to these POs.
+  // linked_po_ids dari restock_projects disimpen as text array of numeric ids
+  // (e.g. ["17","19"]), tapi jubelio_purchase_bills.purchaseorder_id bertipe
+  // bigint. Cast ke Number biar .in() match.
+  const allLinkedPoIds = [...new Set(matchedRPs.flatMap(rp => rp.linkedPos))]
+    .filter(Boolean)
+    .map(x => Number(x))
+    .filter(n => !isNaN(n));
   let prodCashOut = 0;
+  let prodBilled = 0;
   let billsCount = 0, billsPaidCount = 0;
   if (allLinkedPoIds.length) {
-    const { data: bills } = await sb.from('jubelio_bills')
-      .select('bill_id, purchaseorder_id, total_amount, paid_amount, status')
-      .in('purchaseorder_id', allLinkedPoIds.map(String));
+    const { data: bills } = await sb.from('jubelio_purchase_bills')
+      .select('bill_id, purchaseorder_id, grand_total, payment_amount')
+      .in('purchaseorder_id', allLinkedPoIds);
     for (const b of (bills || [])) {
       billsCount++;
-      const paid = parseFloat(b.paid_amount || 0);
+      const total = parseFloat(b.grand_total || 0);
+      const paid = parseFloat(b.payment_amount || 0);
+      prodBilled += total;
       prodCashOut += paid;
-      if (paid > 0 && paid >= parseFloat(b.total_amount||0) - 1) billsPaidCount++;
+      if (paid > 0 && paid >= total - 1) billsPaidCount++;
     }
   }
 
@@ -9109,7 +9118,7 @@ async function loadColFinancial(colId, col) {
   const cashIn = netRevenue;
   const cashOutMkt = mktExp;       // assumed paid (no paid flag yet)
   const cashOutPS  = psExp;        // same
-  const cashOutProd = prodCashOut; // ACTUAL from jubelio_bills
+  const cashOutProd = prodCashOut; // ACTUAL from jubelio_purchase_bills.payment_amount
   const cashOutTotal = cashOutMkt + cashOutPS + cashOutProd;
   const netCash = cashIn - cashOutTotal;
 
@@ -9123,7 +9132,7 @@ async function loadColFinancial(colId, col) {
     grossRevenue, netRevenue, discount: perf.grandDiscount || 0,
     cogs, grossProfit, grossMargin,
     mktExp, psExp, royaltyGross, royaltyDetail, opex, netProfit, netMargin,
-    prodCostPlanned, prodCashOut,
+    prodCostPlanned, prodCashOut, prodBilled,
     cashIn, cashOutMkt, cashOutPS, cashOutProd, cashOutTotal, netCash,
     totalInvestment, recoupPct, recouped,
     meRows, psRows, matchedRPs,
@@ -9255,7 +9264,7 @@ function renderColCashFlow(colId) {
     r('Net Revenue (settled orders)', _colFinFmtRp(d.cashIn), { indent:1, color:'#2d7a2d' }),
     r('Total Cash In', _colFinFmtRp(d.cashIn), { bold:true, divider:true, color:'#2d7a2d' }),
     r('CASH OUT', '', { bold:true }),
-    r('Production — PO bills paid' + billsLbl, '(' + _colFinFmtRp(d.cashOutProd) + ')', { indent:1, color:'#c0392b', sub: d.prodCostPlanned > 0 ? `Planned ${_colFinFmtRp(d.prodCostPlanned)} · paid ${(d.prodCostPlanned>0?(d.cashOutProd/d.prodCostPlanned*100):0).toFixed(0)}%` : null }),
+    r('Production — PO bills paid' + billsLbl, '(' + _colFinFmtRp(d.cashOutProd) + ')', { indent:1, color:'#c0392b', sub: d.prodCostPlanned > 0 ? `Planned ${_colFinFmtRp(d.prodCostPlanned)} · Billed ${_colFinFmtRp(d.prodBilled||0)} · Paid ${(d.prodCostPlanned>0?(d.cashOutProd/d.prodCostPlanned*100):0).toFixed(0)}%` : null }),
     r('Marketing budget (' + d.meRows.length + ' event)', '(' + _colFinFmtRp(d.cashOutMkt) + ')', { indent:1, color:'#c0392b', sub:'Asumsi paid penuh — belum ada flag bayar di Marketing Events' }),
     r('Photoshoot budget (' + d.psRows.length + ' shoot)', '(' + _colFinFmtRp(d.cashOutPS) + ')', { indent:1, color:'#c0392b', sub:'Asumsi paid penuh — belum ada flag bayar di Photoshoot' }),
     r('Total Cash Out', '(' + _colFinFmtRp(d.cashOutTotal) + ')', { bold:true, divider:true, color:'#c0392b' }),
@@ -9285,7 +9294,7 @@ function renderColCashFlow(colId) {
     </table>
     ${prodBreak}
     <div style="margin-top:10px;padding:8px 12px;background:var(--off);border-radius:6px;font-size:10px;color:var(--g400);font-family:var(--mono);line-height:1.5">
-      ℹ️ Cash Flow approximation: Cash In = settled net revenue. Cash Out Production = actual jubelio_bills.paid_amount. Marketing/Photoshoot diasumsiin paid penuh karena belum ada paid-flag di tabel. Royalty disisihkan (biasa di-pay quarterly).
+      ℹ️ Cash Flow approximation: Cash In = settled net revenue. Cash Out Production = actual jubelio_purchase_bills.payment_amount (PO yang udah di-bill + dibayar di Jubelio). Marketing/Photoshoot diasumsiin paid penuh karena belum ada paid-flag di tabel. Royalty disisihkan (biasa di-pay quarterly).
     </div>`;
 }
 // ── END FINANCIAL STATEMENT ──
