@@ -2454,7 +2454,7 @@ async function loadPopupBooth() {
 // Adjustment join uses popup_booth_id (preferred) with event_ref fallback for legacy rows.
 // Note: Transfer + Transaction mappings still name-based — duplicate-name events share those.
 async function _pbComputeEventAggregates(events) {
-  const out = new Map(events.map(e => [e.id, {qty_in:0, qty_out:0, qty_sold:0, qty_adj:0, sales_rev:0, sales_cogs:0, margin:0, current_stock:0, eventName: e.name}]));
+  const out = new Map(events.map(e => [e.id, {qty_in:0, qty_out:0, qty_sold:0, qty_adj:0, sales_rev:0, sales_cogs:0, margin:0, current_stock:0, so_mapped:false, eventName: e.name}]));
   if (!events.length) return out;
   const eventNames = events.map(e => e.name).filter(Boolean);
   const eventIds = events.map(e => e.id);
@@ -2603,6 +2603,7 @@ async function _pbComputeEventAggregates(events) {
     }
 
     const sIds = eventSoIds.get(ev.id) || [];
+    r.so_mapped = sIds.length > 0;
     for (const soId of sIds) {
       const h = soHeaderMap.get(soId);
       if (!h || isCanceled(h)) continue;
@@ -2628,27 +2629,110 @@ async function _pbComputeEventAggregates(events) {
   return out;
 }
 
-// Auto-derive event status from date + current_stock + qty_sold.
-// Manual overrides (event_status field): 'Cancelled' or 'No Sales' (= confirm
-// event had no sales, so qty_sold=0 won't block Done).
-//   eventDate in future                           → Planned
-//   past + current_stock != 0                     → Reconcile  (stok belum tally)
-//   past + current_stock == 0 + (qty_sold > 0
-//        OR manual = No Sales)                    → Done
-//   past + current_stock == 0 + qty_sold == 0
-//        AND no "No Sales" override               → Reconcile (sales belum di-map)
-// If currentStock is undefined (aggregator not loaded yet), treat past as Reconcile.
-function computePBAutoStatus(eventDate, currentStock, qtySold, manualStatus) {
+// Compute per-event signal states. Returns object with chip keys → state.
+// State: 'green' (done), 'gray' (pending/n-a), 'orange' (issued waiting sign).
+// Applicability driven by payment method:
+//   Cash (Jubelio POS / QRIS / Pickup): SJ + SO + Stock
+//   AR-eligible (Consignment / 3rd-party / Other): + INV + Pay + SR
+// 'No Sales' override: skip SO chip (no SO expected).
+function _pbComputeSignals(r, agg) {
+  const isAR = _pbIsAREligible(r.paymentMethod || '');
+  const noSales = r.eventStatus === 'No Sales';
+  const a = agg || {qty_in:0, qty_sold:0, qty_out:0, qty_adj:0, current_stock:0, so_mapped:false};
+
+  // SJ — issued + signed (combined chip with intermediate state)
+  let sj = 'gray';
+  if (r.suratJalanUrl) sj = (r.signedSuratJalanUrl || (r.suratJalanUrl && _pbMekariSignedFor(r))) ? 'green' : 'orange';
+
+  // SO — mapped via tx_mapping OR manual id_pesanan_jubelio filled
+  let so;
+  if (noSales) so = 'na';
+  else if (a.so_mapped || r.idPesananJubelio) so = 'green';
+  else so = 'gray';
+
+  // INV — signed_invoice_url (only AR events)
+  const inv = !isAR ? 'na' : (r.signedInvoiceUrl ? 'green' : 'gray');
+
+  // Pay — bukti + paid_at (only AR events)
+  const pay = !isAR ? 'na' : ((r.arBuktiUrl && r.arPaidAt) ? 'green' : (r.arBuktiUrl || r.arPaidAt) ? 'orange' : 'gray');
+
+  // SR — partner reported sales (only AR events)
+  const sr = !isAR ? 'na' : ((r.arReportedSales || r.arSalesReportUrl) ? 'green' : 'gray');
+
+  // Stock — qty_in > 0 AND current_stock = 0 (else gray if no movement, orange if movement but unreconciled)
+  let stock;
+  if (a.qty_in <= 0) stock = 'gray';
+  else if (a.current_stock === 0) stock = 'green';
+  else stock = 'orange';
+
+  return { sj, so, inv, pay, sr, stock, isAR, noSales };
+}
+
+// Heuristic: surat_jalan url present + a Mekari completion record references same filename
+function _pbMekariSignedFor(r) {
+  // Lightweight check — if Mekari map empty or no SJ url, just return false.
+  if (!r.suratJalanUrl || !window._mekariMap) return false;
+  // Look for any Mekari completion with subject containing event name or SJ filename fragment.
+  const fname = r.suratJalanUrl.split('/').pop() || '';
+  const evName = (r.eventName || '').toLowerCase();
+  for (const id in window._mekariMap) {
+    const m = window._mekariMap[id]; if (!m) continue;
+    const s = (m.subject || '').toLowerCase();
+    if (fname && s.includes(fname.toLowerCase().slice(0, 20))) return true;
+    if (evName && evName.length > 5 && s.includes(evName)) return true;
+  }
+  return false;
+}
+
+// Render a horizontal mini-pipeline of signal chips. Tiny dots with letter inside.
+function _pbRenderSignalChips(sig, opts = {}) {
+  const tone = {
+    green:  { bg:'#dff0d8', fg:'#04342C', border:'#b8d9b3', dot:'#2d7a2d' },
+    orange: { bg:'#FAEEDA', fg:'#633806', border:'#FAC775', dot:'#e67e00' },
+    gray:   { bg:'#F1EFE8', fg:'#999',    border:'#D3D1C7', dot:'#bbb' },
+  };
+  const chip = (lbl, state, tip) => {
+    if (state === 'na') return '';
+    const t = tone[state] || tone.gray;
+    return `<span title="${tip}" style="display:inline-flex;align-items:center;gap:3px;font-size:9px;font-family:var(--mono);font-weight:600;padding:2px 6px;border-radius:99px;background:${t.bg};color:${t.fg};border:1px solid ${t.border};margin-right:3px;line-height:1.3">
+      <span style="width:5px;height:5px;border-radius:50%;background:${t.dot};display:inline-block"></span>${lbl}</span>`;
+  };
+  const sjTip = sig.sj==='green'?'Surat Jalan: issued + signed':sig.sj==='orange'?'SJ issued, belum signed partner':'SJ belum di-issue';
+  const soTip = sig.so==='green'?'SO: mapped ke booth via tx_mapping':sig.so==='na'?'No Sales (override)':'SO belum di-mapping';
+  const invTip= sig.inv==='green'?'Invoice signed':'Invoice signed belum upload';
+  const payTip= sig.pay==='green'?'Bukti bayar + tanggal paid OK':sig.pay==='orange'?'Salah satu (bukti/tgl) belum lengkap':'Belum ada bayar';
+  const srTip = sig.sr==='green'?'Partner submit sales report':'Partner belum submit report';
+  const stockTip = sig.stock==='green'?'Stock reconciled (semua barang balik / sold)':sig.stock==='orange'?'Ada selisih — belum reinbound':'Belum ada movement';
+  return `${chip('SJ', sig.sj, sjTip)}${chip('SO', sig.so, soTip)}${chip('INV', sig.inv, invTip)}${chip('$', sig.pay, payTip)}${chip('SR', sig.sr, srTip)}${chip('STK', sig.stock, stockTip)}`;
+}
+
+// Auto-derive event status from signals + event date.
+// New definition:
+//   Cancelled override                 → Cancelled
+//   Event date in future               → Planned
+//   ALL applicable signals green       → Done
+//   Otherwise (something pending)      → Reconcile
+function computePBAutoStatus(eventDate, currentStock, qtySold, manualStatus, signals) {
   if (manualStatus === 'Cancelled') return 'Cancelled';
   if (!eventDate) return 'Planned';
   const today = new Date(); today.setHours(0,0,0,0);
   const d = new Date(eventDate + 'T00:00:00');
   if (d >= today) return 'Planned';
-  if (currentStock == null) return 'Reconcile';
-  if (currentStock !== 0) return 'Reconcile';
-  // current_stock = 0 — done only if sales mapped OR user marked No Sales.
-  if (qtySold > 0 || manualStatus === 'No Sales') return 'Done';
-  return 'Reconcile';
+  // If signals not provided (legacy callers), fall back to current_stock + qty_sold heuristic.
+  if (!signals) {
+    if (currentStock == null) return 'Reconcile';
+    if (currentStock !== 0) return 'Reconcile';
+    if (qtySold > 0 || manualStatus === 'No Sales') return 'Done';
+    return 'Reconcile';
+  }
+  // Past + signals: Done only if every applicable chip is green.
+  const checks = ['sj','so','inv','pay','sr','stock'];
+  for (const k of checks) {
+    const v = signals[k];
+    if (v === 'na') continue;
+    if (v !== 'green') return 'Reconcile';
+  }
+  return 'Done';
 }
 
 function renderPBStats(rows) {
@@ -2658,7 +2742,8 @@ function renderPBStats(rows) {
   const counts = { Planned: 0, Reconcile: 0, Done: 0, Cancelled: 0 };
   for (const r of rows) {
     const aa = agg?.get(r.rowIndex);
-    const st = computePBAutoStatus(r.eventDate, aa?.current_stock, aa?.qty_sold, r.eventStatus);
+    const sig = _pbComputeSignals(r, aa);
+    const st = computePBAutoStatus(r.eventDate, aa?.current_stock, aa?.qty_sold, r.eventStatus, sig);
     if (counts[st] != null) counts[st]++;
   }
   const totalSales = agg ? rows.reduce((a,r) => a + (agg.get(r.rowIndex)?.sales_rev || 0), 0) : 0;
@@ -2679,7 +2764,8 @@ function applyPBFilters() {
   if (status) {
     rows = rows.filter(r => {
       const aa = agg?.get(r.rowIndex);
-      return computePBAutoStatus(r.eventDate, aa?.current_stock, aa?.qty_sold, r.eventStatus) === status;
+      const sig = _pbComputeSignals(r, aa);
+      return computePBAutoStatus(r.eventDate, aa?.current_stock, aa?.qty_sold, r.eventStatus, sig) === status;
     });
   }
   if (ip) rows = rows.filter(r=>(r.ipRelated||"").toLowerCase().includes(ip.toLowerCase()));
@@ -2766,7 +2852,8 @@ function renderPBCalendar(rows) {
       const a = agg?.get(e.rowIndex);
       const totalSales = a ? Math.round(a.sales_rev) : 0;
       const stockWarn = a && a.current_stock !== 0 ? ' ⚠' : '';
-      const autoSt = computePBAutoStatus(e.eventDate, a?.current_stock, a?.qty_sold, e.eventStatus);
+      const sig = _pbComputeSignals(e, a);
+      const autoSt = computePBAutoStatus(e.eventDate, a?.current_stock, a?.qty_sold, e.eventStatus, sig);
       return `<div onclick="openPBDetail('${e.rowIndex}')" title="${_pbEsc(e.eventName||'')}${totalSales?` · Rp ${totalSales.toLocaleString('id-ID')}`:''}${stockWarn?` · current stock ${a.current_stock}`:''}" style="cursor:pointer;background:${statusBg(autoSt)};color:${statusFg(autoSt)};font-size:10px;padding:3px 6px;border-radius:3px;margin-bottom:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500">${_pbEsc(e.eventName||'(Tanpa nama)')}${stockWarn}</div>`;
     }).join('');
     cellsHTML += `<div style="border:1px solid var(--g100);border-radius:4px;padding:6px 8px;min-height:80px;background:${inMonth?(isToday?'#f5f3ff':'var(--white)'):'transparent'};${!inMonth?'border-color:transparent':''}">${dayHeader}${eventPills}</div>`;
@@ -2818,8 +2905,12 @@ function renderPBTable(rows) {
   const statusPillCls = (s) => s==="Done"?"p-active":s==="Cancelled"?"p-expired":s==="Reconcile"?"p-near":"p-draft";
   tbody.innerHTML = rows.map(r => {
     const a = agg?.get(r.rowIndex) || {qty_in:0, qty_out:0, qty_sold:0, qty_adj:0, sales_rev:0, sales_cogs:0, margin:0, current_stock:0};
-    const autoStatus = computePBAutoStatus(r.eventDate, a.current_stock, a.qty_sold, r.eventStatus);
-    const esPill = `<span class="pill ${statusPillCls(autoStatus)}" style="font-size:11px">${autoStatus}</span>`;
+    const sig = _pbComputeSignals(r, a);
+    const autoStatus = computePBAutoStatus(r.eventDate, a.current_stock, a.qty_sold, r.eventStatus, sig);
+    // Status cell: small summary pill on top + chip pipeline below (kalau bukan Planned/Cancelled).
+    const summaryPill = `<span class="pill ${statusPillCls(autoStatus)}" style="font-size:10px;padding:1px 7px">${autoStatus}</span>`;
+    const chipPipeline = (autoStatus==='Planned'||autoStatus==='Cancelled') ? '' : `<div style="margin-top:4px;line-height:1.6">${_pbRenderSignalChips(sig)}</div>`;
+    const esPill = `${summaryPill}${chipPipeline}`;
     const pm = r.paymentMethod ? r.paymentMethod.split(",").map(p=>`<span class="pill p-signings" style="font-size:10px;margin-right:2px">${p.trim()}</span>`).join("") : "—";
     const cs = a.current_stock || 0;
     const csColor = cs !== 0 ? '#c33' : 'var(--g600)';
