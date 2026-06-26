@@ -27770,7 +27770,10 @@ function _lfDeriveStatus(r) {
     return 'Ready to Request';
   }
   const ob = (allOutboundRows||[]).find(x => x.id === r.outboundRequestId);
-  return ob?.status || 'Pending';
+  // OB ref stale (OB udah dihapus di modul Outbound Request) — fall back ke
+  // 'Ready to Request' biar user bisa re-request, bukan ke 'Pending' yang ambigu.
+  if (!ob) return (r.freebieItems||[]).length ? 'Ready to Request' : 'Draft';
+  return ob.status || 'Pending';
 }
 
 function _lfSetupAC() {
@@ -28024,7 +28027,20 @@ async function saveLFEdit(id) {
 async function deleteLF(id) {
   const r = _lfRows.find(x => x.id === id);
   if (!r) return;
-  if (r.outboundRequestId) { alert('Sudah link ke Outbound Request ' + r.outboundRequestId + '. Cancel OB-nya dulu di modul Outbond Request, baru hapus di sini.'); return; }
+  // Verify the linked OB still exists. Kalau user udah delete OB dari modul
+  // Outbond Request, field outbound_request_id di licensor_freebies jadi stale —
+  // jangan kunci delete based on stale ref.
+  let obExists = false;
+  if (r.outboundRequestId) {
+    const cached = (allOutboundRows||[]).find(x => x.id === r.outboundRequestId);
+    if (cached) obExists = true;
+    else {
+      // Re-verify against DB (cache might be stale).
+      const { data } = await sb.from('outbound_requests').select('id').eq('id', r.outboundRequestId).maybeSingle();
+      obExists = !!data;
+    }
+  }
+  if (obExists) { alert('Sudah link ke Outbound Request ' + r.outboundRequestId + '. Cancel OB-nya dulu di modul Outbond Request, baru hapus di sini.'); return; }
   if (!confirm(`Hapus freebie ticket ${id}?`)) return;
   try {
     const { error } = await sb.from('licensor_freebies').delete().eq('id', id);
@@ -28039,7 +28055,20 @@ async function deleteLF(id) {
 async function requestLFShipment(id) {
   const r = _lfRows.find(x => x.id === id);
   if (!r) return;
-  if (r.outboundRequestId) { alert('Sudah ada outbound request: ' + r.outboundRequestId); return; }
+  if (r.outboundRequestId) {
+    // Verify the OB still exists. Stale ref (OB deleted di modul Outbound Request)
+    // shouldn't block re-request — auto-clear and continue.
+    const cached = (allOutboundRows||[]).find(x => x.id === r.outboundRequestId);
+    let obExists = !!cached;
+    if (!cached) {
+      const { data } = await sb.from('outbound_requests').select('id').eq('id', r.outboundRequestId).maybeSingle();
+      obExists = !!data;
+    }
+    if (obExists) { alert('Sudah ada outbound request: ' + r.outboundRequestId); return; }
+    // Auto-clear stale ref before creating new OB
+    await sb.from('licensor_freebies').update({ outbound_request_id: null }).eq('id', id);
+    r.outboundRequestId = '';
+  }
   if (!(r.freebieItems||[]).length) { alert('Belum ada item freebie. Edit dulu.'); return; }
   if (!confirm(`Buat outbound ticket buat licensor "${_lfIpName(r.ipId)}" ke ${r.recipientName}?`)) return;
   try {
