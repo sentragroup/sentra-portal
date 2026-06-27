@@ -42448,7 +42448,7 @@ async function generateRoyaltyPayouts() {
     // 2. Get product_mappings for revenue → IP attribution
     const itemIds = [...new Set(items.map(i=>i.item_id).filter(Boolean))];
     const mappings = await _fetchAllPages('product_mappings',
-      'jubelio_item_id,ip,collection,brand,revenue_stream',
+      'jubelio_item_id,ip,collection,brand',
       q => q.in('jubelio_item_id', itemIds));
     const mapByItemId = new Map(mappings.map(m=>[m.jubelio_item_id, m]));
 
