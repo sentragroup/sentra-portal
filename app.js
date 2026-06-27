@@ -5979,6 +5979,8 @@ function mapCol(r) {
     collectionName:r.collection_name||"", ipRelated:r.ip_related||"",
     releaseDate:r.release_date||"", priority:r.priority||"",
     moodboardUrl:r.moodboard_url||"", status:r.status||"Draft",
+    // Creative-tab multi-link (Moodboard / Reference / Asset / Brand Guide / Other)
+    creativeLinks: Array.isArray(r.creative_links) ? r.creative_links : [],
     pic:r.pic||"", notes:r.notes||"", dateAdded:r.date_added||"", addedBy:r.added_by||"",
     samplingDriveUrl:r.sampling_drive_url||"", revenueStream:r.revenue_stream||"",
     targetRevenue: r.target_revenue!=null ? Number(r.target_revenue) : null,
@@ -6451,7 +6453,6 @@ function renderColTable(rows) {
     const skuBadge=items.length
       ? `<span style="font-size:11px">${items.length} SKU</span>${approved?` <span class="pill p-active" style="font-size:10px">${approved}✓</span>`:""}${revision?` <span class="pill p-near" style="font-size:10px">${revision} rev</span>`:""}${pending?` <span class="pill p-draft" style="font-size:10px">${pending} pend</span>`:""}`
       : `<span style="color:var(--g400);font-size:11px">—</span>`;
-    const mbCell=r.moodboardUrl?`<a href="${r.moodboardUrl}" target="_blank" onclick="event.stopPropagation()" style="color:#3C3489;font-size:12px;text-decoration:none">↗ Lihat</a>`:"—";
     const rev=r.revenueStream||"";
     const revCell=rev
       ? (()=>{const c=revColors[rev]||{bg:'var(--off)',brd:'var(--g200)',clr:'var(--g600)'};return `<span style="display:inline-block;padding:1px 8px;background:${c.bg};border:1px solid ${c.brd};color:${c.clr};border-radius:99px;font-size:10px;font-weight:600">${rev.replace(/</g,'&lt;')}</span>`;})()
@@ -6473,7 +6474,6 @@ function renderColTable(rows) {
       <td>${r.priority?`<span class="pill ${prioColor[r.priority]||"p-draft"}" style="font-size:11px">${r.priority}</span>`:"—"}</td>
       <td style="white-space:nowrap">${skuBadge}</td>
       <td style="font-size:11px;white-space:nowrap">${items.length?`${approved}/${items.length} approved`:"—"}</td>
-      <td>${mbCell}</td>
       <td><span class="pill ${r.status==="Done"?"p-active":r.status==="In Progress"?"p-signings":"p-draft"}" style="font-size:11px">${r.status}</span></td>
     </tr>`;
   }).join("");
@@ -7342,6 +7342,128 @@ function renderColEventLink(col) {
   </div>`;
 }
 
+// ── Creative Links section (Creative tab) — multi-link with categories ──
+const _COL_CL_CATEGORIES = [
+  { key:'Moodboard',    icon:'🎨', tone:{bg:'#fff3e0', fg:'#8a4000', border:'#ffcc80'} },
+  { key:'Reference',    icon:'📌', tone:{bg:'#e8f0fc', fg:'#1a4a8a', border:'#a8c4f0'} },
+  { key:'Asset',        icon:'📁', tone:{bg:'#edf8ee', fg:'#1a5c25', border:'#90d4a0'} },
+  { key:'Brand Guide',  icon:'📘', tone:{bg:'#f3e8fc', fg:'#5a1a8a', border:'#cca8f0'} },
+  { key:'Other',        icon:'🔗', tone:{bg:'#f1efe8', fg:'#444',    border:'#d3d1c7'} },
+];
+
+function _colCLTone(category) {
+  return _COL_CL_CATEGORIES.find(c => c.key === category) || _COL_CL_CATEGORIES[4];
+}
+
+function renderColCreativeLinks(col) {
+  const links = Array.isArray(col.creativeLinks) ? col.creativeLinks : [];
+  const cid = col.id;
+  const catOpts = _COL_CL_CATEGORIES.map(c => `<option value="${c.key}">${c.icon} ${c.key}</option>`).join('');
+  const grouped = {};
+  for (const c of _COL_CL_CATEGORIES) grouped[c.key] = [];
+  links.forEach((l,i) => {
+    const cat = _COL_CL_CATEGORIES.find(c => c.key === l.category)?.key || 'Other';
+    grouped[cat].push({...l, _idx:i});
+  });
+  const groupsHTML = _COL_CL_CATEGORIES.map(cat => {
+    const items = grouped[cat.key];
+    if (!items.length) return '';
+    const tone = cat.tone;
+    return `<div style="margin-bottom:12px">
+      <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.3px;color:${tone.fg};font-weight:600;margin-bottom:6px">${cat.icon} ${cat.key} <span style="color:var(--g400);font-weight:400">(${items.length})</span></div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        ${items.map(l => `<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:${tone.bg};border:1px solid ${tone.border};border-radius:6px">
+          <a href="${(l.url||'').replace(/"/g,'&quot;')}" target="_blank" style="flex:1;color:${tone.fg};text-decoration:none;font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(l.label||'(no label)').replace(/</g,'&lt;')}</a>
+          ${l.notes ? `<span title="${(l.notes||'').replace(/"/g,'&quot;')}" style="font-size:10px;color:var(--g600);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${l.notes.replace(/</g,'&lt;')}</span>` : ''}
+          <a href="${(l.url||'').replace(/"/g,'&quot;')}" target="_blank" style="font-size:10px;color:${tone.fg};text-decoration:none;font-family:var(--mono);opacity:0.7" title="Open">↗</a>
+          <button onclick="deleteColCreativeLink('${cid}',${l._idx})" title="Hapus" style="background:none;border:none;cursor:pointer;color:#c0392b;font-size:14px;padding:0 4px">🗑</button>
+        </div>`).join('')}
+      </div>
+    </div>`;
+  }).join('');
+  const emptyHTML = links.length ? '' :
+    `<div style="padding:20px;text-align:center;color:var(--g400);font-size:12px;background:var(--off);border:1px dashed var(--g200);border-radius:6px;margin-bottom:12px">
+      Belum ada link. Tambah di bawah — moodboard, reference, asset, brand guide, dll.
+    </div>`;
+  const formHTML = `<div style="background:var(--off);border:1px solid var(--g100);border-radius:6px;padding:12px">
+    <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.3px;color:var(--g600);font-weight:600;margin-bottom:8px">+ Tambah Link</div>
+    <div style="display:grid;grid-template-columns:140px 1fr 1.5fr 1fr auto;gap:6px;align-items:end">
+      <div><label style="font-size:10px;color:var(--g400);display:block;margin-bottom:2px">Kategori</label><select id="col-cl-cat-${cid}" style="width:100%;padding:6px 8px;font-size:12px;border:1px solid var(--g100);border-radius:4px;background:var(--white)">${catOpts}</select></div>
+      <div><label style="font-size:10px;color:var(--g400);display:block;margin-bottom:2px">Label</label><input type="text" id="col-cl-label-${cid}" placeholder="Mood deck, Hex codes, ..." style="width:100%;padding:6px 8px;font-size:12px;border:1px solid var(--g100);border-radius:4px"></div>
+      <div><label style="font-size:10px;color:var(--g400);display:block;margin-bottom:2px">URL <span class="req">*</span></label><input type="url" id="col-cl-url-${cid}" placeholder="https://..." style="width:100%;padding:6px 8px;font-size:12px;border:1px solid var(--g100);border-radius:4px"></div>
+      <div><label style="font-size:10px;color:var(--g400);display:block;margin-bottom:2px">Notes (opt)</label><input type="text" id="col-cl-notes-${cid}" placeholder="Internal use, draft..." style="width:100%;padding:6px 8px;font-size:12px;border:1px solid var(--g100);border-radius:4px"></div>
+      <button class="btn-primary" style="padding:6px 14px;font-size:12px;height:31px" onclick="addColCreativeLink('${cid}')">+ Tambah</button>
+    </div>
+  </div>`;
+  const body = `<div id="col-cl-wrap-${cid}">${emptyHTML}${groupsHTML}${formHTML}</div>`;
+  return cdStageBox("🎨","Creative Links",
+    `<span style="font-size:11px;color:var(--g400);font-family:var(--mono);margin-left:auto">${links.length} link${links.length===1?'':'s'}</span>`,
+    body);
+}
+
+async function addColCreativeLink(colId) {
+  const cat = document.getElementById(`col-cl-cat-${colId}`)?.value || 'Other';
+  const label = (document.getElementById(`col-cl-label-${colId}`)?.value || '').trim();
+  const url = (document.getElementById(`col-cl-url-${colId}`)?.value || '').trim();
+  const notes = (document.getElementById(`col-cl-notes-${colId}`)?.value || '').trim();
+  if (!url) { alert('URL wajib diisi.'); return; }
+  if (!/^https?:\/\//i.test(url)) { alert('URL harus diawali http(s)://'); return; }
+  try {
+    const { data: cur, error: e1 } = await sb.from('collections').select('creative_links').eq('id', colId).single();
+    if (e1) throw e1;
+    const links = Array.isArray(cur?.creative_links) ? cur.creative_links : [];
+    links.push({
+      label: label || cat,
+      url, category: cat, notes,
+      added_at: new Date().toISOString(),
+      added_by: currentUser || '',
+    });
+    const { error: e2 } = await sb.from('collections').update({
+      creative_links: links,
+      last_updated: new Date().toISOString(),
+      last_updated_by: currentUser || '',
+    }).eq('id', colId);
+    if (e2) throw e2;
+    const idx = allColRows.findIndex(r => r.id === colId);
+    if (idx >= 0) allColRows[idx].creativeLinks = links;
+    // Re-render in place
+    const wrap = document.getElementById(`col-cl-wrap-${colId}`);
+    if (wrap && idx >= 0) {
+      // Re-render via the stage helper output. Easier: just replace innerHTML
+      // dengan grouped + form combined.
+      const tmp = document.createElement('div');
+      tmp.innerHTML = renderColCreativeLinks(allColRows[idx]);
+      const newWrap = tmp.querySelector(`#col-cl-wrap-${colId}`);
+      if (newWrap) wrap.innerHTML = newWrap.innerHTML;
+    }
+  } catch(e) { alert('Gagal: ' + (e.message||e)); }
+}
+
+async function deleteColCreativeLink(colId, idx) {
+  if (!confirm('Hapus link ini?')) return;
+  try {
+    const { data: cur, error: e1 } = await sb.from('collections').select('creative_links').eq('id', colId).single();
+    if (e1) throw e1;
+    const links = Array.isArray(cur?.creative_links) ? cur.creative_links : [];
+    links.splice(idx, 1);
+    const { error: e2 } = await sb.from('collections').update({
+      creative_links: links,
+      last_updated: new Date().toISOString(),
+      last_updated_by: currentUser || '',
+    }).eq('id', colId);
+    if (e2) throw e2;
+    const ci = allColRows.findIndex(r => r.id === colId);
+    if (ci >= 0) allColRows[ci].creativeLinks = links;
+    const wrap = document.getElementById(`col-cl-wrap-${colId}`);
+    if (wrap && ci >= 0) {
+      const tmp = document.createElement('div');
+      tmp.innerHTML = renderColCreativeLinks(allColRows[ci]);
+      const newWrap = tmp.querySelector(`#col-cl-wrap-${colId}`);
+      if (newWrap) wrap.innerHTML = newWrap.innerHTML;
+    }
+  } catch(e) { alert('Gagal: ' + (e.message||e)); }
+}
+
 // ── Sales Target section (Business tab) ──
 function renderColTargetSection(col, items) {
   const cid = col.id;
@@ -8151,7 +8273,6 @@ function renderColDetail(col, items) {
           <div class="fg"><label>Status</label><select id="col-dp-status"><option${col.status==="Draft"?" selected":""}>Draft</option><option${col.status==="In Progress"?" selected":""}>In Progress</option><option${col.status==="Done"?" selected":""}>Done</option></select></div>
           <div class="fg"><label>Revenue Stream</label><select id="col-dp-revstream"><option value="">—</option><option value="SD&Y"${col.revenueStream==="SD&Y"?" selected":""}>SD&amp;Y</option><option value="Lagaa"${col.revenueStream==="Lagaa"?" selected":""}>Lagaa</option><option value="marté"${col.revenueStream==="marté"?" selected":""}>marté</option></select></div>
           <div class="fg" style="position:relative"><label>PIC</label><input type="text" id="col-dp-pic" value="${(col.pic||"").replace(/"/g,"&quot;")}" autocomplete="off"><div class="ac-list" id="ac-col-dp-pic"></div></div>
-          <div class="fg full"><label>Moodboard URL</label><input type="url" id="col-dp-moodboard" value="${(col.moodboardUrl||"").replace(/"/g,"&quot;")}" placeholder="https://drive.google.com/..."></div>
           <div class="fg full"><label>Notes</label><textarea id="col-dp-notes" rows="2" style="resize:vertical">${(col.notes||"").replace(/</g,"&lt;")}</textarea></div>
         </div>
         <div class="edit-row-btns">
@@ -8166,7 +8287,6 @@ function renderColDetail(col, items) {
       <div class="stat-card" style="text-align:left;padding:12px 14px"><div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:4px">Release Date</div><div style="font-weight:600;font-size:13px">${fmtDate(col.releaseDate)||"—"}</div></div>
       <div class="stat-card" style="text-align:left;padding:12px 14px"><div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:4px">Priority</div><div>${col.priority?`<span class="pill ${prioColor[col.priority]||"p-draft"}">${col.priority}</span>`:"—"}</div></div>
       <div class="stat-card" style="text-align:left;padding:12px 14px"><div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:4px">PIC</div><div style="font-weight:600;font-size:13px">${col.pic||"—"}</div></div>
-      ${col.moodboardUrl?`<div class="stat-card" style="text-align:left;padding:12px 14px"><div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:4px">Moodboard</div><a href="${col.moodboardUrl}" target="_blank" style="color:#3C3489;font-weight:600;text-decoration:none;font-size:13px">↗ Lihat</a></div>`:""}
       ${colDwRows.some(r=>r.deliverablesUrl)?`<div class="stat-card" style="text-align:left;padding:12px 14px"><div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:4px">Design Files</div>${colDwRows.filter(r=>r.deliverablesUrl).map(r=>`<div style="margin-bottom:2px"><a href="${r.deliverablesUrl}" target="_blank" style="color:#3C3489;font-weight:600;text-decoration:none;font-size:12px">↗ ${r.designer||"File"}</a></div>`).join("")}</div>`:""}
     </div>
     ${col.notes?`<div class="form-card" style="margin-bottom:16px;padding:12px 14px"><div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:4px">Notes</div><div style="font-size:13px">${col.notes.replace(/</g,"&lt;")}</div></div>`:""}
@@ -8186,6 +8306,7 @@ function renderColDetail(col, items) {
 
         <!-- ─────────── 🎨 CREATIVE TAB ─────────── -->
         <div id="cd-tab-creative-${col.id}" class="cd-tab-content" style="display:none">
+        ${renderColCreativeLinks(col)}
         <!-- Design assignment per SKU -->
         ${cdStageBox("🎨","Design Assignment per SKU",`<span style="font-size:11px;color:var(--g400);font-family:var(--mono);margin-left:auto">${items.length} SKU</span>`,`
           <div style="padding:10px 12px;background:var(--off);border-radius:6px;margin-bottom:12px;font-size:11px;color:var(--g600)">
@@ -10543,7 +10664,6 @@ async function saveColDetailEdit(colId) {
       status:document.getElementById("col-dp-status")?.value||"Draft",
       revenue_stream:document.getElementById("col-dp-revstream")?.value||null,
       pic:document.getElementById("col-dp-pic")?.value.trim()||null,
-      moodboard_url:document.getElementById("col-dp-moodboard")?.value.trim()||null,
       notes:document.getElementById("col-dp-notes")?.value.trim()||null,
       last_updated:new Date().toISOString(), last_updated_by:currentUser
     }).eq("id",colId);
