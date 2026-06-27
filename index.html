@@ -206,6 +206,7 @@
           <div class="tool-card" onclick="showPage('arreceivables',null)"><span class="tc-icon">💰</span><div class="tc-name">Account Receivables</div><div class="tc-desc">Tagihan customer wholesale &amp; manual purchase — total AR, overdue, aging buckets. Loop dari payment trackers tiap order.</div></div>
           <div class="tool-card" onclick="showPage('agreement',null)"><span class="tc-icon">📄</span><div class="tc-name">Agreement</div><div class="tc-desc">Submit dan pantau semua perjanjian, kontrak, dan kemitraan.</div></div>
           <div class="tool-card" onclick="showPage('royalty',null)"><span class="tc-icon">💰</span><div class="tc-name">Royalty Report</div><div class="tc-desc">Laporan royalty per IP per periode — gross sales, % royalty, PPh, net payout. Auto-mapped dari Product Mapping.</div></div>
+          <div class="tool-card" onclick="showPage('rypayouts',null)"><span class="tc-icon">🧾</span><div class="tc-name">Royalty Payouts</div><div class="tc-desc">Lifecycle tracker: Open → Reported → AP Booked → Paid. Aging outstanding per IP. Upload bukti bayar + sertifikat PPh23.</div></div>
           <div class="tool-card" onclick="showPage('income',null)"><span class="tc-icon">📑</span><div class="tc-name">Income Statement</div><div class="tc-desc">Laporan laba-rugi per bulan — net sales, COGS, gross profit &amp; gross margin.</div></div>
         </div>
 
@@ -966,6 +967,73 @@
           <tbody id="ar-tbody"><tr><td class="empty-td" colspan="11">Klik Refresh untuk memuat data.</td></tr></tbody>
         </table></div>
       </div><!-- /.page#page-arreceivables -->
+
+      <!-- ROYALTY PAYOUTS -->
+      <div class="page" id="page-rypayouts">
+        <div class="page-header">
+          <div><div class="page-title">Royalty Payouts</div><div class="page-sub">Lifecycle tracker: Open → Reported → AP Booked → Paid · aging outstanding per IP/recipient</div></div>
+        </div>
+        <div class="stats-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:1.25rem">
+          <div class="stat-card"><div class="stat-num" id="ryp-s-total">—</div><div class="stat-lbl">Total Payouts</div></div>
+          <div class="stat-card"><div class="stat-num" id="ryp-s-open">—</div><div class="stat-lbl">Open</div></div>
+          <div class="stat-card"><div class="stat-num" id="ryp-s-reported">—</div><div class="stat-lbl">Reported / AP Booked</div></div>
+          <div class="stat-card"><div class="stat-num" id="ryp-s-paid">—</div><div class="stat-lbl">Paid</div></div>
+          <div class="stat-card"><div class="stat-num" id="ryp-s-outstanding">—</div><div class="stat-lbl">Outstanding (Rp)</div></div>
+        </div>
+        <div class="filter-panel" style="margin-bottom:1rem">
+          <div class="filter-grid" style="grid-template-columns:repeat(5,1fr)">
+            <div class="fg"><label>Cari</label><input type="text" id="ryp-fil-search" placeholder="Recipient, IP, period..." oninput="applyRYPFilters()"></div>
+            <div class="fg"><label>Status</label><select id="ryp-fil-status" onchange="applyRYPFilters()">
+              <option value="">Semua</option>
+              <option value="Open">⏳ Open</option>
+              <option value="Reported">📤 Reported</option>
+              <option value="AP Booked">📒 AP Booked</option>
+              <option value="Paid">✅ Paid</option>
+              <option value="Cancelled">❌ Cancelled</option>
+            </select></div>
+            <div class="fg"><label>Aging</label><select id="ryp-fil-aging" onchange="applyRYPFilters()">
+              <option value="">Semua</option>
+              <option value="0-30">0-30 hari</option>
+              <option value="31-60">31-60 hari</option>
+              <option value="60+">60+ hari (overdue)</option>
+            </select></div>
+            <div class="fg"><label>Tahun</label><select id="ryp-fil-year" onchange="applyRYPFilters()"></select></div>
+            <div class="fg"><label>&nbsp;</label><button class="btn-ghost" onclick="clearRYPFilters()" style="width:100%">↺ Reset</button></div>
+          </div>
+        </div>
+        <div class="form-card" style="margin-bottom:1rem;padding:14px 16px;background:linear-gradient(135deg,#fffef0 0%,#fefad0 100%);border:1px solid #f1cf7a">
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <div style="flex:1;min-width:200px">
+              <div style="font-family:var(--syne);font-size:14px;font-weight:700;margin-bottom:2px">Generate Payouts dari Periode</div>
+              <div style="font-size:11px;color:var(--g600)">Tarik COMPLETED sales periode → compute royalty per IP + collaborator → upsert ke tabel.</div>
+            </div>
+            <input type="month" id="ryp-gen-period" style="padding:6px 10px;font-size:12px;border:1px solid var(--g100);border-radius:4px">
+            <button class="btn-primary" onclick="generateRoyaltyPayouts()" style="padding:7px 14px;font-size:12px">⚡ Generate</button>
+          </div>
+          <div class="feedback" id="ryp-gen-fb"></div>
+        </div>
+        <div class="table-toolbar">
+          <button class="btn-refresh" onclick="loadRoyaltyPayouts()">↻ Refresh</button>
+          <div class="tcount" id="ryp-tcount">— entri</div>
+          <button class="btn-ghost" onclick="exportRoyaltyPayoutsCSV()" style="font-size:12px">⬇ Export CSV</button>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">
+            <th style="padding:6px 10px;text-align:left">Period</th>
+            <th style="padding:6px 10px;text-align:left">Recipient</th>
+            <th style="padding:6px 10px;text-align:left">Type</th>
+            <th style="padding:6px 10px;text-align:right">Gross Rev</th>
+            <th style="padding:6px 10px;text-align:right">%</th>
+            <th style="padding:6px 10px;text-align:right">Royalty</th>
+            <th style="padding:6px 10px;text-align:right">PPh</th>
+            <th style="padding:6px 10px;text-align:right">Net Payable</th>
+            <th style="padding:6px 10px;text-align:left">Status</th>
+            <th style="padding:6px 10px;text-align:right">Aging</th>
+            <th style="padding:6px 10px;text-align:left">Aksi</th>
+          </tr></thead>
+          <tbody id="ryp-tbody"><tr><td class="empty-td" colspan="11">Belum ada data. Klik <strong>Generate</strong> di atas untuk compute periode.</td></tr></tbody>
+        </table></div>
+      </div><!-- /.page#page-rypayouts -->
 
       <!-- ACTIVITY LOG -->
       <div class="page" id="page-activitylog">
@@ -5395,6 +5463,6 @@
 <div id="proj-overlay" class="proj-panel-overlay" style="display:none" onclick="if(event.target===this)closeProjectDetail()"></div>
 <div id="proj-panel" class="proj-panel" style="display:none"></div>
 
-<script src="app.js?v=20260627t"></script>
+<script src="app.js?v=20260627u"></script>
 </body>
 </html>
