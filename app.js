@@ -42472,27 +42472,28 @@ async function generateRoyaltyPayouts() {
     const ipRows = allIPRows.length ? allIPRows : (await sb.from('ip_master').select('*')).data?.map(mapIP) || [];
     const rrRows = allRRRows.length ? allRRRows : (await sb.from('royalty_recipients').select('*')).data?.map(mapRR) || [];
 
-    // 5. Build payout rows
+    // 5. Build payout rows. NOTE: mapIP returns {pct, pph, revenue} (not
+    // {percentage, pphTaxRate, revenueStream}). mapRR returns {pct, ip} too.
     const payouts = [];
     for (const [ipName, grossRev] of ipRevenue) {
       // Licensor (IP) royalty
       const ipRow = ipRows.find(x => x.name === ipName);
-      if (ipRow && (Number(ipRow.percentage)||0) > 0) {
-        const pct = Number(ipRow.percentage)||0;
-        const pphRate = Number(ipRow.pphTaxRate)||0;
+      if (ipRow && (Number(ipRow.pct)||0) > 0) {
+        const pct = Number(ipRow.pct)||0;
+        const pphRate = Number(ipRow.pph)||0;
         const royaltyGross = grossRev * pct / 100;
         const pphAmount = royaltyGross * pphRate / 100;
         payouts.push({
           period_year: y, period_month: m,
           recipient_type: 'IP', recipient_id: ipRow.id, recipient_name: ipRow.name,
-          ip_name: ipRow.name, revenue_stream: ipRow.revenueStream||'',
+          ip_name: ipRow.name, revenue_stream: ipRow.revenue||'',
           gross_revenue: grossRev, royalty_pct: pct, royalty_gross: royaltyGross,
           pph_rate: pphRate, pph_amount: pphAmount, net_payable: royaltyGross - pphAmount,
         });
       }
       // Collaborator royalty (royalty_recipients linked to this IP)
       for (const rr of rrRows.filter(x => x.ip === ipName)) {
-        const pct = Number(rr.percentage)||0;
+        const pct = Number(rr.pct)||0;
         if (pct <= 0) continue;
         const royaltyGross = grossRev * pct / 100;
         payouts.push({
