@@ -5987,6 +5987,9 @@ function mapCol(r) {
     targetNotes:   r.target_notes||"",
     targetSetBy:   r.target_set_by||"",
     targetSetAt:   r.target_set_at||"",
+    // Event-first launch link — kalau set, sales monitor + list pakai event_date
+    // sebagai effective launch (kalau lebih awal dari release_date dan belum lewat).
+    linkedPopupBoothId: r.linked_popup_booth_id || "",
     // Brand brief (Business tab — narrative / positioning for the collection)
     briefAudience:     r.brief_audience       || "",
     briefStory:        r.brief_story          || "",
@@ -6453,7 +6456,16 @@ function renderColTable(rows) {
       <td style="font-size:12px;font-weight:600;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.ipRelated||"—"}</td>
       <td>${r.collectionName||"—"}</td>
       <td>${revCell}</td>
-      <td style="white-space:nowrap;font-size:12px">${fmtDate(r.releaseDate)}</td>
+      <td style="white-space:nowrap;font-size:12px">${(() => {
+        const eff = _colEffectiveLaunch(r);
+        if (!eff.date) return '—';
+        const dateStr = fmtDate(eff.date);
+        if (eff.source === 'event') {
+          const evName = (eff.event?.eventName||'').replace(/</g,'&lt;');
+          return `${dateStr}<div style="font-size:10px;color:#6e3aa5;font-family:var(--mono);margin-top:2px" title="${evName}">🎪 via ${evName.slice(0,18)}${evName.length>18?'…':''}</div>`;
+        }
+        return dateStr;
+      })()}</td>
       <td>${r.priority?`<span class="pill ${prioColor[r.priority]||"p-draft"}" style="font-size:11px">${r.priority}</span>`:"—"}</td>
       <td style="white-space:nowrap">${skuBadge}</td>
       <td style="font-size:11px;white-space:nowrap">${items.length?`${approved}/${items.length} approved`:"—"}</td>
@@ -7202,6 +7214,125 @@ function cdFmtIDR(n) {
   return String(num);
 }
 
+// ── Event-first release helpers ──
+// Returns {date, source, event} where source='event'|'release'|null
+// - 'event' kalau linked_popup_booth_id punya event_date yg lebih awal dari
+//   release_date DAN belum lewat (event upcoming/active hari ini)
+// - 'release' kalau release_date ada
+// - null kalau dua-duanya kosong
+function _colEffectiveLaunch(col) {
+  const releaseDate = col.releaseDate || '';
+  const today = new Date(); today.setHours(0,0,0,0);
+  let event = null;
+  if (col.linkedPopupBoothId && Array.isArray(allPBRows)) {
+    event = allPBRows.find(r => r.id === col.linkedPopupBoothId) || null;
+    // Cancelled event → ignore, fall back ke release_date
+    if (event && event.eventStatus === 'Cancelled') event = null;
+  }
+  const eventDate = event?.eventDate || '';
+  // Both empty
+  if (!releaseDate && !eventDate) return { date: '', source: null, event: null };
+  // Only event
+  if (!releaseDate) return { date: eventDate, source: 'event', event };
+  // Only release
+  if (!eventDate) return { date: releaseDate, source: 'release', event: null };
+  // Both — event displayed if earlier AND not yet passed
+  const evD = new Date(eventDate + 'T00:00:00');
+  const relD = new Date(releaseDate + 'T00:00:00');
+  if (evD < relD && evD >= today) {
+    return { date: eventDate, source: 'event', event };
+  }
+  return { date: releaseDate, source: 'release', event };
+}
+
+// Window start untuk Sales Target Monitor — always MIN(event_date, release_date)
+// kalau dua-duanya ada (capture sales pre-online event).
+function _colMonitorStart(col) {
+  const releaseDate = col.releaseDate || '';
+  let event = null;
+  if (col.linkedPopupBoothId && Array.isArray(allPBRows)) {
+    event = allPBRows.find(r => r.id === col.linkedPopupBoothId) || null;
+    if (event && event.eventStatus === 'Cancelled') event = null;
+  }
+  const eventDate = event?.eventDate || '';
+  if (!releaseDate && !eventDate) return '';
+  if (!releaseDate) return eventDate;
+  if (!eventDate) return releaseDate;
+  return (eventDate < releaseDate) ? eventDate : releaseDate;
+}
+
+async function saveColLinkedEvent(colId, popupBoothId) {
+  try {
+    const { error } = await sb.from('collections').update({
+      linked_popup_booth_id: popupBoothId || null,
+      last_updated: new Date().toISOString(),
+      last_updated_by: currentUser || '',
+    }).eq('id', colId);
+    if (error) throw error;
+    // Update local cache
+    const idx = allColRows.findIndex(r => r.id === colId);
+    if (idx >= 0) allColRows[idx].linkedPopupBoothId = popupBoothId || '';
+    // Re-render the collection list (Release column might change) +
+    // re-fetch sales monitor.
+    if (typeof applyColFilters === 'function') applyColFilters();
+    const col = idx >= 0 ? allColRows[idx] : null;
+    if (col && typeof loadColSalesMonitor === 'function') loadColSalesMonitor(col);
+    // Refresh the inline event display in Business tab
+    const wrap = document.getElementById(`col-event-wrap-${colId}`);
+    if (wrap && col) wrap.innerHTML = _renderColEventLinkInner(col);
+  } catch(e) { alert('Gagal save linked event: ' + (e.message||e)); }
+}
+
+function _renderColEventLinkInner(col) {
+  const eff = _colEffectiveLaunch(col);
+  const linkedEvent = (col.linkedPopupBoothId && Array.isArray(allPBRows))
+    ? allPBRows.find(r => r.id === col.linkedPopupBoothId)
+    : null;
+  // Find candidate events — upcoming popup_booths + recent past (within 30 days)
+  const today = new Date(); today.setHours(0,0,0,0);
+  const back30 = new Date(today); back30.setDate(back30.getDate() - 30);
+  const candidates = (allPBRows||[])
+    .filter(r => r.eventDate && r.eventStatus !== 'Cancelled')
+    .filter(r => {
+      const d = new Date(r.eventDate + 'T00:00:00');
+      return d >= back30; // 30 days back + all future
+    })
+    .sort((a,b) => (a.eventDate||'').localeCompare(b.eventDate||''));
+  const opts = [`<option value="">— Tidak ada (online-only release) —</option>`]
+    .concat(candidates.map(r => {
+      const sel = r.id === col.linkedPopupBoothId ? 'selected' : '';
+      const fmt = r.eventDate ? new Date(r.eventDate+'T00:00:00').toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'}) : '';
+      return `<option value="${r.id}" ${sel}>${(r.eventName||'(unnamed)').replace(/</g,'&lt;')} · ${fmt}</option>`;
+    }))
+    .join('');
+  // Effective launch indicator
+  const releaseFmt = col.releaseDate ? new Date(col.releaseDate+'T00:00:00').toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'}) : '—';
+  const eventFmt = linkedEvent?.eventDate ? new Date(linkedEvent.eventDate+'T00:00:00').toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'}) : '—';
+  const effectiveFmt = eff.date ? new Date(eff.date+'T00:00:00').toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'}) : '—';
+  const effLabel = eff.source === 'event' ? `🎪 Event launch (${eventFmt})` : eff.source === 'release' ? `🌐 Online release (${releaseFmt})` : '—';
+  return `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px">
+      <div>
+        <label style="font-size:11px;color:var(--g600);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px">Linked Event</label>
+        <select onchange="saveColLinkedEvent('${col.id}', this.value)" style="width:100%;padding:6px 8px;font-size:12px;border:1px solid var(--g100);border-radius:4px;background:var(--white);margin-top:4px">${opts}</select>
+        <div style="font-size:10px;color:var(--g400);margin-top:4px">Pilih event Pop Up Booth kalau collection ini di-launch lewat event dulu.</div>
+      </div>
+      <div style="background:var(--white);border:1px solid var(--g100);border-radius:6px;padding:10px 12px">
+        <div style="font-size:10px;color:var(--g400);text-transform:uppercase;font-family:var(--mono);letter-spacing:0.3px;margin-bottom:6px">Effective Launch (front display)</div>
+        <div style="font-weight:700;font-size:13px">${effLabel}</div>
+        <div style="font-size:11px;color:var(--g600);margin-top:4px;font-family:var(--mono)">🎪 Event: ${eventFmt} · 🌐 Online: ${releaseFmt}</div>
+        ${eff.source === 'event' ? `<div style="font-size:10px;color:#3C3489;margin-top:4px">↳ Setelah event lewat, list balik show online release.</div>` : ''}
+      </div>
+    </div>`;
+}
+
+function renderColEventLink(col) {
+  return `<div id="col-event-wrap-${col.id}" style="background:#f4f1f9;border:1px solid #d6cef0;border-radius:8px;padding:14px;margin-bottom:14px">
+    <div style="font-family:var(--syne);font-size:14px;font-weight:700;margin-bottom:8px">🎪 Event-First Launch</div>
+    ${_renderColEventLinkInner(col)}
+  </div>`;
+}
+
 // ── Sales Target section (Business tab) ──
 function renderColTargetSection(col, items) {
   const cid = col.id;
@@ -7436,7 +7567,8 @@ function renderColTargetSection(col, items) {
       </table></div>`
     : '<div style="color:var(--g400);font-size:12px;padding:12px;text-align:center">Belum ada SKU. Tambah pakai form di atas.</div>';
 
-  return cdStageBox("🎯","Sales Target & SKU Naming", headerBadge, formHTML + skuFormHTML + skuTableHTML + viability + monitorPanel);
+  const eventLinkHTML = renderColEventLink(col);
+  return cdStageBox("🎯","Sales Target & SKU Naming", headerBadge, eventLinkHTML + formHTML + skuFormHTML + skuTableHTML + viability + monitorPanel);
 }
 
 // Live update of target revenue display as user types units × srp
@@ -7460,10 +7592,12 @@ async function loadColSalesMonitor(col) {
   const panel = document.getElementById(`ct-monitor-${cid}`);
   if (!panel) return;
 
-  const releaseDate = col.releaseDate;
+  // Window starts at MIN(event_date, release_date) when event linked —
+  // capture sales yang terjadi pre-online launch via event.
+  const releaseDate = _colMonitorStart(col) || col.releaseDate;
   if (!releaseDate) {
     panel.innerHTML = `<div style="padding:14px;background:var(--off);border:1px dashed var(--g200);border-radius:6px;font-size:12px;color:var(--g600);text-align:center">
-      📊 Set release date di Edit Collection untuk aktifkan monitoring.
+      📊 Set release date di Edit Collection atau link Event di Business tab untuk aktifkan monitoring.
     </div>`;
     return;
   }
