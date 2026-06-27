@@ -6460,7 +6460,10 @@ function renderColTable(rows) {
       : '<span style="color:var(--g400);font-size:11px">—</span>';
     return `<tr style="cursor:pointer" onclick="openCollectionDetail('${r.id}')">
       <td style="font-size:12px;font-weight:600;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.ipRelated||"—"}</td>
-      <td>${r.collectionName||"—"}</td>
+      <td>${r.collectionName||"—"}${(() => {
+        const m = _COL_RELEASE_MODES.find(x => x.key === (r.releaseMode||'TBD')) || _COL_RELEASE_MODES[0];
+        return `<span style="display:inline-block;margin-left:6px;padding:1px 7px;font-size:9px;font-weight:600;font-family:var(--mono);border-radius:99px;background:${m.tone.bg};color:${m.tone.fg};border:1px solid ${m.tone.border};vertical-align:middle">${m.icon} ${m.key}</span>`;
+      })()}</td>
       <td>${revCell}</td>
       <td style="white-space:nowrap;font-size:12px">${(() => {
         const eff = _colEffectiveLaunch(r);
