@@ -42366,6 +42366,7 @@ function applyRYPFilters() {
   );
   renderRYPStats(rows);
   renderRYPTable(rows);
+  if (_rypView === 'ledger') renderRYPLedger();
 }
 
 function renderRYPStats(rows) {
@@ -42753,6 +42754,139 @@ function exportRoyaltyPayoutsCSV() {
     } catch(e) { console.error(e); }
   }, 200);
 }
+// ── View toggle: List ↔ Ledger per IP ──
+let _rypView = 'list';
+function switchRYPView(mode, btn) {
+  _rypView = mode;
+  document.querySelectorAll('#page-rypayouts .tab-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  document.getElementById('ryp-view-list').style.display   = (mode === 'list') ? '' : 'none';
+  document.getElementById('ryp-view-ledger').style.display = (mode === 'ledger') ? '' : 'none';
+  if (mode === 'ledger') renderRYPLedger();
+}
+
+// Group rows by recipient_name; show monthly Royalty / Paid / Running Balance.
+// Balance computation = cumulative_royalty - cumulative_paid sorted chronologically.
+function renderRYPLedger() {
+  const host = document.getElementById('ryp-view-ledger');
+  if (!host) return;
+  // Apply same filters as list view (recipient search + year + status)
+  const q = (document.getElementById('ryp-fil-search')?.value || '').toLowerCase();
+  const year = document.getElementById('ryp-fil-year')?.value || '';
+  let rows = _rypRows;
+  if (year) rows = rows.filter(r => String(r.periodYear) === year);
+  if (q) rows = rows.filter(r =>
+    (r.recipientName||'').toLowerCase().includes(q) ||
+    (r.ipName||'').toLowerCase().includes(q)
+  );
+  if (!rows.length) {
+    host.innerHTML = `<div class="form-card" style="padding:24px;text-align:center;color:var(--g400);font-size:13px">Belum ada data. Klik <strong>⚡ Generate</strong> di atas untuk compute periode.</div>`;
+    return;
+  }
+  // Group by recipient
+  const grouped = {};
+  for (const r of rows) {
+    const key = r.recipientId || r.recipientName;
+    if (!grouped[key]) grouped[key] = { recipient: r.recipientName, ipName: r.ipName, recipientType: r.recipientType, rows: [] };
+    grouped[key].rows.push(r);
+  }
+  // Sort groups by recipient name; sort rows within group chronologically
+  const groups = Object.values(grouped).map(g => ({
+    ...g,
+    rows: g.rows.sort((a,b) => (a.periodYear - b.periodYear) || (a.periodMonth - b.periodMonth)),
+  })).sort((a,b) => (a.recipient||'').localeCompare(b.recipient||''));
+
+  host.innerHTML = groups.map(g => {
+    let cumRoyalty = 0, cumPaid = 0;
+    const ledgerRows = g.rows.map(r => {
+      cumRoyalty += r.netPayable;
+      const paidThisRow = (r.status === 'Paid' && r.paidAmount != null) ? r.paidAmount : 0;
+      cumPaid += paidThisRow;
+      const balance = cumRoyalty - cumPaid;
+      const balClr = balance > 0 ? '#c0392b' : balance < 0 ? '#0a7d3a' : 'var(--g600)';
+      const statusTone = _RYP_STATUS_TONE[r.status] || _RYP_STATUS_TONE.Open;
+      return `<tr style="border-top:1px solid var(--g100)">
+        <td style="padding:8px 10px;font-family:var(--mono);font-size:12px;white-space:nowrap">${_rypPeriodLabel(r.periodYear, r.periodMonth)}</td>
+        <td style="padding:8px 10px;text-align:right;font-family:var(--mono);font-size:12px">${_rypFmtRp(r.netPayable)}</td>
+        <td style="padding:8px 10px;text-align:right;font-family:var(--mono);font-size:12px;color:${paidThisRow ? '#0a7d3a' : 'var(--g400)'}">${_rypFmtRp(paidThisRow)}</td>
+        <td style="padding:8px 10px;text-align:right;font-family:var(--mono);font-size:13px;font-weight:700;color:${balClr}">${_rypFmtRp(balance)}</td>
+        <td style="padding:8px 10px;font-size:10px"><span style="display:inline-block;padding:1px 7px;font-family:var(--mono);font-weight:600;border-radius:99px;background:${statusTone.bg};color:${statusTone.fg};border:1px solid ${statusTone.border}">${statusTone.icon} ${r.status}</span></td>
+        <td style="padding:8px 10px;font-size:11px"><button class="btn-icon" onclick="openRYPDetail('${r.id}')" style="font-size:11px;padding:3px 8px">Detail</button></td>
+      </tr>`;
+    }).join('');
+    const finalBalance = cumRoyalty - cumPaid;
+    const balClr = finalBalance > 0 ? '#c0392b' : finalBalance < 0 ? '#0a7d3a' : 'var(--g600)';
+    const recipientIdEsc = g.rows[0].recipientId.replace(/'/g,"\\'");
+    return `<div class="form-card" style="margin-bottom:16px;padding:0;overflow:hidden">
+      <div style="padding:12px 16px;background:var(--off);border-bottom:1px solid var(--g100);display:flex;align-items:center;gap:12px">
+        <div style="flex:1">
+          <div style="font-family:var(--syne);font-size:15px;font-weight:700">${(g.recipient||'').replace(/</g,'&lt;')}</div>
+          <div style="font-size:10px;color:var(--g400);font-family:var(--mono);text-transform:uppercase">${g.recipientType}${g.ipName && g.ipName !== g.recipient ? ` · IP: ${g.ipName.replace(/</g,'&lt;')}` : ''} · ${g.rows.length} periode</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:10px;color:var(--g400);font-family:var(--mono);text-transform:uppercase">Outstanding Balance</div>
+          <div style="font-family:var(--mono);font-size:16px;font-weight:700;color:${balClr}">${_rypFmtRp(finalBalance)}</div>
+        </div>
+        ${finalBalance > 0 ? `<button class="btn-primary" onclick="rypBulkPay('${recipientIdEsc}')" style="padding:6px 12px;font-size:12px">💵 Bulk Pay</button>` : ''}
+      </div>
+      <table style="width:100%;border-collapse:collapse">
+        <thead><tr style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);background:var(--white)">
+          <th style="padding:6px 10px;text-align:left">Period</th>
+          <th style="padding:6px 10px;text-align:right">Royalty</th>
+          <th style="padding:6px 10px;text-align:right">Paid</th>
+          <th style="padding:6px 10px;text-align:right">Balance Running</th>
+          <th style="padding:6px 10px;text-align:left">Status</th>
+          <th style="padding:6px 10px;text-align:left">Aksi</th>
+        </tr></thead>
+        <tbody>${ledgerRows}</tbody>
+        <tfoot><tr style="border-top:2px solid var(--g200);background:var(--off)">
+          <td style="padding:8px 10px;font-weight:700;font-size:12px">Total</td>
+          <td style="padding:8px 10px;text-align:right;font-family:var(--mono);font-size:13px;font-weight:700">${_rypFmtRp(cumRoyalty)}</td>
+          <td style="padding:8px 10px;text-align:right;font-family:var(--mono);font-size:13px;font-weight:700;color:#0a7d3a">${_rypFmtRp(cumPaid)}</td>
+          <td style="padding:8px 10px;text-align:right;font-family:var(--mono);font-size:14px;font-weight:700;color:${balClr}">${_rypFmtRp(finalBalance)}</td>
+          <td colspan="2"></td>
+        </tr></tfoot>
+      </table>
+    </div>`;
+  }).join('');
+}
+
+// Bulk Pay — distribute payment FIFO across oldest non-Paid periods of a recipient.
+async function rypBulkPay(recipientId) {
+  const matching = _rypRows.filter(r => r.recipientId === recipientId && r.status !== 'Paid' && r.status !== 'Cancelled');
+  if (!matching.length) { alert('Gak ada periode outstanding.'); return; }
+  const r0 = matching[0];
+  const outstanding = matching.reduce((s,r) => s + r.netPayable, 0);
+  const amtStr = prompt(`Bulk Pay ke "${r0.recipientName}"\nOutstanding total: ${_rypFmtRp(outstanding)}\n\nMasukin total amount yang dibayar (Rp):`, Math.round(outstanding));
+  if (amtStr == null) return;
+  let remaining = parseFloat(String(amtStr).replace(/[^\d.]/g,''));
+  if (isNaN(remaining) || remaining <= 0) { alert('Amount invalid.'); return; }
+  const paidAt = prompt('Tanggal bayar (YYYY-MM-DD):', new Date().toISOString().slice(0,10));
+  if (!paidAt) return;
+  // Distribute FIFO — sort by period
+  const sorted = matching.sort((a,b) => (a.periodYear - b.periodYear) || (a.periodMonth - b.periodMonth));
+  const settled = [];
+  for (const r of sorted) {
+    if (remaining <= 0) break;
+    const settleAmt = Math.min(remaining, r.netPayable);
+    settled.push({ id: r.id, amount: settleAmt, fullSettle: settleAmt >= r.netPayable - 1 });
+    remaining -= settleAmt;
+  }
+  if (!confirm(`Distribute ${_rypFmtRp(parseFloat(amtStr))} ke ${settled.length} periode (oldest first).\n${settled.filter(s=>s.fullSettle).length} fully settled, ${settled.filter(s=>!s.fullSettle).length} partial.\n\nLanjut?`)) return;
+  try {
+    for (const s of settled) {
+      const updates = {
+        paid_at: paidAt, paid_amount: s.amount,
+        last_updated: new Date().toISOString(), last_updated_by: currentUser||'',
+      };
+      if (s.fullSettle) updates.status = 'Paid';
+      await sb.from('royalty_payouts').update(updates).eq('id', s.id);
+    }
+    await loadRoyaltyPayouts();
+    if (_rypView === 'ledger') renderRYPLedger();
+  } catch(e) { alert('Gagal: '+(e.message||e)); }
+}
+
 // ── END ROYALTY PAYOUTS ──
 
 // ── DUPLICATE CHECK ──

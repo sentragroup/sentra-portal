@@ -972,6 +972,10 @@
       <div class="page" id="page-rypayouts">
         <div class="page-header">
           <div><div class="page-title">Royalty Payouts</div><div class="page-sub">Lifecycle tracker: Open → Reported → AP Booked → Paid · aging outstanding per IP/recipient</div></div>
+          <div class="tab-bar">
+            <button class="tab-btn active" onclick="switchRYPView('list', this)">📋 List</button>
+            <button class="tab-btn" onclick="switchRYPView('ledger', this)">📒 Ledger per IP</button>
+          </div>
         </div>
         <div class="stats-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:1.25rem">
           <div class="stat-card"><div class="stat-num" id="ryp-s-total">—</div><div class="stat-lbl">Total Payouts</div></div>
@@ -1017,22 +1021,25 @@
           <div class="tcount" id="ryp-tcount">— entri</div>
           <button class="btn-ghost" onclick="exportRoyaltyPayoutsCSV()" style="font-size:12px">⬇ Export CSV</button>
         </div>
-        <div class="table-wrap"><table>
-          <thead><tr style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">
-            <th style="padding:6px 10px;text-align:left">Period</th>
-            <th style="padding:6px 10px;text-align:left">Recipient</th>
-            <th style="padding:6px 10px;text-align:left">Type</th>
-            <th style="padding:6px 10px;text-align:right">Gross Rev</th>
-            <th style="padding:6px 10px;text-align:right">%</th>
-            <th style="padding:6px 10px;text-align:right">Royalty</th>
-            <th style="padding:6px 10px;text-align:right">PPh</th>
-            <th style="padding:6px 10px;text-align:right">Net Payable</th>
-            <th style="padding:6px 10px;text-align:left">Status</th>
-            <th style="padding:6px 10px;text-align:right">Aging</th>
-            <th style="padding:6px 10px;text-align:left">Aksi</th>
-          </tr></thead>
-          <tbody id="ryp-tbody"><tr><td class="empty-td" colspan="11">Belum ada data. Klik <strong>Generate</strong> di atas untuk compute periode.</td></tr></tbody>
-        </table></div>
+        <div id="ryp-view-list">
+          <div class="table-wrap"><table>
+            <thead><tr style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">
+              <th style="padding:6px 10px;text-align:left">Period</th>
+              <th style="padding:6px 10px;text-align:left">Recipient</th>
+              <th style="padding:6px 10px;text-align:left">Type</th>
+              <th style="padding:6px 10px;text-align:right">Gross Rev</th>
+              <th style="padding:6px 10px;text-align:right">%</th>
+              <th style="padding:6px 10px;text-align:right">Royalty</th>
+              <th style="padding:6px 10px;text-align:right">PPh</th>
+              <th style="padding:6px 10px;text-align:right">Net Payable</th>
+              <th style="padding:6px 10px;text-align:left">Status</th>
+              <th style="padding:6px 10px;text-align:right">Aging</th>
+              <th style="padding:6px 10px;text-align:left">Aksi</th>
+            </tr></thead>
+            <tbody id="ryp-tbody"><tr><td class="empty-td" colspan="11">Belum ada data. Klik <strong>Generate</strong> di atas untuk compute periode.</td></tr></tbody>
+          </table></div>
+        </div>
+        <div id="ryp-view-ledger" style="display:none"></div>
       </div><!-- /.page#page-rypayouts -->
 
       <!-- ACTIVITY LOG -->
@@ -5463,6 +5470,6 @@
 <div id="proj-overlay" class="proj-panel-overlay" style="display:none" onclick="if(event.target===this)closeProjectDetail()"></div>
 <div id="proj-panel" class="proj-panel" style="display:none"></div>
 
-<script src="app.js?v=20260627w"></script>
+<script src="app.js?v=20260627x"></script>
 </body>
 </html>
