@@ -6082,8 +6082,12 @@ async function loadCollections() {
       sb.from("collection_item_components").select("*").order("id",{ascending:true})
     ];
     if(!allDsgRows.length) fetches.push(sb.from("designer_master").select("*").order("name"));
+    // Lazy preload popup_booths kalau belum di-load (buat event picker di
+    // Business tab). Avoid double-fetch kalau user udah pernah buka PB module.
+    const pbFetchIdx = !allPBRows.length ? fetches.push(sb.from("popup_booths").select("*").order("event_date",{ascending:false}).limit(500)) - 1 : -1;
     const results=await Promise.all(fetches);
     const [{data,error},{data:ciData},{data:dwData},{data:cicData}]=results;
+    if (pbFetchIdx >= 0 && results[pbFetchIdx]?.data) allPBRows = results[pbFetchIdx].data.map(mapPB);
     if(error)throw error;
     allColRows=(data||[]).map(mapCol);
     allColItems=(ciData||[]).map(mapCI);
@@ -7288,16 +7292,21 @@ function _renderColEventLinkInner(col) {
   const linkedEvent = (col.linkedPopupBoothId && Array.isArray(allPBRows))
     ? allPBRows.find(r => r.id === col.linkedPopupBoothId)
     : null;
-  // Find candidate events — upcoming popup_booths + recent past (within 30 days)
+  // Candidate events — semua yang ada eventDate (non-cancelled). Sort future
+  // first, lalu past dari most-recent. Biar user gampang link past event
+  // untuk retroactive tracking, sekaligus prioritize upcoming.
   const today = new Date(); today.setHours(0,0,0,0);
-  const back30 = new Date(today); back30.setDate(back30.getDate() - 30);
   const candidates = (allPBRows||[])
     .filter(r => r.eventDate && r.eventStatus !== 'Cancelled')
-    .filter(r => {
-      const d = new Date(r.eventDate + 'T00:00:00');
-      return d >= back30; // 30 days back + all future
-    })
-    .sort((a,b) => (a.eventDate||'').localeCompare(b.eventDate||''));
+    .sort((a,b) => {
+      const da = new Date(a.eventDate+'T00:00:00');
+      const db = new Date(b.eventDate+'T00:00:00');
+      const aFuture = da >= today, bFuture = db >= today;
+      if (aFuture && !bFuture) return -1;
+      if (!aFuture && bFuture) return 1;
+      // Both future → earliest first. Both past → most recent first.
+      return aFuture ? da - db : db - da;
+    });
   const opts = [`<option value="">— Tidak ada (online-only release) —</option>`]
     .concat(candidates.map(r => {
       const sel = r.id === col.linkedPopupBoothId ? 'selected' : '';
