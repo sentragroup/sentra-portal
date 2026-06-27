@@ -5979,6 +5979,7 @@ function mapCol(r) {
     collectionName:r.collection_name||"", ipRelated:r.ip_related||"",
     releaseDate:r.release_date||"", priority:r.priority||"",
     moodboardUrl:r.moodboard_url||"", status:r.status||"Draft",
+    releaseMode: r.release_mode || 'TBD', // 'TBD' | 'PO' | 'Ready Stock'
     // Creative-tab multi-link (Moodboard / Reference / Asset / Brand Guide / Other)
     creativeLinks: Array.isArray(r.creative_links) ? r.creative_links : [],
     pic:r.pic||"", notes:r.notes||"", dateAdded:r.date_added||"", addedBy:r.added_by||"",
@@ -7342,6 +7343,43 @@ function renderColEventLink(col) {
   </div>`;
 }
 
+// ── Release Mode switcher (header) — PO / Ready Stock / TBD ──
+const _COL_RELEASE_MODES = [
+  { key:'TBD',         icon:'⏳', tone:{bg:'#F1EFE8', fg:'#666', border:'#D3D1C7'} },
+  { key:'PO',          icon:'📋', tone:{bg:'#FAEEDA', fg:'#633806', border:'#FAC775'} },
+  { key:'Ready Stock', icon:'📦', tone:{bg:'#dff0d8', fg:'#04342C', border:'#b8d9b3'} },
+];
+function _colReleaseModeSwitcher(col) {
+  const cur = col.releaseMode || 'TBD';
+  const opts = _COL_RELEASE_MODES.map(m =>
+    `<option value="${m.key}" ${m.key === cur ? 'selected' : ''}>${m.icon} ${m.key}</option>`
+  ).join('');
+  const tone = (_COL_RELEASE_MODES.find(m => m.key === cur) || _COL_RELEASE_MODES[0]).tone;
+  return `<select onchange="saveColReleaseMode('${col.id}', this.value)"
+    style="font-weight:700;font-size:12px;padding:2px 8px;border-radius:99px;border:1px solid ${tone.border};background:${tone.bg};color:${tone.fg};font-family:inherit;cursor:pointer">${opts}</select>`;
+}
+async function saveColReleaseMode(colId, mode) {
+  try {
+    const { error } = await sb.from('collections').update({
+      release_mode: mode || 'TBD',
+      last_updated: new Date().toISOString(),
+      last_updated_by: currentUser || '',
+    }).eq('id', colId);
+    if (error) throw error;
+    const idx = allColRows.findIndex(r => r.id === colId);
+    if (idx >= 0) allColRows[idx].releaseMode = mode || 'TBD';
+    // No re-render needed for header — select shows new value already.
+    // Apply tone change by updating select style inline.
+    const sel = document.querySelector(`[onchange="saveColReleaseMode('${colId}', this.value)"]`);
+    if (sel) {
+      const tone = (_COL_RELEASE_MODES.find(m => m.key === mode) || _COL_RELEASE_MODES[0]).tone;
+      sel.style.background = tone.bg;
+      sel.style.color = tone.fg;
+      sel.style.borderColor = tone.border;
+    }
+  } catch(e) { alert('Gagal save: ' + (e.message||e)); }
+}
+
 // ── Creative Links section (Creative tab) — multi-link with categories ──
 const _COL_CL_CATEGORIES = [
   { key:'Moodboard',    icon:'🎨', tone:{bg:'#fff3e0', fg:'#8a4000', border:'#ffcc80'} },
@@ -8285,6 +8323,7 @@ function renderColDetail(col, items) {
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px">
       <div class="stat-card" style="text-align:left;padding:12px 14px"><div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:4px">IP Related</div><div style="font-weight:600;font-size:13px">${col.ipRelated||"—"}</div></div>
       <div class="stat-card" style="text-align:left;padding:12px 14px"><div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:4px">Release Date</div><div style="font-weight:600;font-size:13px">${fmtDate(col.releaseDate)||"—"}</div></div>
+      <div class="stat-card" style="text-align:left;padding:12px 14px"><div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:4px">Release Mode</div>${_colReleaseModeSwitcher(col)}</div>
       <div class="stat-card" style="text-align:left;padding:12px 14px"><div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:4px">Priority</div><div>${col.priority?`<span class="pill ${prioColor[col.priority]||"p-draft"}">${col.priority}</span>`:"—"}</div></div>
       <div class="stat-card" style="text-align:left;padding:12px 14px"><div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:4px">PIC</div><div style="font-weight:600;font-size:13px">${col.pic||"—"}</div></div>
       ${colDwRows.some(r=>r.deliverablesUrl)?`<div class="stat-card" style="text-align:left;padding:12px 14px"><div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400);margin-bottom:4px">Design Files</div>${colDwRows.filter(r=>r.deliverablesUrl).map(r=>`<div style="margin-bottom:2px"><a href="${r.deliverablesUrl}" target="_blank" style="color:#3C3489;font-weight:600;text-decoration:none;font-size:12px">↗ ${r.designer||"File"}</a></div>`).join("")}</div>`:""}
