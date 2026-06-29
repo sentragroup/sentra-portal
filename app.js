@@ -9186,16 +9186,10 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
     return labelForChannel(chan);
   };
 
-  // 3d. Build daily time-series for chart (COMPLETED only — chart shows settled)
+  // 3d. timeSeries dibangun di section 4 setelah isCountable helper
+  // tersedia (event-tagged PENDING SOs juga ikut masuk biar bar event date
+  // ke-render). Placeholder kosong dulu — diisi oleh loop varData di bawah.
   const timeSeries = {}; // YYYY-MM-DD → { qty, revenue }
-  for (const si of salesItems) {
-    if (!completedMap.has(si.salesorder_id)) continue;
-    const date = (completedMap.get(si.salesorder_id) || "").slice(0, 10);
-    if (!date) continue;
-    if (!timeSeries[date]) timeSeries[date] = { qty: 0, revenue: 0 };
-    timeSeries[date].qty     += parseFloat(si.qty   || 0);
-    timeSeries[date].revenue += parseFloat(si.qty   || 0) * parseFloat(si.price || 0);
-  }
 
   // 3e. Status + channel + event aggregates (per-line, single pass).
   // statusBuckets: ALL tracked statuses (settled + in-flight)
@@ -9215,6 +9209,22 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
   const linkedEvent = (linkedBoothId && typeof allPBRows !== 'undefined' && Array.isArray(allPBRows))
     ? allPBRows.find(r => r.id === linkedBoothId) : null;
   let eventSalesQty = 0, eventSalesRev = 0;
+
+  // Helper: SO is explicitly tagged to this collection's linked event di
+  // Transaction Mapping. Kalau iya, count as committed regardless of status
+  // — offline event SO sering nyangkut di PENDING padahal revenue real.
+  const isEventTagged = (soId) => {
+    if (!linkedBoothId) return false;
+    const tx = txMap.get(soId);
+    if (!tx) return false;
+    if (tx.popup_booth_id && tx.popup_booth_id === linkedBoothId) return true;
+    // Legacy fallback: project_ref name match
+    if (!tx.popup_booth_id && tx.category === 'Pop Up Booth' && linkedEvent
+        && tx.project_ref && tx.project_ref.toLowerCase().trim() === (linkedEvent.eventName || '').toLowerCase().trim()) return true;
+    return false;
+  };
+  // Counted as real revenue: standard committed OR explicit event tag
+  const isCountable = (soId, status) => COMMITTED_STATUSES.has(status) || isEventTagged(soId);
 
   for (const si of salesItems) {
     const info = orderInfo.get(si.salesorder_id);
@@ -9247,27 +9257,11 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
     }
 
     // Event-linked sales — any tracked status yang explicit di-tag ke event.
-    // Beda dari Sales Mix yang COMMITTED-only: kalau user udah manually
-    // tag SO ke Pop Up Booth di Transaction Mapping, kita trust tag-nya
-    // (gak akan auto-cancel kayak marketplace PENDING). Jubelio offline
-    // event SO sering nyangkut di status PENDING karena payment processing
-    // belum closed — tapi revenue-nya udah real.
-    // Match prefers tx.popup_booth_id (preferred), falls back to legacy
-    // project_ref check when popup_booth_id IS NULL but category='Pop Up Booth'
-    // and project_ref matches the event name (case-insensitive).
-    if (linkedBoothId) {
-      const tx = txMap.get(si.salesorder_id);
-      if (tx) {
-        const matchById = tx.popup_booth_id && tx.popup_booth_id === linkedBoothId;
-        const matchByName = !tx.popup_booth_id
-          && tx.category === 'Pop Up Booth'
-          && linkedEvent && tx.project_ref
-          && tx.project_ref.toLowerCase().trim() === (linkedEvent.eventName || '').toLowerCase().trim();
-        if (matchById || matchByName) {
-          eventSalesQty += qty;
-          eventSalesRev += rev;
-        }
-      }
+    // (Helper isEventTagged di-define di section 3e atas, ngecek
+    // popup_booth_id ATAU legacy project_ref match.)
+    if (isEventTagged(si.salesorder_id)) {
+      eventSalesQty += qty;
+      eventSalesRev += rev;
     }
   }
 
@@ -9285,7 +9279,7 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
   }
   for (const si of salesItems) {
     const info = orderInfo.get(si.salesorder_id);
-    if (!info || !COMMITTED_STATUSES.has(info.status) || varData[si.item_id] === undefined) continue;
+    if (!info || !isCountable(si.salesorder_id, info.status) || varData[si.item_id] === undefined) continue;
     const qty   = parseFloat(si.qty        || 0);
     const price = parseFloat(si.price      || 0);
     const disc  = parseFloat(si.disc_amount|| 0);
@@ -9294,6 +9288,14 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
       varData[si.item_id].revenue    += qty * price;
       varData[si.item_id].discAmount += disc;
       varData[si.item_id].pfreq[price] = (varData[si.item_id].pfreq[price] || 0) + 1;
+    }
+    // Populate timeSeries here (countable orders = chart bars). Bucket by
+    // transaction_date dari orderInfo.
+    const date = (info.date || '').slice(0, 10);
+    if (date) {
+      if (!timeSeries[date]) timeSeries[date] = { qty: 0, revenue: 0 };
+      timeSeries[date].qty     += qty;
+      timeSeries[date].revenue += price > 0 ? (qty * price) : 0;
     }
   }
   for (const a of adjItems) {
@@ -9338,7 +9340,7 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
   let firstSaleDate = null;
   for (const si of salesItems) {
     const info = orderInfo.get(si.salesorder_id);
-    if (!info || !COMMITTED_STATUSES.has(info.status)) continue;
+    if (!info || !isCountable(si.salesorder_id, info.status)) continue;
     const d = info.date;
     if (d && (!firstSaleDate || d < firstSaleDate)) firstSaleDate = d;
   }
@@ -9480,8 +9482,8 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
     </div>
     <div style="font-family:var(--mono);font-size:9px;color:var(--g400);margin-bottom:12px;line-height:1.5">
       <strong style="color:var(--g600)">Stock</strong> = available di shelf (exclude yang dipick/pack) ·
-      <strong style="color:var(--g600)">Terjual</strong> = committed orders (COMPLETED + PAID + Picked + Pack, exclude PENDING) ·
-      <strong style="color:var(--g600)">PENDING</strong> visible di Status Breakdown
+      <strong style="color:var(--g600)">Terjual</strong> = committed orders (COMPLETED + PAID + Picked + Pack) + SO yang di-tag ke event ini (apapun status-nya) ·
+      <strong style="color:var(--g600)">PENDING</strong> non-tagged visible di Status Breakdown
     </div>
     <div style="margin-bottom:16px;border:1px solid var(--g100);border-radius:10px;padding:10px 12px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
