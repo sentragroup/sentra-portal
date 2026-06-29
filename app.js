@@ -9143,13 +9143,15 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
 
   // 3b. Transaction mappings for channel categorization (Pop Up / Wholesale /
   // Manual Purchase / Consignment). Fetched once for all tracked SOs.
-  const txMap = new Map(); // soId → { category, popup_booth_id }
+  // project_ref dipakai legacy fallback buat match event by name kalau
+  // popup_booth_id belum di-set (e.g. data lama).
+  const txMap = new Map(); // soId → { category, popup_booth_id, project_ref }
   if (orderInfo.size) {
     const soIds = [...orderInfo.keys()];
     for (let i = 0; i < soIds.length; i += 200) {
       const chunk = soIds.slice(i, i+200);
       const { data } = await sb.from('transaction_mappings')
-        .select('salesorder_id,category,popup_booth_id')
+        .select('salesorder_id,category,popup_booth_id,project_ref')
         .in('salesorder_id', chunk);
       for (const m of (data || [])) txMap.set(m.salesorder_id, m);
     }
@@ -9240,12 +9242,22 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
       channelBuckets[channelLabel].revenue += rev;
     }
 
-    // Event-linked sales — COMPLETED + matches event's tx_mapping
-    if (linkedBoothId && info.status === 'COMPLETED') {
+    // Event-linked sales — committed orders that match event tx_mapping.
+    // Match prefers tx.popup_booth_id (preferred), falls back to legacy
+    // project_ref check when popup_booth_id IS NULL but category='Pop Up Booth'
+    // and project_ref matches the event name (case-insensitive).
+    if (linkedBoothId && COMMITTED_STATUSES.has(info.status)) {
       const tx = txMap.get(si.salesorder_id);
-      if (tx && tx.popup_booth_id === linkedBoothId) {
-        eventSalesQty += qty;
-        eventSalesRev += rev;
+      if (tx) {
+        const matchById = tx.popup_booth_id && tx.popup_booth_id === linkedBoothId;
+        const matchByName = !tx.popup_booth_id
+          && tx.category === 'Pop Up Booth'
+          && linkedEvent && tx.project_ref
+          && tx.project_ref.toLowerCase().trim() === (linkedEvent.eventName || '').toLowerCase().trim();
+        if (matchById || matchByName) {
+          eventSalesQty += qty;
+          eventSalesRev += rev;
+        }
       }
     }
   }
@@ -9416,6 +9428,8 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
     const evDate = linkedEvent.eventDate || linkedEvent.startDate || null;
     const dateLbl = evDate ? new Date(evDate.slice(0,10) + 'T00:00:00').toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'}) : '—';
     const shareOfTotal = grandRevenue > 0 ? (eventSalesRev / grandRevenue * 100) : 0;
+    // Empty-state hint: orders ada tapi belum di-tag ke event di Transaction Mapping.
+    const emptyHint = eventSalesQty === 0 ? `<div style="margin-top:8px;padding:6px 10px;background:rgba(217,119,6,0.08);border-left:3px solid #d97706;font-family:var(--mono);font-size:10px;color:var(--g600);line-height:1.5">⚠ Belum ada SO yang di-tag ke event ini. Buka <a href="#txmap" onclick="showPage('txmap',null);return false" style="color:#3C3489;text-decoration:none">Transaction Mapping</a> untuk tag order Marte/POS yang terjadi di event ini (set Category = 'Pop Up Booth' dan pilih event-nya).</div>` : '';
     return `<div style="margin-bottom:16px;border:1px solid var(--g100);border-radius:10px;padding:12px 14px;background:linear-gradient(135deg,#fef3c7 0%,#fff 60%)">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
         <div style="min-width:0">
@@ -9439,6 +9453,7 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
           <button onclick="showPage('popupbooth',null);setTimeout(()=>typeof openPBDetail==='function'&&openPBDetail('${linkedEvent.id}'),200)" style="padding:5px 11px;border:1px solid var(--g200);border-radius:6px;background:var(--white);font-size:11px;font-family:var(--mono);cursor:pointer;color:var(--g600)" title="Buka detail event">↗ Detail</button>
         </div>
       </div>
+      ${emptyHint}
     </div>`;
   })() : '';
 
