@@ -9593,17 +9593,19 @@ async function loadColFinancial(colId, col) {
   const ipName  = col.ipRelated || perf.ipRelated || '';
   const itemIds = perf.itemIds || [];
 
-  // Parallel fetch all cost sources, including freebies (Account + KOL).
-  // Freebies = items (HPP × qty) + outbound_requests.shipping_cost.
-  const [meRes, psRes, rpRes, ipRes, rrRes, itRes, lfRes, kolRes] = await Promise.all([
+  // Parallel fetch all cost sources. Freebies sekarang di-fetch langsung
+  // dari outbound_requests (instead of via LF/KOL collection_id) supaya OB
+  // yang dibuat manual atau yang LF row-nya gak ke-link ke collection juga
+  // ke-detect. Filter: items[].sku ∈ collection's SKU set. Exclude
+  // PhotoShoot + MarketingActivation source (sudah ke-count di psExp/mktExp).
+  const [meRes, psRes, rpRes, ipRes, rrRes, itRes, obRes] = await Promise.all([
     sb.from('marketing_events').select('id,event_name,budget,budget_breakdown,event_date').eq('collection_id', colId),
     sb.from('photoshoots').select('id,shoot_name,budget,budget_breakdown,shoot_date').eq('collection_id', colId),
     sb.from('restock_projects').select('id,name,status,items,linked_po_ids,date_created'),
     sb.from('ip_master').select('id,name,percentage,fixed_amount,pph_tax_rate,royalty_type').eq('name', ipName),
     sb.from('royalty_recipients').select('id,nama,percentage,fixed_amount,royalty_type').eq('related_ip', ipName),
-    itemIds.length ? _fetchAllPages('jubelio_items', 'item_id,average_cost', q => q.in('item_id', itemIds)) : Promise.resolve([]),
-    sb.from('licensor_freebies').select('id,freebie_items,outbound_request_id,licensor_name,recipient_name,status,date_added').eq('collection_id', colId),
-    sb.from('kol_placements').select('id,kol_name,freebie_items,outbound_request_id,status,payment_category,date_added').eq('collection_id', colId),
+    itemIds.length ? _fetchAllPages('jubelio_items', 'item_id,average_cost,item_code', q => q.in('item_id', itemIds)) : Promise.resolve([]),
+    sb.from('outbound_requests').select('id,source_module,purpose,recipient_name,items,shipping_cost,status,date_added'),
   ]);
 
   // ── COGS = Σ (sold × average_cost)
@@ -9751,60 +9753,53 @@ async function loadColFinancial(colId, col) {
     psExp += bb.reduce((s, x) => s + parseFloat(x.amount || 0), 0);
   }
 
-  // ── Freebies Expense (Account Freebies + KOL Freebies)
-  // Items cost = Σ qty × hpp (HPP snapshot stored on freebie_items row).
-  // Shipping cost = outbound_requests.shipping_cost untuk OB yang ke-link.
-  const lfRows = lfRes.data || [];
-  const kolRows = kolRes.data || [];
-  const freebieEntries = []; // { source, label, itemsCost, shippingCost, obId, items, status }
+  // ── Freebies Expense — outbound_requests direct, match by SKU overlap
+  // dengan koleksi ini. No status filter (semua OB masuk). Exclude
+  // source_module PhotoShoot + MarketingActivation karena udah ke-count di
+  // psExp + mktExp masing-masing.
+  //
+  // Per-OB attribution:
+  //   - matchedItems = items[] yang SKU-nya ∈ collection's SKU set
+  //   - itemsCost = Σ qty × hpp untuk matched items
+  //   - shippingCost = (matchedQty / totalQty) × ob.shipping_cost (pro-rata)
+  // Kalau OB cuma ada items dari koleksi ini, shipping fully attributed.
+  // Kalau mixed (ada item dari koleksi lain), shipping di-split proporsional.
+  const collectionSkuSet = new Set(
+    (itRes || []).map(it => (it.item_code || '').trim()).filter(Boolean)
+  );
+  const EXCLUDED_OB_SOURCES = new Set(['PhotoShoot','MarketingActivation']);
+  const freebieEntries = [];
   let freebieItemsCost = 0;
   let freebieShippingCost = 0;
-  // Collect OB ids first → batch fetch shipping_cost in one query
-  const linkedObIds = [
-    ...lfRows.map(r => r.outbound_request_id).filter(Boolean),
-    ...kolRows.map(r => r.outbound_request_id).filter(Boolean),
-  ];
-  const obShippingMap = {}; // obId → shipping_cost
-  const obStatusMap = {};   // obId → status (for paid/unpaid hint)
-  if (linkedObIds.length) {
-    const { data: obs } = await sb.from('outbound_requests')
-      .select('id, shipping_cost, status')
-      .in('id', linkedObIds);
-    for (const ob of (obs || [])) {
-      obShippingMap[ob.id] = parseFloat(ob.shipping_cost || 0);
-      obStatusMap[ob.id]   = ob.status || '—';
+  for (const ob of (obRes.data || [])) {
+    if (EXCLUDED_OB_SOURCES.has(ob.source_module)) continue;
+    const items = Array.isArray(ob.items) ? ob.items : [];
+    if (!items.length) continue;
+    let matchedQty = 0, totalQty = 0, matchedCost = 0;
+    for (const it of items) {
+      const q = Number(it.qty || 1);
+      totalQty += q;
+      if (collectionSkuSet.has((it.sku || '').trim())) {
+        matchedQty  += q;
+        matchedCost += Number(it.hpp || 0) * q;
+      }
     }
-  }
-  const _freebieRowCost = (items) => (items || []).reduce((s, it) => s + (Number(it.hpp||0) * Number(it.qty||1)), 0);
-  for (const lf of lfRows) {
-    const items = Array.isArray(lf.freebie_items) ? lf.freebie_items : [];
-    const itemsCost = _freebieRowCost(items);
-    const shipping  = lf.outbound_request_id ? (obShippingMap[lf.outbound_request_id] || 0) : 0;
-    freebieItemsCost   += itemsCost;
-    freebieShippingCost += shipping;
+    if (matchedQty === 0) continue; // OB gak ada item dari koleksi ini
+    const totalShipping = parseFloat(ob.shipping_cost || 0);
+    const proRataShipping = totalQty > 0 ? (matchedQty / totalQty) * totalShipping : 0;
+    freebieItemsCost    += matchedCost;
+    freebieShippingCost += proRataShipping;
     freebieEntries.push({
-      source: 'Account', label: lf.recipient_name || lf.licensor_name || lf.id,
-      itemsCost, shippingCost: shipping, obId: lf.outbound_request_id || '',
-      itemQty: items.reduce((s, it) => s + (Number(it.qty||1)), 0),
-      lfStatus: lf.status || '—',
-      obStatus: lf.outbound_request_id ? (obStatusMap[lf.outbound_request_id] || '—') : '—',
-      date: lf.date_added,
-    });
-  }
-  for (const k of kolRows) {
-    const items = Array.isArray(k.freebie_items) ? k.freebie_items : [];
-    if (!items.length) continue; // KOL with Pay-only (no barter) → skip
-    const itemsCost = _freebieRowCost(items);
-    const shipping  = k.outbound_request_id ? (obShippingMap[k.outbound_request_id] || 0) : 0;
-    freebieItemsCost   += itemsCost;
-    freebieShippingCost += shipping;
-    freebieEntries.push({
-      source: 'KOL', label: k.kol_name || k.id,
-      itemsCost, shippingCost: shipping, obId: k.outbound_request_id || '',
-      itemQty: items.reduce((s, it) => s + (Number(it.qty||1)), 0),
-      lfStatus: k.status || '—',
-      obStatus: k.outbound_request_id ? (obStatusMap[k.outbound_request_id] || '—') : '—',
-      date: k.date_added,
+      source: ob.source_module || 'Manual',
+      label: ob.recipient_name || ob.id,
+      purpose: ob.purpose || '—',
+      itemsCost: matchedCost,
+      shippingCost: proRataShipping,
+      itemQty: matchedQty,
+      totalQty,
+      obId: ob.id,
+      obStatus: ob.status || '—',
+      date: ob.date_added,
     });
   }
   const freebieExp = freebieItemsCost + freebieShippingCost;
@@ -9972,20 +9967,20 @@ function renderColPnL(colId) {
     </details>` : '';
 
   const freebieBreak = (d.freebieEntries || []).length ? `
-    <details style="margin-top:10px"><summary style="cursor:pointer;font-size:11px;color:var(--g400);font-family:var(--mono);text-transform:uppercase">Freebies breakdown (${d.freebieEntries.length} shipment)</summary>
+    <details style="margin-top:10px"><summary style="cursor:pointer;font-size:11px;color:var(--g400);font-family:var(--mono);text-transform:uppercase">Freebies breakdown (${d.freebieEntries.length} OB shipment)</summary>
       <table style="width:100%;margin-top:8px;font-size:11px;border-collapse:collapse">
         <thead><tr style="border-bottom:1px solid var(--g100);color:var(--g400)">
           <th style="text-align:left;padding:6px 8px">Recipient</th>
-          <th style="text-align:left;padding:6px 8px">Source</th>
-          <th style="text-align:right;padding:6px 8px">Qty</th>
+          <th style="text-align:left;padding:6px 8px">Purpose</th>
+          <th style="text-align:right;padding:6px 8px">Qty (matched/total)</th>
           <th style="text-align:right;padding:6px 8px">Items HPP</th>
-          <th style="text-align:right;padding:6px 8px">Ongkir</th>
+          <th style="text-align:right;padding:6px 8px">Ongkir (pro-rata)</th>
           <th style="text-align:left;padding:6px 8px">OB Status</th></tr></thead>
         <tbody>${d.freebieEntries.map(f => `
           <tr style="border-top:1px solid var(--g100)">
             <td style="padding:6px 8px">${f.label}</td>
-            <td style="padding:6px 8px"><span class="pill p-${f.source==='KOL'?'review':'signings'}" style="font-size:9px">${f.source}</span></td>
-            <td style="text-align:right;padding:6px 8px;font-family:var(--mono)">${f.itemQty}</td>
+            <td style="padding:6px 8px;font-size:10px;color:var(--g600)">${f.purpose || '—'}</td>
+            <td style="text-align:right;padding:6px 8px;font-family:var(--mono)">${f.itemQty}${f.totalQty && f.totalQty !== f.itemQty ? ` <span style="color:var(--g400)">/ ${f.totalQty}</span>` : ''}</td>
             <td style="text-align:right;padding:6px 8px;font-family:var(--mono);color:#c0392b">${_colFinFmtRp(f.itemsCost)}</td>
             <td style="text-align:right;padding:6px 8px;font-family:var(--mono);color:#c0392b">${f.shippingCost > 0 ? _colFinFmtRp(f.shippingCost) : '—'}</td>
             <td style="padding:6px 8px;font-size:10px;color:var(--g600)">${f.obStatus || '—'}</td>
@@ -10067,20 +10062,20 @@ function renderColCashFlow(colId) {
     </details>` : '';
 
   const freebieCashBreak = (d.freebieEntries||[]).length ? `
-    <details style="margin-top:10px"><summary style="cursor:pointer;font-size:11px;color:var(--g400);font-family:var(--mono);text-transform:uppercase">Freebies breakdown (${d.freebieEntries.length} shipment · ${_colFinFmtRp(d.cashOutFreebies)})</summary>
+    <details style="margin-top:10px"><summary style="cursor:pointer;font-size:11px;color:var(--g400);font-family:var(--mono);text-transform:uppercase">Freebies breakdown (${d.freebieEntries.length} OB shipment · ${_colFinFmtRp(d.cashOutFreebies)})</summary>
       <table style="width:100%;margin-top:8px;font-size:11px;border-collapse:collapse">
         <thead><tr style="border-bottom:1px solid var(--g100);color:var(--g400)">
           <th style="text-align:left;padding:6px 8px">Recipient</th>
-          <th style="text-align:left;padding:6px 8px">Source</th>
-          <th style="text-align:right;padding:6px 8px">Qty</th>
+          <th style="text-align:left;padding:6px 8px">Purpose</th>
+          <th style="text-align:right;padding:6px 8px">Qty (matched/total)</th>
           <th style="text-align:right;padding:6px 8px">Items HPP</th>
-          <th style="text-align:right;padding:6px 8px">Ongkir</th>
+          <th style="text-align:right;padding:6px 8px">Ongkir (pro-rata)</th>
           <th style="text-align:left;padding:6px 8px">OB Status</th></tr></thead>
         <tbody>${d.freebieEntries.map(f => `
           <tr style="border-top:1px solid var(--g100)">
             <td style="padding:6px 8px">${f.label}</td>
-            <td style="padding:6px 8px"><span class="pill p-${f.source==='KOL'?'review':'signings'}" style="font-size:9px">${f.source}</span></td>
-            <td style="text-align:right;padding:6px 8px;font-family:var(--mono)">${f.itemQty}</td>
+            <td style="padding:6px 8px;font-size:10px;color:var(--g600)">${f.purpose || '—'}</td>
+            <td style="text-align:right;padding:6px 8px;font-family:var(--mono)">${f.itemQty}${f.totalQty && f.totalQty !== f.itemQty ? ` <span style="color:var(--g400)">/ ${f.totalQty}</span>` : ''}</td>
             <td style="text-align:right;padding:6px 8px;font-family:var(--mono);color:#c0392b">${_colFinFmtRp(f.itemsCost)}</td>
             <td style="text-align:right;padding:6px 8px;font-family:var(--mono);color:#c0392b">${f.shippingCost > 0 ? _colFinFmtRp(f.shippingCost) : '—'}</td>
             <td style="padding:6px 8px;font-size:10px;color:var(--g600)">${f.obStatus || '—'}</td>
