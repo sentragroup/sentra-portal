@@ -41346,16 +41346,19 @@ async function _mpurcRecalcHeader() {
   const subtotal = o.items.reduce((s,i) => s + (parseFloat(i.subtotal)||0), 0);
   const shippingCost = _mpurcComputeShipping(o.shipments);
   o.header.shippingCost = shippingCost;
-  // Sync payment amounts dari current items subtotal × milestone pct.
-  // Tanpa ini, kalau milestone row di-init pas items kosong (subtotal=0),
-  // amount tersimpan 0 dan gak ke-update sekalipun items ditambah. Akibat:
-  // paid_at set tapi totalReceived = 0 → kalkulasi outstanding salah.
+  // Sync payment amounts dari current (subtotal + shipping) × milestone pct.
+  // Include ongkir di milestone base — biar Pelunasan 100% nge-cover full
+  // bill (items + ongkir), gak ninggalin sisa ongkir di payment_due. User
+  // bisa override amount manual kalau emang mau split ongkir terpisah.
+  // Tanpa sync ini, milestone row yang di-init pas items kosong tetep
+  // amount=0 → totalReceived stuck → outstanding salah.
+  const totalBill = subtotal + shippingCost;
   const plan = o.header.paymentPlan || (typeof _mpurcDefaultPaymentPlan==='function' ? _mpurcDefaultPaymentPlan() : {milestones:[]});
   const planByKey = new Map((plan.milestones||[]).map(m => [m.key, m]));
   for (const p of (o.payments||[])) {
     const m = planByKey.get(p.milestone);
     if (!m) continue;
-    const expectedAmt = Math.round(subtotal * (parseFloat(m.pct)||0) / 100);
+    const expectedAmt = Math.round(totalBill * (parseFloat(m.pct)||0) / 100);
     if (parseFloat(p.amount) !== expectedAmt) {
       p.amount = expectedAmt;
       if (o.header.id !== 'new' && p.id) {
