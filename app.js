@@ -9129,7 +9129,7 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
         if (o.is_canceled) continue;
         orderInfo.set(o.salesorder_id, {
           status:  o.wms_status,
-          channel: (o.channel_name || '').toUpperCase(),
+          channel: o.channel_name || '',   // raw — SP_CHANNEL_LABELS has mixed-case keys
           date:    o.transaction_date,
         });
         if (o.wms_status === 'COMPLETED') completedMap.set(o.salesorder_id, o.transaction_date);
@@ -9151,19 +9151,33 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
     }
   }
 
-  // 3c. Channel classifier — single bucket per order, deterministic precedence.
+  // 3c. Channel labeler — per-channel granular, ikut SP_CHANNEL_LABELS
+  // (Sales Performance module). Wholesale di-override dari tx_mapping karena
+  // tipe ini gak punya distinct channel di Jubelio (jualan B2B biasanya via
+  // POS atau Shopify/Plugo dengan tag manual). MP voucher disc handled via
+  // raw channel pattern check (untuk gross vs net price logic).
   const MP_PATTERNS = ['SHOPEE','TOKOPEDIA','TIKTOK','BLIBLI','LAZADA','ZALORA'];
+  const isMPChannel = (chan) => !!(chan && MP_PATTERNS.some(p => chan.includes(p)));
+  // Use channel_name verbatim → friendly label via SP_CHANNEL_LABELS. The
+  // map keys are case-sensitive; channel_name comes uppercased so we match
+  // against both raw + uppercased keys.
+  const labelForChannel = (rawChan) => {
+    if (!rawChan) return 'Unknown';
+    // Try raw match first (some keys are mixed-case like 'Shop | Tokopedia')
+    if (typeof SP_CHANNEL_LABELS !== 'undefined') {
+      if (SP_CHANNEL_LABELS[rawChan]) return SP_CHANNEL_LABELS[rawChan];
+      const upper = rawChan.toUpperCase();
+      if (SP_CHANNEL_LABELS[upper]) return SP_CHANNEL_LABELS[upper];
+    }
+    return rawChan;
+  };
   const classifyChannel = (soId, chan) => {
     const tx = txMap.get(soId);
-    if (tx && tx.category) {
-      if (tx.category === 'Pop Up Booth')     return 'Pop Up Booth';
-      if (tx.category === 'Wholesale')        return 'Wholesale';
-      if (tx.category === 'Manual Purchase')  return 'Direct';
-      if (tx.category === 'Consignment')      return 'Consignment';
-    }
-    if (chan && MP_PATTERNS.some(p => chan.includes(p))) return 'Marketplace';
-    if (chan && (chan.includes('MARTE') || chan.includes('CONSIGN'))) return 'Consignment';
-    return 'Direct';
+    if (tx && tx.category === 'Wholesale') return 'Wholesale';
+    // channel_name di orderInfo udah uppercase. Tapi SP_CHANNEL_LABELS punya
+    // beberapa key mixed-case (e.g. 'Shop | Tokopedia'). We pass uppercased
+    // because that's how orderInfo stores it — labelForChannel handles both.
+    return labelForChannel(chan);
   };
 
   // 3d. Build daily time-series for chart (COMPLETED only — chart shows settled)
@@ -9198,11 +9212,14 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
     const qty   = parseFloat(si.qty   || 0);
     const price = parseFloat(si.price || 0);
     const disc  = parseFloat(si.disc_amount || 0);
-    const channelCat = classifyChannel(si.salesorder_id, info.channel);
+    const channelLabel = classifyChannel(si.salesorder_id, info.channel);
     // Marketplace voucher disc gak ke-track per-line → pakai gross (qty×price).
-    // Channel lain pakai net (qty×price − disc).
-    const isMP = channelCat === 'Marketplace';
-    const rev  = isMP ? (qty * price) : Math.max(0, (qty * price) - disc);
+    // Channel lain pakai net (qty×price − disc). MP check pakai raw channel
+    // string (uppercase-safe) bukan label biar tetep deterministic kalo label
+    // berubah.
+    const upChan = (info.channel || '').toUpperCase();
+    const isMP   = isMPChannel(upChan);
+    const rev    = isMP ? (qty * price) : Math.max(0, (qty * price) - disc);
 
     // Status bucket — every tracked status counts
     if (statusBuckets[info.status]) {
@@ -9210,11 +9227,13 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
       statusBuckets[info.status].revenue += rev;
     }
 
-    // Channel bucket — COMPLETED only (mix should reflect closed business)
+    // Channel bucket — COMPLETED only (mix should reflect closed business).
+    // Per-channel granular (Shopee, Tokopedia, Webstore SD&Y, dst) ikut
+    // SP_CHANNEL_LABELS. Wholesale di-override dari tx_mapping.
     if (info.status === 'COMPLETED') {
-      if (!channelBuckets[channelCat]) channelBuckets[channelCat] = { qty: 0, revenue: 0 };
-      channelBuckets[channelCat].qty     += qty;
-      channelBuckets[channelCat].revenue += rev;
+      if (!channelBuckets[channelLabel]) channelBuckets[channelLabel] = { qty: 0, revenue: 0 };
+      channelBuckets[channelLabel].qty     += qty;
+      channelBuckets[channelLabel].revenue += rev;
     }
 
     // Event-linked sales — COMPLETED + matches event's tx_mapping
@@ -9227,14 +9246,19 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
     }
   }
 
-  // 4. Per-variant aggregates
+  // 4. Per-variant aggregates — count ALL tracked statuses (COMPLETED +
+  // in-flight) as "sold". User feedback: kalau cuma settled, kesannya stock
+  // masih banyak padahal udah ada yang diproses → susah ambil restock
+  // decision. In-flight window biasanya cuma days, jadi efek ke COGS
+  // attribution (financial cache) negligible.
   const varData = {}; // item_id → { stock, sold, adjIn, adjOut, revenue, discAmount, pfreq }
   for (const id of itemIds) varData[id] = { stock: 0, sold: 0, adjIn: 0, adjOut: 0, revenue: 0, discAmount: 0, pfreq: {} };
   for (const s of stocks) {
     if (varData[s.item_id] !== undefined) varData[s.item_id].stock += parseFloat(s.on_hand || 0);
   }
   for (const si of salesItems) {
-    if (!completedMap.has(si.salesorder_id) || varData[si.item_id] === undefined) continue;
+    const info = orderInfo.get(si.salesorder_id);
+    if (!info || varData[si.item_id] === undefined) continue;
     const qty   = parseFloat(si.qty        || 0);
     const price = parseFloat(si.price      || 0);
     const disc  = parseFloat(si.disc_amount|| 0);
@@ -9286,8 +9310,9 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
 
   let firstSaleDate = null;
   for (const si of salesItems) {
-    if (!completedMap.has(si.salesorder_id)) continue;
-    const d = completedMap.get(si.salesorder_id);
+    const info = orderInfo.get(si.salesorder_id);
+    if (!info) continue;
+    const d = info.date;
     if (d && (!firstSaleDate || d < firstSaleDate)) firstSaleDate = d;
   }
 
@@ -9339,32 +9364,41 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
   };
 
   // ── Sales Mix row ──
-  const CHAN_META = {
-    'Marketplace':  '#2563eb',
-    'Pop Up Booth': '#9333ea',
-    'Wholesale':    '#d97706',
-    'Consignment':  '#0891b2',
-    'Direct':       '#6b7280',
+  // Color palette assigned in revenue-rank order — biar warna deterministic
+  // per render tapi adaptif ke channel mix yang muncul. Wholesale & known
+  // labels punya hint color buat konsistensi.
+  const CHAN_PALETTE = ['#2563eb','#9333ea','#d97706','#0891b2','#dc2626','#65a30d','#7c3aed','#0d9488','#ea580c','#4b5563'];
+  const CHAN_HINT = {
+    'Shopee':                  '#ee4d2d',
+    'Shopee International':    '#ff6b3b',
+    'Tokopedia':               '#42b549',
+    'TikTok Shop / Tokopedia': '#000000',
+    'Webstore SD&Y':           '#3c3489',
+    'Webstore Lagaa':          '#d97706',
+    'Marte Offline Store':     '#9333ea',
+    'Pop Up Booth':            '#a855f7',
+    'Wholesale':               '#0891b2',
   };
   const chanEntries = Object.entries(channelBuckets).sort((a,b) => (b[1].revenue||0) - (a[1].revenue||0));
+  const chanColor = (ch, idx) => CHAN_HINT[ch] || CHAN_PALETTE[idx % CHAN_PALETTE.length];
   const chanTotalRev = chanEntries.reduce((s, [,b]) => s + (b.revenue||0), 0);
   const chanTotalQty = chanEntries.reduce((s, [,b]) => s + (b.qty||0), 0);
   const salesMixHTML = chanEntries.length ? `
     <div style="margin-bottom:16px;border:1px solid var(--g100);border-radius:10px;padding:12px 14px">
       <div style="font-size:10px;font-family:var(--mono);color:var(--g400);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Sales Mix (Settled) — ${chanEntries.length} channel</div>
       <div style="display:flex;height:8px;border-radius:4px;overflow:hidden;background:var(--g100);margin-bottom:8px">
-        ${chanEntries.map(([ch, b]) => {
+        ${chanEntries.map(([ch, b], idx) => {
           const pct = chanTotalRev > 0 ? (b.revenue / chanTotalRev * 100) : 0;
-          return `<div title="${ch} — ${fmtRp(b.revenue)} (${pct.toFixed(1)}%)" style="width:${pct}%;background:${CHAN_META[ch] || '#6b7280'}"></div>`;
+          return `<div title="${ch} — ${fmtRp(b.revenue)} (${pct.toFixed(1)}%)" style="width:${pct}%;background:${chanColor(ch, idx)}"></div>`;
         }).join('')}
       </div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px">
-        ${chanEntries.map(([ch, b]) => {
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px">
+        ${chanEntries.map(([ch, b], idx) => {
           const pct = chanTotalRev > 0 ? (b.revenue / chanTotalRev * 100) : 0;
           return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0">
-            <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${CHAN_META[ch] || '#6b7280'};flex-shrink:0"></span>
+            <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${chanColor(ch, idx)};flex-shrink:0"></span>
             <div style="min-width:0;flex:1">
-              <div style="font-size:11px;font-weight:500;color:var(--black);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${ch}</div>
+              <div style="font-size:11px;font-weight:500;color:var(--black);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${ch}">${ch}</div>
               <div style="font-family:var(--mono);font-size:10px;color:var(--g600)">${fmtRp(b.revenue)} · ${Math.round(b.qty)} pcs · ${pct.toFixed(1)}%</div>
             </div>
           </div>`;
