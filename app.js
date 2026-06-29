@@ -9200,6 +9200,10 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
   // 3e. Status + channel + event aggregates (per-line, single pass).
   // statusBuckets: ALL tracked statuses (settled + in-flight)
   // channelBuckets: COMPLETED only (mix of "what actually closed")
+  // COMMITTED_STATUSES: dipakai per-line loop di bawah + buat varData
+  // aggregation di section 4 (defined here biar gak ada temporal dead zone
+  // error pas loop pertama jalan).
+  const COMMITTED_STATUSES = new Set(['COMPLETED','FINISH_PACK','FINISH_PICK','PAID']);
   const statusBuckets = {};
   for (const s of TRACKED_STATUSES) statusBuckets[s] = { qty: 0, revenue: 0 };
   const channelBuckets = {}; // 'Marketplace' → { qty, revenue }
@@ -9267,7 +9271,8 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
   // belum dibayar dan sering auto-cancel di marketplace → bisa over-count
   // demand kalau dimasukin. PENDING tetap visible di Status Breakdown card
   // biar user aware ada pipeline yang belum bayar.
-  const COMMITTED_STATUSES = new Set(['COMPLETED','FINISH_PACK','FINISH_PICK','PAID']);
+  // (COMMITTED_STATUSES defined earlier in section 3e biar dipakai di
+  // event-link loop juga tanpa temporal dead zone.)
   const varData = {}; // item_id → { stock, sold, adjIn, adjOut, revenue, discAmount, pfreq }
   for (const id of itemIds) varData[id] = { stock: 0, sold: 0, adjIn: 0, adjOut: 0, revenue: 0, discAmount: 0, pfreq: {} };
   for (const s of stocks) {
