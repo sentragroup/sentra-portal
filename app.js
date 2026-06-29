@@ -9646,20 +9646,23 @@ async function loadColFinancial(colId, col) {
   // user explicitly link PO — tapi tetap di-filter via items match supaya gak
   // double-count vendor PO yang gak terlibat.
   const collectionItemIds = perf.itemIds || [];
-  const poItemsByPo = {};  // pid → { items: [{item_id, qty, cost}], collectionValue }
+  const poItemsByPo = {};  // pid → { items: [{item_id, qty, price, amount}], collectionValue }
   if (collectionItemIds.length) {
     const poItemsRaw = await _fetchAllPagesIn(
       'jubelio_purchase_order_items',
-      'purchaseorder_id,item_id,qty,cost',
+      'purchaseorder_id,item_id,qty,price,amount',
       'item_id',
       collectionItemIds
     );
     for (const pi of (poItemsRaw || [])) {
       const pid = Number(pi.purchaseorder_id);
       if (isNaN(pid)) continue;
-      const value = parseFloat(pi.qty || 0) * parseFloat(pi.cost || 0);
+      // Pakai amount kalau ada (line total = qty × price post-disc), fallback ke qty × price
+      const qty = parseFloat(pi.qty || 0);
+      const price = parseFloat(pi.price || 0);
+      const value = parseFloat(pi.amount != null ? pi.amount : qty * price);
       if (!poItemsByPo[pid]) poItemsByPo[pid] = { items: [], collectionValue: 0 };
-      poItemsByPo[pid].items.push({ item_id: pi.item_id, qty: parseFloat(pi.qty||0), cost: parseFloat(pi.cost||0), value });
+      poItemsByPo[pid].items.push({ item_id: pi.item_id, qty, price, value });
       poItemsByPo[pid].collectionValue += value;
     }
   }
