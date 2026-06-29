@@ -28072,7 +28072,7 @@ async function loadLicensorFreebies() {
     // Make sure account-source tables loaded
     if (!allIPRows.length) { try { await loadIPMaster(); } catch(_) {} }
     if (!allBMRows.length) { try { await loadBrandMaster(); } catch(_) {} }
-    if (!allDPRows.length) { try { await loadDistPartners(); } catch(_) {} }
+    if (!allDPRows.length) { try { await loadDistPartner(); } catch(_) {} }
     const { data, error } = await sb.from('licensor_freebies').select('*').order('date_added',{ascending:false});
     if (error) throw error;
     _lfRows = (data||[]).map(mapLF);
@@ -28153,7 +28153,7 @@ function _lfSetupAC() {
   setupAC('lf-ip', 'ac-lf-ip', () => {
     const t = (document.getElementById('lf-account-type')?.value || 'IP');
     if (t === 'Brand') return (allBMRows||[]).map(r => r.name).filter(Boolean);
-    if (t === 'Distribution Partner') return (allDPRows||[]).map(r => r.name || r.partnerName).filter(Boolean);
+    if (t === 'Distribution Partner') return (allDPRows||[]).map(r => r.name).filter(Boolean);
     return (allIPRows||[]).map(r => r.name).filter(Boolean);
   });
   // Collection picker — only relevant when account type = IP
