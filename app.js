@@ -41346,6 +41346,23 @@ async function _mpurcRecalcHeader() {
   const subtotal = o.items.reduce((s,i) => s + (parseFloat(i.subtotal)||0), 0);
   const shippingCost = _mpurcComputeShipping(o.shipments);
   o.header.shippingCost = shippingCost;
+  // Sync payment amounts dari current items subtotal × milestone pct.
+  // Tanpa ini, kalau milestone row di-init pas items kosong (subtotal=0),
+  // amount tersimpan 0 dan gak ke-update sekalipun items ditambah. Akibat:
+  // paid_at set tapi totalReceived = 0 → kalkulasi outstanding salah.
+  const plan = o.header.paymentPlan || (typeof _mpurcDefaultPaymentPlan==='function' ? _mpurcDefaultPaymentPlan() : {milestones:[]});
+  const planByKey = new Map((plan.milestones||[]).map(m => [m.key, m]));
+  for (const p of (o.payments||[])) {
+    const m = planByKey.get(p.milestone);
+    if (!m) continue;
+    const expectedAmt = Math.round(subtotal * (parseFloat(m.pct)||0) / 100);
+    if (parseFloat(p.amount) !== expectedAmt) {
+      p.amount = expectedAmt;
+      if (o.header.id !== 'new' && p.id) {
+        await sb.from('manual_purchase_payments').update({ amount: expectedAmt }).eq('id', p.id);
+      }
+    }
+  }
   // totalReceived = sum of amounts where paid_at is set (milestone-based)
   const totalReceived = (o.payments||[]).reduce((s,p) => p.paid_at ? s + (parseFloat(p.amount)||0) : s, 0);
   const paymentDue = (subtotal + shippingCost) - totalReceived;
@@ -41645,8 +41662,17 @@ async function _mpurcUploadMsFile(milestoneKey, kind, inputEl) {
   if (upErr) { alert('Upload gagal: '+upErr.message); return; }
   const { data: pub } = sb.storage.from('wholesale-bukti').getPublicUrl(path);
   const col = kind === 'signed' ? 'signed_invoice_url' : 'bukti_url';
-  await sb.from('manual_purchase_payments').update({ [col]: pub.publicUrl }).eq('id', pay.id);
-  pay[col] = pub.publicUrl;
+  // Auto-set paid_at to today saat upload bukti pertama kali (kalau masih
+  // kosong). Bukti payment uploaded = payment confirmed received → counted
+  // as paid di header.totalReceived. User masih bisa override paid_at
+  // manually kalau tanggalnya beda.
+  const update = { [col]: pub.publicUrl };
+  if (kind === 'bukti' && !pay.paid_at) {
+    update.paid_at = new Date().toISOString().slice(0,10);
+  }
+  await sb.from('manual_purchase_payments').update(update).eq('id', pay.id);
+  Object.assign(pay, update);
+  if (kind === 'bukti') await _mpurcRecalcHeader();
   _mpurcRenderDetail();
 }
 
