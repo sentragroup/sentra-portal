@@ -328,7 +328,7 @@ function showPage(name, el) {
   document.getElementById("page-"+_pageId).classList.add("active");
   if (el) el.classList.add("active");
   const _c = document.querySelector('.content'); if (_c) _c.scrollTop = 0;
-  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",sampling:"Sampling",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",mktplan:"Marketing Planning",videoprod:"Video Production",txmap:"Transaction Mapping",manualpurchase:"Manual Purchase",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)",vendormaster:"Vendor Master",rnd:"R&D Product",koldb:"KOL Database",outbound:"Outbond Request",meetingnotes:"Meeting Notes",ipreports:"IP Reports",cronlogs:"Cron Logs",wholesale:"Wholesale Orders",arreceivables:"Account Receivables",licensorfreebies:"Licensor Freebies"};
+  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",sampling:"Sampling",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",mktplan:"Marketing Planning",videoprod:"Video Production",txmap:"Transaction Mapping",manualpurchase:"Manual Purchase",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)",vendormaster:"Vendor Master",rnd:"R&D Product",koldb:"KOL Database",outbound:"Outbond Request",meetingnotes:"Meeting Notes",ipreports:"IP Reports",cronlogs:"Cron Logs",wholesale:"Wholesale Orders",arreceivables:"Account Receivables",licensorfreebies:"Account Freebies"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -28057,21 +28057,22 @@ async function saveKolEdit(id) {
   } catch(e) { setFB('Gagal: ' + (e.message||e), false); }
 }
 
-// ── LICENSOR FREEBIES ──
-// Account Management module: request freebies untuk licensor IP. Pick IP +
-// collection (opsional) + items dari product master, lalu push ke Outbound
-// Request buat warehouse fulfill. Mirror KOL Mgmt pattern minus
-// platform/follower/deliverables, plus IP/Collection-driven scope.
+// ── ACCOUNT FREEBIES ──
+// (Table name kept as licensor_freebies — display name rebranded to Account
+// Freebies. Recipient bisa IP / Brand / Distribution Partner.)
+// Pick recipient + collection (opsional, IP only) + items dari product master,
+// lalu push ke Outbound Request buat warehouse fulfill.
 let _lfRows = [];
-let _lfLfRows = [];
 
 async function loadLicensorFreebies() {
   const tbody = document.getElementById('lfTableBody');
   if (tbody) tbody.innerHTML = '<tr><td class="empty-td" colspan="9">Memuat...</td></tr>';
   try {
     await _kolMgmtEnsureRefData(); // loads outbound, collections, kol_database, product_mappings
-    // Make sure IP master is loaded buat picker + filter
+    // Make sure account-source tables loaded
     if (!allIPRows.length) { try { await loadIPMaster(); } catch(_) {} }
+    if (!allBMRows.length) { try { await loadBrandMaster(); } catch(_) {} }
+    if (!allDPRows.length) { try { await loadDistPartners(); } catch(_) {} }
     const { data, error } = await sb.from('licensor_freebies').select('*').order('date_added',{ascending:false});
     if (error) throw error;
     _lfRows = (data||[]).map(mapLF);
@@ -28087,8 +28088,11 @@ async function loadLicensorFreebies() {
 function mapLF(r) {
   return {
     rowIndex: r.id, id: r.id,
+    // Legacy ip_id kept for backward compat; new account_type/account_id is canonical.
     ipId: r.ip_id || '', collectionId: r.collection_id || '',
-    licensorName: r.licensor_name || '',
+    accountType: r.account_type || 'IP',
+    accountId: r.account_id || r.ip_id || '',
+    licensorName: r.licensor_name || '', // also used as cached account display name
     recipientName: r.recipient_name || '',
     recipientAddress: r.recipient_address || '',
     recipientPhone: r.recipient_phone || '',
@@ -28104,10 +28108,25 @@ function mapLF(r) {
   };
 }
 
-function _lfIpName(ipId) {
-  const ip = allIPRows.find(x => x.id === ipId);
-  return ip ? ip.name : ipId;
+// Resolve account display name based on type. Falls back to cached
+// licensor_name kalau row gak ke-link ke source row (e.g. account deleted).
+function _lfAccountName(accountId, accountType, fallback) {
+  if (!accountId) return fallback || '';
+  if (accountType === 'Brand') {
+    const b = (allBMRows||[]).find(x => x.id === accountId);
+    return b ? b.name : (fallback || accountId);
+  }
+  if (accountType === 'Distribution Partner') {
+    const d = (allDPRows||[]).find(x => x.id === accountId);
+    return d ? (d.name || d.partnerName || accountId) : (fallback || accountId);
+  }
+  // Default: IP
+  const ip = (allIPRows||[]).find(x => x.id === accountId);
+  return ip ? ip.name : (fallback || accountId);
 }
+// Backward-compat shim — keep _lfIpName name for any other caller, route via account resolver
+function _lfIpName(ipId) { return _lfAccountName(ipId, 'IP'); }
+
 function _lfColName(colId) {
   const c = allColRows.find(x => x.id === colId);
   return c ? (c.collectionName || colId) : colId;
@@ -28130,10 +28149,17 @@ function _lfDeriveStatus(r) {
 }
 
 function _lfSetupAC() {
-  setupAC('lf-ip', 'ac-lf-ip', () => allIPRows.map(r => r.name));
-  // Collection picker = Collection Development source. Filter by selected IP
-  // kalau ada — kalau IP kosong, tampilin semua collection.
+  // Recipient picker — dynamic source based on selected account type
+  setupAC('lf-ip', 'ac-lf-ip', () => {
+    const t = (document.getElementById('lf-account-type')?.value || 'IP');
+    if (t === 'Brand') return (allBMRows||[]).map(r => r.name).filter(Boolean);
+    if (t === 'Distribution Partner') return (allDPRows||[]).map(r => r.name || r.partnerName).filter(Boolean);
+    return (allIPRows||[]).map(r => r.name).filter(Boolean);
+  });
+  // Collection picker — only relevant when account type = IP
   setupAC('lf-collection', 'ac-lf-collection', () => {
+    const t = (document.getElementById('lf-account-type')?.value || 'IP');
+    if (t !== 'IP') return [];
     const ipName = (document.getElementById('lf-ip')?.value || '').trim();
     return allColRows
       .filter(c => !ipName || c.ipRelated === ipName)
@@ -28143,12 +28169,26 @@ function _lfSetupAC() {
   setupAC('lf-pic', 'ac-lf-pic', () => acPics || []);
 }
 
+// Called from HTML when account type select changes — update label,
+// clear current recipient + collection, hide/show collection wrapper.
+function _lfOnTypeChange() {
+  const t = (document.getElementById('lf-account-type')?.value || 'IP');
+  const lbl = document.getElementById('lf-ip-label');
+  if (lbl) lbl.textContent = t === 'Brand' ? 'Brand' : t === 'Distribution Partner' ? 'Distribution Partner' : 'IP';
+  const ipInp = document.getElementById('lf-ip');
+  if (ipInp) { ipInp.value = ''; ipInp.placeholder = `Pilih ${lbl?.textContent||t}...`; }
+  const colInp = document.getElementById('lf-collection');
+  if (colInp) colInp.value = '';
+  const colWrap = document.getElementById('lf-collection-wrap');
+  if (colWrap) colWrap.style.display = (t === 'IP') ? '' : 'none';
+}
+
 function _lfPopulateFilters() {
   const ipSel = document.getElementById('lf-fil-ip');
   if (ipSel) {
-    const ipNames = [...new Set(_lfRows.map(r => _lfIpName(r.ipId)).filter(Boolean))].sort();
+    const names = [...new Set(_lfRows.map(r => _lfAccountName(r.accountId, r.accountType, r.licensorName)).filter(Boolean))].sort();
     const curVal = ipSel.value;
-    ipSel.innerHTML = '<option value="">Semua IP</option>' + ipNames.map(n => `<option${n===curVal?' selected':''}>${n.replace(/</g,'&lt;')}</option>`).join('');
+    ipSel.innerHTML = '<option value="">Semua Account</option>' + names.map(n => `<option${n===curVal?' selected':''}>${n.replace(/</g,'&lt;')}</option>`).join('');
   }
   const colSel = document.getElementById('lf-fil-collection');
   if (colSel) {
@@ -28173,15 +28213,18 @@ function renderLF() {
   const tbody = document.getElementById('lfTableBody');
   if (!tbody) return;
   const fStatus = document.getElementById('lf-fil-status')?.value || '';
+  const fType   = document.getElementById('lf-fil-type')?.value || '';
   const fIp     = document.getElementById('lf-fil-ip')?.value || '';
   const fCol    = document.getElementById('lf-fil-collection')?.value || '';
   const q       = (document.getElementById('lfSearch')?.value || '').toLowerCase();
   const rows = _lfRows.filter(r => {
     if (fStatus && _lfDeriveStatus(r) !== fStatus) return false;
-    if (fIp && _lfIpName(r.ipId) !== fIp) return false;
+    if (fType && (r.accountType||'IP') !== fType) return false;
+    const accName = _lfAccountName(r.accountId, r.accountType, r.licensorName);
+    if (fIp && accName !== fIp) return false;
     if (fCol && _lfColName(r.collectionId) !== fCol) return false;
     if (q) {
-      const hay = `${r.id} ${r.recipientName} ${_lfIpName(r.ipId)} ${_lfColName(r.collectionId)} ${r.notes}`.toLowerCase();
+      const hay = `${r.id} ${r.recipientName} ${accName} ${_lfColName(r.collectionId)} ${r.notes}`.toLowerCase();
       if (!hay.includes(q)) return false;
     }
     return true;
@@ -28195,9 +28238,12 @@ function renderLF() {
     'Draft':'p-draft', 'Ready to Request':'p-review',
     'Pending':'p-draft', 'Sent':'p-signings', 'Delivered':'p-active', 'Cancelled':'p-expired',
   };
+  const TYPE_ICON = { 'IP':'🎤', 'Brand':'🏷️', 'Distribution Partner':'🚚' };
   tbody.innerHTML = rows.map(r => {
-    const ipLbl = _lfIpName(r.ipId);
+    const accType = r.accountType || 'IP';
+    const accName = _lfAccountName(r.accountId, accType, r.licensorName);
     const colLbl = r.collectionId ? _lfColName(r.collectionId) : '—';
+    const typeBadge = `<span style="display:inline-block;font-size:9px;font-family:var(--mono);color:var(--g600);margin-right:4px" title="${accType}">${TYPE_ICON[accType]||'🎤'}</span>`;
     const itemCount = (r.freebieItems||[]).length;
     const itemsBrief = itemCount ? `${itemCount} item · ${(r.freebieItems||[]).reduce((s,it)=>s+(parseInt(it.qty,10)||0),0)} pcs` : '—';
     const derivedStatus = _lfDeriveStatus(r);
@@ -28208,7 +28254,7 @@ function renderLF() {
           : `<span style="font-size:10px;color:var(--g400)">—</span>`);
     return `<tr>
       <td style="font-family:var(--mono);font-size:10px">${esc(r.id)}</td>
-      <td><div style="font-size:12px;font-weight:600">${esc(ipLbl)}</div>${colLbl!=='—'?`<div style="font-size:10px;color:var(--g600);font-family:var(--mono)">${esc(colLbl)}</div>`:''}</td>
+      <td><div style="font-size:12px;font-weight:600">${typeBadge}${esc(accName)}</div>${colLbl!=='—'?`<div style="font-size:10px;color:var(--g600);font-family:var(--mono)">${esc(colLbl)}</div>`:''}</td>
       <td style="font-size:12px">${esc(r.recipientName)||'—'}${r.recipientEmail?`<div style="font-size:10px;color:var(--g600);font-family:var(--mono)">${esc(r.recipientEmail)}</div>`:''}</td>
       <td style="font-size:11px;font-family:var(--mono)">${itemsBrief}</td>
       <td style="font-family:var(--mono);font-size:11px">${r.requestedShipDate||'—'}</td>
@@ -28253,28 +28299,48 @@ function addLFFreebieRow(item) {
 
 function clearLFForm() {
   ['lf-ip','lf-collection','lf-rec-name','lf-rec-phone','lf-rec-email','lf-rec-address','lf-ship-date','lf-pic','lf-notes'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  const typeEl = document.getElementById('lf-account-type'); if (typeEl) typeEl.value = 'IP';
+  _lfOnTypeChange();
   document.getElementById('lf-freebie-rows').innerHTML = '';
   const fb = document.getElementById('lf-feedback'); if (fb) fb.textContent = '';
 }
 
 function clearLFFilters() {
-  ['lf-fil-status','lf-fil-ip','lf-fil-collection','lfSearch'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  ['lf-fil-status','lf-fil-type','lf-fil-ip','lf-fil-collection','lfSearch'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
   renderLF();
+}
+
+// Resolve account row by selected name + type. Returns {id, name} or null.
+function _lfResolveAccount(name, type) {
+  if (!name) return null;
+  if (type === 'Brand') {
+    const b = (allBMRows||[]).find(r => r.name === name);
+    return b ? { id: b.id, name: b.name } : null;
+  }
+  if (type === 'Distribution Partner') {
+    const d = (allDPRows||[]).find(r => (r.name === name) || (r.partnerName === name));
+    return d ? { id: d.id, name: d.name || d.partnerName } : null;
+  }
+  const ip = (allIPRows||[]).find(r => r.name === name);
+  return ip ? { id: ip.id, name: ip.name } : null;
 }
 
 async function submitLF() {
   const fb = document.getElementById('lf-feedback');
   const setFB = (msg, ok) => { if (fb) { fb.textContent = msg; fb.style.color = ok ? '#0a7d3a' : '#c0392b'; } };
   setFB('', true);
-  const ipName = (document.getElementById('lf-ip')?.value || '').trim();
-  if (!ipName) { setFB('IP wajib diisi', false); return; }
-  const ip = allIPRows.find(r => r.name === ipName);
-  if (!ip) { setFB('IP gak ketemu di IP Master', false); return; }
-  const colName = (document.getElementById('lf-collection')?.value || '').trim();
+  const accountType = (document.getElementById('lf-account-type')?.value || 'IP');
+  const accountName = (document.getElementById('lf-ip')?.value || '').trim();
+  if (!accountName) { setFB(`${accountType} wajib diisi`, false); return; }
+  const acc = _lfResolveAccount(accountName, accountType);
+  if (!acc) { setFB(`${accountType} gak ketemu di master`, false); return; }
   let colId = null;
-  if (colName) {
-    const col = allColRows.find(c => c.name === colName);
-    if (col) colId = col.id;
+  if (accountType === 'IP') {
+    const colName = (document.getElementById('lf-collection')?.value || '').trim();
+    if (colName) {
+      const col = allColRows.find(c => c.collectionName === colName);
+      if (col) colId = col.id;
+    }
   }
   const recName = (document.getElementById('lf-rec-name')?.value || '').trim();
   if (!recName) { setFB('Recipient name wajib diisi', false); return; }
@@ -28282,8 +28348,11 @@ async function submitLF() {
   try {
     const id = genId('LF');
     const payload = {
-      id, ip_id: ip.id, collection_id: colId,
-      licensor_name: ip.name,
+      id,
+      account_type: accountType, account_id: acc.id,
+      ip_id: accountType === 'IP' ? acc.id : null, // legacy field, only set for IP
+      collection_id: colId,
+      licensor_name: acc.name, // cached display name (used by old viewers + fallback)
       recipient_name: recName,
       recipient_address: (document.getElementById('lf-rec-address')?.value || '').trim() || null,
       recipient_phone: (document.getElementById('lf-rec-phone')?.value || '').trim() || null,
@@ -28297,11 +28366,10 @@ async function submitLF() {
     };
     const { error } = await sb.from('licensor_freebies').insert(payload);
     if (error) throw error;
-    logActivity('LicensorFreebies','create',id,`Freebie ${ip.name}${colName?` · ${colName}`:''} → ${recName}`);
+    logActivity('AccountFreebies','create',id,`Freebie ${accountType} ${acc.name} → ${recName}`);
     setFB(`✓ Ticket ${id} dibuat`, true);
     clearLFForm();
     await loadLicensorFreebies();
-    // Switch ke list tab biar user lihat result
     const listBtn = document.querySelector('#page-licensorfreebies .tab-btn:nth-of-type(2)');
     if (listBtn) switchLFTab('list', listBtn);
   } catch(e) { setFB('Gagal: ' + (e.message||e), false); }
@@ -28313,7 +28381,10 @@ async function editLF(id) {
   // Switch to "Tambah" tab and pre-populate the form
   const newBtn = document.querySelector('#page-licensorfreebies .tab-btn:nth-of-type(1)');
   if (newBtn) switchLFTab('new', newBtn);
-  document.getElementById('lf-ip').value = _lfIpName(r.ipId);
+  const typeEl = document.getElementById('lf-account-type');
+  if (typeEl) typeEl.value = r.accountType || 'IP';
+  _lfOnTypeChange();
+  document.getElementById('lf-ip').value = _lfAccountName(r.accountId, r.accountType, r.licensorName);
   document.getElementById('lf-collection').value = r.collectionId ? _lfColName(r.collectionId) : '';
   document.getElementById('lf-rec-name').value = r.recipientName;
   document.getElementById('lf-rec-phone').value = r.recipientPhone;
@@ -28339,20 +28410,26 @@ async function editLF(id) {
 async function saveLFEdit(id) {
   const fb = document.getElementById('lf-feedback');
   const setFB = (msg, ok) => { if (fb) { fb.textContent = msg; fb.style.color = ok ? '#0a7d3a' : '#c0392b'; } };
-  const ipName = (document.getElementById('lf-ip')?.value || '').trim();
-  if (!ipName) { setFB('IP wajib diisi', false); return; }
-  const ip = allIPRows.find(r => r.name === ipName);
-  if (!ip) { setFB('IP gak ketemu', false); return; }
-  const colName = (document.getElementById('lf-collection')?.value || '').trim();
+  const accountType = (document.getElementById('lf-account-type')?.value || 'IP');
+  const accountName = (document.getElementById('lf-ip')?.value || '').trim();
+  if (!accountName) { setFB(`${accountType} wajib diisi`, false); return; }
+  const acc = _lfResolveAccount(accountName, accountType);
+  if (!acc) { setFB(`${accountType} gak ketemu`, false); return; }
   let colId = null;
-  if (colName) {
-    const col = allColRows.find(c => c.name === colName);
-    if (col) colId = col.id;
+  if (accountType === 'IP') {
+    const colName = (document.getElementById('lf-collection')?.value || '').trim();
+    if (colName) {
+      const col = allColRows.find(c => c.collectionName === colName);
+      if (col) colId = col.id;
+    }
   }
   const freebieItems = _kolReadFreebieFrom('lf-freebie-rows', 'lf-frb');
   try {
     const { error } = await sb.from('licensor_freebies').update({
-      ip_id: ip.id, collection_id: colId, licensor_name: ip.name,
+      account_type: accountType, account_id: acc.id,
+      ip_id: accountType === 'IP' ? acc.id : null,
+      collection_id: colId,
+      licensor_name: acc.name,
       recipient_name: (document.getElementById('lf-rec-name')?.value || '').trim(),
       recipient_address: (document.getElementById('lf-rec-address')?.value || '').trim() || null,
       recipient_phone: (document.getElementById('lf-rec-phone')?.value || '').trim() || null,
@@ -28364,7 +28441,7 @@ async function saveLFEdit(id) {
       last_updated: new Date().toISOString(), last_updated_by: currentUser,
     }).eq('id', id);
     if (error) throw error;
-    logActivity('LicensorFreebies','edit',id,`Edit ${ip.name}`);
+    logActivity('AccountFreebies','edit',id,`Edit ${accountType} ${acc.name}`);
     setFB('✓ Updated', true);
     // Reset submit button back
     const submitBtn = document.querySelector('#lftab-new .btn-primary');
@@ -28398,7 +28475,7 @@ async function deleteLF(id) {
   try {
     const { error } = await sb.from('licensor_freebies').delete().eq('id', id);
     if (error) throw error;
-    logActivity('LicensorFreebies','delete',id,`Hapus ${_lfIpName(r.ipId)}`);
+    logActivity('AccountFreebies','delete',id,`Hapus ${_lfAccountName(r.accountId, r.accountType, r.licensorName)}`);
     await loadLicensorFreebies();
   } catch(e) { alert('Gagal: ' + (e.message||e)); }
 }
@@ -28423,16 +28500,17 @@ async function requestLFShipment(id) {
     r.outboundRequestId = '';
   }
   if (!(r.freebieItems||[]).length) { alert('Belum ada item freebie. Edit dulu.'); return; }
-  if (!confirm(`Buat outbound ticket buat licensor "${_lfIpName(r.ipId)}" ke ${r.recipientName}?`)) return;
+  const accName = _lfAccountName(r.accountId, r.accountType, r.licensorName);
+  const accType = r.accountType || 'IP';
+  if (!confirm(`Buat outbound ticket buat ${accType} "${accName}" ke ${r.recipientName}?`)) return;
   try {
     const obId = genId('OB');
-    const ipLbl = _lfIpName(r.ipId);
     const colLbl = r.collectionId ? _lfColName(r.collectionId) : '';
     const payload = {
       id: obId,
-      source_module: 'LicensorFreebies',
+      source_module: 'AccountFreebies',
       source_id: id,
-      purpose: 'Licensor Freebies',
+      purpose: 'Account Freebies',
       recipient_name: r.recipientName,
       recipient_address: r.recipientAddress || null,
       recipient_phone: r.recipientPhone || null,
@@ -28440,7 +28518,7 @@ async function requestLFShipment(id) {
       requested_ship_date: r.requestedShipDate || null,
       items: r.freebieItems || [],
       status: 'Pending',
-      notes: `Auto-created from licensor freebies ${id} (${ipLbl}${colLbl?` · ${colLbl}`:''})`,
+      notes: `Auto-created from account freebies ${id} (${accType}: ${accName}${colLbl?` · ${colLbl}`:''})`,
       added_by: currentUser, date_added: new Date().toISOString().slice(0,10),
       last_updated: new Date().toISOString(), last_updated_by: currentUser,
     };
@@ -28451,7 +28529,7 @@ async function requestLFShipment(id) {
       last_updated: new Date().toISOString(), last_updated_by: currentUser,
     }).eq('id', id);
     if (e2) throw e2;
-    logActivity('LicensorFreebies','request_shipment',id,`→ ${obId}`);
+    logActivity('AccountFreebies','request_shipment',id,`→ ${obId}`);
     alert(`✓ Ticket ${obId} dibuat. Buka modul Outbond Request buat track.`);
     await loadLicensorFreebies();
   } catch(e) { alert('Gagal: ' + (e.message||e)); }
@@ -32563,6 +32641,7 @@ function mapOutbound(r) {
 const _OB_PURPOSE_TONE = {
   // New module-specific purposes
   'Licensor Freebies':         { bg:'#EEEDFE', fg:'#3C3489', border:'#CECBF6' },
+  'Account Freebies':          { bg:'#EEEDFE', fg:'#3C3489', border:'#CECBF6' },
   'KOL Freebies':              { bg:'#FDE8F2', fg:'#7A1B49', border:'#F7C2DA' },
   'Photoshoot Freebies':       { bg:'#FAEEDA', fg:'#633806', border:'#FAC775' },
   'Freebies - Event Samples':  { bg:'#E8F5E3', fg:'#2B5318', border:'#C2DFB3' },
@@ -32679,14 +32758,14 @@ function _renderOutboundRows(rows) {
       : r.sourceModule === 'PhotoshootPlanning' ? 'PS'
       : r.sourceModule === 'ManualPurchase' ? 'MP'
       : r.sourceModule === 'WholesaleOrder' ? 'WO'
-      : r.sourceModule === 'LicensorFreebies' ? 'LF'
+      : (r.sourceModule === 'LicensorFreebies' || r.sourceModule === 'AccountFreebies') ? 'AF'
       : r.sourceModule;
     const sourcePage = r.sourceModule === 'KolManagement' ? 'kolmgmt'
       : r.sourceModule === 'MarketingActivation' ? 'mktactivation'
       : r.sourceModule === 'PhotoshootPlanning' ? 'photoshoot'
       : r.sourceModule === 'ManualPurchase' ? 'manualpurchase'
       : r.sourceModule === 'WholesaleOrder' ? 'wholesale'
-      : r.sourceModule === 'LicensorFreebies' ? 'licensorfreebies'
+      : (r.sourceModule === 'LicensorFreebies' || r.sourceModule === 'AccountFreebies') ? 'licensorfreebies'
       : '';
     // Source modules with deep-link langsung ke detail row
     const sourceLabel = (r.sourceModule === 'ManualPurchase' && r.sourceId)
