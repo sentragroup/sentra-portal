@@ -9598,7 +9598,7 @@ async function loadColFinancial(colId, col) {
   // yang dibuat manual atau yang LF row-nya gak ke-link ke collection juga
   // ke-detect. Filter: items[].sku ∈ collection's SKU set. Exclude
   // PhotoShoot + MarketingActivation source (sudah ke-count di psExp/mktExp).
-  const [meRes, psRes, rpRes, ipRes, rrRes, itRes, obRes] = await Promise.all([
+  const [meRes, psRes, rpRes, ipRes, rrRes, itRes, obRes, pmRes] = await Promise.all([
     sb.from('marketing_events').select('id,event_name,budget,budget_breakdown,event_date').eq('collection_id', colId),
     sb.from('photoshoots').select('id,shoot_name,budget,budget_breakdown,shoot_date').eq('collection_id', colId),
     sb.from('restock_projects').select('id,name,status,items,linked_po_ids,date_created'),
@@ -9606,6 +9606,7 @@ async function loadColFinancial(colId, col) {
     sb.from('royalty_recipients').select('id,nama,percentage,fixed_amount,royalty_type').eq('related_ip', ipName),
     itemIds.length ? _fetchAllPages('jubelio_items', 'item_id,average_cost,item_code', q => q.in('item_id', itemIds)) : Promise.resolve([]),
     sb.from('outbound_requests').select('id,source_module,purpose,recipient_name,items,shipping_cost,status,date_added'),
+    sb.from('product_mappings').select('id,item_code').ilike('collection', colName),
   ]);
 
   // ── COGS = Σ (sold × average_cost)
@@ -9764,9 +9765,19 @@ async function loadColFinancial(colId, col) {
   //   - shippingCost = (matchedQty / totalQty) × ob.shipping_cost (pro-rata)
   // Kalau OB cuma ada items dari koleksi ini, shipping fully attributed.
   // Kalau mixed (ada item dari koleksi lain), shipping di-split proporsional.
-  const collectionSkuSet = new Set(
-    (itRes || []).map(it => (it.item_code || '').trim()).filter(Boolean)
-  );
+  //
+  // SKU matching: OB items[].sku menyimpan product_mappings.id (lihat picker
+  // di line 27779 → `id: x.id`). Jadi primary match pake pm.id. Tambahin
+  // jubelio item_code juga ke set buat fallback handle legacy/manual entries
+  // yang nyimpen raw item code.
+  const collectionSkuSet = new Set();
+  for (const pm of (pmRes.data || [])) {
+    if (pm.id) collectionSkuSet.add(String(pm.id).trim());
+    if (pm.item_code) collectionSkuSet.add(String(pm.item_code).trim());
+  }
+  for (const it of (itRes || [])) {
+    if (it.item_code) collectionSkuSet.add(String(it.item_code).trim());
+  }
   const EXCLUDED_OB_SOURCES = new Set(['PhotoShoot','MarketingActivation']);
   const freebieEntries = [];
   let freebieItemsCost = 0;
