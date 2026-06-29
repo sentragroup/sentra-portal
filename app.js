@@ -9577,6 +9577,14 @@ async function loadColFinancial(colId, col) {
   const el = document.getElementById(`col-fin-${colId}`);
   if (!el) return;
 
+  // colToPos di-populate via refreshCPLinks(). Kalau user buka collection
+  // detail langsung dari URL hash (deep-link), refreshCPLinks belum
+  // dipanggil → colToPos kosong → PO Delivery tab ke-skip di breakdown.
+  // Force refresh kalau collection ini belum punya entry.
+  if (typeof refreshCPLinks === 'function' && !colToPos[colId]) {
+    try { await refreshCPLinks(); } catch (_) {}
+  }
+
   // Wait for perf cache (P&L depends on revenue + itemIds from product perf)
   let tries = 0;
   while (!_colPerfCache[colId] && tries < 60) { // up to ~30s
