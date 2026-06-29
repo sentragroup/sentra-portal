@@ -9246,11 +9246,16 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
       channelBuckets[channelLabel].revenue += rev;
     }
 
-    // Event-linked sales — committed orders that match event tx_mapping.
+    // Event-linked sales — any tracked status yang explicit di-tag ke event.
+    // Beda dari Sales Mix yang COMMITTED-only: kalau user udah manually
+    // tag SO ke Pop Up Booth di Transaction Mapping, kita trust tag-nya
+    // (gak akan auto-cancel kayak marketplace PENDING). Jubelio offline
+    // event SO sering nyangkut di status PENDING karena payment processing
+    // belum closed — tapi revenue-nya udah real.
     // Match prefers tx.popup_booth_id (preferred), falls back to legacy
     // project_ref check when popup_booth_id IS NULL but category='Pop Up Booth'
     // and project_ref matches the event name (case-insensitive).
-    if (linkedBoothId && COMMITTED_STATUSES.has(info.status)) {
+    if (linkedBoothId) {
       const tx = txMap.get(si.salesorder_id);
       if (tx) {
         const matchById = tx.popup_booth_id && tx.popup_booth_id === linkedBoothId;
