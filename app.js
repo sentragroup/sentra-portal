@@ -9627,122 +9627,137 @@ async function loadColFinancial(colId, col) {
     }
   }
 
-  // ── Production Cost = restock_projects items matching colName
-  // Use qty_planned × price_planned. linked_po_ids → for bills paid lookup later.
-  const matchedRPs = [];
-  let prodCostPlanned = 0;
-  for (const rp of (rpRes.data || [])) {
-    const items = Array.isArray(rp.items) ? rp.items : [];
-    const colItems = items.filter(it => (it.collection || '').trim() === colName.trim());
-    if (!colItems.length) continue;
-    const subtotal = colItems.reduce((s, it) => s + (parseFloat(it.qty_planned||0) * parseFloat(it.price_planned||0)), 0);
-    matchedRPs.push({ id: rp.id, name: rp.name, status: rp.status, linkedPos: rp.linked_po_ids || [], subtotal, dateCreated: rp.date_created });
-    prodCostPlanned += subtotal;
-  }
-
-  // Production Cost actual (cash out): from bills linked to these POs.
-  // linked_po_ids dari restock_projects disimpen as text array of numeric ids
-  // (e.g. ["17","19"]), tapi jubelio_purchase_bills.purchaseorder_id bertipe
-  // bigint. Cast ke Number biar .in() match.
-  let allLinkedPoIds = [...new Set(matchedRPs.flatMap(rp => rp.linkedPos))]
-    .filter(Boolean)
-    .map(x => Number(x))
-    .filter(n => !isNaN(n));
-
-  // Fallback: POs created via PD Purchase Order CSV export (bukan via Restock
-  // module) gak ter-link ke restock_project apapun. Tapi PO ref-nya
-  // deterministic — pattern 'PO-<col_id_suffix>-<vendor>'. Match by suffix
-  // (e.g. COL-20260611-9428 → PO-20260611-9428-%) lalu union ke linked POs.
-  // Tambahin juga sub_total ke planned cost (biar Planned gak undercount).
-  const colIdSuffix = (colId || '').replace(/^COL-/, '');
-  if (colIdSuffix && colIdSuffix.match(/^\d{8}-\d{4}$/)) {
-    const { data: derivedPOs } = await sb.from('jubelio_purchase_orders')
-      .select('purchaseorder_id, purchaseorder_no, supplier_name, sub_total, grand_total, status, transaction_date')
-      .like('purchaseorder_no', `PO-${colIdSuffix}-%`);
-    for (const po of (derivedPOs || [])) {
-      const pid = Number(po.purchaseorder_id);
-      if (!isNaN(pid) && !allLinkedPoIds.includes(pid)) allLinkedPoIds.push(pid);
-      // Add as synthetic restock-project row so it shows up in breakdown +
-      // contributes to prodCostPlanned (using sub_total = pre-tax planned).
-      const planned = parseFloat(po.sub_total || 0) || parseFloat(po.grand_total || 0) || 0;
-      matchedRPs.push({
-        id: po.purchaseorder_no,
-        name: `${po.purchaseorder_no} (${po.supplier_name||'—'}) · ex-PD CSV`,
-        status: po.status || '—',
-        linkedPos: [String(pid)],
-        subtotal: planned,
-        dateCreated: po.transaction_date,
-      });
-      prodCostPlanned += planned;
+  // ── Production Cost — authoritative attribution via jubelio_purchase_order_items
+  //
+  // Logic baru (ganti 3 path sloppy lama):
+  //   1. Query jubelio_purchase_order_items WHERE item_id IN collection's mapped SKUs
+  //   2. Group per purchaseorder_id → tau exactly which items dari koleksi ini
+  //   3. Planned = Σ qty × cost untuk matched items only (BUKAN seluruh PO)
+  //   4. Billed/Paid = pro-rata (collectionValue / poFullSubTotal) × full amount
+  //      karena bills gak tracking per-item, cuma per-PO header
+  //
+  // Drop:
+  //   - restock_projects items[].collection match (terlalu broad — semua linked
+  //     POs ke-include termasuk vendor untuk koleksi lain)
+  //   - PO no LIKE 'PO-<colIdSuffix>-%' fallback (gak deterministic kalau PO
+  //     dibuat manual atau lewat path lain)
+  //
+  // Manual Delivery-tab links (colToPos) tetap di-include sebagai signal kalau
+  // user explicitly link PO — tapi tetap di-filter via items match supaya gak
+  // double-count vendor PO yang gak terlibat.
+  const collectionItemIds = perf.itemIds || [];
+  const poItemsByPo = {};  // pid → { items: [{item_id, qty, cost}], collectionValue }
+  if (collectionItemIds.length) {
+    const poItemsRaw = await _fetchAllPagesIn(
+      'jubelio_purchase_order_items',
+      'purchaseorder_id,item_id,qty,cost',
+      'item_id',
+      collectionItemIds
+    );
+    for (const pi of (poItemsRaw || [])) {
+      const pid = Number(pi.purchaseorder_id);
+      if (isNaN(pid)) continue;
+      const value = parseFloat(pi.qty || 0) * parseFloat(pi.cost || 0);
+      if (!poItemsByPo[pid]) poItemsByPo[pid] = { items: [], collectionValue: 0 };
+      poItemsByPo[pid].items.push({ item_id: pi.item_id, qty: parseFloat(pi.qty||0), cost: parseFloat(pi.cost||0), value });
+      poItemsByPo[pid].collectionValue += value;
     }
   }
 
-  // Third path: PO yang di-link manual via Delivery tab (collection_po_links
-  // → colToPos[colId]). Ini POs yang user tracking via Track Purchase Order
-  // module. Pattern PO-no nya gak deterministic, jadi pure manual link.
-  // Union ke allLinkedPoIds + fetch master untuk planned cost.
+  // allLinkedPoIds: union dari SKU-detected POs + manual Delivery-tab links
+  const skuDetectedPoIds = Object.keys(poItemsByPo).map(Number);
   const cplLinks = (typeof colToPos !== 'undefined' && colToPos[colId]) ? colToPos[colId] : [];
-  const newCplPoIds = cplLinks.map(l => Number(l.poId)).filter(n => !isNaN(n) && !allLinkedPoIds.includes(n));
-  if (newCplPoIds.length) {
-    const { data: cplPOs } = await sb.from('jubelio_purchase_orders')
-      .select('purchaseorder_id, purchaseorder_no, supplier_name, sub_total, grand_total, status, transaction_date')
-      .in('purchaseorder_id', newCplPoIds);
-    for (const po of (cplPOs || [])) {
-      const pid = Number(po.purchaseorder_id);
-      if (!allLinkedPoIds.includes(pid)) allLinkedPoIds.push(pid);
-      const planned = parseFloat(po.sub_total || 0) || parseFloat(po.grand_total || 0) || 0;
-      matchedRPs.push({
-        id: po.purchaseorder_no,
-        name: `${po.purchaseorder_no} (${po.supplier_name||'—'}) · ex-Track PO`,
-        status: po.status || '—',
-        linkedPos: [String(pid)],
-        subtotal: planned,
-        dateCreated: po.transaction_date,
-      });
-      prodCostPlanned += planned;
-    }
-  }
-  // Per-PO payment detail — biar finance bisa lihat siapa yang udah dibayar,
-  // siapa yang outstanding, dan apa yang belum di-bill sama sekali.
-  // poBreakdown[poId] = { no, supplier, planned (sub_total), billed, paid, status, date }
+  const cplPoIds = cplLinks.map(l => Number(l.poId)).filter(n => !isNaN(n));
+  const allLinkedPoIds = [...new Set([...skuDetectedPoIds, ...cplPoIds])];
+
+  let prodCostPlanned = 0;
   const poBreakdown = {};
   let prodCashOut = 0;
   let prodBilled = 0;
   let billsCount = 0, billsPaidCount = 0;
+  const matchedRPs = [];  // kept for backward-compat cache field; will populate from PO rows
+
   if (allLinkedPoIds.length) {
-    // 1. PO master rows — biar tau planned/supplier/date untuk PO yang belum di-bill
+    // Fetch PO master rows untuk supplier/PO-no/sub_total/date
     const { data: poRows } = await sb.from('jubelio_purchase_orders')
       .select('purchaseorder_id, purchaseorder_no, supplier_name, sub_total, grand_total, status, transaction_date')
       .in('purchaseorder_id', allLinkedPoIds);
-    for (const po of (poRows || [])) {
-      const pid = Number(po.purchaseorder_id);
-      poBreakdown[pid] = {
-        poId: pid,
-        no: po.purchaseorder_no || `PO-${pid}`,
-        supplier: po.supplier_name || '—',
-        planned: parseFloat(po.sub_total || po.grand_total || 0),
-        billed: 0, paid: 0,
-        status: po.status || '—',
-        date: po.transaction_date || null,
-      };
-    }
-    // 2. Bills → tambahin billed + paid per PO
+
+    // Fetch bills per PO untuk billed/paid
+    const billsByPo = {};
     const { data: bills } = await sb.from('jubelio_purchase_bills')
       .select('bill_id, purchaseorder_id, grand_total, payment_amount')
       .in('purchaseorder_id', allLinkedPoIds);
     for (const b of (bills || [])) {
-      billsCount++;
+      const pid = Number(b.purchaseorder_id);
+      if (!billsByPo[pid]) billsByPo[pid] = { billed: 0, paid: 0, count: 0, paidCount: 0 };
       const total = parseFloat(b.grand_total || 0);
       const paid  = parseFloat(b.payment_amount || 0);
-      prodBilled  += total;
-      prodCashOut += paid;
-      if (paid > 0 && paid >= total - 1) billsPaidCount++;
-      const pid = Number(b.purchaseorder_id);
-      if (!poBreakdown[pid]) {
-        poBreakdown[pid] = { poId: pid, no: `PO-${pid}`, supplier: '—', planned: 0, billed: 0, paid: 0, status: '—', date: null };
+      billsByPo[pid].billed += total;
+      billsByPo[pid].paid   += paid;
+      billsByPo[pid].count  += 1;
+      if (paid > 0 && paid >= total - 1) billsByPo[pid].paidCount += 1;
+    }
+
+    // Build per-PO breakdown dengan attribution
+    for (const po of (poRows || [])) {
+      const pid = Number(po.purchaseorder_id);
+      const poSubTotal = parseFloat(po.sub_total || po.grand_total || 0);
+      const matched = poItemsByPo[pid] || null;
+      const isManualLink = cplPoIds.includes(pid);
+      // Attribution ratio: kalau ada SKU overlap, ratio = collectionValue/poSubTotal
+      // Kalau gak ada overlap tapi user manually link (cpl), trust ratio = 1
+      // (assume user maksudnya PO ini buat collection ini fully)
+      let ratio = 0;
+      let attributedPlanned = 0;
+      if (matched && poSubTotal > 0) {
+        ratio = Math.min(1, matched.collectionValue / poSubTotal);
+        attributedPlanned = matched.collectionValue;
+      } else if (matched) {
+        // poSubTotal kosong/0 — pakai matched value as-is, ratio default 1
+        ratio = 1;
+        attributedPlanned = matched.collectionValue;
+      } else if (isManualLink) {
+        // No SKU overlap tapi manually linked — credit full PO
+        ratio = 1;
+        attributedPlanned = poSubTotal;
+      } else {
+        continue;  // shouldn't happen but skip
       }
-      poBreakdown[pid].billed += total;
-      poBreakdown[pid].paid   += paid;
+
+      const billed = billsByPo[pid] || { billed: 0, paid: 0, count: 0, paidCount: 0 };
+      const attributedBilled = billed.billed * ratio;
+      const attributedPaid   = billed.paid   * ratio;
+
+      poBreakdown[pid] = {
+        poId: pid,
+        no: po.purchaseorder_no || `PO-${pid}`,
+        supplier: po.supplier_name || '—',
+        planned: attributedPlanned,
+        billed: attributedBilled,
+        paid: attributedPaid,
+        status: po.status || '—',
+        date: po.transaction_date || null,
+        ratio,
+        isPartialAttribution: ratio < 1,
+        source: matched ? (isManualLink ? 'manual+sku' : 'sku-match') : 'manual',
+      };
+
+      prodCostPlanned += attributedPlanned;
+      prodBilled      += attributedBilled;
+      prodCashOut     += attributedPaid;
+      billsCount      += billed.count;
+      billsPaidCount  += billed.paidCount;
+
+      // Synthetic restock-project entry for backward-compat cache
+      matchedRPs.push({
+        id: po.purchaseorder_no,
+        name: `${po.purchaseorder_no} (${po.supplier_name||'—'})${ratio<1?` · ${(ratio*100).toFixed(0)}% attr`:''}`,
+        status: po.status || '—',
+        linkedPos: [String(pid)],
+        subtotal: attributedPlanned,
+        dateCreated: po.transaction_date,
+      });
     }
   }
   // Compute per-PO payment status. State machine:
@@ -10083,16 +10098,21 @@ function renderColCashFlow(colId) {
           <th style="text-align:right;padding:6px 8px">Paid</th>
           <th style="text-align:right;padding:6px 8px">Outstanding</th>
           <th style="text-align:left;padding:6px 8px">Status Bayar</th></tr></thead>
-        <tbody>${d.poList.map(po => `
+        <tbody>${d.poList.map(po => {
+          const attrBadge = po.isPartialAttribution
+            ? `<span title="Pro-rata: ${(po.ratio*100).toFixed(0)}% PO ini untuk koleksi ini (sisanya untuk koleksi lain)" style="display:inline-block;margin-left:4px;padding:1px 5px;border-radius:3px;font-size:8px;font-family:var(--mono);background:#fef3c7;color:#92400e">${(po.ratio*100).toFixed(0)}%</span>`
+            : '';
+          return `
           <tr style="border-top:1px solid var(--g100)">
-            <td style="padding:6px 8px;font-family:var(--mono);font-size:10px"><a href="https://v2.jubelio.com/purchase/orders/detail/${po.poId}" target="_blank" style="color:#3C3489;text-decoration:none">${po.no}</a></td>
+            <td style="padding:6px 8px;font-family:var(--mono);font-size:10px"><a href="https://v2.jubelio.com/purchase/orders/detail/${po.poId}" target="_blank" style="color:#3C3489;text-decoration:none">${po.no}</a>${attrBadge}</td>
             <td style="padding:6px 8px">${po.supplier}</td>
             <td style="text-align:right;padding:6px 8px;font-family:var(--mono)">${_colFinFmtRp(po.planned)}</td>
             <td style="text-align:right;padding:6px 8px;font-family:var(--mono)">${po.billed > 0 ? _colFinFmtRp(po.billed) : '—'}</td>
             <td style="text-align:right;padding:6px 8px;font-family:var(--mono);color:#2d7a2d">${po.paid > 0 ? _colFinFmtRp(po.paid) : '—'}</td>
             <td style="text-align:right;padding:6px 8px;font-family:var(--mono);color:#c0392b">${po.outstanding > 0 ? _colFinFmtRp(po.outstanding) : '—'}</td>
             <td style="padding:6px 8px"><span style="display:inline-block;padding:2px 7px;border-radius:3px;font-size:9px;font-family:var(--mono);font-weight:600;color:#fff;background:${po.payClr}">${po.payStatus}</span></td>
-          </tr>`).join('')}
+          </tr>`;
+        }).join('')}
           <tr style="border-top:2px solid var(--g200);font-weight:600">
             <td style="padding:6px 8px" colspan="2">Total</td>
             <td style="text-align:right;padding:6px 8px;font-family:var(--mono)">${_colFinFmtRp(d.prodCostPlanned)}</td>
@@ -10135,7 +10155,7 @@ function renderColCashFlow(colId) {
     ${poBreak}
     ${freebieCashBreak}
     <div style="margin-top:10px;padding:8px 12px;background:var(--off);border-radius:6px;font-size:10px;color:var(--g400);font-family:var(--mono);line-height:1.5">
-      ℹ️ PO Payment Status: <strong style="color:#2d7a2d">Lunas</strong> = paid penuh · <strong style="color:#e67e00">Sebagian</strong> = paid partial · <strong style="color:#c0392b">Belum Bayar</strong> = bill ada tapi belum dibayar · <strong style="color:#737373">Belum Di-Bill</strong> = PO ada di Jubelio tapi vendor belum invoice. Production cash out = sum payment_amount dari bills. Outstanding = billed − paid (yang masih harus dikeluarin).
+      ℹ️ <strong>Attribution</strong>: PO ke-detect via item_id overlap di product_mappings koleksi ini. Kalau PO punya items dari multi koleksi, badge % muncul (e.g. 30% = 30% of PO untuk koleksi ini, sisanya untuk koleksi lain) — Planned/Billed/Paid di-pro-rata sesuai value share. <strong style="color:#2d7a2d">Lunas</strong> = paid penuh · <strong style="color:#e67e00">Sebagian</strong> = paid partial · <strong style="color:#c0392b">Belum Bayar</strong> = bill ada tapi belum dibayar · <strong style="color:#737373">Belum Di-Bill</strong> = PO ada di Jubelio tapi vendor belum invoice.
     </div>`;
 }
 // ── END FINANCIAL STATEMENT ──
