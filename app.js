@@ -9102,7 +9102,17 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
     if (ji.thumbnail) thumbMap[ji.item_id] = ji.thumbnail;
   }
 
-  // 3. Get completed orders + dates
+  // 3. Get orders across all "in-flight" statuses + channel info.
+  // Status pipeline (Jubelio WMS):
+  //   PENDING       → order placed, not paid yet
+  //   PAID          → payment received, awaiting pick
+  //   FINISH_PICK   → picked from shelf
+  //   FINISH_PACK   → packed, ready to ship
+  //   COMPLETED     → shipped/delivered, fully settled
+  // We track all 5 buckets for status breakdown; COMPLETED feeds the existing
+  // product table + financial cache (COGS attribution).
+  const TRACKED_STATUSES = ['COMPLETED','FINISH_PACK','FINISH_PICK','PAID','PENDING'];
+  const orderInfo = new Map(); // soId → { status, channel, date }
   let completedMap = new Map();
   if (salesItems.length) {
     const soIds = [...new Set(salesItems.map(s => s.salesorder_id))];
@@ -9110,16 +9120,53 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
     for (let i = 0; i < soIds.length; i += 200) chunks.push(soIds.slice(i, i + 200));
     const results = await Promise.all(chunks.map(chunk =>
       sb.from("jubelio_sales_orders")
-        .select("salesorder_id, transaction_date")
+        .select("salesorder_id, transaction_date, wms_status, channel_name, is_canceled")
         .in("salesorder_id", chunk)
-        .eq("wms_status", "COMPLETED")
+        .in("wms_status", TRACKED_STATUSES)
     ));
     for (const r of results) {
-      for (const o of (r.data || [])) completedMap.set(o.salesorder_id, o.transaction_date);
+      for (const o of (r.data || [])) {
+        if (o.is_canceled) continue;
+        orderInfo.set(o.salesorder_id, {
+          status:  o.wms_status,
+          channel: (o.channel_name || '').toUpperCase(),
+          date:    o.transaction_date,
+        });
+        if (o.wms_status === 'COMPLETED') completedMap.set(o.salesorder_id, o.transaction_date);
+      }
     }
   }
 
-  // 3b. Build daily time-series for chart
+  // 3b. Transaction mappings for channel categorization (Pop Up / Wholesale /
+  // Manual Purchase / Consignment). Fetched once for all tracked SOs.
+  const txMap = new Map(); // soId → { category, popup_booth_id }
+  if (orderInfo.size) {
+    const soIds = [...orderInfo.keys()];
+    for (let i = 0; i < soIds.length; i += 200) {
+      const chunk = soIds.slice(i, i+200);
+      const { data } = await sb.from('transaction_mappings')
+        .select('salesorder_id,category,popup_booth_id')
+        .in('salesorder_id', chunk);
+      for (const m of (data || [])) txMap.set(m.salesorder_id, m);
+    }
+  }
+
+  // 3c. Channel classifier — single bucket per order, deterministic precedence.
+  const MP_PATTERNS = ['SHOPEE','TOKOPEDIA','TIKTOK','BLIBLI','LAZADA','ZALORA'];
+  const classifyChannel = (soId, chan) => {
+    const tx = txMap.get(soId);
+    if (tx && tx.category) {
+      if (tx.category === 'Pop Up Booth')     return 'Pop Up Booth';
+      if (tx.category === 'Wholesale')        return 'Wholesale';
+      if (tx.category === 'Manual Purchase')  return 'Direct';
+      if (tx.category === 'Consignment')      return 'Consignment';
+    }
+    if (chan && MP_PATTERNS.some(p => chan.includes(p))) return 'Marketplace';
+    if (chan && (chan.includes('MARTE') || chan.includes('CONSIGN'))) return 'Consignment';
+    return 'Direct';
+  };
+
+  // 3d. Build daily time-series for chart (COMPLETED only — chart shows settled)
   const timeSeries = {}; // YYYY-MM-DD → { qty, revenue }
   for (const si of salesItems) {
     if (!completedMap.has(si.salesorder_id)) continue;
@@ -9128,6 +9175,56 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
     if (!timeSeries[date]) timeSeries[date] = { qty: 0, revenue: 0 };
     timeSeries[date].qty     += parseFloat(si.qty   || 0);
     timeSeries[date].revenue += parseFloat(si.qty   || 0) * parseFloat(si.price || 0);
+  }
+
+  // 3e. Status + channel + event aggregates (per-line, single pass).
+  // statusBuckets: ALL tracked statuses (settled + in-flight)
+  // channelBuckets: COMPLETED only (mix of "what actually closed")
+  const statusBuckets = {};
+  for (const s of TRACKED_STATUSES) statusBuckets[s] = { qty: 0, revenue: 0 };
+  const channelBuckets = {}; // 'Marketplace' → { qty, revenue }
+
+  // Related event sales — only computed if collection links a Pop Up Booth
+  const _col = (typeof allColRows !== 'undefined' && Array.isArray(allColRows))
+    ? allColRows.find(c => c.id === colId) : null;
+  const linkedBoothId = _col && _col.linkedPopupBoothId;
+  const linkedEvent = (linkedBoothId && typeof allPBRows !== 'undefined' && Array.isArray(allPBRows))
+    ? allPBRows.find(r => r.id === linkedBoothId) : null;
+  let eventSalesQty = 0, eventSalesRev = 0;
+
+  for (const si of salesItems) {
+    const info = orderInfo.get(si.salesorder_id);
+    if (!info) continue;
+    const qty   = parseFloat(si.qty   || 0);
+    const price = parseFloat(si.price || 0);
+    const disc  = parseFloat(si.disc_amount || 0);
+    const channelCat = classifyChannel(si.salesorder_id, info.channel);
+    // Marketplace voucher disc gak ke-track per-line → pakai gross (qty×price).
+    // Channel lain pakai net (qty×price − disc).
+    const isMP = channelCat === 'Marketplace';
+    const rev  = isMP ? (qty * price) : Math.max(0, (qty * price) - disc);
+
+    // Status bucket — every tracked status counts
+    if (statusBuckets[info.status]) {
+      statusBuckets[info.status].qty     += qty;
+      statusBuckets[info.status].revenue += rev;
+    }
+
+    // Channel bucket — COMPLETED only (mix should reflect closed business)
+    if (info.status === 'COMPLETED') {
+      if (!channelBuckets[channelCat]) channelBuckets[channelCat] = { qty: 0, revenue: 0 };
+      channelBuckets[channelCat].qty     += qty;
+      channelBuckets[channelCat].revenue += rev;
+    }
+
+    // Event-linked sales — COMPLETED + matches event's tx_mapping
+    if (linkedBoothId && info.status === 'COMPLETED') {
+      const tx = txMap.get(si.salesorder_id);
+      if (tx && tx.popup_booth_id === linkedBoothId) {
+        eventSalesQty += qty;
+        eventSalesRev += rev;
+      }
+    }
   }
 
   // 4. Per-variant aggregates
@@ -9218,10 +9315,96 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
     </div>`;
 
   // Store for PDF export
-  _colPerfCache[colId] = { colName, ipRelated: ipRelated||"", revenueStream: revenueStream||"", products, grandStock, grandSold, grandAdjNet, grandRevenue, grandDiscount, grandSubtotal, hasDiscount, str, strClr, adjStr, adjClr, avgPerDay, fds, itemIds, timeSeries };
+  _colPerfCache[colId] = { colName, ipRelated: ipRelated||"", revenueStream: revenueStream||"", products, grandStock, grandSold, grandAdjNet, grandRevenue, grandDiscount, grandSubtotal, hasDiscount, str, strClr, adjStr, adjClr, avgPerDay, fds, itemIds, timeSeries, statusBuckets, channelBuckets, linkedEvent, eventSalesQty, eventSalesRev };
+
+  // ── Status breakdown row (5 buckets) ──
+  // Note: settled label appears even with 0 qty so users see the pipeline.
+  const STATUS_META = {
+    COMPLETED:    { lbl: 'Settled',       clr: '#2d7a2d' },
+    FINISH_PACK:  { lbl: 'Ready Ship',    clr: '#a855f7' },
+    FINISH_PICK:  { lbl: 'Picked',        clr: '#e67e00' },
+    PAID:         { lbl: 'Waiting Pick',  clr: '#3b82f6' },
+    PENDING:      { lbl: 'Placed',        clr: '#737373' },
+  };
+  const inFlightStatuses = ['PAID','FINISH_PICK','FINISH_PACK','PENDING'];
+  const inFlightTotal = inFlightStatuses.reduce((s, st) => s + (statusBuckets[st]?.qty || 0), 0);
+  const statusCard = (st) => {
+    const b = statusBuckets[st] || { qty: 0, revenue: 0 };
+    const m = STATUS_META[st];
+    return `<div style="border:1px solid var(--g100);border-radius:6px;padding:8px 10px;min-width:0">
+      <div style="font-family:var(--mono);font-size:9px;text-transform:uppercase;color:${m.clr};margin-bottom:3px;letter-spacing:.04em">${m.lbl}</div>
+      <div style="font-weight:700;font-size:12px;color:var(--black);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${Math.round(b.qty)} pcs</div>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--g400);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${fmtRp(b.revenue)}</div>
+    </div>`;
+  };
+
+  // ── Sales Mix row ──
+  const CHAN_META = {
+    'Marketplace':  '#2563eb',
+    'Pop Up Booth': '#9333ea',
+    'Wholesale':    '#d97706',
+    'Consignment':  '#0891b2',
+    'Direct':       '#6b7280',
+  };
+  const chanEntries = Object.entries(channelBuckets).sort((a,b) => (b[1].revenue||0) - (a[1].revenue||0));
+  const chanTotalRev = chanEntries.reduce((s, [,b]) => s + (b.revenue||0), 0);
+  const chanTotalQty = chanEntries.reduce((s, [,b]) => s + (b.qty||0), 0);
+  const salesMixHTML = chanEntries.length ? `
+    <div style="margin-bottom:16px;border:1px solid var(--g100);border-radius:10px;padding:12px 14px">
+      <div style="font-size:10px;font-family:var(--mono);color:var(--g400);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Sales Mix (Settled) — ${chanEntries.length} channel</div>
+      <div style="display:flex;height:8px;border-radius:4px;overflow:hidden;background:var(--g100);margin-bottom:8px">
+        ${chanEntries.map(([ch, b]) => {
+          const pct = chanTotalRev > 0 ? (b.revenue / chanTotalRev * 100) : 0;
+          return `<div title="${ch} — ${fmtRp(b.revenue)} (${pct.toFixed(1)}%)" style="width:${pct}%;background:${CHAN_META[ch] || '#6b7280'}"></div>`;
+        }).join('')}
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px">
+        ${chanEntries.map(([ch, b]) => {
+          const pct = chanTotalRev > 0 ? (b.revenue / chanTotalRev * 100) : 0;
+          return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0">
+            <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${CHAN_META[ch] || '#6b7280'};flex-shrink:0"></span>
+            <div style="min-width:0;flex:1">
+              <div style="font-size:11px;font-weight:500;color:var(--black);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${ch}</div>
+              <div style="font-family:var(--mono);font-size:10px;color:var(--g600)">${fmtRp(b.revenue)} · ${Math.round(b.qty)} pcs · ${pct.toFixed(1)}%</div>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>` : '';
+
+  // ── Related Event Sales ──
+  const eventHTML = linkedEvent ? (() => {
+    const evDate = linkedEvent.eventDate || linkedEvent.startDate || null;
+    const dateLbl = evDate ? new Date(evDate.slice(0,10) + 'T00:00:00').toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'}) : '—';
+    const shareOfTotal = grandRevenue > 0 ? (eventSalesRev / grandRevenue * 100) : 0;
+    return `<div style="margin-bottom:16px;border:1px solid var(--g100);border-radius:10px;padding:12px 14px;background:linear-gradient(135deg,#fef3c7 0%,#fff 60%)">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+        <div style="min-width:0">
+          <div style="font-size:10px;font-family:var(--mono);color:var(--g400);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px">Linked Event Sales</div>
+          <div style="font-weight:600;font-size:13px;color:var(--black);margin-bottom:2px">${linkedEvent.eventName || linkedEvent.name || '—'}</div>
+          <div style="font-family:var(--mono);font-size:10px;color:var(--g600)">${dateLbl}${linkedEvent.location ? ' · ' + linkedEvent.location : ''}</div>
+        </div>
+        <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+          <div style="text-align:right">
+            <div style="font-family:var(--mono);font-size:9px;color:var(--g400);text-transform:uppercase">Unit Terjual</div>
+            <div style="font-weight:700;font-size:14px;color:var(--black)">${Math.round(eventSalesQty)} pcs</div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-family:var(--mono);font-size:9px;color:var(--g400);text-transform:uppercase">Revenue</div>
+            <div style="font-weight:700;font-size:14px;color:#2d7a2d">${fmtRp(eventSalesRev)}</div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-family:var(--mono);font-size:9px;color:var(--g400);text-transform:uppercase">% Total</div>
+            <div style="font-weight:700;font-size:14px;color:var(--black)">${shareOfTotal.toFixed(1)}%</div>
+          </div>
+          <button onclick="showPage('popupbooth',null);setTimeout(()=>typeof openPBDetail==='function'&&openPBDetail('${linkedEvent.id}'),200)" style="padding:5px 11px;border:1px solid var(--g200);border-radius:6px;background:var(--white);font-size:11px;font-family:var(--mono);cursor:pointer;color:var(--g600)" title="Buka detail event">↗ Detail</button>
+        </div>
+      </div>
+    </div>`;
+  })() : '';
 
   el.innerHTML = `
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:16px">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:12px">
       ${metricCard("Stock Skrg",    Math.round(grandStock) + " pcs", grandStock === 0 && grandSold > 0 ? "#c0392b" : "var(--black)")}
       ${metricCard("Total Terjual", Math.round(grandSold) + " pcs", "var(--black)")}
       ${metricCard("Total Sales",   fmtRp(grandRevenue),  "#2d7a2d")}
@@ -9230,6 +9413,15 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
       ${metricCard("Sell-through",  str, strClr)}
       ${metricCard("First Sale",    fds, "var(--black)")}
       ${metricCard("Avg / Hari",    avgPerDay, "var(--black)")}
+    </div>
+    <div style="margin-bottom:16px;border:1px solid var(--g100);border-radius:10px;padding:10px 12px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div style="font-size:10px;font-family:var(--mono);color:var(--g400);text-transform:uppercase;letter-spacing:.06em">Status Breakdown</div>
+        <div style="font-size:10px;font-family:var(--mono);color:var(--g600)">${inFlightTotal > 0 ? `<span style="color:#e67e00">●</span> ${Math.round(inFlightTotal)} pcs in-flight` : '<span style="color:#2d7a2d">●</span> Semua settled'}</div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px">
+        ${['COMPLETED','FINISH_PACK','FINISH_PICK','PAID','PENDING'].map(statusCard).join('')}
+      </div>
     </div>
     <div style="margin-bottom:16px;border:1px solid var(--g100);border-radius:10px;padding:14px 14px 10px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
@@ -9246,6 +9438,8 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
       </div>
       <div style="position:relative;height:170px"><canvas id="col-perf-chart-${colId}"></canvas></div>
     </div>
+    ${eventHTML}
+    ${salesMixHTML}
     ${products.length ? `<div class="table-wrap" style="max-height:400px;overflow-y:auto">
       <table style="width:100%">
         <thead><tr style="font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--g400)">
