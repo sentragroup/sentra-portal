@@ -9606,7 +9606,7 @@ async function loadColFinancial(colId, col) {
     sb.from('royalty_recipients').select('id,nama,percentage,fixed_amount,royalty_type').eq('related_ip', ipName),
     itemIds.length ? _fetchAllPages('jubelio_items', 'item_id,average_cost,item_code', q => q.in('item_id', itemIds)) : Promise.resolve([]),
     sb.from('outbound_requests').select('id,source_module,purpose,recipient_name,items,shipping_cost,status,date_added'),
-    sb.from('product_mappings').select('id,item_code').ilike('collection', colName),
+    sb.from('product_mappings').select('id').ilike('collection', colName),
   ]);
 
   // ── COGS = Σ (sold × average_cost)
@@ -9660,6 +9660,32 @@ async function loadColFinancial(colId, col) {
       matchedRPs.push({
         id: po.purchaseorder_no,
         name: `${po.purchaseorder_no} (${po.supplier_name||'—'}) · ex-PD CSV`,
+        status: po.status || '—',
+        linkedPos: [String(pid)],
+        subtotal: planned,
+        dateCreated: po.transaction_date,
+      });
+      prodCostPlanned += planned;
+    }
+  }
+
+  // Third path: PO yang di-link manual via Delivery tab (collection_po_links
+  // → colToPos[colId]). Ini POs yang user tracking via Track Purchase Order
+  // module. Pattern PO-no nya gak deterministic, jadi pure manual link.
+  // Union ke allLinkedPoIds + fetch master untuk planned cost.
+  const cplLinks = (typeof colToPos !== 'undefined' && colToPos[colId]) ? colToPos[colId] : [];
+  const newCplPoIds = cplLinks.map(l => Number(l.poId)).filter(n => !isNaN(n) && !allLinkedPoIds.includes(n));
+  if (newCplPoIds.length) {
+    const { data: cplPOs } = await sb.from('jubelio_purchase_orders')
+      .select('purchaseorder_id, purchaseorder_no, supplier_name, sub_total, grand_total, status, transaction_date')
+      .in('purchaseorder_id', newCplPoIds);
+    for (const po of (cplPOs || [])) {
+      const pid = Number(po.purchaseorder_id);
+      if (!allLinkedPoIds.includes(pid)) allLinkedPoIds.push(pid);
+      const planned = parseFloat(po.sub_total || 0) || parseFloat(po.grand_total || 0) || 0;
+      matchedRPs.push({
+        id: po.purchaseorder_no,
+        name: `${po.purchaseorder_no} (${po.supplier_name||'—'}) · ex-Track PO`,
         status: po.status || '—',
         linkedPos: [String(pid)],
         subtotal: planned,
@@ -9768,12 +9794,11 @@ async function loadColFinancial(colId, col) {
   //
   // SKU matching: OB items[].sku menyimpan product_mappings.id (lihat picker
   // di line 27779 → `id: x.id`). Jadi primary match pake pm.id. Tambahin
-  // jubelio item_code juga ke set buat fallback handle legacy/manual entries
+  // jubelio item_code juga sebagai fallback untuk handle legacy/manual entries
   // yang nyimpen raw item code.
   const collectionSkuSet = new Set();
   for (const pm of (pmRes.data || [])) {
     if (pm.id) collectionSkuSet.add(String(pm.id).trim());
-    if (pm.item_code) collectionSkuSet.add(String(pm.item_code).trim());
   }
   for (const it of (itRes || [])) {
     if (it.item_code) collectionSkuSet.add(String(it.item_code).trim());
