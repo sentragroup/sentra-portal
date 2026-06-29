@@ -9626,7 +9626,7 @@ async function _loadColFinancialInner(colId, col, el) {
     sb.from('royalty_recipients').select('id,nama,percentage,fixed_amount,royalty_type').eq('related_ip', ipName),
     itemIds.length ? _fetchAllPages('jubelio_items', 'item_id,average_cost,item_code', q => q.in('item_id', itemIds)) : Promise.resolve([]),
     sb.from('outbound_requests').select('id,source_module,purpose,recipient_name,items,shipping_cost,status,date_added'),
-    sb.from('product_mappings').select('id').ilike('collection', colName),
+    sb.from('product_mappings').select('id,royalty_recipient').ilike('collection', colName),
   ]);
 
   // ── COGS = Σ (sold × average_cost)
@@ -9881,10 +9881,23 @@ async function _loadColFinancialInner(colId, col, el) {
   // ── Royalty Expense
   // Base: gross sales (grandRevenue). PPh tax withheld.
   // Licensor (ip_master) + collaborators (royalty_recipients).
+  //
+  // Filter collaborators: cuma yang ke-tag di product_mappings.royalty_recipient
+  // untuk koleksi ini. Sebelumnya semua RR di IP ini ke-include otomatis →
+  // collaborator yang sebenernya cuma kena product lain (different collection)
+  // muncul di sini juga, over-counting royalty.
+  const collectionCollaborators = new Set();
+  for (const pm of (pmRes.data || [])) {
+    if (pm.royalty_recipient) {
+      // royalty_recipient bisa comma-separated (multi-collaborator per item)
+      String(pm.royalty_recipient).split(',').map(s => s.trim()).filter(Boolean)
+        .forEach(name => collectionCollaborators.add(name));
+    }
+  }
   const grossRevenue = perf.grandRevenue || 0;
   const netRevenue   = perf.grandSubtotal || 0; // after discount
   const ipRow = (ipRes.data || [])[0];
-  const rrRows = rrRes.data || [];
+  const rrRows = (rrRes.data || []).filter(rr => collectionCollaborators.has(rr.nama));
   let royaltyGross = 0, royaltyDetail = [];
   const addRoyalty = (label, pct, fixed, pph) => {
     pct = parseFloat(pct||0); fixed = parseFloat(fixed||0); pph = parseFloat(pph||0);
