@@ -15025,7 +15025,7 @@ async function loadColStockRecon(colId, colName) {
       _fetchAllPagesIn("jubelio_inventory_adjustment_items","item_id,qty","item_id", itemIds),
       _fetchAllPagesIn("jubelio_purchase_order_items","item_id,qty","item_id", itemIds),
       _fetchAllPagesIn("jubelio_sales_order_items","item_id,qty,salesorder_id","item_id", itemIds),
-      _fetchAllPagesIn("jubelio_inventory_stocks","item_id,on_hand","item_id", itemIds),
+      _fetchAllPagesIn("jubelio_inventory_stocks","item_id,available","item_id", itemIds),
     ]);
     const jubelioItems = allVariantRows; // already fetched
 
@@ -15071,7 +15071,7 @@ async function loadColStockRecon(colId, colName) {
       else if (returnedSet.has(si.salesorder_id))   varData[si.item_id].returned   += qty;
     }
     for (const s of stocks) {
-      if (varData[s.item_id]!==undefined) varData[s.item_id].stock += parseFloat(s.on_hand||0);
+      if (varData[s.item_id]!==undefined) varData[s.item_id].stock += parseFloat(s.available||0);
     }
 
     // Group by product name — iterate over ALL SKU variants, not just the
