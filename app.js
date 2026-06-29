@@ -9085,10 +9085,14 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
     : [];
   const itemIds = [...new Set(allVariantRows.map(r => r.item_id))];
 
-  // 2. Parallel fetch: sales items, stock, adjustments
+  // 2. Parallel fetch: sales items, stock, adjustments.
+  // Stock pakai `available` (bukan on_hand) supaya angka di kolom Stock =
+  // yang truly sellable di shelf — udah exclude yang udah di-pick/pack/
+  // reserved buat order PAID. Bareng dengan Terjual yang count committed
+  // orders, math clean: stock(available) + sold(committed) = total deployed.
   const [salesItems, stocks, adjItems] = await Promise.all([
     _fetchAllPages("jubelio_sales_order_items","item_id, qty, salesorder_id, price, disc_amount",q=>q.in("item_id",itemIds)),
-    _fetchAllPages("jubelio_inventory_stocks","item_id, on_hand",q=>q.in("item_id",itemIds)),
+    _fetchAllPages("jubelio_inventory_stocks","item_id, available",q=>q.in("item_id",itemIds)),
     _fetchAllPages("jubelio_inventory_adjustment_items","item_id, qty",q=>q.in("item_id",itemIds)),
   ]).catch(() => [[], [], []]);
   const itemCodes = allVariantRows; // already fetched above
@@ -9246,19 +9250,20 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
     }
   }
 
-  // 4. Per-variant aggregates — count ALL tracked statuses (COMPLETED +
-  // in-flight) as "sold". User feedback: kalau cuma settled, kesannya stock
-  // masih banyak padahal udah ada yang diproses → susah ambil restock
-  // decision. In-flight window biasanya cuma days, jadi efek ke COGS
-  // attribution (financial cache) negligible.
+  // 4. Per-variant aggregates — count COMMITTED orders only (COMPLETED +
+  // FINISH_PACK + FINISH_PICK + PAID). PENDING di-EXCLUDE karena order
+  // belum dibayar dan sering auto-cancel di marketplace → bisa over-count
+  // demand kalau dimasukin. PENDING tetap visible di Status Breakdown card
+  // biar user aware ada pipeline yang belum bayar.
+  const COMMITTED_STATUSES = new Set(['COMPLETED','FINISH_PACK','FINISH_PICK','PAID']);
   const varData = {}; // item_id → { stock, sold, adjIn, adjOut, revenue, discAmount, pfreq }
   for (const id of itemIds) varData[id] = { stock: 0, sold: 0, adjIn: 0, adjOut: 0, revenue: 0, discAmount: 0, pfreq: {} };
   for (const s of stocks) {
-    if (varData[s.item_id] !== undefined) varData[s.item_id].stock += parseFloat(s.on_hand || 0);
+    if (varData[s.item_id] !== undefined) varData[s.item_id].stock += parseFloat(s.available || 0);
   }
   for (const si of salesItems) {
     const info = orderInfo.get(si.salesorder_id);
-    if (!info || varData[si.item_id] === undefined) continue;
+    if (!info || !COMMITTED_STATUSES.has(info.status) || varData[si.item_id] === undefined) continue;
     const qty   = parseFloat(si.qty        || 0);
     const price = parseFloat(si.price      || 0);
     const disc  = parseFloat(si.disc_amount|| 0);
@@ -9311,7 +9316,7 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
   let firstSaleDate = null;
   for (const si of salesItems) {
     const info = orderInfo.get(si.salesorder_id);
-    if (!info) continue;
+    if (!info || !COMMITTED_STATUSES.has(info.status)) continue;
     const d = info.date;
     if (d && (!firstSaleDate || d < firstSaleDate)) firstSaleDate = d;
   }
@@ -9438,7 +9443,7 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
   })() : '';
 
   el.innerHTML = `
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:12px">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:6px">
       ${metricCard("Stock Skrg",    Math.round(grandStock) + " pcs", grandStock === 0 && grandSold > 0 ? "#c0392b" : "var(--black)")}
       ${metricCard("Total Terjual", Math.round(grandSold) + " pcs", "var(--black)")}
       ${metricCard("Total Sales",   fmtRp(grandRevenue),  "#2d7a2d")}
@@ -9447,6 +9452,11 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
       ${metricCard("Sell-through",  str, strClr)}
       ${metricCard("First Sale",    fds, "var(--black)")}
       ${metricCard("Avg / Hari",    avgPerDay, "var(--black)")}
+    </div>
+    <div style="font-family:var(--mono);font-size:9px;color:var(--g400);margin-bottom:12px;line-height:1.5">
+      <strong style="color:var(--g600)">Stock</strong> = available di shelf (exclude yang dipick/pack) ·
+      <strong style="color:var(--g600)">Terjual</strong> = committed orders (COMPLETED + PAID + Picked + Pack, exclude PENDING) ·
+      <strong style="color:var(--g600)">PENDING</strong> visible di Status Breakdown
     </div>
     <div style="margin-bottom:16px;border:1px solid var(--g100);border-radius:10px;padding:10px 12px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
