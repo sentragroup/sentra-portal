@@ -9566,14 +9566,17 @@ async function loadColFinancial(colId, col) {
   const ipName  = col.ipRelated || perf.ipRelated || '';
   const itemIds = perf.itemIds || [];
 
-  // Parallel fetch all cost sources
-  const [meRes, psRes, rpRes, ipRes, rrRes, itRes] = await Promise.all([
+  // Parallel fetch all cost sources, including freebies (Account + KOL).
+  // Freebies = items (HPP × qty) + outbound_requests.shipping_cost.
+  const [meRes, psRes, rpRes, ipRes, rrRes, itRes, lfRes, kolRes] = await Promise.all([
     sb.from('marketing_events').select('id,event_name,budget,budget_breakdown,event_date').eq('collection_id', colId),
     sb.from('photoshoots').select('id,shoot_name,budget,budget_breakdown,shoot_date').eq('collection_id', colId),
     sb.from('restock_projects').select('id,name,status,items,linked_po_ids,date_created'),
     sb.from('ip_master').select('id,name,percentage,fixed_amount,pph_tax_rate,royalty_type').eq('name', ipName),
     sb.from('royalty_recipients').select('id,nama,percentage,fixed_amount,royalty_type').eq('related_ip', ipName),
     itemIds.length ? _fetchAllPages('jubelio_items', 'item_id,average_cost', q => q.in('item_id', itemIds)) : Promise.resolve([]),
+    sb.from('licensor_freebies').select('id,freebie_items,outbound_request_id,licensor_name,recipient_name,status,date_added').eq('collection_id', colId),
+    sb.from('kol_placements').select('id,kol_name,freebie_items,outbound_request_id,status,payment_category,date_added').eq('collection_id', colId),
   ]);
 
   // ── COGS = Σ (sold × average_cost)
@@ -9635,22 +9638,75 @@ async function loadColFinancial(colId, col) {
       prodCostPlanned += planned;
     }
   }
+  // Per-PO payment detail — biar finance bisa lihat siapa yang udah dibayar,
+  // siapa yang outstanding, dan apa yang belum di-bill sama sekali.
+  // poBreakdown[poId] = { no, supplier, planned (sub_total), billed, paid, status, date }
+  const poBreakdown = {};
   let prodCashOut = 0;
   let prodBilled = 0;
   let billsCount = 0, billsPaidCount = 0;
   if (allLinkedPoIds.length) {
+    // 1. PO master rows — biar tau planned/supplier/date untuk PO yang belum di-bill
+    const { data: poRows } = await sb.from('jubelio_purchase_orders')
+      .select('purchaseorder_id, purchaseorder_no, supplier_name, sub_total, grand_total, status, transaction_date')
+      .in('purchaseorder_id', allLinkedPoIds);
+    for (const po of (poRows || [])) {
+      const pid = Number(po.purchaseorder_id);
+      poBreakdown[pid] = {
+        poId: pid,
+        no: po.purchaseorder_no || `PO-${pid}`,
+        supplier: po.supplier_name || '—',
+        planned: parseFloat(po.sub_total || po.grand_total || 0),
+        billed: 0, paid: 0,
+        status: po.status || '—',
+        date: po.transaction_date || null,
+      };
+    }
+    // 2. Bills → tambahin billed + paid per PO
     const { data: bills } = await sb.from('jubelio_purchase_bills')
       .select('bill_id, purchaseorder_id, grand_total, payment_amount')
       .in('purchaseorder_id', allLinkedPoIds);
     for (const b of (bills || [])) {
       billsCount++;
       const total = parseFloat(b.grand_total || 0);
-      const paid = parseFloat(b.payment_amount || 0);
-      prodBilled += total;
+      const paid  = parseFloat(b.payment_amount || 0);
+      prodBilled  += total;
       prodCashOut += paid;
       if (paid > 0 && paid >= total - 1) billsPaidCount++;
+      const pid = Number(b.purchaseorder_id);
+      if (!poBreakdown[pid]) {
+        poBreakdown[pid] = { poId: pid, no: `PO-${pid}`, supplier: '—', planned: 0, billed: 0, paid: 0, status: '—', date: null };
+      }
+      poBreakdown[pid].billed += total;
+      poBreakdown[pid].paid   += paid;
     }
   }
+  // Compute per-PO payment status. State machine:
+  //   - planned=0, billed=0 → 'Belum Di-PO' (skip, kosong)
+  //   - billed=0 → 'Belum Di-Bill' (PO ada tapi vendor belum invoice)
+  //   - paid >= billed → 'Lunas'
+  //   - paid > 0 → 'Sebagian'
+  //   - else → 'Belum Bayar'
+  const poList = Object.values(poBreakdown).sort((a,b) => (a.no||'').localeCompare(b.no||''));
+  for (const po of poList) {
+    const outstanding = Math.max(0, po.billed - po.paid);
+    po.outstanding = outstanding;
+    if (po.billed === 0) {
+      po.payStatus = po.planned > 0 ? 'Belum Di-Bill' : 'Belum Di-PO';
+      po.payClr    = '#737373';
+    } else if (po.paid >= po.billed - 1) {
+      po.payStatus = 'Lunas';
+      po.payClr    = '#2d7a2d';
+    } else if (po.paid > 0) {
+      po.payStatus = 'Sebagian';
+      po.payClr    = '#e67e00';
+    } else {
+      po.payStatus = 'Belum Bayar';
+      po.payClr    = '#c0392b';
+    }
+  }
+  // Aggregate outstanding (yang masih perlu dibayar = billed − paid)
+  const prodOutstanding = poList.reduce((s, p) => s + p.outstanding, 0);
 
   // ── Marketing Expense (P&L = budget total accrual)
   const meRows = meRes.data || [];
@@ -9667,6 +9723,64 @@ async function loadColFinancial(colId, col) {
     const bb = Array.isArray(ps.budget_breakdown) ? ps.budget_breakdown : [];
     psExp += bb.reduce((s, x) => s + parseFloat(x.amount || 0), 0);
   }
+
+  // ── Freebies Expense (Account Freebies + KOL Freebies)
+  // Items cost = Σ qty × hpp (HPP snapshot stored on freebie_items row).
+  // Shipping cost = outbound_requests.shipping_cost untuk OB yang ke-link.
+  const lfRows = lfRes.data || [];
+  const kolRows = kolRes.data || [];
+  const freebieEntries = []; // { source, label, itemsCost, shippingCost, obId, items, status }
+  let freebieItemsCost = 0;
+  let freebieShippingCost = 0;
+  // Collect OB ids first → batch fetch shipping_cost in one query
+  const linkedObIds = [
+    ...lfRows.map(r => r.outbound_request_id).filter(Boolean),
+    ...kolRows.map(r => r.outbound_request_id).filter(Boolean),
+  ];
+  const obShippingMap = {}; // obId → shipping_cost
+  const obStatusMap = {};   // obId → status (for paid/unpaid hint)
+  if (linkedObIds.length) {
+    const { data: obs } = await sb.from('outbound_requests')
+      .select('id, shipping_cost, status')
+      .in('id', linkedObIds);
+    for (const ob of (obs || [])) {
+      obShippingMap[ob.id] = parseFloat(ob.shipping_cost || 0);
+      obStatusMap[ob.id]   = ob.status || '—';
+    }
+  }
+  const _freebieRowCost = (items) => (items || []).reduce((s, it) => s + (Number(it.hpp||0) * Number(it.qty||1)), 0);
+  for (const lf of lfRows) {
+    const items = Array.isArray(lf.freebie_items) ? lf.freebie_items : [];
+    const itemsCost = _freebieRowCost(items);
+    const shipping  = lf.outbound_request_id ? (obShippingMap[lf.outbound_request_id] || 0) : 0;
+    freebieItemsCost   += itemsCost;
+    freebieShippingCost += shipping;
+    freebieEntries.push({
+      source: 'Account', label: lf.recipient_name || lf.licensor_name || lf.id,
+      itemsCost, shippingCost: shipping, obId: lf.outbound_request_id || '',
+      itemQty: items.reduce((s, it) => s + (Number(it.qty||1)), 0),
+      lfStatus: lf.status || '—',
+      obStatus: lf.outbound_request_id ? (obStatusMap[lf.outbound_request_id] || '—') : '—',
+      date: lf.date_added,
+    });
+  }
+  for (const k of kolRows) {
+    const items = Array.isArray(k.freebie_items) ? k.freebie_items : [];
+    if (!items.length) continue; // KOL with Pay-only (no barter) → skip
+    const itemsCost = _freebieRowCost(items);
+    const shipping  = k.outbound_request_id ? (obShippingMap[k.outbound_request_id] || 0) : 0;
+    freebieItemsCost   += itemsCost;
+    freebieShippingCost += shipping;
+    freebieEntries.push({
+      source: 'KOL', label: k.kol_name || k.id,
+      itemsCost, shippingCost: shipping, obId: k.outbound_request_id || '',
+      itemQty: items.reduce((s, it) => s + (Number(it.qty||1)), 0),
+      lfStatus: k.status || '—',
+      obStatus: k.outbound_request_id ? (obStatusMap[k.outbound_request_id] || '—') : '—',
+      date: k.date_added,
+    });
+  }
+  const freebieExp = freebieItemsCost + freebieShippingCost;
 
   // ── Royalty Expense
   // Base: gross sales (grandRevenue). PPh tax withheld.
@@ -9691,7 +9805,7 @@ async function loadColFinancial(colId, col) {
   // ── P&L computation
   const grossProfit = netRevenue - cogs;
   const grossMargin = netRevenue > 0 ? grossProfit / netRevenue : null;
-  const opex = mktExp + psExp + royaltyGross;
+  const opex = mktExp + psExp + freebieExp + royaltyGross;
   const netProfit = grossProfit - opex;
   const netMargin = netRevenue > 0 ? netProfit / netRevenue : null;
 
@@ -9699,14 +9813,15 @@ async function loadColFinancial(colId, col) {
   // Cash IN ≈ net revenue (marketplace/popup/wholesale that have settled).
   // Marte/wholesale CBD partial — approximation only.
   const cashIn = netRevenue;
-  const cashOutMkt = mktExp;       // assumed paid (no paid flag yet)
-  const cashOutPS  = psExp;        // same
-  const cashOutProd = prodCashOut; // ACTUAL from jubelio_purchase_bills.payment_amount
-  const cashOutTotal = cashOutMkt + cashOutPS + cashOutProd;
+  const cashOutMkt = mktExp;          // assumed paid (no paid flag yet)
+  const cashOutPS  = psExp;           // same
+  const cashOutFreebies = freebieExp; // items + shipping; assumed paid (HPP write-off + ongkir)
+  const cashOutProd = prodCashOut;    // ACTUAL from jubelio_purchase_bills.payment_amount
+  const cashOutTotal = cashOutMkt + cashOutPS + cashOutFreebies + cashOutProd;
   const netCash = cashIn - cashOutTotal;
 
   // ── Recoup status
-  const totalInvestment = prodCostPlanned + mktExp + psExp + royaltyGross;
+  const totalInvestment = prodCostPlanned + mktExp + psExp + freebieExp + royaltyGross;
   const recoupPct = totalInvestment > 0 ? netRevenue / totalInvestment : null;
   const recouped  = recoupPct != null && recoupPct >= 1.0;
 
@@ -9715,10 +9830,11 @@ async function loadColFinancial(colId, col) {
     grossRevenue, netRevenue, discount: perf.grandDiscount || 0,
     cogs, grossProfit, grossMargin,
     mktExp, psExp, royaltyGross, royaltyDetail, opex, netProfit, netMargin,
-    prodCostPlanned, prodCashOut, prodBilled,
-    cashIn, cashOutMkt, cashOutPS, cashOutProd, cashOutTotal, netCash,
+    freebieExp, freebieItemsCost, freebieShippingCost, freebieEntries,
+    prodCostPlanned, prodCashOut, prodBilled, prodOutstanding,
+    cashIn, cashOutMkt, cashOutPS, cashOutFreebies, cashOutProd, cashOutTotal, netCash,
     totalInvestment, recoupPct, recouped,
-    meRows, psRows, matchedRPs,
+    meRows, psRows, matchedRPs, poList,
     billsCount, billsPaidCount,
   };
 
@@ -9804,6 +9920,7 @@ function renderColPnL(colId) {
     r('Operating Expenses:', '', { bold:true }),
     r('Marketing (' + d.meRows.length + ' event)', '(' + _colFinFmtRp(d.mktExp) + ')', { indent:1, color:'#c0392b' }),
     r('Photoshoot (' + d.psRows.length + ' shoot)', '(' + _colFinFmtRp(d.psExp) + ')', { indent:1, color:'#c0392b' }),
+    r('Freebies (' + (d.freebieEntries||[]).length + ' shipment)', '(' + _colFinFmtRp(d.freebieExp) + ')', { indent:1, color:'#c0392b', sub: d.freebieExp > 0 ? `Items ${_colFinFmtRp(d.freebieItemsCost)} + Ongkir ${_colFinFmtRp(d.freebieShippingCost)}` : null }),
     r('Royalty (' + d.royaltyDetail.length + ' recipient)', '(' + _colFinFmtRp(d.royaltyGross) + ')', { indent:1, color:'#c0392b' }),
     r('Total Opex', '(' + _colFinFmtRp(d.opex) + ')', { bold:true, divider:true, color:'#c0392b' }),
     r('Net Profit', _colFinFmtRp(d.netProfit), { bold:true, divider:true, color: d.netProfit>=0?'#2d7a2d':'#c0392b', sub:`Net margin ${_colFinFmtPct(d.netMargin)}` }),
@@ -9827,13 +9944,43 @@ function renderColPnL(colId) {
       </table>
     </details>` : '';
 
+  const freebieBreak = (d.freebieEntries || []).length ? `
+    <details style="margin-top:10px"><summary style="cursor:pointer;font-size:11px;color:var(--g400);font-family:var(--mono);text-transform:uppercase">Freebies breakdown (${d.freebieEntries.length} shipment)</summary>
+      <table style="width:100%;margin-top:8px;font-size:11px;border-collapse:collapse">
+        <thead><tr style="border-bottom:1px solid var(--g100);color:var(--g400)">
+          <th style="text-align:left;padding:6px 8px">Recipient</th>
+          <th style="text-align:left;padding:6px 8px">Source</th>
+          <th style="text-align:right;padding:6px 8px">Qty</th>
+          <th style="text-align:right;padding:6px 8px">Items HPP</th>
+          <th style="text-align:right;padding:6px 8px">Ongkir</th>
+          <th style="text-align:left;padding:6px 8px">OB Status</th></tr></thead>
+        <tbody>${d.freebieEntries.map(f => `
+          <tr style="border-top:1px solid var(--g100)">
+            <td style="padding:6px 8px">${f.label}</td>
+            <td style="padding:6px 8px"><span class="pill p-${f.source==='KOL'?'review':'signings'}" style="font-size:9px">${f.source}</span></td>
+            <td style="text-align:right;padding:6px 8px;font-family:var(--mono)">${f.itemQty}</td>
+            <td style="text-align:right;padding:6px 8px;font-family:var(--mono);color:#c0392b">${_colFinFmtRp(f.itemsCost)}</td>
+            <td style="text-align:right;padding:6px 8px;font-family:var(--mono);color:#c0392b">${f.shippingCost > 0 ? _colFinFmtRp(f.shippingCost) : '—'}</td>
+            <td style="padding:6px 8px;font-size:10px;color:var(--g600)">${f.obStatus || '—'}</td>
+          </tr>`).join('')}
+          <tr style="border-top:2px solid var(--g200);font-weight:600">
+            <td style="padding:6px 8px" colspan="3">Total</td>
+            <td style="text-align:right;padding:6px 8px;font-family:var(--mono);color:#c0392b">${_colFinFmtRp(d.freebieItemsCost)}</td>
+            <td style="text-align:right;padding:6px 8px;font-family:var(--mono);color:#c0392b">${_colFinFmtRp(d.freebieShippingCost)}</td>
+            <td></td>
+          </tr>
+        </tbody>
+      </table>
+    </details>` : '';
+
   return `
     <table style="width:100%;border-collapse:collapse">
       <tbody>${rows}</tbody>
     </table>
     ${royaltyBreak}
+    ${freebieBreak}
     <div style="margin-top:10px;padding:8px 12px;background:var(--off);border-radius:6px;font-size:10px;color:var(--g400);font-family:var(--mono);line-height:1.5">
-      ℹ️ P&amp;L = accrual basis (semua revenue + cost ke-alokasi penuh). COGS = units sold × jubelio_items.average_cost. Royalty = % × gross revenue net PPh.
+      ℹ️ P&amp;L = accrual basis (semua revenue + cost ke-alokasi penuh). COGS = units sold × jubelio_items.average_cost. Freebies = items HPP × qty + ongkir dari Outbond Request. Royalty = % × gross revenue net PPh.
     </div>`;
 }
 
@@ -9842,30 +9989,74 @@ function renderColCashFlow(colId) {
   if (!d) return '';
   const r = _colFinRow;
   const billsLbl = d.billsCount ? ` (${d.billsPaidCount}/${d.billsCount} bills paid)` : '';
+  const outstandingSub = d.prodOutstanding > 0
+    ? `Planned ${_colFinFmtRp(d.prodCostPlanned)} · Billed ${_colFinFmtRp(d.prodBilled||0)} · <strong style="color:#c0392b">Outstanding ${_colFinFmtRp(d.prodOutstanding)}</strong>`
+    : (d.prodCostPlanned > 0 ? `Planned ${_colFinFmtRp(d.prodCostPlanned)} · Billed ${_colFinFmtRp(d.prodBilled||0)} · Paid ${(d.prodCostPlanned>0?(d.cashOutProd/d.prodCostPlanned*100):0).toFixed(0)}%` : null);
   const rows = [
     r('CASH IN', '', { bold:true }),
     r('Net Revenue (settled orders)', _colFinFmtRp(d.cashIn), { indent:1, color:'#2d7a2d' }),
     r('Total Cash In', _colFinFmtRp(d.cashIn), { bold:true, divider:true, color:'#2d7a2d' }),
     r('CASH OUT', '', { bold:true }),
-    r('Production — PO bills paid' + billsLbl, '(' + _colFinFmtRp(d.cashOutProd) + ')', { indent:1, color:'#c0392b', sub: d.prodCostPlanned > 0 ? `Planned ${_colFinFmtRp(d.prodCostPlanned)} · Billed ${_colFinFmtRp(d.prodBilled||0)} · Paid ${(d.prodCostPlanned>0?(d.cashOutProd/d.prodCostPlanned*100):0).toFixed(0)}%` : null }),
+    r('Production — PO bills paid' + billsLbl, '(' + _colFinFmtRp(d.cashOutProd) + ')', { indent:1, color:'#c0392b', sub: outstandingSub }),
     r('Marketing budget (' + d.meRows.length + ' event)', '(' + _colFinFmtRp(d.cashOutMkt) + ')', { indent:1, color:'#c0392b', sub:'Asumsi paid penuh — belum ada flag bayar di Marketing Events' }),
     r('Photoshoot budget (' + d.psRows.length + ' shoot)', '(' + _colFinFmtRp(d.cashOutPS) + ')', { indent:1, color:'#c0392b', sub:'Asumsi paid penuh — belum ada flag bayar di Photoshoot' }),
+    r('Freebies (' + (d.freebieEntries||[]).length + ' shipment)', '(' + _colFinFmtRp(d.cashOutFreebies) + ')', { indent:1, color:'#c0392b', sub: d.cashOutFreebies > 0 ? `Items ${_colFinFmtRp(d.freebieItemsCost)} + Ongkir ${_colFinFmtRp(d.freebieShippingCost)}` : 'Belum ada freebie shipment' }),
     r('Total Cash Out', '(' + _colFinFmtRp(d.cashOutTotal) + ')', { bold:true, divider:true, color:'#c0392b' }),
     r('Net Cash Position', _colFinFmtRp(d.netCash), { bold:true, divider:true, color: d.netCash>=0?'#2d7a2d':'#c0392b', sub: d.netCash>=0 ? '✓ Cash positif — duitnya udah balik' : '⏳ Cash negatif — belum balik modal' }),
   ].filter(Boolean).join('');
 
-  const prodBreak = d.matchedRPs.length ? `
-    <details style="margin-top:10px"><summary style="cursor:pointer;font-size:11px;color:var(--g400);font-family:var(--mono);text-transform:uppercase">Production breakdown (${d.matchedRPs.length} restock project)</summary>
+  // Per-PO payment breakdown — Lunas / Sebagian / Belum Bayar / Belum Di-Bill
+  const poBreak = (d.poList || []).length ? `
+    <details style="margin-top:10px" open><summary style="cursor:pointer;font-size:11px;color:var(--g400);font-family:var(--mono);text-transform:uppercase">PO Payment status (${d.poList.length} PO · ${_colFinFmtRp(d.prodOutstanding||0)} outstanding)</summary>
       <table style="width:100%;margin-top:8px;font-size:11px;border-collapse:collapse">
         <thead><tr style="border-bottom:1px solid var(--g100);color:var(--g400)">
-          <th style="text-align:left;padding:6px 8px">Project</th><th style="text-align:left;padding:6px 8px">Status</th>
-          <th style="text-align:right;padding:6px 8px">Linked PO</th><th style="text-align:right;padding:6px 8px">Planned</th></tr></thead>
-        <tbody>${d.matchedRPs.map(rp=>`
+          <th style="text-align:left;padding:6px 8px">PO</th>
+          <th style="text-align:left;padding:6px 8px">Supplier</th>
+          <th style="text-align:right;padding:6px 8px">Planned</th>
+          <th style="text-align:right;padding:6px 8px">Billed</th>
+          <th style="text-align:right;padding:6px 8px">Paid</th>
+          <th style="text-align:right;padding:6px 8px">Outstanding</th>
+          <th style="text-align:left;padding:6px 8px">Status Bayar</th></tr></thead>
+        <tbody>${d.poList.map(po => `
           <tr style="border-top:1px solid var(--g100)">
-            <td style="padding:6px 8px">${rp.name||rp.id}</td>
-            <td style="padding:6px 8px"><span class="pill p-${(rp.status||'').toLowerCase()}">${rp.status||'—'}</span></td>
-            <td style="text-align:right;padding:6px 8px;font-family:var(--mono)">${rp.linkedPos.length}</td>
-            <td style="text-align:right;padding:6px 8px;font-family:var(--mono)">${_colFinFmtRp(rp.subtotal)}</td>
+            <td style="padding:6px 8px;font-family:var(--mono);font-size:10px"><a href="https://v2.jubelio.com/purchase/orders/detail/${po.poId}" target="_blank" style="color:#3C3489;text-decoration:none">${po.no}</a></td>
+            <td style="padding:6px 8px">${po.supplier}</td>
+            <td style="text-align:right;padding:6px 8px;font-family:var(--mono)">${_colFinFmtRp(po.planned)}</td>
+            <td style="text-align:right;padding:6px 8px;font-family:var(--mono)">${po.billed > 0 ? _colFinFmtRp(po.billed) : '—'}</td>
+            <td style="text-align:right;padding:6px 8px;font-family:var(--mono);color:#2d7a2d">${po.paid > 0 ? _colFinFmtRp(po.paid) : '—'}</td>
+            <td style="text-align:right;padding:6px 8px;font-family:var(--mono);color:#c0392b">${po.outstanding > 0 ? _colFinFmtRp(po.outstanding) : '—'}</td>
+            <td style="padding:6px 8px"><span style="display:inline-block;padding:2px 7px;border-radius:3px;font-size:9px;font-family:var(--mono);font-weight:600;color:#fff;background:${po.payClr}">${po.payStatus}</span></td>
+          </tr>`).join('')}
+          <tr style="border-top:2px solid var(--g200);font-weight:600">
+            <td style="padding:6px 8px" colspan="2">Total</td>
+            <td style="text-align:right;padding:6px 8px;font-family:var(--mono)">${_colFinFmtRp(d.prodCostPlanned)}</td>
+            <td style="text-align:right;padding:6px 8px;font-family:var(--mono)">${_colFinFmtRp(d.prodBilled||0)}</td>
+            <td style="text-align:right;padding:6px 8px;font-family:var(--mono);color:#2d7a2d">${_colFinFmtRp(d.cashOutProd)}</td>
+            <td style="text-align:right;padding:6px 8px;font-family:var(--mono);color:#c0392b">${_colFinFmtRp(d.prodOutstanding||0)}</td>
+            <td></td>
+          </tr>
+        </tbody>
+      </table>
+    </details>` : '';
+
+  const freebieCashBreak = (d.freebieEntries||[]).length ? `
+    <details style="margin-top:10px"><summary style="cursor:pointer;font-size:11px;color:var(--g400);font-family:var(--mono);text-transform:uppercase">Freebies breakdown (${d.freebieEntries.length} shipment · ${_colFinFmtRp(d.cashOutFreebies)})</summary>
+      <table style="width:100%;margin-top:8px;font-size:11px;border-collapse:collapse">
+        <thead><tr style="border-bottom:1px solid var(--g100);color:var(--g400)">
+          <th style="text-align:left;padding:6px 8px">Recipient</th>
+          <th style="text-align:left;padding:6px 8px">Source</th>
+          <th style="text-align:right;padding:6px 8px">Qty</th>
+          <th style="text-align:right;padding:6px 8px">Items HPP</th>
+          <th style="text-align:right;padding:6px 8px">Ongkir</th>
+          <th style="text-align:left;padding:6px 8px">OB Status</th></tr></thead>
+        <tbody>${d.freebieEntries.map(f => `
+          <tr style="border-top:1px solid var(--g100)">
+            <td style="padding:6px 8px">${f.label}</td>
+            <td style="padding:6px 8px"><span class="pill p-${f.source==='KOL'?'review':'signings'}" style="font-size:9px">${f.source}</span></td>
+            <td style="text-align:right;padding:6px 8px;font-family:var(--mono)">${f.itemQty}</td>
+            <td style="text-align:right;padding:6px 8px;font-family:var(--mono);color:#c0392b">${_colFinFmtRp(f.itemsCost)}</td>
+            <td style="text-align:right;padding:6px 8px;font-family:var(--mono);color:#c0392b">${f.shippingCost > 0 ? _colFinFmtRp(f.shippingCost) : '—'}</td>
+            <td style="padding:6px 8px;font-size:10px;color:var(--g600)">${f.obStatus || '—'}</td>
           </tr>`).join('')}
         </tbody>
       </table>
@@ -9875,9 +10066,10 @@ function renderColCashFlow(colId) {
     <table style="width:100%;border-collapse:collapse">
       <tbody>${rows}</tbody>
     </table>
-    ${prodBreak}
+    ${poBreak}
+    ${freebieCashBreak}
     <div style="margin-top:10px;padding:8px 12px;background:var(--off);border-radius:6px;font-size:10px;color:var(--g400);font-family:var(--mono);line-height:1.5">
-      ℹ️ Cash Flow approximation: Cash In = settled net revenue. Cash Out Production = actual jubelio_purchase_bills.payment_amount (PO yang udah di-bill + dibayar di Jubelio). Marketing/Photoshoot diasumsiin paid penuh karena belum ada paid-flag di tabel. Royalty disisihkan (biasa di-pay quarterly).
+      ℹ️ PO Payment Status: <strong style="color:#2d7a2d">Lunas</strong> = paid penuh · <strong style="color:#e67e00">Sebagian</strong> = paid partial · <strong style="color:#c0392b">Belum Bayar</strong> = bill ada tapi belum dibayar · <strong style="color:#737373">Belum Di-Bill</strong> = PO ada di Jubelio tapi vendor belum invoice. Production cash out = sum payment_amount dari bills. Outstanding = billed − paid (yang masih harus dikeluarin).
     </div>`;
 }
 // ── END FINANCIAL STATEMENT ──
