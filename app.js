@@ -29080,11 +29080,11 @@ async function requestLFShipment(id) {
 }
 
 // ── 7. TRANSACTION MAPPING ──
-// Maps jubelio_sales_orders rows (excluding Gudang Bintaro & Gudang Marte)
+// Maps jubelio_sales_orders rows (excluding Gudang Bintaro, Marte, Penerimaan)
 // to categories + project refs via a separate transaction_mappings table.
 // Supports bulk-edit: select multiple rows, set category + project ref once.
 
-const TX_EXCLUDE_LOCATIONS = ['Gudang Bintaro', 'Gudang Marte'];
+const TX_EXCLUDE_LOCATIONS = ['Gudang Bintaro', 'Gudang Marte', 'Gudang Penerimaan Barang'];
 const TX_CATEGORIES = ['Wholesale', 'Consignment', 'Pop Up Booth', 'Manual Purchase'];
 let _txRows = [];               // current page rows with mapping merged in
 let _txTotalCount = 0;
