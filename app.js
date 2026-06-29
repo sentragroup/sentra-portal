@@ -9576,7 +9576,19 @@ const _colFinFmtPct = n => (n == null || !isFinite(n)) ? '—' : (n*100).toFixed
 async function loadColFinancial(colId, col) {
   const el = document.getElementById(`col-fin-${colId}`);
   if (!el) return;
+  try {
+    await _loadColFinancialInner(colId, col, el);
+  } catch (err) {
+    console.error('[loadColFinancial]', err);
+    el.innerHTML = `<div style="color:#c0392b;font-size:12px;padding:8px 12px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;line-height:1.5">
+      <div style="font-weight:600;margin-bottom:4px">⚠ Gagal memuat Financial Statement</div>
+      <div style="font-family:var(--mono);font-size:11px;color:var(--g600)">${(err.message || err).toString().replace(/</g,'&lt;')}</div>
+      <div style="font-size:10px;color:var(--g400);margin-top:6px">Cek console untuk stack trace lengkap.</div>
+    </div>`;
+  }
+}
 
+async function _loadColFinancialInner(colId, col, el) {
   // colToPos di-populate via refreshCPLinks(). Kalau user buka collection
   // detail langsung dari URL hash (deep-link), refreshCPLinks belum
   // dipanggil → colToPos kosong → PO Delivery tab ke-skip di breakdown.
