@@ -4117,7 +4117,7 @@ function _pbRenderDocActions() {
     </div>`;
   };
   cont.innerHTML = group('📋 Surat Jalan', '_pbDownloadSuratJalan()', r.signedSuratJalanUrl, 'pbd-upload-signed-sj', "_pbClearSignedSJ()")
-    + group('🧾 Invoice', '_pbDownloadInvoice()', r.signedInvoiceUrl, 'pbd-upload-signed-inv', "_pbClearSignedInvoice()");
+    + group('🧾 Invoice', '_pbPromptInvoiceRecipient()', r.signedInvoiceUrl, 'pbd-upload-signed-inv', "_pbClearSignedInvoice()");
   // Wire up file inputs
   const sj = document.getElementById('pbd-upload-signed-sj');
   if (sj) sj.onchange = (e) => _pbUploadSignedDoc(e.target.files[0], 'signed-sj', 'signed_surat_jalan_url', 'signedSuratJalanUrl');
@@ -4432,7 +4432,70 @@ async function _pbGenerateSuratJalanPDF(recipientName) {
 // Page 1: Generic invoice — single line item description, total, terbilang,
 // payment info, signature (COO). Page 2: Lampiran with thumbnails + names only
 // (no SKU code, no price columns). Items pulled from confirmed sales aggregate.
-async function _pbDownloadInvoice() {
+// Mini modal: pilih penerima tagihan sebelum generate Invoice. Default =
+// event organizer (pakai eventName). Custom option buat ditagihkan ke PT
+// berbeda (mis. holding co, sponsor) yang datanya gak ada di dist_partners.
+// User isi nama PT + alamat manual.
+function _pbPromptInvoiceRecipient() {
+  const r = _pbCurrentDetail;
+  if (!r) return;
+  document.getElementById('_pb-inv-recipient-modal')?.remove();
+  const overlay = document.createElement('div');
+  overlay.id = '_pb-inv-recipient-modal';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:9999';
+  const evName = (r.eventName||'(no name)').replace(/</g,'&lt;');
+  const ipName = (r.ipRelated||'').replace(/</g,'&lt;');
+  overlay.innerHTML = `
+    <div style="background:white;border-radius:12px;padding:24px;max-width:520px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.2)">
+      <div style="font-size:14px;font-weight:600;margin-bottom:4px">🧾 Invoice — Pilih Penerima Tagihan</div>
+      <div style="font-size:11px;color:var(--g600);margin-bottom:16px">Tagih ke event organizer atau ke PT/entity berbeda?</div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px">
+        <label style="display:flex;align-items:flex-start;gap:8px;padding:10px 12px;border:1px solid var(--g200);border-radius:6px;cursor:pointer;font-size:12px">
+          <input type="radio" name="_pb-inv-pick" value="event" checked style="margin-top:2px" onchange="_pbInvToggleCustom(false)">
+          <span><strong>Event Organizer:</strong> ${evName}${ipName?` <span style="color:var(--g400);font-size:11px">· IP ${ipName}</span>`:''}</span>
+        </label>
+        <label style="display:flex;align-items:flex-start;gap:8px;padding:10px 12px;border:1px solid var(--g200);border-radius:6px;cursor:pointer;font-size:12px">
+          <input type="radio" name="_pb-inv-pick" value="custom" style="margin-top:2px" onchange="_pbInvToggleCustom(true)">
+          <span><strong>Custom:</strong> tagih ke PT/entity berbeda (isi nama + alamat di bawah)</span>
+        </label>
+      </div>
+      <div id="_pb-inv-custom-fields" style="display:none;display:flex;flex-direction:column;gap:8px;margin-bottom:14px;padding:12px;background:var(--off);border-radius:6px">
+        <div>
+          <label style="font-size:10px;font-family:var(--mono);color:var(--g600);text-transform:uppercase;display:block;margin-bottom:3px">Nama PT / Penerima Tagihan *</label>
+          <input type="text" id="_pb-inv-custom-name" placeholder="e.g. PT Sumber Sponsor Sejahtera" style="width:100%;padding:8px 12px;border:1px solid var(--g200);border-radius:6px;font-size:12px;box-sizing:border-box">
+        </div>
+        <div>
+          <label style="font-size:10px;font-family:var(--mono);color:var(--g600);text-transform:uppercase;display:block;margin-bottom:3px">Alamat (opsional)</label>
+          <textarea id="_pb-inv-custom-addr" rows="2" placeholder="Alamat lengkap untuk dicetak di invoice" style="width:100%;padding:8px 12px;border:1px solid var(--g200);border-radius:6px;font-size:12px;resize:vertical;box-sizing:border-box;font-family:inherit"></textarea>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button type="button" onclick="document.getElementById('_pb-inv-recipient-modal').remove()" style="padding:8px 14px;background:white;color:var(--g600);border:1px solid var(--g200);border-radius:6px;font-size:12px;cursor:pointer">Batal</button>
+        <button type="button" id="_pb-inv-generate" style="padding:8px 18px;background:var(--black);color:var(--white);border:none;border-radius:6px;font-size:12px;cursor:pointer;font-weight:500">Generate PDF</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  document.getElementById('_pb-inv-generate').onclick = () => {
+    const picked = document.querySelector('input[name="_pb-inv-pick"]:checked')?.value || 'event';
+    let opts = null;
+    if (picked === 'custom') {
+      const name = (document.getElementById('_pb-inv-custom-name')?.value || '').trim();
+      const addr = (document.getElementById('_pb-inv-custom-addr')?.value || '').trim();
+      if (!name) { alert('Nama penerima tagihan wajib diisi.'); return; }
+      opts = { recipientName: name, recipientAddress: addr };
+    }
+    overlay.remove();
+    _pbDownloadInvoice(opts);
+  };
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+}
+
+function _pbInvToggleCustom(show) {
+  const el = document.getElementById('_pb-inv-custom-fields');
+  if (el) el.style.display = show ? 'flex' : 'none';
+}
+
+async function _pbDownloadInvoice(opts) {
   const r = _pbCurrentDetail;
   if (!r) return;
   const cache = _pbExportCache || {};
@@ -4599,10 +4662,11 @@ async function _pbDownloadInvoice() {
         </div>
         <div class="recipient">
           <div class="lbl">Ditagih kepada · ${channelLabel}</div>
-          <div class="name">${(r.eventName||'(no name)').replace(/</g,'&lt;')}</div>
-          ${r.location?`<div class="sub">📍 ${r.location.replace(/</g,'&lt;')}</div>`:''}
-          ${r.ipRelated?`<div class="sub">IP: ${r.ipRelated.replace(/</g,'&lt;')}</div>`:''}
-          <div class="sub">Tanggal Event: ${fmtTglFull(r.eventDate)}</div>
+          <div class="name">${((opts && opts.recipientName) || r.eventName || '(no name)').replace(/</g,'&lt;')}</div>
+          ${opts && opts.recipientAddress ? `<div class="sub">${opts.recipientAddress.replace(/</g,'&lt;').replace(/\n/g,'<br>')}</div>` : ''}
+          ${!opts || !opts.recipientName ? (r.location ? `<div class="sub">📍 ${r.location.replace(/</g,'&lt;')}</div>` : '') : ''}
+          ${r.ipRelated ? `<div class="sub">IP: ${r.ipRelated.replace(/</g,'&lt;')}</div>` : ''}
+          <div class="sub">${opts && opts.recipientName ? `Event: ${(r.eventName||'').replace(/</g,'&lt;')} · ` : 'Tanggal Event: '}${fmtTglFull(r.eventDate)}</div>
         </div>
         <table class="line">
           <thead><tr>
