@@ -2642,6 +2642,21 @@ async function _pbComputeEventAggregates(events) {
 
     r.current_stock = r.qty_in - r.qty_sold - r.qty_out + r.qty_adj;
   }
+  // Diagnostic: surface counts + id-type + Meraya sample untuk debug sales missing.
+  console.log('[_pbComputeEventAggregates] summary:', {
+    n_events: events.length,
+    n_txById: txById.length,
+    n_txByName: txByName.length,
+    n_soIds: soIds.length,
+    n_soHeaders: soHeaders.length,
+    n_soItems: soItems.length,
+    first_soId_sample: soIds[0],
+    first_soId_type: typeof soIds[0],
+    first_header_id_sample: soHeaders[0]?.salesorder_id,
+    first_header_id_type: typeof soHeaders[0]?.salesorder_id,
+    meraya_agg: out.get('PB-20260622-5552'),
+    meraya_sIds: eventSoIds.get('PB-20260622-5552'),
+  });
   return out;
 }
 
