@@ -43409,6 +43409,19 @@ async function _rpOpenProject(id) {
   }
   _rpRefreshStatusPill();
   _rpShowBuilderView();
+  // Reset stale state dari project sebelumnya sebelum load:
+  //  1. _rstData null → jangan render dari cache brand lama (mis. project 1
+  //     SDY, project 2 Lagaa → filter di_rstRenderAddedProducts kepakein
+  //     _rstData.products dari SDY yang gak punya SKU Lagaa)
+  //  2. _rstLoading false → bypass in-flight guard kalau user pindah project
+  //     sebelum load pertama selesai (loadRestock langsung return kalau
+  //     _rstLoading=true tanpa refresh DOM)
+  //  3. Clear #rst-products container → hilangin card lama biar user gak
+  //     lihat produk project sebelumnya sementara loadRestock berjalan
+  _rstData = null;
+  _rstLoading = false;
+  const rstContainer = document.getElementById('rst-products');
+  if (rstContainer) rstContainer.innerHTML = '';
   await loadRestock(); // loads data + auto-renders added products
   _rpDirty = false;    // Just loaded saved state, mark clean
 }
