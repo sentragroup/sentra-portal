@@ -5664,8 +5664,18 @@ async function loadProductMap(page=0, search=''){
     if(!allIPRows.length){const{data}=await sb.from("ip_master").select("id,name,email").order("name");allIPRows=(data||[]).map(mapIP);}
     if(!allRRRows.length){const{data}=await sb.from("royalty_recipients").select("id,nama").order("nama");allRRRows=(data||[]).map(mapRR);}
     if(!allColNames.length){
-      const{data:colData}=await sb.from("collections").select("collection_name").order("collection_name");
-      allColNames=(colData||[]).map(r=>r.collection_name).filter(Boolean);
+      // Fetch collection_name + ip_related supaya nama yang duplicate bisa
+      // di-disambiguate pake IP prefix (mis. banyak IP punya "General
+      // Collections" — bikin bingung waktu pick). Format: "IP — Name" kalau
+      // nama-nya muncul >1x, else "Name" as-is.
+      const{data:colData}=await sb.from("collections").select("collection_name,ip_related").order("collection_name");
+      const rows=(colData||[]).filter(r=>r.collection_name);
+      const nameCounts={};
+      for(const r of rows) nameCounts[r.collection_name]=(nameCounts[r.collection_name]||0)+1;
+      allColNames=rows.map(r=>{
+        const dup=nameCounts[r.collection_name]>1;
+        return dup && r.ip_related ? `${r.ip_related} — ${r.collection_name}` : r.collection_name;
+      }).filter(Boolean).sort();
       updatePMColDatalist();
     }
     populatePMFilters();
