@@ -9136,10 +9136,21 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
   const el = document.getElementById(`col-perf-${colId}`);
   if (!el) return;
 
-  // 1. Get products mapped to this collection
+  // 1. Get products mapped to this collection. Match dua-duanya:
+  //  - Raw collection_name (mis. "General Collection")
+  //  - Disambiguated form "IP — Name" (mis. "Marbles — General Collection")
+  // Feature disambiguation di Product Mapping picker bikin nama-nama duplicate
+  // di-tag pake IP prefix pas save. Query di sini harus terima kedua format
+  // biar backward-compat.
+  const colNameEsc = colName.replace(/,/g, '\\,');
+  const ilikePatterns = [`collection.ilike.${colNameEsc}`];
+  if (ipRelated) {
+    const disambig = `${ipRelated} — ${colName}`.replace(/,/g, '\\,');
+    ilikePatterns.push(`collection.ilike.${disambig}`);
+  }
   const { data: mappings, error: mErr } = await sb.from("product_mappings")
     .select("jubelio_item_id, item_name")
-    .ilike("collection", colName);
+    .or(ilikePatterns.join(','));
 
   if (mErr || !mappings || !mappings.length) {
     el.innerHTML = `<div style="color:var(--g400);font-size:12px;padding:4px 0">Belum ada produk yang di-mapping ke koleksi ini.</div>`;
@@ -15626,8 +15637,20 @@ async function loadColStockRecon(colId, colName) {
   if (!el) return;
   el.innerHTML = `<div style="color:var(--g400);font-size:12px">Memuat...</div>`;
   try {
+    // Match raw name + disambiguated "IP — Name" — sama logic kayak
+    // loadColProductPerf, biar mapping yang tersimpan dengan IP prefix
+    // (dari Product Mapping disambiguation) ikut ke-detect.
+    const _col = (typeof allColRows !== 'undefined' && Array.isArray(allColRows))
+      ? allColRows.find(c => c.id === colId) : null;
+    const ipRelated = _col?.ipRelated || '';
+    const colNameEsc = colName.replace(/,/g, '\\,');
+    const ilikePatterns = [`collection.ilike.${colNameEsc}`];
+    if (ipRelated) {
+      const disambig = `${ipRelated} — ${colName}`.replace(/,/g, '\\,');
+      ilikePatterns.push(`collection.ilike.${disambig}`);
+    }
     const { data: mappings, error: mErr } = await sb
-      .from("product_mappings").select("jubelio_item_id, item_name").ilike("collection", colName);
+      .from("product_mappings").select("jubelio_item_id, item_name").or(ilikePatterns.join(','));
     if (mErr || !mappings?.length) {
       el.innerHTML = `<div style="color:var(--g400);font-size:12px;padding:4px 0">Belum ada produk yang di-mapping ke koleksi ini.</div>`;
       return;
