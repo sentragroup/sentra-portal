@@ -2440,8 +2440,17 @@ async function loadPopupBooth() {
     setupACMulti("pb-iprelated","ac-pb-iprelated",()=>allIPRows.filter(r=>r.liveStatus==="Active").map(r=>r.name).filter(Boolean));
     setupACMulti("pb-manpower","ac-pb-manpower",()=>getManpowerOptions());
 
-    // Compute per-event aggregates (Stock In/Out · Sales · COGS · Margin)
-    window._pbEventAggregates = await _pbComputeEventAggregates(allPBRows.map(r => ({id: r.rowIndex, name: r.eventName})).filter(e => e.id));
+    // Compute per-event aggregates (Stock In/Out · Sales · COGS · Margin).
+    // Wrap with try/catch supaya kalau agg gagal, table tetap render dengan
+    // agg=null (kolom sales/qty jadi "—") daripada seluruh page gagal load.
+    try {
+      window._pbEventAggregates = await _pbComputeEventAggregates(allPBRows.map(r => ({id: r.rowIndex, name: r.eventName})).filter(e => e.id));
+    } catch (aggErr) {
+      console.error('[loadPopupBooth] _pbComputeEventAggregates failed:', aggErr);
+      window._pbEventAggregates = new Map();
+      const sb2 = document.getElementById('pb-summary-bar');
+      if (sb2) sb2.textContent = `⚠ agg gagal: ${aggErr.message || aggErr}`;
+    }
 
     populatePBIPFilter();
     applyPBFilters();
