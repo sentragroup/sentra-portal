@@ -2482,6 +2482,12 @@ async function _pbComputeEventAggregates(events) {
     sb.from('adjustment_categories').select('item_adj_id,event_ref')
       .is('popup_booth_id', null).in('event_ref', eventNames),
   ]);
+  // Log errors dari 5 parallel fetch — silent-fail sebelumnya bikin sales
+  // gak muncul di list tanpa clue apapun di UI.
+  const _resNames = ['trfMaps','txById','txByName','adjById','adjByName'];
+  [trfMapsRes, txByIdRes, txByNameRes, adjByIdRes, adjByNameRes].forEach((res, i) => {
+    if (res.error) console.error(`[_pbComputeEventAggregates] ${_resNames[i]} error:`, res.error);
+  });
   const trfMaps = trfMapsRes.data || [];
   const txById    = txByIdRes.data    || [];
   const txByName  = txByNameRes.data  || [];
@@ -2497,7 +2503,8 @@ async function _pbComputeEventAggregates(events) {
     const acc = [];
     for (let i = 0; i < ids.length; i += 200) {
       const chunk = ids.slice(i, i + 200);
-      const {data} = await sb.from(table).select(cols).in(fkCol, chunk);
+      const {data, error} = await sb.from(table).select(cols).in(fkCol, chunk);
+      if (error) console.error(`[_pbComputeEventAggregates] ${table} chunk error:`, error);
       acc.push(...(data || []));
     }
     return acc;
