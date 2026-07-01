@@ -2499,13 +2499,22 @@ async function _pbComputeEventAggregates(events) {
   const adjIds = [...adjById.map(m => m.item_adj_id), ...adjByName.map(m => m.item_adj_id)].filter(Boolean);
 
   // Fetch headers + items in chunks. fkCol = the FK column to chunk on.
+  // Paginate via .range() di setiap chunk — kalau chunk >1000 rows,
+  // default PostgREST cap bakal silent-truncate (bug PB Meraya sales missing).
   const fetchChunked = async (ids, table, cols, fkCol) => {
     const acc = [];
+    const PAGE = 1000;
     for (let i = 0; i < ids.length; i += 200) {
       const chunk = ids.slice(i, i + 200);
-      const {data, error} = await sb.from(table).select(cols).in(fkCol, chunk);
-      if (error) console.error(`[_pbComputeEventAggregates] ${table} chunk error:`, error);
-      acc.push(...(data || []));
+      let from = 0;
+      while (true) {
+        const {data, error} = await sb.from(table).select(cols).in(fkCol, chunk).range(from, from + PAGE - 1);
+        if (error) { console.error(`[_pbComputeEventAggregates] ${table} chunk error:`, error); break; }
+        if (!data || data.length === 0) break;
+        acc.push(...data);
+        if (data.length < PAGE) break;
+        from += PAGE;
+      }
     }
     return acc;
   };
