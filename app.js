@@ -43440,6 +43440,217 @@ function _rpRenderProjectCard(p, progress) {
 }
 
 // ── Start new project (clear state, open builder) ──
+// ── Multi-project PDF export ──
+// State scoped ke modal utk step 1 (pilih project) + step 2 (pilih vendor).
+let _rpMultiStep = 1;              // 1 = pick projects, 2 = pick vendors
+let _rpMultiSelProjectIds = new Set();
+let _rpMultiSelVendorIds  = new Set();
+
+function _rpOpenMultiExport() {
+  if (!Array.isArray(_rpRows) || !_rpRows.length) { alert('Belum ada project restock.'); return; }
+  _rpMultiStep = 1;
+  _rpMultiSelProjectIds = new Set();
+  _rpMultiSelVendorIds = new Set();
+  document.getElementById('rp-multi-overlay').style.display = 'flex';
+  _rpMultiRenderStep();
+}
+
+function _rpCloseMultiExport() {
+  document.getElementById('rp-multi-overlay').style.display = 'none';
+}
+
+function _rpMultiBack() {
+  if (_rpMultiStep === 2) { _rpMultiStep = 1; _rpMultiRenderStep(); }
+}
+
+function _rpMultiNext() {
+  if (_rpMultiStep === 1) {
+    if (!_rpMultiSelProjectIds.size) { alert('Pilih minimal 1 project.'); return; }
+    _rpMultiStep = 2;
+    _rpMultiSelVendorIds = new Set();
+    _rpMultiRenderStep();
+  } else {
+    if (!_rpMultiSelVendorIds.size) { alert('Pilih minimal 1 vendor.'); return; }
+    _rpMultiRunExport();
+  }
+}
+
+function _rpMultiRenderStep() {
+  const title = document.getElementById('rp-multi-title');
+  const sub   = document.getElementById('rp-multi-sub');
+  const body  = document.getElementById('rp-multi-body');
+  const back  = document.getElementById('rp-multi-back');
+  const next  = document.getElementById('rp-multi-next');
+  const info  = document.getElementById('rp-multi-footer-info');
+
+  if (_rpMultiStep === 1) {
+    title.textContent = 'Pilih Project';
+    sub.textContent = 'Langkah 1 dari 2 — centang project yang mau di-merge';
+    back.style.display = 'none';
+    next.textContent = 'Lanjut →';
+    // Sort: Active first, then Draft, then Completed/Cancelled — newest first inside each
+    const order = { 'Active':0, 'Draft':1, 'Completed':2, 'Cancelled':3 };
+    const rows = _rpRows.slice().sort((a,b) => {
+      const oa = order[a.status] ?? 9, ob = order[b.status] ?? 9;
+      if (oa !== ob) return oa - ob;
+      return (b.date_created||'').localeCompare(a.date_created||'');
+    });
+    body.innerHTML = `
+      <div style="display:flex;gap:8px;margin-bottom:10px">
+        <button onclick="_rpMultiSelectAllProjects(true)" style="padding:5px 10px;background:white;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-size:11px">Semua</button>
+        <button onclick="_rpMultiSelectAllProjects(false)" style="padding:5px 10px;background:white;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-size:11px">Kosongkan</button>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        ${rows.map(p => {
+          const items = Array.isArray(p.items) ? p.items : [];
+          const vendors = new Set(items.map(it => it.vendor_master_id).filter(Boolean));
+          const checked = _rpMultiSelProjectIds.has(p.id) ? 'checked' : '';
+          const idEsc = (p.id||'').replace(/'/g,"\\'");
+          return `<label style="display:flex;gap:10px;align-items:center;padding:8px 10px;border:1px solid var(--g100);border-radius:6px;cursor:pointer">
+            <input type="checkbox" class="rp-multi-p-chk" data-id="${p.id}" ${checked} onchange="_rpMultiToggleProject('${idEsc}', this.checked)">
+            <div style="flex:1;min-width:0">
+              <div style="font-size:13px;font-weight:600">${(p.name||p.id).replace(/</g,'&lt;')} <span class="pill p-${(p.status||'Draft').toLowerCase()==='active'?'active':(p.status||'').toLowerCase()==='completed'?'active':'draft'}" style="font-size:9px;padding:1px 6px;margin-left:4px">${p.status||'Draft'}</span></div>
+              <div style="font-size:10px;color:var(--g400);margin-top:2px">${p.id} · ${items.length} SKU · ${vendors.size} vendor</div>
+            </div>
+          </label>`;
+        }).join('')}
+      </div>`;
+    info.textContent = `${_rpMultiSelProjectIds.size} project dipilih`;
+    next.disabled = _rpMultiSelProjectIds.size === 0;
+  } else {
+    title.textContent = 'Pilih Vendor';
+    sub.textContent  = 'Langkah 2 dari 2 — vendor yang dicentang bikin 1 PDF masing-masing (item digabung antar project)';
+    back.style.display = 'inline-block';
+    next.textContent = 'Export PDF';
+    // Aggregate vendors across selected projects
+    const vmById = new Map(_rstAllVendors.map(v => [v.id, v]));
+    const vendorAgg = new Map();  // vmId → {name, projects: Set, qty, skuIds: Set}
+    let unassignedQty = 0, unassignedSkus = new Set(), unassignedProjects = new Set();
+    for (const p of _rpRows) {
+      if (!_rpMultiSelProjectIds.has(p.id)) continue;
+      const items = Array.isArray(p.items) ? p.items : [];
+      for (const it of items) {
+        const q = Number(it.qty_planned) || 0;
+        if (q <= 0) continue;
+        if (!it.vendor_master_id) {
+          unassignedQty += q; unassignedSkus.add(it.item_id); unassignedProjects.add(p.id);
+          continue;
+        }
+        if (!vendorAgg.has(it.vendor_master_id)) {
+          vendorAgg.set(it.vendor_master_id, {
+            name: vmById.get(it.vendor_master_id)?.name || it.vendor_master_id,
+            projects: new Set(), qty: 0, skuIds: new Set(),
+          });
+        }
+        const agg = vendorAgg.get(it.vendor_master_id);
+        agg.projects.add(p.id); agg.qty += q; agg.skuIds.add(it.item_id);
+      }
+    }
+    const rows = [...vendorAgg.entries()].sort((a,b) => (a[1].name||'').localeCompare(b[1].name||'', 'id'));
+    const chkAll = `<div style="display:flex;gap:8px;margin-bottom:10px">
+      <button onclick="_rpMultiSelectAllVendors(true)" style="padding:5px 10px;background:white;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-size:11px">Semua</button>
+      <button onclick="_rpMultiSelectAllVendors(false)" style="padding:5px 10px;background:white;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-size:11px">Kosongkan</button>
+    </div>`;
+    body.innerHTML = chkAll + `<div style="display:flex;flex-direction:column;gap:6px">
+      ${rows.map(([vmId, agg]) => {
+        const checked = _rpMultiSelVendorIds.has(vmId) ? 'checked' : '';
+        const vmIdEsc = String(vmId).replace(/'/g,"\\'");
+        return `<label style="display:flex;gap:10px;align-items:center;padding:8px 10px;border:1px solid var(--g100);border-radius:6px;cursor:pointer">
+          <input type="checkbox" class="rp-multi-v-chk" data-id="${vmId}" ${checked} onchange="_rpMultiToggleVendor('${vmIdEsc}', this.checked)">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;font-weight:600">${(agg.name||'').replace(/</g,'&lt;')}</div>
+            <div style="font-size:10px;color:var(--g400);margin-top:2px">${agg.skuIds.size} SKU · ${agg.qty} unit · dari ${agg.projects.size} project</div>
+          </div>
+        </label>`;
+      }).join('')}
+      ${unassignedQty > 0 ? `<div style="padding:8px 10px;background:#fff3cd;border:1px dashed #d4a017;border-radius:6px;font-size:11px;color:#8a6d3b">⚠️ ${unassignedSkus.size} SKU (${unassignedQty} unit) belum di-assign vendor — akan di-skip dari export.</div>` : ''}
+    </div>`;
+    info.textContent = `${_rpMultiSelVendorIds.size} vendor → ${_rpMultiSelVendorIds.size} PDF akan di-generate`;
+    next.disabled = _rpMultiSelVendorIds.size === 0;
+  }
+}
+
+function _rpMultiToggleProject(id, checked) {
+  if (checked) _rpMultiSelProjectIds.add(id); else _rpMultiSelProjectIds.delete(id);
+  document.getElementById('rp-multi-footer-info').textContent = `${_rpMultiSelProjectIds.size} project dipilih`;
+  document.getElementById('rp-multi-next').disabled = _rpMultiSelProjectIds.size === 0;
+}
+function _rpMultiToggleVendor(id, checked) {
+  if (checked) _rpMultiSelVendorIds.add(id); else _rpMultiSelVendorIds.delete(id);
+  document.getElementById('rp-multi-footer-info').textContent = `${_rpMultiSelVendorIds.size} vendor → ${_rpMultiSelVendorIds.size} PDF akan di-generate`;
+  document.getElementById('rp-multi-next').disabled = _rpMultiSelVendorIds.size === 0;
+}
+function _rpMultiSelectAllProjects(all) {
+  if (all) _rpRows.forEach(p => _rpMultiSelProjectIds.add(p.id));
+  else _rpMultiSelProjectIds.clear();
+  _rpMultiRenderStep();
+}
+function _rpMultiSelectAllVendors(all) {
+  const chks = document.querySelectorAll('.rp-multi-v-chk');
+  if (all) chks.forEach(c => _rpMultiSelVendorIds.add(c.dataset.id));
+  else _rpMultiSelVendorIds.clear();
+  _rpMultiRenderStep();
+}
+
+async function _rpMultiRunExport() {
+  // Merge items per vendor across selected projects, dedupe by item_id + sum qty.
+  const selP = new Set(_rpMultiSelProjectIds);
+  const selV = new Set(_rpMultiSelVendorIds);
+  const perVendor = new Map();  // vmId → Map<item_id, mergedLine>
+  const projectsPerVendor = new Map();
+  for (const p of _rpRows) {
+    if (!selP.has(p.id)) continue;
+    const items = Array.isArray(p.items) ? p.items : [];
+    for (const it of items) {
+      const vmId = it.vendor_master_id;
+      if (!vmId || !selV.has(vmId)) continue;
+      const q = Number(it.qty_planned) || 0;
+      if (q <= 0) continue;
+      if (!perVendor.has(vmId)) { perVendor.set(vmId, new Map()); projectsPerVendor.set(vmId, new Set()); }
+      const bag = perVendor.get(vmId);
+      projectsPerVendor.get(vmId).add(p.name || p.id);
+      const key = String(it.item_id);
+      if (bag.has(key)) {
+        const line = bag.get(key);
+        line.qty += q;
+        // Keep first non-null price (project harga bisa beda-beda, kalau beda kita
+        // ambil rata-rata pun bisa nyesatin; first-seen paling defensible).
+      } else {
+        bag.set(key, {
+          itemId: it.item_id,
+          sku: it.item_code || '',
+          itemName: it.item_code || '',
+          qty: q,
+          price: Number(it.price_planned) || 0,
+          vmId,
+          parentName: it.parent_name || '',
+          brand: it.brand || '',
+          ip: it.ip || '',
+          collection: it.collection || '',
+          size: it.size || '?',
+          thumbnail: it.thumbnail || null,
+        });
+      }
+    }
+  }
+  if (!perVendor.size) { alert('Gak ada item yang cocok — pilihan vendor tidak overlap dengan item project.'); return; }
+  // Close modal + reveal one PDF per vendor. Vendor with all-zero qty skipped.
+  _rpCloseMultiExport();
+  await _rstEnsurePDLoaded();
+  const today = new Date().toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric'});
+  for (const [vmId, bag] of perVendor.entries()) {
+    const lines = [...bag.values()].filter(l => l.qty > 0);
+    if (!lines.length) continue;
+    const res = _rstResolveVendor(vmId);
+    if (!res) { console.warn('[MultiPDF] Vendor', vmId, 'tidak resolved, skip'); continue; }
+    const projectsLabel = [...projectsPerVendor.get(vmId)].join(' · ');
+    _rstOpenPrintWindow(
+      `PO Restock — ${res.name}`,
+      _rstBuildPDFBody(res.name, {phone: res.phone, email: res.email, projects: projectsLabel}, lines, today),
+    );
+  }
+}
+
 async function _rpStartNewProject() {
   _rpResetBuilderState();
   _rpCurrentId = null;
@@ -44984,6 +45195,7 @@ function _rstBuildPDFBody(supplierName, contact, lines, today) {
       ${contact.phone?`<dt>Telp</dt><dd>${contact.phone.replace(/</g,'&lt;')}</dd>`:''}
       ${contact.email?`<dt>Email</dt><dd>${contact.email.replace(/</g,'&lt;')}</dd>`:''}
       <dt>Tanggal</dt><dd>${today}</dd>
+      ${contact.projects?`<dt>Project</dt><dd>${contact.projects.replace(/</g,'&lt;')}</dd>`:''}
       <dt>Total Item</dt><dd>${lines.length} SKU · ${totalQty} unit</dd>
     </dl>
     <table>

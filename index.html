@@ -1793,9 +1793,31 @@
           <div style="font-size:13px;color:var(--g600)" id="rp-list-summary">—</div>
           <div style="flex:1"></div>
           <button class="btn-refresh" onclick="loadRestockProjects()">↻ Refresh</button>
+          <button onclick="_rpOpenMultiExport()" style="padding:8px 14px;background:white;color:#3C3489;border:1px solid #3C3489;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600" title="Gabungin item dari beberapa project ke 1 PDF per vendor">📄 Export Multi-Project</button>
           <button onclick="_rpStartNewProject()" style="padding:8px 18px;background:#3C3489;color:white;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600">+ Project Baru</button>
         </div>
         <div id="rp-list" style="display:flex;flex-direction:column;gap:10px"></div>
+      </div>
+
+      <!-- MULTI-PROJECT EXPORT modal -->
+      <div id="rp-multi-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center" onclick="if(event.target===this)_rpCloseMultiExport()">
+        <div style="background:white;border-radius:10px;max-width:720px;width:92%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 6px 24px rgba(0,0,0,0.2)">
+          <div style="padding:14px 18px;border-bottom:1px solid var(--g100);display:flex;justify-content:space-between;align-items:center">
+            <div>
+              <div style="font-size:14px;font-weight:700" id="rp-multi-title">Pilih Project</div>
+              <div style="font-size:11px;color:var(--g400);margin-top:2px" id="rp-multi-sub">Langkah 1 dari 2 — centang project yang mau di-merge</div>
+            </div>
+            <button onclick="_rpCloseMultiExport()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--g400);line-height:1;padding:0 6px">×</button>
+          </div>
+          <div id="rp-multi-body" style="padding:14px 18px;overflow-y:auto;flex:1"></div>
+          <div style="padding:12px 18px;border-top:1px solid var(--g100);display:flex;justify-content:space-between;gap:8px;align-items:center;background:#fafafa">
+            <div style="font-size:11px;color:var(--g600)" id="rp-multi-footer-info">—</div>
+            <div style="display:flex;gap:8px">
+              <button id="rp-multi-back" onclick="_rpMultiBack()" style="display:none;padding:8px 14px;background:white;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-size:12px">← Kembali</button>
+              <button id="rp-multi-next" onclick="_rpMultiNext()" style="padding:8px 18px;background:#3C3489;color:white;border:none;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600" disabled>Lanjut →</button>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- VIEW: BUILDER — building/editing a project -->
@@ -5410,6 +5432,6 @@
 <div id="proj-overlay" class="proj-panel-overlay" style="display:none" onclick="if(event.target===this)closeProjectDetail()"></div>
 <div id="proj-panel" class="proj-panel" style="display:none"></div>
 
-<script src="app.js?v=20260630j"></script>
+<script src="app.js?v=20260701a"></script>
 </body>
 </html>
