@@ -43446,12 +43446,17 @@ let _rpMultiStep = 1;              // 1 = pick projects, 2 = pick vendors
 let _rpMultiSelProjectIds = new Set();
 let _rpMultiSelVendorIds  = new Set();
 
-function _rpOpenMultiExport() {
+async function _rpOpenMultiExport() {
   if (!Array.isArray(_rpRows) || !_rpRows.length) { alert('Belum ada project restock.'); return; }
   _rpMultiStep = 1;
   _rpMultiSelProjectIds = new Set();
   _rpMultiSelVendorIds = new Set();
   document.getElementById('rp-multi-overlay').style.display = 'flex';
+  // List view gak trigger loadRestock, jadi _rstAllVendors kosong → nama vendor
+  // ke-render sebagai VM ID. Pre-load VM + Jubelio suppliers dulu.
+  if (!allVMRows.length) await loadVendorMaster().catch(()=>{});
+  if (!allJubSuppliers.length) await loadJubSuppliers().catch(()=>{});
+  _rstAllVendors = _rstBuildAllVendors();
   _rpMultiRenderStep();
 }
 
