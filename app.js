@@ -2656,6 +2656,11 @@ async function _pbComputeEventAggregates(events) {
     first_header_id_type: typeof soHeaders[0]?.salesorder_id,
     meraya_agg: out.get('PB-20260622-5552'),
     meraya_sIds: eventSoIds.get('PB-20260622-5552'),
+    meraya_soHeader: soHeaderMap.get(117567),
+    meraya_soItems: soItemsBy.get(117567),
+    meraya_soHeader_alt_str: soHeaderMap.get('117567'),
+    header_has_117567: soHeaderMap.has(117567),
+    items_has_117567: soItemsBy.has(117567),
   });
   return out;
 }
