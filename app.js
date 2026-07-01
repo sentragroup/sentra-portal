@@ -43642,6 +43642,49 @@ async function _rpMultiRunExport() {
   // Close modal + reveal one PDF per vendor. Vendor with all-zero qty skipped.
   _rpCloseMultiExport();
   await _rstEnsurePDLoaded();
+
+  // Pre-fetch jubelio_items image_urls per parent supaya resolver dapet gambar
+  // ter-update dari Jubelio (bukan PD stale). Multi-project gak jalan
+  // loadRestock, jadi _rstData.products kosong — kita bikin cache paralel.
+  const itemIds = [];
+  for (const bag of perVendor.values()) for (const l of bag.values()) if (l.itemId) itemIds.push(l.itemId);
+  if (itemIds.length) {
+    try {
+      const jubMap = new Map();  // parentName lc → {imageUrls, thumbnail}
+      // Chunk .in() to avoid URL limit
+      const chunks = [];
+      for (let i=0; i<itemIds.length; i+=200) chunks.push(itemIds.slice(i, i+200));
+      const results = await Promise.all(chunks.map(c =>
+        sb.from('jubelio_items').select('item_name,image_urls,thumbnail,item_group_id').in('item_id', c)
+      ));
+      const allItems = results.flatMap(r => r.data || []);
+      // Group by parent name lookup (item_name lower). Merge image_urls antar variants
+      // biar dapet front+back kalau tersebar di beberapa SKU.
+      for (const it of allItems) {
+        const key = (it.item_name||'').trim().toLowerCase();
+        if (!key) continue;
+        if (!jubMap.has(key)) jubMap.set(key, {imageUrls: [], thumbnail: it.thumbnail});
+        const bag = jubMap.get(key);
+        if (Array.isArray(it.image_urls)) {
+          for (const u of it.image_urls) if (u && !bag.imageUrls.includes(u)) bag.imageUrls.push(u);
+        }
+        if (!bag.thumbnail && it.thumbnail) bag.thumbnail = it.thumbnail;
+      }
+      // Also seed by parent_name from JSONB items (kalau item_name Jubelio berbeda)
+      for (const bag of perVendor.values()) {
+        for (const l of bag.values()) {
+          const key = (l.parentName||'').trim().toLowerCase();
+          if (!key || jubMap.has(key)) continue;
+          if (l.thumbnail) jubMap.set(key, {imageUrls: [], thumbnail: l.thumbnail});
+        }
+      }
+      window._rpJubItemsByParent = jubMap;
+    } catch (e) {
+      console.warn('[MultiPDF] jubelio_items image pre-fetch gagal, PDF pakai PD/thumb:', e);
+    }
+  }
+
+
   const today = new Date().toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric'});
   for (const [vmId, bag] of perVendor.entries()) {
     const lines = [...bag.values()].filter(l => l.qty > 0);
@@ -45140,16 +45183,27 @@ function _rstResolveParentPictures(parentName) {
     if (pics.includes(u)) return;
     if (pics.length < 2) pics.push(u);
   };
-  // 1. Product Dev manual uploads (preferred — usually better staged photography)
-  if (Array.isArray(allPDRows)) {
-    const parent = allPDRows.find(r => !r.parentId && (r.skuName||'').trim().toLowerCase() === want);
-    if (parent && Array.isArray(parent.pictures)) parent.pictures.forEach(push);
-  }
-  if (pics.length >= 2) return pics;
-  // 2. Jubelio group-level images
+  // 1. Jubelio group-level images — source of truth (match builder card).
+  //    Kalau user update foto di Jubelio, PDF ikut ke-refresh tanpa harus
+  //    re-upload manual ke Product Dev.
   if (_rstData?.products) {
     const p = _rstData.products.find(x => (x.name||'').trim().toLowerCase() === want);
     if (p && Array.isArray(p.imageUrls)) p.imageUrls.forEach(push);
+    // Also try Jubelio's parent thumbnail sebagai extra slot kalau imageUrls kosong
+    if (!pics.length && p?.thumbnail) push(p.thumbnail);
+  }
+  // Also check jubelio_items cache utk multi-project export context (dimana
+  // _rstData.products kosong karna gak jalan loadRestock).
+  if (!pics.length && window._rpJubItemsByParent) {
+    const p = window._rpJubItemsByParent.get(want);
+    if (p && Array.isArray(p.imageUrls)) p.imageUrls.forEach(push);
+    if (!pics.length && p?.thumbnail) push(p.thumbnail);
+  }
+  if (pics.length >= 2) return pics;
+  // 2. Product Dev manual uploads — fallback kalau Jubelio belum ada gambar.
+  if (Array.isArray(allPDRows)) {
+    const parent = allPDRows.find(r => !r.parentId && (r.skuName||'').trim().toLowerCase() === want);
+    if (parent && Array.isArray(parent.pictures)) parent.pictures.forEach(push);
   }
   return pics;
 }
