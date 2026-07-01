@@ -33448,7 +33448,7 @@ function _renderOutboundRows(rows) {
         </select>
       </td>
       <td style="white-space:nowrap">
-        <button class="btn-icon" onclick="_obGenerateSuratJalan('${r.rowIndex}')" title="Generate Surat Jalan PDF (kirim ke Mekari buat di-sign)" style="color:#3C3489;font-size:13px">🚚</button>
+        <button class="btn-icon" onclick="_obPromptSJRecipient('${r.rowIndex}')" title="Generate Surat Jalan PDF (pilih/override penerima dulu)" style="color:#3C3489;font-size:13px">🚚</button>
         ${r.signedSuratJalanUrl
           ? `<a href="${esc(r.signedSuratJalanUrl)}" target="_blank" class="btn-icon" title="Lihat surat jalan signed" style="color:#085041;font-size:13px;text-decoration:none">✅</a>`
           : `<label class="btn-icon" title="Upload surat jalan signed dari Mekari (PDF/image, max 5MB)" style="color:#3C3489;font-size:13px;cursor:pointer;margin:0"><span>📎</span><input type="file" accept=".pdf,image/*" style="display:none" onchange="_obUploadSignedSuratJalan('${r.rowIndex}',this)"></label>`}
@@ -33693,7 +33693,82 @@ async function _obClearSignedSuratJalan(id) {
 // SJ — issuer PT SDY, doc meta, recipient card, items grouped by parent w/
 // thumbnails, T&C (purpose-dependent), 2 sig blocks. Tim warehouse pakai ini
 // sebagai canonical SJ — Manual Purchase/KOL/etc. tidak perlu SJ terpisah.
-async function _obGenerateSuratJalan(id) {
+// Mini modal: pilih/override penerima sebelum generate Surat Jalan OB.
+// Default = data dari OB ticket (recipientName/Address/Phone). Custom
+// override berguna kalau kirim ke PT/PIC berbeda dari data ticket
+// (mis. holding entity, alamat kantor cabang, atau ganti PIC dadakan).
+function _obPromptSJRecipient(id) {
+  const r = allOutboundRows.find(x => x.rowIndex === id);
+  if (!r) { alert('Ticket gak ditemukan'); return; }
+  if (!(r.items||[]).length) { alert('Belum ada items di ticket ini'); return; }
+  document.getElementById('_ob-sj-recipient-modal')?.remove();
+  const overlay = document.createElement('div');
+  overlay.id = '_ob-sj-recipient-modal';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:9999';
+  const esc = s => (s||'').toString().replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  const dName = esc(r.recipientName||'(tidak diisi)');
+  const dAddr = esc(r.recipientAddress||'');
+  const dPhone = esc(r.recipientPhone||'');
+  overlay.innerHTML = `
+    <div style="background:white;border-radius:12px;padding:24px;max-width:540px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.2)">
+      <div style="font-size:14px;font-weight:600;margin-bottom:4px">📋 Surat Jalan — Pilih Penerima</div>
+      <div style="font-size:11px;color:var(--g600);margin-bottom:16px">Pakai data dari OB ticket atau override ke penerima lain?</div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px">
+        <label style="display:flex;align-items:flex-start;gap:8px;padding:10px 12px;border:1px solid var(--g200);border-radius:6px;cursor:pointer;font-size:12px">
+          <input type="radio" name="_ob-sj-pick" value="default" checked style="margin-top:2px" onchange="_obSJToggleCustom(false)">
+          <div style="flex:1;min-width:0">
+            <div><strong>Dari OB ticket:</strong> ${dName}</div>
+            ${dAddr?`<div style="font-size:10px;color:var(--g600);margin-top:2px">${dAddr.replace(/\n/g,'<br>')}</div>`:''}
+            ${dPhone?`<div style="font-size:10px;color:var(--g600);margin-top:1px">📞 ${dPhone}</div>`:''}
+          </div>
+        </label>
+        <label style="display:flex;align-items:flex-start;gap:8px;padding:10px 12px;border:1px solid var(--g200);border-radius:6px;cursor:pointer;font-size:12px">
+          <input type="radio" name="_ob-sj-pick" value="custom" style="margin-top:2px" onchange="_obSJToggleCustom(true)">
+          <span><strong>Custom:</strong> override penerima (nama, alamat, telp)</span>
+        </label>
+      </div>
+      <div id="_ob-sj-custom-fields" style="display:none;flex-direction:column;gap:8px;margin-bottom:14px;padding:12px;background:var(--off);border-radius:6px">
+        <div>
+          <label style="font-size:10px;font-family:var(--mono);color:var(--g600);text-transform:uppercase;display:block;margin-bottom:3px">Nama Penerima *</label>
+          <input type="text" id="_ob-sj-custom-name" value="${dName === '(tidak diisi)' ? '' : dName}" placeholder="Nama PT / PIC penerima" style="width:100%;padding:8px 12px;border:1px solid var(--g200);border-radius:6px;font-size:12px;box-sizing:border-box">
+        </div>
+        <div>
+          <label style="font-size:10px;font-family:var(--mono);color:var(--g600);text-transform:uppercase;display:block;margin-bottom:3px">Alamat</label>
+          <textarea id="_ob-sj-custom-addr" rows="2" placeholder="Alamat lengkap penerima" style="width:100%;padding:8px 12px;border:1px solid var(--g200);border-radius:6px;font-size:12px;resize:vertical;box-sizing:border-box;font-family:inherit">${dAddr}</textarea>
+        </div>
+        <div>
+          <label style="font-size:10px;font-family:var(--mono);color:var(--g600);text-transform:uppercase;display:block;margin-bottom:3px">No. Telp / HP</label>
+          <input type="text" id="_ob-sj-custom-phone" value="${dPhone}" placeholder="Nomor kontak" style="width:100%;padding:8px 12px;border:1px solid var(--g200);border-radius:6px;font-size:12px;box-sizing:border-box">
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button type="button" onclick="document.getElementById('_ob-sj-recipient-modal').remove()" style="padding:8px 14px;background:white;color:var(--g600);border:1px solid var(--g200);border-radius:6px;font-size:12px;cursor:pointer">Batal</button>
+        <button type="button" id="_ob-sj-generate" style="padding:8px 18px;background:var(--black);color:var(--white);border:none;border-radius:6px;font-size:12px;cursor:pointer;font-weight:500">Generate PDF</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  document.getElementById('_ob-sj-generate').onclick = () => {
+    const picked = document.querySelector('input[name="_ob-sj-pick"]:checked')?.value || 'default';
+    let opts = null;
+    if (picked === 'custom') {
+      const name = (document.getElementById('_ob-sj-custom-name')?.value || '').trim();
+      const addr = (document.getElementById('_ob-sj-custom-addr')?.value || '').trim();
+      const phone = (document.getElementById('_ob-sj-custom-phone')?.value || '').trim();
+      if (!name) { alert('Nama penerima wajib diisi.'); return; }
+      opts = { recipientName: name, recipientAddress: addr, recipientPhone: phone };
+    }
+    overlay.remove();
+    _obGenerateSuratJalan(id, opts);
+  };
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+}
+
+function _obSJToggleCustom(show) {
+  const el = document.getElementById('_ob-sj-custom-fields');
+  if (el) el.style.display = show ? 'flex' : 'none';
+}
+
+async function _obGenerateSuratJalan(id, opts) {
   const r = allOutboundRows.find(x => x.rowIndex === id);
   if (!r) { alert('Ticket gak ditemukan'); return; }
   if (!(r.items||[]).length) { alert('Belum ada items di ticket ini'); return; }
@@ -33739,9 +33814,9 @@ async function _obGenerateSuratJalan(id) {
   });
   for (const p of parents.values()) p.rows.sort((a,b) => sizeOrder(sizeOf(a)) - sizeOrder(sizeOf(b)));
   const totalQty = (r.items||[]).reduce((s,it) => s + (parseFloat(it.qty)||0), 0);
-  const recName = r.recipientName || '—';
-  const recAddr = r.recipientAddress || '';
-  const recPhone = r.recipientPhone || '';
+  const recName = (opts && opts.recipientName) || r.recipientName || '—';
+  const recAddr = (opts && opts.recipientAddress != null) ? opts.recipientAddress : (r.recipientAddress || '');
+  const recPhone = (opts && opts.recipientPhone != null) ? opts.recipientPhone : (r.recipientPhone || '');
   const purposeLbl = r.purpose || 'Freebies';
   // T&C disesuaikan dengan purpose — Sales (paid order) lebih simple, Freebies/Sample
   // ada ketentuan extra soal pemakaian.
