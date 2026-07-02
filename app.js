@@ -23092,13 +23092,15 @@ async function exportPDJubelioXlsx() {
   const ipName  = _col?.ipRelated || '';
 
   // Columns per Jubelio template (Sheet "Pengisian Import Produk" header row).
-  // Images + default_images dropped — uploaded separately in Jubelio.
+  // Images restored — sumber Product Dev picture_urls (Supabase Storage public
+  // URLs). Kalau parent belum ada foto, kolom-nya kosong (Jubelio skip silent).
   const HEADERS = [
     'item_category_id','category','item_group_name','description',
     'package_weight','package_length','package_width','package_height',
     'brand','item_code','sell_price',
     'color_variant','size_variant','capacity_variant','material_variant','uom_variant',
-    'barcode'
+    'barcode','image_url1','image_url2','image_url3','image_url4','image_url5',
+    'default_images'
   ];
 
   const rows = [HEADERS];
@@ -23151,7 +23153,15 @@ async function exportPDJubelioXlsx() {
         // P: uom_variant
         '',
         // Q: barcode
-        ''
+        '',
+        // R-V: image_url1..5 — dari parent.pictures (Supabase Storage public
+        // URLs). Skip URL yang keliatan template/size-chart biar gak nyampur.
+        ...(() => {
+          const pics = Array.isArray(p.pictures) ? p.pictures.filter(u => u && !_rstIsSizeChartUrl?.(u)) : [];
+          return [pics[0]||'', pics[1]||'', pics[2]||'', pics[3]||'', pics[4]||''];
+        })(),
+        // W: default_images — primary (foto pertama) buat thumbnail Jubelio
+        (Array.isArray(p.pictures) && p.pictures[0]) || ''
       ];
     };
 
