@@ -244,6 +244,7 @@
 
         <div class="sb-label" style="margin-bottom:0.6rem">Sales Operation</div>
         <div class="home-grid" style="margin-bottom:1.5rem">
+          <div class="tool-card" onclick="showPage('conprog',null)"><span class="tc-icon">🤝</span><div class="tc-name">Consignment Program</div><div class="tc-desc">Kelola konsinyasi SDY sebagai consignor ke Mitra — PKS, DPP, BAST ST, laporan bulanan, bagi hasil 80/20, retur.</div></div>
           <div class="tool-card" onclick="showPage('wholesale',null)"><span class="tc-icon">🤝</span><div class="tc-name">Wholesale Orders</div><div class="tc-desc">Manage flow 9-step wholesale: intake order, batch ke produksi, DP, kirim, sampai sync Jubelio.</div></div>
           <div class="tool-card" onclick="showPage('popupbooth',null)"><span class="tc-icon">🛍️</span><div class="tc-name">Pop Up Booth</div><div class="tc-desc">Track event pop-up booth — manpower, stok, penjualan, dan reinbound.</div></div>
           <div class="tool-card" onclick="showPage('txmap',null)"><span class="tc-icon">🗂️</span><div class="tc-name">Transaction Mapping</div><div class="tc-desc">Map transaksi non-Gudang Bintaro/Marte ke Wholesale, Consignment, Pop Up Booth, atau Manual Purchase. Bulk-edit.</div></div>
@@ -2938,6 +2939,113 @@
       <div id="tx-pagination" style="display:flex;align-items:center;gap:10px;padding:12px 0;justify-content:center"></div>
     </div>
 
+    <!-- CONSIGNMENT PROGRAM -->
+    <div class="page" id="page-conprog">
+      <!-- LIST VIEW -->
+      <div id="cp-list-view">
+        <div class="page-header">
+          <div><div class="page-title">Consignment Program</div><div class="page-sub">SDY sebagai consignor — kelola PKS, DPP, BAST ST, laporan bulanan, bagi hasil 80/20, dan retur. Alur: Persiapan → DPP → Kirim → Jual → Laporan → Bagi Hasil → Retur.</div></div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button class="btn-refresh" onclick="loadConProg()">↻ Refresh</button>
+            <button onclick="_cpOpenNewProgram()" style="padding:8px 18px;background:#3C3489;color:white;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600">+ Program Baru</button>
+          </div>
+        </div>
+        <div class="stats-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:1.25rem;">
+          <div class="stat-card"><div class="stat-num" id="cp-s-total">—</div><div class="stat-lbl">Total Program</div></div>
+          <div class="stat-card"><div class="stat-num" id="cp-s-active">—</div><div class="stat-lbl">Active</div></div>
+          <div class="stat-card"><div class="stat-num" id="cp-s-shipments">—</div><div class="stat-lbl">Shipments</div></div>
+          <div class="stat-card"><div class="stat-num" id="cp-s-pending-report">—</div><div class="stat-lbl">Laporan Pending</div></div>
+          <div class="stat-card"><div class="stat-num" id="cp-s-pending-payment">—</div><div class="stat-lbl">Bayar Pending</div></div>
+        </div>
+        <div class="filter-panel">
+          <div class="fg"><label>Status</label>
+            <select id="cp-f-status" onchange="_cpApplyFilters()">
+              <option value="">Semua</option><option>Draft</option><option>Active</option><option>Ended</option>
+            </select>
+          </div>
+          <div class="fg"><label>Cari Mitra</label>
+            <input type="text" id="cp-f-search" placeholder="nama mitra…" oninput="_cpApplyFilters()">
+          </div>
+          <div class="fg"><label>&nbsp;</label><button class="btn-clear-filter" onclick="document.getElementById('cp-f-status').value='';document.getElementById('cp-f-search').value='';_cpApplyFilters()">Reset</button></div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>ID</th><th>Mitra</th><th>Channel</th><th>Bagi Hasil</th><th>Periode PKS</th>
+              <th class="num">Shipments</th><th class="num">Laporan</th><th>Status</th><th></th>
+            </tr></thead>
+            <tbody id="cp-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- DETAIL VIEW -->
+      <div id="cp-detail-view" style="display:none">
+        <div style="display:flex;gap:10px;align-items:center;padding:10px 14px;background:white;border:1px solid var(--g100);border-radius:8px;margin-bottom:0.75rem;flex-wrap:wrap">
+          <button onclick="_cpBackToList()" style="background:none;border:1px solid var(--g200);padding:6px 12px;border-radius:4px;cursor:pointer;font-size:12px">← Kembali</button>
+          <div style="flex:1;min-width:0">
+            <div id="cp-detail-title" style="font-size:14px;font-weight:700"></div>
+            <div id="cp-detail-sub" style="font-size:11px;color:var(--g400);margin-top:2px"></div>
+          </div>
+          <span id="cp-detail-status-pill"></span>
+          <button id="cp-detail-edit-btn" onclick="_cpOpenEditProgram()" style="padding:6px 12px;background:white;border:1px solid var(--g200);border-radius:4px;cursor:pointer;font-size:12px">✏️ Edit</button>
+        </div>
+        <div class="tab-bar" style="margin-bottom:0.75rem">
+          <button class="tab-btn active" onclick="_cpSwitchTab('general',this)">Umum</button>
+          <button class="tab-btn" onclick="_cpSwitchTab('shipments',this)">Shipments (DPP + BAST ST)</button>
+          <button class="tab-btn" onclick="_cpSwitchTab('reports',this)">Laporan Bulanan</button>
+          <button class="tab-btn" onclick="_cpSwitchTab('returns',this)">Retur (BAST RTN)</button>
+        </div>
+        <div id="cp-tab-general" class="cp-tab"></div>
+        <div id="cp-tab-shipments" class="cp-tab" style="display:none"></div>
+        <div id="cp-tab-reports" class="cp-tab" style="display:none"></div>
+        <div id="cp-tab-returns" class="cp-tab" style="display:none"></div>
+      </div>
+
+      <!-- PROGRAM FORM DRAWER (New / Edit) -->
+      <div id="cp-drawer-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000" onclick="if(event.target===this)_cpCloseDrawer()"></div>
+      <div id="cp-drawer" style="display:none;position:fixed;top:0;right:0;bottom:0;width:min(560px,92vw);background:white;box-shadow:-4px 0 20px rgba(0,0,0,0.15);z-index:1001;overflow-y:auto">
+        <div style="padding:14px 18px;border-bottom:1px solid var(--g100);display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;background:white;z-index:2">
+          <div>
+            <div id="cp-drawer-title" style="font-size:14px;font-weight:700">Program Baru</div>
+            <div style="font-size:11px;color:var(--g400);margin-top:2px">Isi identitas Mitra dan syarat PKS</div>
+          </div>
+          <button onclick="_cpCloseDrawer()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--g400);line-height:1;padding:0 6px">×</button>
+        </div>
+        <div style="padding:14px 18px">
+          <div class="form-sec">Identitas Mitra</div>
+          <div class="form-grid">
+            <div class="fg full"><label>Nama Mitra <span class="req">*</span></label><input type="text" id="cp-mitra-name" placeholder="cth: Toko ABC / PT XYZ"></div>
+            <div class="fg"><label>Contact Person</label><input type="text" id="cp-contact-person"></div>
+            <div class="fg"><label>Contact Info</label><input type="text" id="cp-contact-info" placeholder="wa / email"></div>
+            <div class="fg full"><label>Alamat</label><input type="text" id="cp-address"></div>
+            <div class="fg full"><label>Channel Penjualan <span style="font-size:10px;color:var(--g400)">(comma-separated: Toko Fisik, Shopee, Tokopedia, IG, TikTok)</span></label>
+              <input type="text" id="cp-channels" placeholder="Toko Fisik, Shopee">
+            </div>
+          </div>
+          <div class="form-sec" style="margin-top:1rem">PKS + Bagi Hasil</div>
+          <div class="form-grid">
+            <div class="fg"><label>PKS Signed Date</label><input type="date" id="cp-pks-date"></div>
+            <div class="fg"><label>PKS PDF URL</label><input type="url" id="cp-pks-url" placeholder="https://..."></div>
+            <div class="fg"><label>Lampiran I URL <span style="font-size:10px;color:var(--g400)">(SKU + Harga)</span></label><input type="url" id="cp-lampiran1-url" placeholder="https://..."></div>
+            <div class="fg"><label>Bagi Hasil SDY (%)</label><input type="number" id="cp-bh-sdy" value="80" min="0" max="100"></div>
+            <div class="fg"><label>Bagi Hasil Mitra (%)</label><input type="number" id="cp-bh-mitra" value="20" min="0" max="100"></div>
+            <div class="fg"><label>Start Date</label><input type="date" id="cp-start-date"></div>
+            <div class="fg"><label>End Date</label><input type="date" id="cp-end-date"></div>
+            <div class="fg"><label>Status</label>
+              <select id="cp-status"><option>Draft</option><option>Active</option><option>Ended</option></select>
+            </div>
+            <div class="fg full"><label>Notes</label><textarea id="cp-notes" rows="2"></textarea></div>
+          </div>
+          <div class="btn-row" style="margin-top:1rem">
+            <button class="btn-primary" onclick="_cpSubmitProgram()">Simpan</button>
+            <button class="btn-ghost" onclick="_cpCloseDrawer()">Batal</button>
+          </div>
+          <div class="feedback" id="cp-feedback"></div>
+        </div>
+      </div>
+    </div>
+
     <!-- MANUAL PURCHASE -->
     <div class="page" id="page-manualpurchase">
       <!-- LIST VIEW -->
@@ -5433,6 +5541,6 @@
 <div id="proj-overlay" class="proj-panel-overlay" style="display:none" onclick="if(event.target===this)closeProjectDetail()"></div>
 <div id="proj-panel" class="proj-panel" style="display:none"></div>
 
-<script src="app.js?v=20260701h"></script>
+<script src="app.js?v=20260701i"></script>
 </body>
 </html>
