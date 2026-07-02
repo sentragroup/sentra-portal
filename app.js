@@ -11268,6 +11268,13 @@ async function saveSKUEditBiz(itemId, colId) {
       if (ci >= 0) allColRows[ci] = mapCol(c2);
     }
     logActivity("Collections","edit",itemId,`SKU: ${composedName}`);
+    // Propagate ke allPDRows in-memory biar PD grid/detail langsung update
+    // tanpa harus reload. Sesuai chain live-name (fetchPDRows enrich too).
+    if (Array.isArray(allPDRows)) {
+      for (const r of allPDRows) {
+        if (r.collectionItemId === itemId) r.skuName = composedName;
+      }
+    }
     const col2=allColRows.find(r=>r.id===colId);
     if(col2) renderColDetail(col2, allColItems.filter(i=>i.collectionId===colId));
     applyColFilters();
@@ -21237,6 +21244,25 @@ async function fetchPDRows() {
     const {data, error} = await sb.from('product_dev').select('*').order('display_code',{ascending:true}).limit(5000);
     if (error) throw error;
     allPDRows = (data||[]).map(mapPD);
+    // Live-resolve name dari CD source of truth: kalau PD row punya
+    // collection_item_id, override skuName pakai CI.sku_name. Konsisten
+    // dengan chain SRP live-resolve (task #259).
+    const ciIds = [...new Set(allPDRows.map(r => r.collectionItemId).filter(Boolean))];
+    if (ciIds.length) {
+      // Chunk .in() biar aman kalau ciIds > 200
+      const nameMap = new Map();
+      for (let i=0; i<ciIds.length; i+=200) {
+        const chunk = ciIds.slice(i, i+200);
+        const {data: ciData} = await sb.from('collection_items').select('id,sku_name').in('id', chunk);
+        (ciData||[]).forEach(r => nameMap.set(r.id, r.sku_name));
+      }
+      for (const row of allPDRows) {
+        if (row.collectionItemId && nameMap.has(row.collectionItemId)) {
+          const liveName = nameMap.get(row.collectionItemId);
+          if (liveName) row.skuName = liveName;
+        }
+      }
+    }
   } catch(e) { console.error('fetchPDRows:',e); allPDRows=[]; }
 }
 
