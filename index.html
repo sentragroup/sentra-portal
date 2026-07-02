@@ -1832,6 +1832,7 @@
           </div>
           <button id="rp-save-btn" onclick="_rpSaveProject(false)" style="padding:7px 14px;background:#3C3489;color:white;border:none;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600">💾 Save Draft</button>
           <button id="rp-activate-btn" onclick="_rpSaveProject(true)" style="padding:7px 14px;background:#1e8f4e;color:white;border:none;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600">▶ Activate</button>
+          <button onclick="_rpExportBudgetingPDF()" style="padding:7px 14px;background:white;color:#3C3489;border:1px solid #3C3489;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600" title="PDF ringkas buat approver / finance — total modal, harga jual, gross profit">📊 Budgeting PDF</button>
         </div>
 
         <!-- Linked PO + progress (only visible when project is saved & not Draft) -->
@@ -5432,6 +5433,6 @@
 <div id="proj-overlay" class="proj-panel-overlay" style="display:none" onclick="if(event.target===this)closeProjectDetail()"></div>
 <div id="proj-panel" class="proj-panel" style="display:none"></div>
 
-<script src="app.js?v=20260701d"></script>
+<script src="app.js?v=20260701e"></script>
 </body>
 </html>

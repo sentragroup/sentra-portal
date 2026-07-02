@@ -43699,6 +43699,169 @@ async function _rpMultiRunExport() {
   }
 }
 
+// ── Budgeting Breakdown PDF ──
+// Ringkas untuk approver / finance: Total Modal (harga beli × qty),
+// Total Harga Jual (SRP × qty), Gross Profit, Gross Margin %.
+// Per-parent table biar audit-ready.
+async function _rpExportBudgetingPDF() {
+  const lines = _rstCollectSelectedLines();
+  if (!lines.length) { alert('Belum ada SKU dipilih (atau semua qty 0).'); return; }
+
+  // Resolve SRP per parent via Product Dev (linked to Collection Dev source of
+  // truth). Fallback rules urutan:
+  //   1. PD.collectionItemId → collection_items.srp (live)
+  //   2. PD.srp (snapshot)
+  //   3. 0 (unknown — akan di-flag di PDF)
+  if (!Array.isArray(allPDRows) || !allPDRows.length) {
+    try { await loadProductDev?.(); } catch {}
+  }
+  const pdParents = Array.isArray(allPDRows) ? allPDRows.filter(r => !r.parentId) : [];
+  const pdByName = new Map();
+  for (const p of pdParents) {
+    const key = (p.skuName||'').trim().toLowerCase();
+    if (key && !pdByName.has(key)) pdByName.set(key, p);
+  }
+  const ciBySearch = new Map();
+  if (Array.isArray(allColItems)) {
+    for (const ci of allColItems) ciBySearch.set(ci.id, ci);
+  }
+  const resolveSRP = (parentName) => {
+    const p = pdByName.get((parentName||'').trim().toLowerCase());
+    if (!p) return { srp: 0, source: 'unknown' };
+    if (p.collectionItemId) {
+      const ci = ciBySearch.get(p.collectionItemId);
+      if (ci?.srp) return { srp: Number(ci.srp), source: 'CD' };
+    }
+    if (p.srp) return { srp: Number(p.srp), source: 'PD' };
+    return { srp: 0, source: 'unknown' };
+  };
+
+  // Aggregate per parent
+  const byParent = new Map();
+  for (const l of lines) {
+    const key = l.parentName || `(unnamed-${l.itemId})`;
+    if (!byParent.has(key)) {
+      const { srp, source } = resolveSRP(l.parentName);
+      byParent.set(key, {
+        parentName: key, brand: l.brand||'', ip: l.ip||'',
+        srp, srpSource: source,
+        qty: 0, buyTotal: 0, sellTotal: 0, variants: 0,
+      });
+    }
+    const bag = byParent.get(key);
+    bag.qty += l.qty;
+    bag.buyTotal += l.qty * (l.price || 0);
+    bag.sellTotal += l.qty * bag.srp;
+    bag.variants += 1;
+  }
+  const rows = [...byParent.values()].sort((a,b) => (a.parentName||'').localeCompare(b.parentName||'', 'id'));
+
+  const totalQty = rows.reduce((s,r) => s + r.qty, 0);
+  const totalBuy = rows.reduce((s,r) => s + r.buyTotal, 0);
+  const totalSell = rows.reduce((s,r) => s + r.sellTotal, 0);
+  const grossProfit = totalSell - totalBuy;
+  const grossMarginPct = totalSell > 0 ? (grossProfit / totalSell) * 100 : 0;
+  const missingSrp = rows.filter(r => r.srpSource === 'unknown').length;
+
+  const projName = document.getElementById('rp-name')?.value?.trim() || _rpCurrentId || 'Restock Project';
+  const today = new Date().toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric'});
+  const projId = _rpCurrentId || '(unsaved)';
+  const status = _rpCurrentStatus || 'Draft';
+  const fmt = v => Math.round(v).toLocaleString('id-ID');
+  const fmtRp = v => 'Rp ' + fmt(v);
+  const marginColor = grossProfit > 0 ? '#0a7d3a' : grossProfit < 0 ? '#c33' : '#111';
+
+  const rowsHtml = rows.map(r => {
+    const profit = r.sellTotal - r.buyTotal;
+    const marginPct = r.sellTotal > 0 ? (profit / r.sellTotal * 100).toFixed(1) : '—';
+    const srpTag = r.srpSource === 'CD' ? '<span style="font-size:9px;color:#0a7d3a">CD</span>'
+                 : r.srpSource === 'PD' ? '<span style="font-size:9px;color:#3C3489">PD</span>'
+                 : '<span style="font-size:9px;color:#c33">?</span>';
+    return `<tr>
+      <td>${(r.parentName||'—').replace(/</g,'&lt;')}${r.brand?`<div style="font-size:9px;color:#888;margin-top:2px">${r.brand}${r.ip?' · '+r.ip:''}</div>`:''}</td>
+      <td class="num">${r.variants}</td>
+      <td class="num">${fmt(r.qty)}</td>
+      <td class="num">${r.buyTotal?fmtRp(r.buyTotal/r.qty):'—'}</td>
+      <td class="num">${fmtRp(r.buyTotal)}</td>
+      <td class="num">${r.srp?fmtRp(r.srp):'—'} ${srpTag}</td>
+      <td class="num">${fmtRp(r.sellTotal)}</td>
+      <td class="num" style="color:${profit>0?'#0a7d3a':profit<0?'#c33':'#111'}">${fmtRp(profit)}</td>
+      <td class="num">${typeof marginPct==='string'&&marginPct==='—'?'—':marginPct+'%'}</td>
+    </tr>`;
+  }).join('');
+
+  const missingSrpNote = missingSrp > 0
+    ? `<div style="padding:10px 14px;background:#fff8e1;border:1px solid #f0d68e;border-radius:6px;margin-top:12px;font-size:11px;color:#8a6d3b">⚠️ ${missingSrp} parent belum ada SRP di Product Dev / Collection Dev — Total Harga Jual + Gross Profit di bawah ini <em>under-count</em>. Set SRP dulu di CD/PD biar akurat.</div>`
+    : '';
+
+  const body = `
+    <style>
+      .kpi{display:grid;grid-template-columns:repeat(5,1fr);gap:0;border:1px solid #ddd;border-radius:8px;overflow:hidden;margin:16px 0}
+      .kpi>div{padding:12px 14px;border-right:1px solid #eee}
+      .kpi>div:last-child{border-right:none}
+      .kpi .lbl{font-size:10px;color:#666;text-transform:uppercase;letter-spacing:0.5px}
+      .kpi .val{font-size:16px;font-weight:700;margin-top:4px}
+      table{width:100%;border-collapse:collapse;font-size:11px;margin-top:14px}
+      thead th{background:#f2f2f2;padding:8px;text-align:left;border-bottom:1px solid #999;font-size:10px;text-transform:uppercase;letter-spacing:0.3px}
+      tbody td{padding:6px 8px;border-bottom:1px solid #eee}
+      .num{text-align:right;font-family:'Courier New',monospace;white-space:nowrap}
+      .total-row td{font-weight:700;background:#f9f9f9;border-top:2px solid #333}
+      .sig{margin-top:36px;display:grid;grid-template-columns:repeat(3,1fr);gap:24px;font-size:11px}
+      .sig .box{border-top:1px solid #333;padding-top:6px;text-align:center;min-height:60px}
+      .sig .box small{color:#666;font-size:10px}
+    </style>
+    <h1>Budgeting Breakdown — PO Restock</h1>
+    <div class="sub">${today}</div>
+    <dl class="meta">
+      <dt>Project</dt><dd>${projName.replace(/</g,'&lt;')}</dd>
+      <dt>Project ID</dt><dd class="mono">${projId}</dd>
+      <dt>Status</dt><dd>${status}</dd>
+      <dt>Prepared by</dt><dd>${(currentUser||'—').replace(/</g,'&lt;')}</dd>
+    </dl>
+    <div class="kpi">
+      <div><div class="lbl">Total SKU</div><div class="val">${rows.length} parent · ${lines.length} variant</div></div>
+      <div><div class="lbl">Total Qty</div><div class="val">${fmt(totalQty)} unit</div></div>
+      <div><div class="lbl">Total Modal (Beli)</div><div class="val">${fmtRp(totalBuy)}</div></div>
+      <div><div class="lbl">Total Harga Jual</div><div class="val">${fmtRp(totalSell)}</div></div>
+      <div><div class="lbl">Gross Profit</div><div class="val" style="color:${marginColor}">${fmtRp(grossProfit)}<div style="font-size:11px;font-weight:500;color:#666;margin-top:2px">${grossMarginPct.toFixed(1)}% margin</div></div></div>
+    </div>
+    ${missingSrpNote}
+    <table>
+      <thead><tr>
+        <th>Parent SKU</th>
+        <th class="num">Variant</th>
+        <th class="num">Qty</th>
+        <th class="num">Harga Beli</th>
+        <th class="num">Subtotal Beli</th>
+        <th class="num">SRP</th>
+        <th class="num">Subtotal Jual</th>
+        <th class="num">Profit</th>
+        <th class="num">Margin</th>
+      </tr></thead>
+      <tbody>
+        ${rowsHtml}
+        <tr class="total-row">
+          <td>TOTAL</td>
+          <td class="num">${rows.length}</td>
+          <td class="num">${fmt(totalQty)}</td>
+          <td></td>
+          <td class="num">${fmtRp(totalBuy)}</td>
+          <td></td>
+          <td class="num">${fmtRp(totalSell)}</td>
+          <td class="num" style="color:${marginColor}">${fmtRp(grossProfit)}</td>
+          <td class="num">${grossMarginPct.toFixed(1)}%</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="sig">
+      <div class="box"><small>Prepared by</small><div style="margin-top:32px">${(currentUser||'—').replace(/</g,'&lt;')}</div></div>
+      <div class="box"><small>Approved by</small></div>
+      <div class="box"><small>Finance</small></div>
+    </div>`;
+
+  _rstOpenPrintWindow(`Budgeting — ${projName}`, body);
+}
+
 async function _rpStartNewProject() {
   _rpResetBuilderState();
   _rpCurrentId = null;
