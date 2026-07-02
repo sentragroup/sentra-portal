@@ -1290,23 +1290,23 @@
             <div class="form-grid">
               <div class="fg"><label>Default Lokasi <span class="req">*</span></label>
                 <select id="vm-default-location">
+                  <option value="Gudang Penerimaan Barang" selected>Gudang Penerimaan Barang</option>
                   <option value="Pusat">Gudang Pusat</option>
                   <option value="Gudang Bintaro">Gudang Bintaro</option>
-                  <option value="Gudang Penerimaan Barang">Gudang Penerimaan Barang</option>
                   <option value="Gudang Offline">Gudang Offline</option>
                   <option value="Gudang Marte">Gudang Marte</option>
                 </select>
               </div>
               <div class="fg"><label>Default Pajak <span class="req">*</span></label>
                 <select id="vm-default-tax">
+                  <option value="No Tax" selected>No Tax</option>
                   <option value="PPN">PPN (11%)</option>
-                  <option value="No Tax">No Tax</option>
                 </select>
               </div>
               <div class="fg"><label>Harga Termasuk Pajak?</label>
                 <select id="vm-default-tax-included">
+                  <option value="true" selected>TRUE (harga sudah termasuk)</option>
                   <option value="false">FALSE (harga + pajak)</option>
-                  <option value="true">TRUE (harga sudah termasuk)</option>
                 </select>
               </div>
               <div class="fg full"><label>Notes</label><input type="text" id="vm-notes" placeholder="catatan opsional"></div>
@@ -5432,6 +5432,6 @@
 <div id="proj-overlay" class="proj-panel-overlay" style="display:none" onclick="if(event.target===this)closeProjectDetail()"></div>
 <div id="proj-panel" class="proj-panel" style="display:none"></div>
 
-<script src="app.js?v=20260701c"></script>
+<script src="app.js?v=20260701d"></script>
 </body>
 </html>

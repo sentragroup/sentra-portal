@@ -30757,9 +30757,9 @@ function clearVMForm() {
   ['vm-name','vm-contact-person','vm-email','vm-phone','vm-address','vm-npwp','vm-notes'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '';
   });
-  document.getElementById('vm-default-location').value = 'Pusat';
-  document.getElementById('vm-default-tax').value = 'PPN';
-  document.getElementById('vm-default-tax-included').value = 'false';
+  document.getElementById('vm-default-location').value = 'Gudang Penerimaan Barang';
+  document.getElementById('vm-default-tax').value = 'No Tax';
+  document.getElementById('vm-default-tax-included').value = 'true';
   document.getElementById('vm-feedback').textContent = '';
 }
 
