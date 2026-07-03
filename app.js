@@ -46160,9 +46160,9 @@ async function deleteTeamMember(id){
 // ── CONSIGNMENT PROGRAM ──
 // SDY sebagai consignor: manage PKS, DPP+BAST ST, Laporan Bulanan, Retur (BAST RTN).
 // Ref: SDY_Consignment_as Consignor_Guideline_Deck_v2.pdf
-let _cpRows = [], _cpShipments = [], _cpReports = [], _cpReturns = [];
-let _cpCurrentId = null, _cpCurrentTab = 'general';
-let _cpEditMode = false;   // true = edit existing, false = new
+let _conpRows = [], _conpShipments = [], _conpReports = [], _conpReturns = [];
+let _conpCurrentId = null, _conpCurrentTab = 'general';
+let _conpEditMode = false;   // true = edit existing, false = new
 
 async function loadConProg() {
   const tbody = document.getElementById('cp-tbody');
@@ -46176,44 +46176,44 @@ async function loadConProg() {
       sb.from('consignment_returns').select('id,program_id,status'),
     ]);
     if (pRes.error) throw pRes.error;
-    _cpRows = pRes.data || [];
-    _cpShipments = sRes.data || [];
-    _cpReports = rRes.data || [];
-    _cpReturns = rtRes.data || [];
-    _cpUpdateStats();
-    _cpApplyFilters();
+    _conpRows = pRes.data || [];
+    _conpShipments = sRes.data || [];
+    _conpReports = rRes.data || [];
+    _conpReturns = rtRes.data || [];
+    _conpUpdateStats();
+    _conpApplyFilters();
   } catch(e) {
     tbody.innerHTML = `<tr><td class="empty-td" colspan="9">Gagal memuat: ${e.message||e}</td></tr>`;
   }
 }
 
-function _cpUpdateStats() {
-  document.getElementById('cp-s-total').textContent = _cpRows.length;
-  document.getElementById('cp-s-active').textContent = _cpRows.filter(r => r.status === 'Active').length;
-  document.getElementById('cp-s-shipments').textContent = _cpShipments.length;
-  document.getElementById('cp-s-pending-report').textContent = _cpReports.filter(r => r.verification_status === 'Pending').length;
-  document.getElementById('cp-s-pending-payment').textContent = _cpReports.filter(r => r.verification_status === 'Verified' && !r.payment_transferred_at).length;
+function _conpUpdateStats() {
+  document.getElementById('cp-s-total').textContent = _conpRows.length;
+  document.getElementById('cp-s-active').textContent = _conpRows.filter(r => r.status === 'Active').length;
+  document.getElementById('cp-s-shipments').textContent = _conpShipments.length;
+  document.getElementById('cp-s-pending-report').textContent = _conpReports.filter(r => r.verification_status === 'Pending').length;
+  document.getElementById('cp-s-pending-payment').textContent = _conpReports.filter(r => r.verification_status === 'Verified' && !r.payment_transferred_at).length;
 }
 
-function _cpApplyFilters() {
+function _conpApplyFilters() {
   const stat = document.getElementById('cp-f-status').value;
   const q = (document.getElementById('cp-f-search').value||'').trim().toLowerCase();
-  let rows = _cpRows.slice();
+  let rows = _conpRows.slice();
   if (stat) rows = rows.filter(r => r.status === stat);
   if (q) rows = rows.filter(r => (r.mitra_name||'').toLowerCase().includes(q));
-  _cpRenderTable(rows);
+  _conpRenderTable(rows);
 }
 
-function _cpRenderTable(rows) {
+function _conpRenderTable(rows) {
   const tbody = document.getElementById('cp-tbody');
   if (!rows.length) { tbody.innerHTML = `<tr><td class="empty-td" colspan="9">Tidak ada program.</td></tr>`; return; }
   const shipByProg = new Map();
-  for (const s of _cpShipments) {
+  for (const s of _conpShipments) {
     if (!shipByProg.has(s.program_id)) shipByProg.set(s.program_id, 0);
     shipByProg.set(s.program_id, shipByProg.get(s.program_id) + 1);
   }
   const repByProg = new Map();
-  for (const r of _cpReports) {
+  for (const r of _conpReports) {
     if (!repByProg.has(r.program_id)) repByProg.set(r.program_id, 0);
     repByProg.set(r.program_id, repByProg.get(r.program_id) + 1);
   }
@@ -46225,30 +46225,30 @@ function _cpRenderTable(rows) {
     const periode = r.start_date || r.end_date ? `${fmtD(r.start_date)} — ${fmtD(r.end_date)}` : '—';
     return `<tr>
       <td class="mono" style="font-size:11px">${r.id}</td>
-      <td><a href="#" onclick="event.preventDefault();_cpOpenDetail('${r.id.replace(/'/g,"\\'")}')" style="color:#3C3489;text-decoration:none;font-weight:600">${(r.mitra_name||'—').replace(/</g,'&lt;')}</a>${r.contact_person?`<div style="font-size:10px;color:var(--g400);margin-top:2px">${r.contact_person.replace(/</g,'&lt;')}</div>`:''}</td>
+      <td><a href="#" onclick="event.preventDefault();_conpOpenDetail('${r.id.replace(/'/g,"\\'")}')" style="color:#3C3489;text-decoration:none;font-weight:600">${(r.mitra_name||'—').replace(/</g,'&lt;')}</a>${r.contact_person?`<div style="font-size:10px;color:var(--g400);margin-top:2px">${r.contact_person.replace(/</g,'&lt;')}</div>`:''}</td>
       <td style="max-width:180px">${channels}</td>
       <td style="font-size:12px">${bh}%</td>
       <td style="font-size:11px">${periode}</td>
       <td class="num">${shipByProg.get(r.id)||0}</td>
       <td class="num">${repByProg.get(r.id)||0}</td>
       <td><span class="pill ${statusPillCls(r.status)}" style="font-size:10px">${r.status||'Draft'}</span></td>
-      <td><button class="btn-icon" onclick="_cpOpenDetail('${r.id.replace(/'/g,"\\'")}')">Detail</button> <button class="btn-icon" style="color:#c0392b" onclick="_cpDeleteProgram('${r.id.replace(/'/g,"\\'")}')">Del</button></td>
+      <td><button class="btn-icon" onclick="_conpOpenDetail('${r.id.replace(/'/g,"\\'")}')">Detail</button> <button class="btn-icon" style="color:#c0392b" onclick="_conpDeleteProgram('${r.id.replace(/'/g,"\\'")}')">Del</button></td>
     </tr>`;
   }).join('');
 }
 
 // ── Drawer form (New / Edit) ──
-function _cpOpenNewProgram() {
-  _cpEditMode = false;
-  _cpClearForm();
+function _conpOpenNewProgram() {
+  _conpEditMode = false;
+  _conpClearForm();
   document.getElementById('cp-drawer-title').textContent = 'Program Baru';
-  _cpShowDrawer();
+  _conpShowDrawer();
 }
 
-function _cpOpenEditProgram() {
-  const p = _cpRows.find(r => r.id === _cpCurrentId);
+function _conpOpenEditProgram() {
+  const p = _conpRows.find(r => r.id === _conpCurrentId);
   if (!p) return;
-  _cpEditMode = true;
+  _conpEditMode = true;
   document.getElementById('cp-drawer-title').textContent = `Edit: ${p.mitra_name}`;
   document.getElementById('cp-mitra-name').value = p.mitra_name || '';
   document.getElementById('cp-contact-person').value = p.contact_person || '';
@@ -46264,10 +46264,10 @@ function _cpOpenEditProgram() {
   document.getElementById('cp-end-date').value = p.end_date || '';
   document.getElementById('cp-status').value = p.status || 'Draft';
   document.getElementById('cp-notes').value = p.notes || '';
-  _cpShowDrawer();
+  _conpShowDrawer();
 }
 
-function _cpClearForm() {
+function _conpClearForm() {
   ['cp-mitra-name','cp-contact-person','cp-contact-info','cp-address','cp-channels','cp-pks-date','cp-pks-url','cp-lampiran1-url','cp-start-date','cp-end-date','cp-notes'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '';
   });
@@ -46277,17 +46277,17 @@ function _cpClearForm() {
   document.getElementById('cp-feedback').textContent = '';
 }
 
-function _cpShowDrawer() {
+function _conpShowDrawer() {
   document.getElementById('cp-drawer-overlay').style.display = 'block';
   document.getElementById('cp-drawer').style.display = 'block';
 }
 
-function _cpCloseDrawer() {
+function _conpCloseDrawer() {
   document.getElementById('cp-drawer-overlay').style.display = 'none';
   document.getElementById('cp-drawer').style.display = 'none';
 }
 
-async function _cpSubmitProgram() {
+async function _conpSubmitProgram() {
   const fb = document.getElementById('cp-feedback');
   fb.textContent = '';
   const name = document.getElementById('cp-mitra-name').value.trim();
@@ -46313,26 +46313,26 @@ async function _cpSubmitProgram() {
     last_updated_by: currentUser,
   };
   try {
-    if (_cpEditMode && _cpCurrentId) {
-      const {error} = await sb.from('consignment_programs').update(payload).eq('id', _cpCurrentId);
+    if (_conpEditMode && _conpCurrentId) {
+      const {error} = await sb.from('consignment_programs').update(payload).eq('id', _conpCurrentId);
       if (error) throw error;
     } else {
       payload.id = genId('CP');
       payload.created_by = currentUser;
       const {error} = await sb.from('consignment_programs').insert(payload);
       if (error) throw error;
-      _cpCurrentId = payload.id;
+      _conpCurrentId = payload.id;
     }
-    _cpCloseDrawer();
+    _conpCloseDrawer();
     await loadConProg();
-    if (_cpEditMode) _cpOpenDetail(_cpCurrentId);
+    if (_conpEditMode) _conpOpenDetail(_conpCurrentId);
   } catch(e) {
     fb.textContent = '❌ Gagal: '+(e.message||e);
   }
 }
 
-async function _cpDeleteProgram(id) {
-  const p = _cpRows.find(r => r.id === id);
+async function _conpDeleteProgram(id) {
+  const p = _conpRows.find(r => r.id === id);
   if (!p) return;
   if (!confirm(`Hapus program ${p.mitra_name}? Semua shipments, laporan, dan retur terkait akan ikut terhapus.`)) return;
   try {
@@ -46343,11 +46343,11 @@ async function _cpDeleteProgram(id) {
 }
 
 // ── Detail view ──
-function _cpOpenDetail(id) {
-  const p = _cpRows.find(r => r.id === id);
+function _conpOpenDetail(id) {
+  const p = _conpRows.find(r => r.id === id);
   if (!p) return;
-  _cpCurrentId = id;
-  _cpCurrentTab = 'general';
+  _conpCurrentId = id;
+  _conpCurrentTab = 'general';
   document.getElementById('cp-list-view').style.display = 'none';
   document.getElementById('cp-detail-view').style.display = '';
   document.getElementById('cp-detail-title').textContent = p.mitra_name;
@@ -46358,33 +46358,33 @@ function _cpOpenDetail(id) {
   // Reset tab pills
   document.querySelectorAll('#page-conprog .tab-btn').forEach(b => b.classList.remove('active'));
   document.querySelector('#page-conprog .tab-btn').classList.add('active');
-  document.querySelectorAll('#page-conprog .cp-tab').forEach(el => el.style.display = 'none');
-  document.getElementById('cp-tab-general').style.display = '';
-  _cpRenderGeneralTab(p);
+  document.querySelectorAll('#page-conprog .conp-tab').forEach(el => el.style.display = 'none');
+  document.getElementById('conp-tab-general').style.display = '';
+  _conpRenderGeneralTab(p);
 }
 
-function _cpBackToList() {
-  _cpCurrentId = null;
+function _conpBackToList() {
+  _conpCurrentId = null;
   document.getElementById('cp-detail-view').style.display = 'none';
   document.getElementById('cp-list-view').style.display = '';
 }
 
-function _cpSwitchTab(tab, btn) {
-  _cpCurrentTab = tab;
+function _conpSwitchTab(tab, btn) {
+  _conpCurrentTab = tab;
   document.querySelectorAll('#page-conprog .tab-btn').forEach(b => b.classList.remove('active'));
   if (btn) btn.classList.add('active');
-  document.querySelectorAll('#page-conprog .cp-tab').forEach(el => el.style.display = 'none');
-  document.getElementById(`cp-tab-${tab}`).style.display = '';
-  const p = _cpRows.find(r => r.id === _cpCurrentId);
+  document.querySelectorAll('#page-conprog .conp-tab').forEach(el => el.style.display = 'none');
+  document.getElementById(`conp-tab-${tab}`).style.display = '';
+  const p = _conpRows.find(r => r.id === _conpCurrentId);
   if (!p) return;
-  if (tab === 'general') _cpRenderGeneralTab(p);
-  else if (tab === 'shipments') _cpRenderShipmentsTab(p);
-  else if (tab === 'reports') _cpRenderReportsTab(p);
-  else if (tab === 'returns') _cpRenderReturnsTab(p);
+  if (tab === 'general') _conpRenderGeneralTab(p);
+  else if (tab === 'shipments') _conpRenderShipmentsTab(p);
+  else if (tab === 'reports') _conpRenderReportsTab(p);
+  else if (tab === 'returns') _conpRenderReturnsTab(p);
 }
 
-function _cpRenderGeneralTab(p) {
-  const cont = document.getElementById('cp-tab-general');
+function _conpRenderGeneralTab(p) {
+  const cont = document.getElementById('conp-tab-general');
   const fmtD = (d) => d ? new Date(d).toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric'}) : '—';
   const link = (url) => url ? `<a href="${url}" target="_blank" style="color:#3C3489">📎 Buka</a>` : '—';
   cont.innerHTML = `
@@ -46409,9 +46409,9 @@ function _cpRenderGeneralTab(p) {
     </div>`;
 }
 
-function _cpRenderShipmentsTab(p) {
-  const cont = document.getElementById('cp-tab-shipments');
-  const rows = _cpShipments.filter(s => s.program_id === p.id);
+function _conpRenderShipmentsTab(p) {
+  const cont = document.getElementById('conp-tab-shipments');
+  const rows = _conpShipments.filter(s => s.program_id === p.id);
   cont.innerHTML = `
     <div style="background:white;padding:16px 20px;border:1px solid var(--g100);border-radius:8px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
@@ -46422,9 +46422,9 @@ function _cpRenderShipmentsTab(p) {
     </div>`;
 }
 
-function _cpRenderReportsTab(p) {
-  const cont = document.getElementById('cp-tab-reports');
-  const rows = _cpReports.filter(r => r.program_id === p.id);
+function _conpRenderReportsTab(p) {
+  const cont = document.getElementById('conp-tab-reports');
+  const rows = _conpReports.filter(r => r.program_id === p.id);
   cont.innerHTML = `
     <div style="background:white;padding:16px 20px;border:1px solid var(--g100);border-radius:8px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
@@ -46435,9 +46435,9 @@ function _cpRenderReportsTab(p) {
     </div>`;
 }
 
-function _cpRenderReturnsTab(p) {
-  const cont = document.getElementById('cp-tab-returns');
-  const rows = _cpReturns.filter(r => r.program_id === p.id);
+function _conpRenderReturnsTab(p) {
+  const cont = document.getElementById('conp-tab-returns');
+  const rows = _conpReturns.filter(r => r.program_id === p.id);
   cont.innerHTML = `
     <div style="background:white;padding:16px 20px;border:1px solid var(--g100);border-radius:8px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
