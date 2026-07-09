@@ -35632,8 +35632,14 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
   const isMarketplace = (chan) => chan && MP_PATTERNS.some(p => chan.toUpperCase().includes(p));
 
   const startISO = `${startD}T00:00:00+07:00`;
-  const endIncl = new Date(endD+'T00:00:00'); endIncl.setDate(endIncl.getDate()+1);
-  const endISO  = endIncl.toISOString().slice(0,10) + 'T00:00:00+07:00';
+  // TZ-safe next-day: add 1 day via Date.UTC arithmetic biar hasilnya independen
+  // dari browser TZ. Sebelumnya `new Date(endD+'T00:00:00').setDate(+1)` diikuti
+  // toISOString().slice(0,10) — di WIB browser ini return endD sendiri (bukan
+  // next day) karena UTC date-nya masih endD → endISO cuma sampai endD midnight
+  // WIB → seluruh WIB endD orders (e.g. May 31) ke-exclude.
+  const _endParts = endD.split('-').map(Number);
+  const _endNext  = new Date(Date.UTC(_endParts[0], _endParts[1]-1, _endParts[2]+1));
+  const endISO    = `${_endNext.getUTCFullYear()}-${String(_endNext.getUTCMonth()+1).padStart(2,'0')}-${String(_endNext.getUTCDate()).padStart(2,'0')}T00:00:00+07:00`;
 
   // Trend window: 12 months ending at periodEnd
   const trendStart = new Date(endD+'T00:00:00');
