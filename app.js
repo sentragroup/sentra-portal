@@ -35761,7 +35761,15 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
   const parentMap = new Map();
   const channelMap = new Map();
   const monthMap = new Map();
-  const inPeriod = dt => dt >= startISO && dt < endISO;
+  // Timestamp-based compare biar order midnight WIB tanggal 1 (UTC prior day
+  // 17:00) tetep ke-count. String compare "Z" vs "+07:00" bikin false-exclude
+  // dan headline < trend padahal harus match.
+  const startTs = new Date(startISO).getTime();
+  const endTs   = new Date(endISO).getTime();
+  const inPeriod = dt => {
+    const ts = new Date(dt).getTime();
+    return !isNaN(ts) && ts >= startTs && ts < endTs;
+  };
   const wibYM = dt => {
     const wib = new Date(new Date(dt).getTime() + 7*3600000);
     return `${wib.getUTCFullYear()}-${String(wib.getUTCMonth()+1).padStart(2,'0')}`;
@@ -36001,12 +36009,15 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
   const priorStartDt = new Date(priorEndDt); priorStartDt.setDate(priorStartDt.getDate() - (prdDays-1));
   const priorStartISO = priorStartDt.toISOString().slice(0,10)+'T00:00:00+07:00';
   const priorEndExclISO = (new Date(priorEndDt.getTime()+86400000)).toISOString().slice(0,10)+'T00:00:00+07:00';
+  const priorStartTs = new Date(priorStartISO).getTime();
+  const priorEndTs   = new Date(priorEndExclISO).getTime();
+  const inPrior = dt => { const t = new Date(dt).getTime(); return !isNaN(t) && t >= priorStartTs && t < priorEndTs; };
   let priorRevenue = 0, priorUnits = 0;
   // 2026+
   for (const it of ipItems) {
     const o = ordersById.get(it.salesorder_id);
     if (!o) continue;
-    if (o.transaction_date >= priorStartISO && o.transaction_date < priorEndExclISO) {
+    if (inPrior(o.transaction_date)) {
       const qty   = parseFloat(it.qty||0) || 0;
       const price = parseFloat(it.price||0) || 0;
       const discAmt = parseFloat(it.disc_amount||0) || 0;
@@ -36019,7 +36030,7 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
   // Pre-2026
   for (const r of histItems) {
     const dtISO = (r.transaction_date||'').length === 10 ? `${r.transaction_date}T00:00:00+07:00` : r.transaction_date;
-    if (dtISO >= priorStartISO && dtISO < priorEndExclISO) {
+    if (inPrior(dtISO)) {
       priorRevenue += parseFloat(r.amount||0) || 0;
       priorUnits   += parseFloat(r.qty||0) || 0;
     }
