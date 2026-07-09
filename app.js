@@ -35620,12 +35620,15 @@ async function iprGenerate() {
 }
 
 async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
-  // Source of truth: Sales Performance module logic.
-  // Status: COMPLETED + FINISH_PACK + FINISH_PICK + CLOSED (broader than Royalty).
-  // Per-item revenue: qty × price (raw, NOT amount field — amount can be off
-  // for marketplace orders). Pre-2026 data from jubelio_sales_history.
-  const SP_COMPLETED = ['COMPLETED','FINISH_PACK','FINISH_PICK','CLOSED'];
+  // Source of truth: Royalty Report logic (finance-grade, single source of
+  // truth utk royalty payout). Status COMPLETED only, exclude is_canceled_item.
+  // Per-item revenue: marketplace → qty × price (gross, karena voucher MP
+  // gak masuk disc_amount per-line); others → amount (net after disc,
+  // fallback qty × price − disc_amount). Pre-2026 dari jubelio_sales_history.
+  const SP_COMPLETED = ['COMPLETED'];
   const SP_CUTOFF    = '2026-01-01';   // jubelio_sales_orders starts here
+  const MP_PATTERNS = ['SHOPEE','TOKOPEDIA','TIKTOK','BLIBLI','LAZADA'];
+  const isMarketplace = (chan) => chan && MP_PATTERNS.some(p => chan.toUpperCase().includes(p));
 
   const startISO = `${startD}T00:00:00+07:00`;
   const endIncl = new Date(endD+'T00:00:00'); endIncl.setDate(endIncl.getDate()+1);
@@ -35723,7 +35726,7 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
   let ipItems = [];
   if (orderIds.length) {
     const allItems = await _fetchAllPagesIn('jubelio_sales_order_items',
-      'salesorder_detail_id,salesorder_id,item_id,item_group_id,item_name,qty,price,disc_amount',
+      'salesorder_detail_id,salesorder_id,item_id,item_group_id,item_name,qty,price,disc_amount,amount,is_canceled_item',
       'salesorder_id', orderIds);
     // Dedup by salesorder_detail_id (PK — guaranteed unique). Sebelumnya
     // dedup pakai (salesorder_id, item_id) → collapse multi-line items
@@ -35731,6 +35734,7 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
     // Jan 2026 reported 21 pcs instead of 23 because of this.
     const seen = new Set();
     const deduped = allItems.filter(it => {
+      if (it.is_canceled_item) return false;   // match Royalty Report filter
       const k = it.salesorder_detail_id;
       if (seen.has(k)) return false;
       seen.add(k); return true;
@@ -35769,8 +35773,12 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
     if (!o) continue;
     const qty   = parseFloat(it.qty||0) || 0;
     const price = parseFloat(it.price||0) || 0;
-    // SP logic: per-item revenue = qty × price (raw, no discount allocation)
-    const gross = qty * price;
+    const discAmt = parseFloat(it.disc_amount||0) || 0;
+    const amt   = parseFloat(it.amount||0) || 0;
+    // Royalty Report logic: marketplace pakai qty × price (gross — voucher MP
+    // gak masuk disc_amount per-line), channel lain pakai amount (net after
+    // disc, fallback qty × price − disc_amount).
+    const gross = isMarketplace(o.channel_name) ? (qty * price) : (amt || (qty * price - discAmt));
     // Monthly bucket (trend)
     const ym = wibYM(o.transaction_date);
     const mm = monthMap.get(ym) || { revenue:0, units:0 };
@@ -36001,7 +36009,11 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
     if (o.transaction_date >= priorStartISO && o.transaction_date < priorEndExclISO) {
       const qty   = parseFloat(it.qty||0) || 0;
       const price = parseFloat(it.price||0) || 0;
-      priorRevenue += qty * price; priorUnits += qty;
+      const discAmt = parseFloat(it.disc_amount||0) || 0;
+      const amt   = parseFloat(it.amount||0) || 0;
+      // Match Royalty Report formula (marketplace gross vs others net)
+      priorRevenue += isMarketplace(o.channel_name) ? (qty * price) : (amt || (qty * price - discAmt));
+      priorUnits += qty;
     }
   }
   // Pre-2026
