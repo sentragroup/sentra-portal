@@ -36079,13 +36079,60 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
   }
   const avgDailySales = units / velocityDays;
 
+  // ── Pending Orders (dalam period, status BUKAN COMPLETED / CANCELED) ──
+  // Order-order yang lagi in-flight — pipeline yang bakal ke-count once COMPLETED.
+  // Kasih visibility ke IP owner biar tau ada yang "on the way".
+  const PENDING_STATUSES = ['PENDING','PAID','FINISH_PICK','FINISH_PACK','ONGOING','ON_HOLD'];
+  let pendingOrders = [];
+  try {
+    const pendOrds = await _fetchAllPages('jubelio_sales_orders',
+      'salesorder_id,salesorder_no,transaction_date,channel_name,wms_status',
+      q => q.in('wms_status', PENDING_STATUSES)
+            .gte('transaction_date', startISO).lt('transaction_date', endISO));
+    if (pendOrds.length) {
+      const pendIds = pendOrds.map(o => o.salesorder_id);
+      const pendItems = await _fetchAllPagesIn('jubelio_sales_order_items',
+        'salesorder_id,item_id,item_name,qty,price,disc_amount,amount,is_canceled_item',
+        'salesorder_id', pendIds);
+      const byOrd = new Map();
+      for (const it of pendItems) {
+        if (it.is_canceled_item) continue;
+        if (!(itemIdSet.has(it.item_id) || nameToIp.get(it.item_name) === ipName)) continue;
+        const q = parseFloat(it.qty||0) || 0;
+        const p = parseFloat(it.price||0) || 0;
+        const d = parseFloat(it.disc_amount||0) || 0;
+        const a = parseFloat(it.amount||0) || 0;
+        const o = pendOrds.find(x => x.salesorder_id === it.salesorder_id);
+        if (!o) continue;
+        const rev = isMarketplace(o.channel_name) ? (q * p) : (a || (q * p - d));
+        const cur = byOrd.get(it.salesorder_id) || { qty: 0, revenue: 0 };
+        cur.qty += q; cur.revenue += rev;
+        byOrd.set(it.salesorder_id, cur);
+      }
+      pendingOrders = pendOrds
+        .filter(o => byOrd.has(o.salesorder_id))
+        .map(o => {
+          const agg = byOrd.get(o.salesorder_id);
+          return {
+            no: o.salesorder_no || `#${o.salesorder_id}`,
+            date: (o.transaction_date||'').slice(0,10),
+            channel: o.channel_name || '—',
+            status: o.wms_status || '—',
+            qty: Math.round(agg.qty),
+            potentialRevenue: Math.round(agg.revenue),
+          };
+        })
+        .sort((a,b) => a.date.localeCompare(b.date));
+    }
+  } catch(e) { console.warn('[IPR] pending orders fetch failed:', e); }
+
   const snapshot = {
     ipName, startD, endD, empty: false,
     royaltyType, royaltyPct, pphRate, fixedAmt,
     totals: { revenue: Math.round(revenue), units, orders: orderCount, aov, royaltyGross, royaltyPph, royaltyNet },
     prior:  { revenue: Math.round(priorRevenue), units: priorUnits, growthPct },
     velocity: { currentStock: Math.round(currentStock), lifetimeSold: Math.round(lifetimeSold), strPct, avgDailySales: Math.round(avgDailySales * 10) / 10, periodDays: prdDays, velocityDays, firstSaleInPeriod: firstSaleInPeriod ? firstSaleInPeriod.slice(0,10) : null },
-    topMovers, allProducts, channelMix, trend, popupEvents,
+    topMovers, allProducts, channelMix, trend, popupEvents, pendingOrders,
     itemCount: itemIds.length, parentCount: parentMap.size,
     compiledAt: new Date().toISOString(),
   };
@@ -36646,6 +36693,33 @@ function iprGeneratePDF() {
       </tbody>
     </table>
   </div>` : ''}
+  ${(() => {
+    const pend = s.pendingOrders || [];
+    if (!pend.length) return '';
+    const pendTotalQty = pend.reduce((t,p) => t + p.qty, 0);
+    const pendTotalRev = pend.reduce((t,p) => t + p.potentialRevenue, 0);
+    const rows = pend.map(p => `<tr>
+      <td style="white-space:nowrap">${fmtD(p.date)}</td>
+      <td style="font-family:'IBM Plex Mono',monospace;font-size:10px">${escHtml(p.no)}</td>
+      <td>${escHtml(p.channel)}</td>
+      <td style="font-family:'IBM Plex Mono',monospace;font-size:10px">${escHtml(p.status)}</td>
+      <td class="num">${p.qty.toLocaleString('id-ID')}</td>
+      <td class="num">${fmtRp(p.potentialRevenue)}</td>
+    </tr>`).join('');
+    return `<div class="section">
+      <h2>Pending Orders (${pend.length}) — belum COMPLETED</h2>
+      <div style="font-size:10px;color:#888;margin-bottom:8px;font-style:italic">Order dalam periode ini yang statusnya masih PENDING / PAID / FINISH_PICK / FINISH_PACK — belum ke-count di headline revenue &amp; royalty. Ke-count begitu status jadi COMPLETED.</div>
+      <table>
+        <thead><tr><th>Tanggal</th><th>Order No</th><th>Channel</th><th>Status</th><th class="num">Qty</th><th class="num">Potential Revenue</th></tr></thead>
+        <tbody>${rows}
+        <tr style="border-top:2px solid #000;font-weight:500"><td colspan="4" style="padding-top:12px">TOTAL ${pend.length} ORDERS</td>
+          <td class="num" style="padding-top:12px">${pendTotalQty.toLocaleString('id-ID')}</td>
+          <td class="num" style="padding-top:12px">${fmtRp(pendTotalRev)}</td>
+        </tr>
+        </tbody>
+      </table>
+    </div>`;
+  })()}
   `}
 
   <div class="footer">
