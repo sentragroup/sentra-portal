@@ -23448,6 +23448,7 @@ async function loadRoyaltyReport() {
       'jubelio_sales_orders',
       'salesorder_id,transaction_date,wms_status,is_canceled,sub_total,channel_name',
       q => q.gte('transaction_date', startISO).lt('transaction_date', endISO).eq('wms_status','COMPLETED')
+            .order('salesorder_id', {ascending: true})
     );
     // Map each order → its WIB month (1..12) + channel name
     const orderMonth = new Map();
@@ -35713,11 +35714,15 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
   let orders = [], orderIds = [], ordersById = new Map();
   if (needOrders) {
     const ordFrom = (fetchStart > SP_CUTOFF) ? fetchStart : SP_CUTOFF;
+    // .order() wajib buat pagination stable — tanpa itu PostgREST bisa return
+    // duplicate/miss rows across pages (root cause selisih All Time vs Custom
+    // untuk bulan yang sama).
     orders = await _fetchAllPages('jubelio_sales_orders',
       'salesorder_id,transaction_date,channel_name,store_name,wms_status,sub_total,total_disc,note,customer_name,salesorder_no',
       q => q.in('wms_status', SP_COMPLETED)
             .gte('transaction_date', `${ordFrom}T00:00:00+07:00`)
-            .lt('transaction_date', endISO));
+            .lt('transaction_date', endISO)
+            .order('salesorder_id', {ascending: true}));
     orderIds = orders.map(o => o.salesorder_id);
     ordersById = new Map(orders.map(o => [o.salesorder_id, o]));
   }
@@ -35727,7 +35732,7 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
   if (orderIds.length) {
     const allItems = await _fetchAllPagesIn('jubelio_sales_order_items',
       'salesorder_detail_id,salesorder_id,item_id,item_group_id,item_name,qty,price,disc_amount,amount,is_canceled_item',
-      'salesorder_id', orderIds);
+      'salesorder_id', orderIds, q => q.order('salesorder_detail_id', {ascending: true}));
     // Dedup by salesorder_detail_id (PK — guaranteed unique). Sebelumnya
     // dedup pakai (salesorder_id, item_id) → collapse multi-line items
     // legit same SKU di 1 order (cth: 3 cap di order TP-58230..). Lalahuta
@@ -36058,11 +36063,12 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
   try {
     // 2026+ all-time sales for IP (status Completed broad set, exclude canceled item)
     const allOrders = await _fetchAllPages('jubelio_sales_orders', 'salesorder_id',
-      q => q.in('wms_status', SP_COMPLETED).gte('transaction_date', `${SP_CUTOFF}T00:00:00+07:00`));
+      q => q.in('wms_status', SP_COMPLETED).gte('transaction_date', `${SP_CUTOFF}T00:00:00+07:00`)
+            .order('salesorder_id', {ascending: true}));
     const allOrderIds = allOrders.map(o => o.salesorder_id);
     if (allOrderIds.length) {
       const lifetimeItems = await _fetchAllPagesIn('jubelio_sales_order_items', 'salesorder_id,item_id,item_name,qty',
-        'salesorder_id', allOrderIds, q => q.in('item_id', itemIds.slice(0, 1500)));
+        'salesorder_id', allOrderIds, q => q.in('item_id', itemIds.slice(0, 1500)).order('salesorder_detail_id', {ascending: true}));
       lifetimeSold = lifetimeItems
         .filter(it => itemIdSet.has(it.item_id) || nameToIp.get(it.item_name) === ipName)
         .reduce((s, it) => s + (parseFloat(it.qty)||0), 0);
@@ -36099,12 +36105,13 @@ async function _iprAggregatePerformance(ipId, ipName, startD, endD) {
     const pendOrds = await _fetchAllPages('jubelio_sales_orders',
       'salesorder_id,salesorder_no,transaction_date,channel_name,wms_status',
       q => q.in('wms_status', PENDING_STATUSES)
-            .gte('transaction_date', startISO).lt('transaction_date', endISO));
+            .gte('transaction_date', startISO).lt('transaction_date', endISO)
+            .order('salesorder_id', {ascending: true}));
     if (pendOrds.length) {
       const pendIds = pendOrds.map(o => o.salesorder_id);
       const pendItems = await _fetchAllPagesIn('jubelio_sales_order_items',
         'salesorder_id,item_id,item_name,qty,price,disc_amount,amount,is_canceled_item',
-        'salesorder_id', pendIds);
+        'salesorder_id', pendIds, q => q.order('salesorder_detail_id', {ascending: true}));
       const byOrd = new Map();
       for (const it of pendItems) {
         if (it.is_canceled_item) continue;
