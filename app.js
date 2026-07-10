@@ -2528,7 +2528,7 @@ async function _pbComputeEventAggregates(events) {
   }
   if (soIds.length) {
     [soHeaders, soItems] = await Promise.all([
-      fetchChunked(soIds, 'jubelio_sales_orders', 'salesorder_id,is_canceled,wms_status', 'salesorder_id'),
+      fetchChunked(soIds, 'jubelio_sales_orders', 'salesorder_id,is_canceled,wms_status,sub_total', 'salesorder_id'),
       fetchChunked(soIds, 'jubelio_sales_order_items', 'salesorder_id,item_id,qty,price,disc_amount', 'salesorder_id'),
     ]);
   }
@@ -2634,12 +2634,21 @@ async function _pbComputeEventAggregates(events) {
       const h = soHeaderMap.get(soId);
       if (!h || isCanceled(h)) continue;
       const items = soItemsBy.get(soId) || [];
+      // Revenue = header sub_total (authoritative — matches Transaction Mapping
+      // display). Sebelumnya pakai qty × price − disc_amount per item, tapi
+      // beberapa SO Jubelio kirim `price` inflated (list price) sementara
+      // sell_price/sub_total yg real. Contoh SO-000115536 event HINDIA JAPAN
+      // TOUR 2026: qty×price = 28.820.000, sub_total = 10.340.000.
+      // Fallback ke qty × price − disc kalau sub_total null (rare edge case).
+      const subTotal = Number(h.sub_total || 0);
+      let orderRev = 0;
       for (const it of items) {
         const q = Number(it.qty || 0);
         r.qty_sold   += q;
-        r.sales_rev  += Number(it.price || 0) * q - Number(it.disc_amount || 0);
         r.sales_cogs += q * (costMap.get(it.item_id) || 0);
+        orderRev += Number(it.price || 0) * q - Number(it.disc_amount || 0);
       }
+      r.sales_rev += subTotal > 0 ? subTotal : orderRev;
     }
     r.margin = r.sales_rev - r.sales_cogs;
 
