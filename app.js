@@ -4617,7 +4617,12 @@ async function _pbDownloadInvoice(opts) {
   const seq = String(r.rowIndex||'').split('').reduce((a,c)=>a+c.charCodeAt(0),0) % 100;
   const invoiceNo = `SDY-PB-${periodYY}${periodMM}-${String(seq).padStart(2,'0')}`;
   const fmtRp = n => 'Rp ' + Math.round(Number(n)||0).toLocaleString('id-ID');
-  const fmtTglFull = d => { if (!d) return '—'; const x = new Date(d+'T00:00:00'); return `${x.getDate()} ${monthNames[x.getMonth()]} ${x.getFullYear()}`; };
+  const fmtTglFull = d => { if (!d) return '—'; const x = (d instanceof Date) ? d : new Date(d+'T00:00:00'); return `${x.getDate()} ${monthNames[x.getMonth()]} ${x.getFullYear()}`; };
+  // Jatuh Tempo: pakai ar_expected_date kalau future, else invoice_date + 14 hari
+  // (standard payment term). Sebelumnya pakai ar_expected_date raw → kalau
+  // invoice ke-generate SETELAH due date, muncul jatuh tempo di masa lalu.
+  const expDateRaw = r.arExpectedDate ? new Date(r.arExpectedDate+'T00:00:00') : null;
+  const dueDate = (expDateRaw && expDateRaw > today) ? expDateRaw : new Date(today.getTime() + 14*86400000);
   const terbilangStr = (_whTerbilang(netReceivable) + ' rupiah').replace(/\b\w/g, c => c.toUpperCase());
 
   // Group lampiran by parent (item_group_id or parent name)
@@ -4748,7 +4753,7 @@ async function _pbDownloadInvoice(opts) {
             <div class="val">${invoiceNo}</div>
             <div class="label">Tanggal</div>
             <div class="val">${dd} ${monthNames[parseInt(mm,10)-1]} ${yyyy}</div>
-            ${r.arExpectedDate?`<div class="label" style="color:#a14e3e">Jatuh Tempo</div><div class="val" style="color:#a14e3e">${fmtTglFull(r.arExpectedDate)}</div>`:''}
+            <div class="label" style="color:#a14e3e">Jatuh Tempo</div><div class="val" style="color:#a14e3e">${fmtTglFull(dueDate)}</div>
           </div>
         </div>
         <div class="recipient">
