@@ -3369,7 +3369,7 @@ async function _pbLoadDetailData(eventName, boothId) {
             .select('salesorder_id,item_id,item_code,item_name,variant,qty,price,disc_amount,tax_amount,sell_price,original_price')
             .in('salesorder_id', chunk),
           sb.from('jubelio_sales_orders')
-            .select('salesorder_id,channel_name,store_name,wms_status,is_canceled,grand_total')
+            .select('salesorder_id,channel_name,store_name,wms_status,is_canceled,grand_total,sub_total')
             .in('salesorder_id', chunk)
         ]);
         salesItems.push(...(itemsRes.data||[]));
@@ -3517,6 +3517,27 @@ function _pbRenderSalesSection(salesItems, orderHeaderMap, costMap) {
   };
   const confirmedItems = salesItems.filter(it => !isOrderCanceled(it.salesorder_id));
 
+  // Compute per-order scale factor: header sub_total / raw items sum.
+  // Beberapa SO Jubelio kirim `price` inflated (list price) vs sub_total real.
+  // Contoh SO-000115536: item qty×price sum = 28.820.000, sub_total = 10.340.000.
+  // Scale bikin per-SKU revenue tetap proporsional tapi order total match
+  // Transaction Mapping display.
+  const orderRawRev = new Map();
+  for (const it of salesItems) {
+    const raw = Number(it.price||0) * Number(it.qty||0) - Number(it.disc_amount||0);
+    orderRawRev.set(it.salesorder_id, (orderRawRev.get(it.salesorder_id)||0) + raw);
+  }
+  const orderScale = new Map();
+  for (const [soId, raw] of orderRawRev) {
+    const h = orderHeaderMap?.get(soId);
+    const sub = Number(h?.sub_total || 0);
+    orderScale.set(soId, (sub > 0 && raw > 0) ? sub / raw : 1);
+  }
+  const itemRev = (it) => {
+    const raw = Number(it.price||0) * Number(it.qty||0) - Number(it.disc_amount||0);
+    return raw * (orderScale.get(it.salesorder_id) || 1);
+  };
+
   // Per-SKU table = confirmed only
   const byItem = new Map();
   for (const it of confirmedItems) {
@@ -3524,7 +3545,7 @@ function _pbRenderSalesSection(salesItems, orderHeaderMap, costMap) {
     if (!key) continue;
     const cur = byItem.get(key) || { item_id: it.item_id, item_code: it.item_code, item_name: it.item_name, variant: it.variant, qty: 0, revenue: 0, orders: new Set() };
     cur.qty += Number(it.qty || 0);
-    cur.revenue += Number(it.price || 0) * Number(it.qty || 0) - Number(it.disc_amount || 0);
+    cur.revenue += itemRev(it);
     cur.orders.add(it.salesorder_id);
     byItem.set(key, cur);
   }
@@ -3538,7 +3559,7 @@ function _pbRenderSalesSection(salesItems, orderHeaderMap, costMap) {
   const canceledOrders = [...mappedOrderIds].filter(soId => isOrderCanceled(soId));
   const canceledRev = canceledOrders.reduce((a, soId) => {
     const lineRev = salesItems.filter(it => it.salesorder_id === soId)
-      .reduce((s,it) => s + (Number(it.price||0) * Number(it.qty||0) - Number(it.disc_amount||0)), 0);
+      .reduce((s,it) => s + itemRev(it), 0);
     return a + lineRev;
   }, 0);
 
@@ -3546,8 +3567,7 @@ function _pbRenderSalesSection(salesItems, orderHeaderMap, costMap) {
   const orderRev = new Map();
   const orderQty = new Map();
   for (const it of salesItems) {
-    const r = Number(it.price || 0) * Number(it.qty || 0) - Number(it.disc_amount || 0);
-    orderRev.set(it.salesorder_id, (orderRev.get(it.salesorder_id) || 0) + r);
+    orderRev.set(it.salesorder_id, (orderRev.get(it.salesorder_id) || 0) + itemRev(it));
     orderQty.set(it.salesorder_id, (orderQty.get(it.salesorder_id) || 0) + Number(it.qty || 0));
   }
   // Channel = confirmed only (revenue should match KPI tiles)
@@ -3768,6 +3788,23 @@ function _pbExportSalesCsv() {
   };
   const completedItems = salesItems.filter(it => isCompleted(it.salesorder_id));
 
+  // Scale factor per order dari header sub_total (authoritative) supaya match
+  // Transaction Mapping display. Sama pattern kaya _pbRenderSalesSection.
+  const _orderRaw = new Map();
+  for (const it of completedItems) {
+    const raw = Number(it.price||0) * Number(it.qty||0) - Number(it.disc_amount||0);
+    _orderRaw.set(it.salesorder_id, (_orderRaw.get(it.salesorder_id)||0) + raw);
+  }
+  const _orderScale = new Map();
+  for (const [soId, raw] of _orderRaw) {
+    const sub = Number(orderHeaderMap?.get(soId)?.sub_total || 0);
+    _orderScale.set(soId, (sub > 0 && raw > 0) ? sub / raw : 1);
+  }
+  const _itemRev = (it) => {
+    const raw = Number(it.price||0) * Number(it.qty||0) - Number(it.disc_amount||0);
+    return raw * (_orderScale.get(it.salesorder_id) || 1);
+  };
+
   // Recompute channel totals from completed-only items (the dashboard's
   // channelMap includes all confirmed = non-canceled, which would not match
   // the CSV totals here).
@@ -3775,10 +3812,9 @@ function _pbExportSalesCsv() {
   for (const it of completedItems) {
     const h  = orderHeaderMap?.get(it.salesorder_id) || {};
     const ch = h.channel_name || '(unknown)';
-    const lineRev = Number(it.price || 0) * Number(it.qty || 0) - Number(it.disc_amount || 0);
     const cur = channelMap.get(ch) || { orders: new Set(), revenue: 0, qty: 0 };
     cur.orders.add(it.salesorder_id);
-    cur.revenue += lineRev;
+    cur.revenue += _itemRev(it);
     cur.qty     += Number(it.qty || 0);
     channelMap.set(ch, cur);
   }
@@ -3796,7 +3832,7 @@ function _pbExportSalesCsv() {
       qty: 0, revenue: 0,
     };
     cur.qty     += Number(it.qty || 0);
-    cur.revenue += Number(it.price || 0) * Number(it.qty || 0) - Number(it.disc_amount || 0);
+    cur.revenue += _itemRev(it);
     perChItem.set(key, cur);
   }
 
