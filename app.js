@@ -2544,8 +2544,8 @@ async function _pbComputeEventAggregates(events) {
   const idArr = [...allItemIds];
   for (let i = 0; i < idArr.length; i += 500) {
     const chunk = idArr.slice(i, i + 500);
-    const {data} = await sb.from('jubelio_items').select('item_id,average_cost').in('item_id', chunk);
-    (data||[]).forEach(r => costMap.set(r.item_id, Number(r.average_cost) || 0));
+    const {data} = await sb.from('v_jubelio_item_cost').select('item_id,cost_canonical').in('item_id', chunk);
+    (data||[]).forEach(r => costMap.set(r.item_id, Number(r.cost_canonical) || 0));
   }
 
   // Group lookups
@@ -3382,12 +3382,12 @@ async function _pbLoadDetailData(eventName, boothId) {
     const allItemIds = new Set();
     for (const it of salesItems) if (it.item_id != null) allItemIds.add(it.item_id);
     for (const it of inItems)    if (it.item_id != null) allItemIds.add(it.item_id);
-    const costMap = new Map(); // item_id → average_cost
+    const costMap = new Map(); // item_id → canonical cost (actual avg or planned buy)
     const idArr = [...allItemIds];
     for (let i = 0; i < idArr.length; i += 500) {
       const chunk = idArr.slice(i, i + 500);
-      const {data} = await sb.from('jubelio_items').select('item_id,average_cost').in('item_id', chunk);
-      for (const r of (data||[])) costMap.set(r.item_id, Number(r.average_cost) || 0);
+      const {data} = await sb.from('v_jubelio_item_cost').select('item_id,cost_canonical').in('item_id', chunk);
+      for (const r of (data||[])) costMap.set(r.item_id, Number(r.cost_canonical) || 0);
     }
 
     // Stock adjustments mapped to THIS event by popup_booth_id (preferred)
@@ -9805,14 +9805,14 @@ async function _loadColFinancialInner(colId, col, el) {
     sb.from('restock_projects').select('id,name,status,items,linked_po_ids,date_created'),
     sb.from('ip_master').select('id,name,percentage,fixed_amount,pph_tax_rate,royalty_type').eq('name', ipName),
     sb.from('royalty_recipients').select('id,nama,percentage,fixed_amount,royalty_type').eq('related_ip', ipName),
-    itemIds.length ? _fetchAllPages('jubelio_items', 'item_id,average_cost,item_code', q => q.in('item_id', itemIds)) : Promise.resolve([]),
+    itemIds.length ? _fetchAllPages('v_jubelio_item_cost', 'item_id,cost_canonical,item_code', q => q.in('item_id', itemIds)) : Promise.resolve([]),
     sb.from('outbound_requests').select('id,source_module,purpose,recipient_name,items,shipping_cost,status,date_added'),
     sb.from('product_mappings').select('id,royalty_recipient').ilike('collection', colName),
   ]);
 
   // ── COGS = Σ (sold × average_cost)
   const costMap = {};
-  for (const r of (itRes || [])) costMap[r.item_id] = parseFloat(r.average_cost || 0);
+  for (const r of (itRes || [])) costMap[r.item_id] = parseFloat(r.cost_canonical || 0);
   let cogs = 0;
   for (const p of perf.products) {
     for (const v of p.variants) {
@@ -24275,9 +24275,9 @@ async function loadIncomeStatement() {
 
     // 3. Cost map (average_cost per item_id)
     fb.textContent = `Memetakan revenue stream...`;
-    const costRows = await _fetchAllPages('jubelio_items', 'item_id,average_cost');
+    const costRows = await _fetchAllPages('v_jubelio_item_cost', 'item_id,cost_canonical');
     const costMap = new Map();
-    costRows.forEach(r => costMap.set(String(r.item_id), parseFloat(r.average_cost)||0));
+    costRows.forEach(r => costMap.set(String(r.item_id), parseFloat(r.cost_canonical)||0));
 
     // 3b. Mappings + IP/Brand config → per-item {stream, royaltyPct}
     const [mappings, ipCfg, bmCfg] = await Promise.all([
@@ -28078,10 +28078,10 @@ async function _kolMgmtEnsureRefData() {
           const THUMB_CHUNK = 500;
           for (let i = 0; i < itemIds.length; i += THUMB_CHUNK) {
             const chunk = itemIds.slice(i, i + THUMB_CHUNK);
-            const {data: items} = await sb.from('jubelio_items').select('item_id,thumbnail,average_cost').in('item_id', chunk);
+            const {data: items} = await sb.from('v_jubelio_item_cost').select('item_id,thumbnail,cost_canonical').in('item_id', chunk);
             (items || []).forEach(it => {
               if (it.thumbnail) thumbMap.set(String(it.item_id), it.thumbnail);
-              if (it.average_cost != null) costMap.set(String(it.item_id), Number(it.average_cost));
+              if (it.cost_canonical != null) costMap.set(String(it.item_id), Number(it.cost_canonical));
             });
           }
           // Dedupe by item_name (parent-level), same treatment as the Product
