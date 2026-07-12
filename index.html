@@ -415,6 +415,8 @@
               <div class="fg"><label>Fixed Amount (IDR)</label><input type="number" id="ip-fixed" placeholder="e.g. 5000000"></div>
               <div class="fg"><label>Termin</label><select id="ip-termin"><option value="">Pilih termin...</option><option>Per Bulan</option><option>Per Quarter</option><option>Per Tahun</option><option>Per Akhir Project</option></select></div>
               <div class="fg"><label>PPh Tax Rate (%)</label><input type="number" id="ip-pph" placeholder="e.g. 2.5" step="0.1" min="0"></div>
+              <div class="fg"><label>Tax Treatment</label><select id="ip-tax-treatment"><option value="">Pilih skema pajak...</option><option value="Pajak Masing-Masing">Pajak Masing-Masing (PPN=SDY, PPH=IP)</option><option value="Pajak Ditanggung SDY">Pajak Ditanggung SDY (PPN=SDY, PPH=SDY)</option><option value="Pajak Ditanggung Client">Pajak Ditanggung Client (PPN+PPH=SDY)</option></select></div>
+              <div class="fg"><label>Client Category</label><select id="ip-client-cat"><option value="Individu" selected>Individu</option><option value="PKP">PKP</option><option value="Non-PKP">Non-PKP</option></select></div>
               <div class="fg full"><label>Notes</label><input type="text" id="ip-notes" placeholder="Catatan tambahan"></div>
               <div class="fg full"><label>Email</label><input type="text" id="ip-email" placeholder="email1@domain.com, email2@domain.com"><div style="font-size:11px;color:var(--g400);margin-top:3px;font-family:var(--mono)">Pisah dengan koma untuk multiple email</div></div>
             </div>
@@ -5541,6 +5543,6 @@
 <div id="proj-overlay" class="proj-panel-overlay" style="display:none" onclick="if(event.target===this)closeProjectDetail()"></div>
 <div id="proj-panel" class="proj-panel" style="display:none"></div>
 
-<script src="app.js?v=20260712a"></script>
+<script src="app.js?v=20260712b"></script>
 </body>
 </html>
