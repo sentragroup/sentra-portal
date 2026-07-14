@@ -23247,6 +23247,41 @@ async function exportPDJubelioXlsx() {
       const r = baseRow(null);
       if (r) rows.push(r);
     }
+
+    // Bundle items = component SKUs of this parent. They're separate products in
+    // Jubelio and MUST be imported so the parent bundle can reference them.
+    // Emit each as its own row with its own item_group_name.
+    const bundleItems = allPDRows.filter(s => s.parentId === p.id && (
+      (typeof pdChildKind === 'function')
+        ? pdChildKind(s) === 'bundle_item'
+        : s.skuType === 'bundle_item'
+    ));
+    const parentPics = Array.isArray(p.pictures) ? p.pictures.filter(u => u && !_rstIsSizeChartUrl?.(u)) : [];
+    for (const b of bundleItems) {
+      if (!b.displayCode) { skipped++; continue; }
+      const bPicsRaw = Array.isArray(b.pictures) ? b.pictures.filter(u => u && !_rstIsSizeChartUrl?.(u)) : [];
+      const bPics = bPicsRaw.length ? bPicsRaw : parentPics;
+      // Sell price fallback: bundle-item HPP (component, not sold retail — user
+      // can adjust in Jubelio if needed). Falls back to parent SRP if HPP kosong.
+      const bSellPrice = (b.hpp != null && b.hpp !== '' && Number(b.hpp) > 0)
+        ? Number(b.hpp)
+        : sellPrice;
+      rows.push([
+        resolvedIds.get(p.id) || '',
+        p.jubelioCategory || '',
+        b.skuName || '',
+        b.skuName || '',
+        p.packageWeight || 100,
+        p.packageLength || '', p.packageWidth || '', p.packageHeight || '',
+        'Tidak ada merk',
+        b.displayCode,
+        bSellPrice,
+        '', '', '', '', '', '',
+        '',
+        bPics[0]||'', bPics[1]||'', bPics[2]||'', bPics[3]||'', bPics[4]||'',
+        bPics[0] || ''
+      ]);
+    }
   }
 
   if (rows.length <= 1) { alert('Tidak ada SKU dengan item_code untuk di-export.'); return; }
