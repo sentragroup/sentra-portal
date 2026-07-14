@@ -20,8 +20,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SUPABASE_URL         = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const JUBELIO_EMAIL        = Deno.env.get("JUBELIO_EMAIL") ?? "***REDACTED***";
-const JUBELIO_PASSWORD     = Deno.env.get("JUBELIO_PASSWORD") ?? "***REDACTED***";
+const JUBELIO_EMAIL        = Deno.env.get("JUBELIO_EMAIL")    ?? (() => { throw new Error("JUBELIO_EMAIL env var not set"); })();
+const JUBELIO_PASSWORD     = Deno.env.get("JUBELIO_PASSWORD") ?? (() => { throw new Error("JUBELIO_PASSWORD env var not set"); })();
 const BASE                 = "https://api2.jubelio.com";
 const PAGE_SIZE            = 200;
 const CONCURRENCY          = 10;
