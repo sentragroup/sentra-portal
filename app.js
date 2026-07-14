@@ -19888,14 +19888,24 @@ async function mrDownloadInvoice(brandId, brandName) {
   const s = _mrSummaryText(brandId, brandName);
   if (!s) { alert('Brand tidak ditemukan'); return; }
 
-  const today = new Date();
-  const dd = String(today.getDate()).padStart(2,'0');
-  const mm = String(today.getMonth()+1).padStart(2,'0');
-  const yyyy = today.getFullYear();
   const monthNames = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
 
-  // Invoice number: SDY-INV-{YYMM of period}-{deterministic seq from brand id}
+  // Invoice date = last day of the report period month (e.g. period 2026-05 → 31/05/2026).
+  // Fallback ke hari ini kalau period gak ke-parse. PAID stamp pakai date yang sama.
   const periodMatch = /^(\d{4})-(\d{2})$/.exec(s.period || '');
+  let invDateObj;
+  if (periodMatch) {
+    const y = parseInt(periodMatch[1], 10);
+    const m = parseInt(periodMatch[2], 10); // 1-12
+    invDateObj = new Date(y, m, 0); // day 0 of next month = last day of month m
+  } else {
+    invDateObj = new Date();
+  }
+  const dd   = String(invDateObj.getDate()).padStart(2,'0');
+  const mm   = String(invDateObj.getMonth()+1).padStart(2,'0');
+  const yyyy = invDateObj.getFullYear();
+
+  // Invoice number: SDY-INV-{YYMM of period}-{deterministic seq from brand id}
   const periodYY = periodMatch ? periodMatch[1].slice(-2) : String(yyyy).slice(-2);
   const periodMM = periodMatch ? periodMatch[2] : mm;
   const brandSeq = String(brandId).split('').reduce((a,c)=>a + c.charCodeAt(0), 0) % 100;
