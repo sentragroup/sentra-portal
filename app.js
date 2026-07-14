@@ -23386,14 +23386,20 @@ async function exportPDPurchaseOrderCsv() {
   const {parents} = getPDDetailFilteredParents();
   if (!parents.length) { alert('Tidak ada SKU di collection / filter ini.'); return; }
 
-  // Collect all variants + bundle items under these parents. Bundle items
-  // are also produced by vendors and need a PO line, so the export covers
-  // both child kinds.
+  // Assemble PO line items:
+  // - Parents WITH variants → emit each variant (current behavior for multi-size products)
+  // - Parents WITHOUT variants (solo SKU or bundle-parent) → emit the parent SKU
+  //   itself. Bundle items are NOT emitted as separate PO lines because their
+  //   cost is already baked into the parent's HPP (vendor produces the finished
+  //   bundle, not components).
   const parentIds = new Set(parents.map(p => p.id));
-  const variants = allPDRows.filter(s => parentIds.has(s.parentId) && (s.skuType === 'variant' || s.skuType === 'bundle_item'));
-  const liveVariants = variants.filter(v => v.displayCode && v.vendor && (v.qty || 0) > 0);
+  const variantsList = allPDRows.filter(s => parentIds.has(s.parentId) && s.skuType === 'variant');
+  const parentIdsWithVariants = new Set(variantsList.map(v => v.parentId));
+  const parentLineItems = parents.filter(p => !parentIdsWithVariants.has(p.id));
+  const allLineItems = [...variantsList, ...parentLineItems];
+  const liveVariants = allLineItems.filter(v => v.displayCode && v.vendor && (v.qty || 0) > 0);
   if (!liveVariants.length) {
-    alert('Tidak ada variant/bundle item dengan vendor + qty > 0. Cek bahwa SKU sudah punya display_code, vendor, dan qty.');
+    alert('Tidak ada SKU dengan vendor + qty > 0. Cek bahwa parent (solo/bundle) atau variant sudah punya display_code, vendor, dan qty.');
     return;
   }
 
