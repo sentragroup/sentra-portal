@@ -23314,6 +23314,70 @@ async function exportPDJubelioXlsx() {
   console.log(`Exported ${rows.length-1} SKU rows to ${fname}${msgExtra}`);
 }
 
+// ── BUNDLE COMPOSITION CSV EXPORT (Jubelio Import Bundle) ──
+// Per Jubelio "template_import_bundle" — CSV dengan 3 kolom:
+//   Item_code       — SKU parent bundle
+//   sku_composition — SKU component (bundle_item)
+//   qty             — kuantitas component per bundle
+// One row per (parent, component) pair. Assumes SKUs already registered
+// via the Product Import CSV first.
+async function exportPDJubelioBundle() {
+  const {parents} = getPDDetailFilteredParents();
+  if (!parents.length) { alert('Tidak ada SKU sesuai filter.'); return; }
+
+  const HEADERS = ['Item_code','sku_composition','qty'];
+  const rows = [HEADERS];
+  let skipped = 0;
+  let bundlesWithComps = 0;
+
+  for (const p of parents) {
+    if (!p.displayCode) { skipped++; continue; }
+    const bundleItems = allPDRows.filter(s => s.parentId === p.id && (
+      (typeof pdChildKind === 'function')
+        ? pdChildKind(s) === 'bundle_item'
+        : s.skuType === 'bundle_item'
+    ));
+    if (!bundleItems.length) continue;
+    bundlesWithComps++;
+    for (const b of bundleItems) {
+      if (!b.displayCode) { skipped++; continue; }
+      const qty = Number(b.qty || 0);
+      if (!qty || qty <= 0) { skipped++; continue; }
+      rows.push([p.displayCode, b.displayCode, qty]);
+    }
+  }
+
+  if (rows.length <= 1) {
+    alert('Tidak ada parent SKU yang punya bundle items. Bundle export butuh minimal 1 parent dengan komposisi component.');
+    return;
+  }
+
+  const csvEscape = (v) => {
+    if (v == null) return '';
+    const s = String(v);
+    if (/[",\r\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+    return s;
+  };
+  const csv = rows.map(r => r.map(csvEscape).join(',')).join('\r\n');
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+
+  const _col = (typeof allColRows !== 'undefined' && Array.isArray(allColRows))
+    ? allColRows.find(x => x.id === pdCurrentCollectionId) : null;
+  const colName = _col?.collectionName || '';
+  const safeName = (colName || pdCurrentCollectionId || 'collection').replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 80);
+  const dateStr = new Date().toISOString().slice(0,10);
+  const fname = `jubelio-bundle-${safeName}-${dateStr}.csv`;
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = fname;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 100);
+
+  const msgExtra = skipped ? ` · ${skipped} component skip (qty 0 / kode kosong)` : '';
+  alert(`✓ ${bundlesWithComps} bundle di-export (${rows.length-1} composition rows)${msgExtra}.\n\nNext: buka Jubelio → Import Bundle → upload ${fname}.\n\n⚠️ PASTIKAN semua SKU (parent + component) sudah ke-import via "Import Product (CSV)" dulu.`);
+}
+
 // ── PURCHASE ORDER CSV EXPORT (Jubelio Import Pesanan Pembelian) ──
 // One CSV with multiple POs (one per vendor). Matches columns from Jubelio's
 // "Pengisian Data Pembelian" sheet: header fields populate only the first row

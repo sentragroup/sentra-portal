@@ -2261,7 +2261,8 @@
             <button class="btn-ghost" style="font-size:12px;padding:5px 10px" onclick="exportPDPDF('internal')">📄 Internal PDF</button>
             <button class="btn-ghost" style="font-size:12px;padding:5px 10px" onclick="exportPDPDF('external')">📄 External PDF</button>
             <button class="btn-ghost" style="font-size:12px;padding:5px 10px" onclick="exportPDVendorPrompt(event)">📄 Vendor PDF</button>
-            <button class="btn-ghost" style="font-size:12px;padding:5px 10px;background:#e8f4ea;border-color:#1c7a3b;color:#1c7a3b" onclick="exportPDJubelioXlsx()" title="CSV siap import produk ke Jubelio">📥 Import Product (CSV)</button>
+            <button class="btn-ghost" style="font-size:12px;padding:5px 10px;background:#e8f4ea;border-color:#1c7a3b;color:#1c7a3b" onclick="exportPDJubelioXlsx()" title="CSV siap import produk ke Jubelio (parent + variants + bundle components)">📥 Import Product (CSV)</button>
+            <button class="btn-ghost" style="font-size:12px;padding:5px 10px;background:#fff3e0;border-color:#c66500;color:#c66500" onclick="exportPDJubelioBundle()" title="CSV komposisi bundle ke Jubelio — jalankan SETELAH Import Product CSV">📦 Import Bundle (CSV)</button>
             <button class="btn-ghost" style="font-size:12px;padding:5px 10px;background:#eef0f8;border-color:#3C3489;color:#3C3489" onclick="exportPDPurchaseOrderCsv()" title="CSV Purchase Order ke Jubelio — satu PO per vendor">📤 Export PO (CSV)</button>
           </div>
         </div>
@@ -5543,6 +5544,6 @@
 <div id="proj-overlay" class="proj-panel-overlay" style="display:none" onclick="if(event.target===this)closeProjectDetail()"></div>
 <div id="proj-panel" class="proj-panel" style="display:none"></div>
 
-<script src="app.js?v=20260714b"></script>
+<script src="app.js?v=20260714c"></script>
 </body>
 </html>
