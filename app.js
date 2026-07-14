@@ -23267,19 +23267,19 @@ async function exportPDJubelioXlsx() {
         ? Number(b.hpp)
         : sellPrice;
       rows.push([
-        resolvedIds.get(p.id) || '',
-        p.jubelioCategory || '',
-        b.skuName || '',
-        b.skuName || '',
-        p.packageWeight || 100,
-        p.packageLength || '', p.packageWidth || '', p.packageHeight || '',
-        'Tidak ada merk',
-        b.displayCode,
-        bSellPrice,
-        '', '', '', '', '', '',
-        '',
-        bPics[0]||'', bPics[1]||'', bPics[2]||'', bPics[3]||'', bPics[4]||'',
-        bPics[0] || ''
+        resolvedIds.get(p.id) || '',                                            // A: item_category_id
+        p.jubelioCategory || '',                                                // B: category
+        b.skuName || '',                                                        // C: item_group_name
+        b.skuName || '',                                                        // D: description
+        p.packageWeight || 100,                                                 // E: package_weight
+        p.packageLength || '', p.packageWidth || '', p.packageHeight || '',     // F-H
+        'Tidak ada merk',                                                       // I: brand
+        b.displayCode,                                                          // J: item_code
+        bSellPrice,                                                             // K: sell_price
+        '', '', '', '', '',                                                     // L-P: color/size/capacity/material/uom (5)
+        '',                                                                     // Q: barcode
+        bPics[0]||'', bPics[1]||'', bPics[2]||'', bPics[3]||'', bPics[4]||'',   // R-V: image_url1..5
+        bPics[0] || ''                                                          // W: default_images
       ]);
     }
   }
