@@ -324,3 +324,19 @@ th.sortable:hover{color:var(--black);background:var(--off);}
 .ldp-bubble-me .chat-link{color:#93c5fd;}
 .ldp-bubble-me .chat-img{border-color:rgba(255,255,255,.2);}
 @media(max-width:768px){#chat-popup{width:calc(100vw - 24px);right:12px;bottom:76px;}#chat-fab{bottom:16px;right:16px;}}
+
+/* ── Wholesale Catalog ── */
+.wc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:14px}
+.wc-empty{padding:2rem;color:var(--g400);font-size:13px}
+.wc-card{border:1px solid var(--g100);border-radius:10px;overflow:hidden;background:var(--white);display:flex;flex-direction:column;transition:border-color .12s}
+.wc-card:hover{border-color:var(--g400)}
+.wc-img{width:100%;aspect-ratio:1/1;object-fit:cover;background:var(--off);display:block}
+.wc-noimg{display:flex;align-items:center;justify-content:center;color:var(--g400);font-size:11px;font-family:var(--mono)}
+.wc-body{padding:10px 11px;display:flex;flex-direction:column;gap:7px;flex:1}
+.wc-name{font-size:12.5px;line-height:1.35;font-weight:500;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.wc-meta{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin-top:auto}
+.wc-tag{font-size:10px;font-family:var(--mono);background:var(--off);color:var(--g600);padding:2px 7px;border-radius:20px}
+.wc-col{font-size:10px;color:var(--g400)}
+.wc-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;border-top:1px solid var(--g100);padding-top:7px}
+.wc-sizes{font-size:10px;color:var(--g400);font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wc-price{font-size:12px;font-weight:600;white-space:nowrap}

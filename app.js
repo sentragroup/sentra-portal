@@ -212,7 +212,7 @@ function enterApp(user, freshLogin) {
   // Restore page: prefer URL hash, fall back to sessionStorage
   let _pg = location.hash.slice(1).split('/')[0];
   if (!_pg) _pg = sessionStorage.getItem('snt_page') || '';
-  const _pages = ['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','vendormaster','rnd','popupbooth','activitylog','mesign','po','stockmovement','productmap','productdev','collections','designermaster','dsgworkflow','warehousekpi','stockadjmgmt','returnreason','invcheck','salesperf','reminders','announcements','marte','royalty','income','contentplan','adsmgmt','mktactivation','publication','photoshoot','kolmgmt','txmap','sampling','arreceivables','manualpurchase'];
+  const _pages = ['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','vendormaster','rnd','popupbooth','activitylog','mesign','po','stockmovement','productmap','wholesalecatalog','productdev','collections','designermaster','dsgworkflow','warehousekpi','stockadjmgmt','returnreason','invcheck','salesperf','reminders','announcements','marte','royalty','income','contentplan','adsmgmt','mktactivation','publication','photoshoot','kolmgmt','txmap','sampling','arreceivables','manualpurchase'];
   if (_pages.includes(_pg))
     showPage(_pg, document.getElementById('nav-'+_pg));
 }
@@ -328,7 +328,7 @@ function showPage(name, el) {
   document.getElementById("page-"+_pageId).classList.add("active");
   if (el) el.classList.add("active");
   const _c = document.querySelector('.content'); if (_c) _c.scrollTop = 0;
-  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",productdev:"Product Development",sampling:"Sampling",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",mktplan:"Marketing Planning",videoprod:"Video Production",txmap:"Transaction Mapping",manualpurchase:"Manual Purchase",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)",vendormaster:"Vendor Master",rnd:"R&D Product",koldb:"KOL Database",outbound:"Outbond Request",meetingnotes:"Meeting Notes",ipreports:"IP Reports",cronlogs:"Cron Logs",wholesale:"Wholesale Orders",arreceivables:"Account Receivables",licensorfreebies:"Account Freebies",conprog:"Consignment Program"};
+  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",wholesalecatalog:"Wholesale Catalog",productdev:"Product Development",sampling:"Sampling",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",mktplan:"Marketing Planning",videoprod:"Video Production",txmap:"Transaction Mapping",manualpurchase:"Manual Purchase",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)",vendormaster:"Vendor Master",rnd:"R&D Product",koldb:"KOL Database",outbound:"Outbond Request",meetingnotes:"Meeting Notes",ipreports:"IP Reports",cronlogs:"Cron Logs",wholesale:"Wholesale Orders",arreceivables:"Account Receivables",licensorfreebies:"Account Freebies",conprog:"Consignment Program"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -358,6 +358,7 @@ function showPage(name, el) {
   if (name==="po") loadPO();
   if (name==="stockmovement" && !_srcRows.length) loadStockMovement();
   if (name==="productmap") loadProductMap(0,'');
+  if (name==="wholesalecatalog") loadWholesaleCatalog();
   if (name==="productdev") loadProductDev();
   if (name==="sampling") loadSampling();
   if (name==="contentplan") loadContentPlan();
@@ -46725,4 +46726,62 @@ function _conpRenderReturnsTab(p) {
       </div>
       <div style="font-size:11px;color:var(--g600);padding:20px;text-align:center">${rows.length ? `${rows.length} retur tercatat. UI detail masih placeholder.` : 'Belum ada retur. SDY dapat minta retur (penjualan <30% dalam 3 bulan), Mitra dapat minta retur setelah 2 bulan.'}</div>
     </div>`;
+}
+
+// ── WHOLESALE CATALOG ──
+let _wcRows = [];
+function wcEsc(s){ return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+async function loadWholesaleCatalog(){
+  const grid = document.getElementById('wc-grid');
+  if(grid) grid.innerHTML = '<div class="wc-empty">Loading…</div>';
+  const { data, error } = await sb.from('v_wholesale_catalog').select('*');
+  if(error){ if(grid) grid.innerHTML = '<div class="wc-empty">Gagal memuat: '+wcEsc(error.message)+'</div>'; return; }
+  _wcRows = data || [];
+  const ips = [...new Set(_wcRows.map(r=>r.ip).filter(Boolean))].sort();
+  const cols = [...new Set(_wcRows.map(r=>r.collection).filter(Boolean))].sort();
+  wcFill('wc-fil-ip', 'Semua IP', ips);
+  wcFill('wc-fil-collection', 'Semua Collection', cols);
+  const st = id => document.getElementById(id);
+  if(st('wc-s-total')) st('wc-s-total').textContent = _wcRows.length.toLocaleString('id-ID');
+  if(st('wc-s-ip')) st('wc-s-ip').textContent = ips.length;
+  renderWholesaleCatalog();
+}
+function wcFill(id, allLabel, vals){
+  const s = document.getElementById(id); if(!s) return;
+  const cur = s.value;
+  s.innerHTML = '<option value="">'+allLabel+'</option>' + vals.map(v=>`<option value="${wcEsc(v)}">${wcEsc(v)}</option>`).join('');
+  s.value = cur;
+}
+function clearWCFilters(){
+  ['wc-fil-ip','wc-fil-collection'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+  const q=document.getElementById('wc-search'); if(q) q.value='';
+  renderWholesaleCatalog();
+}
+function renderWholesaleCatalog(){
+  const val = id => (document.getElementById(id)||{}).value || '';
+  const ip = val('wc-fil-ip'), col = val('wc-fil-collection');
+  const q = val('wc-search').toLowerCase().trim();
+  let rows = _wcRows.filter(r =>
+    (!ip  || r.ip === ip) &&
+    (!col || r.collection === col) &&
+    (!q   || (r.name||'').toLowerCase().includes(q) || (r.ip||'').toLowerCase().includes(q))
+  );
+  rows.sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+  const grid = document.getElementById('wc-grid');
+  const tc = document.getElementById('wc-tcount'); if(tc) tc.textContent = rows.length.toLocaleString('id-ID')+' desain';
+  const shown = document.getElementById('wc-s-shown'); if(shown) shown.textContent = rows.length.toLocaleString('id-ID');
+  if(!grid) return;
+  if(!rows.length){ grid.innerHTML = '<div class="wc-empty">Tidak ada desain yang cocok.</div>'; return; }
+  grid.innerHTML = rows.map(r=>{
+    const img = r.image
+      ? `<img class="wc-img" src="${wcEsc(r.image)}" loading="lazy" alt="" onerror="this.outerHTML='<div class=&quot;wc-img wc-noimg&quot;>no image</div>'">`
+      : `<div class="wc-img wc-noimg">no image</div>`;
+    const price = (r.retail_price!=null) ? 'Rp '+Number(r.retail_price).toLocaleString('id-ID') : '—';
+    const sizeTxt = r.sizes ? r.sizes : ((r.sku_count||1)+' varian');
+    return `<div class="wc-card">${img}<div class="wc-body">`
+      + `<div class="wc-name" title="${wcEsc(r.name||'')}">${wcEsc(r.name||'—')}</div>`
+      + `<div class="wc-meta">${r.ip?`<span class="wc-tag">${wcEsc(r.ip)}</span>`:''}${r.collection?`<span class="wc-col">${wcEsc(r.collection)}</span>`:''}</div>`
+      + `<div class="wc-foot"><span class="wc-sizes" title="${wcEsc(sizeTxt)}">${wcEsc(sizeTxt)}</span><span class="wc-price">${price}</span></div>`
+      + `</div></div>`;
+  }).join('');
 }
