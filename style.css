@@ -340,3 +340,9 @@ th.sortable:hover{color:var(--black);background:var(--off);}
 .wc-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;border-top:1px solid var(--g100);padding-top:7px}
 .wc-sizes{font-size:10px;color:var(--g400);font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .wc-price{font-size:12px;font-weight:600;white-space:nowrap}
+.wc-bulk{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+.wc-bulk-lbl{font-size:12px;color:var(--g400);margin-right:2px}
+.wc-card.pub{border-color:#8ecf8e;box-shadow:0 0 0 1px #8ecf8e inset}
+.wc-pub{display:flex;align-items:center;gap:7px;cursor:pointer;font-size:11px;color:var(--g600);border-top:1px solid var(--g100);padding-top:8px;margin-top:2px;user-select:none;font-family:var(--mono)}
+.wc-pub input{width:14px;height:14px;accent-color:#1e6b1e;margin:0;cursor:pointer;flex:none}
+.wc-pub.on{color:#1e6b1e;font-weight:600}

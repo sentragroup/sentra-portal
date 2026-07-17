@@ -2185,17 +2185,24 @@
         <div><div class="page-title">Wholesale Catalog</div><div class="page-sub">Katalog desain untuk pre-order wholesale — 1 kartu per desain, ditarik dari master Jubelio.</div></div>
         <button class="btn-refresh" onclick="loadWholesaleCatalog()">↻ Refresh</button>
       </div>
-      <div class="stats-row" style="grid-template-columns:repeat(3,1fr);margin-bottom:1.25rem">
-        <div class="stat-card"><div class="stat-num" id="wc-s-total">—</div><div class="stat-lbl">Total Desain</div></div>
+      <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
+        <div class="stat-card"><div class="stat-num" id="wc-s-total">—</div><div class="stat-lbl">Total Desain (SD&amp;Y + Lagaa)</div></div>
+        <div class="stat-card success"><div class="stat-num" id="wc-s-pub">—</div><div class="stat-lbl">Published</div></div>
         <div class="stat-card"><div class="stat-num" id="wc-s-ip">—</div><div class="stat-lbl">IP</div></div>
         <div class="stat-card"><div class="stat-num" id="wc-s-shown">—</div><div class="stat-lbl">Ditampilkan</div></div>
       </div>
       <div class="filter-panel" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <select id="wc-fil-ip" onchange="renderWholesaleCatalog()"><option value="">Semua IP</option></select>
         <select id="wc-fil-collection" onchange="renderWholesaleCatalog()"><option value="">Semua Collection</option></select>
+        <select id="wc-fil-status" onchange="renderWholesaleCatalog()"><option value="">Semua Status</option><option value="pub">Published</option><option value="unpub">Belum Published</option></select>
         <input type="text" id="wc-search" placeholder="Cari desain..." oninput="renderWholesaleCatalog()" style="padding:5px 10px;font-size:12px;border:1px solid var(--g100);border-radius:6px;outline:none;min-width:200px">
         <button class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="clearWCFilters()">✕ Reset</button>
         <div class="tcount" id="wc-tcount" style="margin-left:auto">— desain</div>
+      </div>
+      <div class="wc-bulk">
+        <span class="wc-bulk-lbl">Bulk untuk <b id="wc-bulk-n">0</b> desain yang tampil (pakai filter IP / Collection lalu terapkan):</span>
+        <button class="btn-refresh" onclick="wcBulkPublish(true)">✓ Publish semua tampil</button>
+        <button class="btn-refresh" onclick="wcBulkPublish(false)">✕ Unpublish semua tampil</button>
       </div>
       <div id="wc-grid" class="wc-grid"><div class="wc-empty">Klik "↻ Refresh" untuk memuat katalog.</div></div>
     </div>

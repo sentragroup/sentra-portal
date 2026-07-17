@@ -46753,24 +46753,31 @@ function wcFill(id, allLabel, vals){
   s.value = cur;
 }
 function clearWCFilters(){
-  ['wc-fil-ip','wc-fil-collection'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+  ['wc-fil-ip','wc-fil-collection','wc-fil-status'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
   const q=document.getElementById('wc-search'); if(q) q.value='';
   renderWholesaleCatalog();
 }
-function renderWholesaleCatalog(){
+function wcFilteredRows(){
   const val = id => (document.getElementById(id)||{}).value || '';
-  const ip = val('wc-fil-ip'), col = val('wc-fil-collection');
+  const ip = val('wc-fil-ip'), col = val('wc-fil-collection'), status = val('wc-fil-status');
   const q = val('wc-search').toLowerCase().trim();
   let rows = _wcRows.filter(r =>
     (!ip  || r.ip === ip) &&
     (!col || r.collection === col) &&
+    (!status || (status==='pub' ? r.is_published : !r.is_published)) &&
     (!q   || (r.name||'').toLowerCase().includes(q) || (r.ip||'').toLowerCase().includes(q))
   );
   rows.sort((a,b)=>(a.name||'').localeCompare(b.name||''));
-  const grid = document.getElementById('wc-grid');
-  const tc = document.getElementById('wc-tcount'); if(tc) tc.textContent = rows.length.toLocaleString('id-ID')+' desain';
-  const shown = document.getElementById('wc-s-shown'); if(shown) shown.textContent = rows.length.toLocaleString('id-ID');
-  if(!grid) return;
+  return rows;
+}
+function renderWholesaleCatalog(){
+  const rows = wcFilteredRows();
+  const set = (id,v)=>{ const e=document.getElementById(id); if(e) e.textContent=v; };
+  set('wc-tcount', rows.length.toLocaleString('id-ID')+' desain');
+  set('wc-s-shown', rows.length.toLocaleString('id-ID'));
+  set('wc-s-pub', _wcRows.filter(r=>r.is_published).length.toLocaleString('id-ID'));
+  set('wc-bulk-n', rows.length.toLocaleString('id-ID'));
+  const grid = document.getElementById('wc-grid'); if(!grid) return;
   if(!rows.length){ grid.innerHTML = '<div class="wc-empty">Tidak ada desain yang cocok.</div>'; return; }
   grid.innerHTML = rows.map(r=>{
     const img = r.image
@@ -46778,10 +46785,33 @@ function renderWholesaleCatalog(){
       : `<div class="wc-img wc-noimg">no image</div>`;
     const price = (r.retail_price!=null) ? 'Rp '+Number(r.retail_price).toLocaleString('id-ID') : '—';
     const sizeTxt = r.sizes ? r.sizes : ((r.sku_count||1)+' varian');
-    return `<div class="wc-card">${img}<div class="wc-body">`
+    const on = !!r.is_published;
+    return `<div class="wc-card${on?' pub':''}">${img}<div class="wc-body">`
       + `<div class="wc-name" title="${wcEsc(r.name||'')}">${wcEsc(r.name||'—')}</div>`
       + `<div class="wc-meta">${r.ip?`<span class="wc-tag">${wcEsc(r.ip)}</span>`:''}${r.collection?`<span class="wc-col">${wcEsc(r.collection)}</span>`:''}</div>`
       + `<div class="wc-foot"><span class="wc-sizes" title="${wcEsc(sizeTxt)}">${wcEsc(sizeTxt)}</span><span class="wc-price">${price}</span></div>`
+      + `<label class="wc-pub${on?' on':''}"><input type="checkbox" ${on?'checked':''} onchange="wcTogglePublish(${r.item_group_id}, this.checked)"><span>${on?'Published':'Publish ke wholesale'}</span></label>`
       + `</div></div>`;
   }).join('');
+}
+async function wcTogglePublish(itemGroupId, pub){
+  const row = _wcRows.find(r=>r.item_group_id===itemGroupId);
+  if(row) row.is_published = pub;
+  renderWholesaleCatalog();
+  const { error } = await sb.from('wholesale_catalog').upsert(
+    { item_group_id:itemGroupId, is_published:pub, updated_by:currentUser, updated_at:new Date().toISOString() },
+    { onConflict:'item_group_id' });
+  if(error){ alert('Gagal menyimpan: '+error.message); if(row) row.is_published=!pub; renderWholesaleCatalog(); }
+}
+async function wcBulkPublish(pub){
+  const rows = wcFilteredRows();
+  if(!rows.length) return;
+  if(!confirm((pub?'Publish':'Unpublish')+' '+rows.length+' desain yang sedang tampil ke katalog wholesale?')) return;
+  const now = new Date().toISOString();
+  const payload = rows.map(r=>({ item_group_id:r.item_group_id, is_published:pub, updated_by:currentUser, updated_at:now }));
+  const { error } = await sb.from('wholesale_catalog').upsert(payload, { onConflict:'item_group_id' });
+  if(error){ alert('Gagal: '+error.message); return; }
+  const ids = new Set(rows.map(r=>r.item_group_id));
+  _wcRows.forEach(r=>{ if(ids.has(r.item_group_id)) r.is_published=pub; });
+  renderWholesaleCatalog();
 }
