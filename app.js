@@ -209,11 +209,13 @@ function enterApp(user, freshLogin) {
   const _chatFab = document.getElementById('chat-fab'); if (_chatFab) _chatFab.style.display='flex';
   if (notifPollTimer) clearInterval(notifPollTimer);
   notifPollTimer = setInterval(loadNotifications, 60000);
-  // Restore page: prefer URL hash, fall back to sessionStorage
+  // Restore page: prefer URL hash, fall back to sessionStorage.
+  // Restore ANY module whose page exists in the DOM — a hardcoded allowlist here
+  // went stale and dropped modules (Wholesale Orders, IP Reports, …) on refresh.
   let _pg = location.hash.slice(1).split('/')[0];
   if (!_pg) _pg = sessionStorage.getItem('snt_page') || '';
-  const _pages = ['agreement','ipmaster','recipients','brandmaster','salesreport','leads','distpartner','vendormaster','rnd','popupbooth','activitylog','mesign','po','stockmovement','productmap','wholesalecatalog','productdev','collections','designermaster','dsgworkflow','warehousekpi','stockadjmgmt','returnreason','invcheck','salesperf','reminders','announcements','marte','royalty','income','contentplan','adsmgmt','mktactivation','publication','photoshoot','kolmgmt','txmap','sampling','arreceivables','manualpurchase'];
-  if (_pages.includes(_pg))
+  const _pgId = (_pg === 'invtransferout' || _pg === 'invtransferin') ? 'invtransfer' : _pg;
+  if (_pg && _pg !== 'home' && document.getElementById('page-'+_pgId))
     showPage(_pg, document.getElementById('nav-'+_pg));
 }
 
