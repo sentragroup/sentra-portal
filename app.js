@@ -46793,8 +46793,31 @@ function renderWholesaleCatalog(){
       + `<div class="wc-meta">${r.ip?`<span class="wc-tag">${wcEsc(r.ip)}</span>`:''}${r.collection?`<span class="wc-col">${wcEsc(r.collection)}</span>`:''}</div>`
       + `<div class="wc-foot"><span class="wc-sizes" title="${wcEsc(sizeTxt)}">${wcEsc(sizeTxt)}</span><span class="wc-price">${price}</span></div>`
       + `<label class="wc-pub${on?' on':''}"><input type="checkbox" ${on?'checked':''} onchange="wcTogglePublish(${r.item_group_id}, this.checked)"><span>${on?'Published':'Publish ke wholesale'}</span></label>`
+      + wcSchemeControl(r)
       + `</div></div>`;
   }).join('');
+}
+function wcSchemeControl(r){
+  const scheme = r.scheme==='ATS' ? 'ATS' : 'PO';
+  const stock = Number(r.stock||0);
+  const stockNote = scheme==='ATS'
+    ? (stock>0 ? `<span class="wc-stock">Stok: ${stock.toLocaleString('id-ID')}</span>` : `<span class="wc-stock out">Stok habis — auto Pre-Order</span>`)
+    : '';
+  return `<div class="wc-scheme"><span class="wc-scheme-lbl">Skema</span>`
+    + `<select onchange="wcSetScheme(${r.item_group_id}, this.value)">`
+    + `<option value="PO"${scheme==='PO'?' selected':''}>Pre-Order</option>`
+    + `<option value="ATS"${scheme==='ATS'?' selected':''}>Ready Stock (ATS)</option>`
+    + `</select>${stockNote}</div>`;
+}
+async function wcSetScheme(itemGroupId, scheme){
+  const row = _wcRows.find(r=>r.item_group_id===itemGroupId);
+  const prev = row ? row.scheme : 'PO';
+  if(row) row.scheme = scheme;
+  renderWholesaleCatalog();
+  const { error } = await sb.from('wholesale_catalog').upsert(
+    { item_group_id:itemGroupId, scheme, updated_by:currentUser, updated_at:new Date().toISOString() },
+    { onConflict:'item_group_id' });
+  if(error){ alert('Gagal menyimpan skema: '+error.message); if(row) row.scheme=prev; renderWholesaleCatalog(); }
 }
 async function wcTogglePublish(itemGroupId, pub){
   const row = _wcRows.find(r=>r.item_group_id===itemGroupId);
