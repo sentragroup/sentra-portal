@@ -46746,6 +46746,7 @@ async function loadWholesaleCatalog(){
   const st = id => document.getElementById(id);
   if(st('wc-s-total')) st('wc-s-total').textContent = _wcRows.length.toLocaleString('id-ID');
   if(st('wc-s-ip')) st('wc-s-ip').textContent = ips.length;
+  renderSortBar();
   renderWholesaleCatalog();
 }
 function wcFill(id, allLabel, vals){
@@ -46755,13 +46756,64 @@ function wcFill(id, allLabel, vals){
   s.value = cur;
 }
 function clearWCFilters(){
-  ['wc-fil-ip','wc-fil-collection','wc-fil-status','wc-fil-scheme','wc-sort'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+  ['wc-fil-ip','wc-fil-collection','wc-fil-status','wc-fil-scheme'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
   const q=document.getElementById('wc-search'); if(q) q.value='';
+  _wcSort=[{field:'name',dir:'asc'}]; renderSortBar();
   renderWholesaleCatalog();
 }
+// ── multi-level sort ──
+const WC_SORT_FIELDS = [
+  { key:'name',        label:'Nama',        type:'text', asc:'A → Z',            desc:'Z → A' },
+  { key:'stock',       label:'Qty Stock',   type:'num',  asc:'Sedikit → Banyak', desc:'Banyak → Sedikit' },
+  { key:'dio',         label:'Days Inventory Outstanding', type:'num', asc:'Cepat → Lama', desc:'Lama → Cepat' },
+  { key:'sold_90d',    label:'Terjual 90h', type:'num',  asc:'Sedikit → Banyak', desc:'Banyak → Sedikit' },
+  { key:'retail_price',label:'Harga',       type:'num',  asc:'Murah → Mahal',    desc:'Mahal → Murah' }
+];
+let _wcSort = [{ field:'name', dir:'asc' }];
+function wcSortVal(r, key){
+  if(key==='dio'){ const d=wcDIO(r); return d===Infinity ? 1e12 : d; }
+  if(key==='name') return (r.name||'').toLowerCase();
+  return Number(r[key]||0);
+}
+function wcCompare(a,b){
+  for(const s of _wcSort){
+    const fld = WC_SORT_FIELDS.find(f=>f.key===s.field); if(!fld) continue;
+    const va=wcSortVal(a,s.field), vb=wcSortVal(b,s.field);
+    let c = fld.type==='text' ? String(va).localeCompare(String(vb)) : (va-vb);
+    if(s.dir==='desc') c=-c;
+    if(c) return c;
+  }
+  return 0;
+}
+function renderSortBar(){
+  const bar = document.getElementById('wc-sortbar'); if(!bar) return;
+  const used = new Set(_wcSort.map(s=>s.field));
+  const chips = _wcSort.map((s,i)=>{
+    const fld = WC_SORT_FIELDS.find(f=>f.key===s.field) || WC_SORT_FIELDS[0];
+    const opts = WC_SORT_FIELDS.filter(f=>!used.has(f.key)||f.key===s.field)
+      .map(f=>`<option value="${f.key}"${f.key===s.field?' selected':''}>${wcEsc(f.label)}</option>`).join('');
+    const dirLbl = s.dir==='asc' ? fld.asc : fld.desc;
+    return `<span class="wc-sortchip"><span class="wc-sortnum">${i+1}</span>`
+      + `<select onchange="wcSortSetField(${i},this.value)">${opts}</select>`
+      + `<button class="wc-sortdir" onclick="wcSortToggleDir(${i})" title="Ubah arah">${s.dir==='asc'?'↑':'↓'} ${wcEsc(dirLbl)}</button>`
+      + (_wcSort.length>1?`<button class="wc-sortx" onclick="wcSortRemove(${i})" title="Hapus">✕</button>`:'')
+      + `</span>`;
+  }).join('');
+  const canAdd = _wcSort.length < WC_SORT_FIELDS.length;
+  bar.innerHTML = `<span class="wc-sortlbl">↕ Urutkan</span>${chips}`
+    + (canAdd?`<button class="wc-sortadd" onclick="wcSortAdd()">+ tambah urutan</button>`:'');
+}
+function wcSortAdd(){
+  const used = new Set(_wcSort.map(s=>s.field));
+  const next = WC_SORT_FIELDS.find(f=>!used.has(f.key));
+  if(next){ _wcSort.push({ field:next.key, dir: next.type==='text'?'asc':'desc' }); renderSortBar(); renderWholesaleCatalog(); }
+}
+function wcSortSetField(i,v){ if(_wcSort[i]){ const fld=WC_SORT_FIELDS.find(f=>f.key===v); _wcSort[i].field=v; _wcSort[i].dir=fld&&fld.type==='text'?'asc':'desc'; renderSortBar(); renderWholesaleCatalog(); } }
+function wcSortToggleDir(i){ if(_wcSort[i]){ _wcSort[i].dir = _wcSort[i].dir==='asc'?'desc':'asc'; renderSortBar(); renderWholesaleCatalog(); } }
+function wcSortRemove(i){ _wcSort.splice(i,1); if(!_wcSort.length) _wcSort=[{field:'name',dir:'asc'}]; renderSortBar(); renderWholesaleCatalog(); }
 function wcFilteredRows(){
   const val = id => (document.getElementById(id)||{}).value || '';
-  const ip = val('wc-fil-ip'), col = val('wc-fil-collection'), status = val('wc-fil-status'), scheme = val('wc-fil-scheme'), sort = val('wc-sort');
+  const ip = val('wc-fil-ip'), col = val('wc-fil-collection'), status = val('wc-fil-status'), scheme = val('wc-fil-scheme');
   const q = val('wc-search').toLowerCase().trim();
   let rows = _wcRows.filter(r =>
     (!ip  || r.ip === ip) &&
@@ -46770,9 +46822,7 @@ function wcFilteredRows(){
     (!scheme || (r.scheme==='ATS' ? 'ATS' : 'PO') === scheme) &&
     (!q   || (r.name||'').toLowerCase().includes(q) || (r.ip||'').toLowerCase().includes(q))
   );
-  if(sort==='stock') rows.sort((a,b)=>Number(b.stock||0)-Number(a.stock||0));
-  else if(sort==='dio'){ const dv=r=>{const d=wcDIO(r);return d===Infinity?1e12:d;}; rows.sort((a,b)=>dv(b)-dv(a)); }
-  else rows.sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+  rows.sort(wcCompare);
   return rows;
 }
 function renderWholesaleCatalog(){
