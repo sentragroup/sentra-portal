@@ -46863,6 +46863,12 @@ function wcSchemeControl(r){
   const dio = wcDIO(r);
   const dioTxt = dio===Infinity ? '∞' : (Math.round(dio).toLocaleString('id-ID')+'h');
   const stockCls = stock<=0 ? 'out' : (scheme==='ATS' ? 'ats' : '');
+  const atsCfg = scheme==='ATS'
+    ? `<div class="wc-atscfg">`
+      + `<label>Diskon <input type="number" min="0" max="100" step="1" value="${Number(r.ats_discount_pct||0)}" onchange="wcSetAtsField(${r.item_group_id},'ats_discount_pct',this.value)"> %</label>`
+      + `<label>Min. beli <input type="number" min="0" step="1" value="${Number(r.ats_min_qty||0)}" onchange="wcSetAtsField(${r.item_group_id},'ats_min_qty',this.value)"> pcs</label>`
+      + `</div>`
+    : '';
   return `<div class="wc-invrow">`
     + `<span class="wc-stock ${stockCls}" title="Qty stock tersedia (Jubelio)">📦 ${stock.toLocaleString('id-ID')} pcs</span>`
     + `<span class="wc-dio" title="Days Inventory Outstanding — makin besar = makin lambat laku (kandidat ATS)">DIO ${dioTxt}</span>`
@@ -46872,7 +46878,18 @@ function wcSchemeControl(r){
     + `<select onchange="wcSetScheme(${r.item_group_id}, this.value)">`
     + `<option value="PO"${scheme==='PO'?' selected':''}>Pre-Order</option>`
     + `<option value="ATS"${scheme==='ATS'?' selected':''}>Ready Stock (ATS)</option>`
-    + `</select></div>`;
+    + `</select></div>`
+    + atsCfg;
+}
+async function wcSetAtsField(itemGroupId, field, val){
+  const row = _wcRows.find(r=>r.item_group_id===itemGroupId);
+  const num = Math.max(0, Number(val)||0);
+  const prev = row ? row[field] : 0;
+  if(row) row[field] = num;
+  const patch = { item_group_id:itemGroupId, updated_by:currentUser, updated_at:new Date().toISOString() };
+  patch[field] = num;
+  const { error } = await sb.from('wholesale_catalog').upsert(patch, { onConflict:'item_group_id' });
+  if(error){ alert('Gagal menyimpan: '+error.message); if(row) row[field]=prev; renderWholesaleCatalog(); }
 }
 async function wcSetScheme(itemGroupId, scheme){
   const row = _wcRows.find(r=>r.item_group_id===itemGroupId);
