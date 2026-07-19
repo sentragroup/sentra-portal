@@ -2195,6 +2195,8 @@
         <select id="wc-fil-ip" onchange="renderWholesaleCatalog()"><option value="">Semua IP</option></select>
         <select id="wc-fil-collection" onchange="renderWholesaleCatalog()"><option value="">Semua Collection</option></select>
         <select id="wc-fil-status" onchange="renderWholesaleCatalog()"><option value="">Semua Status</option><option value="pub">Published</option><option value="unpub">Belum Published</option></select>
+        <select id="wc-fil-scheme" onchange="renderWholesaleCatalog()"><option value="">Semua Skema</option><option value="ATS">Ready Stock (ATS)</option><option value="PO">Pre-Order</option></select>
+        <select id="wc-sort" onchange="renderWholesaleCatalog()"><option value="">Urut: Nama (A–Z)</option><option value="stock">Qty Stock (terbanyak)</option><option value="dio">Days Inventory Outstanding</option></select>
         <input type="text" id="wc-search" placeholder="Cari desain..." oninput="renderWholesaleCatalog()" style="padding:5px 10px;font-size:12px;border:1px solid var(--g100);border-radius:6px;outline:none;min-width:200px">
         <button class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="clearWCFilters()">✕ Reset</button>
         <div class="tcount" id="wc-tcount" style="margin-left:auto">— desain</div>

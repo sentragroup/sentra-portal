@@ -46755,21 +46755,24 @@ function wcFill(id, allLabel, vals){
   s.value = cur;
 }
 function clearWCFilters(){
-  ['wc-fil-ip','wc-fil-collection','wc-fil-status'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+  ['wc-fil-ip','wc-fil-collection','wc-fil-status','wc-fil-scheme','wc-sort'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
   const q=document.getElementById('wc-search'); if(q) q.value='';
   renderWholesaleCatalog();
 }
 function wcFilteredRows(){
   const val = id => (document.getElementById(id)||{}).value || '';
-  const ip = val('wc-fil-ip'), col = val('wc-fil-collection'), status = val('wc-fil-status');
+  const ip = val('wc-fil-ip'), col = val('wc-fil-collection'), status = val('wc-fil-status'), scheme = val('wc-fil-scheme'), sort = val('wc-sort');
   const q = val('wc-search').toLowerCase().trim();
   let rows = _wcRows.filter(r =>
     (!ip  || r.ip === ip) &&
     (!col || r.collection === col) &&
     (!status || (status==='pub' ? r.is_published : !r.is_published)) &&
+    (!scheme || (r.scheme==='ATS' ? 'ATS' : 'PO') === scheme) &&
     (!q   || (r.name||'').toLowerCase().includes(q) || (r.ip||'').toLowerCase().includes(q))
   );
-  rows.sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+  if(sort==='stock') rows.sort((a,b)=>Number(b.stock||0)-Number(a.stock||0));
+  else if(sort==='dio'){ const dv=r=>{const d=wcDIO(r);return d===Infinity?1e12:d;}; rows.sort((a,b)=>dv(b)-dv(a)); }
+  else rows.sort((a,b)=>(a.name||'').localeCompare(b.name||''));
   return rows;
 }
 function renderWholesaleCatalog(){
@@ -46797,17 +46800,29 @@ function renderWholesaleCatalog(){
       + `</div></div>`;
   }).join('');
 }
+// Days Inventory Outstanding = stok ÷ rata-rata penjualan/hari (90 hari). ∞ = tidak ada penjualan (slow mover).
+function wcDIO(r){
+  const stock=Number(r.stock||0), s90=Number(r.sold_90d||0);
+  if(stock<=0) return 0;
+  if(s90<=0) return Infinity;
+  return stock/(s90/90);
+}
 function wcSchemeControl(r){
   const scheme = r.scheme==='ATS' ? 'ATS' : 'PO';
   const stock = Number(r.stock||0);
-  const stockNote = scheme==='ATS'
-    ? (stock>0 ? `<span class="wc-stock">Stok: ${stock.toLocaleString('id-ID')}</span>` : `<span class="wc-stock out">Stok habis — auto Pre-Order</span>`)
-    : '';
-  return `<div class="wc-scheme"><span class="wc-scheme-lbl">Skema</span>`
+  const dio = wcDIO(r);
+  const dioTxt = dio===Infinity ? '∞' : (Math.round(dio).toLocaleString('id-ID')+'h');
+  const stockCls = stock<=0 ? 'out' : (scheme==='ATS' ? 'ats' : '');
+  return `<div class="wc-invrow">`
+    + `<span class="wc-stock ${stockCls}" title="Qty stock tersedia (Jubelio)">📦 ${stock.toLocaleString('id-ID')} pcs</span>`
+    + `<span class="wc-dio" title="Days Inventory Outstanding — makin besar = makin lambat laku (kandidat ATS)">DIO ${dioTxt}</span>`
+    + (scheme==='ATS'&&stock<=0 ? `<span class="wc-autopo">auto PO</span>` : '')
+    + `</div>`
+    + `<div class="wc-scheme"><span class="wc-scheme-lbl">Skema</span>`
     + `<select onchange="wcSetScheme(${r.item_group_id}, this.value)">`
     + `<option value="PO"${scheme==='PO'?' selected':''}>Pre-Order</option>`
     + `<option value="ATS"${scheme==='ATS'?' selected':''}>Ready Stock (ATS)</option>`
-    + `</select>${stockNote}</div>`;
+    + `</select></div>`;
 }
 async function wcSetScheme(itemGroupId, scheme){
   const row = _wcRows.find(r=>r.item_group_id===itemGroupId);
