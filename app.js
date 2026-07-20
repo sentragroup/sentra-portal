@@ -37798,7 +37798,7 @@ function _whRenderDetail() {
           <span>Items (${items.length})</span>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
             <button onclick="_whDownloadCustomerPO()" style="font-size:11px;padding:5px 12px;border:1px solid #3C3489;background:#3C3489;color:white;border-radius:5px;cursor:pointer;font-weight:600" title="Generate PDF Purchase Order — customer kirim ke PT SDY, customer yang sign">📋 Generate Customer PO</button>
-            <button onclick="_whGenerateJubelioInvoiceCSV()" style="font-size:11px;padding:5px 12px;border:1px solid #0a7d3a;background:#0a7d3a;color:white;border-radius:5px;cursor:pointer;font-weight:600" title="Export CSV format Jubelio Import Faktur — siap upload ke Jubelio">📄 Jubelio Invoice CSV</button>
+            <button onclick="_whGenerateJubelioPesananCSV()" style="font-size:11px;padding:5px 12px;border:1px solid #0a7d3a;background:#0a7d3a;color:white;border-radius:5px;cursor:pointer;font-weight:600" title="Export CSV format Jubelio Import Pesanan Penjualan — siap upload ke Jubelio">📄 Jubelio Pesanan CSV</button>
             <label class="btn-ghost" style="font-size:11px;padding:5px 12px;cursor:pointer" title="Import CSV: item_code, qty, list_price, discount_pct">📥 Import CSV<input type="file" accept=".csv" onchange="_whImportCsv(this)" style="display:none"></label>
             <button class="btn-ghost" onclick="_whDownloadCsvTemplate()" style="font-size:11px;padding:5px 12px" title="Download template CSV pre-filled dengan active SKUs">📋 Template</button>
             <div style="display:flex;gap:6px;align-items:center;position:relative">
@@ -40195,126 +40195,139 @@ async function _whDownloadSuratJalan(shipmentId) {
   w.document.close();
 }
 
-// ── Jubelio Invoice CSV generator ──
-// Format mengikuti template "Import Faktur" Jubelio: 31 columns, 1 header
-// row per invoice (semua kolom diisi), N item rows (header cols KOSONG,
-// hanya item cols yang diisi). Delimiter koma, no BOM, LF line endings.
-async function _whGenerateJubelioInvoiceCSV() {
+// ── Jubelio Pesanan CSV generator ──
+// Format mengikuti template "Import Pesanan Penjualan" Jubelio: 36 kolom,
+// 1 header row per pesanan (kolom 1-30 diisi), N item rows (header cols
+// KOSONG, hanya kolom 31-36 diisi). Delimiter koma, no BOM, CRLF endings.
+// Warehouse default: Gudang Offline. Discount di kolom item = Rupiah (bukan %).
+async function _whGenerateJubelioPesananCSV() {
   const o = _whCurrentOrder; if (!o) return;
   const h = o.header;
   const items = o.items || [];
   if (!items.length) { alert('Order belum ada items.'); return; }
   const customer = allDPRows.find(c => c.id === h.customerId);
-  // Fetch Jubelio contact buat phone/email
+  // Fetch Jubelio contact buat phone/email/address
   let jubContact = null;
   if (customer?.jubelioContactId) {
     try {
-      const { data } = await sb.from('jubelio_contacts').select('contact_name,primary_contact,phone,mobile,email').eq('contact_id', customer.jubelioContactId).maybeSingle();
+      const { data } = await sb.from('jubelio_contacts').select('contact_name,primary_contact,phone,mobile,email,billing_address,billing_city,billing_province,billing_post_code,shipping_address').eq('contact_id', customer.jubelioContactId).maybeSingle();
       jubContact = data;
     } catch(_) {}
   }
-  // CSV escape (RFC 4180): wrap in quotes kalau ada koma/quote/newline; escape internal " → ""
   const esc = (v) => {
     if (v === null || v === undefined) return '';
     const s = String(v);
     if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g,'""')}"`;
     return s;
   };
-  // Date helpers
   const fmtDate = (d) => {
     if (!d) return '';
     const x = new Date(d.length === 10 ? d+'T00:00:00' : d);
     if (isNaN(x.getTime())) return '';
-    const y = x.getFullYear(), m = String(x.getMonth()+1).padStart(2,'0'), day = String(x.getDate()).padStart(2,'0');
-    return `${y}-${m}-${day}`;
+    return `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`;
   };
-  // Sanitize phone — Jubelio mau "angka tanpa spasi atau tanda hubung"
   const cleanPhone = (s) => (s||'').toString().replace(/[^\d]/g,'');
-  // Invoice no auto dari order id
-  const orderShort = (h.id||'').replace(/^WCO-/,'').replace(/-/g,'');
-  const invoiceNo = `INV-WS-${orderShort}`;
-  // Tanggal: pakai order_date sebagai invoice_date, due_date dari final milestone payment_invoice_date kalau ada, else +14 hari
-  const invoiceDate = fmtDate(h.orderDate) || fmtDate(new Date().toISOString().slice(0,10));
-  let dueDate = '';
-  const plan = h.paymentPlan || _whDefaultPaymentPlan();
-  const lastMs = plan.milestones?.[plan.milestones.length-1];
-  if (lastMs) {
-    const lastPay = (o.payments||[]).find(p => p.milestone === lastMs.key);
-    if (lastPay?.invoice_date) dueDate = fmtDate(_whComputeDueDate(lastPay.invoice_date));
-  }
-  if (!dueDate) {
-    // Fallback: order_date + 14
-    const d = new Date(h.orderDate+'T00:00:00');
-    if (!isNaN(d.getTime())) { d.setDate(d.getDate()+14); dueDate = fmtDate(d.toISOString().slice(0,10)); }
-  }
+  // Pesanan no — pakai [auto] biar Jubelio auto-generate (konsisten dengan MP)
+  const pesananNo = '[auto]';
+  const orderDate = fmtDate(h.orderDate) || fmtDate(new Date().toISOString().slice(0,10));
   const customerName = jubContact?.contact_name || h.customerName || '';
   const customerEmail = jubContact?.email || customer?.email || '';
   const customerPhone = cleanPhone(jubContact?.phone || jubContact?.mobile || customer?.contactInfo || '');
-  // Defaults — sesuaiin di config Jubelio team
-  const location = 'Pusat';
+  // Defaults — Wholesale pakai Gudang Offline (per user request)
+  const location = 'Gudang Offline';
   const source = 'INTERNAL';
   const store = 'Toko Internal Jubelio';
-  const accountCode = '4-4000';
-  const taxName = 'No Tax'; // default; user bisa edit di Jubelio kalau perlu PPN
-  // Shipping cost total dari semua shipments yang di-cover Sentra atau reimbursed
+  const taxName = 'No Tax';
+  // Shipping cost = sum shipments dengan cost yang di-cover Sentra / reimbursed
   const shippingCost = (o.shipments||[]).reduce((s,sh) => {
     const cat = sh.shipping_cost_category;
     if (cat === 'paid_sentra' || cat === 'reimbursed') return s + (parseFloat(sh.shipping_cost)||0);
     return s;
   }, 0);
+  // Sudah Lunas — TRUE kalau semua payment milestone udah paid
+  const totalReceived = (o.payments||[]).reduce((s,p) => s + (p.paid_at ? (parseFloat(p.amount)||0) : 0), 0);
+  const subtotal = items.reduce((s,it) => s + (parseFloat(it.unit_price)||0) * (parseFloat(it.qty)||0), 0);
+  const sudahLunas = totalReceived >= subtotal + shippingCost ? 'TRUE' : 'FALSE';
+  // Recipient shipping — pakai Jubelio contact address kalau ada
+  const recipientName = customerName;
+  const recipientAddr = jubContact?.shipping_address || jubContact?.billing_address || '';
+  const recipientCity = jubContact?.billing_city || '';
+  const recipientProv = jubContact?.billing_province || '';
+  const recipientPost = jubContact?.billing_post_code || '';
+  const recipientPhone = customerPhone;
+  // Keterangan — Wajib di Pesanan; combine PIC, PO no, notes
+  const noteText = [
+    h.customerPoNo ? `PO Ref: ${h.customerPoNo}` : '',
+    h.pic ? `PIC: ${h.pic}` : '',
+    h.notes || ''
+  ].filter(Boolean).join(' · ') || '.';
 
-  // 31 columns sesuai template
-  const HEADERS = ['invoice_no','customer_ref_no','invoice_date','due_date','customer_name','customer_email','customer_phone','is_tax_included','location','source','store','salesmen_name','salesmen_email','salesmen_phone','add_disc','shipping_cost','insurance_cost','add_fee','service_fee','note','item_code','description','price','account_code','qty_in_base','disc','tax_name','Tipe Barang','serial_no','batch_no','bin_code'];
-
+  // 36 kolom — header bahasa Indonesia sesuai template Import Pesanan Penjualan
+  const HEADERS = [
+    'No. Pesanan','No. Ref Pelanggan','Tanggal','Zona Waktu','Nama Pelanggan',
+    'Email Pelanggan','No. Telp Pelanggan','Harga Termasuk Pajak','Lokasi',
+    'Salesmen','Sumber','Toko','Sudah Lunas','Status COD','Nama Penerima',
+    'Alamat Lengkap','Kecamatan','Kota','Provinsi','Kode Pos','Negara',
+    'Nomer Telepon','Keterangan','Kurir','No. Resi','Diskon Lainnya',
+    'Ongkos Kirim','Asuransi','Biaya Lainnya','Potongan Biaya','SKU',
+    'Harga','Qty','Nilai Diskon','Tipe Barang','Pajak'
+  ];
   const itemRows = items.map((it, idx) => {
     const isFirst = idx === 0;
-    const size = _whSizeOf(it.item_name, it.item_code);
-    const desc = `${_whParentName(it.item_name)} - ${size}`.trim();
+    const qty = parseFloat(it.qty)||0;
+    const price = parseFloat(it.unit_price)||0;
+    // Nilai Diskon di Pesanan = Rupiah amount. Kita udah handle discount di
+    // unit_price via list_price × discount_pct, jadi row-level disc = 0.
+    const discAmount = 0;
     const headerCols = isFirst ? [
-      invoiceNo,
-      h.customerPoNo || '',
-      invoiceDate,
-      dueDate,
-      customerName,
-      customerEmail,
-      customerPhone,
-      'FALSE',
-      location,
-      source,
-      store,
-      h.pic || '',
-      '', // salesmen_email
-      '', // salesmen_phone
-      0,  // add_disc
-      shippingCost,
-      0,  // insurance_cost
-      0,  // add_fee
-      0,  // service_fee
-      h.notes || '',
-    ] : Array(20).fill('');
+      pesananNo,                     // No. Pesanan
+      h.customerPoNo || '',          // No. Ref Pelanggan
+      orderDate,                     // Tanggal
+      'WIB',                         // Zona Waktu
+      customerName,                  // Nama Pelanggan
+      customerEmail,                 // Email Pelanggan
+      customerPhone,                 // No. Telp Pelanggan
+      'FALSE',                       // Harga Termasuk Pajak
+      location,                      // Lokasi (Gudang Offline)
+      h.pic || '',                   // Salesmen
+      source,                        // Sumber
+      store,                         // Toko
+      sudahLunas,                    // Sudah Lunas
+      'FALSE',                       // Status COD
+      recipientName,                 // Nama Penerima
+      recipientAddr,                 // Alamat Lengkap
+      '',                            // Kecamatan
+      recipientCity,                 // Kota
+      recipientProv,                 // Provinsi
+      recipientPost,                 // Kode Pos
+      'Indonesia',                   // Negara
+      recipientPhone,                // Nomer Telepon
+      noteText,                      // Keterangan
+      '',                            // Kurir
+      '',                            // No. Resi
+      0,                             // Diskon Lainnya
+      shippingCost,                  // Ongkos Kirim
+      0, 0, 0,                       // Asuransi, Biaya Lainnya, Potongan Biaya
+    ] : Array(30).fill('');
     const itemCols = [
-      it.item_code || '',
-      desc,
-      parseFloat(it.unit_price)||0,
-      accountCode,
-      parseFloat(it.qty)||0,
-      0, // disc per-item (kita udah handle discount di unit_price via list/disc_pct)
-      taxName,
-      '', // Tipe Barang
-      '', // serial_no
-      '', // batch_no
-      '', // bin_code
+      it.item_code || '',            // SKU
+      price,                         // Harga
+      qty,                           // Qty
+      discAmount,                    // Nilai Diskon (Rupiah)
+      '',                            // Tipe Barang
+      taxName,                       // Pajak
     ];
     return [...headerCols, ...itemCols].map(esc).join(',');
   });
 
-  const csv = [HEADERS.join(','), ...itemRows].join('\n');
-  // Download
+  // CRLF line endings; no BOM
+  const csv = [HEADERS.join(','), ...itemRows].join('\r\n');
+  const orderShort = (h.id||'').replace(/^WCO-/,'').replace(/-/g,'');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `jubelio-invoice-${invoiceNo}.csv`;
+  a.download = `jubelio-pesanan-WS-${orderShort}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }
