@@ -40231,12 +40231,14 @@ async function _whGenerateJubelioPesananCSV() {
   const pesananNo = '[auto]';
   const orderDate = fmtDate(h.orderDate) || fmtDate(new Date().toISOString().slice(0,10));
   const customerName = jubContact?.contact_name || h.customerName || '';
-  const customerEmail = jubContact?.email || customer?.email || '';
+  // Email di-kosongin — Jubelio gak butuh untuk pesanan penjualan
+  const customerEmail = '';
   const customerPhone = cleanPhone(jubContact?.phone || jubContact?.mobile || customer?.contactInfo || '');
-  // Defaults — Wholesale pakai Gudang Offline (per user request)
+  // Defaults — Wholesale pakai Gudang Offline + Toko Default + fixed salesman
   const location = 'Gudang Offline';
   const source = 'INTERNAL';
-  const store = 'Toko Internal Jubelio';
+  const store = 'Toko Default';
+  const salesmen = 'Davino Syam';
   const taxName = 'No Tax';
   // Shipping cost = sum shipments dengan cost yang di-cover Sentra / reimbursed
   const shippingCost = (o.shipments||[]).reduce((s,sh) => {
@@ -40289,7 +40291,7 @@ async function _whGenerateJubelioPesananCSV() {
       customerPhone,                 // No. Telp Pelanggan
       'FALSE',                       // Harga Termasuk Pajak
       location,                      // Lokasi (Gudang Offline)
-      h.pic || '',                   // Salesmen
+      salesmen,                      // Salesmen (Davino Syam)
       source,                        // Sumber
       store,                         // Toko
       sudahLunas,                    // Sudah Lunas
