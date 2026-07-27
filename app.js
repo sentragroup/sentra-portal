@@ -13826,7 +13826,7 @@ function fmtRp(n){return 'Rp '+Math.round(n||0).toLocaleString('id-ID');}
 
 // ── INVENTORY CHECK ──
 let invLocations = [];   // [{location_id, location_name, category}]
-let invStockFlat = [];   // all rows from jubelio_inventory_by_location
+let invStockFlat = [];   // all rows from jubelio_inventory_stocks
 let invGroups    = [];   // built by rebuildInvGroups() — sorted parent items
 let invStockMap  = {};   // key: `${location_id}_${item_id}` -> row (fast lookup)
 let invFilterCats = new Set(['Inbound','Online','Offline','Event','Consignment']);
@@ -40646,13 +40646,16 @@ async function deleteWholesale(id) {
 // invoice + surat jalan, payment tracker = received payments log (free-form
 // partial payments), connect ke Account Receivable.
 const MP_STOCK_LOCATIONS = ['Gudang Bintaro','Gudang Penerimaan Barang'];
+// jubelio_inventory_stocks uses location_id (int) — map matching MP_STOCK_LOCATIONS names.
+// Bintaro = -1, Penerimaan Barang = 3 (from jubelio locations catalog).
+const MP_STOCK_LOCATION_IDS = [-1, 3];
 const MP_INVOICE_CATEGORIES = [
   'Penjualan Merchandise Retail','Reseller','Project Merchandise',
   'Event & Activation','Production & Service Fee','Royalty / Revenue Share','Lainnya'
 ];
 let _mpurcRows = [];
 let _mpurcCurrent = null;
-let _mpurcStockCache = null;  // jubelio_inventory_by_location di 2 lokasi tsb
+let _mpurcStockCache = null;  // jubelio_inventory_stocks di 2 lokasi (Bintaro + Penerimaan)
 let _mpurcSrpCache = null;    // Map<lowered sku_name, srp> dari product_dev parents
 
 function mapMpurc(r) {
@@ -40883,8 +40886,8 @@ async function openManualPurchaseDetail(id) {
   // Pre-load stock cache (Bintaro + Penerimaan Barang)
   if (!_mpurcStockCache) {
     try {
-      _mpurcStockCache = await _fetchAllPages('jubelio_inventory_by_location','item_id,location_name,qty_on_hand,qty_available',
-        q => q.in('location_name', MP_STOCK_LOCATIONS));
+      _mpurcStockCache = await _fetchAllPages('jubelio_inventory_stocks','item_id,location_id,on_hand,available',
+        q => q.in('location_id', MP_STOCK_LOCATION_IDS));
     } catch(_) { _mpurcStockCache = []; }
   }
   // Pre-load item metadata for existing items (so thumbnails render)
@@ -41767,7 +41770,7 @@ function _mpurcStockFor(jubelioItemId) {
   if (!_mpurcStockCache || !jubelioItemId) return 0;
   return _mpurcStockCache
     .filter(r => Number(r.item_id) === Number(jubelioItemId))
-    .reduce((s,r) => s + (parseFloat(r.qty_available)||0), 0);
+    .reduce((s,r) => s + (parseFloat(r.available)||0), 0);
 }
 function _mpurcThumbFor(jubelioItemId) {
   const cache = window.__mpurcItemsCache || new Map();
@@ -41942,8 +41945,8 @@ async function _mpurcOpenStockPicker() {
     const [metaRes, stockRes] = await Promise.all([
       _fetchAllPages('jubelio_items','item_id,item_code,item_name,item_group_id,thumbnail,image_urls',
         q => q.not('item_code','is',null).order('item_name')),
-      _fetchAllPages('jubelio_inventory_by_location','item_id,location_name,qty_on_hand,qty_available',
-        q => q.in('location_name', MP_STOCK_LOCATIONS)),
+      _fetchAllPages('jubelio_inventory_stocks','item_id,location_id,on_hand,available',
+        q => q.in('location_id', MP_STOCK_LOCATION_IDS)),
     ]);
     metaRows = metaRes || [];
     _mpurcStockCache = stockRes || [];
@@ -41956,7 +41959,7 @@ async function _mpurcOpenStockPicker() {
   const agg = new Map();
   for (const r of _mpurcStockCache) {
     const id = Number(r.item_id);
-    agg.set(id, (agg.get(id)||0) + (parseFloat(r.qty_available)||0));
+    agg.set(id, (agg.get(id)||0) + (parseFloat(r.available)||0));
   }
   // Pre-load SRP catalog from product_dev parents (master price)
   if (!_mpurcSrpCache) {
