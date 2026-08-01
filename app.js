@@ -180,13 +180,74 @@ async function doLogin() {
   const pass  = document.getElementById("loginPass").value;
   const err   = document.getElementById("loginErr");
   const btn   = document.getElementById("loginBtn");
-  if (!email || !pass) { err.textContent = "Email dan password wajib diisi."; return; }
+  if (!email || !pass) { err.textContent = "Email and password are required."; return; }
   err.textContent = "";
-  btn.disabled = true; btn.textContent = "Memuat...";
+  btn.disabled = true; btn.textContent = "Loading...";
   const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
-  btn.disabled = false; btn.textContent = "Masuk →";
-  if (error) { err.textContent = "Login gagal: " + (error.message || "Periksa email & password."); return; }
+  btn.disabled = false; btn.textContent = "Sign in →";
+  if (error) { err.textContent = "Sign in failed: " + (error.message || "Check your email & password."); return; }
   enterApp(data.user, true);
+}
+
+// ── OTP LOGIN (internal.ssentra.asia only; GitHub Pages keeps password) ──
+// Hostname-gated so the SAME file behaves as password login on sentragroup.github.io
+// and localhost, but as email-OTP on the VPS. Append ?otp=1 to force OTP for testing.
+const IS_OTP_LOGIN = location.hostname === "internal.ssentra.asia"
+  || new URLSearchParams(location.search).get("otp") === "1";
+let _otpEmail = "";
+function initLoginMode() {
+  if (!IS_OTP_LOGIN) return;
+  const pw = document.getElementById("pwWrap"); if (pw) pw.style.display = "none";
+  const sub = document.getElementById("loginSub"); if (sub) sub.textContent = "Sign in with a code sent to your team email.";
+  const b = document.getElementById("loginBtn"); if (b) { b.textContent = "Send code →"; b.onclick = otpSend; }
+  const em = document.getElementById("loginEmail");
+  if (em) em.onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); document.getElementById("otpWrap").style.display === "none" ? otpSend() : otpVerify(); } };
+  const c = document.getElementById("loginCode");
+  if (c) c.onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); otpVerify(); } };
+}
+async function otpSend() {
+  const email = document.getElementById("loginEmail").value.trim().toLowerCase();
+  const err = document.getElementById("loginErr"); err.textContent = "";
+  const b = document.getElementById("loginBtn");
+  if (!email) { err.textContent = "Email is required."; return; }
+  b.disabled = true; b.textContent = "Sending...";
+  // shouldCreateUser:false — only existing team accounts can sign in (no open self-signup).
+  const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
+  b.disabled = false;
+  if (error) {
+    const m = (error.message || "").toLowerCase();
+    err.textContent = (m.includes("signups not allowed") || m.includes("not found"))
+      ? "This email isn't registered as a team account. Contact the admin."
+      : "Failed to send code: " + (error.message || "try again.");
+    b.textContent = "Send code →"; return;
+  }
+  _otpEmail = email;
+  document.getElementById("loginEmail").setAttribute("readonly", "");
+  document.getElementById("otpWrap").style.display = "block";
+  document.getElementById("otpBackBtn").style.display = "block";
+  document.getElementById("loginSub").textContent = "Code sent to " + email + ". Check your inbox / spam folder.";
+  b.textContent = "Sign in →"; b.onclick = otpVerify;
+  const c = document.getElementById("loginCode"); c.value = ""; c.focus();
+}
+async function otpVerify() {
+  const token = document.getElementById("loginCode").value.trim();
+  const err = document.getElementById("loginErr"); err.textContent = "";
+  const b = document.getElementById("loginBtn");
+  if (!token) { err.textContent = "Enter the code from your email."; return; }
+  b.disabled = true; b.textContent = "Verifying...";
+  const { data, error } = await sb.auth.verifyOtp({ email: _otpEmail, token, type: "email" });
+  b.disabled = false; b.textContent = "Sign in →";
+  if (error) { err.textContent = "Invalid or expired code."; return; }
+  enterApp(data.user, true);
+}
+function otpBack() {
+  document.getElementById("otpWrap").style.display = "none";
+  document.getElementById("otpBackBtn").style.display = "none";
+  document.getElementById("loginEmail").removeAttribute("readonly");
+  document.getElementById("loginCode").value = "";
+  document.getElementById("loginErr").textContent = "";
+  document.getElementById("loginSub").textContent = "Sign in with a code sent to your team email.";
+  const b = document.getElementById("loginBtn"); b.textContent = "Send code →"; b.onclick = otpSend;
 }
 
 function enterApp(user, freshLogin) {
@@ -197,7 +258,7 @@ function enterApp(user, freshLogin) {
   document.getElementById("app").style.display = "flex";
   document.getElementById("userName").textContent = name;
   document.getElementById("greetName").textContent = name.split(" ")[0];
-  document.getElementById("greetDate").textContent = new Date().toLocaleDateString("id-ID",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
+  document.getElementById("greetDate").textContent = new Date().toLocaleDateString("en-US",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
   loadStats();
   preloadAutocomplete();
   applyAccessControl();
@@ -233,6 +294,7 @@ async function doLogout() {
   document.getElementById("loginEmail").value = "";
   document.getElementById("loginPass").value = "";
   document.getElementById("loginErr").textContent = "";
+  if (IS_OTP_LOGIN) otpBack();   // reset OTP flow back to step 1
 }
 
 // ── ACCESS CONTROL ──
@@ -329,8 +391,9 @@ function showPage(name, el) {
   const _pageId = (name === "invtransferout" || name === "invtransferin") ? "invtransfer" : name;
   document.getElementById("page-"+_pageId).classList.add("active");
   if (el) el.classList.add("active");
+  if (typeof _syncRail === "function") _syncRail(name);   // keep the left rail + panel in sync
   const _c = document.querySelector('.content'); if (_c) _c.scrollTop = 0;
-  const labels = {home:"Internal Tools",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",wholesalecatalog:"Wholesale Catalog",productdev:"Product Development",sampling:"Sampling",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",mktplan:"Marketing Planning",videoprod:"Video Production",txmap:"Transaction Mapping",manualpurchase:"Manual Purchase",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)",vendormaster:"Vendor Master",rnd:"R&D Product",koldb:"KOL Database",outbound:"Outbond Request",meetingnotes:"Meeting Notes",ipreports:"IP Reports",cronlogs:"Cron Logs",wholesale:"Wholesale Orders",arreceivables:"Account Receivables",licensorfreebies:"Account Freebies",conprog:"Consignment Program"};
+  const labels = {home:"Internal Tools",mynotif:"My Notifications",mytask:"My Task",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",wholesalecatalog:"Wholesale Catalog",productdev:"Product Development",sampling:"Sampling",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",mktplan:"Marketing Planning",videoprod:"Video Production",txmap:"Transaction Mapping",manualpurchase:"Manual Purchase",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)",vendormaster:"Vendor Master",rnd:"R&D Product",koldb:"KOL Database",outbound:"Outbond Request",meetingnotes:"Meeting Notes",ipreports:"IP Reports",cronlogs:"Cron Logs",wholesale:"Wholesale Orders",arreceivables:"Account Receivables",licensorfreebies:"Account Freebies",conprog:"Consignment Program"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -344,6 +407,8 @@ function showPage(name, el) {
   // Save current page to sessionStorage as fallback for refresh restoration
   if (name !== "home") sessionStorage.setItem('snt_page', name);
   else sessionStorage.removeItem('snt_page');
+  if (name==="mynotif") loadMyNotif();
+  if (name==="mytask") loadMyTask();
   if (name==="agreement") { loadStats(); loadAgreements(); }
   if (name==="ipmaster") { loadIPMaster(); loadStats(); }
   if (name==="recipients") loadRecipients();
@@ -4961,7 +5026,7 @@ function renderNotifDropdown(items) {
 
 async function handleNotif(id, module, recordId) {
   await sb.from("notifications").update({is_read:true}).eq("id",id);
-  document.getElementById("notif-dropdown").style.display = "none";
+  const _dd = document.getElementById("notif-dropdown"); if (_dd) _dd.style.display = "none";
   const pageMap = {"Agreement":"agreement","IP Master":"ipmaster","Royalty Recipients":"recipients","Brand Master":"brandmaster","Sales Report":"salesreport","Account Report":"salesreport","Leads Tracker":"leads","Leads Management":"leads","Distribution Partner":"distpartner","Pop Up Booth":"popupbooth","reminders":"reminders","announcements":"announcements"};
   const page = pageMap[module];
   if (page) {
@@ -4973,12 +5038,14 @@ async function handleNotif(id, module, recordId) {
     }, 80);
   }
   loadNotifications();
+  if (document.getElementById('page-mynotif') && document.getElementById('page-mynotif').classList.contains('active')) loadMyNotif();
   const _chatFab = document.getElementById('chat-fab'); if (_chatFab) _chatFab.style.display='flex';
 }
 
 async function markAllNotifRead() {
   await sb.from("notifications").update({is_read:true}).eq("recipient",currentUser).eq("is_read",false);
   loadNotifications();
+  if (document.getElementById('page-mynotif') && document.getElementById('page-mynotif').classList.contains('active')) loadMyNotif();
   const _chatFab = document.getElementById('chat-fab'); if (_chatFab) _chatFab.style.display='flex';
 }
 
@@ -4997,6 +5064,76 @@ document.addEventListener("click", e => {
     if (dd) dd.style.display = "none";
   }
 });
+
+// ── MY NOTIFICATIONS (full-page version of the notifications feed) ──
+async function loadMyNotif(){
+  const host = document.getElementById('mynotif-list'); if(!host) return;
+  host.innerHTML = '<div class="empty-td">Loading…</div>';
+  try{
+    const {data} = await sb.from("notifications").select("*").eq("recipient",currentUser).order("created_at",{ascending:false}).limit(100);
+    const items = data||[];
+    const badge = document.getElementById("notif-badge");
+    if(badge){ const u=items.filter(n=>!n.is_read).length; badge.textContent=u>9?"9+":u; badge.style.display=u?"flex":"none"; }
+    if(!items.length){ host.innerHTML='<div class="empty-td">No notifications yet.</div>'; return; }
+    host.innerHTML = items.map(n=>{
+      const dt = new Date(n.created_at).toLocaleString("en-US",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"});
+      return `<div class="mynotif-item ${n.is_read?'read':'unread'}" onclick="handleNotif(${n.id},'${n.module}','${n.record_id||''}')">
+        <div class="mn-dot"></div>
+        <div style="flex:1;min-width:0"><div class="mn-msg">${n.message}</div><div class="mn-time">${dt}</div></div>
+      </div>`;
+    }).join('');
+  }catch(e){ host.innerHTML='<div class="empty-td">Failed to load notifications.</div>'; }
+}
+
+// ── MY TASK (action items assigned to me, aggregated across lead/collection/project) ──
+let _mtRows = [], _mtFilter = 'open';
+async function loadMyTask(){
+  const host = document.getElementById('mt-list'); if(!host) return;
+  host.innerHTML = '<div class="empty-td">Loading…</div>';
+  const me = currentUser || '';
+  try{
+    const [lead, coll, proj] = await Promise.all([
+      sb.from('lead_action_items').select('id,title,due_date,is_done').ilike('assignee', me),
+      sb.from('collection_action_items').select('id,title,deadline,status').ilike('pic', me),
+      sb.from('project_action_items').select('id,title,due_date,is_done').ilike('assignee', me),
+    ]);
+    const rows = [];
+    (lead.data||[]).forEach(r=>rows.push({table:'lead_action_items',id:r.id,source:'Lead',title:r.title,due:r.due_date,done:!!r.is_done,statusBased:false}));
+    (coll.data||[]).forEach(r=>rows.push({table:'collection_action_items',id:r.id,source:'Collection',title:r.title,due:r.deadline,done:r.status==='done',statusBased:true}));
+    (proj.data||[]).forEach(r=>rows.push({table:'project_action_items',id:r.id,source:'Project',title:r.title,due:r.due_date,done:!!r.is_done,statusBased:false}));
+    _mtRows = rows;
+    renderMyTask();
+  }catch(e){ host.innerHTML = `<div class="empty-td">Failed: ${_esc(e.message)}</div>`; }
+}
+function mtFilter(f, btn){ _mtFilter=f; document.querySelectorAll('#page-mytask .mt-tab').forEach(b=>b.classList.toggle('active', b===btn)); renderMyTask(); }
+function renderMyTask(){
+  const host = document.getElementById('mt-list'); if(!host) return;
+  const open=_mtRows.filter(t=>!t.done).length, done=_mtRows.filter(t=>t.done).length;
+  const cnt = document.getElementById('mt-count'); if(cnt) cnt.textContent = `${open} open · ${done} done`;
+  let rows = _mtRows;
+  if(_mtFilter==='open') rows = rows.filter(t=>!t.done);
+  else if(_mtFilter==='done') rows = rows.filter(t=>t.done);
+  rows = rows.slice().sort((a,b)=>(a.done-b.done) || ((a.due||'9999-99')<(b.due||'9999-99')?-1:1));
+  if(!rows.length){ host.innerHTML='<div class="empty-td">Nothing here — you\'re all caught up. 🎉</div>'; return; }
+  const badge = {Lead:'#0891b2',Collection:'#db2777',Project:'#7c3aed'};
+  const today = new Date().toISOString().slice(0,10);
+  host.innerHTML = rows.map(t=>{
+    const due = t.due ? new Date(t.due+'T00:00').toLocaleDateString('en-US',{day:'2-digit',month:'short'}) : '';
+    const over = t.due && !t.done && t.due < today;
+    return `<div class="mt-row ${t.done?'done':''}">
+      <input type="checkbox" ${t.done?'checked':''} onchange="toggleMyTask('${t.table}','${t.id}',${t.statusBased},this.checked)">
+      <div class="mt-title">${_esc(t.title)}</div>
+      <span class="mt-src" style="background:${badge[t.source]}22;color:${badge[t.source]}">${t.source}</span>
+      ${due?`<div class="mt-due ${over?'over':''}">${due}</div>`:''}
+    </div>`;
+  }).join('');
+}
+async function toggleMyTask(table, id, statusBased, done){
+  const upd = statusBased ? {status: done?'done':'open', done_at: done?new Date().toISOString():null} : {is_done: done};
+  await sb.from(table).update(upd).eq('id',id);
+  const r = _mtRows.find(x=>x.table===table && x.id===id); if(r) r.done = done;
+  renderMyTask();
+}
 
 // ── ACTIVITY LOG ──
 let allLogRows = [];
@@ -33789,6 +33926,9 @@ function _obItemsEditHTML(r) {
       <input type="text" class="ob-itm-size" value="${esc(it.size||'')}" placeholder="Size" style="font-size:12px;padding:4px 6px;width:56px;text-align:center" title="Size">
       <input type="number" min="1" class="ob-itm-qty" value="${qty}" oninput="_obItemsRecalc('${id}')" style="font-size:12px;padding:4px 6px;width:56px;text-align:right" title="Qty">
       <input type="number" min="0" step="any" class="ob-itm-hpp" value="${hpp || ''}" placeholder="HPP" oninput="_obItemsRecalc('${id}')" style="font-size:12px;padding:4px 6px;width:100px;text-align:right;font-family:var(--mono)" title="HPP per unit">
+      <label style="display:flex;align-items:center;gap:3px;font-size:10px;color:var(--g600);cursor:pointer;user-select:none" title="Ceklis buat simpan HPP ini sebagai master item — bakal auto-populate di OB berikutnya untuk SKU yang sama">
+        <input type="checkbox" class="ob-itm-master" style="margin:0;cursor:pointer">💾
+      </label>
       <span class="ob-itm-sub" style="font-size:10px;font-family:var(--mono);color:var(--g600);min-width:90px;text-align:right">${sub}</span>
       <input type="hidden" class="ob-itm-sku" value="${esc(it.sku||'')}">
       <input type="hidden" class="ob-itm-name" value="${esc(it.item_name||'')}">
@@ -33875,8 +34015,37 @@ async function saveObItems(id) {
         last_updated: new Date().toISOString(), last_updated_by: currentUser||'',
       }).eq('id', r.sourceId);
     }
-    logActivity('OutboundRequest','edit_items',r.id,`${items.length} items, total HPP ${_kolFmtRp(_kolItemsCOGS(items))}`);
-    setFB('✓ Tersimpan', true);
+    // Persist HPP override ke item_cost_override (Layer 2 fallback di v_jubelio_item_cost).
+    // Kepake buat legacy SKU yang Jubelio-nya cost=0/null — sekali user isi + ceklis,
+    // OB berikutnya untuk item yang sama auto-populate dari override ini.
+    const masterRows = [];
+    document.querySelectorAll(`#ob-itm-list-${id} .ob-itm-row`).forEach(row => {
+      if (!row.querySelector('.ob-itm-master')?.checked) return;
+      const sku = row.querySelector('.ob-itm-sku')?.value || '';
+      const hpp = parseFloat(row.querySelector('.ob-itm-hpp')?.value) || 0;
+      if (sku && hpp > 0) masterRows.push({sku, hpp});
+    });
+    let masterSaved = 0;
+    if (masterRows.length) {
+      try {
+        const {data: pmRows} = await sb.from('product_mappings')
+          .select('id,jubelio_item_id').in('id', masterRows.map(m => m.sku));
+        const pmMap = new Map((pmRows||[]).map(p => [p.id, p.jubelio_item_id]));
+        const upserts = masterRows.map(m => ({
+          item_id: pmMap.get(m.sku),
+          override_cost: m.hpp,
+          set_by: currentUser||'',
+          updated_at: new Date().toISOString(),
+        })).filter(u => u.item_id != null);
+        if (upserts.length) {
+          const {error: eOv} = await sb.from('item_cost_override')
+            .upsert(upserts, {onConflict: 'item_id'});
+          if (!eOv) masterSaved = upserts.length;
+        }
+      } catch (eMaster) { console.warn('Master HPP save failed:', eMaster); }
+    }
+    logActivity('OutboundRequest','edit_items',r.id,`${items.length} items, total HPP ${_kolFmtRp(_kolItemsCOGS(items))}${masterSaved?` (${masterSaved} → master)`:''}`);
+    setFB('✓ Tersimpan' + (masterSaved?` · ${masterSaved} → master`:''), true);
     setTimeout(() => { closeObItemsEdit(id); loadOutbound(); }, 600);
   } catch(e) { setFB('Gagal: ' + (e.message||e), false); }
 }
@@ -43489,8 +43658,130 @@ async function checkDuplicate(name, excludeSheet) {
   return null;
 }
 
+// ── DOUBLE SIDEBAR (left rail = colorful categories, right panel = that category's modules) ──
+function _riSvg(p){ return '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">'+p+'</svg>'; }
+const NAV_CATS = [
+  { key:'home', label:'Home', color:'#2f6bd6', icon:_riSvg('<path d="M2 6.5l6-4.5 6 4.5V14H2z"/><path d="M6.5 14v-4h3v4"/>'),
+    mods:[['home','Home','🏠'],['mynotif','My Notifications','🔔'],['mytask','My Task','✅']] },
+  { key:'pm', label:'Project', color:'#7c3aed', icon:_riSvg('<rect x="1.5" y="3" width="3.5" height="10" rx="1"/><rect x="6.2" y="3" width="3.5" height="6.5" rx="1"/><rect x="11" y="3" width="3.5" height="8.5" rx="1"/>'),
+    mods:[['project','Project Board','📌'],['meetingnotes','Meeting Notes','🗒️']] },
+  { key:'creative', label:'Creative', color:'#db2777', icon:_riSvg('<path d="M8 2a6 6 0 100 12c1 0 1.5-.7 1.5-1.5 0-.9-.7-1-.7-1.7 0-.6.5-1.1 1.2-1.1H12a2.5 2.5 0 002.5-2.5C14.5 4.4 11.6 2 8 2z"/><circle cx="5.5" cy="6" r="0.6" fill="currentColor"/><circle cx="8" cy="4.6" r="0.6" fill="currentColor"/><circle cx="10.7" cy="6" r="0.6" fill="currentColor"/>'),
+    mods:[['collections','Collection Development','🎨'],['sampling','Sampling','🧵'],['dsgworkflow','Designer Workflow','✏️'],['photoshoot','Photoshoot Planning','📸'],['designermaster','Designer Master','🖌️']] },
+  { key:'marketing', label:'Marketing', color:'#ff682c', icon:_riSvg('<path d="M2 6.5v3l8 3.5V3z"/><path d="M10 5.5c1.6 0 2.7 1 2.7 2.5s-1.1 2.5-2.7 2.5"/><path d="M4.5 10v2.5"/>'),
+    mods:[['mktplan','Marketing Planning','🗺️'],['contentplan','Content Planning','📝'],['videoprod','Video Production','🎬'],['adsmgmt','Ads Management','🎯'],['mktactivation','Marketing Activation','🎪'],['kolmgmt','KOL Management','🌟'],['publication','Publication','📰'],['koldb','KOL Database','👥']] },
+  { key:'proddev', label:'Product Dev', color:'#059669', icon:_riSvg('<path d="M6.5 2v4L3.2 11.5A1.2 1.2 0 004.2 13.4h7.6a1.2 1.2 0 001-1.9L9.5 6V2"/><path d="M5.5 2h5"/><path d="M5.2 9h5.6"/>'),
+    mods:[['rnd','R&D Product','🔬'],['productdev','Product Development','🧪'],['po','Track Purchase Order','🛒'],['restock','Create PO Restock','📦']] },
+  { key:'finance', label:'Finance', color:'#d97706', icon:_riSvg('<rect x="1.5" y="3.5" width="13" height="9" rx="1.5"/><path d="M1.5 6.5h13"/><circle cx="11" cy="10" r="1"/>'),
+    mods:[['arreceivables','Account Receivables','💰'],['agreement','Agreement','📄']] },
+  { key:'commerce', label:'Commerce', color:'#0891b2', icon:_riSvg('<path d="M3 5h10l-1 8.5H4z"/><path d="M6 5.5V3.5a2 2 0 014 0v2"/>'),
+    mods:[['wholesalecatalog','Wholesale Catalog','🛍️'],['wholesale','Wholesale Orders','🤝'],['conprog','Consignment Program','🔗'],['popupbooth','Pop Up Booth','🏬'],['manualpurchase','Manual Purchase','💳'],['txmap','Transaction Mapping','🗂️'],['licensorfreebies','Account Freebies','🎁'],['leads','Leads Management','🧲'],['marte','Monthly Settlement','🏪'],['marteskucat','SKU Categories','🏷️']] },
+  { key:'distribution', label:'Distribution', color:'#4f46e5', icon:_riSvg('<rect x="1" y="5.5" width="8" height="6" rx="1"/><path d="M9 7.5h3l2 2v2H9z"/><circle cx="4" cy="12.5" r="1.3"/><circle cx="11.5" cy="12.5" r="1.3"/>'),
+    mods:[['distpartner','Distribution Partner','🚚'],['outbound','Outbound Request','📤'],['invtransfer','Inventory Transfer','🔁']] },
+  { key:'warehouse', label:'Warehouse', color:'#ca8a04', icon:_riSvg('<path d="M2 6.5l6-3 6 3V14H2z"/><path d="M2 6.5l6 3 6-3"/><path d="M8 9.5V14"/>'),
+    mods:[['invcheck','Inventory Check','🔍'],['warehousekpi','Warehouse KPI','🏭'],['stockadjmgmt','Stock Adjustment','📋'],['returnreason','Return Reason','↩️'],['stockmovement','Stock Reconcile','🔄']] },
+  { key:'database', label:'Database', color:'#0d9488', icon:_riSvg('<ellipse cx="8" cy="3.8" rx="5" ry="2"/><path d="M3 3.8v8c0 1.1 2.2 2 5 2s5-.9 5-2v-8"/><path d="M3 7.8c0 1.1 2.2 2 5 2s5-.9 5-2"/>'),
+    mods:[['ipmaster','IP Master','🗃️'],['brandmaster','Brand Master','⭐'],['vendormaster','Vendor Master','🏢'],['productmap','Product Mapping','🧩'],['recipients','Collaborator Royalty','🪙']] },
+  { key:'settings', label:'Settings', color:'#64748b', icon:_riSvg('<circle cx="8" cy="8" r="2.4"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.3 3.3l1.4 1.4M11.3 11.3l1.4 1.4M12.7 3.3l-1.4 1.4M4.7 11.3l-1.4 1.4"/>'),
+    mods:[['team','Team','🫂'],['activitylog','Activity Log','📜'],['cronlogs','Cron Logs','⏱️'],['mesign','Mekari Sign','✍️']] },
+];
+// crisp line icons per module (stroke=currentColor → white when inactive, black on the active pill)
+const MOD_ICON = {
+  home:_riSvg('<path d="M2 6.5l6-4.5 6 4.5V14H2z"/><path d="M6.5 14v-4h3v4"/>'),
+  mynotif:_riSvg('<path d="M12 6.5a4 4 0 00-8 0c0 4-2 5-2 5h12s-2-1-2-5"/><path d="M6.5 13.5a1.8 1.8 0 003 0"/>'),
+  mytask:_riSvg('<rect x="2.5" y="2.5" width="11" height="11" rx="1.5"/><path d="M5 6l1.2 1.2L8.5 5"/><path d="M5 10l1.2 1.2L8.5 9"/><path d="M10 6h2M10 10h2"/>'),
+  project:_riSvg('<rect x="1.5" y="3" width="3.5" height="10" rx="1"/><rect x="6.2" y="3" width="3.5" height="6.5" rx="1"/><rect x="11" y="3" width="3.5" height="8.5" rx="1"/>'),
+  meetingnotes:_riSvg('<rect x="3" y="2" width="8" height="12" rx="1"/><path d="M5 5h4M5 8h4M5 11h2"/>'),
+  collections:_riSvg('<rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/>'),
+  sampling:_riSvg('<rect x="4" y="4.5" width="8" height="8" rx="1"/><path d="M6 4.5V2.5h8v8h-2"/>'),
+  dsgworkflow:_riSvg('<path d="M10.5 2.5l3 3-8 8L2.5 14l.5-3z"/><path d="M9.5 3.5l3 3"/>'),
+  photoshoot:_riSvg('<rect x="1.5" y="4.5" width="13" height="8.5" rx="1.5"/><path d="M5.5 4.5l1-1.5h3l1 1.5"/><circle cx="8" cy="8.7" r="2.3"/>'),
+  designermaster:_riSvg('<circle cx="6" cy="5" r="2.2"/><path d="M2 13c0-2.5 1.8-4 4-4"/><path d="M10.5 9l3 3-1.4 1.4-3-3z"/>'),
+  mktplan:_riSvg('<path d="M2 4l4-1.5 4 1.5 4-1.5V12l-4 1.5-4-1.5L2 13.5z"/><path d="M6 2.5V13M10 4v11"/>'),
+  contentplan:_riSvg('<rect x="2.5" y="3" width="11" height="10.5" rx="1.5"/><path d="M2.5 6h11M5 2v2M11 2v2"/>'),
+  videoprod:_riSvg('<rect x="2" y="4" width="12" height="9" rx="1.5"/><path d="M6.5 7l3 1.7-3 1.7z"/>'),
+  adsmgmt:_riSvg('<circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="3"/><circle cx="8" cy="8" r="0.6" fill="currentColor" stroke="none"/>'),
+  mktactivation:_riSvg('<path d="M4 2v12"/><path d="M4 3h8l-2 2 2 2H4"/>'),
+  kolmgmt:_riSvg('<circle cx="7" cy="6" r="2.5"/><path d="M2.5 13.5c0-2.5 2-4 4.5-4s4.5 1.5 4.5 4"/><path d="M12.5 2l.5 1.3 1.3.2-1 .9.2 1.3-1.2-.6-1.2.6.2-1.3-1-.9 1.3-.2z"/>'),
+  publication:_riSvg('<rect x="2" y="3" width="12" height="10" rx="1"/><rect x="4" y="6" width="4" height="4" rx="0.5"/><path d="M9.5 6h2.5M9.5 8.5h2.5M4 11.5h8"/>'),
+  koldb:_riSvg('<circle cx="6" cy="5.5" r="2"/><path d="M2 12c0-2.2 1.8-3.5 4-3.5"/><circle cx="11" cy="6.5" r="1.8"/><path d="M8.5 12c0-1.8 1.3-3 2.5-3s2.5 1.2 2.5 3"/>'),
+  rnd:_riSvg('<path d="M6.5 2v4L3.2 11.5A1.2 1.2 0 004.2 13.4h7.6a1.2 1.2 0 001-1.9L9.5 6V2"/><path d="M5.5 2h5M5.2 9h5.6"/>'),
+  productdev:_riSvg('<rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M2 8l3-3 2 2 3-3.5 4 4.5"/>'),
+  po:_riSvg('<circle cx="5.5" cy="13.5" r="1"/><circle cx="11.5" cy="13.5" r="1"/><path d="M1.5 2.5h2l1.5 8h7l1.3-5.5H4"/>'),
+  restock:_riSvg('<rect x="3" y="6" width="10" height="8" rx="1"/><path d="M8 1.5v6M5.5 5L8 7.5 10.5 5"/>'),
+  arreceivables:_riSvg('<path d="M4 2h8v12l-1.3-1-1.3 1-1.4-1-1.3 1-1.4-1L4 14z"/><path d="M6 5.5h4M6 8h4"/>'),
+  agreement:_riSvg('<rect x="3" y="2" width="9.5" height="12" rx="1"/><path d="M5.5 5h4M5.5 7.5h4"/><path d="M5.5 10.7l1.2 1.2 2.4-2.4"/>'),
+  wholesalecatalog:_riSvg('<rect x="2.5" y="2.5" width="11" height="11" rx="1.5"/><path d="M2.5 6h11"/><path d="M6 9.5h4"/>'),
+  wholesale:_riSvg('<rect x="2" y="6" width="5" height="6.5" rx="0.5"/><rect x="9" y="6" width="5" height="6.5" rx="0.5"/><path d="M3 6V4h3v2M10 6V4h3v2"/>'),
+  conprog:_riSvg('<circle cx="6" cy="8" r="3.2"/><circle cx="10" cy="8" r="3.2"/>'),
+  popupbooth:_riSvg('<path d="M2 6.5V13h12V6.5"/><path d="M1.5 3.5h13L14 6.5H2z"/><path d="M6 13V9.5h4V13"/>'),
+  manualpurchase:_riSvg('<rect x="2" y="4" width="12" height="9" rx="1.5"/><path d="M2 7h12"/><path d="M4.5 10.5h3"/>'),
+  txmap:_riSvg('<path d="M2 5h5l1.5 2H14v6H2z"/><path d="M6 9.5l2 2 2-2"/>'),
+  licensorfreebies:_riSvg('<rect x="2.5" y="6.5" width="11" height="6.5" rx="1"/><path d="M2 6.5h12v2.3H2z"/><path d="M8 6.5v6.5"/><path d="M8 6.5C7 4.5 4 4.5 4.5 6.5M8 6.5C9 4.5 12 4.5 11.5 6.5"/>'),
+  leads:_riSvg('<path d="M4 3v5a4 4 0 008 0V3"/><path d="M4 3h3v5a1 1 0 002 0V3h3"/>'),
+  marte:_riSvg('<path d="M2.5 6.5V13h11V6.5"/><path d="M1.5 3.5h13L14 6.5H2z"/><path d="M6 13V9h4v4"/>'),
+  marteskucat:_riSvg('<path d="M2.5 2.5h5L14 9l-5 5-6.5-6.5z"/><circle cx="5.5" cy="5.5" r="1"/>'),
+  distpartner:_riSvg('<rect x="6" y="1.5" width="4" height="4" rx="1"/><rect x="1.5" y="10.5" width="4" height="4" rx="1"/><rect x="10.5" y="10.5" width="4" height="4" rx="1"/><path d="M8 5.5v2.5M8 8L3.5 10.5M8 8l4.5 2.5"/>'),
+  outbound:_riSvg('<path d="M8 1.5v6.5M5.5 4L8 1.5 10.5 4"/><path d="M3 9v4.5h10V9"/>'),
+  invtransfer:_riSvg('<path d="M2.5 5.5h8M8 2.5l3 3-3 3"/><path d="M13.5 10.5h-8m3 3l-3-3 3-3"/>'),
+  invcheck:_riSvg('<rect x="1.5" y="2.5" width="8" height="8" rx="1"/><circle cx="10.5" cy="10.5" r="2.6"/><path d="M12.5 12.5l1.8 1.8"/>'),
+  warehousekpi:_riSvg('<rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M5 11V8M8 11V5.5M11 11V9"/>'),
+  stockadjmgmt:_riSvg('<rect x="3" y="3" width="10" height="11" rx="1"/><path d="M6 2h4v2H6z"/><path d="M5.5 7h5M5.5 9.5h5M5.5 12h3"/>'),
+  returnreason:_riSvg('<path d="M5.5 4L2.5 7l3 3"/><path d="M2.5 7h7a3.5 3.5 0 013.5 3.5V12"/>'),
+  stockmovement:_riSvg('<path d="M2.5 8a5.5 5.5 0 019-4.2M13.5 8a5.5 5.5 0 01-9 4.2"/><path d="M11.5 2.5V5H9M4.5 13.5V11H7"/>'),
+  ipmaster:_riSvg('<path d="M4 2h8l2.3 3.3L8 14 1.7 5.3z"/><path d="M1.7 5.3h12.6M6 2L4.3 5.3 8 14"/>'),
+  brandmaster:_riSvg('<path d="M8 1.8l1.7 3.5 3.8.5-2.8 2.7.7 3.8L8 10.6 4.6 12.3l.7-3.8L2.5 5.8l3.8-.5z"/>'),
+  vendormaster:_riSvg('<rect x="3" y="2" width="10" height="12" rx="1"/><path d="M5.5 5h1.5M9 5h1.5M5.5 7.5h1.5M9 7.5h1.5M6.5 14v-2.5h3V14"/>'),
+  productmap:_riSvg('<rect x="1.5" y="3" width="5" height="4" rx="1"/><rect x="9.5" y="9" width="5" height="4" rx="1"/><path d="M4 7v2.5a1 1 0 001 1h4.5"/>'),
+  recipients:_riSvg('<circle cx="8" cy="8" r="6"/><path d="M8 4.8v6.4M6.4 6.2h2.4a1.2 1.2 0 010 2.4H6.4h2.6a1.2 1.2 0 010 2.4H6"/>'),
+  team:_riSvg('<circle cx="6" cy="5.5" r="2"/><path d="M2 12.5c0-2.2 1.8-3.5 4-3.5s4 1.3 4 3.5"/><circle cx="11.5" cy="6" r="1.6"/><path d="M11 9c1.8 0 3 1.2 3 3"/>'),
+  activitylog:_riSvg('<rect x="2.5" y="2.5" width="11" height="11" rx="1.5"/><path d="M5 6h6M5 8.5h6M5 11h3"/>'),
+  cronlogs:_riSvg('<circle cx="8" cy="8" r="6"/><path d="M8 4.5V8l2.5 1.5"/>'),
+  mesign:_riSvg('<path d="M2.5 10.5c2-4 3-4 4 0s2 2 3-1 2-2 4 1"/><path d="M2.5 13.5h11"/>'),
+};
+// deep, white-text-safe background per category (the panel recolors on select)
+const CAT_BG = {home:'#1e3a8a',pm:'#4c1d95',creative:'#9d174d',marketing:'#9a3412',proddev:'#065f46',finance:'#92400e',commerce:'#155e75',distribution:'#3730a3',warehouse:'#854d0e',database:'#115e59',settings:'#1e293b'};
+// panel bg: per-category color in light mode, plain dark in dark mode
+function _applySidebarBg(){
+  const sb = document.getElementById('sidebar'); if(!sb) return;
+  sb.style.background = document.body.classList.contains('dark') ? 'var(--sidebar)' : (CAT_BG[_activeCat] || 'var(--sidebar)');
+}
+let _activeCat = 'home';
+function renderRail(){
+  const el = document.getElementById('railbar'); if(!el) return;
+  el.innerHTML = '<div class="rail-items">' + NAV_CATS.map(c =>
+      `<div class="rail-item" data-cat="${c.key}" onclick="selectCat('${c.key}')"><div class="ri-ic" style="color:${c.color}">${c.icon}</div><div class="ri-lbl">${c.label}</div></div>`).join('')
+    + '</div>'
+    + '<div class="rail-foot"><div class="rail-item rail-logout" onclick="doLogout()"><div class="ri-ic">'
+      + _riSvg('<path d="M6 2H3.5A1.5 1.5 0 002 3.5v9A1.5 1.5 0 003.5 14H6"/><path d="M10.5 11l3.5-3-3.5-3"/><path d="M14 8H6"/>')
+    + '</div><div class="ri-lbl">Log out</div></div></div>';
+}
+function selectCat(key, activePage){
+  const c = NAV_CATS.find(x=>x.key===key); if(!c) return;
+  _activeCat = key;
+  _applySidebarBg();
+  document.querySelectorAll('#railbar .rail-item').forEach(r=>r.classList.toggle('active', r.getAttribute('data-cat')===key));
+  const cn = document.getElementById('sb-catname'); if(cn) cn.textContent = c.label;
+  const panel = document.getElementById('sb-panel');
+  if(panel) panel.innerHTML = c.mods.map(m =>
+    `<div class="sb-item${m[0]===activePage?' active':''}" onclick="showPage('${m[0]}',this)"><span class="sbi-ic">${MOD_ICON[m[0]]||''}</span>${m[1]}</div>`).join('');
+  // Home category has a single item → jump straight to it
+  if(key==='home' && activePage===undefined) showPage('home', document.querySelector('#sb-panel .sb-item'));
+}
+function _pageToCat(name){ for(const c of NAV_CATS){ if(c.mods.some(m=>m[0]===name)) return c.key; } return null; }
+function _syncRail(name){ const cat = _pageToCat(name); if(cat) selectCat(cat, name); }
+function initNav(){ renderRail(); selectCat('home', 'home'); }
+
+// ── DARK MODE TOGGLE ──
+const _MOON_SVG = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/></svg>';
+const _SUN_SVG  = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/></svg>';
+function _syncThemeBtn(){ const b=document.getElementById('theme-btn'); if(b) b.innerHTML = document.body.classList.contains('dark') ? _SUN_SVG : _MOON_SVG; }
+function toggleTheme(){ const d=document.body.classList.toggle('dark'); try{ localStorage.setItem('snt_theme', d?'dark':'light'); }catch(_){}; _syncThemeBtn(); _applySidebarBg(); }
+
 // ── SESSION RESTORE ──
 (async () => {
+  initLoginMode();   // switch to OTP on internal.ssentra.asia; no-op elsewhere
+  initNav();         // build the double sidebar (rail + module panel)
+  _syncThemeBtn();   // set the light/dark toggle icon
   // Check for password recovery token in URL hash (#access_token=...&type=recovery)
   const hash = Object.fromEntries(new URLSearchParams(location.hash.slice(1)));
   if (hash.type === "recovery" && hash.access_token) {
@@ -43511,19 +43802,19 @@ async function doResetPassword() {
   const p2  = document.getElementById("resetPass2").value;
   const err = document.getElementById("resetErr");
   const btn = document.getElementById("resetBtn");
-  if (!p1 || p1.length < 8) { err.textContent = "Password minimal 8 karakter."; return; }
-  if (p1 !== p2)             { err.textContent = "Password tidak cocok."; return; }
+  if (!p1 || p1.length < 8) { err.textContent = "Password must be at least 8 characters."; return; }
+  if (p1 !== p2)             { err.textContent = "Passwords don't match."; return; }
   err.textContent = "";
-  btn.disabled = true; btn.textContent = "Menyimpan...";
+  btn.disabled = true; btn.textContent = "Saving...";
   const { error } = await sb.auth.updateUser({ password: p1 });
-  if (error) { err.textContent = "Gagal: " + error.message; btn.disabled = false; btn.textContent = "Simpan Password →"; return; }
+  if (error) { err.textContent = "Failed: " + error.message; btn.disabled = false; btn.textContent = "Save password →"; return; }
   // Password saved — sign in automatically
   const { data: { session } } = await sb.auth.getSession();
   if (session?.user) { enterApp(session.user); return; }
   // Fallback: show login
   document.getElementById("resetBox").style.display = "none";
   document.getElementById("loginBox").style.display = "block";
-  document.getElementById("loginErr").textContent = "Password berhasil diubah. Silakan login.";
+  document.getElementById("loginErr").textContent = "Password changed. Please sign in.";
 }
 
 // ─── NEED RESTOCK MODULE ──────────────────────────────────────────────────────
@@ -46194,6 +46485,7 @@ sb.auth.onAuthStateChange((event, session) => {
     _chatLoaded = false; _chatRealtime = null; _chatMsgs = [];
     document.getElementById("loginBox").style.display = "block";
     document.getElementById("resetBox").style.display = "none";
+    if (IS_OTP_LOGIN) otpBack();   // reset OTP flow back to step 1
   }
 });
 

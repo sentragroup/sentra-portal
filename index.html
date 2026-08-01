@@ -8,7 +8,7 @@
 <meta http-equiv="Expires" content="0">
 <title>Sentra Internal Tools</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Mono:wght@300;400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Mono:wght@300;400;500&family=DM+Sans:wght@300;400;500&family=Inter:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2/dist/chartjs-plugin-datalabels.min.js"></script>
@@ -16,42 +16,50 @@
 <script src="jubelio-categories.js" defer></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<link rel="stylesheet" href="style.css?v=20260714g">
+<link rel="stylesheet" href="style.css?v=20260801b">
 </head>
 <body>
+<script>try{if(localStorage.getItem('snt_theme')==='dark')document.body.classList.add('dark');}catch(e){}</script>
 <!-- LOGIN -->
 <div id="loginScreen">
-  <div class="login-left">
-    <div class="l-brand">Sentra Internal Tools</div>
-    <div class="l-hero">
-      <div class="l-eye">Portal v1.0</div>
-      <h1 class="l-title">One place<br>for every<br>workflow.</h1>
-      <p class="l-desc">Agreement tracking, sales reports, royalty payments — semua tersimpan aman di Supabase.</p>
-    </div>
-    <div class="l-foot">© 2026 Sentra · Internal Use Only</div>
+  <div class="lg-bg" aria-hidden="true">
+    <span class="lg-blob lg-b1"></span>
+    <span class="lg-blob lg-b2"></span>
+    <span class="lg-blob lg-b3"></span>
+    <span class="lg-blob lg-b4"></span>
   </div>
-  <div class="login-right">
+  <div class="lg-grain" aria-hidden="true"></div>
+  <div class="lg-veil" aria-hidden="true"></div>
+  <div class="login-card">
+    <div class="login-mark">Sentra<span>.</span></div>
     <!-- normal login -->
     <div class="login-box" id="loginBox">
-      <h2 class="lb-title">Selamat datang</h2>
-      <p class="lb-sub">Login dengan akun tim kamu.</p>
+      <div class="login-brand-row"><div class="login-brand">Internal Tools</div><span class="lg-tag">Portal v1.0</span></div>
+      <p class="login-sub" id="loginSub">Sign in with your team account.</p>
       <label class="lb-label">Email</label>
-      <input class="lb-input" type="email" id="loginEmail" placeholder="nama@sentra.id" autocomplete="email" onkeydown="if(event.key==='Enter')document.getElementById('loginPass').focus()">
-      <label class="lb-label" style="margin-top:12px">Password</label>
-      <input class="lb-input" type="password" id="loginPass" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
-      <button class="btn-login" id="loginBtn" onclick="doLogin()">Masuk →</button>
+      <input class="lb-input" type="email" id="loginEmail" placeholder="name@suneatercoven.com" autocomplete="email" onkeydown="if(event.key==='Enter')document.getElementById('loginPass').focus()">
+      <div id="pwWrap">
+        <label class="lb-label" style="margin-top:12px">Password</label>
+        <input class="lb-input" type="password" id="loginPass" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+      </div>
+      <div id="otpWrap" style="display:none">
+        <label class="lb-label" style="margin-top:12px">Verification code</label>
+        <input class="lb-input" type="text" id="loginCode" inputmode="numeric" maxlength="8" placeholder="6-digit code from email" autocomplete="one-time-code">
+      </div>
+      <button class="btn-login" id="loginBtn" onclick="doLogin()">Sign in →</button>
+      <button class="btn-login" id="otpBackBtn" onclick="otpBack()" style="display:none;background:transparent;color:var(--g600);border:1px solid var(--g200);margin-top:8px">← Change email</button>
       <div class="lb-err" id="loginErr"></div>
-      <p class="lb-note">Akun dikelola oleh admin Sentra.<br>Hubungi admin jika belum punya akses.</p>
+      <p class="lb-note">Accounts are managed by the Sentra admin.<br>Contact the admin if you don't have access yet.</p>
     </div>
     <!-- password reset (shown when ?type=recovery token detected) -->
     <div class="login-box" id="resetBox" style="display:none">
-      <h2 class="lb-title">Buat password baru</h2>
-      <p class="lb-sub">Masukkan password baru kamu.</p>
-      <label class="lb-label">Password baru</label>
-      <input class="lb-input" type="password" id="resetPass1" placeholder="Min. 8 karakter" onkeydown="if(event.key==='Enter')document.getElementById('resetPass2').focus()">
-      <label class="lb-label" style="margin-top:12px">Konfirmasi password</label>
-      <input class="lb-input" type="password" id="resetPass2" placeholder="Ulangi password" onkeydown="if(event.key==='Enter')doResetPassword()">
-      <button class="btn-login" id="resetBtn" onclick="doResetPassword()">Simpan Password →</button>
+      <div class="login-brand-row"><div class="login-brand">New password</div></div>
+      <p class="login-sub">Enter your new password.</p>
+      <label class="lb-label">New password</label>
+      <input class="lb-input" type="password" id="resetPass1" placeholder="Min. 8 characters" onkeydown="if(event.key==='Enter')document.getElementById('resetPass2').focus()">
+      <label class="lb-label" style="margin-top:12px">Confirm password</label>
+      <input class="lb-input" type="password" id="resetPass2" placeholder="Repeat password" onkeydown="if(event.key==='Enter')doResetPassword()">
+      <button class="btn-login" id="resetBtn" onclick="doResetPassword()">Save password →</button>
       <div class="lb-err" id="resetErr"></div>
     </div>
   </div>
@@ -61,32 +69,17 @@
 <div id="app" style="display:none;flex-direction:column;min-height:100vh;">
   <div class="topbar">
     <button class="menu-btn" onclick="toggleMobileSidebar()" title="Menu" aria-label="Toggle menu"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
-    <div class="t-logo" onclick="showPage('home',document.getElementById('nav-home'))" style="cursor:pointer">Sentra</div>
-    <div class="t-sep"></div>
     <div class="t-page" id="topbarPage">Internal Tools</div>
     <div class="t-right">
       <button class="notif-btn" id="sync-all-btn" onclick="syncAllJubelio()" title="Sync semua data Jubelio">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
       </button>
-      <div class="notif-wrap" id="notif-wrap">
-        <button class="notif-btn" onclick="toggleNotifDropdown()" title="Notifikasi">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-          <span class="notif-badge" id="notif-badge" style="display:none">0</span>
-        </button>
-        <div class="notif-dropdown" id="notif-dropdown" style="display:none">
-          <div class="notif-header">
-            <span>Notifikasi</span>
-            <button onclick="markAllNotifRead()">Tandai semua dibaca</button>
-          </div>
-          <div class="notif-list" id="notif-list"><div class="notif-empty">Tidak ada notifikasi</div></div>
-        </div>
-      </div>
+      <button class="notif-btn" id="theme-btn" onclick="toggleTheme()" title="Toggle dark mode"></button>
       <div class="user-chip"><div class="u-dot"></div><span class="u-name" id="userName">—</span></div>
-      <button class="btn-out" onclick="doLogout()">Keluar</button>
     </div>
   </div>
   <!-- ANNOUNCEMENT TICKER -->
-  <div id="ann-ticker" onclick="showPage('announcements',document.getElementById('nav-announcements'));switchAnnTab('pinned',document.getElementById('ann-tab-pinned'))" title="Klik untuk lihat semua pinned announcements" style="align-items:center;width:100%">
+  <div id="ann-ticker" onclick="showPage('announcements',null);switchAnnTab('pinned',document.getElementById('ann-tab-pinned'))" title="Klik untuk lihat semua pinned announcements" style="align-items:center;width:100%">
     <div style="padding:0 14px;height:100%;display:flex;align-items:center;gap:6px;background:rgba(255,255,255,0.06);border-right:1px solid rgba(255,255,255,0.1);flex-shrink:0">
       <span style="font-size:13px">📣</span>
       <span style="font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,0.45)">LIVE</span>
@@ -101,7 +94,12 @@
 
   <div id="sidebar-overlay" class="sidebar-overlay" onclick="toggleMobileSidebar()"></div>
   <div class="shell">
+    <div class="railbar" id="railbar"></div>
     <nav class="sidebar" id="sidebar">
+      <div class="sb-brand" onclick="showPage('home',null)">Sentra<span>.</span></div>
+      <div class="sb-catname" id="sb-catname"></div>
+      <div id="sb-panel"></div>
+      <div class="sb-legacy" style="display:none">
       <div class="sb-sec">
         <div class="sb-label">Menu</div>
         <div class="sb-item active" onclick="showPage('home',this)" id="nav-home">
@@ -116,29 +114,11 @@
         <div class="sb-item" onclick="showPage('manualpurchase',this)" id="nav-manualpurchase">
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="4" width="12" height="9" rx="1"/><path d="M2 7h12"/><path d="M5 10h2M9 10h2"/></svg>Manual Purchase<span id="nav-mp-badge" style="display:none;margin-left:auto;font-size:9px;background:#c0392b;color:white;padding:1px 6px;border-radius:99px;font-family:var(--mono);font-weight:700"></span>
         </div>
-        <div class="sb-item" onclick="showPage('ipreports',this)" id="nav-ipreports">
-          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2h7l3 3v9a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z"/><path d="M10 2v3h3"/><path d="M5 9h6M5 11h6M5 13h4"/></svg>IP Reports
-        </div>
         <div class="sb-item" onclick="showPage('meetingnotes',this)" id="nav-meetingnotes">
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="10" height="12" rx="1"/><path d="M4 5h6M4 8h6M4 11h4"/><path d="M12 4l3 1v8l-3 1"/></svg>Meeting Notes
         </div>
-        <div class="sb-item" onclick="showPage('announcements',this)" id="nav-announcements">
-          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 3c0 0-2 1-6 1S2 3 2 3v6c0 0 2 1 6 1s6-1 6-1V3z"/><path d="M2 6h12M8 10v3M6 13h4"/></svg>Announcements
-        </div>
-        <div class="sb-item" onclick="showPage('reminders',this)" id="nav-reminders">
-          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="1" width="10" height="13" rx="1.5"/><path d="M5 4h6M5 7h6M5 10h3"/><path d="M12 10l3 3m-1.5-1.5L12 13"/></svg>Reminders
-        </div>
-        <div class="sb-item" onclick="showPage('insights',this)" id="nav-insights">
-          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M8 5v3l2 2"/><path d="M5 1.5C6 1.2 7 1 8 1"/></svg>Insights
-        </div>
-        <div class="sb-item" onclick="showPage('salesperf',this)" id="nav-salesperf">
-          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="1 11 5 6 9 9 15 3"/><line x1="1" y1="15" x2="15" y2="15"/></svg>Sales Performance
-        </div>
         <div class="sb-item" onclick="showPage('project',this)" id="nav-project">
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="3" width="4" height="9" rx="1"/><rect x="6" y="3" width="4" height="6" rx="1"/><rect x="11" y="3" width="4" height="11" rx="1"/></svg>Project Board
-        </div>
-        <div class="sb-item" onclick="showPage('calendar',this)" id="nav-calendar">
-          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="2" width="14" height="13" rx="1.5"/><path d="M1 6h14M5 1v3M11 1v3"/></svg>Calendar
         </div>
       </div>
       <div class="sb-sec">
@@ -186,92 +166,116 @@
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="5" r="2.5"/><path d="M1 13c0-2.761 2.239-4 5-4s5 1.239 5 4"/><circle cx="12" cy="5" r="1.8"/><path d="M14.5 13c0-1.933-1.119-3-2.5-3"/></svg>Tim
         </div>
       </div>
+      </div>
     </nav>
     <div class="content">
 
       <!-- HOME -->
       <div class="page active" id="page-home">
-        <div class="page-header"><div><div class="page-title">Halo, <span id="greetName">—</span> 👋</div><div class="page-sub" id="greetDate">—</div></div></div>
+        <div class="page-header" style="border-bottom:none;padding-bottom:0;margin-bottom:14px"><div><div class="page-title">Hi, <span id="greetName">—</span> 👋</div><div class="page-sub" id="greetDate">—</div></div></div>
+
+        <div class="home-quick">
+          <button class="hq-btn" onclick="openReminderModal()">Create Reminder</button>
+          <button class="hq-btn" onclick="openAnnModal()">Create Announcement</button>
+          <button class="hq-btn" onclick="showPage('calendar',null)">See Team Calendar</button>
+        </div>
 
         <div class="sb-label" style="margin-bottom:0.6rem;margin-top:0.25rem">General</div>
         <div class="home-grid" style="margin-bottom:1.5rem">
-          <div class="tool-card" onclick="showPage('meetingnotes',null)"><span class="tc-icon">🗒️</span><div class="tc-name">Meeting Notes</div><div class="tc-desc">Catat hasil meeting & link ke IP, collection, marketing plan, agreement, atau lead. Action items langsung sinkron ke modul terkait.</div></div>
-          <div class="tool-card" onclick="showPage('announcements',null)"><span class="tc-icon">📣</span><div class="tc-name">Announcements</div><div class="tc-desc">Broadcast info penting ke seluruh tim — update, reminder, atau selebrasi bareng.</div></div>
-          <div class="tool-card" onclick="showPage('reminders',null)"><span class="tc-icon">📝</span><div class="tc-name">Reminders</div><div class="tc-desc">Sticky notes tim dengan @mention — buat pengingat dan tag rekan kerja langsung.</div></div>
-          <div class="tool-card" onclick="showPage('project',null)"><span class="tc-icon">📌</span><div class="tc-name">Project Board</div><div class="tc-desc">Kanban tracker untuk semua project tim — dari backlog hingga selesai.</div></div>
-          <div class="tool-card" onclick="showPage('calendar',null)"><span class="tc-icon">📅</span><div class="tc-name">Calendar</div><div class="tc-desc">Semua deadline & event penting dari Project Board, Collection, dan Leads dalam satu tampilan.</div></div>
-          <div class="tool-card" onclick="showPage('salesperf',null)"><span class="tc-icon">📊</span><div class="tc-name">Sales Performance</div><div class="tc-desc">Analisis penjualan berdasarkan brand, IP, koleksi, channel, dan periode.</div></div>
-          <div class="tool-card" onclick="showPage('insights',null)"><span class="tc-icon">🔭</span><div class="tc-name">Insights</div><div class="tc-desc">Proyeksi revenue 2026, momentum brand, dan stock horizon — forward-looking view bisnis.</div></div>
+          <div class="tool-card" onclick="showPage('meetingnotes',null)"><span class="tc-icon">🗒️</span><div class="tc-name">Meeting Notes</div><div class="tc-desc">Log meeting outcomes &amp; link them to IPs, collections, marketing plans, agreements, or leads. Action items sync straight to the related module.</div></div>
+          <div class="tool-card" onclick="showPage('project',null)"><span class="tc-icon">📌</span><div class="tc-name">Project Board</div><div class="tc-desc">Kanban tracker for all team projects — from backlog to done.</div></div>
         </div>
 
         <div class="sb-label" style="margin-bottom:0.6rem">Legal &amp; Finance</div>
         <div class="home-grid" style="margin-bottom:1.5rem">
-          <div class="tool-card" onclick="showPage('arreceivables',null)"><span class="tc-icon">💰</span><div class="tc-name">Account Receivables</div><div class="tc-desc">Tagihan customer wholesale &amp; manual purchase — total AR, overdue, aging buckets. Loop dari payment trackers tiap order.</div></div>
-          <div class="tool-card" onclick="showPage('agreement',null)"><span class="tc-icon">📄</span><div class="tc-name">Agreement</div><div class="tc-desc">Submit dan pantau semua perjanjian, kontrak, dan kemitraan.</div></div>
-          <div class="tool-card" onclick="showPage('royalty',null)"><span class="tc-icon">💰</span><div class="tc-name">Royalty Report</div><div class="tc-desc">Laporan royalty per IP per periode — gross sales, % royalty, PPh, net payout. Auto-mapped dari Product Mapping.</div></div>
-          <div class="tool-card" onclick="showPage('income',null)"><span class="tc-icon">📑</span><div class="tc-name">Income Statement</div><div class="tc-desc">Laporan laba-rugi per bulan — net sales, COGS, gross profit &amp; gross margin.</div></div>
+          <div class="tool-card" onclick="showPage('arreceivables',null)"><span class="tc-icon">💰</span><div class="tc-name">Account Receivables</div><div class="tc-desc">Wholesale &amp; manual-purchase customer billing — total AR, overdue, aging buckets. Pulled from each order's payment trackers.</div></div>
+          <div class="tool-card" onclick="showPage('agreement',null)"><span class="tc-icon">📄</span><div class="tc-name">Agreement</div><div class="tc-desc">Submit and track all agreements, contracts, and partnerships.</div></div>
         </div>
 
         <div class="sb-label" style="margin-bottom:0.6rem">Account Management</div>
         <div class="home-grid" style="margin-bottom:1.5rem">
-          <div class="tool-card" onclick="showPage('licensorfreebies',null)"><span class="tc-icon">🎁</span><div class="tc-name">Account Freebies</div><div class="tc-desc">Request freebies ke Account (IP / Brand / Distribution Partner) — pilih recipient + collection (opsional kalau IP), bikin ticket ke warehouse via Outbound Request.</div></div>
-          <div class="tool-card" onclick="showPage('ipreports',null)"><span class="tc-icon">🗞️</span><div class="tc-name">IP Reports</div><div class="tc-desc">Generate performance report per IP — weekly, monthly, quarterly, all-time. PDF + audit trail siapa kirim apa kapan.</div></div>
-          <div class="tool-card" onclick="showPage('leads',null)"><span class="tc-icon">🎯</span><div class="tc-name">Leads Management</div><div class="tc-desc">Track potential brand dan artist collaboration leads.</div></div>
+          <div class="tool-card" onclick="showPage('licensorfreebies',null)"><span class="tc-icon">🎁</span><div class="tc-name">Account Freebies</div><div class="tc-desc">Request freebies for an Account (IP / Brand / Distribution Partner) — pick a recipient + collection (optional for IPs), then raise a warehouse ticket via Outbound Request.</div></div>
+          <div class="tool-card" onclick="showPage('leads',null)"><span class="tc-icon">🎯</span><div class="tc-name">Leads Management</div><div class="tc-desc">Track potential brand and artist collaboration leads.</div></div>
         </div>
 
         <div class="sb-label" style="margin-bottom:0.6rem">Creative Operations</div>
         <div class="home-grid" style="margin-bottom:1.5rem">
-          <div class="tool-card" onclick="showPage('collections',null)"><span class="tc-icon">🎨</span><div class="tc-name">Collection Development</div><div class="tc-desc">Manajemen collection merchandise — dari ideation hingga approval design.</div></div>
-          <div class="tool-card" onclick="showPage('sampling',null)"><span class="tc-icon">🧵</span><div class="tc-name">Sampling</div><div class="tc-desc">Track sample fisik per SKU — versi Sample 1/2/3, upload foto, klik gambar buat kasih komentar di area spesifik.</div></div>
-          <div class="tool-card" onclick="showPage('dsgworkflow',null)"><span class="tc-icon">✏️</span><div class="tc-name">Designer Workflow</div><div class="tc-desc">Track deliverables, approval status, dan payment designer per collection.</div></div>
-          <div class="tool-card" onclick="showPage('photoshoot',null)"><span class="tc-icon">📸</span><div class="tc-name">Photoshoot Planning</div><div class="tc-desc">Rencanakan & track sesi photoshoot — jadwal, lokasi, delivery, dan budget per shoot.</div></div>
+          <div class="tool-card" onclick="showPage('collections',null)"><span class="tc-icon">🎨</span><div class="tc-name">Collection Development</div><div class="tc-desc">Merchandise collection management — from ideation to design approval.</div></div>
+          <div class="tool-card" onclick="showPage('sampling',null)"><span class="tc-icon">🧵</span><div class="tc-name">Sampling</div><div class="tc-desc">Track physical samples per SKU — Sample 1/2/3 versions, photo uploads, click an image to comment on a specific area.</div></div>
+          <div class="tool-card" onclick="showPage('dsgworkflow',null)"><span class="tc-icon">✏️</span><div class="tc-name">Designer Workflow</div><div class="tc-desc">Track deliverables, approval status, and designer payments per collection.</div></div>
+          <div class="tool-card" onclick="showPage('photoshoot',null)"><span class="tc-icon">📸</span><div class="tc-name">Photoshoot Planning</div><div class="tc-desc">Plan &amp; track photoshoot sessions — schedule, location, delivery, and budget per shoot.</div></div>
         </div>
 
         <div class="sb-label" style="margin-bottom:0.6rem">Marketing Ops</div>
         <div class="home-grid" style="margin-bottom:1.5rem">
-          <div class="tool-card" onclick="showPage('mktplan',null)"><span class="tc-icon">🗺️</span><div class="tc-name">Marketing Planning</div><div class="tc-desc">Umbrella planning per collection — brief, KPI, budget, activity mix. Execution tetap di modul masing-masing.</div></div>
+          <div class="tool-card" onclick="showPage('mktplan',null)"><span class="tc-icon">🗺️</span><div class="tc-name">Marketing Planning</div><div class="tc-desc">Umbrella planning per collection — brief, KPI, budget, activity mix. Execution stays in each dedicated module.</div></div>
           <div class="tool-card" onclick="showPage('contentplan',null)"><span class="tc-icon">📝</span><div class="tc-name">Content Planning</div><div class="tc-desc">Plan content per piece — IG, TikTok, YouTube, blog. Owner, deadline, draft &amp; publish schedule.</div></div>
-          <div class="tool-card" onclick="showPage('videoprod',null)"><span class="tc-icon">🎬</span><div class="tc-name">Video Production</div><div class="tc-desc">Plan & track video — script, shoot, edit, deliverables. Kanban + calendar by deadline.</div></div>
-          <div class="tool-card" onclick="showPage('adsmgmt',null)"><span class="tc-icon">🎯</span><div class="tc-name">Ads Management</div><div class="tc-desc">Track campaigns paid ads — Meta, TikTok, Google. Budget vs spend, period, dan PIC.</div></div>
+          <div class="tool-card" onclick="showPage('videoprod',null)"><span class="tc-icon">🎬</span><div class="tc-name">Video Production</div><div class="tc-desc">Plan &amp; track video — script, shoot, edit, deliverables. Kanban + calendar by deadline.</div></div>
+          <div class="tool-card" onclick="showPage('adsmgmt',null)"><span class="tc-icon">🎯</span><div class="tc-name">Ads Management</div><div class="tc-desc">Track paid ad campaigns — Meta, TikTok, Google. Budget vs spend, period, and PIC.</div></div>
           <div class="tool-card" onclick="showPage('mktactivation',null)"><span class="tc-icon">🎪</span><div class="tc-name">Marketing Activation</div><div class="tc-desc">Manage events &amp; activations — pop-up, fan meet, launch party. Venue, budget, PIC.</div></div>
           <div class="tool-card" onclick="showPage('kolmgmt',null)"><span class="tc-icon">🌟</span><div class="tc-name">KOL Management</div><div class="tc-desc">Track KOL placements — handle, tier, fee, deliverables, status. Brief &amp; post link per placement.</div></div>
-          <div class="tool-card" onclick="showPage('publication',null)"><span class="tc-icon">📰</span><div class="tc-name">Publication</div><div class="tc-desc">Track PR &amp; press release — media outlet, publish/embargo date, link, status.</div></div>
+          <div class="tool-card" onclick="showPage('publication',null)"><span class="tc-icon">📰</span><div class="tc-name">Publication</div><div class="tc-desc">Track PR &amp; press releases — media outlet, publish/embargo date, link, status.</div></div>
         </div>
 
         <div class="sb-label" style="margin-bottom:0.6rem">Marte Operations</div>
         <div class="home-grid" style="margin-bottom:1.5rem">
-          <div class="tool-card" onclick="showPage('martereport',null)"><span class="tc-icon">📊</span><div class="tc-name">Consignment Report</div><div class="tc-desc">Laporan konsinyasi Marte per brand — gross sales, konsinyasi fee, net payout, & inventory movement per periode.</div></div>
-          <div class="tool-card" onclick="showPage('marteskucat',null)"><span class="tc-icon">🏷️</span><div class="tc-name">SKU Categories</div><div class="tc-desc">Kelola fee category per SKU brand Marte — tentukan Apparel, Collectible, Accessories, dst untuk kalkulasi konsinyasi.</div></div>
-          <div class="tool-card" onclick="showPage('marte',null)"><span class="tc-icon">🏪</span><div class="tc-name">Monthly Settlement</div><div class="tc-desc">Laporan konsinyasi bulanan Marte — penjualan per SKU, fee, PPh 23, invoice & debit note per brand.</div></div>
+          <div class="tool-card" onclick="showPage('marteskucat',null)"><span class="tc-icon">🏷️</span><div class="tc-name">SKU Categories</div><div class="tc-desc">Manage the fee category per Marte-brand SKU — set Apparel, Collectible, Accessories, etc. for consignment calculations.</div></div>
+          <div class="tool-card" onclick="showPage('marte',null)"><span class="tc-icon">🏪</span><div class="tc-name">Monthly Settlement</div><div class="tc-desc">Marte monthly consignment report — sales per SKU, fee, WHT 23, invoice &amp; debit note per brand.</div></div>
         </div>
 
         <div class="sb-label" style="margin-bottom:0.6rem">Sales Operation</div>
         <div class="home-grid" style="margin-bottom:1.5rem">
-          <div class="tool-card" onclick="showPage('conprog',null)"><span class="tc-icon">🤝</span><div class="tc-name">Consignment Program</div><div class="tc-desc">Kelola konsinyasi SDY sebagai consignor ke Mitra — PKS, DPP, BAST ST, laporan bulanan, bagi hasil 80/20, retur.</div></div>
-          <div class="tool-card" onclick="showPage('wholesale',null)"><span class="tc-icon">🤝</span><div class="tc-name">Wholesale Orders</div><div class="tc-desc">Manage flow 9-step wholesale: intake order, batch ke produksi, DP, kirim, sampai sync Jubelio.</div></div>
-          <div class="tool-card" onclick="showPage('popupbooth',null)"><span class="tc-icon">🛍️</span><div class="tc-name">Pop Up Booth</div><div class="tc-desc">Track event pop-up booth — manpower, stok, penjualan, dan reinbound.</div></div>
-          <div class="tool-card" onclick="showPage('txmap',null)"><span class="tc-icon">🗂️</span><div class="tc-name">Transaction Mapping</div><div class="tc-desc">Map transaksi non-Gudang Bintaro/Marte ke Wholesale, Consignment, Pop Up Booth, atau Manual Purchase. Bulk-edit.</div></div>
-          <div class="tool-card" onclick="showPage('manualpurchase',null)"><span class="tc-icon">💳</span><div class="tc-name">Manual Purchase</div><div class="tc-desc">Pembelian manual ke customer/reseller — create order, generate invoice, surat jalan. Stock dari Gudang Bintaro + Penerimaan Barang.</div></div>
+          <div class="tool-card" onclick="showPage('conprog',null)"><span class="tc-icon">🤝</span><div class="tc-name">Consignment Program</div><div class="tc-desc">Manage SDY consignment as consignor to Partners — PKS, DPP, BAST ST, monthly reports, 80/20 revenue split, returns.</div></div>
+          <div class="tool-card" onclick="showPage('wholesale',null)"><span class="tc-icon">🤝</span><div class="tc-name">Wholesale Orders</div><div class="tc-desc">Manage the 9-step wholesale flow: order intake, batch to production, DP, shipping, through to Jubelio sync.</div></div>
+          <div class="tool-card" onclick="showPage('popupbooth',null)"><span class="tc-icon">🛍️</span><div class="tc-name">Pop Up Booth</div><div class="tc-desc">Track pop-up booth events — manpower, stock, sales, and re-inbound.</div></div>
+          <div class="tool-card" onclick="showPage('txmap',null)"><span class="tc-icon">🗂️</span><div class="tc-name">Transaction Mapping</div><div class="tc-desc">Map non-Bintaro/Marte warehouse transactions to Wholesale, Consignment, Pop Up Booth, or Manual Purchase. Bulk-edit.</div></div>
+          <div class="tool-card" onclick="showPage('manualpurchase',null)"><span class="tc-icon">💳</span><div class="tc-name">Manual Purchase</div><div class="tc-desc">Manual sales to customers/resellers — create order, generate invoice, delivery note. Stock from Bintaro Warehouse + Goods Receipt.</div></div>
         </div>
 
         <div class="sb-label" style="margin-bottom:0.6rem">Purchasing</div>
         <div class="home-grid" style="margin-bottom:1.5rem">
-          <div class="tool-card" onclick="showPage('rnd',null)"><span class="tc-icon">🔬</span><div class="tc-name">R&amp;D Product</div><div class="tc-desc">Asses kandidat produk baru — brief, target HPP/SRP, dan sourcing ke beberapa vendor. Quote comparison + sample tracker.</div></div>
-          <div class="tool-card" onclick="showPage('productdev',null)"><span class="tc-icon">🧪</span><div class="tc-name">Product Development</div><div class="tc-desc">Costing &amp; sourcing per SKU — vendor, HPP, QTY, SRP, ratio, dan foto. Siap export untuk internal, eksternal, atau vendor.</div></div>
-          <div class="tool-card" onclick="showPage('po',null)"><span class="tc-icon">🛒</span><div class="tc-name">Track Purchase Order</div><div class="tc-desc">Track dan kelola purchase order ke vendor — dari draft hingga penerimaan barang.</div></div>
-          <div class="tool-card" onclick="showPage('restock',null)"><span class="tc-icon">📦</span><div class="tc-name">Create PO Restock</div><div class="tc-desc">Download CSV import PO untuk produk SD&amp;Y, Lagaa, dan Marte yang perlu di-restock.</div></div>
+          <div class="tool-card" onclick="showPage('rnd',null)"><span class="tc-icon">🔬</span><div class="tc-name">R&amp;D Product</div><div class="tc-desc">Assess new product candidates — brief, target COGS/SRP, and sourcing across multiple vendors. Quote comparison + sample tracker.</div></div>
+          <div class="tool-card" onclick="showPage('productdev',null)"><span class="tc-icon">🧪</span><div class="tc-name">Product Development</div><div class="tc-desc">Costing &amp; sourcing per SKU — vendor, COGS, QTY, SRP, ratio, and photos. Export-ready for internal, external, or vendor use.</div></div>
+          <div class="tool-card" onclick="showPage('po',null)"><span class="tc-icon">🛒</span><div class="tc-name">Track Purchase Order</div><div class="tc-desc">Track and manage purchase orders to vendors — from draft to goods receipt.</div></div>
+          <div class="tool-card" onclick="showPage('restock',null)"><span class="tc-icon">📦</span><div class="tc-name">Create PO Restock</div><div class="tc-desc">Download the PO import CSV for SD&amp;Y, Lagaa, and Marte products that need restocking.</div></div>
         </div>
 
         <div class="sb-label" style="margin-bottom:0.6rem">Warehouse</div>
         <div class="home-grid">
-          <div class="tool-card" onclick="showPage('outbound',null)"><span class="tc-icon">📤</span><div class="tc-name">Outbond Request</div><div class="tc-desc">Ticket pengiriman freebie / kiriman ke KOL — recipient, items, alamat, biaya kirim, status delivery.</div></div>
-          <div class="tool-card" onclick="showPage('invtransfer',null)"><span class="tc-icon">🔁</span><div class="tc-name">Inventory Transfer</div><div class="tc-desc">List transfer antar gudang dari Jubelio — tab Transfer Out (TRFO) &amp; Transfer In (TRFI), status delivery + putaway, mapping ke Wholesale / Consignment / Event / Partner. Bulk-edit.</div></div>
-          <div class="tool-card" onclick="showPage('invcheck',null)"><span class="tc-icon">📦</span><div class="tc-name">Inventory Check</div><div class="tc-desc">Cek stok per parent item di setiap kategori gudang — Inbound, Online, Offline, Event, Consignment.</div></div>
-          <div class="tool-card" onclick="showPage('warehousekpi',null)"><span class="tc-icon">🏭</span><div class="tc-name">Warehouse KPI</div><div class="tc-desc">Monitor putaway performance, receiving accuracy, dan stock adjustment per gudang.</div></div>
-          <div class="tool-card" onclick="showPage('stockadjmgmt',null)"><span class="tc-icon">📋</span><div class="tc-name">Stock Adjustment</div><div class="tc-desc">Kategorisasi dan monitoring alasan adjustment stok 2026.</div></div>
-          <div class="tool-card" onclick="showPage('returnreason',null)"><span class="tc-icon">↩️</span><div class="tc-name">Return Reason</div><div class="tc-desc">Mapping alasan retur customer per order.</div></div>
-          <div class="tool-card" onclick="showPage('stockmovement',null)"><span class="tc-icon">🔄</span><div class="tc-name">Stock Reconcile</div><div class="tc-desc">Rekonsiliasi per produk: stok · terjual · adjustment in/out untuk semua item.</div></div>
+          <div class="tool-card" onclick="showPage('outbound',null)"><span class="tc-icon">📤</span><div class="tc-name">Outbound Request</div><div class="tc-desc">Freebie / KOL shipment tickets — recipient, items, address, shipping cost, delivery status.</div></div>
+          <div class="tool-card" onclick="showPage('invtransfer',null)"><span class="tc-icon">🔁</span><div class="tc-name">Inventory Transfer</div><div class="tc-desc">Inter-warehouse transfers from Jubelio — Transfer Out (TRFO) &amp; Transfer In (TRFI) tabs, delivery + putaway status, mapping to Wholesale / Consignment / Event / Partner. Bulk-edit.</div></div>
+          <div class="tool-card" onclick="showPage('invcheck',null)"><span class="tc-icon">📦</span><div class="tc-name">Inventory Check</div><div class="tc-desc">Check stock per parent item across every warehouse category — Inbound, Online, Offline, Event, Consignment.</div></div>
+          <div class="tool-card" onclick="showPage('warehousekpi',null)"><span class="tc-icon">🏭</span><div class="tc-name">Warehouse KPI</div><div class="tc-desc">Monitor putaway performance, receiving accuracy, and stock adjustments per warehouse.</div></div>
+          <div class="tool-card" onclick="showPage('stockadjmgmt',null)"><span class="tc-icon">📋</span><div class="tc-name">Stock Adjustment</div><div class="tc-desc">Categorize and monitor 2026 stock-adjustment reasons.</div></div>
+          <div class="tool-card" onclick="showPage('returnreason',null)"><span class="tc-icon">↩️</span><div class="tc-name">Return Reason</div><div class="tc-desc">Map customer return reasons per order.</div></div>
+          <div class="tool-card" onclick="showPage('stockmovement',null)"><span class="tc-icon">🔄</span><div class="tc-name">Stock Reconcile</div><div class="tc-desc">Per-product reconciliation: stock · sold · adjustment in/out for every item.</div></div>
         </div>
+      </div>
+
+      <!-- MY NOTIFICATIONS -->
+      <div class="page" id="page-mynotif">
+        <div class="page-header">
+          <div><div class="page-title">My Notifications</div><div class="page-sub">Updates &amp; mentions directed to you.</div></div>
+          <button class="btn-ghost" onclick="markAllNotifRead()">Mark all read</button>
+        </div>
+        <div class="card"><div id="mynotif-list" class="mynotif-list"><div class="empty-td">Loading…</div></div></div>
+      </div>
+
+      <!-- MY TASK -->
+      <div class="page" id="page-mytask">
+        <div class="page-header">
+          <div><div class="page-title">My Task</div><div class="page-sub">Action items assigned to you across the portal.</div></div>
+          <button class="btn-ghost" onclick="loadMyTask()">↻ Refresh</button>
+        </div>
+        <div class="card" style="margin-bottom:16px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+          <div class="mt-tabs">
+            <button class="mt-tab active" data-f="open" onclick="mtFilter('open',this)">Open</button>
+            <button class="mt-tab" data-f="done" onclick="mtFilter('done',this)">Done</button>
+            <button class="mt-tab" data-f="all" onclick="mtFilter('all',this)">All</button>
+          </div>
+          <div id="mt-count" style="margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--g400)">—</div>
+        </div>
+        <div class="card"><div id="mt-list"><div class="empty-td">Loading…</div></div></div>
       </div>
 
       <!-- AGREEMENT -->
@@ -5577,6 +5581,6 @@
 <div id="proj-overlay" class="proj-panel-overlay" style="display:none" onclick="if(event.target===this)closeProjectDetail()"></div>
 <div id="proj-panel" class="proj-panel" style="display:none"></div>
 
-<script src="app.js?v=20260724a"></script>
+<script src="app.js?v=20260801d"></script>
 </body>
 </html>
