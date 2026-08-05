@@ -44976,13 +44976,8 @@ function _hexToRgb(h){ h=(h||'').replace('#',''); if(h.length===3) h=h.split('')
 function _mix(hex, pct, base){ const a=_hexToRgb(hex), b=_hexToRgb(base), p=pct/100; return 'rgb('+a.map((v,i)=>Math.round(v*p+b[i]*(1-p))).join(',')+')'; }
 // Sidebar takes the active category's colour: subtle panel wash + coloured active item (light & dark)
 function _applySidebarBg(){
-  const sb = document.getElementById('sidebar'); if(!sb) return;
-  const c = NAV_CATS.find(x=>x.key===_activeCat); const col = c ? c.color : '#7b68ee';
-  const [r,g,b] = _hexToRgb(col);
-  const dark = document.body.classList.contains('dark');
-  sb.style.setProperty('--cat', col);
-  // BOLD category colour is the whole panel background; items are white with translucent-white highlights
-  sb.style.background = dark ? _mix(col,26,'#17171b') : col;
+  // No-op: old sidebar uses stylesheet background, don't override with category color
+  return;
 }
 let _activeCat = 'home';
 function renderRail(){
