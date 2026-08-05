@@ -261,6 +261,11 @@ function enterApp(user, freshLogin) {
   document.getElementById("greetDate").textContent = new Date().toLocaleDateString("en-US",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
   loadStats();
   preloadAutocomplete();
+  if(typeof refreshPMUnmappedBadge==='function') refreshPMUnmappedBadge();
+  if(typeof refreshTxUnmappedBadge==='function') refreshTxUnmappedBadge();
+  if(typeof refreshSkuUncatBadge==='function') refreshSkuUncatBadge();
+  if(typeof refreshMetafieldBadge==='function') refreshMetafieldBadge();
+  if(typeof _refreshConsignBadge==='function') _refreshConsignBadge();
   applyAccessControl();
   upsertPortalUser(user);
   loadAnnTicker();
@@ -393,7 +398,7 @@ function showPage(name, el) {
   if (el) el.classList.add("active");
   if (typeof _syncRail === "function") _syncRail(name);   // keep the left rail + panel in sync
   const _c = document.querySelector('.content'); if (_c) _c.scrollTop = 0;
-  const labels = {home:"Internal Tools",mynotif:"My Notifications",mytask:"My Task",project:"Project Board",agreement:"Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",wholesalecatalog:"Wholesale Catalog",productdev:"Product Development",sampling:"Sampling",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"SKU Categories",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",mktplan:"Marketing Planning",videoprod:"Video Production",txmap:"Transaction Mapping",manualpurchase:"Manual Purchase",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)",vendormaster:"Vendor Master",rnd:"R&D Product",koldb:"KOL Database",outbound:"Outbond Request",meetingnotes:"Meeting Notes",ipreports:"IP Reports",cronlogs:"Cron Logs",wholesale:"Wholesale Orders",arreceivables:"Account Receivables",licensorfreebies:"Account Freebies",conprog:"Consignment Program"};
+  const labels = {home:"Internal Tools",mynotif:"My Notifications",mytask:"My Task",project:"Project Board",agreement:"Agreement",consignagr:"Consignment Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",wholesalecatalog:"Wholesale Catalog",productdev:"Product Development",sampling:"Sampling",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"Consignment Fee",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",mktplan:"Marketing Planning",videoprod:"Video Production",txmap:"Transaction Mapping",manualpurchase:"Manual Purchase",metafieldaudit:"Metafield Audit",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)",vendormaster:"Vendor Master",rnd:"R&D Product",koldb:"KOL Database",outbound:"Outbond Request",meetingnotes:"Meeting Notes",ipreports:"IP Reports",cronlogs:"Cron Logs",wholesale:"Wholesale Orders",arreceivables:"Account Receivables",licensorfreebies:"Account Freebies",conprog:"Consignment Program"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -425,6 +430,7 @@ function showPage(name, el) {
   if (name==="po") loadPO();
   if (name==="stockmovement" && !_srcRows.length) loadStockMovement();
   if (name==="productmap") loadProductMap(0,'');
+  if (name==="metafieldaudit") loadMetafieldAudit();
   if (name==="wholesalecatalog") loadWholesaleCatalog();
   if (name==="productdev") loadProductDev();
   if (name==="sampling") loadSampling();
@@ -440,12 +446,8 @@ function showPage(name, el) {
   if (name==="koldb") loadKolDb();
   if (name==="outbound") loadOutbound();
   if (name==="txmap") {
-    // Default date range: last 30 days
-    const _now=new Date(), _to=_now.toISOString().slice(0,10);
-    const _fr=new Date(_now-30*864e5).toISOString().slice(0,10);
-    const _fe=document.getElementById('tx-from'), _te=document.getElementById('tx-to');
-    if(_fe && !_fe.value) _fe.value=_fr;
-    if(_te && !_te.value) _te.value=_to;
+    // No default date range — the date filter is opt-in so users see ALL unmapped
+    // transactions on open (matches the sidebar badge), then narrow by date/search.
     loadTxMap();
   }
   if (name==="manualpurchase") loadManualPurchase();
@@ -522,6 +524,7 @@ function showPage(name, el) {
   if (name==="royalty") { const inp=document.getElementById('ry-period'); if(inp && !inp.value) inp.value=new Date().toISOString().slice(0,7); }
   if (name==="income")  { const inp=document.getElementById('is-period'); if(inp && !inp.value) inp.value=new Date().toISOString().slice(0,7); }
   if (name==="marteskucat") loadMarteSKUCat();
+  if (name==="consignagr") loadConsignAgr();
   window.scrollTo(0, 0);
   closeMobileSidebar();
 }
@@ -545,121 +548,108 @@ function switchTab(name, el) {
   el.classList.add("active");
   document.getElementById("tab-new").style.display   = name==="new"   ? "block":"none";
   document.getElementById("tab-list").style.display  = name==="list"  ? "block":"none";
-  document.getElementById("tab-marte").style.display = name==="marte" ? "block":"none";
   if (name==="list")  loadAgreements();
-  if (name==="marte") loadMarteConsignment();
 }
 
-// ── MARTE CONSIGNMENT TAB ──
-// Form submissions from form_marte_consignment (external KYC form) with a
-// manual 'link to agreement' picker so user can tie a submission to its
-// signed Agreement row.
+// ── CONSIGNMENT AGREEMENT ──
+// Standalone module (Legal). Marte consignment KYC submissions land in
+// form_marte_consignment (external form). Each row can be marked "done" once
+// the agreement is processed; done rows hide by default (Show done to reveal).
 let allMarteRows = [];
 function _mcEsc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 
-async function loadMarteConsignment() {
-  const body = document.getElementById('marteTableBody');
+async function loadConsignAgr() {
+  const body = document.getElementById('caTableBody');
   if (!body) return;
-  body.innerHTML = `<tr><td class="empty-td" colspan="12">⟳ Memuat...</td></tr>`;
+  body.innerHTML = `<tr><td class="empty-td" colspan="10" style="padding:40px;text-align:center;color:var(--pc-muted)">Loading…</td></tr>`;
   try {
-    // Need agreements loaded so the link dropdown has options. loadAgreements
-    // populates allRows; fetch in parallel to avoid serial latency.
-    const [marteRes, agrRes] = await Promise.all([
-      sb.from('form_marte_consignment').select('*').order('submitted_at',{ascending:false}),
-      (!allRows || !allRows.length) ? sb.from('agreements').select('*').order('id') : Promise.resolve({ data: null }),
-    ]);
-    if (marteRes.error) throw marteRes.error;
-    if (agrRes.data) allRows = agrRes.data.map(mapAgr);
-    allMarteRows = marteRes.data || [];
-    renderMarteConsignment();
+    const { data, error } = await sb.from('form_marte_consignment').select('*').order('submitted_at',{ascending:false});
+    if (error) throw error;
+    allMarteRows = data || [];
+    renderConsignAgr();
+    _refreshConsignBadge();
   } catch (e) {
-    body.innerHTML = `<tr><td class="empty-td" colspan="12" style="color:#c33">Gagal: ${_mcEsc(e.message||e)}</td></tr>`;
+    body.innerHTML = `<tr><td class="empty-td" colspan="10" style="padding:40px;text-align:center;color:#c33">Failed: ${_mcEsc(e.message||e)}</td></tr>`;
   }
 }
 
-function renderMarteConsignment() {
-  const body = document.getElementById('marteTableBody');
+function renderConsignAgr() {
+  const body = document.getElementById('caTableBody');
   if (!body) return;
-  const q = (document.getElementById('marteSearchBox')?.value || '').toLowerCase().trim();
-  const linkF = document.getElementById('marteFilterLink')?.value || '';
+  const q = (document.getElementById('ca-q')?.value || '').toLowerCase().trim();
+  const typeF = document.getElementById('ca-ftype')?.value || '';
+  const showDone = !!document.getElementById('ca-showdone')?.checked;
   let rows = allMarteRows;
   if (q) rows = rows.filter(r => [r.brand_name, r.signer_name, r.signer_email, r.pic_name, r.respondent_email].some(v => (v||'').toLowerCase().includes(q)));
-  if (linkF === 'linked')   rows = rows.filter(r => r.agreement_id);
-  if (linkF === 'unlinked') rows = rows.filter(r => !r.agreement_id);
-  document.getElementById('marteCount').textContent = `${rows.length} entri`;
-  if (!rows.length) { body.innerHTML = `<tr><td class="empty-td" colspan="12">Tidak ada data.</td></tr>`; return; }
-
-  // Build agreement options once — Marte revenue stream + Signed status first,
-  // then everything else. Plus a 'lainnya' bucket if nothing matches.
-  const agrMarte = (allRows||[]).filter(a => (a.revenue||'').toLowerCase() === 'marte').sort((a,b)=>(a.partner||'').localeCompare(b.partner||''));
-  const agrOther = (allRows||[]).filter(a => (a.revenue||'').toLowerCase() !== 'marte').sort((a,b)=>(a.partner||'').localeCompare(b.partner||''));
-  const buildOpts = (selectedId) => {
-    const mk = (a) => `<option value="${_mcEsc(a.id)}" ${a.id===selectedId?'selected':''}>${_mcEsc(a.id)} — ${_mcEsc(a.partner||a.title||'')}</option>`;
-    let html = `<option value="">— Belum di-link —</option>`;
-    if (agrMarte.length) {
-      html += `<optgroup label="Marte">${agrMarte.map(mk).join('')}</optgroup>`;
-    }
-    if (agrOther.length) {
-      html += `<optgroup label="Lainnya">${agrOther.map(mk).join('')}</optgroup>`;
-    }
-    return html;
-  };
+  if (typeF) rows = rows.filter(r => (r.mitra_type||'') === typeF);
+  if (!showDone) rows = rows.filter(r => !r.done);
+  const pending = rows.filter(r => !r.done).length;
+  const cnt = document.getElementById('ca-count');
+  if (cnt) cnt.textContent = pending + ' pending' + (showDone ? ` · ${rows.length - pending} done` : '');
+  if (!rows.length) { body.innerHTML = `<tr><td class="empty-td" colspan="10" style="padding:36px;text-align:center;color:var(--pc-muted)">Nothing here.</td></tr>`; return; }
 
   body.innerHTML = rows.map(r => {
     const dt = r.submitted_at ? new Date(r.submitted_at).toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'numeric'}) : '—';
     const docs = [
-      r.ktp_url ? `<a href="${_mcEsc(r.ktp_url)}" target="_blank" style="font-size:10px;color:#3C3489">KTP</a>` : null,
-      r.individual_npwp_url ? `<a href="${_mcEsc(r.individual_npwp_url)}" target="_blank" style="font-size:10px;color:#3C3489">NPWP Pribadi</a>` : null,
-      r.company_npwp_url ? `<a href="${_mcEsc(r.company_npwp_url)}" target="_blank" style="font-size:10px;color:#3C3489">NPWP PT</a>` : null,
-      r.surat_kuasa_url ? `<a href="${_mcEsc(r.surat_kuasa_url)}" target="_blank" style="font-size:10px;color:#3C3489">Surat Kuasa</a>` : null,
+      r.ktp_url ? `<a href="${_mcEsc(r.ktp_url)}" target="_blank" style="font-size:11px;color:var(--pc-accent)">KTP</a>` : null,
+      r.individual_npwp_url ? `<a href="${_mcEsc(r.individual_npwp_url)}" target="_blank" style="font-size:11px;color:var(--pc-accent)">NPWP</a>` : null,
+      r.company_npwp_url ? `<a href="${_mcEsc(r.company_npwp_url)}" target="_blank" style="font-size:11px;color:var(--pc-accent)">NPWP PT</a>` : null,
+      r.surat_kuasa_url ? `<a href="${_mcEsc(r.surat_kuasa_url)}" target="_blank" style="font-size:11px;color:var(--pc-accent)">Surat Kuasa</a>` : null,
     ].filter(Boolean).join(' · ');
-    const linked = r.agreement_id;
-    const linkedAgr = linked ? (allRows||[]).find(a => a.id === linked) : null;
-    const linkBadge = linked
-      ? `<a href="#" onclick="event.preventDefault();showPage('agreement',null);setTimeout(()=>{const el=document.querySelector('[data-agr-id=\\'${_mcEsc(linked)}\\']');if(el)el.scrollIntoView({block:'center'})},300)" style="font-size:11px;color:#1c7a3b;font-family:var(--mono);text-decoration:none" title="${_mcEsc(linkedAgr?.title||'')}">→ ${_mcEsc(linked)}</a>`
-      : `<span style="font-size:10px;color:var(--g400)">belum di-link</span>`;
-    return `<tr>
-      <td style="font-family:var(--mono);font-size:11px">${_mcEsc(dt)}</td>
-      <td><b>${_mcEsc(r.brand_name||'—')}</b></td>
-      <td><span style="font-size:11px">${_mcEsc(r.mitra_type||'')}</span></td>
-      <td>${_mcEsc(r.signer_name||'—')}<br><span style="font-size:10px;color:var(--g400)">${_mcEsc(r.signer_position||'')}</span></td>
-      <td style="font-size:11px"><a href="mailto:${_mcEsc(r.signer_email||'')}" style="color:#3C3489">${_mcEsc(r.signer_email||'—')}</a></td>
-      <td style="font-family:var(--mono);font-size:11px">${_mcEsc(r.signer_phone||'—')}</td>
-      <td>${_mcEsc(r.pic_name||'—')}<br><span style="font-size:10px;color:var(--g400)">${_mcEsc(r.pic_phone||'')}</span></td>
-      <td style="font-size:11px">${_mcEsc(r.bank_name||'—')}<br><span style="font-family:var(--mono);color:var(--g400)">${_mcEsc(r.bank_account_number||'')}</span></td>
+    const isDone = !!r.done;
+    const doneBtn = isDone
+      ? `<button class="pc-btn" style="padding:4px 10px;font-size:12px" onclick="unmarkConsignDone(${r.id})">↺ Restore</button>`
+      : `<button class="pc-btn accent" style="padding:4px 10px;font-size:12px" onclick="markConsignDone(${r.id})">Mark as done</button>`;
+    return `<tr style="${isDone ? 'opacity:.55' : ''}">
+      <td style="font-family:var(--mono);font-size:11px;color:var(--pc-muted)">${_mcEsc(dt)}</td>
+      <td style="font-size:12px;font-weight:600;color:var(--pc-txt)">${_mcEsc(r.brand_name||'—')}${isDone ? ' <span class="pill p-active" style="font-size:9px">done</span>' : ''}</td>
+      <td style="font-size:11px">${_mcEsc(r.mitra_type||'')}</td>
+      <td style="font-size:12px;color:var(--pc-txt)">${_mcEsc(r.signer_name||'—')}<br><span style="font-size:10px;color:var(--pc-muted)">${_mcEsc(r.signer_position||'')}</span></td>
+      <td style="font-size:11px"><a href="mailto:${_mcEsc(r.signer_email||'')}" style="color:var(--pc-accent)">${_mcEsc(r.signer_email||'—')}</a><br><span style="font-family:var(--mono);color:var(--pc-muted)">${_mcEsc(r.signer_phone||'')}</span></td>
+      <td style="font-size:12px;color:var(--pc-txt)">${_mcEsc(r.pic_name||'—')}<br><span style="font-size:10px;color:var(--pc-muted)">${_mcEsc(r.pic_phone||'')}</span></td>
+      <td style="font-size:11px">${_mcEsc(r.bank_name||'—')}<br><span style="font-family:var(--mono);color:var(--pc-muted)">${_mcEsc(r.bank_account_number||'')}</span></td>
       <td style="font-family:var(--mono);font-size:11px">${_mcEsc(r.company_npwp_no||r.individual_npwp_no||'—')}</td>
-      <td>${docs || `<span style="font-size:10px;color:var(--g400)">—</span>`}</td>
-      <td>
-        <div style="display:flex;flex-direction:column;gap:4px;min-width:200px">
-          <select onchange="linkMarteToAgreement(${r.id},this.value)" style="padding:3px 6px;font-size:11px;border:1px solid var(--g100);border-radius:4px;background:var(--white)">${buildOpts(r.agreement_id||'')}</select>
-          ${linkBadge}
-        </div>
-      </td>
-      <td><button class="btn-cancel" onclick="deleteMarteConsignment(${r.id})" style="padding:3px 8px;font-size:11px">×</button></td>
+      <td>${docs || `<span style="font-size:11px;color:var(--pc-muted)">—</span>`}</td>
+      <td style="white-space:nowrap">${doneBtn} <button class="pc-btn" style="padding:4px 8px;font-size:12px" onclick="deleteConsignAgr(${r.id})" title="Delete">×</button></td>
     </tr>`;
   }).join('');
 }
 
-async function linkMarteToAgreement(marteId, agreementId) {
+async function markConsignDone(id) {
   try {
-    const payload = { agreement_id: agreementId || null };
-    const { error } = await sb.from('form_marte_consignment').update(payload).eq('id', marteId);
+    const { error } = await sb.from('form_marte_consignment').update({ done:true, done_at:new Date().toISOString(), done_by: currentUser||'' }).eq('id', id);
     if (error) throw error;
-    // Update local state then re-render
-    const r = allMarteRows.find(x => x.id === marteId);
-    if (r) r.agreement_id = agreementId || null;
-    renderMarteConsignment();
-  } catch (e) { alert('Gagal link: '+(e.message||e)); }
+    const r = allMarteRows.find(x => x.id === id);
+    if (r) { r.done = true; r.done_at = new Date().toISOString(); }
+    renderConsignAgr();
+    _refreshConsignBadge();
+  } catch (e) { alert('Failed: '+(e.message||e)); }
 }
-
-async function deleteMarteConsignment(id) {
-  if (!confirm('Hapus submission ini?')) return;
+async function unmarkConsignDone(id) {
+  try {
+    const { error } = await sb.from('form_marte_consignment').update({ done:false, done_at:null, done_by:null }).eq('id', id);
+    if (error) throw error;
+    const r = allMarteRows.find(x => x.id === id);
+    if (r) { r.done = false; r.done_at = null; }
+    renderConsignAgr();
+    _refreshConsignBadge();
+  } catch (e) { alert('Failed: '+(e.message||e)); }
+}
+async function deleteConsignAgr(id) {
+  if (!confirm('Delete this submission?')) return;
   try {
     const { error } = await sb.from('form_marte_consignment').delete().eq('id', id);
     if (error) throw error;
     allMarteRows = allMarteRows.filter(r => r.id !== id);
-    renderMarteConsignment();
-  } catch (e) { alert('Gagal hapus: '+(e.message||e)); }
+    renderConsignAgr();
+    _refreshConsignBadge();
+  } catch (e) { alert('Failed: '+(e.message||e)); }
+}
+async function _refreshConsignBadge() {
+  try {
+    const { count } = await sb.from('form_marte_consignment').select('*', { count:'exact', head:true }).or('done.is.null,done.eq.false');
+    if (typeof setSbBadge === 'function') setSbBadge('consignagr', count || 0);
+  } catch (_) {}
 }
 
 function switchIpTab(name, el) {
@@ -728,6 +718,33 @@ setupAC("ip-pic","ac-ip-pic",()=>acPics);
 setupAC("rr-tipe","ac-rr-tipe",()=>acRRTipes);
 setupAC("rr-ip","ac-rr-ip",()=>acRRIPs);
 setupAC("rr-pic","ac-rr-pic",()=>acPics);
+
+// ── APP NOTIFY (pretty centered popup; replaces native alert) ──
+function _notify(message, opts){
+  opts = opts || {};
+  let ov = document.getElementById('app-notify');
+  if(!ov){
+    ov = document.createElement('div');
+    ov.id = 'app-notify';
+    ov.className = 'app-notify-overlay';
+    ov.innerHTML = '<div class="app-notify-card"><div class="app-notify-ic"></div><div class="app-notify-msg"></div><div class="app-notify-actions"><button class="app-notify-ok">OK</button></div></div>';
+    document.body.appendChild(ov);
+    ov.addEventListener('click', e=>{ if(e.target===ov) _notifyClose(); });
+    ov.querySelector('.app-notify-ok').addEventListener('click', _notifyClose);
+    document.addEventListener('keydown', e=>{ if(ov.style.display==='flex' && (e.key==='Escape'||e.key==='Enter')) _notifyClose(); });
+  }
+  const msg = String(message==null?'':message);
+  const type = opts.type || (/(error|gagal|failed|violates|invalid|tidak|belum|no products|nothing|choose)/i.test(msg) ? (/(error|gagal|failed|violates|invalid)/i.test(msg)?'error':'info') : 'info');
+  const card = ov.querySelector('.app-notify-card');
+  card.setAttribute('data-type', type);
+  ov.querySelector('.app-notify-ic').textContent = type==='error'?'⚠️':type==='success'?'✅':'ℹ️';
+  ov.querySelector('.app-notify-msg').textContent = msg;
+  ov.style.display = 'flex';
+  setTimeout(()=>{ const b=ov.querySelector('.app-notify-ok'); if(b) b.focus(); }, 0);
+}
+function _notifyClose(){ const ov=document.getElementById('app-notify'); if(ov) ov.style.display='none'; }
+// Route all alert() calls through the pretty centered popup
+window.alert = function(m){ try{ _notify(m); }catch(_){ /* no-op */ } };
 
 // ── AGREEMENT ──
 function computeStats(rows) {
@@ -1529,6 +1546,9 @@ let allLeadsRows = [], acLeadsCategories = ["Musician","Brand","Filmmaker","Arti
 let _ldDetail = null;   // currently open lead object
 let _ldClosedOpen = false;
 let _ldMainTab = 'board';
+let _ldGroupBy = 'stage';       // board grouping: stage | pic | category | priority
+let _ldCalMonth = null;         // Date (first of month) for calendar view
+let _ldLastFiltered = [];       // last filtered rows, for view re-render on switch
 let _ldAllTasks = [];
 let _ldpDiscussAtQuery = '', _ldpDiscussAtStart = -1;
 
@@ -1585,11 +1605,21 @@ function applyLeadsFilters(){
     if(fRev&&!(r.revenue||"").includes(fRev))return false;
     return true;
   });
+  _ldLastFiltered = filtered;
   computeLeadsStats(filtered);
   document.getElementById("ld-tcount").textContent=filtered.length+" lead";
-  renderLeadsBoard(filtered);
+  _ldRenderActive(filtered);
   if (_ldMainTab === 'alltasks') applyLdTasksFilters();
 }
+
+// render whichever view is currently active
+function _ldRenderActive(rows){
+  rows = rows || _ldLastFiltered;
+  if(_ldMainTab==='list') renderLeadsList(rows);
+  else if(_ldMainTab==='calendar') renderLeadsCalendar(rows);
+  else if(_ldMainTab==='board') renderLeadsBoard(rows);
+}
+function setLdGroupBy(v){ _ldGroupBy=v; renderLeadsBoard(_ldLastFiltered); }
 
 function clearLeadsFilters(){
   ["ld-fil-category","ld-fil-pic","ld-fil-priority","ld-fil-revenue"].forEach(id=>{const el=document.getElementById(id);if(el){el.value="";el.classList.remove("active-filter");}});
@@ -1599,9 +1629,107 @@ function clearLeadsFilters(){
 
 // ── Kanban board render ──
 function renderLeadsBoard(rows){
-  _renderKbSection(rows, LD_PIPELINE, "ld-board");
-  if(_ldClosedOpen) _renderKbSection(rows, LD_CLOSED, "ld-closed-board");
+  rows = rows || _ldLastFiltered;
+  const closedWrap = document.getElementById('ld-closed-toggle-btn');
+  const closedParent = closedWrap ? closedWrap.parentElement : null;
+  if(_ldGroupBy === 'stage'){
+    if(closedParent) closedParent.style.display = '';
+    _renderKbSection(rows, LD_PIPELINE, "ld-board");
+    if(_ldClosedOpen) _renderKbSection(rows, LD_CLOSED, "ld-closed-board");
+  } else {
+    if(closedParent) closedParent.style.display = 'none';
+    _renderKbGrouped(rows, _ldGroupBy, "ld-board");
+  }
 }
+
+// group board by a non-stage field (pic / category / priority) — read-only columns
+function _renderKbGrouped(rows, field, containerId){
+  const el=document.getElementById(containerId); if(!el) return;
+  const valOf = r => field==='pic' ? (r.pic||'—')
+                    : field==='category' ? (r.category||'—')
+                    : field==='priority' ? (r.priority||'—')
+                    : (r.stage||'—');
+  let groups=[...new Set(rows.map(valOf))];
+  if(field==='priority'){ const ord={High:0,Medium:1,Low:2}; groups.sort((a,b)=>(ord[a]??8)-(ord[b]??8)); }
+  else groups.sort((a,b)=> a==='—'?1 : b==='—'?-1 : String(a).localeCompare(String(b)));
+  el.innerHTML=groups.map(g=>{
+    const cards=rows.filter(r=>valOf(r)===g);
+    return `<div class="kanban-col">
+      <div class="kanban-col-header">
+        <div style="display:flex;align-items:center;gap:7px">
+          <span style="font-family:var(--mono);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--black)">${g}</span>
+        </div>
+        <span style="font-family:var(--mono);font-size:10px;color:var(--g400)">${cards.length}</span>
+      </div>
+      <div class="kanban-cards">
+        ${cards.length ? cards.map(r=>_ldCardHTML(r)).join('') : '<div class="kanban-empty"><span style="font-size:11px;color:var(--g200);font-family:var(--mono)">kosong</span></div>'}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── List view render ──
+function _ldPrioColor(p){ return p==='High'?'#c0392b':p==='Medium'?'#e67e22':p==='Low'?'#7f8c8d':'var(--g400)'; }
+function renderLeadsList(rows){
+  const tb=document.getElementById('ld-list-tbody'); if(!tb) return;
+  if(!rows.length){ tb.innerHTML='<tr><td class="empty-td" colspan="8">Tidak ada lead.</td></tr>'; return; }
+  const today=new Date(); today.setHours(0,0,0,0);
+  tb.innerHTML=rows.map(r=>{
+    const streams=(r.revenue||'').split(',').map(s=>s.trim()).filter(Boolean);
+    const fu=r.followUpDate?new Date(r.followUpDate):null;
+    const fuOver=fu&&fu<today&&!LD_CLOSED.includes(r.stage);
+    const fuTxt=fu?`<span style="color:${fuOver?'#c0392b':'var(--g600)'};font-family:var(--mono);font-size:11px">${fuOver?'⚠ ':''}${fu.toLocaleDateString('id-ID',{day:'2-digit',month:'short'})}</span>`:'<span style="color:var(--g200)">—</span>';
+    const stageOpts=LD_STAGES.map(s=>`<option ${s===r.stage?'selected':''}>${s}</option>`).join('');
+    const pc=_ldPrioColor(r.priority);
+    return `<tr style="cursor:pointer" onclick="if(!['SELECT','OPTION'].includes(event.target.tagName))openLeadDetail('${r.rowIndex}')">
+      <td style="font-weight:600">${r.name||'—'}</td>
+      <td>${r.category||'—'}</td>
+      <td><select class="ld-list-stage" onclick="event.stopPropagation()" onchange="_ldListStageChange(event,'${r.rowIndex}',this.value)">${stageOpts}</select></td>
+      <td>${r.priority?`<span class="kcard-tag" style="color:${pc};border-color:${pc}22;background:${pc}11">${r.priority}</span>`:'—'}</td>
+      <td>${streams.join(', ')||'—'}</td>
+      <td>${r.pic||'—'}</td>
+      <td>${fuTxt}</td>
+      <td style="color:var(--g400);font-size:12px">${r.date||'—'}</td>
+    </tr>`;
+  }).join('');
+}
+async function _ldListStageChange(e,id,stage){
+  if(e) e.stopPropagation();
+  const row=allLeadsRows.find(r=>r.rowIndex===id); if(!row||row.stage===stage) return;
+  row.stage=stage;
+  await sb.from('leads').update({stage,last_updated:new Date().toISOString(),last_updated_by:currentUser}).eq('id',id);
+  logActivity('Leads','stage_change',id,'Stage → '+stage);
+  applyLeadsFilters();
+}
+
+// ── Calendar view render ──
+function renderLeadsCalendar(rows){
+  rows = rows || _ldLastFiltered;
+  const grid=document.getElementById('ld-cal-grid'); if(!grid) return;
+  if(!_ldCalMonth){ const n=new Date(); _ldCalMonth=new Date(n.getFullYear(),n.getMonth(),1); }
+  const y=_ldCalMonth.getFullYear(), m=_ldCalMonth.getMonth();
+  const title=document.getElementById('ld-cal-title');
+  if(title) title.textContent=_ldCalMonth.toLocaleDateString('id-ID',{month:'long',year:'numeric'});
+  const startDow=new Date(y,m,1).getDay(), daysIn=new Date(y,m+1,0).getDate();
+  const today=new Date(); today.setHours(0,0,0,0);
+  const byDay={};
+  rows.forEach(r=>{ if(!r.followUpDate) return; const d=new Date(r.followUpDate); if(d.getFullYear()===y&&d.getMonth()===m){ (byDay[d.getDate()]=byDay[d.getDate()]||[]).push(r); } });
+  const dow=['Min','Sen','Sel','Rab','Kam','Jum','Sab'];
+  let html=dow.map(d=>`<div class="ld-cal-dow">${d}</div>`).join('');
+  for(let i=0;i<startDow;i++) html+='<div class="ld-cal-cell empty"></div>';
+  for(let day=1;day<=daysIn;day++){
+    const cellDate=new Date(y,m,day); cellDate.setHours(0,0,0,0);
+    const isToday=cellDate.getTime()===today.getTime();
+    const leads=byDay[day]||[];
+    html+=`<div class="ld-cal-cell${isToday?' today':''}">
+      <div class="ld-cal-daynum">${day}</div>
+      ${leads.map(r=>{const over=cellDate<today&&!LD_CLOSED.includes(r.stage);const c=STAGE_COLORS[r.stage]||'#888';return `<div class="ld-cal-chip" style="border-left:3px solid ${c}" title="${(r.name||'').replace(/"/g,'&quot;')} — ${r.stage}" onclick="openLeadDetail('${r.rowIndex}')">${over?'⚠ ':''}${r.name||'—'}</div>`;}).join('')}
+    </div>`;
+  }
+  grid.innerHTML=html;
+}
+function ldCalNav(delta){ if(!_ldCalMonth){const n=new Date();_ldCalMonth=new Date(n.getFullYear(),n.getMonth(),1);} _ldCalMonth=new Date(_ldCalMonth.getFullYear(),_ldCalMonth.getMonth()+delta,1); renderLeadsCalendar(_ldLastFiltered); }
+function ldCalToday(){ const n=new Date(); _ldCalMonth=new Date(n.getFullYear(),n.getMonth(),1); renderLeadsCalendar(_ldLastFiltered); }
 
 function _renderKbSection(rows, stages, containerId){
   const el=document.getElementById(containerId); if(!el) return;
@@ -1669,10 +1797,9 @@ async function _ldDrop(e,stage){
   const row=allLeadsRows.find(r=>r.rowIndex===id);
   if(!row||row.stage===stage)return;
   row.stage=stage;
-  renderLeadsBoard(allLeadsRows);
+  applyLeadsFilters();
   await sb.from("leads").update({stage,last_updated:new Date().toISOString(),last_updated_by:currentUser}).eq("id",id);
   logActivity("Leads","stage_change",id,"Stage → "+stage);
-  computeLeadsStats(allLeadsRows);
   if(_ldDetail&&_ldDetail.rowIndex===id){
     _ldDetail.stage=stage;
     document.getElementById("ldp-stage-sel").value=stage;
@@ -1807,8 +1934,7 @@ async function ldpUpdateStage(){
   // update card in board
   const row=allLeadsRows.find(r=>r.rowIndex===_ldDetail.rowIndex);
   if(row) row.stage=stage;
-  renderLeadsBoard(allLeadsRows);
-  computeLeadsStats(allLeadsRows);
+  applyLeadsFilters();
   await sb.from("leads").update({stage,last_updated:new Date().toISOString(),last_updated_by:currentUser}).eq("id",_ldDetail.rowIndex);
   logActivity("Leads","stage_change",_ldDetail.rowIndex,"Stage → "+stage);
 }
@@ -1832,7 +1958,7 @@ async function ldpSaveInfo(){
   // update local cache
   Object.assign(_ldDetail,{category:upd.category,pic:upd.pic,contact:upd.contact,priority:upd.priority,followUpDate:upd.follow_up_date,notes:upd.notes,revenue:upd.revenue_stream});
   const row=allLeadsRows.find(r=>r.rowIndex===_ldDetail.rowIndex); if(row) Object.assign(row,{category:upd.category,pic:upd.pic,contact:upd.contact,priority:upd.priority,followUpDate:upd.follow_up_date,notes:upd.notes,revenue:upd.revenue_stream});
-  renderLeadsBoard(allLeadsRows);
+  applyLeadsFilters();
   document.getElementById("ldp-meta").textContent=[upd.category,upd.pic].filter(Boolean).join(" · ");
   fb.textContent="✓ Tersimpan"; fb.style.color="#1a5c25";
   setTimeout(()=>fb.textContent="",3000);
@@ -1847,8 +1973,7 @@ async function ldpDeleteLead(){
   logActivity("Leads","delete",_ldDetail.rowIndex,"Dihapus");
   allLeadsRows=allLeadsRows.filter(r=>r.rowIndex!==_ldDetail.rowIndex);
   closeLdPanel(null);
-  renderLeadsBoard(allLeadsRows);
-  computeLeadsStats(allLeadsRows);
+  applyLeadsFilters();
 }
 
 // ── Action Items ──
@@ -1975,15 +2100,14 @@ function switchLdMainTab(name, el) {
   document.querySelectorAll('#ld-main-tabs .tab-btn').forEach(b => b.classList.remove('active'));
   if (el) el.classList.add('active');
   else {
-    document.querySelectorAll('#ld-main-tabs .tab-btn').forEach(b => {
-      if ((name==='board'&&b.textContent==='Board')||(name==='alltasks'&&b.textContent==='Action Items')) b.classList.add('active');
-    });
+    const lbl={list:'List',board:'Board',calendar:'Calendar',alltasks:'Action Items'}[name];
+    document.querySelectorAll('#ld-main-tabs .tab-btn').forEach(b => { if(b.textContent.trim()===lbl) b.classList.add('active'); });
   }
-  const board = document.getElementById('ldtab-board');
-  const tasks = document.getElementById('ldtab-alltasks');
-  if (board) board.style.display = name === 'board' ? 'block' : 'none';
-  if (tasks) tasks.style.display = name === 'alltasks' ? 'block' : 'none';
+  const ids={list:'ldtab-list',board:'ldtab-board',calendar:'ldtab-calendar',alltasks:'ldtab-alltasks'};
+  Object.entries(ids).forEach(([k,id])=>{ const d=document.getElementById(id); if(d) d.style.display = k===name?'block':'none'; });
+  const gb=document.getElementById('ld-groupby-wrap'); if(gb) gb.style.display = name==='board' ? 'flex' : 'none';
   if (name === 'alltasks') loadAllLeadTasks();
+  else _ldRenderActive(_ldLastFiltered);
 }
 
 async function loadAllLeadTasks() {
@@ -4973,7 +5097,7 @@ async function _pbSavePaymentSection() {
   const r = _pbCurrentDetail;
   if (!r) return;
   const btn = document.querySelector('#pbd-payment .btn-primary');
-  if (btn) { btn.disabled = true; btn.textContent = 'Menyimpan…'; }
+  if (btn) { btn.disabled = true; btn.innerHTML = _SAVE_SVG + " Saving…"; }
   try {
     const reportedRaw = document.getElementById('pbd-pay-reported')?.value;
     const reported = reportedRaw === '' || reportedRaw == null ? null : Number(reportedRaw);
@@ -5842,6 +5966,7 @@ let pmFilters={brand:'',ip:'',collection:'',mappingCount:''};
 const PM_PAGE_SIZE=20;
 let _pmSearchTimer=null;
 let allColNames=[];
+let pmColOpts=[];   // [{value, label}] — label = "IP — Collection Name" for pickers
 
 function onPMSearch(val){
   clearTimeout(_pmSearchTimer);
@@ -5885,7 +6010,7 @@ function populatePMFilters(){
     ips.forEach(n=>{const o=document.createElement("option");o.value=n;o.textContent=n;iSel.appendChild(o);});
   }
   if(cSel && cSel.options.length<=1){
-    allColNames.forEach(n=>{const o=document.createElement("option");o.value=n;o.textContent=n;cSel.appendChild(o);});
+    pmColOpts.forEach(op=>{const o=document.createElement("option");o.value=op.value;o.textContent=op.label;cSel.appendChild(o);});
   }
 }
 
@@ -5897,8 +6022,8 @@ function mapPM(r){
 
 async function loadProductMap(page=0, search=''){
   pmPage=page; pmSearchQuery=search;
-  const tbody=document.getElementById("pmTableBody");
-  if(tbody) tbody.innerHTML=`<tr><td class="empty-td" colspan="7">Memuat...</td></tr>`;
+  const cards=document.getElementById("pm-rows");
+  if(cards) cards.innerHTML=`<tr><td colspan="7" style="padding:40px;text-align:center;color:var(--pc-muted)">Loading…</td></tr>`;
   try {
     if(!allBMRows.length){const{data}=await sb.from("brand_master").select("id,name,email").order("name");allBMRows=(data||[]).map(mapBM);}
     if(!allIPRows.length){const{data}=await sb.from("ip_master").select("id,name,email").order("name");allIPRows=(data||[]).map(mapIP);}
@@ -5912,10 +6037,17 @@ async function loadProductMap(page=0, search=''){
       const rows=(colData||[]).filter(r=>r.collection_name);
       const nameCounts={};
       for(const r of rows) nameCounts[r.collection_name]=(nameCounts[r.collection_name]||0)+1;
+      pmColOpts=[];
       allColNames=rows.map(r=>{
         const dup=nameCounts[r.collection_name]>1;
-        return dup && r.ip_related ? `${r.ip_related} — ${r.collection_name}` : r.collection_name;
+        // value = stored form (disambiguated only when the name is duplicated) — keeps existing data semantics
+        const value = dup && r.ip_related ? `${r.ip_related} — ${r.collection_name}` : r.collection_name;
+        // label = always "IP — Collection Name" for the picker (user request)
+        const label = r.ip_related ? `${r.ip_related} — ${r.collection_name}` : r.collection_name;
+        pmColOpts.push({value,label});
+        return value;
       }).filter(Boolean).sort();
+      pmColOpts.sort((a,b)=>a.label.localeCompare(b.label));
       updatePMColDatalist();
     }
     populatePMFilters();
@@ -5957,20 +6089,23 @@ async function loadProductMap(page=0, search=''){
     });
     const uniqueNames=Object.keys(pmByName);
     const uniqueCount=uniqueNames.length;
-    document.getElementById("pm-s-total").textContent=totalCount||0;
-    document.getElementById("pm-s-mapped").textContent=(totalCount||0)-(unmappedCount||0);
-    document.getElementById("pm-s-unmapped").textContent=unmappedCount||0;
-    const activeFilters=[search&&`"${search}"`,pmFilters.brand,pmFilters.ip,pmFilters.collection,pmFilters.mappingCount!==''&&`mapping ${pmFilters.mappingCount}/3`].filter(Boolean);
+    const _pmT=document.getElementById("pm-s-total"); if(_pmT) _pmT.textContent=totalCount||0;
+    const _pmM=document.getElementById("pm-s-mapped"); if(_pmM) _pmM.textContent=(totalCount||0)-(unmappedCount||0);
+    const _pmU=document.getElementById("pm-s-unmapped"); if(_pmU) _pmU.textContent=unmappedCount||0;
+    const _pmBar=document.getElementById("pm-s-bar");
+    if(_pmBar) _pmBar.style.width=(totalCount?Math.round(((totalCount-(unmappedCount||0))/totalCount)*100):0)+'%';
+    if(typeof refreshPMUnmappedBadge==='function') refreshPMUnmappedBadge();
+    const activeFilters=[search&&`"${search}"`,pmFilters.brand,pmFilters.ip,pmFilters.collection,pmFilters.mappingCount].filter(Boolean);
     document.getElementById("pm-tcount").textContent=hasFilter
-      ? `${uniqueCount} produk${activeFilters.length?` · ${activeFilters.join(" · ")}`:""}`
-      : `${unmappedCount||0} belum mapped`;
+      ? `${uniqueCount} product${uniqueCount===1?'':'s'}${activeFilters.length?` · ${activeFilters.join(" · ")}`:""}`
+      : `${unmappedCount||0} unmapped`;
     // Slice unique names to current page
     const pageNames=uniqueNames.slice(from,from+PM_PAGE_SIZE);
-    renderPMTable(pageNames,pmByName,hasFilter);
+    renderPMCards(pageNames,pmByName,hasFilter);
     renderPMPagination(page, uniqueCount);
     renderPMSortHeaders();
   } catch(e){
-    if(tbody) tbody.innerHTML=`<tr><td class="empty-td" colspan="7">Gagal: ${e.message||e}</td></tr>`;
+    if(cards) cards.innerHTML=`<tr><td colspan="7" style="padding:40px;text-align:center;color:#dc2626">Failed to load: ${e.message||e}</td></tr>`;
   }
 }
 
@@ -6000,36 +6135,191 @@ function renderPMPagination(page,total){
   `;
 }
 
-function renderPMTable(uniqueNames, pmByName, hasFilter=false){
-  const tbody=document.getElementById("pmTableBody");
-  if(!tbody) return;
+// iOS grouped-list cards + selection state for bulk edit
+let pmSel = new Set();       // selected safeIds (current page)
+let pmSelMode = false;
+let pmNameById = {};         // safeId → item name
+
+function renderPMCards(uniqueNames, pmByName, hasFilter=false){
+  const tb=document.getElementById("pm-rows");
+  if(!tb) return;
+  pmSel.clear(); pmNameById={};
+  const cbAll=document.getElementById('pm-check-all'); if(cbAll){cbAll.classList.remove('on');cbAll.textContent='';}
   if(!uniqueNames.length){
-    const msg=hasFilter
-      ? "Tidak ada produk yang cocok dengan filter."
-      : "Cari nama produk atau gunakan filter untuk menampilkan produk.";
-    tbody.innerHTML=`<tr><td class="empty-td" colspan="7">${msg}</td></tr>`;
+    const msg=hasFilter ? "No products match your filters." : "Search or use filters to show products.";
+    tb.innerHTML=`<tr><td colspan="7" style="padding:44px;text-align:center;color:var(--pc-muted)">${msg}</td></tr>`;
+    if(typeof pmUpdateBulk==='function') pmUpdateBulk();
     return;
   }
   const bmOpts=allBMRows.map(r=>`<option value="${(r.name||"").replace(/"/g,"&quot;")}">${r.name}</option>`).join("");
   const ipOpts=allIPRows.map(r=>`<option value="${(r.name||"").replace(/"/g,"&quot;")}">${r.name}</option>`).join("");
   const rrOpts=allRRRows.map(r=>`<option value="${(r.name||r.rowIndex||"").replace(/"/g,"&quot;")}">${r.name||r.rowIndex}</option>`).join("");
-  tbody.innerHTML=uniqueNames.map(name=>{
-    const m=pmByName[name]||{brand:"",ip:"",royaltyRecipient:"",collection:"",jubItemId:null};
+  const sel=(opts,val,field,esc)=>`<select class="pc-cellsel${val?'':' empty'}" onchange="savePMField('${esc}','${field}',this.value);this.classList.toggle('empty',!this.value)"><option value="">— Not set</option>${opts.replace(`value="${(val||"").replace(/"/g,"&quot;")}"`,`value="${(val||"").replace(/"/g,"&quot;")}" selected`)}</select>`;
+  tb.innerHTML=uniqueNames.map(name=>{
+    const m=pmByName[name]||{brand:"",ip:"",royaltyRecipient:"",collection:"",jubItemId:null,variantCount:1};
     const esc=name.replace(/"/g,"&quot;").replace(/'/g,"\\'");
-    const sel=(opts,val,field)=>`<select onchange="savePMField('${esc}','${field}',this.value)" style="font-size:11px;padding:3px 6px;border:1px solid var(--g100);border-radius:4px;width:100%;background:var(--white)"><option value=""></option>${opts.replace(`value="${(val||"").replace(/"/g,"&quot;")}"`,`value="${(val||"").replace(/"/g,"&quot;")}" selected`)}</select>`;
     const safeId=btoa(unescape(encodeURIComponent(name))).replace(/[^a-zA-Z0-9]/g,'');
-    return `<tr style="border-top:1px solid var(--g100)">
-      <td style="padding:8px 6px;font-size:11px;color:var(--g400);text-align:center;white-space:nowrap">${m.variantCount>1?`<span title="Item ID: ${m.jubItemId||'?'}">${m.variantCount} var</span>`:(m.jubItemId||'—')}</td>
-      <td style="padding:8px 10px;font-size:12px;max-width:220px">${name.replace(/</g,"&lt;")}</td>
-      <td style="padding:6px 8px;min-width:130px">${sel(bmOpts,m.brand,"brand")}</td>
-      <td style="padding:6px 8px;min-width:130px">${sel(ipOpts,m.ip,"ip")}</td>
-      <td style="padding:6px 8px;min-width:130px">${sel(rrOpts,m.royaltyRecipient,"royalty_recipient")}</td>
-      <td style="padding:6px 8px;min-width:150px"><input type="text" list="pm-col-datalist" value="${(m.collection||"").replace(/"/g,"&quot;")}" placeholder="Pilih atau ketik baru..." style="font-size:11px;padding:3px 8px;border:1px solid var(--g100);border-radius:4px;width:100%;box-sizing:border-box" onblur="savePMField('${esc}','collection',this.value)" onkeydown="if(event.key==='Enter')this.blur()"></td>
-      <td style="padding:6px 8px;text-align:center" id="pm-status-${safeId}">
-        ${m.brand||m.ip||m.royaltyRecipient||m.collection?'<span class="pill p-active" style="font-size:10px">Mapped</span>':'<span style="color:var(--g400);font-size:11px">—</span>'}
-      </td>
+    pmNameById[safeId]=name;
+    const mapped=m.brand||m.ip||m.royaltyRecipient||m.collection;
+    const varTag=m.variantCount>1?` <span class="pc-sub" style="display:inline" title="Jubelio Item ID: ${m.jubItemId||'?'}">· ${m.variantCount} variants</span>`:'';
+    return `<tr data-id="${safeId}">
+      <td class="pc-selcol" style="text-align:center"><span class="pc-check" onclick="pmToggleCard('${safeId}',this)"></span></td>
+      <td style="font-weight:500;max-width:240px">${name.replace(/</g,"&lt;")}${varTag}</td>
+      <td>${sel(bmOpts,m.brand,'brand',esc)}</td>
+      <td>${sel(ipOpts,m.ip,'ip',esc)}</td>
+      <td>${sel(rrOpts,m.royaltyRecipient,'royalty_recipient',esc)}</td>
+      <td><input class="pc-cellinput" type="text" list="pm-col-datalist" value="${(m.collection||"").replace(/"/g,"&quot;")}" placeholder="— add" onblur="savePMField('${esc}','collection',this.value)" onkeydown="if(event.key==='Enter')this.blur()"></td>
+      <td style="text-align:right"><span class="pc-pill ${mapped?'on':'off'}" id="pm-status-${safeId}">${mapped?'Mapped':'Unmapped'}</span></td>
     </tr>`;
   }).join("");
+  if(typeof pmUpdateBulk==='function') pmUpdateBulk();
+}
+
+// ── PM segmented status + bulk edit ──
+function pmSegStatus(v, btn){
+  document.querySelectorAll('#pm-seg-status button').forEach(b=>b.classList.remove('active'));
+  if(btn) btn.classList.add('active');
+  const h=document.getElementById('pm-fil-mapping'); if(h) h.value=v;
+  applyPMFilters();
+}
+function pmToggleSelMode(){
+  pmSelMode=!pmSelMode;
+  const page=document.getElementById('page-productmap');
+  if(page) page.classList.toggle('selmode',pmSelMode);
+  const btn=document.getElementById('pm-select-btn');
+  if(btn){ btn.textContent=pmSelMode?'Cancel':'Select'; btn.classList.toggle('primary',pmSelMode); }
+  if(!pmSelMode){
+    pmSel.clear();
+    document.querySelectorAll('#pm-rows .pc-check.on, #pm-check-all.on').forEach(c=>{c.classList.remove('on');c.textContent='';});
+  } else if(typeof pmFillBulkFields==='function'){ pmFillBulkFields(); }
+  pmUpdateBulk();
+}
+function pmToggleCard(id, chk){
+  if(!pmSelMode) return;
+  if(pmSel.has(id)){ pmSel.delete(id); if(chk){chk.classList.remove('on');chk.textContent='';} }
+  else { pmSel.add(id); if(chk){chk.classList.add('on');chk.textContent='✓';} }
+  const all=document.getElementById('pm-check-all');
+  const total=document.querySelectorAll('#pm-rows .pc-check').length;
+  if(all){ const on=total>0&&pmSel.size>=total; all.classList.toggle('on',on); all.textContent=on?'✓':''; }
+  pmUpdateBulk();
+}
+function pmToggleAll(el){
+  if(!pmSelMode){ pmToggleSelMode(); }
+  const checks=[...document.querySelectorAll('#pm-rows .pc-check')];
+  const selectAll=pmSel.size<checks.length;
+  pmSel.clear();
+  checks.forEach(c=>{
+    const id=c.closest('tr').getAttribute('data-id');
+    if(selectAll){ pmSel.add(id); c.classList.add('on'); c.textContent='✓'; }
+    else { c.classList.remove('on'); c.textContent=''; }
+  });
+  if(el){ el.classList.toggle('on',selectAll); el.textContent=selectAll?'✓':''; }
+  pmUpdateBulk();
+}
+function pmUpdateBulk(){
+  const bar=document.getElementById('pm-bulkbar');
+  const cnt=document.getElementById('pm-bulk-count'); if(cnt) cnt.textContent=pmSel.size;
+  if(bar) bar.style.display=pmSelMode?'flex':'none';
+}
+// Populate the four laid-out bulk-edit pickers (called when entering select mode)
+function pmFillBulkFields(){
+  const mk=(id,label,names)=>{
+    const el=document.getElementById(id); if(!el) return;
+    el.innerHTML=`<option value="">${label} — leave unchanged</option>`
+      + names.filter(Boolean).map(n=>`<option value="${(n||'').replace(/"/g,'&quot;')}">${n}</option>`).join('');
+  };
+  mk('pm-be-brand','Brand',allBMRows.map(r=>r.name));
+  mk('pm-be-ip','IP',allIPRows.map(r=>r.name));
+  mk('pm-be-royalty','Royalty',allRRRows.map(r=>r.name||r.rowIndex));
+  const colEl=document.getElementById('pm-be-collection');
+  if(colEl) colEl.innerHTML=`<option value="">Collection — leave unchanged</option>`
+    + pmColOpts.map(o=>`<option value="${(o.value||'').replace(/"/g,'&quot;')}">${o.label}</option>`).join('');
+}
+// Apply every field that has a value set (multiple at once) to all selected products
+async function pmBulkApply(){
+  if(!pmSel.size){ alert('No products selected.'); return; }
+  const spec=[['brand','pm-be-brand'],['ip','pm-be-ip'],['royalty_recipient','pm-be-royalty'],['collection','pm-be-collection']];
+  const toApply=spec.map(([f,id])=>[f,((document.getElementById(id)||{}).value||'').trim()]).filter(([f,v])=>v!=='');
+  if(!toApply.length){ alert('Set at least one field to apply.'); return; }
+  const names=[...pmSel].map(id=>pmNameById[id]).filter(Boolean);
+  const btn=event&&event.target; if(btn){btn.disabled=true;btn.textContent='Applying…';}
+  for(const name of names){ for(const [f,v] of toApply){ await savePMField(name, f, v); } }
+  if(btn){btn.disabled=false;btn.textContent='Apply';}
+  loadProductMap(pmPage, pmSearchQuery);
+}
+// Clear ALL mapping fields for the selected products
+async function pmBulkClear(){
+  if(!pmSel.size){ alert('No products selected.'); return; }
+  if(!confirm(`Clear all mapping (Brand, IP, Royalty, Collection) for ${pmSel.size} product(s)?`)) return;
+  const names=[...pmSel].map(id=>pmNameById[id]).filter(Boolean);
+  const btn=event&&event.target; if(btn){btn.disabled=true;btn.textContent='…';}
+  for(const name of names){ for(const f of ['brand','ip','royalty_recipient','collection']){ await savePMField(name, f, ''); } }
+  if(btn){btn.disabled=false;btn.textContent='Clear all';}
+  loadProductMap(pmPage, pmSearchQuery);
+}
+
+// Suggest IP + Collection from Product Development (product_dev → its collection).
+// Nothing is written until the user reviews and applies — pure suggestion.
+let _pmSuggestions=[];   // [{name, ip?, collection?}]
+async function pmSuggestFromPD(){
+  const btn=document.getElementById('pm-automap-btn');
+  try{
+    if(btn){ btn.disabled=true; btn.textContent='Scanning…'; }
+    const {data:pd,error:pdErr}=await sb.from('product_dev').select('sku_name,collection_id').not('sku_name','is',null);
+    if(pdErr) throw pdErr;
+    const colIds=[...new Set((pd||[]).map(r=>r.collection_id).filter(Boolean))];
+    const {data:cols}=colIds.length ? await sb.from('collections').select('id,collection_name,ip_related').in('id',colIds) : {data:[]};
+    const colById={}; (cols||[]).forEach(c=>colById[c.id]=c);
+    const map={};   // sku_name → {ip, collection}
+    (pd||[]).forEach(r=>{ const c=colById[r.collection_id]; if(c && r.sku_name && !map[r.sku_name]) map[r.sku_name]={ip:c.ip_related||'',collection:c.collection_name||''}; });
+    const names=Object.keys(map);
+    if(!names.length){ alert('No Product Development products with a collection were found to match.'); return; }
+    // Look up current values for matching products; only suggest for EMPTY fields
+    const {data:pm}=await sb.from('product_mappings').select('item_name,ip,collection').in('item_name',names).limit(5000);
+    const seen={}; _pmSuggestions=[];
+    (pm||[]).forEach(r=>{
+      if(seen[r.item_name]) return; seen[r.item_name]=1;
+      const s=map[r.item_name]; if(!s) return;
+      const sug={name:r.item_name};
+      if(s.ip && !r.ip) sug.ip=s.ip;
+      if(s.collection && !r.collection) sug.collection=s.collection;
+      if(sug.ip||sug.collection) _pmSuggestions.push(sug);
+    });
+    _pmSuggestions.sort((a,b)=>a.name.localeCompare(b.name));
+    if(!_pmSuggestions.length){ alert('Matching products are already mapped — no suggestions.'); return; }
+    pmRenderSuggest();
+    document.getElementById('pm-suggest-overlay').style.display='flex';
+  }catch(e){ alert('Suggest failed: '+(e.message||e)); }
+  finally{ if(btn){ btn.disabled=false; btn.textContent='✨ Suggest'; } }
+}
+function pmRenderSuggest(){
+  const sub=document.getElementById('pm-suggest-sub');
+  if(sub) sub.textContent=`${_pmSuggestions.length} product${_pmSuggestions.length===1?'':'s'} can be filled from Product Dev — review, then apply. Nothing is saved until you click Apply.`;
+  const list=document.getElementById('pm-suggest-list');
+  if(list) list.innerHTML=_pmSuggestions.map((s,i)=>`
+    <label class="pc-sug-row">
+      <input type="checkbox" class="pc-sug-cb" data-i="${i}" checked>
+      <div style="flex:1;min-width:0">
+        <div class="pc-sug-name">${s.name.replace(/</g,'&lt;')}</div>
+        <div class="pc-sug-vals">${s.ip?`<span class="pc-sug-tag">IP · ${s.ip.replace(/</g,'&lt;')}</span>`:''}${s.collection?`<span class="pc-sug-tag">Collection · ${s.collection.replace(/</g,'&lt;')}</span>`:''}</div>
+      </div>
+    </label>`).join('');
+  const all=document.getElementById('pm-suggest-all'); if(all) all.checked=true;
+}
+function pmSuggestToggleAll(cb){ document.querySelectorAll('#pm-suggest-list .pc-sug-cb').forEach(c=>c.checked=cb.checked); }
+function pmCloseSuggest(){ const o=document.getElementById('pm-suggest-overlay'); if(o) o.style.display='none'; }
+async function pmApplySuggestions(){
+  const checked=[...document.querySelectorAll('#pm-suggest-list .pc-sug-cb:checked')].map(c=>_pmSuggestions[+c.getAttribute('data-i')]).filter(Boolean);
+  if(!checked.length){ alert('Nothing selected.'); return; }
+  const btn=document.getElementById('pm-suggest-apply'); if(btn){ btn.disabled=true; btn.textContent='Applying…'; }
+  for(const s of checked){
+    if(s.ip) await savePMField(s.name,'ip',s.ip);
+    if(s.collection) await savePMField(s.name,'collection',s.collection);
+  }
+  if(btn){ btn.disabled=false; btn.textContent='Apply selected'; }
+  pmCloseSuggest();
+  await refreshPMUnmappedBadge();
+  loadProductMap(pmPage, pmSearchQuery);
 }
 
 async function savePMField(itemName, field, value){
@@ -6063,14 +6353,19 @@ async function savePMField(itemName, field, value){
     const safeId=btoa(unescape(encodeURIComponent(itemName))).replace(/[^a-zA-Z0-9]/g,'');
     const cell=document.getElementById(`pm-status-${safeId}`);
     const r=existing||{};
-    if(cell) cell.innerHTML=(r.brand||r.ip||r.royaltyRecipient||r.collection)
-      ?'<span class="pill p-active" style="font-size:10px">Mapped</span>'
-      :'<span style="color:var(--g400);font-size:11px">—</span>';
+    if(cell){
+      const on=!!(r.brand||r.ip||r.royaltyRecipient||r.collection);
+      cell.className='pc-pill '+(on?'on':'off');
+      cell.textContent=on?'Mapped':'Unmapped';
+    }
     // Refresh unmapped count
     const{count:uc}=await sb.from("product_mappings").select("*",{count:"exact",head:true}).is("brand",null).is("ip",null).is("royalty_recipient",null).is("collection",null);
-    const tot=parseInt(document.getElementById("pm-s-total").textContent)||0;
-    document.getElementById("pm-s-mapped").textContent=tot-(uc||0);
-    document.getElementById("pm-s-unmapped").textContent=uc||0;
+    const _pmT2=document.getElementById("pm-s-total"); const tot=_pmT2?(parseInt(_pmT2.textContent)||0):0;
+    const _pmM2=document.getElementById("pm-s-mapped"); if(_pmM2) _pmM2.textContent=tot-(uc||0);
+    const _pmU2=document.getElementById("pm-s-unmapped"); if(_pmU2) _pmU2.textContent=uc||0;
+    const _pmBar2=document.getElementById("pm-s-bar");
+    if(_pmBar2) _pmBar2.style.width=(tot?Math.round(((tot-(uc||0))/tot)*100):0)+'%';
+    if(typeof refreshPMUnmappedBadge==='function') refreshPMUnmappedBadge();
   } catch(e){console.error("savePMField:",e);}
 }
 
@@ -8658,6 +8953,7 @@ function renderColDetail(col, items) {
           </div>`).join("")}
         </div>
         ${renderColTimelineSection(col, items)}
+        <div id="col-peek-${col.id}" class="col-peek"></div>
         ${renderColTabBar(col, items)}
 
         <!-- ─────────── 🎨 CREATIVE TAB ─────────── -->
@@ -9394,6 +9690,8 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
 
   if (mErr || !mappings || !mappings.length) {
     el.innerHTML = `<div style="color:var(--g400);font-size:12px;padding:4px 0">Belum ada produk yang di-mapping ke koleksi ini.</div>`;
+    const _pk0 = document.getElementById(`col-peek-${colId}`);
+    if (_pk0) _pk0.innerHTML = `<div class="cp-eyebrow">Insights · sneak peek</div><div class="cp-kpis"><div class="cp-kpi"><div class="cp-lbl">Sold</div><div class="cp-val">0 pcs</div></div><div class="cp-kpi"><div class="cp-lbl">Sales</div><div class="cp-val">—</div></div><div class="cp-kpi"><div class="cp-lbl">Sell-through</div><div class="cp-val">—</div></div><span class="cp-note">Belum ada SKU / mapping</span></div>`;
     return;
   }
 
@@ -9695,6 +9993,21 @@ async function loadColProductPerf(colId, colName, revenueStream, ipRelated) {
 
   // Store for PDF export
   _colPerfCache[colId] = { colName, ipRelated: ipRelated||"", revenueStream: revenueStream||"", products, grandStock, grandSold, grandAdjNet, grandRevenue, grandDiscount, grandSubtotal, hasDiscount, str, strClr, adjStr, adjClr, avgPerDay, fds, itemIds, timeSeries, statusBuckets, channelBuckets, linkedEvent, eventSalesQty, eventSalesRev };
+
+  // ── Sneak-peek "insights" strip at the top of the detail ──
+  // Full monitoring (charts, breakdown, report) will live on dashboard.ssentra.asia;
+  // here users just get a 3-KPI glimpse + a link into the full Performance tab.
+  const _pk = document.getElementById(`col-peek-${colId}`);
+  if (_pk) {
+    const kpi = (l,v,c)=>`<div class="cp-kpi"><div class="cp-lbl">${l}</div><div class="cp-val" style="color:${c||'var(--black)'}">${v}</div></div>`;
+    _pk.innerHTML = `<div class="cp-eyebrow">Insights · sneak peek</div>`
+      + `<div class="cp-kpis">`
+      + kpi('Sold', Math.round(grandSold).toLocaleString('id-ID')+' pcs')
+      + kpi('Sales', fmtRp(grandRevenue), '#2d7a2d')
+      + kpi('Sell-through', str, strClr)
+      + `<button class="cp-more" onclick="cdSwitchTab('${colId}','performance')" title="Full monitoring — akan pindah ke dashboard.ssentra.asia">Full monitoring →</button>`
+      + `</div>`;
+  }
 
   // ── Status breakdown row (5 buckets) ──
   // Note: settled label appears even with 0 qty so users see the pipeline.
@@ -18270,11 +18583,26 @@ const MST_STATUS_CLASS = {Draft:'p-draft',Sent:'p-signings',Invoiced:'p-review',
 const MST_INV_CLASS    = {Draft:'p-draft',Sent:'p-signings',Paid:'p-active'};
 
 let allMarteSettlements = [], _mstItems = [], _mstTid = 0, _mstEditId = null, _mstBrandRow = null;
+let _mstOverrideBySku = {};   // {item_code: fee_rate_override} — per-SKU rate override from SKU Categories
 
 function _mstRp(n) { return 'Rp'+Math.round(n||0).toLocaleString('id-ID'); }
 
+// Effective consign fee rate for a settlement line: per-SKU override wins over the brand's category rate
+function _mstEffectiveRate(it) {
+  const ov = _mstOverrideBySku[(it.sku_id||'').trim()];
+  return (ov != null) ? ov : _mstGetRate(it.category);
+}
+async function _mstLoadOverrides() {
+  try {
+    const { data } = await sb.from('marte_sku_categories').select('item_code,fee_rate_override').not('fee_rate_override','is',null);
+    _mstOverrideBySku = {};
+    (data||[]).forEach(o => { _mstOverrideBySku[o.item_code] = parseFloat(o.fee_rate_override); });
+  } catch(e) { /* ignore */ }
+}
+
 async function loadMarteSettlements() {
   if (!allBMRows.length) await loadBrandMaster();
+  await _mstLoadOverrides();
   setupAC('mst-brand','ac-mst-brand', ()=>allBMRows.map(r=>r.name).filter(Boolean));
   const {data,error} = await sb.from('marte_settlements').select('*').order('period',{ascending:false}).order('brand_name');
   if (error) { console.error(error); return; }
@@ -18331,7 +18659,7 @@ function mstBrandInput() {
   const name = (document.getElementById('mst-brand').value||'').trim();
   _mstBrandRow = allBMRows.find(r=>r.name===name)||null;
   // Re-apply rates to existing items if brand changed
-  if (_mstBrandRow) _mstItems.forEach(it=>{ it.consign_fee_rate=_mstGetRate(it.category); _mstCalcItem(it); });
+  if (_mstBrandRow) _mstItems.forEach(it=>{ it.consign_fee_rate=_mstEffectiveRate(it); _mstCalcItem(it); });
   _mstRenderItems();
 }
 
@@ -18359,7 +18687,17 @@ function mstItemChange(tid, field, value) {
   const it = _mstItems.find(x=>x.tid===tid);
   if (!it) return;
   it[field] = (field==='qty_sold'||field==='total_sales'||field==='consign_fee_rate') ? parseFloat(value)||0 : value;
-  if (field==='category') { it.consign_fee_rate=_mstGetRate(value); document.getElementById(`mst-ir-rate-${tid}`).value=it.consign_fee_rate; }
+  // Category or SKU change → re-derive rate (per-SKU override wins over category rate)
+  if (field==='category' || field==='sku_id') {
+    it.consign_fee_rate = _mstEffectiveRate(it);
+    const rEl = document.getElementById(`mst-ir-rate-${tid}`);
+    if (rEl) {
+      rEl.value = it.consign_fee_rate;
+      const ov = _mstOverrideBySku[(it.sku_id||'').trim()] != null;
+      rEl.style.borderColor = ov ? '#d97706' : '';
+      rEl.title = ov ? 'Per-SKU rate override from SKU Categories' : '';
+    }
+  }
   _mstCalcItem(it);
   document.getElementById(`mst-ir-fee-${tid}`).textContent  = _mstRp(it.consign_fee_amount);
   document.getElementById(`mst-ir-net-${tid}`).textContent  = _mstRp(it.net_receive);
@@ -18386,7 +18724,7 @@ function _mstRenderItems() {
   <td style="padding:6px 8px"><select onchange="mstItemChange(${it.tid},'category',this.value)" style="font-size:12px;padding:4px 7px;width:100%">${MST_CATS.map(c=>`<option value="${c}"${c===it.category?' selected':''}>${c}</option>`).join('')}</select></td>
   <td style="padding:6px 8px"><input type="number" min="0" value="${it.qty_sold}" oninput="mstItemChange(${it.tid},'qty_sold',this.value)" style="width:60px;text-align:right;font-size:12px;padding:4px 7px"></td>
   <td style="padding:6px 8px"><input type="number" min="0" id="mst-ir-sales-${it.tid}" value="${it.total_sales}" oninput="mstItemChange(${it.tid},'total_sales',this.value)" style="width:110px;text-align:right;font-family:var(--mono);font-size:12px;padding:4px 7px"></td>
-  <td style="padding:6px 8px"><input type="number" min="0" max="100" id="mst-ir-rate-${it.tid}" value="${it.consign_fee_rate}" oninput="mstItemChange(${it.tid},'consign_fee_rate',this.value)" style="width:55px;text-align:right;font-size:12px;padding:4px 7px"></td>
+  <td style="padding:6px 8px"><input type="number" min="0" max="100" id="mst-ir-rate-${it.tid}" value="${it.consign_fee_rate}" oninput="mstItemChange(${it.tid},'consign_fee_rate',this.value)" title="${_mstOverrideBySku[(it.sku_id||'').trim()]!=null?'Per-SKU rate override from SKU Categories':''}" style="width:55px;text-align:right;font-size:12px;padding:4px 7px${_mstOverrideBySku[(it.sku_id||'').trim()]!=null?';border-color:#d97706':''}"></td>
   <td style="padding:6px 8px;text-align:right;font-family:var(--mono);font-size:12px;color:#c0392b;white-space:nowrap" id="mst-ir-fee-${it.tid}">${_mstRp(it.consign_fee_amount)}</td>
   <td style="padding:6px 8px;text-align:right;font-family:var(--mono);font-size:12px;font-weight:600;white-space:nowrap" id="mst-ir-net-${it.tid}">${_mstRp(it.net_receive)}</td>
   <td style="padding:6px 8px;text-align:center"><button onclick="mstRemoveItem(${it.tid})" style="background:none;border:none;cursor:pointer;color:var(--g400);font-size:14px;padding:2px 4px">✕</button></td>
@@ -20587,7 +20925,7 @@ async function loadChat() {
           const popup = document.getElementById('chat-popup');
           if (!popup || popup.style.display === 'none') {
             const badge = document.getElementById('chat-unread-badge');
-            if (badge) { badge.style.display = 'inline-flex'; badge.textContent = (parseInt(badge.textContent)||0) + 1; }
+            if (badge) { badge.style.display = 'inline-block'; badge.textContent = (parseInt(badge.textContent)||0) + 1; }
           }
         }
       })
@@ -28363,8 +28701,44 @@ async function _kolMgmtEnsureRefData() {
               thumbnail: x.jubelio_item_id ? (thumbMap.get(String(x.jubelio_item_id)) || '') : '',
               hpp: x.jubelio_item_id ? (costMap.get(String(x.jubelio_item_id)) || 0) : 0,
               variantCount: 1,
+              _isPD: false,
             });
           }
+          // Merge Product Development parents (prototype phase, belum di Jubelio).
+          // Berguna buat Sampling/Photoshoot/KOL freebie SKU baru yang lagi diproduksi.
+          // Jubelio SKU menang kalau nama sama (item udah live jangan double).
+          try {
+            const {data: pdRows} = await sb.from('product_dev')
+              .select('id,parent_id,sku_name,sku_type,hpp,brand,picture_urls')
+              .order('date_added',{ascending:false});
+            const pdParents = (pdRows||[]).filter(r => r.sku_type==='product' || !r.parent_id);
+            const pdVariants = (pdRows||[]).filter(r => r.sku_type==='variant' && r.parent_id);
+            const hppByParent = new Map();
+            const cntByParent = new Map();
+            for (const v of pdVariants) {
+              const hpp = Number(v.hpp||0);
+              if (hpp > 0) {
+                hppByParent.set(v.parent_id, (hppByParent.get(v.parent_id)||0) + hpp);
+                cntByParent.set(v.parent_id, (cntByParent.get(v.parent_id)||0) + 1);
+              }
+            }
+            for (const p of pdParents) {
+              const name = (p.sku_name || p.id || '').trim();
+              if (!name || byName.has(name)) continue;
+              const cnt = cntByParent.get(p.id)||0;
+              const avgHpp = cnt > 0 ? Math.round(hppByParent.get(p.id) / cnt) : 0;
+              const thumb = Array.isArray(p.picture_urls) && p.picture_urls.length ? p.picture_urls[0] : '';
+              byName.set(name, {
+                id: p.id,
+                item_name: name,
+                brand: p.brand || '',
+                thumbnail: thumb,
+                hpp: avgHpp,
+                variantCount: pdVariants.filter(v => v.parent_id===p.id).length || 1,
+                _isPD: true,
+              });
+            }
+          } catch (ePD) { console.warn('product_dev picker merge failed:', ePD); }
           _kolProdMapCache = [...byName.values()];
         } catch (e) { console.warn('product_mappings cache failed:', e); }
       })();
@@ -28534,10 +28908,11 @@ function _kolFrbRenderAC(display, ac) {
     if (m.variantCount > 1) meta.push(`${m.variantCount} sizes`);
     if (m.hpp > 0) meta.push(`HPP ${_moRp(m.hpp)}`);
     const metaLine = meta.length ? `<div style="font-size:10px;color:var(--g600);font-family:var(--mono);margin-top:1px">${meta.join(' · ')}</div>` : '';
+    const pdBadge = m._isPD ? '<span style="display:inline-block;font-size:9px;font-family:var(--mono);font-weight:600;padding:1px 5px;border-radius:3px;background:#EEEDFE;color:#3C3489;border:1px solid #CECBF6;margin-left:6px;vertical-align:middle" title="Masih di Product Development, belum di Jubelio">PD</span>' : '';
     return `<div class="ac-item" data-sku="${esc(m.id)}" data-name="${esc(m.item_name)}" data-thumb="${esc(m.thumbnail)}" data-hpp="${m.hpp||0}" style="display:flex;align-items:center;gap:8px;padding:6px 10px">
       ${thumb}
       <div style="min-width:0;flex:1">
-        <div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(m.item_name)}</div>
+        <div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(m.item_name)}${pdBadge}</div>
         ${metaLine}
       </div>
     </div>`;
@@ -29789,7 +30164,7 @@ async function syncAndReloadTxMap() {
 
 async function loadTxMap() {
   const tbody = document.getElementById('txTableBody');
-  if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="14">Memuat...</td></tr>`;
+  if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="14" style="padding:40px;text-align:center;color:var(--pc-muted)">Loading…</td></tr>`;
   // Lookups must be ready before render (category-dependent ref dropdown).
   await _txLoadLookups();
   // Reset selection on reload
@@ -29923,9 +30298,10 @@ async function loadTxMap() {
     _renderTxTable();
     _renderTxStats();
     _renderTxPagination(pageSize);
+    if(typeof refreshTxUnmappedBadge==='function') refreshTxUnmappedBadge();
   } catch (e) {
     console.error('loadTxMap:', e);
-    if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="14">Gagal: ${e.message||e}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="14" style="padding:40px;text-align:center;color:#dc2626">Failed: ${e.message||e}</td></tr>`;
   }
 }
 
@@ -29945,11 +30321,11 @@ function _renderTxTable() {
   const tbody = document.getElementById('txTableBody');
   if (!tbody) return;
   if (!_txRows.length) {
-    tbody.innerHTML = `<tr><td class="empty-td" colspan="14">Tidak ada data sesuai filter.</td></tr>`;
-    document.getElementById('tx-tcount').textContent = '0 entri';
+    tbody.innerHTML = `<tr><td class="empty-td" colspan="14" style="padding:40px;text-align:center;color:var(--pc-muted)">No data matches your filters.</td></tr>`;
+    document.getElementById('tx-tcount').textContent = "0 entries";
     return;
   }
-  document.getElementById('tx-tcount').textContent = `${_txRows.length} di page ini · ${_txTotalCount.toLocaleString('id-ID')} total`;
+  document.getElementById('tx-tcount').textContent = `${_txRows.length} on this page · ${_txTotalCount.toLocaleString("id-ID")} total`;
 
   const catOpts = ['', ...TX_CATEGORIES];
 
@@ -29962,7 +30338,7 @@ function _renderTxTable() {
     // tabs and trim so the cell renders cleanly.
     const jubNote = (r.note || '').replace(/\s+/g, ' ').trim();
     const isMapped = !!cat || !!proj;
-    const rowBg = isMapped ? 'background:#fafdf6' : '';
+    const rowBg = '';   // rows are plain (dark) by default; green highlight is on hover (CSS)
     const isCanceled = r.is_canceled || (r.wms_status === 'CANCELED');
     const checked = _txSelected.has(r.salesorder_id) ? ' checked' : '';
     return `<tr style="${rowBg}">
@@ -30519,7 +30895,7 @@ function _renderInvTransferTable() {
     const cat = r._mapping?.category || '';
     const ref = r._mapping?.ref_label || '';
     const isMapped = !!cat || !!ref;
-    const rowBg = isMapped ? 'background:#fafdf6' : '';
+    const rowBg = isMapped ? 'background:rgba(34,197,94,0.09)' : '';
     const checked = _itSelected.has(r.item_transfer_id) ? ' checked' : '';
     const route = `${_itEsc(r.source || '—')} → ${_itEsc(r.destination || '—')}`;
     const putawayPill = r.is_putaway
@@ -38975,7 +39351,7 @@ function _whRequestOutbound() {
     };
   });
   const totalRemaining = itemsWithRemaining.reduce((s,i) => s + i._remaining, 0);
-  if (totalRemaining === 0) { alert('Semua items udah ke-request di OB sebelumnya.'); return; }
+  if (totalRemaining === 0) { alert('All items have already been requested in previous batches.'); return; }
   const batchNo = obs.length + 1;
   const isPartial = obs.length > 0;
   const overlay = document.createElement('div');
@@ -40819,8 +41195,7 @@ const MP_STOCK_LOCATIONS = ['Gudang Bintaro','Gudang Penerimaan Barang'];
 // Bintaro = -1, Penerimaan Barang = 3 (from jubelio locations catalog).
 const MP_STOCK_LOCATION_IDS = [-1, 3];
 const MP_INVOICE_CATEGORIES = [
-  'Penjualan Merchandise Retail','Reseller','Project Merchandise',
-  'Event & Activation','Production & Service Fee','Royalty / Revenue Share','Lainnya'
+  'Product Selling','Service Selling'
 ];
 let _mpurcRows = [];
 let _mpurcCurrent = null;
@@ -40834,6 +41209,8 @@ function mapMpurc(r) {
     requestorName: r.requestor_name||'',
     invoiceCategory: r.invoice_category||'',
     billedToName: r.billed_to_name||'', billedToAddress: r.billed_to_address||'',
+    billedToType: r.billed_to_type||'', billedToPhone: r.billed_to_phone||'',
+    deliveryDone: r.delivery_done === true,
     clientRepName: r.client_rep_name||'', clientRepEmail: r.client_rep_email||'',
     notes: r.notes||'', paymentTerm: r.payment_term||'',
     orderDate: r.order_date, invoiceDate: r.invoice_date, dueDate: r.due_date,
@@ -40861,29 +41238,43 @@ function mapMpurc(r) {
 
 // Shipping scheme options — instruction to warehouse, NOT the cost.
 // Actual cost diisi warehouse di OB ticket setelah kirim.
-const MP_SHIPPING_SCHEMES = [
-  'Regular JNE',
-  'JNE YES',
-  'JNT Express',
-  'SiCepat',
-  'Gosend Same-day',
-  'Grab Same-day',
-  'Anteraja',
-  'Lalamove',
-  'Kurir Internal',
-  'Customer Pickup',
-  'Sales Bawa Sendiri',
-];
+// Simplified: Reguler / Express / Self-Pick Up. Self-Pick Up = no delivery
+// destination needed (customer collects).
+const MP_SHIPPING_SCHEMES = ['Reguler', 'Express', 'Self-Pick Up'];
 
-// Kategori siapa yang nanggung ongkir — instruksi ke finance/warehouse.
-// Actual angka tetep dari warehouse via OB.shipping_cost.
+// Who covers the shipping cost — 2 options only.
 const MP_SHIPPING_COST_CATEGORIES = [
-  { value: 'paid_sentra',         label: '🏢 Ditanggung Sentra' },
-  { value: 'reimbursed',          label: '💸 Reimburse (talangan)' },
-  { value: 'charged_to_customer', label: '🧾 Ditagihkan ke Customer' },
-  { value: 'free_ongkir',         label: '🎁 Free Ongkir (absorb, gak ditagih)' },
+  { value: 'covered_by_sentra', label: 'Covered by Sentra' },
+  { value: 'paid_by_customer',  label: 'Paid by customer (into invoice)' },
 ];
 const MP_OFFICE_ADDRESS = 'Jl. Wahid Hasyim No. 10D RT.002 RW.007, Kebon Sirih, Menteng, Jakarta Pusat';
+const MP_RADAL_HQ_ADDRESS = 'Jl. Taman Radio Dalam Raya No.28, RT.2/RW.13, Gandaria Utara, Kec. Kby. Baru, Kota Jakarta Selatan, Daerah Khusus Ibukota Jakarta 12140';
+const MP_MARTE_STORE_ADDRESS = 'Jl. Panglima Polim No.35B, RT.1/RW.1, Melawai, Kec. Kby. Baru, Kota Jakarta Selatan, Daerah Khusus Ibukota Jakarta 12160';
+// Delivery destination presets. radal_hq / marte_store auto-fill the address
+// (no manual input); custom lets the user type a destination.
+const MP_SHIP_DESTINATIONS = [
+  { value: 'radal_hq',    label: 'Radal HQ',    address: MP_RADAL_HQ_ADDRESS },
+  { value: 'marte_store', label: 'Marté Store', address: MP_MARTE_STORE_ADDRESS },
+  { value: 'custom',      label: 'Custom address', address: '' },
+];
+// Map legacy stored values → new simplified values (for existing orders).
+function _mpurcMapDest(v) {
+  if (v === 'radal_hq' || v === 'marte_store' || v === 'custom') return v;
+  if (v === 'kantor') return 'radal_hq';
+  return 'custom'; // customer / lainnya / empty
+}
+function _mpurcMapScheme(v) {
+  if (v === 'Reguler' || v === 'Express' || v === 'Self-Pick Up') return v;
+  if (v === 'Customer Pickup' || v === 'Sales Bawa Sendiri') return 'Self-Pick Up';
+  if (v === 'JNE YES' || v === 'Gosend Same-day' || v === 'Grab Same-day') return 'Express';
+  return v ? 'Reguler' : '';
+}
+function _mpurcMapCostCat(v) {
+  if (v === 'covered_by_sentra' || v === 'paid_by_customer') return v;
+  if (v === 'charged_to_customer') return 'paid_by_customer';
+  if (v === 'paid_sentra' || v === 'reimbursed' || v === 'free_ongkir') return 'covered_by_sentra';
+  return '';
+}
 
 function _mpurcDefaultPaymentPlan() {
   return {
@@ -40906,59 +41297,84 @@ function _mpurcAutoInvoiceNo(id) {
 
 async function loadManualPurchase() {
   const tbody = document.getElementById('mp-tbody');
-  if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="10">Memuat...</td></tr>`;
+  if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="9" style="padding:40px;text-align:center;color:var(--pc-muted)">Loading…</td></tr>`;
   try {
     const { data, error } = await sb.from('manual_purchase_orders').select('*').order('order_date',{ascending:false}).order('created_at',{ascending:false});
     if (error) throw error;
     _mpurcRows = (data||[]).map(mapMpurc);
+    // Item count per order — so full-discount (total 0) orders still count as
+    // "has items" in the progress icons.
+    try {
+      const { data: itemRows } = await sb.from('manual_purchase_items').select('order_id');
+      const countMap = new Map();
+      (itemRows||[]).forEach(x => countMap.set(x.order_id, (countMap.get(x.order_id)||0)+1));
+      _mpurcRows.forEach(r => { r._itemCount = countMap.get(r.id) || 0; });
+    } catch(_) {}
     computeMPStats(_mpurcRows);
     applyMPFilter();
-    _mpurcRefreshOverdueBadge();
+    // Sidebar badge = orders not yet done.
+    _mpurcSetNavBadge(_mpurcRows.filter(r => { const s = _mpurcDeriveStatus(r); return s !== 'done' && s !== 'canceled'; }).length);
   } catch(e) {
-    if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="10">Gagal: ${e.message}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td class="empty-td" colspan="9" style="padding:40px;text-align:center;color:var(--pc-muted)">Failed: ${e.message}</td></tr>`;
   }
 }
 
-// Hitung MP yang lewat due_date + masih ada outstanding payment. Update sidebar
-// badge "MP" + dot merah. Dipanggil pas login + tiap loadManualPurchase.
+// Derived status for a mapped MP row (mirrors the list progress icons).
+// free/service-aware: free skips payment, service skips delivery + Jubelio.
+function _mpurcDeriveStatus(r) {
+  if (r.status === 'canceled') return 'canceled';
+  const hasItems = (r._itemCount != null ? r._itemCount > 0 : (parseFloat(r.grandTotal)||0) > 0);
+  if (!hasItems) return 'draft';
+  const isService = r.invoiceCategory === 'Service Selling';
+  const isFree = (parseFloat(r.grandTotal)||0) <= 0;
+  const isPaid = (parseFloat(r.paymentDue)||0) <= 0.5;
+  const isDelivered = isService || !!r.outboundRequestId || r.deliveryDone || !!r.jubelioSoNo;
+  const isSynced = isService || !!r.jubelioSoNo;
+  if ((isFree || isPaid) && isDelivered && isSynced) return 'done';
+  if (!isFree && !isPaid && (parseFloat(r.totalReceived)||0) > 0) return 'partial';
+  if (!isFree && !isPaid) return 'sent';
+  return 'in progress';
+}
+function _mpurcSetNavBadge(n) {
+  if (typeof setSbBadge === 'function') setSbBadge('manualpurchase', n);
+}
+// Sidebar badge = jumlah order yang belum "done". Dipanggil pas login + tiap load.
 async function _mpurcRefreshOverdueBadge() {
-  const badge = document.getElementById('nav-mp-badge');
-  if (!badge) return;
   try {
-    const today = new Date().toISOString().slice(0,10);
-    const { data, error } = await sb.from('manual_purchase_orders')
-      .select('id,due_date,grand_total,total_received,status')
-      .lt('due_date', today)
-      .not('status','in','(paid,done,canceled)');
-    if (error) throw error;
-    const overdue = (data||[]).filter(r => (Number(r.grand_total)||0) - (Number(r.total_received)||0) > 0);
-    if (overdue.length > 0) {
-      badge.textContent = overdue.length;
-      badge.style.display = 'inline-block';
-      badge.title = `${overdue.length} MP lewat due date dengan outstanding payment`;
-    } else {
-      badge.style.display = 'none';
-    }
-  } catch(e) { console.warn('Overdue badge refresh failed:', e); }
+    const [{ data: orders }, { data: itemRows }] = await Promise.all([
+      sb.from('manual_purchase_orders').select('id,status,invoice_category,grand_total,total_received,payment_due,jubelio_so_no,outbound_request_id,delivery_done'),
+      sb.from('manual_purchase_items').select('order_id'),
+    ]);
+    const countMap = new Map();
+    (itemRows||[]).forEach(x => countMap.set(x.order_id, (countMap.get(x.order_id)||0)+1));
+    const notDone = (orders||[]).map(o => ({
+      status:o.status, invoiceCategory:o.invoice_category, grandTotal:o.grand_total,
+      totalReceived:o.total_received, paymentDue:o.payment_due, jubelioSoNo:o.jubelio_so_no,
+      outboundRequestId:o.outbound_request_id, deliveryDone:o.delivery_done===true,
+      _itemCount: countMap.get(o.id)||0,
+    })).filter(r => { const s = _mpurcDeriveStatus(r); return s !== 'done' && s !== 'canceled'; }).length;
+    _mpurcSetNavBadge(notDone);
+  } catch(e) { console.warn('MP badge refresh failed:', e); }
 }
 
 function computeMPStats(rows) {
+  // Stats dashboard removed from the list view (moving to dashboard.ssentra.asia).
+  // Guarded so it's a no-op if the elements are absent.
   const fmtRp = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
   const outstanding = rows.filter(r => !['paid','done','canceled'].includes(r.status));
-  document.getElementById('mp-s-total').textContent = rows.length;
-  document.getElementById('mp-s-outstanding').textContent = outstanding.length;
-  document.getElementById('mp-s-due').textContent = fmtRp(outstanding.reduce((s,r) => s+r.paymentDue, 0));
-  document.getElementById('mp-s-received').textContent = fmtRp(rows.reduce((s,r) => s+r.totalReceived, 0));
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  set('mp-s-total', rows.length);
+  set('mp-s-outstanding', outstanding.length);
+  set('mp-s-due', fmtRp(outstanding.reduce((s,r) => s+r.paymentDue, 0)));
+  set('mp-s-received', fmtRp(rows.reduce((s,r) => s+r.totalReceived, 0)));
 }
 
 function applyMPFilter() {
   const fBrand = document.getElementById('mp-f-brand')?.value || '';
-  const fStatus = document.getElementById('mp-f-status')?.value || '';
   const fCat = document.getElementById('mp-f-category')?.value || '';
   const q = (document.getElementById('mp-f-q')?.value||'').toLowerCase();
   let rows = _mpurcRows.filter(r => {
     if (fBrand && r.lineBrand !== fBrand) return false;
-    if (fStatus && r.status !== fStatus) return false;
     if (fCat && r.invoiceCategory !== fCat) return false;
     if (q && !(`${r.id} ${r.billedToName} ${r.requestorName}`.toLowerCase().includes(q))) return false;
     return true;
@@ -40969,13 +41385,16 @@ function applyMPFilter() {
 function renderMPTable(rows) {
   const fmtRp = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
   const fmtTgl = d => d ? new Date(d+'T00:00:00').toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'}) : '—';
-  document.getElementById('mp-tcount').textContent = rows.length + ' entri';
+  const tcEl = document.getElementById('mp-tcount');
+  if (tcEl) tcEl.textContent = rows.length + (rows.length === 1 ? ' entry' : ' entries');
   const tb = document.getElementById('mp-tbody');
-  if (!rows.length) { tb.innerHTML = '<tr><td class="empty-td" colspan="10">Belum ada manual purchase order. Klik <b>+ Tambah Order</b>.</td></tr>'; return; }
+  if (!rows.length) { tb.innerHTML = '<tr><td class="empty-td" colspan="9" style="padding:40px;text-align:center;color:var(--pc-muted)">No manual purchase orders yet. Click <b>+ New Order</b>.</td></tr>'; return; }
   const STATUS_CLS = { draft:'p-draft', sent:'p-signings', partial:'p-review', paid:'p-active', shipped:'p-signings', done:'p-active', canceled:'p-expired' };
-  // Derived status — overrides DB value (yang masih 'draft' setelah save).
-  // Aturan: canceled (manual) → done (paid + Jubelio linked) → paid → partial →
-  // sent (ada nilai, belum bayar) → draft (kosong).
+  // Theme-safe accent colors (readable on both light + dark rows).
+  const RED = '#e0483f', GREEN = '#1a9e56';
+  // Derived status — overrides DB value (still 'draft' after save).
+  // Rule: canceled (manual) → done (paid + Jubelio linked) → paid → partial →
+  // sent (has value, unpaid) → draft (empty).
   const deriveStatus = r => {
     if (r.status === 'canceled') return 'canceled';
     if (!r.grandTotal || r.grandTotal === 0) return 'draft';
@@ -40985,51 +41404,537 @@ function renderMPTable(rows) {
     return 'paid';
   };
   const today = new Date().toISOString().slice(0,10);
+  // Per-order phase progress: green icon = done, red = pending.
+  const phaseIcon = (done, path, title) => `<span title="${title}" style="display:inline-flex;color:${done?GREEN:RED}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${path}</svg></span>`;
+  const ICON_ITEMS = '<path d="M21 8v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8"/><path d="M2 3h20v5H2z"/><path d="M10 12h4"/>';
+  const ICON_INVOICE = '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h6"/>';
+  const ICON_PAID = '<circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/>';
+  const ICON_DELIVERY = '<path d="M1 3h15v13H1z"/><path d="M16 8h4l3 3v5h-6"/><path d="M1 16h6"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/>';
+  const ICON_JUBELIO = '<path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/>';
   tb.innerHTML = rows.map(r => {
     const st = deriveStatus(r);
     const linked = !!r.jubelioSoNo;
+    const isService = r.invoiceCategory === 'Service Selling';
+    const hasItems = (r._itemCount != null ? r._itemCount > 0 : (parseFloat(r.grandTotal)||0) > 0);
+    const isFree = hasItems && (parseFloat(r.grandTotal)||0) <= 0;   // free / full discount → no invoice/payment
+    const hasInvoice = !!r.invoiceDate;
+    const isPaid = hasItems && (parseFloat(r.paymentDue)||0) <= 0.5;
+    const isSynced = !!r.jubelioSoNo;
+    const isDelivered = !!r.outboundRequestId || r.deliveryDone || isSynced;
+    // Phases: Items always. Invoice+Paid only if not free. Delivery+Jubelio only for product selling.
+    const progress = `<div style="display:flex;gap:6px;justify-content:center;align-items:center">${
+      phaseIcon(hasItems, ICON_ITEMS, hasItems?'Items added':'No items yet')
+    }${
+      isFree ? '' : phaseIcon(hasInvoice, ICON_INVOICE, hasInvoice?'Invoice date set':'Invoice date not set')
+    }${
+      isFree ? '' : phaseIcon(isPaid, ICON_PAID, isPaid?'Fully paid':'Payment outstanding')
+    }${
+      isService ? '' : phaseIcon(isDelivered, ICON_DELIVERY, isDelivered?'Delivered':'Not delivered')
+    }${
+      isService ? '' : phaseIcon(isSynced, ICON_JUBELIO, isSynced?`Synced to Jubelio (${r.jubelioSoNo})`:'Not synced to Jubelio')
+    }</div>`;
     // Overdue = due_date past AND outstanding amount > 0 AND status not closed
     const isOverdue = r.dueDate && r.dueDate < today && r.paymentDue > 0.5 && !['paid','done','canceled'].includes(st);
     const daysOverdue = isOverdue ? Math.floor((new Date(today) - new Date(r.dueDate))/86400000) : 0;
     const overduePill = isOverdue
-      ? `<span class="pill p-expired" style="font-size:9px;margin-left:4px" title="Lewat due date ${daysOverdue} hari">🔴 ${daysOverdue}d overdue</span>`
+      ? `<span class="pill p-expired" style="font-size:9px;margin-left:4px" title="Past due date by ${daysOverdue} days">🔴 ${daysOverdue}d overdue</span>`
       : '';
     const dueDateStr = r.dueDate
-      ? `<div style="font-size:10px;color:${isOverdue?'#c0392b':'var(--g400)'};font-family:var(--mono);margin-top:2px" title="Due date">due: ${fmtTgl(r.dueDate)}</div>`
+      ? `<div style="font-size:10px;color:${isOverdue?RED:'var(--pc-muted)'};font-family:var(--mono);margin-top:2px" title="Due date">due: ${fmtTgl(r.dueDate)}</div>`
       : '';
-    return `<tr${isOverdue?' style="background:#fdf6f4"':''}>
-    <td><div style="font-family:var(--mono);font-size:11px;font-weight:600">${(r.id||'').replace(/</g,'&lt;')}</div>${linked?`<div style="font-size:10px;color:#0a7d3a;font-family:var(--mono);margin-top:2px" title="Linked ke Jubelio SO ${r.jubelioSoNo.replace(/"/g,'&quot;')}">🔗 ${r.jubelioSoNo.replace(/</g,'&lt;')}</div>`:''}</td>
-    <td><span class="pill p-draft" style="font-size:10px">${r.lineBrand}</span></td>
-    <td style="font-size:12px;font-weight:500">${(r.billedToName||'—').replace(/</g,'&lt;')}${r.requestorName?`<div style="font-size:10px;color:var(--g400)">req: ${r.requestorName.replace(/</g,'&lt;')}</div>`:''}</td>
-    <td style="font-size:11px;color:var(--g600)">${(r.invoiceCategory||'—').replace(/</g,'&lt;')}</td>
-    <td style="font-size:11px;font-family:var(--mono);color:var(--g600)">${fmtTgl(r.orderDate)}${dueDateStr}</td>
-    <td style="text-align:right;font-family:var(--mono);font-size:11px">—</td>
-    <td style="text-align:right;font-family:var(--mono);font-size:12px;font-weight:700">${fmtRp(r.grandTotal)}</td>
-    <td style="text-align:right;font-family:var(--mono);font-size:12px;font-weight:600;color:${r.paymentDue>0?'#c0392b':'#0a7d3a'}">${fmtRp(r.paymentDue)}</td>
-    <td><span class="pill ${STATUS_CLS[st]||'p-draft'}" style="font-size:10px">${st}</span>${overduePill}</td>
-    <td style="white-space:nowrap"><button class="btn-icon" onclick="openManualPurchaseDetail('${r.id}')">Open</button> <button class="btn-icon" style="color:#c0392b" onclick="deleteManualPurchase('${r.id}')">Del</button></td>
+    return `<tr style="cursor:pointer${isOverdue?';background:rgba(224,72,63,0.09)':''}" onclick="openManualPurchaseDetail('${r.id}')" title="Open order">
+    <td><div style="font-family:var(--mono);font-size:11px;font-weight:600;color:var(--pc-txt)">${(r.id||'').replace(/</g,'&lt;')}</div></td>
+    <td><span class="mp-brand ${(r.lineBrand||'').toLowerCase()}">${r.lineBrand}</span></td>
+    <td style="font-size:12px;font-weight:500;color:var(--pc-txt)">${(r.billedToName||'—').replace(/</g,'&lt;')}${r.requestorName?`<div style="font-size:10px;color:var(--pc-muted)">req: ${r.requestorName.replace(/</g,'&lt;')}</div>`:''}</td>
+    <td style="font-size:11px;color:var(--pc-muted)">${(r.invoiceCategory||'—').replace(/</g,'&lt;')}</td>
+    <td style="font-size:11px;font-family:var(--mono);color:var(--pc-muted)">${fmtTgl(r.orderDate)}${dueDateStr}</td>
+    <td style="text-align:right;font-family:var(--mono);font-size:12px;font-weight:700;color:var(--pc-txt)">${fmtRp(r.grandTotal)}</td>
+    <td style="text-align:right;font-family:var(--mono);font-size:12px;font-weight:600;color:${r.paymentDue>0?RED:GREEN}">${fmtRp(r.paymentDue)}</td>
+    <td>${progress}</td>
+    <td style="white-space:nowrap;text-align:center"><button class="pc-btn danger" style="padding:5px 10px;font-size:12px" onclick="event.stopPropagation();deleteManualPurchase('${r.id}')" title="Delete">✕</button></td>
   </tr>`;
   }).join('');
+}
+
+// ── MANUAL PURCHASE — NEW ORDER WIZARD ──────────────────────────────────
+// Stepped form for creating a new order (Basics → Billed to). Editing an
+// existing order still uses the tabbed detail view. On create we insert the
+// header, then open the normal detail so the user adds items / payments.
+let _mpurcWizStep = 1;
+let _mpurcWizActive = false;
+let _mpurcWizInvTouched = false;
+let _mpurcWizDueTouched = false;
+
+// Payment-plan (and other shared) editors call this so their edits re-render
+// the wizard while it's open, otherwise the full tabbed detail view.
+function _mpurcReRenderEditor() {
+  if (_mpurcWizActive) _mpurcRenderWizard(); else _mpurcRenderDetail();
+}
+
+function _mpurcAddDays(dateStr, days) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr + 'T00:00:00Z');  // UTC — avoid tz off-by-one
+  if (isNaN(d.getTime())) return '';
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+// Read whatever wizard fields are currently on-screen back into the header,
+// so values survive Back/Next navigation.
+function _mpurcWizCapture() {
+  const h = _mpurcCurrent?.header; if (!h) return;
+  const g = id => document.getElementById(id);
+  if (g('mpw-category')) h.invoiceCategory = g('mpw-category').value;
+  if (g('mpw-brand'))     h.lineBrand       = g('mpw-brand').value;
+  if (g('mpw-requestor')) h.requestorName   = g('mpw-requestor').value.trim();
+  if (g('mpw-orderdate')) h.orderDate       = g('mpw-orderdate').value;
+  if (g('mpw-invdate'))   h.invoiceDate     = g('mpw-invdate').value || null;
+  if (g('mpw-duedate'))   h.dueDate         = g('mpw-duedate').value || null;
+  if (g('mpw-type'))      h.billedToType    = g('mpw-type').value;
+  if (g('mpw-name'))      h.billedToName    = g('mpw-name').value.trim();
+  if (g('mpw-rep'))       h.clientRepName   = g('mpw-rep').value.trim();
+  if (g('mpw-address'))   h.billedToAddress = g('mpw-address').value.trim();
+  if (g('mpw-email'))     h.clientRepEmail  = g('mpw-email').value.trim();
+  if (g('mpw-phone'))     h.billedToPhone   = g('mpw-phone').value.trim();
+  if (g('mpw-desc'))      h.notes           = g('mpw-desc').value.trim();
+}
+
+function _mpurcWizGo(step) {
+  _mpurcWizCapture();
+  const h = _mpurcCurrent.header;
+  // Forward-only validation (allow going Back freely)
+  if (step > _mpurcWizStep) {
+    if (_mpurcWizStep === 1) {
+      if (!h.invoiceCategory) { alert('Please select a category.'); return; }
+      if (!h.orderDate) { alert('Order date is required.'); return; }
+    }
+    if (_mpurcWizStep === 2) {
+      if (!h.billedToName) { alert('Please enter who this order is billed to.'); return; }
+    }
+    if (_mpurcWizStep === 3) {
+      const plan = h.paymentPlan || _mpurcDefaultPaymentPlan();
+      const tot = (plan.milestones||[]).reduce((s,m)=>s+(parseFloat(m.pct)||0),0);
+      if (tot !== 100) { alert('Payment plan must total exactly 100% (currently '+tot+'%).'); return; }
+    }
+  }
+  _mpurcWizStep = step;
+  _mpurcRenderWizard();
+}
+
+// Invoice date auto-mirrors order date; due date auto = order date + 14d.
+// Once the user edits either manually, we stop auto-overwriting it.
+function _mpurcWizOrderDateChange() {
+  const od = document.getElementById('mpw-orderdate')?.value;
+  const inv = document.getElementById('mpw-invdate');
+  const due = document.getElementById('mpw-duedate');
+  if (inv && !_mpurcWizInvTouched) inv.value = od || '';
+  if (due && !_mpurcWizDueTouched) due.value = _mpurcAddDays(od, 14);
+}
+
+function _mpurcWizTypeChange() {
+  const t = document.getElementById('mpw-type')?.value;
+  const repWrap = document.getElementById('mpw-rep-wrap');
+  if (repWrap) repWrap.style.display = (t === 'Perorangan') ? 'none' : '';
+  const lbl = document.getElementById('mpw-name-lbl');
+  if (lbl) lbl.textContent = t === 'PT' ? 'Company Name' : t === 'Yayasan' ? 'Foundation Name' : 'Full Name';
+}
+
+const _MPW_STEPS = [[1, 'Basics'], [2, 'Billed to'], [3, 'Payment'], [4, 'Items']];
+
+function _mpurcRenderWizard() {
+  _mpurcWizActive = true;
+  if (!_mpurcCurrent) return;
+  const h = _mpurcCurrent.header;
+  const esc = s => (s || '').replace(/"/g, '&quot;');
+  const escT = s => (s || '').replace(/</g, '&lt;');
+  const today = new Date().toISOString().slice(0, 10);
+  const orderDate = h.orderDate || today;
+  const invDate = h.invoiceDate || orderDate;
+  const dueDate = h.dueDate || _mpurcAddDays(orderDate, 14);
+  const type = h.billedToType || 'PT';
+  const step = _mpurcWizStep;
+
+  const stepTabs = `
+    <div style="display:flex;gap:8px;margin:6px 0 20px">
+      ${_MPW_STEPS.map(([n, lbl]) => {
+        const on = n === step, done = n < step;
+        return `<div style="display:flex;align-items:center;gap:8px;padding:9px 11px;border-radius:9px;flex:1;border:1px solid ${on ? 'var(--pc-accent)' : 'var(--pc-border)'};background:${on ? 'rgba(123,104,238,0.10)' : 'transparent'}">
+          <span style="width:21px;height:21px;flex-shrink:0;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;background:${on || done ? 'var(--pc-accent)' : 'var(--pc-head)'};color:${on || done ? '#fff' : 'var(--pc-muted)'}">${done ? '✓' : n}</span>
+          <span style="font-size:12.5px;font-weight:600;color:${on ? 'var(--pc-txt)' : 'var(--pc-muted)'}">${lbl}</span>
+        </div>`;
+      }).join('')}
+    </div>`;
+
+  let body = '';
+  if (step === 1) {
+    body = `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        <div class="pc-field" style="grid-column:1/-1"><label>Category <span style="color:#e0483f">*</span></label>
+          <select class="pc-fsel" id="mpw-category">
+            <option value="">— Select —</option>
+            ${MP_INVOICE_CATEGORIES.map(c => `<option ${h.invoiceCategory === c ? 'selected' : ''}>${c}</option>`).join('')}
+          </select></div>
+        <div class="pc-field"><label>Brand</label>
+          <select class="pc-fsel" id="mpw-brand">
+            ${['SDY', 'Lagaa', 'Marte'].map(b => `<option ${h.lineBrand === b ? 'selected' : ''}>${b}</option>`).join('')}
+          </select></div>
+        <div class="pc-field" style="position:relative"><label>Requestor</label>
+          <input class="pc-input" type="text" id="mpw-requestor" value="${esc(h.requestorName)}" autocomplete="off" placeholder="Who requested this">
+          <div class="ac-list" id="ac-mpw-requestor"></div></div>
+        <div class="pc-field"><label>Order Date <span style="color:#e0483f">*</span></label>
+          <input class="pc-input" type="date" id="mpw-orderdate" value="${orderDate}" onchange="_mpurcWizOrderDateChange()"></div>
+        <div class="pc-field"><label>Invoice Date <span style="font-weight:400;color:var(--pc-muted)">(= order date)</span></label>
+          <input class="pc-input" type="date" id="mpw-invdate" value="${invDate}" oninput="_mpurcWizInvTouched=true"></div>
+        <div class="pc-field"><label>Due Date <span style="font-weight:400;color:var(--pc-muted)">(+14 days)</span></label>
+          <input class="pc-input" type="date" id="mpw-duedate" value="${dueDate}" oninput="_mpurcWizDueTouched=true"></div>
+      </div>`;
+  } else if (step === 2) {
+    body = `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        <div class="pc-field" style="grid-column:1/-1"><label>Billed to — type</label>
+          <select class="pc-fsel" id="mpw-type" onchange="_mpurcWizTypeChange()">
+            ${['PT', 'Yayasan', 'Perorangan'].map(t => `<option ${type === t ? 'selected' : ''}>${t}</option>`).join('')}
+          </select></div>
+        <div class="pc-field" style="grid-column:1/-1"><label id="mpw-name-lbl">${type === 'PT' ? 'Company Name' : type === 'Yayasan' ? 'Foundation Name' : 'Full Name'} <span style="color:#e0483f">*</span></label>
+          <input class="pc-input" type="text" id="mpw-name" value="${esc(h.billedToName)}" placeholder="Who this invoice is billed to"></div>
+        <div class="pc-field" style="grid-column:1/-1" id="mpw-rep-wrap"><label>Representative Name</label>
+          <input class="pc-input" type="text" id="mpw-rep" value="${esc(h.clientRepName)}" placeholder="Representative / PIC name"></div>
+        <div class="pc-field" style="grid-column:1/-1"><label>Address</label>
+          <textarea class="pc-input" id="mpw-address" rows="2" style="resize:vertical;font-family:inherit" placeholder="Billing address">${escT(h.billedToAddress)}</textarea></div>
+        <div class="pc-field"><label>Email</label>
+          <input class="pc-input" type="email" id="mpw-email" value="${esc(h.clientRepEmail)}" placeholder="name@company.com"></div>
+        <div class="pc-field"><label>Phone</label>
+          <input class="pc-input" type="text" id="mpw-phone" value="${esc(h.billedToPhone)}" placeholder="08…"></div>
+      </div>`;
+  } else if (step === 3) {
+    body = _mpurcWizPaymentHTML();
+  } else {
+    body = _mpurcWizItemsHTML();
+  }
+
+  const nav = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:22px">
+      <div>${step > 1 ? `<button class="pc-btn" onclick="_mpurcWizGo(${step - 1})">← Back</button>` : ''}</div>
+      <div>${step < 4
+        ? `<button class="pc-btn primary" onclick="_mpurcWizGo(${step + 1})">Next →</button>`
+        : `<button class="pc-btn primary" id="mpw-create-btn" onclick="_mpurcWizCreate()">Create order →</button>`}</div>
+    </div>`;
+
+  let overlay = document.getElementById('mp-wizard-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'mp-wizard-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:900;display:flex;align-items:flex-start;justify-content:center;padding:40px 20px;overflow:auto';
+    document.body.appendChild(overlay);
+  }
+  overlay.innerHTML = `
+    <div class="pm-clean" style="background:var(--pc-card);border:1px solid var(--pc-border);border-radius:14px;width:min(720px,100%);padding:22px 24px;box-shadow:0 24px 70px -30px rgba(0,0,0,0.6)">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:16px">
+        <div class="pc-title" style="font-size:20px">New Manual Purchase</div>
+        <button class="pc-btn" onclick="closeManualPurchaseDetail()" title="Cancel">✕</button>
+      </div>
+      ${stepTabs}
+      ${step === 3 ? body : `<div class="pc-tablecard" style="padding:20px">${body}</div>`}
+      ${nav}
+    </div>`;
+
+  if (step === 1) setupAC('mpw-requestor', 'ac-mpw-requestor', () => acPics);
+  if (step === 2) _mpurcWizTypeChange();
+}
+
+// ---- Wizard Payment Plan step (pc-styled; shares _mpPp* state helpers) ----
+function _mpurcWizPaymentHTML() {
+  const plan = _mpurcCurrent.header.paymentPlan || _mpurcDefaultPaymentPlan();
+  const type = plan.type || 'CAD';
+  const milestones = plan.milestones || [];
+  const totalPct = milestones.reduce((s, m) => s + (parseFloat(m.pct) || 0), 0);
+  const totalOk = totalPct === 100;
+  const TYPE_DESC = {
+    CAD: 'Down payment up front, settlement after delivery.',
+    CBD: 'Paid in stages before production / delivery.',
+  };
+  const rows = milestones.map((m, idx) => `
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+      <span style="font-family:var(--mono);font-size:11px;color:var(--pc-muted);width:16px;flex-shrink:0">${idx + 1}.</span>
+      <input class="pc-input" style="flex:1;font-size:12px;padding:6px 9px" value="${(m.label || '').replace(/"/g, '&quot;')}" onchange="_mpPpEditLabel(${idx},this.value)" placeholder="Label">
+      <div style="display:flex;align-items:center;gap:4px;flex-shrink:0"><input class="pc-input" type="number" min="0" max="100" step="5" style="width:62px;font-size:12px;padding:6px 8px;text-align:right" value="${m.pct || 0}" onchange="_mpPpEditPct(${idx},this.value)"><span style="font-size:12px;color:var(--pc-muted)">%</span></div>
+      <button class="pc-btn danger" style="padding:4px 9px;font-size:12px;flex-shrink:0;${milestones.length > 1 ? '' : 'visibility:hidden'}" onclick="_mpPpRemove(${idx})" title="Remove milestone">✕</button>
+    </div>`).join('');
+  return `
+    <div class="pc-tablecard" style="padding:18px 20px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+        <div style="font-size:13px;font-weight:600;color:var(--pc-txt)">Payment Plan</div>
+        <span style="font-size:12px;font-weight:600;font-family:var(--mono);color:${totalOk ? '#16a34a' : '#e0483f'}">Total ${totalPct}%${totalOk ? ' ✓' : ' — must be 100'}</span>
+      </div>
+      <div class="pc-field" style="margin-bottom:16px;max-width:340px"><label>Type</label>
+        <select class="pc-fsel" onchange="_mpPpChangeType(this.value)">
+          <option value="CAD" ${type === 'CAD' ? 'selected' : ''}>Cash After Delivery (CAD)</option>
+          <option value="CBD" ${type === 'CBD' ? 'selected' : ''}>Cash Before Delivery (CBD)</option>
+        </select>
+        <div style="font-size:11px;color:var(--pc-muted);margin-top:5px">${TYPE_DESC[type] || ''}</div>
+      </div>
+      <div style="font-size:11px;color:var(--pc-muted);font-weight:600;letter-spacing:0.03em;margin-bottom:9px">MILESTONES</div>
+      ${rows}
+      <button class="pc-btn" style="margin-top:4px" onclick="_mpPpAddRow()">＋ Milestone</button>
+    </div>`;
+}
+
+// ---- Wizard Items step (in-memory until Create) ----
+function _mpurcWizItemsHTML() {
+  const o = _mpurcCurrent;
+  const items = o.items || [];
+  const isService = o.header.invoiceCategory === 'Service Selling';
+  const fmtRp = n => 'Rp ' + Math.round(n || 0).toLocaleString('id-ID');
+  const lineOf = it => {
+    const gross = (parseFloat(it.qty) || 0) * (parseFloat(it.unit_price) || 0);
+    return gross - gross * (Math.min(100, Math.max(0, parseFloat(it.discount_pct) || 0)) / 100);
+  };
+  const subtotal = items.reduce((s, it) => s + lineOf(it), 0);
+  const rowsHTML = items.length ? items.map((it, idx) => {
+    const isCustom = it.source === 'custom';
+    const lineTotal = lineOf(it);
+    const srcPill = it.source === 'existing' ? 'Catalog' : it.source === 'pd' ? 'Product Dev' : 'Custom';
+    const thumb = it.thumb
+      ? `<img src="${(it.thumb || '').replace(/"/g, '&quot;')}" style="width:38px;height:38px;object-fit:cover;border-radius:5px;border:1px solid var(--pc-border);flex-shrink:0" onerror="this.style.display='none'">`
+      : (isCustom ? '' : `<div style="width:38px;height:38px;border-radius:5px;background:var(--pc-head);border:1px solid var(--pc-border);flex-shrink:0"></div>`);
+    return `<tr>
+      <td style="padding:8px 10px">
+        <div style="display:flex;gap:9px;align-items:flex-start">
+          ${thumb}
+          <div style="flex:1;min-width:0">
+          ${isCustom
+            ? `<input class="pc-input" style="padding:5px 8px;font-size:12px;width:100%" value="${(it.item_name || '').replace(/"/g, '&quot;')}" placeholder="Item / service name" onchange="_mpurcWizItemEdit(${idx},'item_name',this.value)">`
+            : `<div style="font-size:12px;font-weight:500;color:var(--pc-txt)">${(it.item_name || '—').replace(/</g, '&lt;')}</div>${it.item_code ? `<div style="font-size:10px;color:var(--pc-muted);font-family:var(--mono)">${(it.item_code || '').replace(/</g, '&lt;')}</div>` : ''}`}
+          <span style="font-size:9px;color:var(--pc-muted);border:1px solid var(--pc-border);border-radius:20px;padding:1px 7px;margin-top:4px;display:inline-block">${srcPill}</span>
+          </div>
+        </div>
+      </td>
+      <td style="padding:8px 8px;width:64px"><input class="pc-input" type="number" min="1" step="1" style="padding:5px 6px;font-size:12px;width:54px" value="${it.qty || 1}" onchange="_mpurcWizItemEdit(${idx},'qty',this.value)"></td>
+      <td style="padding:8px 8px;width:118px"><input class="pc-input" type="number" min="0" step="1000" style="padding:5px 6px;font-size:12px;width:110px" value="${it.unit_price || 0}" onchange="_mpurcWizItemEdit(${idx},'unit_price',this.value)"></td>
+      <td style="padding:8px 6px;width:76px"><div style="display:flex;align-items:center;gap:4px"><input class="pc-input" type="number" min="0" max="100" step="1" style="padding:5px 6px;font-size:12px;width:46px" value="${it.discount_pct || 0}" onchange="_mpurcWizItemEdit(${idx},'discount_pct',this.value)"><span style="font-size:11px;color:var(--pc-muted)">%</span></div></td>
+      <td style="padding:8px 10px;text-align:right;font-family:var(--mono);font-size:12px;font-weight:600;white-space:nowrap;color:var(--pc-txt)">${fmtRp(lineTotal)}</td>
+      <td style="padding:8px 6px;text-align:center;width:34px"><button class="pc-btn danger" style="padding:3px 8px;font-size:12px" onclick="_mpurcWizRemoveItem(${idx})">✕</button></td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="6" style="padding:26px;text-align:center;color:var(--pc-muted);font-size:12px">No items yet.${isService ? ' Add a custom line below.' : ''}</td></tr>`;
+
+  const addBtns = isService
+    ? `<button class="pc-btn" onclick="_mpurcWizAddCustomRow()">＋ Custom item</button>`
+    : `<button class="pc-btn" onclick="_mpurcWizOpenProductPicker()">＋ Add product</button>
+       <button class="pc-btn" onclick="_mpurcWizAddCustomRow()">＋ Custom item</button>`;
+
+  return `
+    <div style="font-size:12px;color:var(--pc-muted);margin-bottom:12px">${isService ? 'Service Selling — add custom line items.' : 'Product Selling — add products from the catalog (Jubelio + Product Dev), or a custom line.'}</div>
+    <div style="overflow-x:auto"><table class="pc-table" style="width:100%">
+      <thead><tr><th>Item</th><th style="width:64px">Qty</th><th style="width:118px">Unit Price</th><th style="width:70px">Disc</th><th style="text-align:right">Line Total</th><th style="width:34px"></th></tr></thead>
+      <tbody>${rowsHTML}</tbody>
+    </table></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;align-items:center">
+      ${addBtns}
+      <div style="margin-left:auto;font-size:13px;color:var(--pc-muted)">Subtotal: <b style="color:var(--pc-txt);font-family:var(--mono)">${fmtRp(subtotal)}</b></div>
+    </div>`;
+}
+
+function _mpurcWizAddCustomRow() {
+  _mpurcCurrent.items.push({ source: 'custom', jubelio_item_id: null, item_code: null, item_name: '', qty: 1, unit_price: 0, discount_pct: 0, thumb: null });
+  _mpurcRenderWizard();
+}
+function _mpurcWizItemEdit(idx, field, value) {
+  const it = _mpurcCurrent.items[idx]; if (!it) return;
+  if (field === 'qty') it.qty = Math.max(1, parseFloat(value) || 1);
+  else if (field === 'unit_price') it.unit_price = Math.max(0, parseFloat(value) || 0);
+  else if (field === 'discount_pct') it.discount_pct = Math.min(100, Math.max(0, parseFloat(value) || 0));
+  else it.item_name = value;
+  _mpurcRenderWizard();
+}
+function _mpurcWizRemoveItem(idx) {
+  _mpurcCurrent.items.splice(idx, 1);
+  _mpurcRenderWizard();
+}
+
+// Single unified product picker: Jubelio catalog (price from jubelio_item_prices)
+// + Product Development items not already in the catalog (deduped by name).
+function _mpurcWizPickerModal(title, rows) {
+  document.getElementById('_mpw-pick-modal')?.remove();
+  window.__mpwPickRows = rows;
+  const modal = document.createElement('div');
+  modal.id = '_mpw-pick-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px';
+  modal.innerHTML = `
+    <div class="pm-clean" style="background:var(--pc-card);border:1px solid var(--pc-border);border-radius:12px;width:min(680px,100%);max-height:86vh;display:flex;flex-direction:column;overflow:hidden">
+      <div style="padding:15px 18px;border-bottom:1px solid var(--pc-border);display:flex;justify-content:space-between;align-items:center">
+        <div class="pc-title" style="font-size:16px">${title}</div>
+        <button class="pc-btn" onclick="document.getElementById('_mpw-pick-modal')?.remove()">✕ Close</button>
+      </div>
+      <div style="padding:12px 18px;border-bottom:1px solid var(--pc-border)">
+        <input class="pc-input" id="_mpw-pick-search" style="width:100%" placeholder="Search name / code…" oninput="_mpurcWizPickFilter(this.value)">
+      </div>
+      <div id="_mpw-pick-list" style="overflow:auto;flex:1"></div>
+    </div>`;
+  document.body.appendChild(modal);
+  _mpurcWizPickFilter('');
+}
+function _mpurcWizPickFilter(q) {
+  const rows = window.__mpwPickRows || [];
+  const needle = (q || '').toLowerCase().trim();
+  const fmtRp = n => 'Rp ' + Math.round(n || 0).toLocaleString('id-ID');
+  const filtered = (needle
+    ? rows.filter(r => (r.item_name || '').toLowerCase().includes(needle) || (r.item_code || '').toLowerCase().includes(needle))
+    : rows).slice(0, 120);
+  const list = document.getElementById('_mpw-pick-list'); if (!list) return;
+  if (!filtered.length) { list.innerHTML = `<div style="padding:26px;text-align:center;color:var(--pc-muted);font-size:12px">No match.</div>`; return; }
+  list.innerHTML = filtered.map(r => {
+    const gidx = rows.indexOf(r);
+    const srcTag = r.source === 'pd' ? 'Product Dev' : 'Catalog';
+    const thumb = r.thumb
+      ? `<img src="${(r.thumb || '').replace(/"/g, '&quot;')}" style="width:46px;height:46px;object-fit:cover;border-radius:6px;border:1px solid var(--pc-border);flex-shrink:0" onerror="this.style.display='none';this.nextElementSibling&&(this.nextElementSibling.style.display='block')">`
+      : '';
+    const ph = `<div style="width:46px;height:46px;border-radius:6px;background:var(--pc-head);border:1px solid var(--pc-border);flex-shrink:0;${r.thumb ? 'display:none' : ''}"></div>`;
+    return `<div style="display:flex;align-items:center;gap:12px;padding:10px 18px;border-bottom:1px solid var(--pc-border)">
+      ${thumb}${ph}
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12px;font-weight:600;color:var(--pc-txt)">${(r.item_name || '—').replace(/</g, '&lt;')} <span style="font-size:9px;color:var(--pc-muted);border:1px solid var(--pc-border);border-radius:20px;padding:0 6px;margin-left:4px">${srcTag}</span></div>
+        <div style="font-size:10px;color:var(--pc-muted);font-family:var(--mono)">${(r.item_code || '').replace(/</g, '&lt;')}${r.price > 0 ? ` · ${fmtRp(r.price)}` : ' · no price set'}</div>
+      </div>
+      <button class="pc-btn primary" style="padding:4px 12px;font-size:12px" onclick="_mpurcWizPickAdd(${gidx})">＋ Add</button>
+    </div>`;
+  }).join('') + (rows.length > 120 && !needle ? `<div style="padding:10px;text-align:center;color:var(--pc-muted);font-size:11px">Showing first 120 — search to narrow.</div>` : '');
+}
+function _mpurcWizPickAdd(idx) {
+  const rows = window.__mpwPickRows || [];
+  const r = rows[idx]; if (!r) return;
+  _mpurcCurrent.items.push({
+    source: r.source || 'existing',
+    jubelio_item_id: r.item_id || null,
+    item_code: r.item_code || null,
+    item_name: r.item_name || '',
+    qty: 1,
+    unit_price: r.price || 0,
+    discount_pct: 0,
+    thumb: r.thumb || null,
+  });
+  _mpurcRenderWizard();  // keep modal open for multiple adds
+}
+async function _mpurcWizOpenProductPicker() {
+  let rows = window.__mpwUnified;
+  if (!rows) {
+    try {
+      const [items, prices, pdParents] = await Promise.all([
+        _fetchAllPages('jubelio_items', 'item_id,item_code,item_name,thumbnail,image_urls', q => q.not('item_code', 'is', null).order('item_name')),
+        _fetchAllPages('jubelio_item_prices', 'item_id,sell_price', q => q.order('item_id')),
+        _fetchAllPages('product_dev', 'sku_name,srp,display_code,picture_urls', q => q.is('parent_id', null).not('sku_name', 'is', null)),
+      ]);
+      const priceById = new Map((prices || []).map(p => [Number(p.item_id), parseFloat(p.sell_price) || 0]));
+      const pdByName = new Map();
+      for (const p of (pdParents || [])) {
+        const k = (p.sku_name || '').toLowerCase().trim();
+        if (k) pdByName.set(k, { name: p.sku_name, srp: parseFloat(p.srp) || 0, pic: (Array.isArray(p.picture_urls) && p.picture_urls[0]) || null, code: p.display_code || null });
+      }
+      const seen = new Set();
+      rows = [];
+      for (const r of (items || [])) {
+        const key = (r.item_name || '').toLowerCase().trim();
+        seen.add(key);
+        const pd = pdByName.get(key);
+        rows.push({
+          source: 'existing', item_id: Number(r.item_id), item_code: r.item_code, item_name: r.item_name,
+          thumb: r.thumbnail || (Array.isArray(r.image_urls) && r.image_urls[0]) || (pd ? pd.pic : null) || null,
+          price: priceById.get(Number(r.item_id)) || (pd ? pd.srp : 0) || 0,
+        });
+      }
+      // Product-Dev items not yet in the Jubelio catalog (by name)
+      for (const [key, pd] of pdByName) {
+        if (seen.has(key)) continue;
+        rows.push({ source: 'pd', item_id: null, item_code: pd.code, item_name: pd.name, thumb: pd.pic, price: pd.srp });
+      }
+      window.__mpwUnified = rows;
+    } catch (e) { alert('Failed to load products: ' + e.message); return; }
+  }
+  _mpurcWizPickerModal('Add product', rows);
+}
+
+async function _mpurcWizCreate() {
+  _mpurcWizCapture();
+  const h = _mpurcCurrent.header;
+  const items = _mpurcCurrent.items || [];
+  if (!h.invoiceCategory) { alert('Please select a category.'); _mpurcWizStep = 1; _mpurcRenderWizard(); return; }
+  if (!h.orderDate) { alert('Order date is required.'); _mpurcWizStep = 1; _mpurcRenderWizard(); return; }
+  if (!h.billedToName) { alert('Please enter who this order is billed to.'); _mpurcWizStep = 2; _mpurcRenderWizard(); return; }
+  const plan = h.paymentPlan || _mpurcDefaultPaymentPlan();
+  const planTot = (plan.milestones || []).reduce((s, m) => s + (parseFloat(m.pct) || 0), 0);
+  if (planTot !== 100) { alert('Payment plan must total exactly 100%.'); _mpurcWizStep = 3; _mpurcRenderWizard(); return; }
+  if (!items.length) { alert('Add at least one item.'); return; }
+  for (const it of items) { if (!(it.item_name || '').trim()) { alert('Every item needs a name.'); return; } }
+  const id = _mpurcGenId();
+  const payload = {
+    id,
+    invoice_no: _mpurcAutoInvoiceNo(id),
+    line_brand: h.lineBrand || 'SDY',
+    requestor_name: h.requestorName || null,
+    invoice_category: h.invoiceCategory || null,
+    billed_to_type: h.billedToType || null,
+    billed_to_name: h.billedToName,
+    billed_to_address: h.billedToAddress || null,
+    billed_to_phone: h.billedToPhone || null,
+    client_rep_name: (h.billedToType === 'Perorangan') ? null : (h.clientRepName || null),
+    client_rep_email: h.clientRepEmail || null,
+    notes: h.notes || null,
+    order_date: h.orderDate,
+    invoice_date: h.invoiceDate || null,
+    due_date: h.dueDate || null,
+    payment_plan: plan,
+    status: 'draft',
+    created_by: currentUser,
+    last_updated: new Date().toISOString(),
+    last_updated_by: currentUser,
+  };
+  const btn = document.getElementById('mpw-create-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Creating…'; }
+  const { error } = await sb.from('manual_purchase_orders').insert(payload);
+  if (error) {
+    alert('Failed: ' + error.message);
+    if (btn) { btn.disabled = false; btn.textContent = 'Create order →'; }
+    return;
+  }
+  const itemRows = items.map(it => {
+    const qty = parseFloat(it.qty) || 1, price = parseFloat(it.unit_price) || 0;
+    const disc = Math.min(100, Math.max(0, parseFloat(it.discount_pct) || 0));
+    const gross = qty * price;
+    const discAmt = gross * disc / 100;
+    return { order_id: id, jubelio_item_id: it.jubelio_item_id || null, item_code: it.item_code || null,
+      item_name: (it.item_name || '').trim(), qty, unit_price: price, discount_pct: disc, discount_amount: discAmt, subtotal: gross - discAmt };
+  });
+  const { error: ierr } = await sb.from('manual_purchase_items').insert(itemRows);
+  if (ierr) { alert('Order created, but items failed to save: ' + ierr.message + '\nYou can add them in the order detail.'); }
+  _mpurcWizActive = false;
+  document.getElementById('_mpw-pick-modal')?.remove();
+  openManualPurchaseDetail(id);
 }
 
 async function openManualPurchaseDetail(id) {
   const listV = document.getElementById('mp-list-view');
   const detV  = document.getElementById('mp-detail-view');
   if (!listV || !detV) return;
-  listV.style.display = 'none';
-  detV.style.display = '';
-  detV.innerHTML = `<div style="padding:30px;text-align:center;color:var(--g400)">Memuat detail...</div>`;
   if (id === 'new') {
+    // New orders use the stepped wizard, rendered as a modal overlay OVER the
+    // list (list stays visible behind, no full-page swap).
     _mpurcCurrent = {
       header: { id:'new', lineBrand:'SDY', requestorName:'', invoiceCategory:'',
-        billedToName:'', billedToAddress:'', clientRepName:'', clientRepEmail:'',
+        billedToName:'', billedToAddress:'', billedToType:'PT', billedToPhone:'',
+        clientRepName:'', clientRepEmail:'',
         notes:'', paymentTerm:'', orderDate:new Date().toISOString().slice(0,10),
         invoiceDate:null, dueDate:null, status:'draft',
         grandTotal:0, totalReceived:0, paymentDue:0,
         jubelioSoNo:'', pic:currentUser||'' },
       items: [], payments: [], shipments: [], shipItems: [], linkedOutbounds: []
     };
+    _mpurcWizStep = 1; _mpurcWizInvTouched = false; _mpurcWizDueTouched = false;
+    _mpurcRenderWizard();
+    return;
   } else {
+    _mpurcWizActive = false;  // existing order → tabbed detail view (modal overlay)
+    document.getElementById('mp-wizard-overlay')?.remove();
+    detV.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:900;display:flex;align-items:flex-start;justify-content:center;padding:32px 16px;overflow:auto';
+    detV.innerHTML = `<div style="background:var(--white);border-radius:14px;padding:28px 40px;color:var(--g400)">Memuat detail...</div>`;
     const [hRes, iRes, pRes, sRes] = await Promise.all([
       sb.from('manual_purchase_orders').select('*').eq('id',id).maybeSingle(),
       sb.from('manual_purchase_items').select('*').eq('order_id',id).order('id'),
@@ -41077,11 +41982,14 @@ async function openManualPurchaseDetail(id) {
 }
 
 function closeManualPurchaseDetail() {
+  _mpurcWizActive = false;
+  document.getElementById('_mpw-pick-modal')?.remove();
+  document.getElementById('mp-wizard-overlay')?.remove();
   _mpurcCurrent = null;
   const listV = document.getElementById('mp-list-view');
   const detV = document.getElementById('mp-detail-view');
   if (listV) listV.style.display = '';
-  if (detV) { detV.style.display = 'none'; detV.innerHTML = ''; }
+  if (detV) { detV.style.cssText = ''; detV.style.display = 'none'; detV.innerHTML = ''; }
   loadManualPurchase();
 }
 
@@ -41143,8 +42051,8 @@ async function _mpurcDeleteOb(obId) {
 function _mpurcCreateOutbound() {
   const o = _mpurcCurrent; if (!o) return;
   const h = o.header;
-  if (!h.id || h.id === 'new') { alert('Save Manual Purchase dulu sebelum request ke warehouse.'); return; }
-  if (!(o.items||[]).length) { alert('Belum ada items di order ini.'); return; }
+  if (!h.id || h.id === 'new') { alert('Save the Manual Purchase first before requesting delivery.'); return; }
+  if (!(o.items||[]).length) { alert('This order has no items yet.'); return; }
   const obs = o.linkedOutbounds || [];
   const shippedByItem = new Map();
   obs.forEach(ob => {
@@ -41160,48 +42068,52 @@ function _mpurcCreateOutbound() {
     return { ...it, _ordered: ordered, _shipped: shipped, _remaining: Math.max(0, ordered - shipped) };
   });
   const totalRemaining = itemsWithRemaining.reduce((s,i) => s + i._remaining, 0);
-  if (totalRemaining === 0) { alert('Semua items udah ke-request di OB sebelumnya.'); return; }
+  if (totalRemaining === 0) { alert('All items have already been requested in previous batches.'); return; }
   const batchNo = obs.length + 1;
   const isPartial = obs.length > 0;
   const overlay = document.createElement('div');
   overlay.id = 'mp-ob-modal-overlay';
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+  const TRUCK = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 3h15v13H1z"/><path d="M16 8h4l3 3v5h-6"/><path d="M1 16h6"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>';
   const rowsHTML = itemsWithRemaining.map((it, idx) => {
     const disabled = it._remaining === 0;
-    return `<tr style="border-top:1px solid var(--g100);${disabled?'opacity:0.5':''}">
-      <td style="padding:6px 8px"><input type="checkbox" id="mp-ob-pick-${idx}" ${disabled?'disabled':'checked'} onchange="_mpurcObUpdateTotal()"></td>
-      <td style="padding:6px 8px;font-size:11px">${it.thumbnail?`<img src="${it.thumbnail.replace(/"/g,'&quot;')}" style="width:28px;height:28px;border-radius:3px;object-fit:cover;border:1px solid var(--g100);vertical-align:middle;margin-right:6px">`:''}${(it.item_name||'').replace(/</g,'&lt;')}${it.size?` <span style="color:var(--g400)">· ${it.size}</span>`:''}</td>
-      <td style="padding:6px 8px;font-size:10px;color:var(--g600);font-family:var(--mono)">${it._ordered}</td>
-      <td style="padding:6px 8px;font-size:10px;color:var(--g600);font-family:var(--mono)">${it._shipped}</td>
-      <td style="padding:6px 8px"><input type="number" id="mp-ob-qty-${idx}" min="0" max="${it._remaining}" value="${it._remaining}" ${disabled?'disabled':''} oninput="_mpurcObUpdateTotal()" style="width:70px;padding:4px 6px;font-size:11px;border:1px solid var(--g100);border-radius:4px;font-family:var(--mono);text-align:right"></td>
-      <td style="padding:6px 8px;font-size:10px;color:#c0392b;font-family:var(--mono)">${it._remaining}</td>
+    return `<tr style="${disabled?'opacity:0.5':''}">
+      <td style="text-align:center;width:44px"><input type="checkbox" id="mp-ob-pick-${idx}" ${disabled?'disabled':'checked'} onchange="_mpurcObUpdateTotal()" style="accent-color:var(--pc-accent);width:15px;height:15px"></td>
+      <td>${it.thumbnail?`<img src="${it.thumbnail.replace(/"/g,'&quot;')}" style="width:30px;height:30px;border-radius:6px;object-fit:cover;border:1px solid var(--pc-border);vertical-align:middle;margin-right:8px">`:''}<span style="font-size:12px;font-weight:500;color:var(--pc-txt)">${(it.item_name||'').replace(/</g,'&lt;')}</span>${it.size?` <span style="color:var(--pc-muted)">· ${it.size}</span>`:''}</td>
+      <td style="text-align:right;font-size:12px;color:var(--pc-muted);font-family:var(--mono)">${it._ordered}</td>
+      <td style="text-align:right;font-size:12px;color:var(--pc-muted);font-family:var(--mono)">${it._shipped}</td>
+      <td style="text-align:right"><input class="pc-input" type="number" id="mp-ob-qty-${idx}" min="0" max="${it._remaining}" value="${it._remaining}" ${disabled?'disabled':''} oninput="_mpurcObUpdateTotal()" style="width:76px;padding:6px 8px;font-size:12px;font-family:var(--mono);text-align:right"></td>
+      <td style="text-align:right;font-size:12px;color:#e0483f;font-family:var(--mono);font-weight:600">${it._remaining}</td>
     </tr>`;
   }).join('');
-  overlay.innerHTML = `<div style="background:var(--white);border-radius:10px;max-width:760px;width:100%;max-height:90vh;overflow:auto;box-shadow:0 8px 30px rgba(0,0,0,0.2)">
-    <div style="padding:18px 22px;border-bottom:1px solid var(--g100);display:flex;justify-content:space-between;align-items:center">
-      <div>
-        <div style="font-family:var(--head);font-size:16px;font-weight:600">📦 Request ke Warehouse${isPartial?` — Batch #${batchNo}`:''}</div>
-        <div style="font-size:11px;color:var(--g600);margin-top:2px">${o.items.length} items total · ${totalRemaining} pcs masih bisa di-request${isPartial?` (sisa setelah batch sebelumnya)`:''}</div>
+  overlay.innerHTML = `<div class="pm-clean" style="background:var(--pc-card);border:1px solid var(--pc-border);border-radius:14px;max-width:820px;width:100%;max-height:90vh;overflow:auto;box-shadow:0 24px 70px -30px rgba(0,0,0,0.6)">
+    <div style="padding:18px 22px;border-bottom:1px solid var(--pc-border);display:flex;justify-content:space-between;align-items:center">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="color:var(--pc-accent);display:flex">${TRUCK}</span>
+        <div>
+          <div class="pc-title" style="font-size:17px">Request Delivery${isPartial?` — Batch #${batchNo}`:''}</div>
+          <div style="font-size:12px;color:var(--pc-muted);margin-top:1px">${o.items.length} items total · ${totalRemaining} pcs available to request${isPartial?` (remaining after previous batches)`:''}</div>
+        </div>
       </div>
-      <button onclick="_mpurcObCloseModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--g400)">×</button>
+      <button class="pc-btn" onclick="_mpurcObCloseModal()" style="padding:5px 9px">✕</button>
     </div>
-    <div style="padding:14px 22px">
-      <div style="font-size:11px;color:var(--g600);margin-bottom:8px">Pilih items + qty buat batch ini. Items yang udah ship penuh di-disable.</div>
-      <table style="width:100%;font-size:11px;border-collapse:collapse">
-        <thead><tr style="background:var(--off)">
-          <th style="text-align:left;padding:8px;font-size:10px;color:var(--g600);text-transform:uppercase;width:30px">Pilih</th>
-          <th style="text-align:left;padding:8px;font-size:10px;color:var(--g600);text-transform:uppercase">Item</th>
-          <th style="text-align:left;padding:8px;font-size:10px;color:var(--g600);text-transform:uppercase">Order</th>
-          <th style="text-align:left;padding:8px;font-size:10px;color:var(--g600);text-transform:uppercase">Shipped</th>
-          <th style="text-align:left;padding:8px;font-size:10px;color:var(--g600);text-transform:uppercase">Qty Batch</th>
-          <th style="text-align:left;padding:8px;font-size:10px;color:var(--g600);text-transform:uppercase">Max</th>
+    <div style="padding:16px 22px">
+      <div style="font-size:12px;color:var(--pc-muted);margin-bottom:12px">Select items + qty for this batch. Fully-shipped items are disabled.</div>
+      <div style="overflow-x:auto"><table class="pc-table mp-ms-table">
+        <thead><tr>
+          <th style="width:44px">Select</th>
+          <th>Item</th>
+          <th style="text-align:right">Order</th>
+          <th style="text-align:right">Shipped</th>
+          <th style="text-align:right">Batch Qty</th>
+          <th style="text-align:right">Max</th>
         </tr></thead>
         <tbody id="mp-ob-pick-tbody">${rowsHTML}</tbody>
-      </table>
-      <div id="mp-ob-pick-total" style="font-size:11px;color:var(--g600);margin-top:10px;padding:8px 12px;background:var(--off);border-radius:5px;font-family:var(--mono)">Total batch: <b>0 pcs</b></div>
-      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
-        <button onclick="_mpurcObCloseModal()" class="btn-ghost" style="padding:8px 14px;font-size:12px">Batal</button>
-        <button id="mp-ob-pick-submit" onclick="_mpurcObSubmit()" class="btn-primary" style="padding:8px 14px;font-size:12px">📦 Create Outbound Request</button>
+      </table></div>
+      <div id="mp-ob-pick-total" style="font-size:12px;color:var(--pc-muted);margin-top:12px;padding:9px 14px;background:var(--pc-head);border:1px solid var(--pc-border);border-radius:9px;font-family:var(--mono)">Total batch: <b style="color:var(--pc-txt)">0 pcs</b></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+        <button onclick="_mpurcObCloseModal()" class="pc-btn" style="font-size:13px">Cancel</button>
+        <button id="mp-ob-pick-submit" onclick="_mpurcObSubmit()" class="pc-btn primary" style="font-size:13px">${TRUCK}Create Delivery Request</button>
       </div>
     </div>
   </div>`;
@@ -41227,7 +42139,7 @@ function _mpurcObUpdateTotal() {
     if (qty > 0) { total += qty; count++; }
   });
   const el = document.getElementById('mp-ob-pick-total');
-  if (el) el.innerHTML = `Total batch: <b>${total} pcs</b> · ${count} items dipilih`;
+  if (el) el.innerHTML = `Total batch: <b style="color:var(--pc-txt)">${total} pcs</b> · ${count} items selected`;
 }
 
 async function _mpurcObSubmit() {
@@ -41254,19 +42166,22 @@ async function _mpurcObSubmit() {
       thumbnail: it.thumbnail || null,
     });
   });
-  if (!obItems.length) { alert('Pilih minimal 1 item dengan qty > 0'); return; }
+  if (!obItems.length) { alert('Select at least 1 item with qty > 0.'); return; }
   const btn = document.getElementById('mp-ob-pick-submit');
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Creating...'; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Creating…'; }
   try {
     const obId = `OB-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${String(Math.floor(Math.random()*9000)+1000)}`;
     const recipient = h.shipToRecipient || h.clientRepName || h.requestorName || '—';
-    const address = h.shipToType === 'kantor' ? MP_OFFICE_ADDRESS : (h.shipToAddress || '');
-    const catLabel = (MP_SHIPPING_COST_CATEGORIES.find(c => c.value === h.shippingCostCategory) || {}).label || '';
+    const _destPreset = MP_SHIP_DESTINATIONS.find(d => d.value === _mpurcMapDest(h.shipToType));
+    const address = (_destPreset && _mpurcMapDest(h.shipToType) !== 'custom')
+      ? _destPreset.address
+      : (h.shipToAddress || (h.shipToType === 'kantor' ? MP_OFFICE_ADDRESS : ''));
+    const catLabel = (MP_SHIPPING_COST_CATEGORIES.find(c => c.value === _mpurcMapCostCat(h.shippingCostCategory)) || {}).label || '';
     const noteParts = [
       `📦 MP ${h.id}${isPartial?` · Batch #${batchNo}`:''}${h.billedToName?` · ${h.billedToName}`:''}`,
-      h.shippingScheme ? `🚚 Skema: ${h.shippingScheme}` : '⚠ Skema belum di-set di MP',
-      catLabel ? `💰 Ongkir: ${catLabel}` : '⚠ Kategori ongkir belum di-set di MP',
-      h.shipToNotes ? `📝 Catatan: ${h.shipToNotes}` : null,
+      h.shippingScheme ? `🚚 Method: ${h.shippingScheme}` : '⚠ Shipping method not set in MP',
+      catLabel ? `💰 Shipping: ${catLabel}` : '⚠ Shipping cost not set in MP',
+      h.shipToNotes ? `📝 Notes: ${h.shipToNotes}` : null,
     ].filter(Boolean);
     const payload = {
       id: obId,
@@ -41295,8 +42210,8 @@ async function _mpurcObSubmit() {
     _mpurcObCloseModal();
     _mpurcRenderDetail();
   } catch(e) {
-    alert('Gagal create outbound: ' + (e.message||e));
-    if (btn) { btn.disabled = false; btn.textContent = '📦 Create Outbound Request'; }
+    alert('Failed to create outbound: ' + (e.message||e));
+    if (btn) { btn.disabled = false; btn.textContent = 'Create Delivery Request'; }
   }
 }
 
@@ -41306,9 +42221,7 @@ function _mpurcRenderDetail() {
   if (!detV || !o) return;
   const h = o.header;
   const isNew = h.id === 'new';
-  // Preserve active tab across re-renders
-  const activeBtn = detV.querySelector('.tab-btn.active');
-  const activeTab = activeBtn?.id?.replace('mp-tab-','') || 'order';
+  const isService = h.invoiceCategory === 'Service Selling';
   const fmtRp = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
   // Compute totals from items
   const items = o.items || [];
@@ -41318,37 +42231,55 @@ function _mpurcRenderDetail() {
   const obs = o.linkedOutbounds || [];
   const obShippingTotal = obs.reduce((s,ob) => s + (parseFloat(ob.shipping_cost)||0), 0);
   const shippingCost = obs.length ? obShippingTotal : (parseFloat(h.shippingCost)||0);
-  const totalReceived = (o.payments||[]).reduce((s,p) => p.paid_at ? s + (parseFloat(p.amount)||0) : s, 0);
+  const totalReceived = (o.payments||[]).reduce((s,p) => p.paid_at ? s + (parseFloat(p.paid_amount ?? p.amount)||0) : s, 0);
   const paymentDue = (subtotal + shippingCost) - totalReceived;
+  // Derived status — mirrors the list progress icons (free/service-aware).
+  const _hasItemsD = items.length > 0;
+  const _isFreeD = _hasItemsD && subtotal <= 0;
+  const _isPaidD = paymentDue <= 0.5;
+  const _isDeliveredD = isService || !!h.outboundRequestId || h.deliveryDone || !!h.jubelioSoNo;
+  const _isSyncedD = isService || !!h.jubelioSoNo;
+  const derivedStatus = h.status === 'canceled' ? 'canceled'
+    : !_hasItemsD ? 'draft'
+    : ((_isFreeD || _isPaidD) && _isDeliveredD && _isSyncedD) ? 'done'
+    : (!_isFreeD && !_isPaidD && totalReceived > 0) ? 'partial'
+    : (!_isFreeD && !_isPaidD) ? 'sent'
+    : 'in progress';
+  // Render the detail as a centered modal overlay (list stays behind).
+  detV.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:900;display:flex;align-items:flex-start;justify-content:center;padding:32px 16px;overflow:auto';
   detV.innerHTML = `
+    <div class="pm-clean mp-detail-modal" style="background:var(--pc-card);border:1px solid var(--pc-border);border-radius:14px;width:min(1160px,100%);padding:22px 24px;box-shadow:0 24px 70px -30px rgba(0,0,0,0.6)">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:14px">
       <div>
-        <button class="btn-ghost" onclick="closeManualPurchaseDetail()" style="font-size:11px;padding:4px 10px;margin-bottom:6px">← Kembali</button>
-        <div style="font-size:22px;font-weight:700">${isNew ? 'Manual Purchase Baru' : (h.id||'').replace(/</g,'&lt;')}</div>
-        <div style="font-size:12px;color:var(--g600);margin-top:2px">${isNew ? 'Isi header + items, lalu Simpan untuk generate Invoice No.' : `Invoice: ${_mpurcAutoInvoiceNo(h.id)} · Status: ${h.status}`}</div>
+        <button class="btn-ghost" onclick="closeManualPurchaseDetail()" style="font-size:11px;padding:4px 10px;margin-bottom:6px">← Back</button>
+        <div style="font-size:22px;font-weight:700">${isNew ? 'New Manual Purchase' : (h.id||'').replace(/</g,'&lt;')}</div>
+        <div style="font-size:12px;color:var(--g600);margin-top:2px">${isNew ? 'Fill in the order + items, then Save to generate the Invoice No.' : `Invoice: ${_mpurcAutoInvoiceNo(h.id)} · Status: ${derivedStatus}`}</div>
+        ${(!isNew && h.jubelioSoNo) ? `<div style="font-size:11px;color:#1a9e56;font-family:var(--mono);margin-top:3px" title="Linked Jubelio Sales Order">Synced: ${h.jubelioSoNo.replace(/</g,'&lt;')}</div>` : ''}
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        ${!isNew && items.length ? `<button class="btn-ghost" onclick="_mpurcCreateOutbound()" style="font-size:12px;padding:8px 16px" title="Buat outbound request batch ke tim warehouse">📦 Request ke Warehouse${obs.length?` (+ batch ke-${obs.length+1})`:''}</button>` : ''}
-        <button class="btn-primary" onclick="saveManualPurchase()" style="font-size:12px;padding:8px 18px">${isNew?'💾 Simpan':'💾 Update'}</button>
+        <button class="btn-primary" onclick="saveManualPurchase()" style="font-size:12px;padding:8px 18px">${isNew?'Save':'Update'}</button>
       </div>
     </div>
-    <div class="tab-bar" style="margin-bottom:14px">
-      <button class="tab-btn active" id="mp-tab-order" onclick="mpSwitchTab('order',this)">📝 Order & Items</button>
-      <button class="tab-btn" id="mp-tab-pay" onclick="mpSwitchTab('pay',this)">💰 Payments & Shipping</button>
+    <div class="mp-seg-nav">
+      <button class="mp-seg-btn active" onclick="_mpurcShowSeg('basics',this)">Basics</button>
+      <button class="mp-seg-btn" onclick="_mpurcShowSeg('billedto',this)">Billed to</button>
+      <button class="mp-seg-btn" onclick="_mpurcShowSeg('items',this)">Items</button>
+      ${isService ? '' : `<button class="mp-seg-btn" onclick="_mpurcShowSeg('delivery',this)">Delivery</button>`}
+      <button class="mp-seg-btn" onclick="_mpurcShowSeg('payment',this)">Payment</button>
     </div>
-    <!-- Tab: Order & Items -->
-    <div id="mp-tab-content-order">
-      <div class="form-card" style="margin-bottom:14px">
-        <div class="form-sec">Header</div>
+    ${isService ? `<div style="display:none"><input type="hidden" id="mp-h-shipscheme" value=""><input type="hidden" id="mp-h-shipcostcat" value=""><input type="hidden" id="mp-h-shiptype" value="custom"><input type="hidden" id="mp-h-shiprecipient" value=""><input type="hidden" id="mp-h-shipphone" value=""><input type="hidden" id="mp-h-shipemail" value=""><input type="hidden" id="mp-h-shipaddr" value=""><input type="hidden" id="mp-h-shipnotes" value=""></div>` : ''}
+    <div id="mp-seg-basics" class="mp-seg">
+      <div class="form-card" style="margin-bottom:0">
+        <div class="form-sec">Order</div>
         <div class="form-grid" style="grid-template-columns:repeat(3,1fr)">
           <div class="fg"><label>Line Brand <span class="req">*</span></label><select id="mp-h-brand">
             <option value="SDY" ${h.lineBrand==='SDY'?'selected':''}>SDY</option>
             <option value="Lagaa" ${h.lineBrand==='Lagaa'?'selected':''}>Lagaa</option>
             <option value="Marte" ${h.lineBrand==='Marte'?'selected':''}>Marte</option>
           </select></div>
-          <div class="fg" style="position:relative"><label>Requestor Name</label><input type="text" id="mp-h-requestor" value="${(h.requestorName||'').replace(/"/g,'&quot;')}" autocomplete="off" placeholder="Tim/orang yang request"><div class="ac-list" id="ac-mp-requestor"></div></div>
-          <div class="fg"><label>Invoice Category</label><select id="mp-h-category">
-            <option value="">— Pilih —</option>
+          <div class="fg" style="position:relative"><label>Requestor Name</label><input type="text" id="mp-h-requestor" value="${(h.requestorName||'').replace(/"/g,'&quot;')}" autocomplete="off" placeholder="Team/person who requested"><div class="ac-list" id="ac-mp-requestor"></div></div>
+          <div class="fg"><label>Category</label><select id="mp-h-category">
+            <option value="">— Select —</option>
             ${MP_INVOICE_CATEGORIES.map(c => `<option ${h.invoiceCategory===c?'selected':''}>${c}</option>`).join('')}
           </select></div>
           <div class="fg"><label>Order Date</label><input type="date" id="mp-h-orderdate" value="${h.orderDate||''}"></div>
@@ -41356,88 +42287,70 @@ function _mpurcRenderDetail() {
           <div class="fg"><label>Due Date</label><input type="date" id="mp-h-duedate" value="${h.dueDate||''}"></div>
         </div>
       </div>
-      <div class="form-card" style="margin-bottom:14px">
+    </div>
+    <div id="mp-seg-billedto" class="mp-seg" style="display:none">
+      <div class="form-card" style="margin-bottom:0">
         <div class="form-sec">Billed To</div>
         <div class="form-grid" style="grid-template-columns:repeat(2,1fr)">
-          <div class="fg full"><label>Legal Entity Name (PT/Yayasan/Perorangan) <span class="req">*</span></label><input type="text" id="mp-h-billedname" value="${(h.billedToName||'').replace(/"/g,'&quot;')}" placeholder="e.g. PT Sumber Jaya"></div>
-          <div class="fg full"><label>Alamat Penagihan</label><textarea id="mp-h-billedaddr" rows="2" placeholder="Alamat lengkap untuk invoice">${(h.billedToAddress||'').replace(/</g,'&lt;')}</textarea></div>
-          <div class="fg"><label>Nama Perwakilan Client</label><input type="text" id="mp-h-clientname" value="${(h.clientRepName||'').replace(/"/g,'&quot;')}"></div>
-          <div class="fg"><label>Email Perwakilan Client</label><input type="email" id="mp-h-clientemail" value="${(h.clientRepEmail||'').replace(/"/g,'&quot;')}" placeholder="Untuk kirim invoice"></div>
-          <div class="fg full"><label>Deskripsi Detail Penagihan (Notes)</label><textarea id="mp-h-notes" rows="3" placeholder="Detail apa yang ditagih, kondisi khusus, dll">${(h.notes||'').replace(/</g,'&lt;')}</textarea></div>
+          <div class="fg full"><label>Legal Entity Name (Company / Foundation / Individual) <span class="req">*</span></label><input type="text" id="mp-h-billedname" value="${(h.billedToName||'').replace(/"/g,'&quot;')}" placeholder="e.g. PT Sumber Jaya"></div>
+          <div class="fg full"><label>Billing Address</label><textarea id="mp-h-billedaddr" rows="5" placeholder="Full address for the invoice">${(h.billedToAddress||'').replace(/</g,'&lt;')}</textarea></div>
+          <div class="fg"><label>Client Representative Name</label><input type="text" id="mp-h-clientname" value="${(h.clientRepName||'').replace(/"/g,'&quot;')}"></div>
+          <div class="fg"><label>Client Representative Email</label><input type="email" id="mp-h-clientemail" value="${(h.clientRepEmail||'').replace(/"/g,'&quot;')}" placeholder="For sending the invoice"></div>
+          <div class="fg full"><label>Billing Description (Notes)</label><textarea id="mp-h-notes" rows="3" placeholder="What's being billed, special terms, etc.">${(h.notes||'').replace(/</g,'&lt;')}</textarea></div>
         </div>
       </div>
-      <div class="form-card" style="margin-bottom:14px">
-        <div class="form-sec" style="display:flex;justify-content:space-between;align-items:center">
-          <span>Pengiriman</span>
-          <span style="font-size:11px;color:var(--g400);font-weight:normal">Default: dikirim ke Kantor, attn requestor</span>
-        </div>
-        <div class="form-grid" style="grid-template-columns:repeat(3,1fr)">
-          <div class="fg"><label>Tujuan</label><select id="mp-h-shiptype" onchange="_mpurcShipTypeChange(this.value)">
-            <option value="kantor" ${h.shipToType==='kantor'?'selected':''}>Kantor (Sentra)</option>
-            <option value="customer" ${h.shipToType==='customer'?'selected':''}>Alamat Customer</option>
-            <option value="lainnya" ${h.shipToType==='lainnya'?'selected':''}>Lainnya</option>
-          </select></div>
-          <div class="fg"><label>Penerima</label><input type="text" id="mp-h-shiprecipient" value="${(h.shipToRecipient||'').replace(/"/g,'&quot;')}" placeholder="${h.shipToType==='kantor'?'PIC Kantor / Requestor':'Nama penerima'}"></div>
-          <div class="fg"><label>No HP Penerima</label><input type="text" id="mp-h-shipphone" value="${(h.shipToPhone||'').replace(/"/g,'&quot;')}" placeholder="08..."></div>
-          <div class="fg"><label>Email Penerima <span style="color:var(--g400);font-weight:400">(buat kirim Surat Jalan)</span></label><input type="email" id="mp-h-shipemail" value="${(h.shipToEmail||'').replace(/"/g,'&quot;')}" placeholder="penerima@email.com"></div>
-          <div class="fg full"><label>Alamat Kirim</label><textarea id="mp-h-shipaddr" rows="2" placeholder="Alamat lengkap pengiriman">${(h.shipToAddress||'').replace(/</g,'&lt;')}</textarea></div>
-          <div class="fg"><label>Skema Pengiriman <span style="font-size:10px;color:var(--g400);font-weight:normal">(instruksi)</span></label>
-            <select id="mp-h-shipscheme">
-              <option value="">— Pilih skema —</option>
-              ${MP_SHIPPING_SCHEMES.map(s => `<option ${h.shippingScheme===s?'selected':''}>${s}</option>`).join('')}
-            </select>
-          </div>
-          <div class="fg"><label>Kategori Ongkir <span style="font-size:10px;color:var(--g400);font-weight:normal">(siapa nanggung)</span></label>
-            <select id="mp-h-shipcostcat">
-              <option value="">— Pilih kategori —</option>
-              ${MP_SHIPPING_COST_CATEGORIES.map(c => `<option value="${c.value}" ${h.shippingCostCategory===c.value?'selected':''}>${c.label}</option>`).join('')}
-            </select>
-          </div>
-          <div class="fg full"><label>Catatan Pengiriman</label><input type="text" id="mp-h-shipnotes" value="${(h.shipToNotes||'').replace(/"/g,'&quot;')}" placeholder="Instruksi khusus untuk gudang"></div>
-          <div class="fg full" style="font-size:10px;color:var(--g400);font-family:var(--mono);padding:6px 0">
-            ℹ️ Tanggal sampai · AWB/Resi · Ongkir aktual → diisi tim warehouse di Outbound Request, otomatis loop ke invoice.
-          </div>
-        </div>
-      </div>
-      ${_mpurcRenderPaymentPlanEditor(h)}
-      ${isNew ? `<div class="form-card" style="background:var(--off);border:1px dashed var(--g200)">
-        <div style="text-align:center;padding:14px;font-size:12px;color:var(--g600)">💾 Simpan order dulu, baru bisa tambah items.</div>
-      </div>` : `<div class="form-card">
-        <div class="form-sec" style="display:flex;justify-content:space-between;align-items:center">
-          <span>Items (${items.length})</span>
-          <span style="font-size:12px;color:var(--g600);font-family:var(--mono)">Grand Total: <b style="font-size:14px;color:var(--black)">${fmtRp(subtotal)}</b></span>
-        </div>
-        ${_mpurcItemsHTML(items)}
-        <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <button class="btn-ghost" onclick="_mpurcOpenStockPicker()" style="font-size:12px">＋ Tambah Item</button>
-          <label class="btn-ghost" style="font-size:12px;cursor:pointer" title="Import CSV: item_code, qty, list_price, discount_pct">📥 Import CSV<input type="file" accept=".csv" onchange="_mpurcImportCsv(this)" style="display:none"></label>
-          <button class="btn-ghost" onclick="_mpurcDownloadCsvTemplate()" style="font-size:12px" title="Download template CSV pre-filled dengan active SKUs">📋 Template</button>
-          <span style="font-size:11px;color:var(--g400);margin-left:4px">Semua item ditampilkan. Stock di Bintaro + Penerimaan Barang sebagai referensi.</span>
-        </div>
-      </div>`}
     </div>
-    <!-- Tab: Payments & Shipping -->
-    <div id="mp-tab-content-pay" style="display:none">
-      ${isNew ? `<div class="form-card" style="background:var(--off);border:1px dashed var(--g200)">
-        <div style="text-align:center;padding:14px;font-size:12px;color:var(--g600)">💾 Simpan order dulu, baru bisa input payments / shipments.</div>
-      </div>` : `
-      <div class="form-card" style="margin-bottom:14px">
+    ${isService ? '' : `<div id="mp-seg-delivery" class="mp-seg" style="display:none">
+      ${(() => {
+        const schemeVal = _mpurcMapScheme(h.shippingScheme);
+        const costVal = _mpurcMapCostCat(h.shippingCostCategory);
+        const destVal = _mpurcMapDest(h.shipToType);
+        const isPickup = schemeVal === 'Self-Pick Up';
+        const isCustomDest = destVal === 'custom';
+        return `<div class="form-card" style="margin-bottom:0">
         <div class="form-sec" style="display:flex;justify-content:space-between;align-items:center">
-          <span>Payment Milestones</span>
-          <span style="font-size:12px;color:var(--g600);font-family:var(--mono)">Paid: <b style="font-size:14px;color:var(--black)">${fmtRp(totalReceived)}</b> / ${fmtRp(subtotal + shippingCost)}${shippingCost>0?` <span style="font-size:10px;color:var(--g400)">(${fmtRp(subtotal)} + ${fmtRp(shippingCost)} ongkir)</span>`:''} · Sisa: <b style="color:${paymentDue>0?'#c0392b':'#0a7d3a'}">${fmtRp(paymentDue)}</b></span>
+          <span>Delivery</span>
+          <span style="font-size:11px;color:var(--g400);font-weight:normal">Product Selling only</span>
         </div>
-        ${_mpurcMilestoneTableHTML(o, subtotal)}
-      </div>
-      <div class="form-card">
-        <div class="form-sec">Dokumen & Pengiriman</div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
-          <button class="btn-primary" onclick="_mpurcGenInvoicePDF()" style="font-size:12px">📄 Invoice PDF</button>
+        <div class="form-grid" style="grid-template-columns:repeat(2,1fr)">
+          <div class="fg"><label>Shipping Method</label>
+            <select id="mp-h-shipscheme" onchange="_mpurcSchemeChange(this.value)">
+              <option value="">— Select —</option>
+              ${MP_SHIPPING_SCHEMES.map(s => `<option ${schemeVal===s?'selected':''}>${s}</option>`).join('')}
+            </select></div>
+          <div class="fg"><label>Shipping Cost</label>
+            <select id="mp-h-shipcostcat">
+              <option value="">— Select —</option>
+              ${MP_SHIPPING_COST_CATEGORIES.map(c => `<option value="${c.value}" ${costVal===c.value?'selected':''}>${c.label}</option>`).join('')}
+            </select></div>
         </div>
-        ${obs.length ? `<div style="border-top:1px solid var(--g100);padding-top:10px">
-          <div style="font-size:11px;color:var(--g600);margin-bottom:8px">Outbound Requests (Surat Jalan + ongkir actual):</div>
+        <div id="mp-dest-group" style="${isPickup?'display:none':''};margin-top:8px">
+          <div class="form-grid" style="grid-template-columns:repeat(3,1fr)">
+            <div class="fg"><label>Ship To</label>
+              <select id="mp-h-shiptype" onchange="_mpurcShipTypeChange(this.value)">
+                ${MP_SHIP_DESTINATIONS.map(d => `<option value="${d.value}" ${destVal===d.value?'selected':''}>${d.label}</option>`).join('')}
+              </select></div>
+            <div class="fg"><label>Recipient</label><input type="text" id="mp-h-shiprecipient" value="${(h.shipToRecipient||'').replace(/"/g,'&quot;')}" placeholder="Recipient name"></div>
+            <div class="fg"><label>Recipient Phone</label><input type="text" id="mp-h-shipphone" value="${(h.shipToPhone||'').replace(/"/g,'&quot;')}" placeholder="08..."></div>
+            <div class="fg"><label>Recipient Email <span style="color:var(--g400);font-weight:400">(Delivery Note)</span></label><input type="email" id="mp-h-shipemail" value="${(h.shipToEmail||'').replace(/"/g,'&quot;')}" placeholder="recipient@email.com"></div>
+            <div class="fg full" id="mp-shipaddr-wrap" style="${isCustomDest?'':'display:none'}"><label>Shipping Address</label><textarea id="mp-h-shipaddr" rows="5" placeholder="Full shipping address">${(h.shipToAddress||'').replace(/</g,'&lt;')}</textarea></div>
+          </div>
+        </div>
+        <div class="form-grid" style="grid-template-columns:1fr;margin-top:8px">
+          <div class="fg full"><label>Shipping Notes</label><input type="text" id="mp-h-shipnotes" value="${(h.shipToNotes||'').replace(/"/g,'&quot;')}" placeholder="Special instructions for the warehouse"></div>
+        </div>
+      </div>`; })()}
+      ${isNew ? '' : `<div class="form-card" style="margin-top:14px;margin-bottom:0">
+        <div class="form-sec" style="display:flex;justify-content:space-between;align-items:center">
+          <span>Warehouse</span>
+          ${items.length ? `<button class="pc-btn primary" onclick="_mpurcCreateOutbound()" style="font-size:12px;padding:7px 14px" title="Create a delivery request batch for the warehouse team"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 3h15v13H1z"/><path d="M16 8h4l3 3v5h-6"/><path d="M1 16h6"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>Request Delivery${obs.length?` (+ batch #${obs.length+1})`:''}</button>` : ''}
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--pc-txt);cursor:pointer;padding:8px 0"><input type="checkbox" id="mp-h-deliverydone" ${h.deliveryDone?'checked':''} style="accent-color:var(--pc-accent);width:15px;height:15px"> Already delivered — no warehouse ticket needed</label>
+        ${obs.length ? `<div style="padding-top:6px">
+          <div style="font-size:11px;color:var(--g600);margin-bottom:8px">Outbound Requests (Delivery Note + actual shipping):</div>
           <div style="display:flex;flex-direction:column;gap:6px">
           ${obs.map((ob, i) => {
-            const ongkirLbl = ob.shipping_cost != null ? `Rp ${Math.round(parseFloat(ob.shipping_cost)||0).toLocaleString('id-ID')}` : '<i style="color:var(--g400)">belum diisi warehouse</i>';
+            const ongkirLbl = ob.shipping_cost != null ? `Rp ${Math.round(parseFloat(ob.shipping_cost)||0).toLocaleString('id-ID')}` : '<i style="color:var(--g400)">not filled by warehouse yet</i>';
             const stTone = ob.status === 'Delivered' ? {bg:'#dff0d8',fg:'#04342C'} : ob.status === 'Sent' ? {bg:'#cce5ff',fg:'#054d8c'} : {bg:'#fef5e0',fg:'#a66800'};
             const canDelete = ob.status === 'Pending';
             return `<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--off);border:1px solid var(--g100);border-radius:5px">
@@ -41445,43 +42358,58 @@ function _mpurcRenderDetail() {
                 <span style="font-family:var(--mono);font-size:11px;font-weight:600">📦 ${(ob.id||'').replace(/</g,'&lt;')}</span>
                 <span style="font-size:10px;padding:2px 8px;border-radius:99px;background:${stTone.bg};color:${stTone.fg};font-weight:600">${ob.status||'Pending'}</span>
                 <span style="font-size:11px;color:var(--g600);flex:1">${(ob.items||[]).length} items · ${(ob.items||[]).reduce((s,it)=>s+(parseFloat(it.qty)||0),0)} pcs</span>
-                <span style="font-size:11px;font-family:var(--mono);color:var(--g600)">Ongkir: <b style="color:var(--black)">${ongkirLbl}</b></span>
+                <span style="font-size:11px;font-family:var(--mono);color:var(--g600)">Shipping: <b style="color:var(--black)">${ongkirLbl}</b></span>
               </a>
-              <button onclick="_mpurcOpenObItemsEdit('${ob.id}')" title="Edit items batch ini" style="background:none;border:1px solid var(--g200);padding:4px 8px;border-radius:4px;cursor:pointer;color:var(--g600);font-size:11px">✎ Edit</button>
-              ${canDelete ? `<button onclick="_mpurcDeleteOb('${ob.id}')" title="Batalkan OB ini (cuma kalau Pending)" style="background:none;border:1px solid #f1c6bf;padding:4px 8px;border-radius:4px;cursor:pointer;color:#c0392b;font-size:11px">🗑</button>` : ''}
+              <button onclick="_mpurcOpenObItemsEdit('${ob.id}')" title="Edit this batch's items" style="background:none;border:1px solid var(--g200);padding:4px 8px;border-radius:4px;cursor:pointer;color:var(--g600);font-size:11px">✎ Edit</button>
+              ${canDelete ? `<button onclick="_mpurcDeleteOb('${ob.id}')" title="Cancel this OB (only if Pending)" style="background:none;border:1px solid #f1c6bf;padding:4px 8px;border-radius:4px;cursor:pointer;color:#c0392b;font-size:11px">🗑</button>` : ''}
             </div>`;
           }).join('')}
           </div>
-          <div style="font-size:10px;color:var(--g400);margin-top:8px;font-family:var(--mono)">Total ongkir: <b style="color:var(--black)">${fmtRp(obShippingTotal)}</b> · auto-masuk ke invoice</div>
-        </div>` : `<div style="border-top:1px solid var(--g100);padding-top:10px"><span style="font-size:11px;color:var(--g600);padding:8px 12px;background:var(--off);border:1px dashed var(--g200);border-radius:5px;display:inline-block">📋 Surat Jalan + ongkir diisi warehouse via Outbound Request — klik <b>📦 Request ke Warehouse</b> di atas</span></div>`}
-      </div>
-      <div class="form-card" style="margin-top:14px">
+          <div style="font-size:10px;color:var(--g400);margin-top:8px;font-family:var(--mono)">Total shipping: <b style="color:var(--black)">${fmtRp(obShippingTotal)}</b> · auto-added to invoice</div>
+        </div>` : ''}
+      </div>`}
+    </div>`}
+    <div id="mp-seg-items" class="mp-seg" style="display:none">
+      ${isNew ? `<div class="form-card" style="margin-bottom:0;background:var(--off);border:1px dashed var(--g200)">
+        <div style="text-align:center;padding:14px;font-size:12px;color:var(--g600)">💾 Simpan order dulu, baru bisa tambah items.</div>
+      </div>` : `<div class="form-card" style="margin-bottom:0">
         <div class="form-sec" style="display:flex;justify-content:space-between;align-items:center">
-          <span>Routing Jubelio SO (Step Akhir)</span>
-          <span style="font-size:11px;color:var(--g400);font-weight:normal">Status mapping ke transaksi Jubelio</span>
+          <span>Items (${items.length})</span>
+          <span style="font-size:12px;color:var(--g600);font-family:var(--mono)">Grand Total: <b style="font-size:14px;color:var(--black)">${fmtRp(subtotal)}</b></span>
         </div>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
-          <button class="btn-ghost" onclick="_mpurcGenerateJubelioCSV()" style="font-size:12px;padding:6px 14px" title="Download CSV format Import Pesanan Penjualan Jubelio">📥 Download CSV Pesanan Jubelio</button>
-          <span style="font-size:11px;color:var(--g400)">Format: Pesanan Penjualan (36 kolom). Upload via tab Semua Pesanan di Jubelio.</span>
+        ${_mpurcItemsHTML(items)}
+        <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <button class="btn-ghost" onclick="_mpurcOpenStockPicker()" style="font-size:12px">＋ Add Item</button>
+          <span style="font-size:11px;color:var(--g400);margin-left:4px">Stock at Bintaro + Goods Receipt shown for reference.</span>
         </div>
-        <div id="mp-jubelio-mapping-status" style="margin-top:10px"><div style="font-size:11px;color:var(--g400)">⟳ Cek mapping di Transaction Mapping...</div></div>
-        <div id="mp-jubelio-compare" style="margin-top:14px"></div>
-      </div>
-      `}
+      </div>`}
+    </div>
+    <div id="mp-seg-payment" class="mp-seg" style="display:none">
+      ${_mpurcWizPaymentHTML()}
+      ${isNew ? `<div class="form-card" style="margin-bottom:0;background:var(--off);border:1px dashed var(--g200)">
+        <div style="text-align:center;padding:14px;font-size:12px;color:var(--g600)">💾 Simpan order dulu.</div>
+      </div>` : `
+      <div class="form-card" style="margin-bottom:0">
+        <div class="form-sec" style="display:flex;justify-content:space-between;align-items:center">
+          <span>Payment Milestones</span>
+          <span style="font-size:12px;color:var(--g600);font-family:var(--mono)">Paid: <b style="font-size:14px;color:var(--black)">${fmtRp(totalReceived)}</b> / ${fmtRp(subtotal + shippingCost)}${shippingCost>0?` <span style="font-size:10px;color:var(--g400)">(${fmtRp(subtotal)} + ${fmtRp(shippingCost)} shipping)</span>`:''} · Remaining: <b style="color:${paymentDue>0?'#c0392b':'#0a7d3a'}">${fmtRp(paymentDue)}</b></span>
+        </div>
+        ${_mpurcMilestoneTableHTML(o, subtotal)}
+      </div>`}
+    </div>
     </div>
   `;
   setupAC('mp-h-requestor','ac-mp-requestor',()=>acPics);
-  if (!isNew) {
-    _mpurcLoadMappingStatus();
-  }
   // Auto-fill shipping defaults if empty (new order or never set)
-  if (!h.shipToAddress && !h.shipToRecipient) {
-    _mpurcShipTypeChange(h.shipToType || 'kantor');
+  if (h.invoiceCategory !== 'Service Selling' && !h.shipToAddress && !h.shipToRecipient) {
+    _mpurcShipTypeChange(_mpurcMapDest(h.shipToType));
   }
-  if (activeTab && activeTab !== 'order') {
-    const btn = document.getElementById('mp-tab-'+activeTab);
-    if (btn) mpSwitchTab(activeTab, btn);
-  }
+  // Restore the previously-active segment (default Basics).
+  let _seg = _mpurcActiveSeg;
+  if (!document.getElementById('mp-seg-'+_seg)) _seg = 'basics';
+  const _segBtns = [...document.querySelectorAll('.mp-detail-modal .mp-seg-btn')];
+  const _segBtn = _segBtns.find(b => (b.getAttribute('onclick')||'').includes(`'${_seg}'`)) || _segBtns[0];
+  _mpurcShowSeg(_seg, _segBtn);
 }
 
 // MP Jubelio Sales Order (Pesanan Penjualan) CSV — format Import Pesanan
@@ -41817,30 +42745,35 @@ async function _mpurcLoadJubelioCompare() {
   </div>`;
 }
 
+// Destination preset changed. Radal HQ / Marté Store auto-fill the address and
+// hide the manual field; Custom shows an editable address.
 function _mpurcShipTypeChange(val) {
   const addrEl = document.getElementById('mp-h-shipaddr');
-  const recipEl = document.getElementById('mp-h-shiprecipient');
-  if (!addrEl || !recipEl) return;
-  if (val === 'kantor') {
-    addrEl.value = MP_OFFICE_ADDRESS;
-    const req = document.getElementById('mp-h-requestor')?.value.trim();
-    recipEl.value = req ? `${req} (PIC Kantor)` : 'PIC Kantor';
-  } else if (val === 'customer') {
-    addrEl.value = document.getElementById('mp-h-billedaddr')?.value.trim() || '';
-    recipEl.value = document.getElementById('mp-h-clientname')?.value.trim() || '';
+  const wrap = document.getElementById('mp-shipaddr-wrap');
+  const preset = MP_SHIP_DESTINATIONS.find(d => d.value === val);
+  if (val === 'custom') {
+    if (wrap) wrap.style.display = '';
   } else {
-    addrEl.value = '';
-    recipEl.value = '';
+    if (wrap) wrap.style.display = 'none';
+    if (addrEl && preset) addrEl.value = preset.address || '';
   }
 }
+// Shipping scheme changed. Self-Pick Up hides the whole destination group
+// (customer collects — no address needed).
+function _mpurcSchemeChange(val) {
+  const group = document.getElementById('mp-dest-group');
+  if (group) group.style.display = (val === 'Self-Pick Up') ? 'none' : '';
+}
 
-function mpSwitchTab(tab, btn) {
-  document.querySelectorAll('#mp-detail-view .tab-btn').forEach(b => b.classList.remove('active'));
+// Segmented detail nav (mirrors the New Order wizard's segments).
+let _mpurcActiveSeg = 'basics';
+function _mpurcShowSeg(key, btn) {
+  _mpurcActiveSeg = key;
+  document.querySelectorAll('.mp-detail-modal .mp-seg-btn').forEach(b => b.classList.remove('active'));
   if (btn) btn.classList.add('active');
-  ['order','pay'].forEach(t => {
-    const el = document.getElementById('mp-tab-content-'+t);
-    if (el) el.style.display = t === tab ? '' : 'none';
-  });
+  document.querySelectorAll('.mp-detail-modal .mp-seg').forEach(s => { s.style.display = 'none'; });
+  const seg = document.getElementById('mp-seg-' + key);
+  if (seg) seg.style.display = '';
 }
 
 // ---- Payment Plan editor (mirror Wholesale CAD/CBD pattern) ----
@@ -41905,7 +42838,7 @@ function _mpPpChangeType(type) {
       { key:'final', label:'Pelunasan', pct:100 },
     ];
   }
-  _mpurcRenderDetail();
+  _mpurcReRenderEditor();
 }
 function _mpPpEditLabel(idx, val) {
   const plan = _mpPpEnsure(); if (!plan?.milestones[idx]) return;
@@ -41916,7 +42849,7 @@ function _mpPpEditPct(idx, val) {
   let v = parseFloat(val)||0;
   if (v < 0) v = 0; if (v > 100) v = 100;
   plan.milestones[idx].pct = v;
-  _mpurcRenderDetail();
+  _mpurcReRenderEditor();
 }
 function _mpPpAddRow() {
   const plan = _mpPpEnsure(); if (!plan) return;
@@ -41925,13 +42858,13 @@ function _mpPpAddRow() {
   const newRow = { key: `dp${dpCount}`, label: `DP ${dpCount}`, pct: 0 };
   if (finalIdx >= 0) plan.milestones.splice(finalIdx, 0, newRow);
   else plan.milestones.push(newRow);
-  _mpurcRenderDetail();
+  _mpurcReRenderEditor();
 }
 function _mpPpRemove(idx) {
   const plan = _mpPpEnsure(); if (!plan?.milestones[idx]) return;
   if (plan.milestones.length <= 1) { alert('Minimal 1 milestone.'); return; }
   plan.milestones.splice(idx, 1);
-  _mpurcRenderDetail();
+  _mpurcReRenderEditor();
 }
 
 // ---- Manual Purchase: items table ----
@@ -41950,9 +42883,7 @@ function _mpurcThumbFor(jubelioItemId) {
 }
 function _mpurcItemsHTML(items) {
   if (!items || items.length === 0) {
-    return `<div style="padding:30px;text-align:center;color:var(--g400);font-size:12px;background:var(--off);border-radius:6px;margin-top:8px">
-      Belum ada item. Klik "Tambah Item dari Stock" di bawah.
-    </div>`;
+    return `<div style="padding:26px;text-align:center;color:var(--pc-muted);font-size:12px;border:1px dashed var(--pc-border);border-radius:10px;margin-top:8px">No items yet. Click "＋ Add Item" below.</div>`;
   }
   const fmtRp = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
   const rows = items.map(it => {
@@ -41963,32 +42894,24 @@ function _mpurcItemsHTML(items) {
     const disc = parseFloat(it.discount_pct)||0;
     const net = Math.round(list * (1 - disc/100));
     const sub = qty * net;
-    const stockColor = qty > 0 && stk < qty ? '#c0392b' : qty > 0 && stk >= qty ? '#0a7d3a' : 'var(--g600)';
+    const stockColor = qty > 0 && stk < qty ? '#e0483f' : qty > 0 && stk >= qty ? '#1a9e56' : 'var(--pc-muted)';
     const thumb = _mpurcThumbFor(jid);
     const thumbHTML = thumb
-      ? `<img src="${thumb.replace(/"/g,'&quot;')}" style="width:40px;height:40px;object-fit:cover;border-radius:3px;border:1px solid var(--g100)" onerror="this.style.display='none'">`
-      : `<div style="width:40px;height:40px;background:var(--off);border:1px solid var(--g100);border-radius:3px"></div>`;
+      ? `<img src="${thumb.replace(/"/g,'&quot;')}" style="width:40px;height:40px;object-fit:cover;border-radius:6px;border:1px solid var(--pc-border)" onerror="this.style.display='none'">`
+      : `<div style="width:40px;height:40px;background:var(--pc-head);border:1px solid var(--pc-border);border-radius:6px"></div>`;
     return `<tr>
       <td style="width:48px">${thumbHTML}</td>
       <td>
-        <div style="font-size:12px;font-weight:600;line-height:1.3">${(it.item_name||'—').replace(/</g,'&lt;')}</div>
-        <div style="font-size:10px;color:var(--g400);font-family:var(--mono);margin-top:2px">${(it.item_code||'—').replace(/</g,'&lt;')}</div>
+        <div style="font-size:12px;font-weight:600;color:var(--pc-txt);line-height:1.3">${(it.item_name||'—').replace(/</g,'&lt;')}</div>
+        <div style="font-size:10px;color:var(--pc-muted);font-family:var(--mono);margin-top:2px">${(it.item_code||'—').replace(/</g,'&lt;')}</div>
       </td>
       <td style="text-align:right;font-family:var(--mono);font-size:11px;color:${stockColor}">${Math.round(stk).toLocaleString('id-ID')}</td>
-      <td style="text-align:right">
-        <input type="number" min="0" step="1" value="${qty}" onchange="_mpurcItemQty(${it.id},this.value)" style="width:64px;text-align:right;font-size:11px;font-family:var(--mono);padding:3px 6px;border:1px solid var(--g200);border-radius:3px">
-      </td>
-      <td style="text-align:right">
-        <input type="number" min="0" step="500" value="${list}" onchange="_mpurcItemPrice(${it.id},this.value)" style="width:96px;text-align:right;font-size:11px;font-family:var(--mono);padding:3px 6px;border:1px solid var(--g200);border-radius:3px">
-      </td>
-      <td style="text-align:right">
-        <input type="number" min="0" max="100" step="1" value="${disc}" onchange="_mpurcItemDisc(${it.id},this.value)" style="width:52px;text-align:right;font-size:11px;font-family:var(--mono);padding:3px 6px;border:1px solid var(--g200);border-radius:3px">
-      </td>
-      <td style="text-align:right;font-family:var(--mono);font-size:11px;color:var(--g600)">${net>0?fmtRp(net):'—'}</td>
-      <td style="text-align:right;font-family:var(--mono);font-size:12px;font-weight:600">${sub>0?fmtRp(sub):'—'}</td>
-      <td style="text-align:center">
-        <button class="btn-icon" onclick="_mpurcItemDel(${it.id})" title="Hapus" style="font-size:13px;color:#c0392b;padding:2px 6px">×</button>
-      </td>
+      <td style="text-align:right"><input type="number" min="0" step="1" value="${qty}" onchange="_mpurcItemQty(${it.id},this.value)" style="width:66px;text-align:right;font-size:12px;font-family:var(--mono);padding:6px 8px"></td>
+      <td style="text-align:right"><input type="number" min="0" step="500" value="${list}" onchange="_mpurcItemPrice(${it.id},this.value)" style="width:106px;text-align:right;font-size:12px;font-family:var(--mono);padding:6px 8px"></td>
+      <td style="text-align:right"><input type="number" min="0" max="100" step="1" value="${disc}" onchange="_mpurcItemDisc(${it.id},this.value)" style="width:58px;text-align:right;font-size:12px;font-family:var(--mono);padding:6px 8px"></td>
+      <td style="text-align:right;font-family:var(--mono);font-size:11px;color:var(--pc-muted)">${net>0?fmtRp(net):'—'}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:12px;font-weight:600;color:var(--pc-txt)">${sub>0?fmtRp(sub):'—'}</td>
+      <td style="text-align:center"><button class="pc-btn danger" style="padding:3px 8px;font-size:12px" onclick="_mpurcItemDel(${it.id})" title="Remove">✕</button></td>
     </tr>`;
   }).join('');
   const totalQty = items.reduce((s,i) => s + (parseFloat(i.qty)||0), 0);
@@ -41996,19 +42919,19 @@ function _mpurcItemsHTML(items) {
     const net = Math.round((parseFloat(i.unit_price)||0) * (1 - (parseFloat(i.discount_pct)||0)/100));
     return s + (parseFloat(i.qty)||0) * net;
   }, 0);
-  return `<div class="table-wrap" style="margin-top:8px"><table style="font-size:11px">
+  return `<div class="mp-ms-scroll" style="margin-top:8px"><table class="pc-table mp-ms-table">
     <thead><tr>
       <th></th><th>Item</th><th style="text-align:right">Stock</th>
-      <th style="text-align:right">Qty</th><th style="text-align:right">Harga</th>
+      <th style="text-align:right">Qty</th><th style="text-align:right">Price</th>
       <th style="text-align:right">Disc %</th><th style="text-align:right">Net</th>
       <th style="text-align:right">Subtotal</th><th></th>
     </tr></thead>
     <tbody>${rows}</tbody>
-    <tfoot><tr style="background:var(--off);font-weight:600">
-      <td colspan="3" style="text-align:right;font-family:var(--mono);font-size:11px">Total ${items.length} item</td>
-      <td style="text-align:right;font-family:var(--mono);font-size:12px">${totalQty.toLocaleString('id-ID')}</td>
+    <tfoot><tr style="font-weight:600">
+      <td colspan="3" style="text-align:right;font-family:var(--mono);font-size:11px;color:var(--pc-muted)">Total ${items.length} items</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:12px;color:var(--pc-txt)">${totalQty.toLocaleString('id-ID')}</td>
       <td colspan="3"></td>
-      <td style="text-align:right;font-family:var(--mono);font-size:13px;font-weight:700">${fmtRp(totalSub)}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:13px;font-weight:700;color:var(--pc-txt)">${fmtRp(totalSub)}</td>
       <td></td>
     </tr></tfoot>
   </table></div>`;
@@ -42089,8 +43012,9 @@ async function _mpurcRecalcHeader() {
       }
     }
   }
-  // totalReceived = sum of amounts where paid_at is set (milestone-based)
-  const totalReceived = (o.payments||[]).reduce((s,p) => p.paid_at ? s + (parseFloat(p.amount)||0) : s, 0);
+  // totalReceived = sum of ACTUAL paid_amount (fallback expected amount) where
+  // paid_at is set.
+  const totalReceived = (o.payments||[]).reduce((s,p) => p.paid_at ? s + (parseFloat(p.paid_amount ?? p.amount)||0) : s, 0);
   const paymentDue = (subtotal + shippingCost) - totalReceived;
   o.header.grandTotal = subtotal;
   o.header.totalReceived = totalReceived;
@@ -42120,10 +43044,10 @@ async function _mpurcOpenStockPicker() {
     metaRows = metaRes || [];
     _mpurcStockCache = stockRes || [];
   } catch(e) {
-    alert('Gagal load items: '+e.message);
+    alert('Failed to load items: '+e.message);
     return;
   }
-  if (!metaRows.length) { alert('Item catalog kosong.'); return; }
+  if (!metaRows.length) { alert('Item catalog is empty.'); return; }
   // Aggregate stock by item_id (reference only — Bintaro + Penerimaan)
   const agg = new Map();
   for (const r of _mpurcStockCache) {
@@ -42156,16 +43080,16 @@ async function _mpurcOpenStockPicker() {
   modal.id = '_mpurc-stock-modal';
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px';
   modal.innerHTML = `
-    <div style="background:var(--white);border-radius:10px;width:min(900px,100%);max-height:88vh;display:flex;flex-direction:column;overflow:hidden">
-      <div style="padding:16px 20px;border-bottom:1px solid var(--g100);display:flex;justify-content:space-between;align-items:center;gap:12px">
+    <div class="pm-clean" style="background:var(--pc-card);border:1px solid var(--pc-border);border-radius:14px;width:min(900px,100%);max-height:88vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 70px -30px rgba(0,0,0,0.6)">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--pc-border);display:flex;justify-content:space-between;align-items:center;gap:12px">
         <div>
-          <div style="font-size:16px;font-weight:700">Pilih Item</div>
-          <div style="font-size:11px;color:var(--g600);margin-top:2px">${rows.length} item · ${withStock} ada stock di Bintaro/Penerimaan (sebagai referensi)</div>
+          <div class="pc-title" style="font-size:17px">Select Item</div>
+          <div style="font-size:12px;color:var(--pc-muted);margin-top:2px">${rows.length} items · ${withStock} in stock at Bintaro/Goods Receipt (reference)</div>
         </div>
-        <button class="btn-ghost" onclick="document.getElementById('_mpurc-stock-modal')?.remove()" style="font-size:12px">✕ Tutup</button>
+        <button class="pc-btn" onclick="document.getElementById('_mpurc-stock-modal')?.remove()">✕ Close</button>
       </div>
-      <div style="padding:10px 20px;border-bottom:1px solid var(--g100)">
-        <input id="_mpurc-stock-search" type="text" placeholder="Cari nama / SKU..." style="width:100%;padding:8px 10px;border:1px solid var(--g200);border-radius:5px;font-size:12px" oninput="_mpurcFilterStockPicker(this.value)">
+      <div style="padding:12px 20px;border-bottom:1px solid var(--pc-border)">
+        <input class="pc-input" id="_mpurc-stock-search" type="text" placeholder="Search name / SKU…" style="width:100%" oninput="_mpurcFilterStockPicker(this.value)">
       </div>
       <div style="overflow:auto;flex:1" id="_mpurc-stock-list"></div>
     </div>`;
@@ -42207,45 +43131,45 @@ function _mpurcFilterStockPicker(q) {
   filtered.sort((a,b) => a.name.localeCompare(b.name));
   const list = document.getElementById('_mpurc-stock-list'); if (!list) return;
   if (filtered.length === 0) {
-    list.innerHTML = `<div style="padding:30px;text-align:center;color:var(--g400);font-size:12px">Tidak ada match.</div>`;
+    list.innerHTML = `<div style="padding:30px;text-align:center;color:var(--pc-muted);font-size:12px">No match.</div>`;
     return;
   }
   list.innerHTML = filtered.slice(0, 80).map(g => {
     const srp = _mpurcSrpCache?.get((g.name||'').toLowerCase().trim()) || 0;
     const thumbHTML = g.thumb
-      ? `<img src="${g.thumb.replace(/"/g,'&quot;')}" style="width:54px;height:54px;object-fit:cover;border-radius:5px;border:1px solid var(--g100)" onerror="this.style.display='none'">`
-      : `<div style="width:54px;height:54px;background:var(--off);border:1px solid var(--g100);border-radius:5px"></div>`;
+      ? `<img src="${g.thumb.replace(/"/g,'&quot;')}" style="width:54px;height:54px;object-fit:cover;border-radius:8px;border:1px solid var(--pc-border)" onerror="this.style.display='none'">`
+      : `<div style="width:54px;height:54px;background:var(--pc-head);border:1px solid var(--pc-border);border-radius:8px"></div>`;
     const srpBlock = srp > 0
-      ? `<span style="font-size:11px;font-family:var(--mono);font-weight:600;color:#0a7d3a;padding:2px 7px;background:#e8f5ed;border-radius:3px">SRP Rp ${srp.toLocaleString('id-ID')}</span>`
-      : `<span style="font-size:10px;color:var(--g400);font-style:italic">SRP fallback dari sales</span>`;
+      ? `<span style="font-size:11px;font-family:var(--mono);font-weight:600;color:#1a9e56;padding:2px 8px;background:rgba(26,158,86,0.14);border-radius:5px">SRP Rp ${srp.toLocaleString('id-ID')}</span>`
+      : `<span style="font-size:10px;color:var(--pc-muted);font-style:italic">SRP from sales</span>`;
     const variantChips = g.variants.map(v => {
       const inOrder = existing.has(Number(v.item_id));
       const size = _whSizeOf(v.item_name, v.item_code) || 'OS';
       const stk = Math.round(v._stock).toLocaleString('id-ID');
       return inOrder
-        ? `<div style="display:inline-flex;flex-direction:column;align-items:center;gap:2px;padding:6px 9px;background:var(--off);border:1px solid var(--g100);border-radius:4px;opacity:0.45;min-width:54px">
-            <span style="font-size:10px;font-family:var(--mono);font-weight:600">${size}</span>
-            <span style="font-size:10px;color:var(--g600)">${stk}</span>
-            <span style="font-size:9px;color:#0a7d3a;font-weight:600">✓ in</span>
+        ? `<div style="display:inline-flex;flex-direction:column;align-items:center;gap:2px;padding:6px 9px;background:var(--pc-head);border:1px solid var(--pc-border);border-radius:7px;opacity:0.5;min-width:56px">
+            <span style="font-size:10px;font-family:var(--mono);font-weight:600;color:var(--pc-txt)">${size}</span>
+            <span style="font-size:10px;color:var(--pc-muted)">${stk}</span>
+            <span style="font-size:9px;color:#1a9e56;font-weight:600">✓ in</span>
           </div>`
-        : `<button onclick="_mpurcAddItem(${v.item_id})" style="display:inline-flex;flex-direction:column;align-items:center;gap:2px;padding:6px 9px;background:var(--white);border:1px solid var(--g200);border-radius:4px;cursor:pointer;min-width:54px;font-family:inherit" onmouseover="this.style.borderColor='var(--black)';this.style.background='var(--off)'" onmouseout="this.style.borderColor='var(--g200)';this.style.background='var(--white)'">
-            <span style="font-size:10px;font-family:var(--mono);font-weight:700">${size}</span>
-            <span style="font-size:10px;color:var(--g600)">${stk}</span>
-            <span style="font-size:9px;color:var(--black);font-weight:600">＋ tambah</span>
+        : `<button onclick="_mpurcAddItem(${v.item_id})" style="display:inline-flex;flex-direction:column;align-items:center;gap:2px;padding:6px 9px;background:var(--pc-card);border:1px solid var(--pc-border);border-radius:7px;cursor:pointer;min-width:56px;font-family:inherit;transition:all .12s" onmouseover="this.style.borderColor='var(--pc-accent)';this.style.background='rgba(123,104,238,0.08)'" onmouseout="this.style.borderColor='var(--pc-border)';this.style.background='var(--pc-card)'">
+            <span style="font-size:10px;font-family:var(--mono);font-weight:700;color:var(--pc-txt)">${size}</span>
+            <span style="font-size:10px;color:var(--pc-muted)">${stk}</span>
+            <span style="font-size:9px;color:var(--pc-accent);font-weight:700">＋ Add</span>
           </button>`;
     }).join('');
-    return `<div style="display:flex;gap:12px;align-items:center;padding:12px 20px;border-bottom:1px solid var(--g100)">
+    return `<div style="display:flex;gap:12px;align-items:center;padding:12px 20px;border-bottom:1px solid var(--pc-border)">
       ${thumbHTML}
       <div style="flex:1;min-width:0">
-        <div style="font-size:12px;font-weight:600;margin-bottom:3px">${(g.name||'—').replace(/</g,'&lt;')}</div>
+        <div style="font-size:12px;font-weight:600;color:var(--pc-txt);margin-bottom:3px">${(g.name||'—').replace(/</g,'&lt;')}</div>
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
           ${srpBlock}
-          <span style="font-size:10px;color:var(--g400)">${g.variants.length} variant · Total stock <b style="color:var(--black)">${Math.round(g.totalStock).toLocaleString('id-ID')}</b></span>
+          <span style="font-size:10px;color:var(--pc-muted)">${g.variants.length} variants · Total stock <b style="color:var(--pc-txt)">${Math.round(g.totalStock).toLocaleString('id-ID')}</b></span>
         </div>
         <div style="display:flex;flex-wrap:wrap;gap:5px">${variantChips}</div>
       </div>
     </div>`;
-  }).join('') + (filtered.length > 80 ? `<div style="padding:12px;text-align:center;color:var(--g400);font-size:11px">+${filtered.length-80} group lain... refine search</div>` : '');
+  }).join('') + (filtered.length > 80 ? `<div style="padding:12px;text-align:center;color:var(--pc-muted);font-size:11px">+${filtered.length-80} more groups… refine search</div>` : '');
 }
 async function _mpurcAddItem(jubelioItemId) {
   const o = _mpurcCurrent; if (!o) return;
@@ -42276,7 +43200,7 @@ async function _mpurcAddItem(jubelioItemId) {
     subtotal: unitPrice,
   };
   const { data, error } = await sb.from('manual_purchase_items').insert(row).select().single();
-  if (error) { alert('Gagal tambah item: '+error.message); return; }
+  if (error) { alert('Failed to add item: '+error.message); return; }
   o.items.push(data);
   (window.__mpurcPickerExisting || new Set()).add(Number(jubelioItemId));
   await _mpurcRecalcHeader();
@@ -42290,55 +43214,48 @@ function _mpurcMilestoneTableHTML(o, subtotal) {
   const plan = h.paymentPlan || _mpurcDefaultPaymentPlan();
   const milestones = plan.milestones || [];
   if (!milestones.length) {
-    return `<div style="padding:18px;text-align:center;color:var(--g400);font-size:12px;background:var(--off);border-radius:6px">Belum ada milestone. Set Payment Plan di tab Order & Items.</div>`;
+    return `<div style="padding:18px;text-align:center;color:var(--g400);font-size:12px;background:var(--off);border-radius:6px">No milestones yet. Set the Payment Plan.</div>`;
   }
   const fmtRp = n => 'Rp ' + Math.round(n||0).toLocaleString('id-ID');
   const payByMs = new Map((o.payments||[]).map(p => [p.milestone, p]));
   const rows = milestones.map(m => {
     const pay = payByMs.get(m.key);
     const amount = parseFloat(pay?.amount) || Math.round(subtotal * (parseFloat(m.pct)||0) / 100);
+    const paidAmount = (pay?.paid_amount != null && pay?.paid_amount !== '') ? pay.paid_amount : '';
     const invDate = pay?.invoice_date || '';
     const dueDate = pay?.due_date || '';
     const paidAt = pay?.paid_at || '';
-    const buktiUrl = pay?.bukti_url || '';
-    const signedUrl = pay?.signed_invoice_url || '';
+    const fileCount = (pay?.signed_invoice_url ? 1 : 0) + (pay?.bukti_url ? 1 : 0);
     const isPaid = !!paidAt;
     const statusPill = isPaid
       ? `<span class="pill p-active" style="font-size:9px">✓ PAID</span>`
       : invDate
         ? `<span class="pill p-review" style="font-size:9px">⏳ Outstanding</span>`
         : `<span class="pill p-draft" style="font-size:9px">— Draft</span>`;
-    const fileChip = (url, kind) => {
-      if (!url) {
-        const labelTxt = kind === 'signed' ? 'Signed Inv' : 'Bukti';
-        return `<label style="display:inline-flex;align-items:center;gap:3px;font-size:9px;padding:3px 7px;border:1px dashed var(--g200);border-radius:4px;cursor:pointer;color:var(--g400)" title="Upload ${labelTxt}"><input type="file" accept="image/*,.pdf" onchange="_mpurcUploadMsFile('${m.key}','${kind}',this)" style="display:none">📎 Upload</label>`;
-      }
-      const cfg = kind === 'signed' ? { color:'#3C3489', icon:'📋' } : { color:'#0a7d3a', icon:'💵' };
-      return `<a href="${url.replace(/"/g,'&quot;')}" target="_blank" style="font-size:9px;color:${cfg.color};text-decoration:none;font-weight:600" title="Klik untuk buka">${cfg.icon} View</a> <button class="btn-icon" onclick="_mpurcRemoveMsFile('${m.key}','${kind}')" style="font-size:10px;color:#c0392b;padding:0 3px" title="Hapus file">×</button>`;
-    };
     return `<tr>
-      <td style="font-size:11px;font-weight:600">${(m.label||'').replace(/</g,'&lt;')} <span style="font-size:9px;color:var(--g400);font-family:var(--mono)">${m.pct}%</span></td>
-      <td style="text-align:right;font-family:var(--mono);font-size:11px;font-weight:600">${fmtRp(amount)}</td>
-      <td><input type="date" value="${invDate}" onchange="_mpurcSaveMsField('${m.key}','invoice_date',this.value)" style="width:115px;padding:3px 5px;border:1px solid var(--g100);border-radius:3px;font-size:10px"></td>
-      <td><input type="date" value="${dueDate}" onchange="_mpurcSaveMsField('${m.key}','due_date',this.value)" style="width:115px;padding:3px 5px;border:1px solid var(--g100);border-radius:3px;font-size:10px"></td>
-      <td><input type="date" value="${paidAt}" onchange="_mpurcSaveMsField('${m.key}','paid_at',this.value)" style="width:115px;padding:3px 5px;border:1px solid var(--g100);border-radius:3px;font-size:10px"></td>
+      <td style="font-weight:600;color:var(--pc-txt)">${(m.label||'').replace(/</g,'&lt;')} <span style="font-size:10px;color:var(--pc-muted);font-family:var(--mono)">${m.pct}%</span></td>
+      <td style="text-align:right;font-family:var(--mono);font-weight:600;color:var(--pc-txt)">${fmtRp(amount)}</td>
+      <td><input type="number" min="0" step="1000" value="${paidAmount}" placeholder="0" onchange="_mpurcSaveMsField('${m.key}','paid_amount',this.value)" style="width:100px;padding:6px 8px;font-size:12px;text-align:right;font-family:var(--mono)"></td>
+      <td><input type="date" value="${invDate}" onchange="_mpurcSaveMsField('${m.key}','invoice_date',this.value)" style="width:120px;padding:6px 8px;font-size:12px"></td>
+      <td><input type="date" value="${dueDate}" onchange="_mpurcSaveMsField('${m.key}','due_date',this.value)" style="width:120px;padding:6px 8px;font-size:12px"></td>
+      <td><input type="date" value="${paidAt}" onchange="_mpurcSaveMsField('${m.key}','paid_at',this.value)" style="width:120px;padding:6px 8px;font-size:12px"></td>
       <td style="text-align:center">${statusPill}</td>
-      <td style="text-align:center">${fileChip(signedUrl,'signed')}</td>
-      <td style="text-align:center">${fileChip(buktiUrl,'bukti')}</td>
-      <td style="text-align:center"><button class="btn-ghost" onclick="_mpurcGenInvoicePDFMs('${m.key}')" style="font-size:9px;padding:3px 7px" title="Generate Invoice PDF untuk milestone ini">📄 PDF</button></td>
+      <td><div style="display:flex;flex-direction:column;gap:5px;align-items:stretch;min-width:150px">
+        <button class="pc-btn" style="font-size:12px;padding:6px 11px;justify-content:center" onclick="_mpurcGenInvoicePDFMs('${m.key}')">↓ Download Invoice</button>
+        <button class="pc-btn ${fileCount?'accent':''}" style="font-size:12px;padding:6px 11px;justify-content:center" onclick="_mpurcOpenProofModal('${m.key}')">📎 Upload Proof${fileCount?` · ${fileCount}`:''}</button>
+      </div></td>
     </tr>`;
   }).join('');
-  return `<div class="table-wrap" style="margin-top:6px"><table style="font-size:11px">
+  return `<div class="mp-ms-scroll" style="margin-top:6px"><table class="pc-table mp-ms-table">
     <thead><tr>
       <th>Milestone</th>
-      <th style="text-align:right">Jumlah</th>
+      <th style="text-align:right">Amount</th>
+      <th style="text-align:right">Paid Amount</th>
       <th>Invoice Date</th>
       <th>Due Date</th>
       <th>Paid At</th>
       <th style="text-align:center">Status</th>
-      <th style="text-align:center">Signed Inv</th>
-      <th style="text-align:center">Bukti</th>
-      <th style="text-align:center">Invoice</th>
+      <th>Actions</th>
     </tr></thead>
     <tbody>${rows}</tbody>
   </table></div>`;
@@ -42377,15 +43294,53 @@ async function _mpurcSaveMsField(milestoneKey, field, value) {
   _mpurcRenderDetail();
 }
 
+// Modal to upload the two proof files for a milestone: the signed invoice and
+// the transfer proof.
+function _mpurcOpenProofModal(milestoneKey) {
+  const o = _mpurcCurrent; if (!o) return;
+  const plan = o.header.paymentPlan || _mpurcDefaultPaymentPlan();
+  const m = (plan.milestones||[]).find(x => x.key === milestoneKey);
+  const pay = (o.payments||[]).find(p => p.milestone === milestoneKey) || {};
+  document.getElementById('mp-proof-modal')?.remove();
+  const reopen = `setTimeout(()=>_mpurcOpenProofModal('${milestoneKey}'),400)`;
+  const slot = (kind, title, desc) => {
+    const url = kind === 'signed' ? (pay.signed_invoice_url || '') : (pay.bukti_url || '');
+    return `<div style="border:1px solid var(--pc-border);border-radius:10px;padding:14px 16px">
+      <div style="font-size:13px;font-weight:600;color:var(--pc-txt)">${title}</div>
+      <div style="font-size:11px;color:var(--pc-muted);margin:2px 0 10px">${desc}</div>
+      ${url ? `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <a href="${url.replace(/"/g,'&quot;')}" target="_blank" class="pc-btn" style="font-size:12px">↗ View file</a>
+        <label class="pc-btn" style="font-size:12px;cursor:pointer">Replace<input type="file" accept="image/*,.pdf" onchange="_mpurcUploadMsFile('${milestoneKey}','${kind}',this);${reopen}" style="display:none"></label>
+        <button class="pc-btn danger" style="font-size:12px" onclick="_mpurcRemoveMsFile('${milestoneKey}','${kind}');${reopen}">Remove</button>
+      </div>` : `<label class="pc-btn primary" style="font-size:12px;cursor:pointer">📎 Choose file<input type="file" accept="image/*,.pdf" onchange="_mpurcUploadMsFile('${milestoneKey}','${kind}',this);${reopen}" style="display:none"></label>`}
+    </div>`;
+  };
+  const modal = document.createElement('div');
+  modal.id = 'mp-proof-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px';
+  modal.innerHTML = `<div class="pm-clean" style="background:var(--pc-card);border:1px solid var(--pc-border);border-radius:12px;width:min(460px,100%);padding:20px 22px">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div class="pc-title" style="font-size:17px">Upload Proof</div>
+      <button class="pc-btn" onclick="document.getElementById('mp-proof-modal')?.remove()">✕</button>
+    </div>
+    <div style="font-size:12px;color:var(--pc-muted);margin:2px 0 16px">Milestone: <b style="color:var(--pc-txt)">${(m?.label||milestoneKey).replace(/</g,'&lt;')}</b></div>
+    <div style="display:flex;flex-direction:column;gap:12px">
+      ${slot('signed','Signed Invoice','The invoice signed by the client.')}
+      ${slot('bukti','Transfer Proof','Proof of payment / transfer receipt.')}
+    </div>
+  </div>`;
+  document.body.appendChild(modal);
+}
+
 async function _mpurcUploadMsFile(milestoneKey, kind, inputEl) {
   const o = _mpurcCurrent; if (!o) return;
   const file = inputEl?.files?.[0]; if (!file) return;
-  if (file.size > 5*1024*1024) { alert('File maks 5MB'); return; }
+  if (file.size > 5*1024*1024) { alert('Max file size 5MB'); return; }
   const pay = await _mpurcEnsureMilestoneRow(milestoneKey); if (!pay) return;
   const ext = file.name.split('.').pop() || 'bin';
   const path = `manual-purchase/${o.header.id}/${milestoneKey}-${kind}-${Date.now()}.${ext}`;
   const { error: upErr } = await sb.storage.from('wholesale-bukti').upload(path, file, { contentType: file.type, upsert: true });
-  if (upErr) { alert('Upload gagal: '+upErr.message); return; }
+  if (upErr) { alert('Upload failed: '+upErr.message); return; }
   const { data: pub } = sb.storage.from('wholesale-bukti').getPublicUrl(path);
   const col = kind === 'signed' ? 'signed_invoice_url' : 'bukti_url';
   // Auto-set paid_at to today saat upload bukti pertama kali (kalau masih
@@ -42403,7 +43358,7 @@ async function _mpurcUploadMsFile(milestoneKey, kind, inputEl) {
 }
 
 async function _mpurcRemoveMsFile(milestoneKey, kind) {
-  if (!confirm('Hapus file ini?')) return;
+  if (!confirm('Remove this file?')) return;
   const o = _mpurcCurrent; if (!o) return;
   const pay = (o.payments||[]).find(p => p.milestone === milestoneKey); if (!pay) return;
   const col = kind === 'signed' ? 'signed_invoice_url' : 'bukti_url';
@@ -42845,7 +43800,7 @@ async function _mpurcGenInvoicePDFMs(milestoneKey) {
             <div style="font-size:10px;color:#777">PT Sandang Dunia Yuwana</div>
           </div>
         </div>
-        <footer style="margin-top:10px">Pembayaran ke rekening atas nama PT Sandang Dunia Yuwana · Mohon konfirmasi setelah transfer · Invoice berlaku 14 hari dari tanggal diterbitkan.</footer>
+        <footer style="margin-top:10px">Halaman 1 dari 2 · INVOICE ${msInvoiceNo}</footer>
       </div>
       <div class="page">
         <div class="top">
@@ -42879,7 +43834,7 @@ async function _mpurcGenInvoicePDFMs(milestoneKey) {
             <td class="r" style="padding:14px 10px;border-top:2px solid #111;font-weight:700">${fmtRp(subtotal)}</td>
           </tr></tbody>
         </table>
-        <footer>Halaman 2 dari 2 · ${docTitle} ${msInvoiceNo}</footer>
+        <footer>Halaman 2 dari 2 · INVOICE ${msInvoiceNo}</footer>
       </div>
       <script>setTimeout(()=>window.print(),500);<\/script>
     </body></html>`);
@@ -43041,14 +43996,20 @@ async function saveManualPurchase() {
     order_date: orderDate,
     invoice_date: document.getElementById('mp-h-invdate')?.value || null,
     due_date: document.getElementById('mp-h-duedate')?.value || null,
-    ship_to_type: document.getElementById('mp-h-shiptype')?.value || 'kantor',
-    ship_to_address: document.getElementById('mp-h-shipaddr')?.value.trim() || null,
+    ship_to_type: document.getElementById('mp-h-shiptype')?.value || 'custom',
+    ship_to_address: (function(){
+      const t = document.getElementById('mp-h-shiptype')?.value || 'custom';
+      const preset = MP_SHIP_DESTINATIONS.find(d => d.value === t);
+      if (preset && t !== 'custom') return preset.address || null;
+      return document.getElementById('mp-h-shipaddr')?.value.trim() || null;
+    })(),
     ship_to_recipient: document.getElementById('mp-h-shiprecipient')?.value.trim() || null,
     ship_to_phone: document.getElementById('mp-h-shipphone')?.value.trim() || null,
     ship_to_email: document.getElementById('mp-h-shipemail')?.value.trim() || null,
     ship_to_notes: document.getElementById('mp-h-shipnotes')?.value.trim() || null,
     shipping_scheme: document.getElementById('mp-h-shipscheme')?.value || null,
     shipping_cost_category: document.getElementById('mp-h-shipcostcat')?.value || null,
+    delivery_done: document.getElementById('mp-h-deliverydone') ? document.getElementById('mp-h-deliverydone').checked : (h.deliveryDone||false),
     jubelio_so_no: document.getElementById('mp-h-jubelio-so')?.value.trim() || null,
     payment_plan: h.paymentPlan || null,
     last_updated: new Date().toISOString(),
@@ -43647,6 +44608,272 @@ function clearARFilters() {
 }
 
 
+// ── SHOPIFY METAFIELD AUDIT ──────────────────────────────────────────────
+// Lists active SD&Y products missing required custom.* metafields (by template).
+// Data comes from the `shopify-metafield-audit` edge function (cron + manual run).
+let _mfaRows = [];
+const MFA_SHOP = 'wearesdy.myshopify.com';
+async function loadMetafieldAudit() {
+  const tb = document.getElementById('mfa-tbody');
+  if (tb) tb.innerHTML = '<tr><td class="empty-td" colspan="4" style="padding:40px;text-align:center;color:var(--pc-muted)">Loading…</td></tr>';
+  try {
+    const { data, error } = await sb.from('shopify_metafield_audit').select('*').order('template').order('title');
+    if (error) throw error;
+    _mfaRows = data || [];
+    await _mfaLoadResolved();
+    const last = _mfaRows.reduce((m, r) => (r.audited_at && r.audited_at > m ? r.audited_at : m), '');
+    const lr = document.getElementById('mfa-lastrun');
+    if (lr) lr.textContent = last ? 'Last run: ' + new Date(last).toLocaleString('id-ID') : 'Never run yet';
+    _mfaPopulateCatFilter();
+    renderMetafieldAudit();
+    refreshMetafieldBadge();
+  } catch (e) {
+    if (tb) tb.innerHTML = `<tr><td class="empty-td" colspan="4" style="padding:40px;text-align:center;color:var(--pc-muted)">Failed: ${e.message}</td></tr>`;
+  }
+}
+function _mfaPopulateCatFilter() {
+  const sel = document.getElementById('mfa-cat'); if (!sel) return;
+  const cur = sel.value;
+  const cats = [...new Set(_mfaRows.map(r => r.category || 'Uncategorized'))].sort((a, b) => a.localeCompare(b));
+  sel.innerHTML = '<option value="">All categories</option>' +
+    cats.map(c => `<option value="${c.replace(/"/g, '&quot;')}">${c.replace(/</g, '&lt;')}</option>`).join('');
+  if (cats.includes(cur)) sel.value = cur;
+}
+function renderMetafieldAudit() {
+  const tpl = document.getElementById('mfa-tpl')?.value || '';
+  const cat = document.getElementById('mfa-cat')?.value || '';
+  const q = (document.getElementById('mfa-q')?.value || '').toLowerCase();
+  const showRes = !!document.getElementById('mfa-showresolved')?.checked;
+  const rows = _mfaRows.filter(r => {
+    if (tpl && r.template !== tpl) return false;
+    if (cat && (r.category || 'Uncategorized') !== cat) return false;
+    if (q && !((r.title || '').toLowerCase().includes(q))) return false;
+    if (!showRes && _mfaResolved.has(_mfaRk('product', r.product_id))) return false;
+    return true;
+  });
+  const pending = rows.filter(r => !_mfaResolved.has(_mfaRk('product', r.product_id))).length;
+  const cnt = document.getElementById('mfa-count');
+  if (cnt) cnt.textContent = pending + (pending === 1 ? ' pending' : ' pending') + (showRes ? ` · ${rows.length - pending} resolved` : '');
+  const tb = document.getElementById('mfa-tbody'); if (!tb) return;
+  if (!rows.length) { tb.innerHTML = '<tr><td class="empty-td" colspan="5" style="padding:36px;text-align:center;color:var(--pc-muted)">🎉 No incomplete products.</td></tr>'; return; }
+  tb.innerHTML = rows.map(r => {
+    const isRes = _mfaResolved.has(_mfaRk('product', r.product_id));
+    const tplPill = r.template === 'music-cds'
+      ? '<span class="pill p-signings" style="font-size:10px">Music CD</span>'
+      : '<span class="pill p-draft" style="font-size:10px">Default</span>';
+    const chips = (r.missing_fields || []).map(f => `<span style="display:inline-block;font-size:10px;font-family:var(--mono);background:rgba(224,72,63,0.12);color:#e0483f;border-radius:20px;padding:2px 8px;margin:2px 3px 0 0">${(f||'').replace(/</g,'&lt;')}</span>`).join('');
+    const url = `https://${MFA_SHOP}/admin/products/${encodeURIComponent(r.product_id)}`;
+    const lbl = (r.title || '').replace(/'/g, "\\'");
+    const doneBtn = isRes
+      ? `<button class="pc-btn" style="padding:4px 10px;font-size:12px" onclick="unresolveAudit('product','${r.product_id}')">↺ Restore</button>`
+      : `<button class="pc-btn accent" style="padding:4px 10px;font-size:12px" onclick="resolveAudit('product','${r.product_id}','${lbl}')">Mark as done</button>`;
+    return `<tr style="${isRes ? 'opacity:.55' : ''}">
+      <td style="font-size:12px;font-weight:500;color:var(--pc-txt)">${(r.title || '—').replace(/</g, '&lt;')}${isRes ? ' <span class="pill p-active" style="font-size:9px">resolved</span>' : ''}</td>
+      <td style="font-size:12px;color:var(--pc-muted)">${(r.category || 'Uncategorized').replace(/</g, '&lt;')}</td>
+      <td>${tplPill}</td>
+      <td>${chips}</td>
+      <td style="white-space:nowrap"><a href="${url}" target="_blank" class="pc-btn" style="padding:4px 10px;font-size:12px;text-decoration:none">↗ Shopify</a> ${doneBtn}</td>
+    </tr>`;
+  }).join('');
+}
+async function runMetafieldAudit() {
+  const btn = document.getElementById('mfa-run-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Running…'; }
+  try {
+    const { data, error } = await sb.functions.invoke('shopify-metafield-audit');
+    if (error) throw error;
+    if (data && data.error) throw new Error(data.error);
+    await loadMetafieldAudit();
+    if (_mfaArtistLoaded) await loadArtistAudit();
+  } catch (e) {
+    alert('Audit failed: ' + (e.message || e));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '↻ Run audit'; }
+  }
+}
+
+// ── Metafield Audit: tabs + Artist Profile reconciliation ──
+const MFA_SUB_PRODUCT = 'Active SD&amp;Y products missing required <b>custom.*</b> metafields — by template.';
+const MFA_SUB_ARTIST = 'SD&amp;Y <b>artist</b> metaobjects reconciled against IP Master — profile completeness &amp; coverage. Required: name, image, bio, instagram, spotify, collection (<i>website &amp; youtube optional</i>).';
+function switchMfaTab(tab, btn) {
+  document.querySelectorAll('#mfa-tab-product,#mfa-tab-artist').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  const prod = document.getElementById('mfa-sec-product'), art = document.getElementById('mfa-sec-artist');
+  const sub = document.getElementById('mfa-sub');
+  if (tab === 'artist') {
+    if (prod) prod.style.display = 'none';
+    if (art) art.style.display = '';
+    if (sub) sub.innerHTML = MFA_SUB_ARTIST;
+    if (!_mfaArtistLoaded) loadArtistAudit();
+  } else {
+    if (prod) prod.style.display = '';
+    if (art) art.style.display = 'none';
+    if (sub) sub.innerHTML = MFA_SUB_PRODUCT;
+  }
+}
+
+let _artistRows = [], _mfaArtistLoaded = false;
+function _mfaNorm(s) { return (s || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
+async function loadArtistAudit() {
+  const tb = document.getElementById('mfa-atbody');
+  if (tb) tb.innerHTML = '<tr><td class="empty-td" colspan="5" style="padding:40px;text-align:center;color:var(--pc-muted)">Loading…</td></tr>';
+  try {
+    const [aRes, ipRes] = await Promise.all([
+      sb.from('shopify_artist_audit').select('*'),
+      sb.from('ip_master').select('name,live_status,revenue_stream'),
+    ]);
+    if (aRes.error) throw aRes.error;
+    if (ipRes.error) throw ipRes.error;
+    const artists = aRes.data || [];
+    const sdyIps = (ipRes.data || []).filter(r => /sd\s*&?\s*y/i.test(r.revenue_stream || ''));
+    const ipByNorm = {};
+    sdyIps.forEach(r => { const k = _mfaNorm(r.name); if (k && !ipByNorm[k]) ipByNorm[k] = r; });
+
+    const rows = [];
+    const matchedIpKeys = new Set();
+    // Artist profiles that exist in Shopify
+    artists.forEach(a => {
+      const nm = a.name || a.display_name || a.handle;
+      const key = _mfaNorm(nm);
+      const ip = ipByNorm[key] || null;
+      if (ip) matchedIpKeys.add(key);
+      const missing = a.missing_fields || [];
+      rows.push({
+        kind: 'artist', name: nm, ip,
+        profileStatus: missing.length ? 'incomplete' : 'complete',
+        missing, id: a.id, handle: a.handle,
+        resKind: 'artist', resRef: a.handle,
+      });
+    });
+    // SD&Y IP Master entries with no artist profile
+    sdyIps.forEach(r => {
+      const key = _mfaNorm(r.name);
+      if (matchedIpKeys.has(key)) return;
+      rows.push({ kind: 'ip', name: r.name, ip: r, profileStatus: 'none', missing: [], id: null, handle: null, resKind: 'ip', resRef: key });
+    });
+    _artistRows = rows;
+    _mfaArtistLoaded = true;
+    await _mfaLoadResolved();
+    renderArtistAudit();
+    refreshMetafieldBadge();
+  } catch (e) {
+    if (tb) tb.innerHTML = `<tr><td class="empty-td" colspan="5" style="padding:40px;text-align:center;color:var(--pc-muted)">Failed: ${(e.message || e)}</td></tr>`;
+  }
+}
+function renderArtistAudit() {
+  const st = document.getElementById('mfa-astatus')?.value || '';
+  const q = (document.getElementById('mfa-aq')?.value || '').toLowerCase();
+  const showRes = !!document.getElementById('mfa-ashowresolved')?.checked;
+  const isResolved = r => _mfaResolved.has(_mfaRk(r.resKind, r.resRef));
+  let rows = _artistRows.filter(r => {
+    if (q && !((r.name || '').toLowerCase().includes(q))) return false;
+    if (!showRes && isResolved(r)) return false;
+    if (st === 'incomplete') return r.profileStatus === 'incomplete';
+    if (st === 'complete') return r.profileStatus === 'complete';
+    if (st === 'noprofile') return r.profileStatus === 'none';
+    if (st === 'noip') return r.kind === 'artist' && !r.ip;
+    return true;
+  });
+  // sort: no-profile first, then incomplete, then not-in-ip, then complete; alpha within
+  const rank = r => r.profileStatus === 'none' ? 0 : (r.profileStatus === 'incomplete' ? 1 : (!r.ip ? 2 : 3));
+  rows = rows.slice().sort((a, b) => (rank(a) - rank(b)) || (a.name || '').localeCompare(b.name || ''));
+  const pending = rows.filter(r => !isResolved(r)).length;
+  const cnt = document.getElementById('mfa-acount');
+  if (cnt) cnt.textContent = pending + ' pending' + (showRes ? ` · ${rows.length - pending} resolved` : '');
+  const tb = document.getElementById('mfa-atbody'); if (!tb) return;
+  if (!rows.length) { tb.innerHTML = '<tr><td class="empty-td" colspan="5" style="padding:36px;text-align:center;color:var(--pc-muted)">Nothing to reconcile.</td></tr>'; return; }
+  const esc = s => (s || '').toString().replace(/</g, '&lt;');
+  tb.innerHTML = rows.map(r => {
+    const isRes = isResolved(r);
+    // IP Master cell
+    let ipCell;
+    if (r.ip) {
+      const active = /active/i.test(r.ip.live_status || '');
+      ipCell = `${esc(r.ip.name)} <span class="pill ${active ? 'p-active' : 'p-inactive'}" style="font-size:9px">${esc(r.ip.live_status || '—')}</span>`;
+    } else {
+      ipCell = '<span class="pill p-review" style="font-size:10px">Not in IP Master</span>';
+    }
+    // Profile status pill
+    let profPill;
+    if (r.profileStatus === 'none') profPill = '<span class="pill p-expired" style="font-size:10px">No profile</span>';
+    else if (r.profileStatus === 'incomplete') profPill = '<span class="pill p-near" style="font-size:10px">Incomplete</span>';
+    else profPill = '<span class="pill p-active" style="font-size:10px">Complete</span>';
+    // Missing chips
+    const chips = r.profileStatus === 'none'
+      ? '<span style="font-size:11px;color:var(--pc-muted)">— (no metaobject)</span>'
+      : ((r.missing || []).length
+          ? r.missing.map(f => `<span style="display:inline-block;font-size:10px;font-family:var(--mono);background:rgba(224,72,63,0.12);color:#e0483f;border-radius:20px;padding:2px 8px;margin:2px 3px 0 0">${esc(f)}</span>`).join('')
+          : '<span style="font-size:11px;color:var(--pc-muted)">—</span>');
+    // Edit link (artist metaobject only)
+    const edit = r.kind === 'artist'
+      ? `<a href="https://${MFA_SHOP}/admin/content/entries/artist/${encodeURIComponent(r.id || '')}" target="_blank" class="pc-btn" style="padding:4px 10px;font-size:12px;text-decoration:none">↗ Shopify</a>`
+      : '';
+    const rlbl = (r.name || '').replace(/'/g, "\\'");
+    const doneBtn = isRes
+      ? `<button class="pc-btn" style="padding:4px 10px;font-size:12px" onclick="unresolveAudit('${r.resKind}','${(r.resRef||'').replace(/'/g,"\\'")}')">↺ Restore</button>`
+      : `<button class="pc-btn accent" style="padding:4px 10px;font-size:12px" onclick="resolveAudit('${r.resKind}','${(r.resRef||'').replace(/'/g,"\\'")}','${rlbl}')">Mark as done</button>`;
+    return `<tr style="${isRes ? 'opacity:.55' : ''}">
+      <td style="font-size:12px;font-weight:500;color:var(--pc-txt)">${esc(r.name)}${isRes ? ' <span class="pill p-active" style="font-size:9px">resolved</span>' : ''}</td>
+      <td style="font-size:12px;color:var(--pc-txt)">${ipCell}</td>
+      <td>${profPill}</td>
+      <td>${chips}</td>
+      <td style="white-space:nowrap">${edit} ${doneBtn}</td>
+    </tr>`;
+  }).join('');
+}
+// Sidebar badge (login-time) = number of incomplete products from the last audit.
+async function refreshMetafieldBadge() {
+  try {
+    const [pRes, aRes, ipRes, rRes] = await Promise.all([
+      sb.from('shopify_metafield_audit').select('product_id'),
+      sb.from('shopify_artist_audit').select('name,handle,missing_fields'),
+      sb.from('ip_master').select('name,revenue_stream'),
+      sb.from('shopify_audit_resolved').select('kind,ref'),
+    ]);
+    const resolved = new Set((rRes.data || []).map(r => _mfaRk(r.kind, r.ref)));
+    const productCount = (pRes.data || []).filter(r => !resolved.has(_mfaRk('product', r.product_id))).length;
+    const artists = aRes.data || [];
+    const incompleteArtists = artists.filter(a => (a.missing_fields || []).length > 0 && !resolved.has(_mfaRk('artist', a.handle))).length;
+    const artistKeys = new Set(artists.map(a => _mfaNorm(a.name)));
+    const sdyIps = (ipRes.data || []).filter(r => /sd\s*&?\s*y/i.test(r.revenue_stream || ''));
+    const noProfile = sdyIps.filter(r => !artistKeys.has(_mfaNorm(r.name)) && !resolved.has(_mfaRk('ip', _mfaNorm(r.name)))).length;
+    if (typeof setSbBadge === 'function') setSbBadge('metafieldaudit', productCount + incompleteArtists + noProfile);
+  } catch (_) {}
+}
+
+// ── Metafield Audit: manual resolve (dismiss) ──
+let _mfaResolved = new Set(), _mfaResolvedRows = [];
+function _mfaRk(kind, ref) { return kind + ':' + ref; }
+async function _mfaLoadResolved() {
+  try {
+    const { data } = await sb.from('shopify_audit_resolved').select('*');
+    _mfaResolvedRows = data || [];
+    _mfaResolved = new Set(_mfaResolvedRows.map(r => _mfaRk(r.kind, r.ref)));
+  } catch (_) { _mfaResolvedRows = []; _mfaResolved = new Set(); }
+}
+async function resolveAudit(kind, ref, label) {
+  try {
+    const { error } = await sb.from('shopify_audit_resolved')
+      .upsert({ kind, ref, label: label || '', resolved_by: currentUser || '', resolved_at: new Date().toISOString() }, { onConflict: 'kind,ref' });
+    if (error) throw error;
+    await _mfaLoadResolved();
+    renderMetafieldAudit();
+    if (_mfaArtistLoaded) renderArtistAudit();
+    refreshMetafieldBadge();
+  } catch (e) { alert('Failed to resolve: ' + (e.message || e)); }
+}
+async function unresolveAudit(kind, ref) {
+  try {
+    const { error } = await sb.from('shopify_audit_resolved').delete().eq('kind', kind).eq('ref', ref);
+    if (error) throw error;
+    await _mfaLoadResolved();
+    renderMetafieldAudit();
+    if (_mfaArtistLoaded) renderArtistAudit();
+    refreshMetafieldBadge();
+  } catch (e) { alert('Failed to restore: ' + (e.message || e)); }
+}
+
+
 // ── DUPLICATE CHECK ──
 async function checkDuplicate(name, excludeSheet) {
   // Check IP Master and Brand Master for duplicate name
@@ -43663,29 +44890,32 @@ function _riSvg(p){ return '<svg viewBox="0 0 16 16" fill="none" stroke="current
 const NAV_CATS = [
   { key:'home', label:'Home', color:'#2f6bd6', icon:_riSvg('<path d="M2 6.5l6-4.5 6 4.5V14H2z"/><path d="M6.5 14v-4h3v4"/>'),
     mods:[['home','Home','🏠'],['mynotif','My Notifications','🔔'],['mytask','My Task','✅']] },
-  { key:'pm', label:'Project', color:'#7c3aed', icon:_riSvg('<rect x="1.5" y="3" width="3.5" height="10" rx="1"/><rect x="6.2" y="3" width="3.5" height="6.5" rx="1"/><rect x="11" y="3" width="3.5" height="8.5" rx="1"/>'),
-    mods:[['project','Project Board','📌'],['meetingnotes','Meeting Notes','🗒️']] },
+  { key:'pm', label:'Account Management', color:'#7c3aed', icon:_riSvg('<rect x="1.5" y="3" width="3.5" height="10" rx="1"/><rect x="6.2" y="3" width="3.5" height="6.5" rx="1"/><rect x="11" y="3" width="3.5" height="8.5" rx="1"/>'),
+    mods:[['project','Project Board','📌'],['meetingnotes','Meeting Notes','🗒️'],['leads','Leads Management','🧲'],['licensorfreebies','Account Freebies','🎁']] },
   { key:'creative', label:'Creative', color:'#db2777', icon:_riSvg('<path d="M8 2a6 6 0 100 12c1 0 1.5-.7 1.5-1.5 0-.9-.7-1-.7-1.7 0-.6.5-1.1 1.2-1.1H12a2.5 2.5 0 002.5-2.5C14.5 4.4 11.6 2 8 2z"/><circle cx="5.5" cy="6" r="0.6" fill="currentColor"/><circle cx="8" cy="4.6" r="0.6" fill="currentColor"/><circle cx="10.7" cy="6" r="0.6" fill="currentColor"/>'),
     mods:[['collections','Collection Development','🎨'],['sampling','Sampling','🧵'],['dsgworkflow','Designer Workflow','✏️'],['photoshoot','Photoshoot Planning','📸'],['designermaster','Designer Master','🖌️']] },
   { key:'marketing', label:'Marketing', color:'#ff682c', icon:_riSvg('<path d="M2 6.5v3l8 3.5V3z"/><path d="M10 5.5c1.6 0 2.7 1 2.7 2.5s-1.1 2.5-2.7 2.5"/><path d="M4.5 10v2.5"/>'),
-    mods:[['mktplan','Marketing Planning','🗺️'],['contentplan','Content Planning','📝'],['videoprod','Video Production','🎬'],['adsmgmt','Ads Management','🎯'],['mktactivation','Marketing Activation','🎪'],['kolmgmt','KOL Management','🌟'],['publication','Publication','📰'],['koldb','KOL Database','👥']] },
+    mods:[['mktplan','Marketing Planning','🗺️'],['contentplan','Content Planning','📝'],['videoprod','Video Production','🎬'],['adsmgmt','Ads Management','🎯'],['mktactivation','Marketing Activation','🎪'],['kolmgmt','KOL Management','🌟'],['publication','Publication','📰']] },
   { key:'proddev', label:'Product Dev', color:'#059669', icon:_riSvg('<path d="M6.5 2v4L3.2 11.5A1.2 1.2 0 004.2 13.4h7.6a1.2 1.2 0 001-1.9L9.5 6V2"/><path d="M5.5 2h5"/><path d="M5.2 9h5.6"/>'),
     mods:[['rnd','R&D Product','🔬'],['productdev','Product Development','🧪'],['po','Track Purchase Order','🛒'],['restock','Create PO Restock','📦']] },
+  { key:'legal', label:'Legal', color:'#1e40af', icon:_riSvg('<path d="M8 2.5v10.5"/><path d="M3 4.5h10"/><path d="M3 4.5l-1.5 3.5h3z"/><path d="M13 4.5l-1.5 3.5h3z"/><path d="M5.5 13h5"/>'),
+    mods:[['consignagr','Consignment Agreement','🤝'],['agreement','Agreement','📄'],['mesign','Mekari Sign','✍️']] },
   { key:'finance', label:'Finance', color:'#d97706', icon:_riSvg('<rect x="1.5" y="3.5" width="13" height="9" rx="1.5"/><path d="M1.5 6.5h13"/><circle cx="11" cy="10" r="1"/>'),
-    mods:[['arreceivables','Account Receivables','💰'],['agreement','Agreement','📄']] },
+    mods:[['arreceivables','Account Receivables','💰']] },
   { key:'commerce', label:'Commerce', color:'#0891b2', icon:_riSvg('<path d="M3 5h10l-1 8.5H4z"/><path d="M6 5.5V3.5a2 2 0 014 0v2"/>'),
-    mods:[['wholesalecatalog','Wholesale Catalog','🛍️'],['wholesale','Wholesale Orders','🤝'],['conprog','Consignment Program','🔗'],['popupbooth','Pop Up Booth','🏬'],['manualpurchase','Manual Purchase','💳'],['txmap','Transaction Mapping','🗂️'],['licensorfreebies','Account Freebies','🎁'],['leads','Leads Management','🧲'],['marte','Monthly Settlement','🏪'],['marteskucat','SKU Categories','🏷️']] },
+    mods:[['popupbooth','Pop Up Booth','🏬'],['manualpurchase','Manual Purchase','💳'],['txmap','Transaction Mapping','🗂️'],['productmap','Product Mapping','🧩'],['metafieldaudit','Metafield Audit','🔖'],['marteskucat','Consignment Fee','🏷️']] },
   { key:'distribution', label:'Distribution', color:'#4f46e5', icon:_riSvg('<rect x="1" y="5.5" width="8" height="6" rx="1"/><path d="M9 7.5h3l2 2v2H9z"/><circle cx="4" cy="12.5" r="1.3"/><circle cx="11.5" cy="12.5" r="1.3"/>'),
-    mods:[['distpartner','Distribution Partner','🚚'],['outbound','Outbound Request','📤'],['invtransfer','Inventory Transfer','🔁']] },
+    mods:[['wholesalecatalog','Wholesale Catalog','🛍️'],['wholesale','Wholesale Orders','🤝'],['conprog','Consignment Program','🔗']] },
   { key:'warehouse', label:'Warehouse', color:'#ca8a04', icon:_riSvg('<path d="M2 6.5l6-3 6 3V14H2z"/><path d="M2 6.5l6 3 6-3"/><path d="M8 9.5V14"/>'),
-    mods:[['invcheck','Inventory Check','🔍'],['warehousekpi','Warehouse KPI','🏭'],['stockadjmgmt','Stock Adjustment','📋'],['returnreason','Return Reason','↩️'],['stockmovement','Stock Reconcile','🔄']] },
+    mods:[['outbound','Outbound Request','📤'],['invtransfer','Inventory Transfer','🔁'],['stockadjmgmt','Stock Adjustment','📋'],['returnreason','Return Reason','↩️']] },
   { key:'database', label:'Database', color:'#0d9488', icon:_riSvg('<ellipse cx="8" cy="3.8" rx="5" ry="2"/><path d="M3 3.8v8c0 1.1 2.2 2 5 2s5-.9 5-2v-8"/><path d="M3 7.8c0 1.1 2.2 2 5 2s5-.9 5-2"/>'),
-    mods:[['ipmaster','IP Master','🗃️'],['brandmaster','Brand Master','⭐'],['vendormaster','Vendor Master','🏢'],['productmap','Product Mapping','🧩'],['recipients','Collaborator Royalty','🪙']] },
+    mods:[['ipmaster','IP Master','🗃️'],['brandmaster','Brand Master','⭐'],['vendormaster','Vendor Master','🏢'],['recipients','Collaborator Royalty','🪙'],['distpartner','Distribution Partner','🚚'],['koldb','KOL Database','👥']] },
   { key:'settings', label:'Settings', color:'#64748b', icon:_riSvg('<circle cx="8" cy="8" r="2.4"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.3 3.3l1.4 1.4M11.3 11.3l1.4 1.4M12.7 3.3l-1.4 1.4M4.7 11.3l-1.4 1.4"/>'),
-    mods:[['team','Team','🫂'],['activitylog','Activity Log','📜'],['cronlogs','Cron Logs','⏱️'],['mesign','Mekari Sign','✍️']] },
+    mods:[['team','Team','🫂'],['activitylog','Activity Log','📜'],['cronlogs','Cron Logs','⏱️']] },
 ];
 // crisp line icons per module (stroke=currentColor → white when inactive, black on the active pill)
 const MOD_ICON = {
+  consignagr:_riSvg('<path d="M4 2h5l3 3v9H4z"/><path d="M9 2v3h3"/><path d="M5.8 9.5l1.3 1.3L10 8"/>'),
   home:_riSvg('<path d="M2 6.5l6-4.5 6 4.5V14H2z"/><path d="M6.5 14v-4h3v4"/>'),
   mynotif:_riSvg('<path d="M12 6.5a4 4 0 00-8 0c0 4-2 5-2 5h12s-2-1-2-5"/><path d="M6.5 13.5a1.8 1.8 0 003 0"/>'),
   mytask:_riSvg('<rect x="2.5" y="2.5" width="11" height="11" rx="1.5"/><path d="M5 6l1.2 1.2L8.5 5"/><path d="M5 10l1.2 1.2L8.5 9"/><path d="M10 6h2M10 10h2"/>'),
@@ -43720,6 +44950,7 @@ const MOD_ICON = {
   leads:_riSvg('<path d="M4 3v5a4 4 0 008 0V3"/><path d="M4 3h3v5a1 1 0 002 0V3h3"/>'),
   marte:_riSvg('<path d="M2.5 6.5V13h11V6.5"/><path d="M1.5 3.5h13L14 6.5H2z"/><path d="M6 13V9h4v4"/>'),
   marteskucat:_riSvg('<path d="M2.5 2.5h5L14 9l-5 5-6.5-6.5z"/><circle cx="5.5" cy="5.5" r="1"/>'),
+  metafieldaudit:_riSvg('<path d="M4 2h6l3 3v9a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1z"/><path d="M9.5 2v3.5H13"/><path d="M5.5 8.5l1.5 1.5 3-3.5"/>'),
   distpartner:_riSvg('<rect x="6" y="1.5" width="4" height="4" rx="1"/><rect x="1.5" y="10.5" width="4" height="4" rx="1"/><rect x="10.5" y="10.5" width="4" height="4" rx="1"/><path d="M8 5.5v2.5M8 8L3.5 10.5M8 8l4.5 2.5"/>'),
   outbound:_riSvg('<path d="M8 1.5v6.5M5.5 4L8 1.5 10.5 4"/><path d="M3 9v4.5h10V9"/>'),
   invtransfer:_riSvg('<path d="M2.5 5.5h8M8 2.5l3 3-3 3"/><path d="M13.5 10.5h-8m3 3l-3-3 3-3"/>'),
@@ -43739,11 +44970,19 @@ const MOD_ICON = {
   mesign:_riSvg('<path d="M2.5 10.5c2-4 3-4 4 0s2 2 3-1 2-2 4 1"/><path d="M2.5 13.5h11"/>'),
 };
 // deep, white-text-safe background per category (the panel recolors on select)
-const CAT_BG = {home:'#1e3a8a',pm:'#4c1d95',creative:'#9d174d',marketing:'#9a3412',proddev:'#065f46',finance:'#92400e',commerce:'#155e75',distribution:'#3730a3',warehouse:'#854d0e',database:'#115e59',settings:'#1e293b'};
-// panel bg: per-category color in light mode, plain dark in dark mode
+const CAT_BG = {home:'#1e3a8a',pm:'#4c1d95',creative:'#9d174d',marketing:'#9a3412',proddev:'#065f46',legal:'#1e2a5e',finance:'#92400e',commerce:'#155e75',distribution:'#3730a3',warehouse:'#854d0e',database:'#115e59',settings:'#1e293b'};
+// ClickUp aesthetic: panel is always light (dark-mode flips via CSS vars) — no per-category color
+function _hexToRgb(h){ h=(h||'').replace('#',''); if(h.length===3) h=h.split('').map(x=>x+x).join(''); const n=parseInt(h,16)||0; return [(n>>16)&255,(n>>8)&255,n&255]; }
+function _mix(hex, pct, base){ const a=_hexToRgb(hex), b=_hexToRgb(base), p=pct/100; return 'rgb('+a.map((v,i)=>Math.round(v*p+b[i]*(1-p))).join(',')+')'; }
+// Sidebar takes the active category's colour: subtle panel wash + coloured active item (light & dark)
 function _applySidebarBg(){
   const sb = document.getElementById('sidebar'); if(!sb) return;
-  sb.style.background = document.body.classList.contains('dark') ? 'var(--sidebar)' : (CAT_BG[_activeCat] || 'var(--sidebar)');
+  const c = NAV_CATS.find(x=>x.key===_activeCat); const col = c ? c.color : '#7b68ee';
+  const [r,g,b] = _hexToRgb(col);
+  const dark = document.body.classList.contains('dark');
+  sb.style.setProperty('--cat', col);
+  // BOLD category colour is the whole panel background; items are white with translucent-white highlights
+  sb.style.background = dark ? _mix(col,26,'#17171b') : col;
 }
 let _activeCat = 'home';
 function renderRail(){
@@ -43755,6 +44994,41 @@ function renderRail(){
       + _riSvg('<path d="M6 2H3.5A1.5 1.5 0 002 3.5v9A1.5 1.5 0 003.5 14H6"/><path d="M10.5 11l3.5-3-3.5-3"/><path d="M14 8H6"/>')
     + '</div><div class="ri-lbl">Log out</div></div></div>';
 }
+// ── Sidebar count badges (page → number) ──
+let _sbBadges = {};
+function _sbBadgeHTML(page){
+  const n = _sbBadges[page];
+  return `<span class="sb-badge" id="sb-badge-${page}" style="${n?'':'display:none'}">${n||''}</span>`;
+}
+function setSbBadge(page, count){
+  _sbBadges[page] = count||0;
+  const el = document.getElementById('sb-badge-'+page);
+  if(el){ el.textContent = count>0?count:''; el.style.display = count>0?'inline-flex':'none'; }
+}
+// Count products with no mapping at all, and show it on the Product Mapping nav item
+async function refreshPMUnmappedBadge(){
+  try{
+    // Count UNIQUE unmapped products (by item_name), not raw variant rows
+    const {data} = await sb.from("product_mappings").select("item_name")
+      .is("brand",null).is("ip",null).is("royalty_recipient",null).is("collection",null).limit(5000);
+    const n = new Set((data||[]).map(r=>r.item_name)).size;
+    setSbBadge('productmap', n);
+  }catch(e){ /* ignore */ }
+}
+// Count transactions (outside excluded warehouses) with no category/project_ref mapping
+async function refreshTxUnmappedBadge(){
+  try{
+    const excl = (typeof TX_EXCLUDE_LOCATIONS!=='undefined') ? TX_EXCLUDE_LOCATIONS : ['Gudang Bintaro','Gudang Marte'];
+    const [{count:baseCount},{count:mappedCount}] = await Promise.all([
+      sb.from('jubelio_sales_orders').select('salesorder_id',{count:'exact',head:true})
+        .not('location_name','in',`("${excl.join('","')}")`),
+      sb.from('transaction_mappings').select('salesorder_id',{count:'exact',head:true})
+        .or('category.not.is.null,project_ref.not.is.null')
+    ]);
+    setSbBadge('txmap', Math.max(0,(baseCount||0)-(mappedCount||0)));
+  }catch(e){ /* ignore */ }
+}
+
 function selectCat(key, activePage){
   const c = NAV_CATS.find(x=>x.key===key); if(!c) return;
   _activeCat = key;
@@ -43762,14 +45036,116 @@ function selectCat(key, activePage){
   document.querySelectorAll('#railbar .rail-item').forEach(r=>r.classList.toggle('active', r.getAttribute('data-cat')===key));
   const cn = document.getElementById('sb-catname'); if(cn) cn.textContent = c.label;
   const panel = document.getElementById('sb-panel');
-  if(panel) panel.innerHTML = c.mods.map(m =>
-    `<div class="sb-item${m[0]===activePage?' active':''}" onclick="showPage('${m[0]}',this)"><span class="sbi-ic">${MOD_ICON[m[0]]||''}</span>${m[1]}</div>`).join('');
+  if(panel) panel.innerHTML = [...c.mods].sort((a,b)=>a[1].localeCompare(b[1])).map(m =>
+    `<div class="sb-item${m[0]===activePage?' active':''}" onclick="showPage('${m[0]}',this)"><span class="sbi-ic">${MOD_ICON[m[0]]||''}</span>${m[1]}${_sbBadgeHTML(m[0])}</div>`).join('');
   // Home category has a single item → jump straight to it
   if(key==='home' && activePage===undefined) showPage('home', document.querySelector('#sb-panel .sb-item'));
 }
 function _pageToCat(name){ for(const c of NAV_CATS){ if(c.mods.some(m=>m[0]===name)) return c.key; } return null; }
 function _syncRail(name){ const cat = _pageToCat(name); if(cat) selectCat(cat, name); }
 function initNav(){ renderRail(); selectCat('home', 'home'); }
+
+// ── GLOBAL SEARCH (command palette: modules + data entries across modules) ──
+let _gsResults = [], _gsActive = -1, _gsSeq = 0, _gsTimer = null;
+// Data sources searched live (per-type colour → colourful, module-guideline aligned)
+const GS_SOURCES = [
+  { type:'Agreement',   page:'agreement',   searchId:'searchBox', color:'#d97706', table:'agreements',          cols:'id,title,partner',                orf:q=>`title.ilike.%${q}%,partner.ilike.%${q}%`,               map:r=>({title:r.title||r.id, sub:r.partner||''}) },
+  { type:'IP',          page:'ipmaster',    searchId:'ipSearch',  color:'#7c3aed', table:'ip_master',           cols:'id,name,category',                orf:q=>`name.ilike.%${q}%`,                                     map:r=>({title:r.name, sub:r.category||''}) },
+  { type:'Brand',       page:'brandmaster', searchId:'bmSearch',  color:'#db2777', table:'brand_master',        cols:'id,name,category',                orf:q=>`name.ilike.%${q}%`,                                     map:r=>({title:r.name, sub:r.category||''}) },
+  { type:'Royalty',     page:'recipients',  searchId:'rrSearch',  color:'#ca8a04', table:'royalty_recipients',  cols:'id,nama,related_ip',              orf:q=>`nama.ilike.%${q}%`,                                     map:r=>({title:r.nama, sub:r.related_ip||''}) },
+  { type:'Lead',        page:'leads',       searchId:'ldSearch',  color:'#0891b2', table:'leads',               cols:'id,lead_name,stage,contact',      orf:q=>`lead_name.ilike.%${q}%,contact.ilike.%${q}%`,           map:r=>({title:r.lead_name, sub:r.stage||''}) },
+  { type:'Partner',     page:'distpartner', searchId:'dpSearch',  color:'#4f46e5', table:'dist_partners',       cols:'id,partner_name,type,contact_person', orf:q=>`partner_name.ilike.%${q}%,contact_person.ilike.%${q}%`, map:r=>({title:r.partner_name, sub:r.type||''}) },
+  { type:'Product',     page:'productmap',  searchId:'pm-search', color:'#0d9488', table:'product_mappings',    cols:'item_name,brand',                 orf:q=>`item_name.ilike.%${q}%`,                                map:r=>({title:r.item_name, sub:r.brand||''}), distinct:'item_name' },
+  { type:'Sales Order', page:'txmap',       searchId:'tx-search', color:'#059669', table:'jubelio_sales_orders',cols:'salesorder_no,customer_name,location_name', orf:q=>`salesorder_no.ilike.%${q}%,customer_name.ilike.%${q}%`, map:r=>({title:r.salesorder_no, sub:r.customer_name||r.location_name||''}) },
+  { type:'Collection',  page:'collections', searchId:'colSearch', color:'#e11d48', table:'collections',         cols:'collection_name,ip_related',      orf:q=>`collection_name.ilike.%${q}%,ip_related.ilike.%${q}%`,  map:r=>({title:r.collection_name, sub:r.ip_related||''}) },
+  { type:'Vendor',      page:'vendormaster',searchId:'vmSearch',  color:'#6366f1', table:'vendor_master',       cols:'id,vendor_name,contact_person',   orf:q=>`vendor_name.ilike.%${q}%,contact_person.ilike.%${q}%`,  map:r=>({title:r.vendor_name, sub:r.contact_person||''}) },
+];
+function _gsModules(q){
+  const ql = q.toLowerCase(); const out = [];
+  (typeof NAV_CATS !== 'undefined' ? NAV_CATS : []).forEach(c =>
+    (c.mods||[]).forEach(m => {
+      if(!q || m[1].toLowerCase().includes(ql) || c.label.toLowerCase().includes(ql))
+        out.push({ kind:'module', page:m[0], title:m[1], sub:'', type:c.label, color:c.color||'#64748b', term:'' });
+    }));
+  return out.slice(0, q ? 5 : 40);
+}
+function gsearchInput(){
+  const inp = document.getElementById('gsearch-input'); if(!inp) return;
+  const kbd = document.getElementById('gsearch-kbd'); if(kbd) kbd.style.display='none';
+  const q = (inp.value||'').trim();
+  _gsResults = _gsModules(q);
+  _gsActive = _gsResults.length ? 0 : -1;
+  gsearchRender(q.length >= 2 ? 'Searching entries…' : null);
+  clearTimeout(_gsTimer);
+  if(q.length >= 2){ const seq = ++_gsSeq; _gsTimer = setTimeout(() => gsearchData(q, seq), 260); }
+}
+async function gsearchData(q, seq){
+  const qs = q.replace(/[,()%*\\]/g, ' ').trim();
+  if(!qs){ return; }
+  const results = await Promise.all(GS_SOURCES.map(async s => {
+    try{
+      const { data } = await sb.from(s.table).select(s.cols).or(s.orf(qs)).limit(6);
+      let rows = data || [];
+      if(s.distinct){ const seen = new Set(); rows = rows.filter(r => { const k=r[s.distinct]; if(seen.has(k)) return false; seen.add(k); return true; }); }
+      return rows.map(r => { const m = s.map(r); return { kind:'data', page:s.page, searchId:s.searchId, type:s.type, color:s.color, title:m.title||'—', sub:m.sub||'', term:m.title||'' }; });
+    }catch(e){ return []; }
+  }));
+  if(seq !== _gsSeq) return; // stale response — a newer query superseded it
+  const mods = _gsResults.filter(r => r.kind === 'module');
+  _gsResults = [...mods, ...results.flat()];
+  if(_gsActive < 0 && _gsResults.length) _gsActive = 0;
+  gsearchRender();
+}
+function gsearchRender(loadingMsg){
+  const box = document.getElementById('gsearch-results'); if(!box) return;
+  let html = _gsResults.map((x,i) => {
+    const sub = x.sub ? `<span class="gsr-sub">${(x.sub+'').replace(/</g,'&lt;')}</span>` : '';
+    return `<div class="gsr-item${i===_gsActive?' active':''}" onmousedown="event.preventDefault();gsearchGo(${i})" onmousemove="_gsSetActive(${i})">
+      <span class="gsr-dot" style="background:${x.color}"></span>
+      <span class="gsr-txt"><span class="gsr-title">${(x.title+'').replace(/</g,'&lt;')}</span>${sub}</span>
+      <span class="gsr-tag" style="background:${x.color}22;color:${x.color}">${x.type}</span>
+    </div>`;
+  }).join('');
+  const hasData = _gsResults.some(r => r.kind === 'data');
+  if(loadingMsg && !hasData) html += `<div class="gsr-empty">${loadingMsg}</div>`;
+  if(!_gsResults.length && !loadingMsg) html = '<div class="gsr-empty">No results</div>';
+  box.innerHTML = html; box.style.display = 'block';
+}
+function _gsSetActive(i){
+  _gsActive = i;
+  document.querySelectorAll('#gsearch-results .gsr-item').forEach((el,idx)=>el.classList.toggle('active',idx===i));
+}
+function gsearchGo(i){
+  const r = _gsResults[i]; if(!r) return;
+  const inp = document.getElementById('gsearch-input'); if(inp){ inp.value=''; inp.blur(); }
+  const box = document.getElementById('gsearch-results'); if(box) box.style.display='none';
+  const kbd = document.getElementById('gsearch-kbd'); if(kbd) kbd.style.display='';
+  if(typeof showPage === 'function') showPage(r.page, null);
+  // For a data entry, push the term into that module's own search box so the row is surfaced
+  if(r.kind === 'data' && r.searchId && r.term){
+    setTimeout(() => { const el = document.getElementById(r.searchId); if(el){ el.value = r.term; el.dispatchEvent(new Event('input', { bubbles:true })); } }, 380);
+  }
+}
+function gsearchKey(e){
+  const box = document.getElementById('gsearch-results');
+  if(e.key==='ArrowDown'){ e.preventDefault(); if(_gsActive < _gsResults.length-1){ _gsActive++; gsearchRender(); _gsScroll(); } }
+  else if(e.key==='ArrowUp'){ e.preventDefault(); if(_gsActive > 0){ _gsActive--; gsearchRender(); _gsScroll(); } }
+  else if(e.key==='Enter'){ e.preventDefault(); if(_gsActive>=0) gsearchGo(_gsActive); }
+  else if(e.key==='Escape'){ const inp=document.getElementById('gsearch-input'); if(inp) inp.blur(); if(box) box.style.display='none'; }
+}
+function _gsScroll(){ const el=document.querySelector('#gsearch-results .gsr-item.active'); if(el) el.scrollIntoView({block:'nearest'}); }
+document.addEventListener('keydown', e => {
+  if((e.metaKey||e.ctrlKey) && (e.key==='k'||e.key==='K')){
+    e.preventDefault();
+    const inp = document.getElementById('gsearch-input');
+    if(inp){ inp.focus(); inp.select(); gsearchInput(); }
+  }
+});
+document.addEventListener('focusout', e => {
+  if(e.target && e.target.id==='gsearch-input'){
+    setTimeout(()=>{ const inp=document.getElementById('gsearch-input'); const kbd=document.getElementById('gsearch-kbd'); if(kbd && inp && !inp.value) kbd.style.display=''; }, 160);
+  }
+});
 
 // ── DARK MODE TOGGLE ──
 const _MOON_SVG = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/></svg>';
@@ -46192,18 +47568,49 @@ function _rstBuildPDFAllBody(lines, today) {
 
 // ── MARTE SKU CATEGORIES ──
 const MSC_CATS = ['Apparel','Accessories','Collectible','Wellness','Preloved','Others'];
-let _mscAllRows  = [];    // raw rows from RPC
+const MSC_CATKEY = {Apparel:'apparel',Accessories:'accessories',Collectible:'collectible',Preloved:'preloved',Wellness:'wellness',Others:'others'};
+const _SAVE_SVG = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>';
+let _mscAllRows  = [];    // raw rows from RPC (item_code, item_name, brand, fee_category, fee_rate_override, category_rate, effective_rate)
 let _mscFiltered = [];    // rows after filter
-let _mscPending  = {};    // {item_code: new_category} — unsaved changes
+let _mscPending  = {};    // {item_code: {cat?, rate?}} — unsaved changes (category and/or per-SKU rate override)
+let _mscViewFilter = '';  // '' | 'categorized' | 'uncategorized' | 'custom' — set by clicking a summary card
+
+// Click a summary card → filter the table (click the active card again to clear)
+function _mscSetView(v){
+  _mscViewFilter = (_mscViewFilter === v) ? '' : v;
+  const chk = document.getElementById('msc-filter-uncat');
+  if (chk) chk.checked = (_mscViewFilter === 'uncategorized');
+  _mscRenderStats();   // refresh active-card highlight
+  _mscApplyFilter();
+}
+// Sidebar helper: count uncategorized Marte SKUs (for the nav badge, incl. on login)
+async function refreshSkuUncatBadge(){
+  try { const { data } = await sb.rpc('get_marte_sku_uncat_count'); if(typeof setSbBadge==='function') setSbBadge('marteskucat', data||0); }
+  catch(e){ /* ignore */ }
+}
+
+// The brand's standard rate for a category (default when there's no per-SKU override).
+// Uses client-side Brand Master rates for any category; falls back to the RPC's category_rate
+// (valid only for the SKU's ORIGINAL category) when brand rates aren't loaded.
+function _mscCatRate(r, category){
+  if(!category) return null;
+  const bm = allBMRows.find(b=>b.name===r.brand);
+  if(bm){ const v=bm[MSC_CATKEY[category]]; const n=parseFloat(v); if(!(v===''||v==null||isNaN(n))) return n; }
+  if(category === (r.fee_category||'') && r.category_rate!=null && r.category_rate!==''){ const n=parseFloat(r.category_rate); if(!isNaN(n)) return n; }
+  return null;
+}
 
 async function loadMarteSKUCat() {
   const wrap = document.getElementById('msc-brand-groups');
   const empty = document.getElementById('msc-empty');
   if (!wrap) return;
-  wrap.innerHTML = '<div style="padding:40px;text-align:center;color:var(--g400)">Memuat data…</div>';
+  wrap.innerHTML = '<div class="pc-sub" style="padding:40px;text-align:center">Loading…</div>';
   empty.style.display = 'none';
   _mscPending = {};
   _mscUpdatePendingBadge();
+  if (!allBMRows.length) {   // brand rates → category defaults for the Fee Rate column
+    try { const {data:_bm} = await sb.from('brand_master').select('*'); if(_bm&&_bm.length) allBMRows = _bm.map(mapBM); } catch(e){}
+  }
 
   // Page the RPC response — PostgREST caps each response at 1000 rows.
   _mscAllRows = [];
@@ -46224,7 +47631,7 @@ async function loadMarteSKUCat() {
   const brands = [...new Set(_mscAllRows.map(r => r.brand))].sort((a,b)=>a.localeCompare(b,'id'));
   const sel = document.getElementById('msc-filter-brand');
   const curVal = sel.value;
-  sel.innerHTML = '<option value="">Semua Brand</option>';
+  sel.innerHTML = '<option value="">All Brands</option>';
   brands.forEach(b => {
     const o = document.createElement('option');
     o.value = b; o.textContent = b;
@@ -46250,12 +47657,18 @@ function _mscRenderStats() {
   });
   const uncatBrands = Object.entries(byBrand).filter(([,v])=>v.uncat>0).length;
 
-  el.innerHTML = `
-    <div class="stat-card"><div class="sc-val">${total}</div><div class="sc-lbl">Total SKU</div></div>
-    <div class="stat-card"><div class="sc-val" style="color:var(--green)">${catCount}</div><div class="sc-lbl">Terkategorikan</div></div>
-    <div class="stat-card"><div class="sc-val" style="color:var(--amber,#f59e0b)">${uncat}</div><div class="sc-lbl">Belum Kategori</div></div>
-    <div class="stat-card"><div class="sc-val" style="color:var(--amber,#f59e0b)">${uncatBrands}</div><div class="sc-lbl">Brand dgn gap</div></div>
-  `;
+  const custom = _mscAllRows.filter(r => r.fee_rate_override != null && r.fee_rate_override !== '').length;
+  const card = (view,label,val,color) =>
+    `<div class="pc-stat pc-stat-click${_mscViewFilter===view?' active':''}" onclick="_mscSetView('${view}')" title="Click to filter">
+      <div class="pc-stat-lbl">${label}</div>
+      <div class="pc-stat-num"${color?` style="color:${color}"`:''}>${val}</div>
+    </div>`;
+  el.innerHTML =
+    card('',            'Total SKU',     total,    '') +
+    card('categorized', 'Categorized',   catCount, '#16a34a') +
+    card('uncategorized','Uncategorized', uncat,   '#d97706') +
+    card('custom',      'Custom Fee',    custom,   '#7b68ee');
+  if (typeof setSbBadge === 'function') setSbBadge('marteskucat', uncat);
 }
 
 function _mscApplyFilter() {
@@ -46263,6 +47676,10 @@ function _mscApplyFilter() {
   const uncatOnly = document.getElementById('msc-filter-uncat').checked;
   _mscFiltered = _mscAllRows.filter(r => {
     if (brand && r.brand !== brand) return false;
+    const isCustom = r.fee_rate_override != null && r.fee_rate_override !== '';
+    if (_mscViewFilter === 'categorized'   && !r.fee_category) return false;
+    if (_mscViewFilter === 'uncategorized' &&  r.fee_category) return false;
+    if (_mscViewFilter === 'custom'        && !isCustom) return false;
     if (uncatOnly && r.fee_category) return false;
     return true;
   });
@@ -46281,52 +47698,35 @@ function _mscRenderGroups() {
   }
   empty.style.display = 'none';
 
-  // Group by brand
-  const groups = {};
-  _mscFiltered.forEach(r => {
-    if (!groups[r.brand]) groups[r.brand] = [];
-    groups[r.brand].push(r);
-  });
+  // One seamless table (brand shown per-row under the item name), sorted by brand then name
+  const rows = [..._mscFiltered].sort((a,b)=>
+    (a.brand||'').localeCompare(b.brand||'','id') || (a.item_name||'').localeCompare(b.item_name||'','id'));
+  const uncatCount = rows.filter(r => !r.fee_category && !_mscPending[r.item_code]).length;
 
-  let html = '';
-  Object.keys(groups).sort((a,b)=>a.localeCompare(b,'id')).forEach(brand => {
-    const rows = groups[brand];
-    const uncatCount = rows.filter(r => !r.fee_category && !_mscPending[r.item_code]).length;
-    const catOptions = MSC_CATS.map(c=>`<option value="${c}">${c}</option>`).join('');
-    const safeB = brand.replace(/'/g,"\\'");
-
-    html += `
-      <div class="msc-brand-block" id="msc-block-${_mscSafeId(brand)}" style="margin-bottom:24px">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;padding:8px 10px;background:var(--g50,#f8f9fa);border-radius:8px;flex-wrap:wrap">
-          <div style="font-family:var(--syne);font-weight:600;font-size:14px;flex:1;min-width:120px">${brand}</div>
-          <div style="font-size:12px;color:var(--g400)">${rows.length} SKU${uncatCount>0?` · <span style="color:var(--amber,#f59e0b)">${uncatCount} belum</span>`:' · ✅ semua terkategori'}</div>
-          <div style="display:flex;align-items:center;gap:6px">
-            <span style="font-size:12px;color:var(--g500)">Set semua ke:</span>
-            <select id="msc-bulk-${_mscSafeId(brand)}" style="padding:4px 8px;font-size:12px;border:1px solid var(--g200);border-radius:6px">
-              <option value="">— Pilih —</option>
-              ${catOptions}
-            </select>
-            <button onclick="_mscBulkApply('${safeB}', false)" title="Hanya terapkan ke item yang belum punya kategori" style="padding:4px 10px;font-size:12px;background:var(--g100);border:1px solid var(--g200);border-radius:6px;cursor:pointer">Yg Belum</button>
-            <button onclick="_mscBulkApply('${safeB}', true)" title="Terapkan ke semua item brand ini" style="padding:4px 10px;font-size:12px;background:var(--primary);color:#fff;border:none;border-radius:6px;cursor:pointer">Semua</button>
-          </div>
-        </div>
-        <table style="width:100%;border-collapse:collapse;font-size:13px">
+  wrap.innerHTML = `
+    <div class="pc-tablecard">
+      <div class="pc-tablehead">
+        <div class="pc-tabletitle">Items</div>
+        <span class="pc-sub" style="margin:0">${rows.length} SKU shown${uncatCount>0?` · <span style="color:#d97706;font-weight:600">${uncatCount} uncategorized</span>`:` · <span style="color:#16a34a;font-weight:600">all set</span>`}</span>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="pc-table">
           <thead>
-            <tr style="border-bottom:2px solid var(--g100)">
-              <th style="text-align:left;padding:6px 8px;color:var(--g400);font-weight:500;width:180px">Item Code</th>
-              <th style="text-align:left;padding:6px 8px;color:var(--g400);font-weight:500">Nama Item</th>
-              <th style="text-align:center;padding:6px 8px;color:var(--g400);font-weight:500;width:140px">Kategori Saat Ini</th>
-              <th style="text-align:center;padding:6px 8px;color:var(--g400);font-weight:500;width:160px">Set Kategori</th>
+            <tr>
+              <th style="width:180px">Item Code</th>
+              <th>Item Name / Brand</th>
+              <th style="text-align:center;width:110px">Current</th>
+              <th style="text-align:center;width:160px">Set Category</th>
+              <th style="text-align:center;width:150px" title="Blank = category default. Fill to override this SKU's fee %.">Fee Rate</th>
             </tr>
           </thead>
-          <tbody id="msc-tbody-${_mscSafeId(brand)}">
+          <tbody id="msc-tbody">
             ${rows.map(r => _mscItemRow(r)).join('')}
           </tbody>
         </table>
       </div>
-    `;
-  });
-  wrap.innerHTML = html;
+    </div>
+  `;
 }
 
 function _mscSafeId(brand) {
@@ -46334,65 +47734,94 @@ function _mscSafeId(brand) {
 }
 
 function _mscItemRow(r) {
-  const curCat = r.fee_category || '';
-  const pending = _mscPending[r.item_code];
-  const displayCat = pending !== undefined ? pending : curCat;
-  const isChanged = pending !== undefined && pending !== curCat;
+  const code = r.item_code;
+  const p = _mscPending[code] || {};
+  const origCat  = r.fee_category || '';
+  const origRate = (r.fee_rate_override != null && r.fee_rate_override !== '') ? parseFloat(r.fee_rate_override) : null;
+  const dispCat  = p.cat  !== undefined ? p.cat  : origCat;
+  const dispRate = p.rate !== undefined ? p.rate : origRate;
+  const catChanged  = p.cat  !== undefined && p.cat  !== origCat;
+  const rateChanged = p.rate !== undefined;
+  const isChanged = catChanged || rateChanged;
 
-  const catPill = curCat
-    ? `<span style="display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;background:var(--g100);color:var(--g600)">${curCat}</span>`
-    : `<span style="display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;background:#fef3c7;color:#92400e">Belum</span>`;
+  const catRate    = _mscCatRate(r, dispCat);   // brand's standard rate for the shown category
+  const isOverride = dispRate != null;
+  const effRate    = isOverride ? dispRate : catRate;
+  const differs    = isOverride && (catRate == null || dispRate !== catRate);   // rate differs from category standard
+  let _hTxt, _hCol;
+  if (effRate == null)   { _hTxt='—';       _hCol='var(--pc-muted)'; }
+  else if (differs)      { _hTxt='Custom';  _hCol='#d97706'; }
+  else                   { _hTxt='Default'; _hCol='var(--pc-muted)'; }
+  const codeEsc = code.replace(/'/g,"\\'");
+  const safeId  = code.replace(/[^a-zA-Z0-9]/g,'_');
 
-  const catOpts = `<option value="">— Pilih —</option>`
-    + MSC_CATS.map(c=>`<option value="${c}"${displayCat===c?' selected':''}>${c}</option>`).join('');
+  const catPill = origCat
+    ? `<span class="pc-pill on">${origCat}</span>`
+    : `<span class="pc-pill" style="background:rgba(217,119,6,0.12);color:#d97706">None</span>`;
+  const catOpts = `<option value="">— Choose —</option>`
+    + MSC_CATS.map(c=>`<option value="${c}"${dispCat===c?' selected':''}>${c}</option>`).join('');
+  const rowStyle = isChanged ? 'background:var(--pc-row)' : '';
 
-  const rowStyle = isChanged ? 'background:#fffbeb' : '';
-
-  return `<tr style="border-bottom:1px solid var(--g50,#f8f9fa);${rowStyle}" id="msc-row-${r.item_code.replace(/[^a-zA-Z0-9]/g,'_')}">
-    <td style="padding:6px 8px;font-family:var(--mono,monospace);font-size:11px;color:var(--g500)">${r.item_code}</td>
-    <td style="padding:6px 8px">${r.item_name || '—'}</td>
-    <td style="padding:6px 8px;text-align:center">${catPill}</td>
-    <td style="padding:6px 8px;text-align:center">
-      <select style="padding:4px 8px;font-size:12px;border:1px solid ${isChanged?'var(--amber,#f59e0b)':'var(--g200)'};border-radius:6px;width:140px"
-              onchange="_mscSetPending('${r.item_code.replace(/'/g,"\\'")}', this.value)">${catOpts}</select>
+  return `<tr style="${rowStyle}" id="msc-row-${safeId}">
+    <td style="font-family:var(--mono);font-size:11px;color:var(--pc-muted)">${code}</td>
+    <td><div>${r.item_name || '—'}</div><div class="pc-sub" style="margin:2px 0 0">${r.brand || ''}</div></td>
+    <td style="text-align:center">${catPill}</td>
+    <td style="text-align:center">
+      <select class="pc-cellsel" style="max-width:150px;border:1px solid ${catChanged?'#d97706':'var(--pc-border)'}"
+              onchange="_mscSetPending('${codeEsc}', this.value)">${catOpts}</select>
+    </td>
+    <td style="text-align:center">
+      <div style="display:inline-flex;align-items:center;gap:8px;justify-content:center">
+        <span style="display:inline-flex;align-items:center;gap:3px">
+          <input type="number" min="0" max="100" step="any" class="pc-cellinput"
+                 style="width:62px;text-align:right;border:1px solid ${isOverride?'#d97706':'var(--pc-border)'}"
+                 placeholder="${catRate!=null?catRate:'—'}" value="${dispRate!=null?dispRate:''}"
+                 onchange="_mscSetRate('${codeEsc}', this.value)"
+                 title="Blank = category default${catRate!=null?' ('+catRate+'%)':''}. Fill to override this SKU.">
+          <span class="pc-sub" style="margin:0;font-weight:600">%</span>
+        </span>
+        <span style="color:${_hCol};font-size:11px;font-weight:600;min-width:50px;text-align:left" title="${differs?'Overrides the category standard':'Follows the category standard'}">${_hTxt}</span>
+      </div>
     </td>
   </tr>`;
 }
 
 function _mscSetPending(itemCode, val) {
   const original = (_mscAllRows.find(r=>r.item_code===itemCode)||{}).fee_category || '';
-  if (val === original) {
-    delete _mscPending[itemCode];
-  } else {
-    _mscPending[itemCode] = val;
-  }
+  if (!_mscPending[itemCode]) _mscPending[itemCode] = {};
+  if (val === original) delete _mscPending[itemCode].cat;
+  else _mscPending[itemCode].cat = val;
+  if (Object.keys(_mscPending[itemCode]).length === 0) delete _mscPending[itemCode];
   _mscUpdatePendingBadge();
-  // highlight row
-  const rowId = 'msc-row-'+itemCode.replace(/[^a-zA-Z0-9]/g,'_');
-  const row = document.getElementById(rowId);
-  if (row) {
-    const isChanged = _mscPending[itemCode] !== undefined;
-    row.style.background = isChanged ? '#fffbeb' : '';
-    const sel = row.querySelector('select');
-    if (sel) sel.style.borderColor = isChanged ? 'var(--amber,#f59e0b)' : 'var(--g200)';
-  }
+  _mscApplyFilter();   // re-render so the Fee Rate default reflects the new category
+}
+function _mscSetRate(itemCode, val) {
+  const r = _mscAllRows.find(x=>x.item_code===itemCode);
+  const orig = (r && r.fee_rate_override != null && r.fee_rate_override !== '') ? parseFloat(r.fee_rate_override) : null;
+  let clean = null;
+  if (val !== '' && val != null) { const n = parseFloat(val); if (!isNaN(n)) clean = n; }
+  if (!_mscPending[itemCode]) _mscPending[itemCode] = {};
+  if (clean === orig || (clean == null && orig == null)) delete _mscPending[itemCode].rate;
+  else _mscPending[itemCode].rate = clean;
+  if (Object.keys(_mscPending[itemCode]).length === 0) delete _mscPending[itemCode];
+  _mscUpdatePendingBadge();
+  _mscApplyFilter();
 }
 
-function _mscBulkApply(brand, applyAll) {
-  const selEl = document.getElementById('msc-bulk-'+_mscSafeId(brand));
-  if (!selEl || !selEl.value) { alert('Pilih kategori dulu.'); return; }
+// Bulk-apply a category to the currently SHOWN (filtered) rows.
+// applyAll=false → only items still uncategorized; applyAll=true → every shown item.
+function _mscBulkApplyAll(applyAll) {
+  const selEl = document.getElementById('msc-bulk-all');
+  if (!selEl || !selEl.value) { alert("Choose a category first."); return; }
   const cat = selEl.value;
-  const rows = _mscAllRows.filter(r => r.brand === brand);
-  rows.forEach(r => {
-    // "Unset" button (applyAll=false) → only apply to currently uncategorized
-    // "Semua" button (applyAll=true) → apply to all items in brand
+  if (!_mscFiltered.length) { alert("No items shown."); return; }
+  _mscFiltered.forEach(r => {
     if (applyAll || !r.fee_category) {
       const original = r.fee_category || '';
-      if (cat === original) {
-        delete _mscPending[r.item_code];
-      } else {
-        _mscPending[r.item_code] = cat;
-      }
+      if (!_mscPending[r.item_code]) _mscPending[r.item_code] = {};
+      if (cat === original) delete _mscPending[r.item_code].cat;
+      else _mscPending[r.item_code].cat = cat;
+      if (Object.keys(_mscPending[r.item_code]).length === 0) delete _mscPending[r.item_code];
     }
   });
   _mscUpdatePendingBadge();
@@ -46405,9 +47834,9 @@ function _mscUpdatePendingBadge() {
   const btn = document.getElementById('msc-save-btn');
   if (!badge || !btn) return;
   if (count > 0) {
-    badge.style.display = 'inline-block';
-    badge.textContent = `${count} perubahan pending`;
-    btn.style.display = 'inline-block';
+    badge.style.display = 'inline-flex';
+    badge.textContent = `${count} pending change${count>1?"s":""}`;
+    btn.style.display = 'inline-flex';
   } else {
     badge.style.display = 'none';
     btn.style.display = 'none';
@@ -46419,15 +47848,22 @@ async function saveMarteSKUCat() {
   if (pending.length === 0) return;
 
   const btn = document.getElementById('msc-save-btn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Menyimpan…'; }
+  if (btn) { btn.disabled = true; btn.innerHTML = _SAVE_SVG + " Saving…"; }
 
-  // Only save rows that have a category (skip empty/cleared)
-  const toUpsert = pending
-    .filter(([,cat]) => cat !== '')
-    .map(([item_code, fee_category]) => ({ item_code, fee_category }));
-
-  // For cleared rows (set to ""), delete from marte_sku_categories
-  const toDelete = pending.filter(([,cat]) => cat === '').map(([code]) => code);
+  // Build final desired state per SKU (merge original + pending category/rate)
+  const toUpsert = [], toDelete = [];
+  pending.forEach(([code, p]) => {
+    const r = _mscAllRows.find(x=>x.item_code===code) || {};
+    const origCat  = r.fee_category || '';
+    const origRate = (r.fee_rate_override != null && r.fee_rate_override !== '') ? parseFloat(r.fee_rate_override) : null;
+    const finalCat  = p.cat  !== undefined ? p.cat  : origCat;
+    const finalRate = p.rate !== undefined ? p.rate : origRate;
+    if ((!finalCat || finalCat === '') && finalRate == null) {
+      toDelete.push(code);                          // nothing left → remove the row
+    } else {
+      toUpsert.push({ item_code: code, fee_category: finalCat || null, fee_rate_override: (finalRate != null ? finalRate : null), brand_label: r.brand || null });
+    }
+  });
 
   let errors = [];
 
@@ -46444,15 +47880,17 @@ async function saveMarteSKUCat() {
   }
 
   if (errors.length > 0) {
-    alert('Ada error saat menyimpan:\n' + errors.join('\n'));
-    if (btn) { btn.disabled = false; btn.textContent = '💾 Simpan Perubahan'; }
+    alert("Save error:\n" + errors.join('\n'));
+    if (btn) { btn.disabled = false; btn.innerHTML = _SAVE_SVG + " Save changes"; }
     return;
   }
 
   // Update local cache
-  pending.forEach(([item_code, fee_category]) => {
-    const row = _mscAllRows.find(r => r.item_code === item_code);
-    if (row) row.fee_category = fee_category || null;
+  pending.forEach(([code, p]) => {
+    const row = _mscAllRows.find(r => r.item_code === code);
+    if (!row) return;
+    if (p.cat  !== undefined) row.fee_category      = p.cat || null;
+    if (p.rate !== undefined) row.fee_rate_override = p.rate;   // number or null
   });
 
   _mscPending = {};
@@ -46460,14 +47898,14 @@ async function saveMarteSKUCat() {
   _mscRenderStats();
   _mscApplyFilter();
 
-  if (btn) { btn.disabled = false; btn.textContent = '💾 Simpan Perubahan'; }
+  if (btn) { btn.disabled = false; btn.innerHTML = _SAVE_SVG + " Save changes"; }
 
   // Brief success flash
   const badge = document.getElementById('msc-pending-badge');
   if (badge) {
-    badge.style.display = 'inline-block';
-    badge.style.background = 'var(--green)';
-    badge.textContent = `✓ ${toUpsert.length + toDelete.length} SKU tersimpan`;
+    badge.style.display = 'inline-flex';
+    badge.style.background = '#16a34a';
+    badge.textContent = `✓ ${toUpsert.length + toDelete.length} SKU saved`;
     setTimeout(() => { badge.style.display = 'none'; badge.style.background = ''; }, 3000);
   }
 
@@ -46594,7 +48032,7 @@ async function saveNewTeamMember(btn){
   if(!name){ modal.querySelector('#tm-name').style.borderColor='#ef4444'; return; }
   const role  = modal.querySelector('#tm-role').value.trim() || null;
   const email = modal.querySelector('#tm-email').value.trim() || null;
-  btn.disabled = true; btn.textContent = 'Menyimpan…';
+  btn.disabled = true; btn.textContent = "Saving…";
   try{
     const { data, error } = await sb.from('team_members').insert({ name, role, email }).select().single();
     if(error) throw error;
@@ -46653,7 +48091,7 @@ async function saveEditTeamMember(id, btn){
   if(!name){ modal.querySelector('#tm-edit-name').style.borderColor='#ef4444'; return; }
   const role  = modal.querySelector('#tm-edit-role').value.trim() || null;
   const email = modal.querySelector('#tm-edit-email').value.trim() || null;
-  btn.disabled = true; btn.textContent = 'Menyimpan…';
+  btn.disabled = true; btn.textContent = "Saving…";
   try{
     const { error } = await sb.from('team_members').update({ name, role, email }).eq('id', id);
     if(error) throw error;

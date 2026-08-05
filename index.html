@@ -16,7 +16,7 @@
 <script src="jubelio-categories.js" defer></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<link rel="stylesheet" href="style.css?v=20260801b">
+<link rel="stylesheet" href="style.css?v=20260804f">
 </head>
 <body>
 <script>try{if(localStorage.getItem('snt_theme')==='dark')document.body.classList.add('dark');}catch(e){}</script>
@@ -69,7 +69,18 @@
 <div id="app" style="display:none;flex-direction:column;min-height:100vh;">
   <div class="topbar">
     <button class="menu-btn" onclick="toggleMobileSidebar()" title="Menu" aria-label="Toggle menu"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
-    <div class="t-page" id="topbarPage">Internal Tools</div>
+    <span id="topbarPage" style="display:none"></span>
+    <div class="t-left">
+      <button class="notif-btn" onclick="openReminderModal()" title="Create Reminder"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></button>
+      <button class="notif-btn" onclick="openAnnModal()" title="Create Announcement"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l15-6v14L3 13z"/><path d="M18 8a3.5 3.5 0 0 1 0 6"/><path d="M6 13v4a2 2 0 0 0 2 2h1v-5"/></svg></button>
+      <button class="notif-btn" onclick="showPage('calendar',null)" title="See Team Calendar"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="17" rx="2"/><line x1="16" y1="2.5" x2="16" y2="6.5"/><line x1="8" y1="2.5" x2="8" y2="6.5"/><line x1="3" y1="10" x2="21" y2="10"/></svg></button>
+    </div>
+    <div class="t-search" id="globalSearch">
+      <svg class="t-search-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input id="gsearch-input" type="text" placeholder="Search entries across Sentra…" autocomplete="off" oninput="gsearchInput()" onfocus="gsearchInput()" onkeydown="gsearchKey(event)" onblur="setTimeout(function(){var b=document.getElementById('gsearch-results');if(b)b.style.display='none';},150)">
+      <span class="gsr-kbd" id="gsearch-kbd">⌘K</span>
+      <div class="t-search-results" id="gsearch-results" style="display:none"></div>
+    </div>
     <div class="t-right">
       <button class="notif-btn" id="sync-all-btn" onclick="syncAllJubelio()" title="Sync semua data Jubelio">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
@@ -112,7 +123,7 @@
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 6h12v8H2zM1 4h14v2H1z"/><path d="M8 4v10M5 4c0-1.5 1-2 2-2s2 .5 2 1.5S8 5 8 5M11 4c0-1.5-1-2-2-2s-2 .5-2 1.5S8 5 8 5"/></svg>Account Freebies
         </div>
         <div class="sb-item" onclick="showPage('manualpurchase',this)" id="nav-manualpurchase">
-          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="4" width="12" height="9" rx="1"/><path d="M2 7h12"/><path d="M5 10h2M9 10h2"/></svg>Manual Purchase<span id="nav-mp-badge" style="display:none;margin-left:auto;font-size:9px;background:#c0392b;color:white;padding:1px 6px;border-radius:99px;font-family:var(--mono);font-weight:700"></span>
+          <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="4" width="12" height="9" rx="1"/><path d="M2 7h12"/><path d="M5 10h2M9 10h2"/></svg>Manual Purchase<span id="nav-mp-badge" style="display:none;margin-left:auto;font-size:9px;background:#7b68ee;color:white;padding:1px 6px;border-radius:99px;font-family:var(--mono);font-weight:700" title="Orders not done yet"></span>
         </div>
         <div class="sb-item" onclick="showPage('meetingnotes',this)" id="nav-meetingnotes">
           <svg class="sb-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="10" height="12" rx="1"/><path d="M4 5h6M4 8h6M4 11h4"/><path d="M12 4l3 1v8l-3 1"/></svg>Meeting Notes
@@ -174,12 +185,6 @@
       <div class="page active" id="page-home">
         <div class="page-header" style="border-bottom:none;padding-bottom:0;margin-bottom:14px"><div><div class="page-title">Hi, <span id="greetName">—</span> 👋</div><div class="page-sub" id="greetDate">—</div></div></div>
 
-        <div class="home-quick">
-          <button class="hq-btn" onclick="openReminderModal()">Create Reminder</button>
-          <button class="hq-btn" onclick="openAnnModal()">Create Announcement</button>
-          <button class="hq-btn" onclick="showPage('calendar',null)">See Team Calendar</button>
-        </div>
-
         <div class="sb-label" style="margin-bottom:0.6rem;margin-top:0.25rem">General</div>
         <div class="home-grid" style="margin-bottom:1.5rem">
           <div class="tool-card" onclick="showPage('meetingnotes',null)"><span class="tc-icon">🗒️</span><div class="tc-name">Meeting Notes</div><div class="tc-desc">Log meeting outcomes &amp; link them to IPs, collections, marketing plans, agreements, or leads. Action items sync straight to the related module.</div></div>
@@ -220,7 +225,6 @@
         <div class="sb-label" style="margin-bottom:0.6rem">Marte Operations</div>
         <div class="home-grid" style="margin-bottom:1.5rem">
           <div class="tool-card" onclick="showPage('marteskucat',null)"><span class="tc-icon">🏷️</span><div class="tc-name">SKU Categories</div><div class="tc-desc">Manage the fee category per Marte-brand SKU — set Apparel, Collectible, Accessories, etc. for consignment calculations.</div></div>
-          <div class="tool-card" onclick="showPage('marte',null)"><span class="tc-icon">🏪</span><div class="tc-name">Monthly Settlement</div><div class="tc-desc">Marte monthly consignment report — sales per SKU, fee, WHT 23, invoice &amp; debit note per brand.</div></div>
         </div>
 
         <div class="sb-label" style="margin-bottom:0.6rem">Sales Operation</div>
@@ -285,7 +289,6 @@
           <div class="tab-bar">
             <button class="tab-btn" onclick="switchTab('new',this)">Entri Baru</button>
             <button class="tab-btn active" onclick="switchTab('list',this)">Semua Agreement</button>
-            <button class="tab-btn" onclick="switchTab('marte',this)">Marte Consignment</button>
           </div>
         </div>
         <div class="stats-row col7">
@@ -319,33 +322,6 @@
               <button class="btn-ghost" onclick="clearForm()">Bersihkan</button>
             </div>
             <div class="feedback" id="feedback"></div>
-          </div>
-        </div>
-        <div id="tab-marte" style="display:none">
-          <div class="table-toolbar">
-            <input class="search-box" type="text" id="marteSearchBox" placeholder="Cari brand, signer, email..." oninput="renderMarteConsignment()">
-            <select class="f-select" id="marteFilterLink" onchange="renderMarteConsignment()" style="max-width:180px"><option value="">Semua</option><option value="linked">Sudah linked</option><option value="unlinked">Belum linked</option></select>
-            <button class="btn-refresh" onclick="loadMarteConsignment()">↻ Refresh</button>
-            <div class="tcount" id="marteCount">— entri</div>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead><tr>
-                <th>Tanggal</th>
-                <th>Brand</th>
-                <th>Mitra Type</th>
-                <th>Signer</th>
-                <th>Email</th>
-                <th>Phone</th>
-                <th>PIC</th>
-                <th>Bank</th>
-                <th>NPWP</th>
-                <th>Dokumen</th>
-                <th>Agreement Link</th>
-                <th></th>
-              </tr></thead>
-              <tbody id="marteTableBody"><tr><td class="empty-td" colspan="12">Memuat...</td></tr></tbody>
-            </table>
           </div>
         </div>
         <div id="tab-list">
@@ -613,8 +589,10 @@
           </div>
           <div style="display:flex;align-items:center;gap:8px">
             <div class="tab-bar" id="ld-main-tabs">
-              <button class="tab-btn active" onclick="switchLdMainTab('board',this)">Board</button>
-              <button class="tab-btn" onclick="switchLdMainTab('alltasks',this)">Action Items</button>
+              <button class="tab-btn" onclick="switchLdMainTab('list',this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="8" y1="6" x2="20" y2="6"/><line x1="8" y1="12" x2="20" y2="12"/><line x1="8" y1="18" x2="20" y2="18"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg>List</button>
+              <button class="tab-btn active" onclick="switchLdMainTab('board',this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="11" rx="1"/><rect x="17" y="4" width="4" height="14" rx="1"/></svg>Board</button>
+              <button class="tab-btn" onclick="switchLdMainTab('calendar',this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="5" width="18" height="16" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="8" y1="3" x2="8" y2="6"/><line x1="16" y1="3" x2="16" y2="6"/></svg>Calendar</button>
+              <button class="tab-btn" onclick="switchLdMainTab('alltasks',this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 20 6"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg>Action Items</button>
             </div>
             <button class="btn-primary" style="font-size:12px;padding:8px 16px" onclick="openLdAddModal()">+ Lead</button>
           </div>
@@ -637,7 +615,16 @@
           <select class="f-select" id="ld-fil-priority" onchange="applyLeadsFilters()" style="width:130px"><option value="">Semua Priority</option><option>High</option><option>Medium</option><option>Low</option></select>
           <select class="f-select" id="ld-fil-revenue" onchange="applyLeadsFilters()" style="width:140px"><option value="">Semua Revenue</option><option>SD&amp;Y</option><option>Lagaa</option><option>Marte</option><option>Distribution</option></select>
           <button class="btn-clear-filter" onclick="clearLeadsFilters()">✕ Reset</button>
-          <div class="tcount" id="ld-tcount" style="margin-left:auto">—</div>
+          <div id="ld-groupby-wrap" style="margin-left:auto">
+            <span class="gb-lbl">Group by</span>
+            <select class="f-select" id="ld-groupby" onchange="setLdGroupBy(this.value)" style="width:120px">
+              <option value="stage">Stage</option>
+              <option value="pic">PIC</option>
+              <option value="category">Category</option>
+              <option value="priority">Priority</option>
+            </select>
+          </div>
+          <div class="tcount" id="ld-tcount">—</div>
         </div>
 
         <div id="ldtab-board">
@@ -654,6 +641,28 @@
             </button>
             <div class="kanban-board" id="ld-closed-board" style="display:none;margin-top:12px"></div>
           </div>
+        </div>
+
+        <div id="ldtab-list" style="display:none">
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Lead</th><th>Category</th><th>Stage</th><th>Priority</th><th>Revenue</th><th>PIC</th><th>Follow-up</th><th>Added</th>
+              </tr></thead>
+              <tbody id="ld-list-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="ldtab-calendar" style="display:none">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+            <button class="btn-refresh" onclick="ldCalNav(-1)" title="Previous month">‹</button>
+            <div id="ld-cal-title" style="font-weight:600;font-size:15px;min-width:160px;text-align:center"></div>
+            <button class="btn-refresh" onclick="ldCalNav(1)" title="Next month">›</button>
+            <button class="btn-refresh" onclick="ldCalToday()" style="margin-left:4px">Today</button>
+            <div style="margin-left:auto;font-size:11px;color:var(--g400)">Plotted by follow-up date</div>
+          </div>
+          <div id="ld-cal-grid" class="ld-cal-grid"></div>
         </div>
 
         <div id="ldtab-alltasks" style="display:none">
@@ -2137,50 +2146,78 @@
     </div>
 
     <!-- PRODUCT MAPPING -->
-    <div class="page" id="page-productmap">
-      <div class="page-header">
-        <div><div class="page-title">Product Mapping</div><div class="page-sub">Mapping nama produk Jubelio ke Brand, IP, Royalty Recipient, dan Collection.</div></div>
-        <button id="pm-sync-btn" class="btn-primary" onclick="syncJubelioMasterCatalog()" style="padding:7px 14px;background:var(--black);color:var(--white);border:none;border-radius:6px;font-size:12px;cursor:pointer;font-family:var(--body);font-weight:500" title="Tarik data terbaru dari Jubelio: items master + stock per lokasi">↻ Sync Master Catalog</button>
+    <div class="page pm-clean" id="page-productmap">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:4px">
+        <div>
+          <div class="pc-title">Product Mapping</div>
+          <div class="pc-sub">Map Jubelio products to Brand, IP, Royalty Recipient, and Collection.</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
+          <button id="pm-automap-btn" class="pc-btn primary" onclick="pmSuggestFromPD()" title="Suggest IP & Collection from Product Development for products whose name matches a Product Dev SKU — review before applying, nothing is saved automatically"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>Suggest</button>
+          <button id="pm-sync-btn" class="pc-btn primary" onclick="syncJubelioMasterCatalog()" title="Pull the latest data from Jubelio: master items + stock per location"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>Sync Jubelio</button>
+        </div>
       </div>
-      <div class="stats-row" style="grid-template-columns:repeat(3,1fr);margin-bottom:1.25rem">
-        <div class="stat-card"><div class="stat-num" id="pm-s-total">—</div><div class="stat-lbl">Total Produk</div></div>
-        <div class="stat-card"><div class="stat-num" id="pm-s-mapped">—</div><div class="stat-lbl">Sudah Mapped</div></div>
-        <div class="stat-card"><div class="stat-num" id="pm-s-unmapped">—</div><div class="stat-lbl">Belum Mapped</div></div>
+      <div class="pc-toolbar">
+        <input type="text" id="pm-search" class="pc-search" placeholder="Search products…" oninput="onPMSearch(this.value)" onkeydown="if(event.key==='Escape'){this.value='';clearPMFilters();}">
+        <div class="pc-seg" id="pm-seg-status">
+          <button class="active" onclick="pmSegStatus('',this)">All</button>
+          <button onclick="pmSegStatus('mapped',this)">Mapped</button>
+          <button onclick="pmSegStatus('unmapped',this)">Unmapped</button>
+        </div>
+        <select id="pm-fil-brand" class="pc-fsel" onchange="applyPMFilters()"><option value="">All Brands</option></select>
+        <select id="pm-fil-ip" class="pc-fsel" onchange="applyPMFilters()"><option value="">All IPs</option></select>
+        <select id="pm-fil-collection" class="pc-fsel" onchange="applyPMFilters()"><option value="">All Collections</option></select>
+        <select id="pm-fil-mapping" onchange="applyPMFilters()" style="display:none"><option value=""></option><option value="mapped"></option><option value="unmapped"></option></select>
+        <button class="pc-btn" onclick="clearPMFilters()">Reset</button>
+        <div class="pc-sub" id="pm-tcount" style="margin-left:auto">—</div>
       </div>
-      <div class="filter-panel">
-        <select id="pm-fil-brand" onchange="applyPMFilters()"><option value="">Semua Brand</option></select>
-        <select id="pm-fil-ip" onchange="applyPMFilters()"><option value="">Semua IP</option></select>
-        <select id="pm-fil-collection" onchange="applyPMFilters()"><option value="">Semua Collection</option></select>
-        <select id="pm-fil-mapping" onchange="applyPMFilters()">
-          <option value="">Semua Status</option>
-          <option value="mapped">Mapped</option>
-          <option value="unmapped">Belum Mapped</option>
-        </select>
-        <button class="btn-ghost" style="padding:4px 10px;font-size:12px" onclick="clearPMFilters()">✕ Reset</button>
+      <div id="pm-bulkbar" class="pc-bulkedit" style="display:none">
+        <span class="pc-bulk-n"><b id="pm-bulk-count">0</b> selected — set any field:</span>
+        <div class="pc-be-fields">
+          <select id="pm-be-brand" class="pc-bulk-val"><option value="">Brand — leave unchanged</option></select>
+          <select id="pm-be-ip" class="pc-bulk-val"><option value="">IP — leave unchanged</option></select>
+          <select id="pm-be-royalty" class="pc-bulk-val"><option value="">Royalty — leave unchanged</option></select>
+          <select id="pm-be-collection" class="pc-bulk-val"><option value="">Collection — leave unchanged</option></select>
+        </div>
+        <button class="pc-btn primary" onclick="pmBulkApply()">Apply</button>
+        <button class="pc-btn danger" onclick="pmBulkClear()" title="Clear all mapping for selected products">Clear all</button>
       </div>
-      <div class="table-toolbar">
-        <button class="btn-refresh" onclick="loadProductMap(0,'')">↻ Refresh</button>
-        <input type="text" id="pm-search" placeholder="Cari nama produk..." style="padding:5px 10px;font-size:12px;border:1px solid var(--g100);border-radius:6px;width:220px;outline:none" oninput="onPMSearch(this.value)" onkeydown="if(event.key==='Escape'){this.value='';clearPMFilters();}">
-        <div class="tcount" id="pm-tcount">— produk</div>
+      <div class="pc-tablecard">
+        <div class="pc-tablehead">
+          <div class="pc-tabletitle">Product Registry</div>
+          <button id="pm-select-btn" class="pc-btn accent" onclick="pmToggleSelMode()">Select</button>
+        </div>
+        <div style="overflow-x:auto">
+          <table class="pc-table">
+            <thead><tr>
+              <th class="pc-selcol" style="width:44px;text-align:center"><span class="pc-check" id="pm-check-all" onclick="pmToggleAll(this)"></span></th>
+              <th>Product</th><th>Brand</th><th>IP</th><th>Royalty Recipient</th><th>Collection</th><th style="text-align:right">Status</th>
+            </tr></thead>
+            <tbody id="pm-rows"><tr><td colspan="7" style="padding:40px;text-align:center;color:var(--pc-muted)">Loading…</td></tr></tbody>
+          </table>
+        </div>
       </div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th style="width:65px;cursor:pointer;white-space:nowrap" onclick="sortPMBy('jubelio_item_id')">Item ID <span id="pm-sort-jubelio_item_id">↓</span></th>
-              <th style="min-width:200px;cursor:pointer" onclick="sortPMBy('item_name')">Nama Produk <span id="pm-sort-item_name"></span></th>
-              <th style="min-width:140px;cursor:pointer" onclick="sortPMBy('brand')">Brand <span id="pm-sort-brand"></span></th>
-              <th style="min-width:140px;cursor:pointer" onclick="sortPMBy('ip')">IP <span id="pm-sort-ip"></span></th>
-              <th style="min-width:140px">Royalty Recipient</th>
-              <th style="min-width:150px">Collection</th>
-              <th style="width:80px;text-align:center">Status</th>
-            </tr>
-          </thead>
-          <tbody id="pmTableBody"><tr><td class="empty-td" colspan="7">Klik "Refresh" untuk memuat data.</td></tr></tbody>
-        </table>
-        <datalist id="pm-col-datalist"></datalist>
+      <datalist id="pm-col-datalist"></datalist>
+      <div id="pm-pagination" style="display:flex;align-items:center;gap:10px;padding:16px 0 40px;justify-content:center"></div>
+
+      <!-- Product Dev suggestions modal -->
+      <div id="pm-suggest-overlay" class="pc-modal-overlay" style="display:none" onclick="if(event.target===this)pmCloseSuggest()">
+        <div class="pc-modal">
+          <div class="pc-modal-head">
+            <div>
+              <div class="pc-modal-title">✨ Suggestions from Product Development</div>
+              <div class="pc-sub" id="pm-suggest-sub">—</div>
+            </div>
+            <button class="pc-btn" onclick="pmCloseSuggest()" style="padding:5px 10px">✕</button>
+          </div>
+          <div class="pc-modal-body" id="pm-suggest-list"></div>
+          <div class="pc-modal-foot">
+            <label style="font-size:12px;color:var(--pc-muted);display:flex;align-items:center;gap:6px;margin-right:auto;cursor:pointer"><input type="checkbox" id="pm-suggest-all" checked onchange="pmSuggestToggleAll(this)"> Select all</label>
+            <button class="pc-btn" onclick="pmCloseSuggest()">Cancel</button>
+            <button class="pc-btn primary" id="pm-suggest-apply" onclick="pmApplySuggestions()">Apply selected</button>
+          </div>
+        </div>
       </div>
-      <div id="pm-pagination" style="display:flex;align-items:center;gap:10px;padding:12px 0;justify-content:center"></div>
     </div>
 
     <!-- WHOLESALE CATALOG -->
@@ -2869,114 +2906,111 @@
     </div>
 
     <!-- TRANSACTION MAPPING -->
-    <div class="page" id="page-txmap">
-      <div class="page-header">
-        <div><div class="page-title">Transaction Mapping</div><div class="page-sub">Kategorikan transaksi di luar Gudang Bintaro &amp; Gudang Marte. Bulk-edit ratusan tx sekaligus.</div></div>
-        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
-          <button id="tx-sync-btn" class="btn-refresh" onclick="syncAndReloadTxMap()">↻ Sync Jubelio</button>
-          <div id="tx-sync-status" style="font-family:var(--mono);font-size:10px;color:var(--g400)">—</div>
+    <div class="page pm-clean" id="page-txmap">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:4px">
+        <div>
+          <div class="pc-title">Transaction Mapping</div>
+          <div class="pc-sub">Categorise transactions outside Gudang Bintaro &amp; Gudang Marte. Bulk-edit hundreds at once.</div>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0">
+          <button id="tx-sync-btn" class="pc-btn primary" onclick="syncAndReloadTxMap()">↻ Sync Jubelio</button>
+          <div id="tx-sync-status" style="font-family:var(--mono);font-size:10px;color:var(--pc-muted)">—</div>
         </div>
       </div>
 
-      <div class="stats-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:1.25rem">
-        <div class="stat-card"><div class="stat-num" id="tx-s-total">—</div><div class="stat-lbl">Total Tx (period)</div></div>
-        <div class="stat-card"><div class="stat-num" id="tx-s-unmapped">—</div><div class="stat-lbl">Unmapped</div></div>
-        <div class="stat-card"><div class="stat-num" id="tx-s-mapped">—</div><div class="stat-lbl">Mapped</div></div>
-        <div class="stat-card"><div class="stat-num" id="tx-s-amount">—</div><div class="stat-lbl">Gross Sales</div></div>
-        <div class="stat-card"><div class="stat-num" id="tx-s-mapped-pct">—</div><div class="stat-lbl">% Mapped</div></div>
-      </div>
 
-      <div class="form-card" style="margin-bottom:1.25rem;padding:14px 16px">
+      <div class="pc-filtercard">
         <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
-          <div class="fg" style="min-width:140px;margin:0"><label style="font-size:11px">Dari</label><input type="date" id="tx-from"></div>
-          <div class="fg" style="min-width:140px;margin:0"><label style="font-size:11px">Sampai</label><input type="date" id="tx-to"></div>
-          <div class="fg" style="min-width:160px;margin:0"><label style="font-size:11px">Location</label>
-            <select id="tx-fil-location"><option value="">Semua location</option></select>
+          <div class="pc-field" style="min-width:140px"><label>From</label><input class="pc-input" type="date" id="tx-from"></div>
+          <div class="pc-field" style="min-width:140px"><label>To</label><input class="pc-input" type="date" id="tx-to"></div>
+          <div class="pc-field" style="min-width:160px"><label>Location</label>
+            <select class="pc-fsel" id="tx-fil-location"><option value="">All locations</option></select>
           </div>
-          <div class="fg" style="min-width:140px;margin:0"><label style="font-size:11px">Channel</label>
-            <select id="tx-fil-channel"><option value="">Semua channel</option></select>
+          <div class="pc-field" style="min-width:140px"><label>Channel</label>
+            <select class="pc-fsel" id="tx-fil-channel"><option value="">All channels</option></select>
           </div>
-          <div class="fg" style="min-width:140px;margin:0"><label style="font-size:11px">Mapping</label>
-            <select id="tx-fil-mapstatus" onchange="txReloadFiltered()">
+          <div class="pc-field" style="min-width:140px"><label>Mapping</label>
+            <select class="pc-fsel" id="tx-fil-mapstatus" onchange="txReloadFiltered()">
               <option value="unmapped">Unmapped only</option>
-              <option value="">Semua</option>
+              <option value="">All</option>
               <option value="mapped">Mapped only</option>
             </select>
           </div>
-          <div class="fg" style="min-width:140px;margin:0"><label style="font-size:11px">Category</label>
-            <select id="tx-fil-category" onchange="txReloadFiltered()">
-              <option value="">Semua category</option>
+          <div class="pc-field" style="min-width:140px"><label>Category</label>
+            <select class="pc-fsel" id="tx-fil-category" onchange="txReloadFiltered()">
+              <option value="">All categories</option>
               <option>Wholesale</option>
               <option>Consignment</option>
               <option>Pop Up Booth</option>
               <option>Manual Purchase</option>
             </select>
           </div>
-          <div class="fg" style="min-width:200px;flex:1;margin:0"><label style="font-size:11px">Cari (SO, customer, project ref...)</label>
-            <input type="text" id="tx-search" placeholder="SO-XXX / nama customer / project ref" oninput="txReloadFiltered()">
+          <div class="pc-field" style="min-width:200px;flex:1"><label>Search (SO, customer, project ref…)</label>
+            <input class="pc-input" type="text" id="tx-search" placeholder="SO-XXX / customer name / project ref" oninput="txReloadFiltered()">
           </div>
-          <button class="btn-primary" style="padding:7px 16px;font-size:12px" onclick="txReloadFiltered()">Apply</button>
-          <button class="btn-ghost" style="padding:7px 12px;font-size:12px" onclick="clearTxFilters()">✕ Reset</button>
+          <button class="pc-btn primary" onclick="txReloadFiltered()">Apply</button>
+          <button class="pc-btn" onclick="clearTxFilters()">Reset</button>
         </div>
       </div>
 
-      <!-- Bulk action bar — sticky, shows when rows selected -->
-      <div id="tx-bulk-bar" style="display:none;position:sticky;top:0;z-index:10;background:#fef0d0;border:1px solid #f1cf7a;border-radius:6px;padding:10px 14px;margin-bottom:10px;align-items:center;gap:10px;flex-wrap:wrap">
-        <span style="font-family:var(--mono);font-size:12px;font-weight:600;color:#6a4a00"><span id="tx-bulk-count">0</span> dipilih</span>
-        <span style="color:var(--g400)">→</span>
-        <label style="font-size:11px;color:var(--g600);margin-left:4px">Set Category:</label>
-        <select id="tx-bulk-category" onchange="_txUpdateBulkRefOptions()" style="padding:5px 10px;font-size:12px;border:1px solid var(--g100);border-radius:4px;background:var(--white)">
-          <option value="">— pilih —</option>
-          <option>Wholesale</option>
-          <option>Consignment</option>
-          <option>Pop Up Booth</option>
-          <option>Manual Purchase</option>
-        </select>
-        <label style="font-size:11px;color:var(--g600);margin-left:6px">Ref:</label>
-        <select id="tx-bulk-project-ref" style="padding:5px 10px;font-size:12px;border:1px solid var(--g100);border-radius:4px;background:var(--white);min-width:220px">
-          <option value="">— pilih category dulu —</option>
-        </select>
-        <button class="btn-primary" style="padding:6px 14px;font-size:12px" onclick="applyTxBulk()">Apply ke yang dipilih</button>
-        <button class="btn-ghost" style="padding:6px 12px;font-size:12px" onclick="clearTxBulkClear()">✕ Clear unmap</button>
-        <button class="btn-ghost" style="padding:6px 10px;font-size:12px;margin-left:auto" onclick="clearTxSelection()">Clear selection</button>
+      <!-- Bulk action bar — shows when rows selected -->
+      <div id="tx-bulk-bar" class="pc-bulkedit" style="display:none">
+        <span class="pc-bulk-n"><b id="tx-bulk-count">0</b> selected</span>
+        <div class="pc-be-fields">
+          <select id="tx-bulk-category" class="pc-bulk-val" onchange="_txUpdateBulkRefOptions()">
+            <option value="">Category — choose…</option>
+            <option>Wholesale</option>
+            <option>Consignment</option>
+            <option>Pop Up Booth</option>
+            <option>Manual Purchase</option>
+          </select>
+          <select id="tx-bulk-project-ref" class="pc-bulk-val" style="min-width:220px">
+            <option value="">Ref — choose a category first</option>
+          </select>
+        </div>
+        <button class="pc-btn primary" onclick="applyTxBulk()">Apply to selected</button>
+        <button class="pc-btn danger" onclick="clearTxBulkClear()">Clear / unmap</button>
+        <button class="pc-btn" onclick="clearTxSelection()">Clear selection</button>
       </div>
 
-      <div class="table-toolbar" style="gap:8px;align-items:center">
-        <button class="btn-refresh" onclick="loadTxMap()">↻ Refresh</button>
-        <select id="tx-page-size" onchange="txReloadFiltered()" style="padding:5px 10px;font-size:12px;border:1px solid var(--g100);border-radius:6px;background:var(--white)">
+      <div class="pc-toolbar" style="margin-bottom:0">
+        <button class="pc-btn" onclick="loadTxMap()">↻ Refresh</button>
+        <select id="tx-page-size" class="pc-fsel" onchange="txReloadFiltered()">
           <option value="50">50 / page</option>
           <option value="100" selected>100 / page</option>
           <option value="200">200 / page</option>
           <option value="500">500 / page</option>
         </select>
-        <div id="tx-tcount" style="margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--g400)">— entri</div>
+        <div id="tx-tcount" class="pc-sub" style="margin-left:auto">— entries</div>
       </div>
 
-      <div class="table-wrap" style="overflow-x:auto">
-        <table>
-          <thead>
-            <tr>
-              <th style="width:36px;text-align:center"><input type="checkbox" id="tx-select-all" onclick="toggleTxSelectAll(this)"></th>
-              <th style="min-width:110px">SO No</th>
-              <th style="white-space:nowrap">Tx Date</th>
-              <th>Location</th>
-              <th>Channel / Store</th>
-              <th>Customer</th>
-              <th style="text-align:right">Sub Total</th>
-              <th style="text-align:right">Diskon</th>
-              <th style="text-align:right">Grand Total</th>
-              <th>Jubelio Status</th>
-              <th style="min-width:140px">Category</th>
-              <th style="min-width:160px">Project Ref</th>
-              <th style="min-width:140px" title="Catatan dari Jubelio (read-only)">Jubelio Note</th>
-              <th style="width:60px">Aksi</th>
-            </tr>
-          </thead>
-          <tbody id="txTableBody"><tr><td class="empty-td" colspan="14">Pilih periode lalu klik Apply.</td></tr></tbody>
-        </table>
+      <div class="pc-tablecard" style="margin-top:12px">
+        <div style="overflow-x:auto">
+          <table class="pc-table">
+            <thead>
+              <tr>
+                <th style="width:36px;text-align:center"><input type="checkbox" id="tx-select-all" onclick="toggleTxSelectAll(this)"></th>
+                <th style="min-width:110px">SO No</th>
+                <th style="white-space:nowrap">Tx Date</th>
+                <th>Location</th>
+                <th>Channel / Store</th>
+                <th>Customer</th>
+                <th style="text-align:right">Sub Total</th>
+                <th style="text-align:right">Discount</th>
+                <th style="text-align:right">Grand Total</th>
+                <th>Jubelio Status</th>
+                <th style="min-width:140px">Category</th>
+                <th style="min-width:160px">Project Ref</th>
+                <th style="min-width:140px" title="Note from Jubelio (read-only)">Jubelio Note</th>
+                <th style="width:60px">Action</th>
+              </tr>
+            </thead>
+            <tbody id="txTableBody"><tr><td class="empty-td" colspan="14" style="padding:40px;text-align:center;color:var(--pc-muted)">Pick a period, then click Apply.</td></tr></tbody>
+          </table>
+        </div>
       </div>
 
-      <div id="tx-pagination" style="display:flex;align-items:center;gap:10px;padding:12px 0;justify-content:center"></div>
+      <div id="tx-pagination" style="display:flex;align-items:center;gap:10px;padding:16px 0 40px;justify-content:center"></div>
     </div>
 
     <!-- CONSIGNMENT PROGRAM -->
@@ -3087,61 +3121,49 @@
     </div>
 
     <!-- MANUAL PURCHASE -->
-    <div class="page" id="page-manualpurchase">
+    <div class="page pm-clean" id="page-manualpurchase">
       <!-- LIST VIEW -->
       <div id="mp-list-view">
-        <div class="page-header">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:16px">
           <div>
-            <div class="page-title">Manual Purchase</div>
-            <div class="page-sub">Pembelian manual ke customer/reseller — order, invoice, surat jalan, payment tracking.</div>
+            <div class="pc-title">Manual Purchase</div>
+            <div class="pc-sub">Manual sales to customers/resellers — create order, invoice, delivery note, and track payment.</div>
           </div>
-          <button class="btn-primary" onclick="openManualPurchaseDetail('new')">+ Tambah Order</button>
+          <button class="pc-btn primary" onclick="openManualPurchaseDetail('new')">+ New Order</button>
         </div>
-        <div class="stats-row" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.25rem">
-          <div class="stat-card"><div class="stat-num" id="mp-s-total">—</div><div class="stat-lbl">Total Order</div></div>
-          <div class="stat-card warn"><div class="stat-num" id="mp-s-outstanding">—</div><div class="stat-lbl">Outstanding</div></div>
-          <div class="stat-card info"><div class="stat-num" id="mp-s-due">—</div><div class="stat-lbl">Total Due</div></div>
-          <div class="stat-card success"><div class="stat-num" id="mp-s-received">—</div><div class="stat-lbl">Total Received</div></div>
+        <div class="pc-filtercard">
+          <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+            <div class="pc-field" style="min-width:140px"><label>Brand</label>
+              <select class="pc-fsel" id="mp-f-brand" onchange="applyMPFilter()">
+                <option value="">All</option>
+                <option value="SDY">SDY</option>
+                <option value="Lagaa">Lagaa</option>
+                <option value="Marte">Marte</option>
+              </select></div>
+            <div class="pc-field" style="min-width:180px"><label>Category</label>
+              <select class="pc-fsel" id="mp-f-category" onchange="applyMPFilter()">
+                <option value="">All</option>
+                <option>Product Selling</option>
+                <option>Service Selling</option>
+              </select></div>
+            <div class="pc-field" style="min-width:200px;flex:1"><label>Search</label>
+              <input class="pc-input" type="text" id="mp-f-q" placeholder="Order ID / customer / requestor…" oninput="applyMPFilter()"></div>
+          </div>
         </div>
-        <div class="filter-panel" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:1rem">
-          <div class="fg"><label>Brand</label><select id="mp-f-brand" onchange="applyMPFilter()">
-            <option value="">Semua</option>
-            <option value="SDY">SDY</option>
-            <option value="Lagaa">Lagaa</option>
-            <option value="Marte">Marte</option>
-          </select></div>
-          <div class="fg"><label>Status</label><select id="mp-f-status" onchange="applyMPFilter()">
-            <option value="">Semua</option>
-            <option value="draft">Draft</option>
-            <option value="sent">Sent</option>
-            <option value="partial">Partial Paid</option>
-            <option value="paid">Paid</option>
-            <option value="shipped">Shipped</option>
-            <option value="done">Done</option>
-            <option value="canceled">Canceled</option>
-          </select></div>
-          <div class="fg"><label>Invoice Category</label><select id="mp-f-category" onchange="applyMPFilter()">
-            <option value="">Semua</option>
-            <option>Penjualan Merchandise Retail</option>
-            <option>Reseller</option>
-            <option>Project Merchandise</option>
-            <option>Event &amp; Activation</option>
-            <option>Production &amp; Service Fee</option>
-            <option>Royalty / Revenue Share</option>
-            <option>Lainnya</option>
-          </select></div>
-          <div class="fg"><label>Cari</label><input type="text" id="mp-f-q" placeholder="Order ID / customer / requestor..." oninput="applyMPFilter()"></div>
+        <div class="pc-toolbar" style="margin-bottom:0">
+          <button class="pc-btn" onclick="loadManualPurchase()">↻ Refresh</button>
+          <div id="mp-tcount" class="pc-sub" style="margin-left:auto">— entries</div>
         </div>
-        <div class="table-toolbar">
-          <button class="btn-refresh" onclick="loadManualPurchase()">↻ Refresh</button>
-          <div class="tcount" id="mp-tcount">— entri</div>
+        <div class="pc-tablecard" style="margin-top:12px">
+          <div style="overflow-x:auto">
+            <table class="pc-table">
+              <thead><tr>
+                <th>Order ID</th><th>Brand</th><th>Billed To</th><th>Category</th><th>Date</th><th style="text-align:right">Grand Total</th><th style="text-align:right">Due</th><th style="text-align:center">Progress</th><th style="width:60px">Action</th>
+              </tr></thead>
+              <tbody id="mp-tbody"><tr><td class="empty-td" colspan="9" style="padding:40px;text-align:center;color:var(--pc-muted)">Loading…</td></tr></tbody>
+            </table>
+          </div>
         </div>
-        <div class="table-wrap"><table>
-          <thead><tr>
-            <th>Order ID</th><th>Brand</th><th>Billed To</th><th>Category</th><th>Date</th><th>Items</th><th>Grand Total</th><th>Due</th><th>Status</th><th></th>
-          </tr></thead>
-          <tbody id="mp-tbody"><tr><td class="empty-td" colspan="10">Memuat...</td></tr></tbody>
-        </table></div>
       </div>
       <!-- DETAIL VIEW -->
       <div id="mp-detail-view" style="display:none"></div>
@@ -5182,37 +5204,142 @@
         </div>
       </div><!-- /.page#page-income -->
 
-      <!-- MARTE SKU CATEGORIES -->
-      <div class="page" id="page-marteskucat">
-        <div class="page-header">
+      <!-- METAFIELD AUDIT -->
+      <div class="page pm-clean" id="page-metafieldaudit">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:16px">
           <div>
-            <div class="page-title">SKU Categories</div>
-            <div class="page-sub">Marte Operations — kelola fee category per SKU brand</div>
+            <div class="pc-title">Metafield Audit</div>
+            <div class="pc-sub" id="mfa-sub">Active SD&amp;Y products missing required <b>custom.*</b> metafields — by template.</div>
           </div>
-          <button class="btn-primary" onclick="loadMarteSKUCat()">🔄 Reload</button>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+            <button id="mfa-run-btn" class="pc-btn primary" onclick="runMetafieldAudit()">↻ Run audit</button>
+            <div id="mfa-lastrun" class="pc-sub" style="font-size:11px">—</div>
+          </div>
+        </div>
+
+        <div class="seg-tabs">
+          <button class="seg-tab active" id="mfa-tab-product" onclick="switchMfaTab('product',this)">SD&amp;Y — Product Display</button>
+          <button class="seg-tab" id="mfa-tab-artist" onclick="switchMfaTab('artist',this)">SD&amp;Y — Artist Profile</button>
+        </div>
+
+        <!-- PRODUCT DISPLAY TAB -->
+        <div id="mfa-sec-product">
+          <div class="pc-toolbar" style="margin-bottom:0">
+            <select id="mfa-tpl" class="pc-fsel" onchange="renderMetafieldAudit()">
+              <option value="">All templates</option>
+              <option value="default">Default (apparel)</option>
+              <option value="music-cds">Music CD</option>
+            </select>
+            <select id="mfa-cat" class="pc-fsel" onchange="renderMetafieldAudit()">
+              <option value="">All categories</option>
+            </select>
+            <input class="pc-input" type="text" id="mfa-q" placeholder="Search product…" oninput="renderMetafieldAudit()" style="min-width:220px">
+            <label class="pc-sub" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none"><input type="checkbox" id="mfa-showresolved" onchange="renderMetafieldAudit()"> Show resolved</label>
+            <div id="mfa-count" class="pc-sub" style="margin-left:auto">— products</div>
+          </div>
+          <div class="pc-tablecard" style="margin-top:12px">
+            <div style="overflow-x:auto">
+              <table class="pc-table">
+                <thead><tr><th>Product</th><th>Category</th><th>Template</th><th>Missing fields</th><th style="width:170px">Actions</th></tr></thead>
+                <tbody id="mfa-tbody"><tr><td class="empty-td" colspan="5" style="padding:40px;text-align:center;color:var(--pc-muted)">Loading…</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- ARTIST PROFILE TAB -->
+        <div id="mfa-sec-artist" style="display:none">
+          <div class="pc-toolbar" style="margin-bottom:0">
+            <select id="mfa-astatus" class="pc-fsel" onchange="renderArtistAudit()">
+              <option value="">All statuses</option>
+              <option value="incomplete">Incomplete profile</option>
+              <option value="complete">Complete profile</option>
+              <option value="noprofile">No profile (in IP Master)</option>
+              <option value="noip">Not in IP Master</option>
+            </select>
+            <input class="pc-input" type="text" id="mfa-aq" placeholder="Search artist…" oninput="renderArtistAudit()" style="min-width:220px">
+            <label class="pc-sub" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none"><input type="checkbox" id="mfa-ashowresolved" onchange="renderArtistAudit()"> Show resolved</label>
+            <div id="mfa-acount" class="pc-sub" style="margin-left:auto">— artists</div>
+          </div>
+          <div class="pc-tablecard" style="margin-top:12px">
+            <div style="overflow-x:auto">
+              <table class="pc-table">
+                <thead><tr><th>Artist</th><th>IP Master (SD&amp;Y)</th><th>Profile</th><th>Missing fields</th><th style="width:170px">Actions</th></tr></thead>
+                <tbody id="mfa-atbody"><tr><td class="empty-td" colspan="5" style="padding:40px;text-align:center;color:var(--pc-muted)">Loading…</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CONSIGNMENT AGREEMENT -->
+      <div class="page pm-clean" id="page-consignagr">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:16px">
+          <div>
+            <div class="pc-title">Consignment Agreement</div>
+            <div class="pc-sub">Marte consignment KYC submissions — mark each as done once the agreement is processed.</div>
+          </div>
+          <button class="pc-btn primary" onclick="loadConsignAgr()">↻ Refresh</button>
+        </div>
+        <div class="pc-toolbar" style="margin-bottom:0">
+          <select id="ca-ftype" class="pc-fsel" onchange="renderConsignAgr()">
+            <option value="">All mitra types</option>
+            <option value="PT">PT</option>
+            <option value="Yayasan">Yayasan</option>
+            <option value="Perorangan">Perorangan</option>
+          </select>
+          <input class="pc-input" type="text" id="ca-q" placeholder="Search brand, signer, email…" oninput="renderConsignAgr()" style="min-width:240px">
+          <label class="pc-sub" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none"><input type="checkbox" id="ca-showdone" onchange="renderConsignAgr()"> Show done</label>
+          <div id="ca-count" class="pc-sub" style="margin-left:auto">— pending</div>
+        </div>
+        <div class="pc-tablecard" style="margin-top:12px">
+          <div style="overflow-x:auto">
+            <table class="pc-table">
+              <thead><tr><th>Date</th><th>Brand</th><th>Mitra Type</th><th>Signer</th><th>Contact</th><th>PIC</th><th>Bank</th><th>NPWP</th><th>Documents</th><th style="width:190px">Actions</th></tr></thead>
+              <tbody id="caTableBody"><tr><td class="empty-td" colspan="10" style="padding:40px;text-align:center;color:var(--pc-muted)">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- MARTE SKU CATEGORIES -->
+      <div class="page pm-clean" id="page-marteskucat">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:4px">
+          <div>
+            <div class="pc-title">Consignment Fee</div>
+            <div class="pc-sub">Marte Operations — manage the consignment fee category & rate per brand SKU.</div>
+          </div>
+          <button class="pc-btn primary" onclick="loadMarteSKUCat()">↻ Sync Jubelio</button>
         </div>
 
         <!-- Stats strip -->
-        <div id="msc-stats" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px"></div>
+        <div class="pc-stats" id="msc-stats" style="grid-template-columns:repeat(4,1fr);margin:16px 0 18px"></div>
 
         <!-- Filter bar -->
-        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:16px">
-          <select id="msc-filter-brand" style="min-width:160px" onchange="_mscApplyFilter()">
-            <option value="">Semua Brand</option>
+        <div class="pc-toolbar" style="margin-bottom:16px">
+          <select id="msc-filter-brand" class="pc-fsel" style="min-width:160px" onchange="_mscApplyFilter()">
+            <option value="">All Brands</option>
           </select>
-          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
-            <input type="checkbox" id="msc-filter-uncat" onchange="_mscApplyFilter()" style="cursor:pointer">
-            Belum dikategorikan saja
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;color:var(--pc-txt)">
+            <input type="checkbox" id="msc-filter-uncat" onchange="_mscSetView(this.checked?'uncategorized':'')" style="cursor:pointer">
+            Uncategorized only
           </label>
-          <div style="margin-left:auto;display:flex;gap:8px">
-            <span id="msc-pending-badge" style="display:none;background:var(--amber,#f59e0b);color:#fff;border-radius:20px;padding:3px 12px;font-size:12px;font-weight:600"></span>
-            <button class="btn-primary" id="msc-save-btn" onclick="saveMarteSKUCat()" style="display:none">💾 Simpan Perubahan</button>
+          <span class="pc-sub" style="margin:0 0 0 6px">Set all shown to:</span>
+          <select id="msc-bulk-all" class="pc-fsel">
+            <option value="">— Choose —</option>
+            <option>Apparel</option><option>Accessories</option><option>Collectible</option><option>Wellness</option><option>Preloved</option><option>Others</option>
+          </select>
+          <button class="pc-btn" onclick="_mscBulkApplyAll(false)" title="Apply only to items with no category yet">Empty only</button>
+          <button class="pc-btn" onclick="_mscBulkApplyAll(true)" title="Apply to all shown items">All shown</button>
+          <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+            <span id="msc-pending-badge" style="display:none;align-items:center;background:#d97706;color:#fff;border-radius:20px;padding:7px 13px;font-size:13px;font-weight:600;border:1px solid transparent;line-height:normal"></span>
+            <button class="pc-btn primary" id="msc-save-btn" onclick="saveMarteSKUCat()" style="display:none"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>Save changes</button>
           </div>
         </div>
 
         <!-- Table container -->
-        <div id="msc-table-wrap" style="overflow-x:auto">
-          <div id="msc-empty" style="display:none;text-align:center;padding:60px 0;color:var(--g400)">Tidak ada data. Klik Reload.</div>
+        <div id="msc-table-wrap">
+          <div id="msc-empty" style="display:none;text-align:center;padding:60px 0;color:var(--pc-muted)">No data. Click Reload.</div>
           <div id="msc-brand-groups"></div>
         </div>
       </div><!-- /.page#page-marteskucat -->
@@ -5581,6 +5708,6 @@
 <div id="proj-overlay" class="proj-panel-overlay" style="display:none" onclick="if(event.target===this)closeProjectDetail()"></div>
 <div id="proj-panel" class="proj-panel" style="display:none"></div>
 
-<script src="app.js?v=20260801d"></script>
+<script src="app.js?v=20260805a"></script>
 </body>
 </html>
