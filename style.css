@@ -369,3 +369,11 @@ th.sortable:hover{color:var(--black);background:var(--off);}
 .wc-atscfg{display:flex;gap:10px;flex-wrap:wrap;margin-top:7px}
 .wc-atscfg label{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10px;color:var(--g600)}
 .wc-atscfg input{width:50px;height:26px;border:1px solid var(--g200);border-radius:6px;padding:0 6px;font-family:var(--mono);font-size:11px;text-align:right}
+/* per-article tier visibility (which reseller categories can order) */
+.wc-aud{display:flex;align-items:center;gap:6px 8px;flex-wrap:wrap;margin-top:8px;border-top:1px dashed var(--g100);padding-top:8px}
+.wc-aud-lbl{text-transform:uppercase;letter-spacing:.04em;font-size:9px;color:var(--g400);font-family:var(--mono)}
+.wc-aud-chips{display:flex;gap:5px;flex-wrap:wrap}
+.wc-aud-chip{display:inline-flex;align-items:center;gap:4px;font-family:var(--mono);font-size:10px;color:var(--g600);border:1px solid var(--g200);border-radius:200px;padding:2px 8px;cursor:pointer;user-select:none;transition:all .15s}
+.wc-aud-chip input{width:12px;height:12px;margin:0;cursor:pointer;flex:none;accent-color:#7b68ee}
+.wc-aud-chip.on{color:#5b46d6;border-color:#b9aef4;background:rgba(123,104,238,.08);font-weight:600}
+.wc-aud-all{font-family:var(--mono);font-size:9.5px;color:var(--g400);font-style:italic}

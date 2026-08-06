@@ -392,13 +392,15 @@ function showPage(name, el) {
   }
   document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
   document.querySelectorAll(".sb-item").forEach(i=>i.classList.remove("active"));
-  // TRFO + TRFI share one page DOM (page-invtransfer) with mode swap
-  const _pageId = (name === "invtransferout" || name === "invtransferin") ? "invtransfer" : name;
+  // TRFO + TRFI share one page DOM (page-invtransfer) with mode swap.
+  // All per-team project boards share one page DOM (page-project), scoped by team.
+  const _pageId = (name === "invtransferout" || name === "invtransferin") ? "invtransfer"
+    : (typeof PROJECT_TEAMS !== 'undefined' && PROJECT_TEAMS[name]) ? "project" : name;
   document.getElementById("page-"+_pageId).classList.add("active");
   if (el) el.classList.add("active");
   if (typeof _syncRail === "function") _syncRail(name);   // keep the left rail + panel in sync
   const _c = document.querySelector('.content'); if (_c) _c.scrollTop = 0;
-  const labels = {home:"Internal Tools",mynotif:"My Notifications",mytask:"My Task",project:"Project Board",agreement:"Agreement",consignagr:"Consignment Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",wholesalecatalog:"Wholesale Catalog",productdev:"Product Development",sampling:"Sampling",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"Consignment Fee",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",mktplan:"Marketing Planning",videoprod:"Video Production",txmap:"Transaction Mapping",manualpurchase:"Manual Purchase",metafieldaudit:"Metafield Audit",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)",vendormaster:"Vendor Master",rnd:"R&D Product",koldb:"KOL Database",outbound:"Outbond Request",meetingnotes:"Meeting Notes",ipreports:"IP Reports",cronlogs:"Cron Logs",wholesale:"Wholesale Orders",arreceivables:"Account Receivables",licensorfreebies:"Account Freebies",conprog:"Consignment Program"};
+  const labels = {home:"Internal Tools",mynotif:"My Notifications",mytask:"My Task",project:"Project Board",projectmkt:"Project Board",projectpd:"Project Board",projectcr:"Project Board",projectcom:"Project Board",projectwh:"Project Board",agreement:"Agreement",consignagr:"Consignment Agreement",ipmaster:"IP Master",recipients:"Royalty Recipients",brandmaster:"Brand Master",leads:"Leads Management",distpartner:"Distribution Partner",popupbooth:"Pop Up Booth",activitylog:"Activity Log",mesign:"Mekari Sign",po:"Purchase Orders",restock:"Create PO Restock",stockmovement:"Stock Reconcile",productmap:"Product Mapping",wholesalecatalog:"Wholesale Catalog",productdev:"Product Development",sampling:"Sampling",collections:"Collection Development",designermaster:"Designer Master",dsgworkflow:"Designer Workflow",warehousekpi:"Warehouse KPI",stockadjmgmt:"Stock Adjustment",returnreason:"Return Reason",invcheck:"Inventory Check",salesperf:"Sales Performance",insights:"Insights",reminders:"Reminders",announcements:"Announcements",marte:"Monthly Settlement",martereport:"Consignment Report",marteskucat:"Consignment Fee",royalty:"Royalty Report",income:"Income Statement",contentplan:"Content Planning",adsmgmt:"Ads Management",mktactivation:"Marketing Activation",publication:"Publication",photoshoot:"Photoshoot Planning",kolmgmt:"KOL Management",mktplan:"Marketing Planning",videoprod:"Video Production",txmap:"Transaction Mapping",manualpurchase:"Manual Purchase",metafieldaudit:"Metafield Audit",invtransfer:"Inventory Transfer",invtransferout:"Transfer Out (TRFO)",invtransferin:"Transfer In (TRFI)",vendormaster:"Vendor Master",rnd:"R&D Product",koldb:"KOL Database",outbound:"Outbond Request",meetingnotes:"Meeting Notes",ipreports:"IP Reports",cronlogs:"Cron Logs",wholesale:"Wholesale Orders",arreceivables:"Account Receivables",licensorfreebies:"Account Freebies",conprog:"Consignment Program"};
   document.getElementById("topbarPage").textContent = labels[name]||name;
   // Keep full hash if it's already a sub-path of this page (e.g. #collections/slug)
   const _curHash = location.hash.slice(1);
@@ -492,7 +494,7 @@ function showPage(name, el) {
     _rpShowListView();
     loadRestockProjects();
   }
-  if (name==="project") loadProjects();
+  if (PROJECT_TEAMS[name]) { _projActiveTeam = PROJECT_TEAMS[name]; loadProjects(); }
   if (name==="calendar") loadCalendar();
   if (name==="team") loadTeamMembers();
   if (name==="salesperf") {
@@ -15115,6 +15117,11 @@ function invGoPage(p){
 }
 
 // ── PROJECT BOARD ──
+// Multi-team boards share one page DOM (page-project) + one table, scoped by `team`.
+const PROJECT_TEAMS = { project:'account', projectmkt:'marketing', projectpd:'proddev', projectcr:'creative', projectcom:'commerce', projectwh:'warehouse' };
+const PROJECT_TEAM_NAMES = { account:'Account Management', marketing:'Marketing', proddev:'Product Dev', creative:'Creative', commerce:'Commerce', warehouse:'Warehouse' };
+let _projActiveTeam = 'account';
+let _projLastTeam = null;
 let projAll = [];
 let projCats = [];
 let projComments = {};
@@ -15174,9 +15181,20 @@ async function loadProjects(){
   const board = document.getElementById('proj-board');
   if(board) board.innerHTML = `<div style="padding:40px;text-align:center;color:var(--g400);font-size:14px">Memuat data...</div>`;
   try{
+    const _team = _projActiveTeam;
+    const _teamName = PROJECT_TEAM_NAMES[_team] || '';
+    const _hdr = document.getElementById('proj-team-name'); if(_hdr) _hdr.textContent = _teamName;
+    // Switching teams: clear filters so another team's category/PIC filter doesn't hide everything
+    if(_projLastTeam !== _team){
+      projFilterCat=''; projFilterPIC=''; projFilterSearch='';
+      const s=document.getElementById('proj-search'); if(s) s.value='';
+      const cf=document.getElementById('proj-cat-filter'); if(cf) cf.value='';
+      const pf=document.getElementById('proj-pic-filter'); if(pf) pf.value='';
+    }
+    _projLastTeam = _team;
     const [{ data:cats, error:cErr }, { data:projs, error:pErr }, { data:taskRows }] = await Promise.all([
-      sb.from('project_categories').select('*').order('name'),
-      sb.from('projects').select('*').order('position').order('created_at',{ascending:false}),
+      sb.from('project_categories').select('*').eq('team',_team).order('name'),
+      sb.from('projects').select('*').eq('team',_team).order('position').order('created_at',{ascending:false}),
       sb.from('project_action_items').select('project_id,is_done')
     ]);
     if(cErr) throw cErr;
@@ -15697,7 +15715,7 @@ async function projHandleCatNew(){
   const name = prompt('Nama kategori baru:');
   if(!name || !name.trim()){ sel.value=''; return; }
   try{
-    const { data, error } = await sb.from('project_categories').insert({ name:name.trim(), created_by:currentUser }).select().single();
+    const { data, error } = await sb.from('project_categories').insert({ name:name.trim(), created_by:currentUser, team:_projActiveTeam }).select().single();
     if(error) throw error;
     projCats.push(data);
     renderProjCatFilter();
@@ -15728,7 +15746,7 @@ async function saveProjDetail(existingId){
         id, title, description:desc||null, status, priority,
         assignee:assignee||null, due_date:dueDate||null,
         revenue_stream:revenue||null, category_id:catId||null,
-        link:link||null, position:pos, created_by:currentUser
+        link:link||null, position:pos, created_by:currentUser, team:_projActiveTeam
       });
       if(error) throw error;
       await sb.from('project_activity').insert({ project_id:id, actor:currentUser, action:'created' });
@@ -15836,7 +15854,7 @@ async function addProjCatFromManager(){
   const name = input?.value?.trim();
   if(!name) return;
   try{
-    const { data, error } = await sb.from('project_categories').insert({ name, created_by:currentUser }).select().single();
+    const { data, error } = await sb.from('project_categories').insert({ name, created_by:currentUser, team:_projActiveTeam }).select().single();
     if(error) throw error;
     projCats.push(data);
     renderProjCatFilter();
@@ -44893,21 +44911,21 @@ const NAV_CATS = [
   { key:'pm', label:'Account Management', color:'#7c3aed', icon:_riSvg('<rect x="1.5" y="3" width="3.5" height="10" rx="1"/><rect x="6.2" y="3" width="3.5" height="6.5" rx="1"/><rect x="11" y="3" width="3.5" height="8.5" rx="1"/>'),
     mods:[['project','Project Board','📌'],['meetingnotes','Meeting Notes','🗒️'],['leads','Leads Management','🧲'],['licensorfreebies','Account Freebies','🎁']] },
   { key:'creative', label:'Creative', color:'#db2777', icon:_riSvg('<path d="M8 2a6 6 0 100 12c1 0 1.5-.7 1.5-1.5 0-.9-.7-1-.7-1.7 0-.6.5-1.1 1.2-1.1H12a2.5 2.5 0 002.5-2.5C14.5 4.4 11.6 2 8 2z"/><circle cx="5.5" cy="6" r="0.6" fill="currentColor"/><circle cx="8" cy="4.6" r="0.6" fill="currentColor"/><circle cx="10.7" cy="6" r="0.6" fill="currentColor"/>'),
-    mods:[['collections','Collection Development','🎨'],['sampling','Sampling','🧵'],['dsgworkflow','Designer Workflow','✏️'],['photoshoot','Photoshoot Planning','📸'],['designermaster','Designer Master','🖌️']] },
+    mods:[['projectcr','Project Board','📌'],['collections','Collection Development','🎨'],['sampling','Sampling','🧵'],['dsgworkflow','Designer Workflow','✏️'],['photoshoot','Photoshoot Planning','📸'],['designermaster','Designer Master','🖌️']] },
   { key:'marketing', label:'Marketing', color:'#ff682c', icon:_riSvg('<path d="M2 6.5v3l8 3.5V3z"/><path d="M10 5.5c1.6 0 2.7 1 2.7 2.5s-1.1 2.5-2.7 2.5"/><path d="M4.5 10v2.5"/>'),
-    mods:[['mktplan','Marketing Planning','🗺️'],['contentplan','Content Planning','📝'],['videoprod','Video Production','🎬'],['adsmgmt','Ads Management','🎯'],['mktactivation','Marketing Activation','🎪'],['kolmgmt','KOL Management','🌟'],['publication','Publication','📰']] },
+    mods:[['projectmkt','Project Board','📌'],['mktplan','Marketing Planning','🗺️'],['contentplan','Content Planning','📝'],['videoprod','Video Production','🎬'],['adsmgmt','Ads Management','🎯'],['mktactivation','Marketing Activation','🎪'],['kolmgmt','KOL Management','🌟'],['publication','Publication','📰']] },
   { key:'proddev', label:'Product Dev', color:'#059669', icon:_riSvg('<path d="M6.5 2v4L3.2 11.5A1.2 1.2 0 004.2 13.4h7.6a1.2 1.2 0 001-1.9L9.5 6V2"/><path d="M5.5 2h5"/><path d="M5.2 9h5.6"/>'),
-    mods:[['rnd','R&D Product','🔬'],['productdev','Product Development','🧪'],['po','Track Purchase Order','🛒'],['restock','Create PO Restock','📦']] },
+    mods:[['projectpd','Project Board','📌'],['rnd','R&D Product','🔬'],['productdev','Product Development','🧪'],['po','Track Purchase Order','🛒'],['restock','Create PO Restock','📦']] },
   { key:'legal', label:'Legal', color:'#1e40af', icon:_riSvg('<path d="M8 2.5v10.5"/><path d="M3 4.5h10"/><path d="M3 4.5l-1.5 3.5h3z"/><path d="M13 4.5l-1.5 3.5h3z"/><path d="M5.5 13h5"/>'),
     mods:[['consignagr','Consignment Agreement','🤝'],['agreement','Agreement','📄'],['mesign','Mekari Sign','✍️']] },
   { key:'finance', label:'Finance', color:'#d97706', icon:_riSvg('<rect x="1.5" y="3.5" width="13" height="9" rx="1.5"/><path d="M1.5 6.5h13"/><circle cx="11" cy="10" r="1"/>'),
     mods:[['arreceivables','Account Receivables','💰']] },
   { key:'commerce', label:'Commerce', color:'#0891b2', icon:_riSvg('<path d="M3 5h10l-1 8.5H4z"/><path d="M6 5.5V3.5a2 2 0 014 0v2"/>'),
-    mods:[['popupbooth','Pop Up Booth','🏬'],['manualpurchase','Manual Purchase','💳'],['txmap','Transaction Mapping','🗂️'],['productmap','Product Mapping','🧩'],['metafieldaudit','Metafield Audit','🔖'],['marteskucat','Consignment Fee','🏷️']] },
+    mods:[['projectcom','Project Board','📌'],['popupbooth','Pop Up Booth','🏬'],['manualpurchase','Manual Purchase','💳'],['txmap','Transaction Mapping','🗂️'],['productmap','Product Mapping','🧩'],['metafieldaudit','Metafield Audit','🔖'],['marteskucat','Consignment Fee','🏷️']] },
   { key:'distribution', label:'Distribution', color:'#4f46e5', icon:_riSvg('<rect x="1" y="5.5" width="8" height="6" rx="1"/><path d="M9 7.5h3l2 2v2H9z"/><circle cx="4" cy="12.5" r="1.3"/><circle cx="11.5" cy="12.5" r="1.3"/>'),
     mods:[['wholesalecatalog','Wholesale Catalog','🛍️'],['wholesale','Wholesale Orders','🤝'],['conprog','Consignment Program','🔗']] },
   { key:'warehouse', label:'Warehouse', color:'#ca8a04', icon:_riSvg('<path d="M2 6.5l6-3 6 3V14H2z"/><path d="M2 6.5l6 3 6-3"/><path d="M8 9.5V14"/>'),
-    mods:[['outbound','Outbound Request','📤'],['invtransfer','Inventory Transfer','🔁'],['stockadjmgmt','Stock Adjustment','📋'],['returnreason','Return Reason','↩️']] },
+    mods:[['projectwh','Project Board','📌'],['outbound','Outbound Request','📤'],['invtransfer','Inventory Transfer','🔁'],['stockadjmgmt','Stock Adjustment','📋'],['returnreason','Return Reason','↩️']] },
   { key:'database', label:'Database', color:'#0d9488', icon:_riSvg('<ellipse cx="8" cy="3.8" rx="5" ry="2"/><path d="M3 3.8v8c0 1.1 2.2 2 5 2s5-.9 5-2v-8"/><path d="M3 7.8c0 1.1 2.2 2 5 2s5-.9 5-2"/>'),
     mods:[['ipmaster','IP Master','🗃️'],['brandmaster','Brand Master','⭐'],['vendormaster','Vendor Master','🏢'],['recipients','Collaborator Royalty','🪙'],['distpartner','Distribution Partner','🚚'],['koldb','KOL Database','👥']] },
   { key:'settings', label:'Settings', color:'#64748b', icon:_riSvg('<circle cx="8" cy="8" r="2.4"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.3 3.3l1.4 1.4M11.3 11.3l1.4 1.4M12.7 3.3l-1.4 1.4M4.7 11.3l-1.4 1.4"/>'),
@@ -44920,6 +44938,11 @@ const MOD_ICON = {
   mynotif:_riSvg('<path d="M12 6.5a4 4 0 00-8 0c0 4-2 5-2 5h12s-2-1-2-5"/><path d="M6.5 13.5a1.8 1.8 0 003 0"/>'),
   mytask:_riSvg('<rect x="2.5" y="2.5" width="11" height="11" rx="1.5"/><path d="M5 6l1.2 1.2L8.5 5"/><path d="M5 10l1.2 1.2L8.5 9"/><path d="M10 6h2M10 10h2"/>'),
   project:_riSvg('<rect x="1.5" y="3" width="3.5" height="10" rx="1"/><rect x="6.2" y="3" width="3.5" height="6.5" rx="1"/><rect x="11" y="3" width="3.5" height="8.5" rx="1"/>'),
+  projectmkt:_riSvg('<rect x="1.5" y="3" width="3.5" height="10" rx="1"/><rect x="6.2" y="3" width="3.5" height="6.5" rx="1"/><rect x="11" y="3" width="3.5" height="8.5" rx="1"/>'),
+  projectpd:_riSvg('<rect x="1.5" y="3" width="3.5" height="10" rx="1"/><rect x="6.2" y="3" width="3.5" height="6.5" rx="1"/><rect x="11" y="3" width="3.5" height="8.5" rx="1"/>'),
+  projectcr:_riSvg('<rect x="1.5" y="3" width="3.5" height="10" rx="1"/><rect x="6.2" y="3" width="3.5" height="6.5" rx="1"/><rect x="11" y="3" width="3.5" height="8.5" rx="1"/>'),
+  projectcom:_riSvg('<rect x="1.5" y="3" width="3.5" height="10" rx="1"/><rect x="6.2" y="3" width="3.5" height="6.5" rx="1"/><rect x="11" y="3" width="3.5" height="8.5" rx="1"/>'),
+  projectwh:_riSvg('<rect x="1.5" y="3" width="3.5" height="10" rx="1"/><rect x="6.2" y="3" width="3.5" height="6.5" rx="1"/><rect x="11" y="3" width="3.5" height="8.5" rx="1"/>'),
   meetingnotes:_riSvg('<rect x="3" y="2" width="8" height="12" rx="1"/><path d="M5 5h4M5 8h4M5 11h2"/>'),
   collections:_riSvg('<rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/>'),
   sampling:_riSvg('<rect x="4" y="4.5" width="8" height="8" rx="1"/><path d="M6 4.5V2.5h8v8h-2"/>'),
@@ -44976,8 +44999,16 @@ function _hexToRgb(h){ h=(h||'').replace('#',''); if(h.length===3) h=h.split('')
 function _mix(hex, pct, base){ const a=_hexToRgb(hex), b=_hexToRgb(base), p=pct/100; return 'rgb('+a.map((v,i)=>Math.round(v*p+b[i]*(1-p))).join(',')+')'; }
 // Sidebar takes the active category's colour: subtle panel wash + coloured active item (light & dark)
 function _applySidebarBg(){
-  // No-op: old sidebar uses stylesheet background, don't override with category color
-  return;
+  // Environment-aware: GitHub Pages (github.io) + localhost keep the neutral (cream)
+  // stylesheet sidebar; Internal Portal V.2 (VPS, *.ssentra.asia) uses the category-
+  // coloured sidebar. Same file works for both — no cross-env mix-ups.
+  if(!/ssentra\.asia$/i.test(location.hostname)) return;
+  const sb = document.getElementById('sidebar'); if(!sb) return;
+  const c = NAV_CATS.find(x=>x.key===_activeCat); const col = c ? c.color : '#7b68ee';
+  const dark = document.body.classList.contains('dark');
+  sb.style.setProperty('--cat', col);
+  // BOLD category colour is the whole panel background; items are white with translucent-white highlights
+  sb.style.background = dark ? _mix(col,26,'#17171b') : col;
 }
 let _activeCat = 'home';
 function renderRail(){
@@ -48600,6 +48631,38 @@ function wcDIO(r){
   if(s90<=0) return Infinity;
   return stock/(s90/90);
 }
+// Tier visibility — artikel bisa dipesan oleh kategori reseller mana saja.
+// Kosong = semua tier boleh pesan (default). Pilih tier tertentu utk membatasi.
+const WC_AUD_TIERS = [
+  { key:'below',    label:'Belum berjenjang' },
+  { key:'silver',   label:'Silver' },
+  { key:'gold',     label:'Gold' },
+  { key:'platinum', label:'Platinum' },
+  { key:'diamond',  label:'Diamond' }
+];
+function wcAudControl(r){
+  const sel = Array.isArray(r.audience_tiers) ? r.audience_tiers : [];
+  const chips = WC_AUD_TIERS.map(t=>{
+    const on = sel.includes(t.key);
+    return `<label class="wc-aud-chip${on?' on':''}"><input type="checkbox" ${on?'checked':''} onchange="wcSetTier(${r.item_group_id},'${t.key}',this.checked)">${t.label}</label>`;
+  }).join('');
+  const hint = sel.length ? '' : `<span class="wc-aud-all">semua tier</span>`;
+  return `<div class="wc-aud"><span class="wc-aud-lbl">Bisa dipesan oleh</span><div class="wc-aud-chips">${chips}</div>${hint}</div>`;
+}
+async function wcSetTier(itemGroupId, tierKey, on){
+  const row = _wcRows.find(r=>r.item_group_id===itemGroupId);
+  const prev = row && Array.isArray(row.audience_tiers) ? row.audience_tiers.slice() : [];
+  let next = prev.slice();
+  if(on){ if(!next.includes(tierKey)) next.push(tierKey); }
+  else { next = next.filter(k=>k!==tierKey); }
+  next = WC_AUD_TIERS.map(t=>t.key).filter(k=>next.includes(k));   // canonical order
+  if(row) row.audience_tiers = next;
+  renderWholesaleCatalog();
+  const { error } = await sb.from('wholesale_catalog').upsert(
+    { item_group_id:itemGroupId, audience_tiers:next, updated_by:currentUser, updated_at:new Date().toISOString() },
+    { onConflict:'item_group_id' });
+  if(error){ alert('Gagal menyimpan tier: '+error.message); if(row) row.audience_tiers=prev; renderWholesaleCatalog(); }
+}
 function wcSchemeControl(r){
   const scheme = r.scheme==='ATS' ? 'ATS' : 'PO';
   const stock = Number(r.stock||0);
@@ -48622,7 +48685,8 @@ function wcSchemeControl(r){
     + `<option value="PO"${scheme==='PO'?' selected':''}>Pre-Order</option>`
     + `<option value="ATS"${scheme==='ATS'?' selected':''}>Ready Stock (ATS)</option>`
     + `</select></div>`
-    + atsCfg;
+    + atsCfg
+    + wcAudControl(r);
 }
 async function wcSetAtsField(itemGroupId, field, val){
   const row = _wcRows.find(r=>r.item_group_id===itemGroupId);
